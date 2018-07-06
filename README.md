@@ -2,8 +2,8 @@
 
 A *work-in-progress* implementation of the Ethereum beacon_chain in Rust.
 
-It is an implementation of [this
-spec](https://notes.ethereum.org/SCIg8AH5SA-O4C1G1LYZHQ?view) and is also
+It is an implementation of the [Full PoS Casper chain
+v2](https://notes.ethereum.org/SCIg8AH5SA-O4C1G1LYZHQ?view) spec and is also
 largely based upon the
 [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain) repo.
 
