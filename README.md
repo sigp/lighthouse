@@ -31,9 +31,9 @@ gitter](https://gitter.im/ethereum/sharding).
 
 ## TODO:
 
-- [] Implement crystallized state.
-- [] Implement state transition.
-- [] Implement integration tests (some unit tests are implemented now).
-- [] Implement RLP serialization across-the-board.
-- [] Ensure bls library is legit (i.e., functioning and secure).
-- [] Implement the things, optimise them & scale to 1000000000 nodes.
+- [ ] Implement crystallized state.
+- [ ] Implement state transition.
+- [ ] Implement integration tests (some unit tests are implemented now).
+- [ ] Implement RLP serialization across-the-board.
+- [ ] Ensure bls library is legit (i.e., functioning and secure).
+- [ ] Implement the things, optimise them & scale to 1000000000 nodes.
