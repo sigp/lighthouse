@@ -1,6 +1,6 @@
-# rust_beacon_chain
+# Rust Beacon Chain 
 
-A *work-in-progress* implementation of the Ethereum beacon_chain in Rust.
+A **work-in-progress** implementation of the Ethereum beacon_chain in Rust.
 
 It is an implementation of the [Full PoS Casper chain
 v2](https://notes.ethereum.org/SCIg8AH5SA-O4C1G1LYZHQ?view) spec and is also
