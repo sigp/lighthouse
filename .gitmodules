@@ -1,0 +1,3 @@
+[submodule "parity"]
+	path = parity
+	url = git@github.com:paritytech/parity.git

@@ -1,0 +1,17 @@
+[package]
+name = "rust_beacon"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+ethereum-types = ""
+rand = ""
+bls = { git = "https://github.com/sigp/bls" }
+rlp = { path = "parity/util/rlp" }
+
+[dependencies.pairing]
+git = "https://github.com/mmaker/pairing"
+branch = "feature/hashing"
+
+[patch.crates-io]
+ring = { git = "https://github.com/paritytech/ring" }
