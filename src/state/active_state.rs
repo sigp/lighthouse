@@ -1,5 +1,6 @@
 use super::partial_crosslink_record::PartialCrosslinkRecord;
 use super::recent_proposer_record::RecentPropserRecord;
+use super::rlp::{ RlpStream, Encodable };
 use super::utils::types::*;
 
 pub struct ActiveState {
@@ -31,6 +32,21 @@ impl ActiveState {
     
     pub fn num_recent_attesters(&self) -> usize {
         self.recent_attesters.len()
+    }
+}
+
+/*
+ * RLP Encoding
+ */
+impl Encodable for ActiveState {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.append(&self.height);
+        s.append(&self.randao);
+        s.append(&self.ffg_voter_bitfield);
+        // s.append(&self.recent_attesters);
+        // s.append(&self.partial_crosslinks);
+        s.append(&self.total_skip_count);
+        // s.append(&self.recent_proposers);
     }
 }
 
