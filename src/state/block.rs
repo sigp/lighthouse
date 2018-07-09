@@ -86,17 +86,18 @@ impl Encodable for Block {
         s.append(&self.skip_count);
         s.append(&self.randao_reveal);
         s.append(&self.attestation_bitfield);
-        // TODO: represent attestation_aggregate_sig
-        // TODO: represent shard_aggregate_votes
+        // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
+        s.append_list(&self.shard_aggregate_votes);
         s.append(&self.main_chain_ref);
         s.append(&self.state_hash);
-        // TODO: represent sig
+        // s.append(&self.sig);    // TODO: RLP this
     }
 }
 
 
 #[cfg(test)]
 mod tests {
+    use super::super::rlp;
     extern crate rand;
 
     use super::*;
@@ -155,5 +156,34 @@ mod tests {
         // Alice signature passes, bobs fails
         assert_eq!(b.sig_verify(&alice_keypair.public), true);
         assert_eq!(b.sig_verify(&bob_keypair.public), false);
+    }
+    
+    #[test]
+    fn test_serialization() {
+        let b = Block {
+            parent_hash: Sha256Digest::zero(),
+            skip_count: 100,
+            randao_reveal: Sha256Digest::zero(),
+            attestation_bitfield: Vec::new(),
+            attestation_aggregate_sig: AggregateSignature::new(),
+            shard_aggregate_votes: Vec::new(),
+            main_chain_ref: Sha256Digest::zero(),
+            state_hash: Blake2sDigest::zero(),
+            sig: None
+        };
+        let e = rlp::encode(&b);
+        println!("{:?}", e);
+        assert_eq!(e.len(), 135);
+        assert_eq!(e[0], 160);
+        assert_eq!(e[1..33], [0; 32]);
+        assert_eq!(e[33], 100);
+        assert_eq!(e[34], 160);
+        assert_eq!(e[35..67], [0; 32]);
+        assert_eq!(e[67], 128);
+        assert_eq!(e[68], 192);
+        assert_eq!(e[69], 160);
+        assert_eq!(e[70..102], [0; 32]);
+        assert_eq!(e[102], 160);
+        assert_eq!(e[103..135], [0; 32]);
     }
 }
