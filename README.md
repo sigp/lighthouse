@@ -34,6 +34,7 @@ gitter](https://gitter.im/ethereum/sharding).
 - [x] Implement crystallized state.
 - [ ] Implement state transition.
 - [ ] Implement integration tests (some unit tests are implemented now).
-- [ ] Implement RLP serialization across-the-board.
+- [ ] Implement RLP serialization for BLS signatures.
+- [x] Implement RLP serialization for all main structs.
 - [ ] Ensure bls library is legit (i.e., functioning and secure).
 - [ ] Implement the things, optimise them & scale to 1000000000 nodes.
