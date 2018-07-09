@@ -43,16 +43,17 @@ impl Encodable for ActiveState {
         s.append(&self.height);
         s.append(&self.randao);
         s.append(&self.ffg_voter_bitfield);
-        // s.append(&self.recent_attesters);
-        // s.append(&self.partial_crosslinks);
+        s.append_list(&self.recent_attesters);
+        s.append_list(&self.partial_crosslinks);
         s.append(&self.total_skip_count);
-        // s.append(&self.recent_proposers);
+        s.append_list(&self.recent_proposers);
     }
 }
 
 
 #[cfg(test)]
 mod tests {
+    use super::super::rlp;
     use super::*;
 
     #[test]
@@ -81,5 +82,28 @@ mod tests {
             a.recent_attesters.push(1);
         }
         assert_eq!(a.num_recent_attesters(), 4)
+    }
+
+    #[test]
+    fn test_serialization() {
+        let a = ActiveState {
+            height: 100,
+            randao: Sha256Digest::zero(),
+            ffg_voter_bitfield: Vec::new(),
+            recent_attesters: Vec::new(),
+            partial_crosslinks: Vec::new(),
+            total_skip_count: 99,
+            recent_proposers: Vec::new()
+        };
+        let e = rlp::encode(&a);
+        assert_eq!(e.len(), 39);
+        assert_eq!(e[0], 100);
+        assert_eq!(e[1], 160);
+        assert_eq!(e[2..34], [0; 32]);
+        assert_eq!(e[34], 128);
+        assert_eq!(e[35], 192);
+        assert_eq!(e[36], 192);
+        assert_eq!(e[37], 99);
+        assert_eq!(e[38], 192);
     }
 }
