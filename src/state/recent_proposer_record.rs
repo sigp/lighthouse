@@ -43,6 +43,7 @@ mod tests {
         let balance_delta = 99;
         let r = RecentPropserRecord::new(index, randao_commitment, balance_delta);
         let e = rlp::encode(&r);
+        assert_eq!(e.len(), 35);
         assert_eq!(e[0], 1);
         assert_eq!(e[1], 160);
         assert_eq!(e[2..34], [0; 32]);

@@ -1,4 +1,5 @@
 use super::utils::types::{ Sha256Digest, Bitfield };
+use super::rlp::{ RlpStream, Encodable };
 
 pub struct PartialCrosslinkRecord {
     pub shard_id: u16,
@@ -17,9 +18,21 @@ impl PartialCrosslinkRecord {
     }
 }
 
+/*
+ * RLP Encoding
+ */
+impl Encodable for PartialCrosslinkRecord {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.append(&self.shard_id);
+        s.append(&self.shard_block_hash);
+        s.append(&self.voter_bitfield);
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
+    use super::super::rlp;
     use super::*;
 
     #[test]
@@ -29,5 +42,21 @@ mod tests {
         let p = PartialCrosslinkRecord::new_for_shard(id, hash);
         assert_eq!(p.shard_id, id);
         assert_eq!(p.shard_block_hash, hash);
+    }
+
+    #[test]
+    fn test_serialization() {
+        let p = PartialCrosslinkRecord {
+            shard_id: 1,
+            shard_block_hash: Sha256Digest::zero(),
+            voter_bitfield: Vec::new()
+        };
+        let e = rlp::encode(&p);
+        println!("{:?}", e);
+        assert_eq!(e.len(), 35);
+        assert_eq!(e[0], 1);
+        assert_eq!(e[1], 160);
+        assert_eq!(e[2..34], [0; 32]);
+        assert_eq!(e[34], 128);
     }
 }
