@@ -10,4 +10,6 @@ pub type Blake2sDigest = H256;
 
 pub type Address = H160;
 
+pub type StateHash = [u8; 64];
+
 pub type Bitfield = Vec<u8>;

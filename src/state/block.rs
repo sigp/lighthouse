@@ -1,4 +1,4 @@
-use super::utils::types::{ Sha256Digest, Bitfield, Blake2sDigest };
+use super::utils::types::{ Sha256Digest, Bitfield, StateHash };
 use super::utils::bls::{ Signature, AggregateSignature, Keypair, PublicKey };
 use super::aggregate_vote::AggregateVote;
 use super::rlp::{ RlpStream, Encodable } ;
@@ -11,14 +11,14 @@ pub struct Block {
     pub attestation_aggregate_sig: AggregateSignature,
     pub shard_aggregate_votes: Vec<AggregateVote>,
     pub main_chain_ref: Sha256Digest,
-    pub state_hash: Blake2sDigest,
+    pub state_hash: StateHash,
     pub sig: Option<Signature>
 } 
 impl Block {
     pub fn new(parent_hash: Sha256Digest,
                randao_reveal: Sha256Digest,
                main_chain_ref: Sha256Digest,
-               state_hash: Blake2sDigest) -> Block {
+               state_hash: StateHash) -> Block {
         Block {
             parent_hash: parent_hash,
             skip_count: 0,
@@ -49,7 +49,7 @@ impl Block {
         // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
         s.append_list(&self.shard_aggregate_votes);
         s.append(&self.main_chain_ref);
-        s.append(&self.state_hash);
+        s.append_list(&self.state_hash);
         let rlp_vec = s.out();
 
         // Parse the RLP vector into an array compatible with the BLS signer
@@ -89,7 +89,7 @@ impl Encodable for Block {
         // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
         s.append_list(&self.shard_aggregate_votes);
         s.append(&self.main_chain_ref);
-        s.append(&self.state_hash);
+        s.append_list(&self.state_hash);
         // s.append(&self.sig);    // TODO: RLP this
     }
 }
@@ -102,29 +102,13 @@ mod tests {
 
     use super::*;
     use self::rand::{ SeedableRng, XorShiftRng };
-
-    #[test]
-    fn test_new_for_parent_hash() {
-        let parent_hash = Sha256Digest::random();
-        let randao_reveal = Sha256Digest::random();
-        let main_chain_ref = Sha256Digest::random();
-        let state_hash = Sha256Digest::random();
-        let b = Block::new(parent_hash,
-                           randao_reveal,
-                           main_chain_ref,
-                           state_hash);
-        assert_eq!(b.parent_hash, parent_hash);
-        assert_eq!(b.randao_reveal, randao_reveal);
-        assert_eq!(b.main_chain_ref, main_chain_ref);
-        assert_eq!(b.state_hash, state_hash);
-    }
     
     #[test]
     fn test_signable_message_encoding() {
         let parent_hash = Sha256Digest::from([0; 32]);
         let randao_reveal = Sha256Digest::from([1; 32]);
         let main_chain_ref = Sha256Digest::from([2; 32]);
-        let state_hash = Sha256Digest::from([3; 32]);
+        let state_hash = [0; 64];
         let mut b = Block::new(parent_hash,
                            randao_reveal,
                            main_chain_ref,
@@ -144,7 +128,7 @@ mod tests {
         let mut b = Block::new(Sha256Digest::random(),
                            Sha256Digest::random(),
                            Sha256Digest::random(),
-                           Sha256Digest::random());
+                           [0; 64]);
 
         // Both signatures fail before signing
         assert_eq!(b.sig_verify(&alice_keypair.public), false);
@@ -168,22 +152,23 @@ mod tests {
             attestation_aggregate_sig: AggregateSignature::new(),
             shard_aggregate_votes: Vec::new(),
             main_chain_ref: Sha256Digest::zero(),
-            state_hash: Blake2sDigest::zero(),
+            state_hash: [0; 64],
             sig: None
         };
         let e = rlp::encode(&b);
         println!("{:?}", e);
-        assert_eq!(e.len(), 135);
+        assert_eq!(e.len(), 168);
         assert_eq!(e[0], 160);
         assert_eq!(e[1..33], [0; 32]);
         assert_eq!(e[33], 100);
         assert_eq!(e[34], 160);
         assert_eq!(e[35..67], [0; 32]);
         assert_eq!(e[67], 128);
-        assert_eq!(e[68], 192);
         assert_eq!(e[69], 160);
         assert_eq!(e[70..102], [0; 32]);
-        assert_eq!(e[102], 160);
-        assert_eq!(e[103..135], [0; 32]);
+        assert_eq!(e[102], 248);
+        assert_eq!(e[103], 64);
+        assert_eq!(e[104..136], [128; 32]);
+        assert_eq!(e[136..168], [128; 32]);
     }
 }
