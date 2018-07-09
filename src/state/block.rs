@@ -46,8 +46,8 @@ impl Block {
         s.append(&self.skip_count);
         s.append(&self.randao_reveal);
         s.append(&self.attestation_bitfield);
-        // TODO: represent attestation_aggregate_sig
-        // TODO: represent shard_aggregate_votes
+        // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
+        s.append_list(&self.shard_aggregate_votes);
         s.append(&self.main_chain_ref);
         s.append(&self.state_hash);
         let rlp_vec = s.out();
