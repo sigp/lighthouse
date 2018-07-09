@@ -1,4 +1,4 @@
-use super::utils::types::{ Sha256Digest, Bitfield };
+use super::utils::types::{ Sha256Digest, Bitfield, Blake2sDigest };
 use super::utils::bls::{ Signature, AggregateSignature, Keypair, PublicKey };
 use super::aggregate_vote::AggregateVote;
 use super::rlp::{ RlpStream, Encodable } ;
@@ -11,15 +11,14 @@ pub struct Block {
     pub attestation_aggregate_sig: AggregateSignature,
     pub shard_aggregate_votes: Vec<AggregateVote>,
     pub main_chain_ref: Sha256Digest,
-    pub state_hash: Sha256Digest,
+    pub state_hash: Blake2sDigest,
     pub sig: Option<Signature>
-}
-
+} 
 impl Block {
     pub fn new(parent_hash: Sha256Digest,
                randao_reveal: Sha256Digest,
                main_chain_ref: Sha256Digest,
-               state_hash: Sha256Digest) -> Block {
+               state_hash: Blake2sDigest) -> Block {
         Block {
             parent_hash: parent_hash,
             skip_count: 0,
