@@ -1,5 +1,6 @@
 use super::utils::types::{ Sha256Digest, Address };
 use super::utils::bls::PublicKey;
+use super::rlp::{ RlpStream, Encodable };
 
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
@@ -28,19 +29,41 @@ impl ValidatorRecord {
     }
 }
 
+/*
+ * RLP Encoding
+ */
+impl Encodable for ValidatorRecord {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        // s.append(&self.pubkey);      // TODO: serialize this
+        s.append(&self.withdrawal_shard);
+        s.append(&self.withdrawal_address);
+        s.append(&self.randao_commitment);
+        s.append(&self.balance);
+        s.append(&self.switch_dynasty);
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
+    use super::super::rlp;
     extern crate rand;
 
     use super::*;
     use super::super::utils::bls::Keypair;
     use self::rand::{ SeedableRng, XorShiftRng };
 
+    fn get_keypair() -> Keypair {
+        let mut rng = XorShiftRng::from_seed([0xbc4f6d44, 
+                                             0xd62f276c, 
+                                             0xb963afd0, 
+                                             0x5455863d]);
+        Keypair::generate(&mut rng)
+    }
+
     #[test]
     fn test_new() {
-        let mut rng = XorShiftRng::from_seed([0xbc4f6d44, 0xd62f276c, 0xb963afd0, 0x5455863d]);
-        let keypair = Keypair::generate(&mut rng);
+        let keypair = get_keypair();;
         let withdrawal_shard = 1;
         let withdrawal_address = Address::random();
         let randao_commitment = Sha256Digest::random();
@@ -61,5 +84,28 @@ mod tests {
         assert_eq!(v.randao_commitment, randao_commitment);
         assert_eq!(v.balance, balance);
         assert_eq!(v.switch_dynasty, switch_dynasty);
+    }
+    
+    #[test]
+    fn test_serialization() {
+        let keypair = get_keypair();
+        let v = ValidatorRecord {
+            pubkey: keypair.public,
+            withdrawal_shard: 100,
+            withdrawal_address: Address::zero(),
+            randao_commitment: Sha256Digest::zero(),
+            balance: 120,
+            switch_dynasty: 30
+        };
+        let e = rlp::encode(&v);
+        assert_eq!(e.len(), 57);    // TODO: fix when pubkey is serialized
+        // TODO: test for serialized pubkey
+        assert_eq!(e[0], 100);
+        assert_eq!(e[1], 148);
+        assert_eq!(e[2..22], [0; 20]);
+        assert_eq!(e[22], 160);
+        assert_eq!(e[23..55], [0; 32]);
+        assert_eq!(e[55], 120);
+        assert_eq!(e[56], 30);
     }
 }
