@@ -52,7 +52,6 @@ mod tests {
             voter_bitfield: Vec::new()
         };
         let e = rlp::encode(&p);
-        println!("{:?}", e);
         assert_eq!(e.len(), 35);
         assert_eq!(e[0], 1);
         assert_eq!(e[1], 160);
