@@ -31,7 +31,7 @@ gitter](https://gitter.im/ethereum/sharding).
 
 ## TODO:
 
-- [ ] Implement crystallized state.
+- [x] Implement crystallized state.
 - [ ] Implement state transition.
 - [ ] Implement integration tests (some unit tests are implemented now).
 - [ ] Implement RLP serialization across-the-board.
