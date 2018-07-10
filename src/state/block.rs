@@ -49,7 +49,9 @@ impl Block {
         // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
         s.append_list(&self.shard_aggregate_votes);
         s.append(&self.main_chain_ref);
-        s.append_list(&self.state_hash);
+        // TODO: state hash serialization is probably incorrect.
+        s.append(&self.state_hash.crystallized_state);
+        s.append(&self.state_hash.active_state);
         let rlp_vec = s.out();
 
         // Parse the RLP vector into an array compatible with the BLS signer
@@ -89,7 +91,9 @@ impl Encodable for Block {
         // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
         s.append_list(&self.shard_aggregate_votes);
         s.append(&self.main_chain_ref);
-        s.append_list(&self.state_hash);
+        // TODO: state hash serialization is probably incorrect.
+        s.append(&self.state_hash.crystallized_state);
+        s.append(&self.state_hash.active_state);
         // s.append(&self.sig);    // TODO: RLP this
     }
 }
@@ -108,7 +112,7 @@ mod tests {
         let parent_hash = Sha256Digest::from([0; 32]);
         let randao_reveal = Sha256Digest::from([1; 32]);
         let main_chain_ref = Sha256Digest::from([2; 32]);
-        let state_hash = [0; 64];
+        let state_hash = StateHash::zero();
         let mut b = Block::new(parent_hash,
                            randao_reveal,
                            main_chain_ref,
@@ -128,7 +132,7 @@ mod tests {
         let mut b = Block::new(Sha256Digest::random(),
                            Sha256Digest::random(),
                            Sha256Digest::random(),
-                           [0; 64]);
+                           StateHash::zero());
 
         // Both signatures fail before signing
         assert_eq!(b.sig_verify(&alice_keypair.public), false);
@@ -152,11 +156,10 @@ mod tests {
             attestation_aggregate_sig: AggregateSignature::new(),
             shard_aggregate_votes: Vec::new(),
             main_chain_ref: Sha256Digest::zero(),
-            state_hash: [0; 64],
+            state_hash: StateHash::zero(),
             sig: None
         };
         let e = rlp::encode(&b);
-        println!("{:?}", e);
         assert_eq!(e.len(), 168);
         assert_eq!(e[0], 160);
         assert_eq!(e[1..33], [0; 32]);

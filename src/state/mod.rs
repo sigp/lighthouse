@@ -1,5 +1,6 @@
 extern crate rlp;
 extern crate ethereum_types;
+extern crate blake2;
 
 use super::utils;
 

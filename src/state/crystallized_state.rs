@@ -1,8 +1,10 @@
-use super::utils::types::Sha256Digest;
+use super::utils::types::{ Sha256Digest, Blake2sDigest };
 use super::validator_record::ValidatorRecord;
 use super::crosslink_record::CrosslinkRecord;
 use super::rlp::{ RlpStream, Encodable };
+use super::rlp::encode as rlp_encode;
 use super::ethereum_types::U256;
+use super::blake2::{ Blake2s, Digest };
 
 pub struct CrystallizedState {
     pub active_validators: Vec<ValidatorRecord>,
@@ -35,6 +37,14 @@ impl CrystallizedState {
     pub fn num_crosslink_records(&self) -> usize {
         self.crosslink_records.len()
 
+    }
+    
+    pub fn blake2s_hash(&self) -> Blake2sDigest {
+        let mut hasher = Blake2s::new();
+        hasher.input(&rlp_encode(self).into_vec());
+        let mut digest = Blake2sDigest::new();
+        digest.clone_from_slice(hasher.result().as_slice());
+        digest
     }
 }
 

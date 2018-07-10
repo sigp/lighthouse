@@ -1,6 +1,8 @@
 use super::partial_crosslink_record::PartialCrosslinkRecord;
 use super::recent_proposer_record::RecentPropserRecord;
 use super::rlp::{ RlpStream, Encodable };
+use super::rlp::encode as rlp_encode;
+use super::blake2::{ Blake2s, Digest };
 use super::utils::types::*;
 
 pub struct ActiveState {
@@ -32,6 +34,14 @@ impl ActiveState {
     
     pub fn num_recent_attesters(&self) -> usize {
         self.recent_attesters.len()
+    }
+
+    pub fn blake2s_hash(&self) -> Blake2sDigest {
+        let mut hasher = Blake2s::new();
+        hasher.input(&rlp_encode(self).into_vec());
+        let mut digest = Blake2sDigest::new();
+        digest.clone_from_slice(hasher.result().as_slice());
+        digest
     }
 }
 
