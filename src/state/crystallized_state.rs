@@ -22,6 +22,24 @@ pub struct CrystallizedState {
 }
 
 impl CrystallizedState {
+    // Returns a new instance with all values set to zero.
+    pub fn zero() -> Self {
+        Self {
+            active_validators: Vec::new(),
+            queued_validators: Vec::new(),
+            exited_validators: Vec::new(),
+            current_shuffling: Vec::new(),
+            current_epoch: 0,
+            last_justified_epoch: 0,
+            last_finalized_epoch: 0,
+            dynasty: 0,
+            next_shard: 0,
+            current_checkpoint: Sha256Digest::zero(),
+            crosslink_records: Vec::new(),
+            total_deposits: U256::zero(),
+        }
+    }
+
     pub fn num_active_validators(&self) -> usize {
         self.active_validators.len()
     }

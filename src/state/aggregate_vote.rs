@@ -10,12 +10,10 @@ pub struct AggregateVote {
 }
 
 impl AggregateVote {
-    pub fn new_for_shard(shard_id: u16, 
-                         shard_block_hash: Sha256Digest) 
-        -> AggregateVote {
-        AggregateVote {
-            shard_id: shard_id,
-            shard_block_hash: shard_block_hash,
+    pub fn zero() -> Self {
+        Self {
+            shard_id: 0,
+            shard_block_hash: Sha256Digest::zero(),
             notary_bitfield: Vec::new(),
             aggregate_sig: AggregateSignature::new()
         }
@@ -41,12 +39,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_for_shard() {
-        let id = 1;
-        let hash = Sha256Digest::random();
-        let v = AggregateVote::new_for_shard(id, hash);
-        assert_eq!(v.shard_id, id);
-        assert_eq!(v.shard_block_hash, hash);
+    fn test_zero_fn() {
+        let v = AggregateVote::zero();
+        // TODO: test this better
+        assert_eq!(v.shard_id, 0);
     }
     
     #[test]
