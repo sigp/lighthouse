@@ -1,6 +1,11 @@
 use super::utils::types::{ Sha256Digest };
 use super::blake2::{ Blake2s, Digest };
+use super::bytes::{ BytesMut, BufMut };
+use super::crystallized_state::CrystallizedState;
+use super::aggregate_vote::AggregateVote;
 use super::config::Config;
+
+const AGG_VOTE_MSG_SIZE: i32 = 2 + 32 + 32 + 8 + 8;
 
 // Interprets a 3-byte slice from a [u8] as an integer.
 fn get_shift_from_source(source: &[u8], offset: usize) -> u32 {
@@ -51,6 +56,20 @@ pub fn get_shuffling(
     output
 }
 
+pub fn get_crosslink_aggvote_msg(
+    agg_vote: &AggregateVote,
+    cry_state: &CrystallizedState)
+    ->  Vec<u8>
+{
+    let mut buf = BytesMut::with_capacity(AGG_VOTE_MSG_SIZE as usize);
+    buf.put_u16_be(agg_vote.shard_id);
+    buf.extend_from_slice(&agg_vote.shard_block_hash.to_vec());
+    buf.extend_from_slice(&cry_state.current_checkpoint.to_vec());
+    buf.put_u64_be(cry_state.current_epoch);
+    buf.put_u64_be(cry_state.last_justified_epoch);
+    buf.to_vec()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -97,12 +116,34 @@ mod tests {
         let mut config = Config::standard();
         config.max_validators = 19;
         let s = get_shuffling(
-            Sha256Digest::zero(),
-            10,
-            None,
-            Config::standard());
+            &Sha256Digest::zero(),
+            &10,
+            &None,
+            &Config::standard());
         assert_eq!(s,
                    vec!(0, 9, 7, 6, 4, 1, 8, 5, 2, 3),
                    "10 validator shuffle was not as expected");
     }
+
+    #[test]
+    fn test_crosslink_aggvote_msg() {
+        let mut cs_state = CrystallizedState::zero();
+        let mut agg_vote = AggregateVote::zero();
+        // All zeros
+        let m1 = get_crosslink_aggvote_msg(&agg_vote, &cs_state);
+        assert_eq!(m1,
+                   vec![0_u8; AGG_VOTE_MSG_SIZE as usize],
+                   "failed all zeros test");
+        // With some values
+        agg_vote.shard_id = 42;
+        cs_state.current_epoch = 99;
+        cs_state.last_justified_epoch = 123;
+        let m2 = get_crosslink_aggvote_msg(&agg_vote, &cs_state);
+        assert_eq!(m2[0..2], [0, 42]);
+        assert_eq!(m2[2..34], [0; 32]);     // TODO: test with non-zero hash
+        assert_eq!(m2[34..66], [0; 32]);    // TODO: test with non-zero hash
+        assert_eq!(m2[66..74], [0, 0, 0, 0, 0, 0, 0, 99]);
+        assert_eq!(m2[74..82], [0, 0, 0, 0, 0, 0, 0, 123]);
+    }
+
 }
