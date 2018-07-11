@@ -56,6 +56,8 @@ pub fn get_shuffling(
     output
 }
 
+// Given an aggregate_vote and a crystallized_state,
+// return a byte array for signing or verification.
 pub fn get_crosslink_aggvote_msg(
     agg_vote: &AggregateVote,
     cry_state: &CrystallizedState)
