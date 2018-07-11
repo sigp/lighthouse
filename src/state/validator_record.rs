@@ -17,8 +17,10 @@ impl ValidatorRecord {
                withdrawal_address: Address, 
                randao_commitment: Sha256Digest,
                balance: u64,
-               switch_dynasty: u64) -> ValidatorRecord {
-        ValidatorRecord {
+               switch_dynasty: u64) 
+        -> Self 
+    {
+        Self {
             pubkey: pubkey,
             withdrawal_shard: withdrawal_shard,
             withdrawal_address: withdrawal_address,
@@ -50,20 +52,12 @@ mod tests {
     extern crate rand;
 
     use super::*;
-    use super::super::utils::bls::Keypair;
-    use self::rand::{ SeedableRng, XorShiftRng };
-
-    fn get_keypair() -> Keypair {
-        let mut rng = XorShiftRng::from_seed([0xbc4f6d44, 
-                                             0xd62f276c, 
-                                             0xb963afd0, 
-                                             0x5455863d]);
-        Keypair::generate(&mut rng)
-    }
+    use super::super::
+        utils::test_helpers::get_dangerous_test_keypair;
 
     #[test]
     fn test_new() {
-        let keypair = get_keypair();;
+        let keypair = get_dangerous_test_keypair();;
         let withdrawal_shard = 1;
         let withdrawal_address = Address::random();
         let randao_commitment = Sha256Digest::random();
@@ -88,7 +82,7 @@ mod tests {
     
     #[test]
     fn test_serialization() {
-        let keypair = get_keypair();
+        let keypair = get_dangerous_test_keypair();
         let v = ValidatorRecord {
             pubkey: keypair.public,
             withdrawal_shard: 100,
