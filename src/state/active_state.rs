@@ -16,10 +16,10 @@ pub struct ActiveState {
 }
 
 impl ActiveState {
-    pub fn new_for_height(height: u64) -> ActiveState {
-        ActiveState {
-            height: height,
-            randao: Sha256Digest::random(),
+    pub fn zero() -> Self {
+        Self {
+            height: 0,
+            randao: Sha256Digest::zero(),
             ffg_voter_bitfield: Vec::new(),
             recent_attesters: Vec::new(),
             partial_crosslinks: Vec::new(),
@@ -67,15 +67,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_for_height() {
-        let h = 1;
-        let a = ActiveState::new_for_height(h);
-        assert_eq!(a.height, h);
+    fn test_zero_fn() {
+        let a = ActiveState::zero();
+        assert_eq!(a.height, 0);
+        // TODO: test all the things
+        assert_eq!(a.total_skip_count, 0);
     }
 
     #[test]
     fn test_num_recent_proposers() {
-        let mut a = ActiveState::new_for_height(1);
+        let mut a = ActiveState::zero();
         for _ in 1..5 {
             a.recent_proposers.push(RecentPropserRecord::new(
                     1, 
@@ -87,7 +88,7 @@ mod tests {
     
     #[test]
     fn test_num_recent_attesters() {
-        let mut a = ActiveState::new_for_height(1);
+        let mut a = ActiveState::zero();
         for _ in 1..5 {
             a.recent_attesters.push(1);
         }
