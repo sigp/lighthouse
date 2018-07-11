@@ -87,7 +87,21 @@ mod tests {
             10,
             None,
             Config::standard());
-        assert_eq!(s, 
+        assert_eq!(s,
+                   vec!(0, 9, 7, 6, 4, 1, 8, 5, 2, 3),
+                   "10 validator shuffle was not as expected");
+    }
+
+    #[test]
+    fn test_shuffling_with_gt_half_max_validators() {
+        let mut config = Config::standard();
+        config.max_validators = 19;
+        let s = get_shuffling(
+            Sha256Digest::zero(),
+            10,
+            None,
+            Config::standard());
+        assert_eq!(s,
                    vec!(0, 9, 7, 6, 4, 1, 8, 5, 2, 3),
                    "10 validator shuffle was not as expected");
     }
