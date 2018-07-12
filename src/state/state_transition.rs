@@ -1,4 +1,3 @@
-use super::utils::types::{ Bitfield, U256 };
 use super::bytes::{ BytesMut, BufMut };
 use super::crystallized_state::CrystallizedState;
 use super::active_state::ActiveState;
@@ -54,46 +53,11 @@ pub fn get_attesters_and_proposer(
     }
 }
 
-pub fn process_ffg_deposits(
-    cry_state: &CrystallizedState,
-    ffg_vote_bitfield: Bitfield)
-    -> (Vec<u64>, u64, U256, bool, bool)
-{
-    let active_validators: usize = cry_state.num_active_validators();
-    let finality_distance: u64 = cry_state.finality_distance();
-    let online_reward: u64 = if finality_distance <= 2 { 6 } else { 0 };
-    let offline_penalty: u64 = finality_distance.saturating_mul(3); 
-    let mut total_vote_count: u64 = 0;
-    let mut total_vote_deposits = U256::zero();
-    
-    let mut deltas = vec![0_u64; active_validators];
-    for i in 0..active_validators {
-        if ffg_vote_bitfield.get_bit(&i) {
-            total_vote_deposits = total_vote_deposits
-                .saturating_add(cry_state.active_validators[i].balance);
-            deltas[i] += online_reward;
-            total_vote_count += 1;
-        } else {
-            deltas[i] = deltas[i].saturating_sub(offline_penalty);
-        }
-    }
-   
-    let mut should_finalize = false;
-    let should_justify = total_vote_deposits.saturating_mul(U256::from(3)) 
-        >= cry_state.total_deposits.saturating_mul(U256::from(2));
-    if should_justify {
-        if cry_state.last_justified_epoch == cry_state.current_epoch - 1 {
-            should_finalize = true;
-        }
-    }
-    (deltas, total_vote_count, total_vote_deposits, should_justify, should_finalize)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use super::super::validator_record::ValidatorRecord;
-    use super::super::utils::types::{ Address, Sha256Digest };
+    use super::super::utils::types::{ Address, Sha256Digest, U256 };
     use super::super::
         utils::test_helpers::get_dangerous_test_keypair;
 
