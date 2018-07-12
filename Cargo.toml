@@ -10,7 +10,7 @@ bytes = ""
 blake2 = "^0.7.1"
 crypto-mac = "^0.6.2"
 bls = { git = "https://github.com/sigp/bls" }
-rlp = { path = "parity/util/rlp" }
+rlp = { git = "https://github.com/paritytech/parity-common" }
 
 [dependencies.pairing]
 git = "https://github.com/mmaker/pairing"
