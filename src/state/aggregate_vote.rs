@@ -14,7 +14,7 @@ impl AggregateVote {
         Self {
             shard_id: 0,
             shard_block_hash: Sha256Digest::zero(),
-            notary_bitfield: Vec::new(),
+            notary_bitfield: Bitfield::new(),
             aggregate_sig: AggregateSignature::new()
         }
     }
@@ -46,11 +46,11 @@ mod tests {
     }
     
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let a = AggregateVote {
             shard_id: 100,
             shard_block_hash: Sha256Digest::zero(),
-            notary_bitfield: Vec::new(),
+            notary_bitfield: Bitfield::new(),
             aggregate_sig: AggregateSignature::new()
         };
         let e = rlp::encode(&a);

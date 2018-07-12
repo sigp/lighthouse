@@ -13,7 +13,7 @@ impl PartialCrosslinkRecord {
         PartialCrosslinkRecord {
             shard_id: shard_id,
             shard_block_hash: shard_block_hash,
-            voter_bitfield: Vec::new()
+            voter_bitfield: Bitfield::new()
         }
     }
 }
@@ -45,11 +45,11 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let p = PartialCrosslinkRecord {
             shard_id: 1,
             shard_block_hash: Sha256Digest::zero(),
-            voter_bitfield: Vec::new()
+            voter_bitfield: Bitfield::new()
         };
         let e = rlp::encode(&p);
         assert_eq!(e.len(), 35);

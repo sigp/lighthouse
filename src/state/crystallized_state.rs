@@ -92,7 +92,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let a = CrystallizedState {
             active_validators: Vec::new(),
             queued_validators: Vec::new(),

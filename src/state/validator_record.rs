@@ -81,7 +81,7 @@ mod tests {
     }
     
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let keypair = get_dangerous_test_keypair();
         let v = ValidatorRecord {
             pubkey: keypair.public,

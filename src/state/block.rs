@@ -23,7 +23,7 @@ impl Block {
             parent_hash: parent_hash,
             skip_count: 0,
             randao_reveal: randao_reveal,
-            attestation_bitfield: Vec::new(),
+            attestation_bitfield: Bitfield::new(),
             attestation_aggregate_sig: AggregateSignature::new(),
             shard_aggregate_votes: Vec::new(),
             main_chain_ref: main_chain_ref,
@@ -147,12 +147,12 @@ mod tests {
     }
     
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let b = Block {
             parent_hash: Sha256Digest::zero(),
             skip_count: 100,
             randao_reveal: Sha256Digest::zero(),
-            attestation_bitfield: Vec::new(),
+            attestation_bitfield: Bitfield::new(),
             attestation_aggregate_sig: AggregateSignature::new(),
             shard_aggregate_votes: Vec::new(),
             main_chain_ref: Sha256Digest::zero(),

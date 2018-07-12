@@ -20,7 +20,7 @@ impl ActiveState {
         Self {
             height: 0,
             randao: Sha256Digest::zero(),
-            ffg_voter_bitfield: Vec::new(),
+            ffg_voter_bitfield: Bitfield::new(),
             recent_attesters: Vec::new(),
             partial_crosslinks: Vec::new(),
             total_skip_count: 0,
@@ -96,11 +96,11 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let a = ActiveState {
             height: 100,
             randao: Sha256Digest::zero(),
-            ffg_voter_bitfield: Vec::new(),
+            ffg_voter_bitfield: Bitfield::new(),
             recent_attesters: Vec::new(),
             partial_crosslinks: Vec::new(),
             total_skip_count: 99,

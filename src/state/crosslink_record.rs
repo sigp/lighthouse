@@ -40,7 +40,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let c = CrosslinkRecord {
             epoch: 100,
             hash: Sha256Digest::zero()

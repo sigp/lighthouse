@@ -1,6 +1,7 @@
 use super::ethereum_types::{ H256, H160 };
 use super::active_state::ActiveState;
 use super::crystallized_state::CrystallizedState;
+use super::boolean_bitfield::BooleanBitfield;
 
 pub use super::blake2::Blake2s;
 
@@ -33,4 +34,4 @@ impl StateHash {
     }
 }
 
-pub type Bitfield = Vec<u8>;
+pub type Bitfield = BooleanBitfield;

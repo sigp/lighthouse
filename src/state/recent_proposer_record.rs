@@ -37,7 +37,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn test_rlp_serialization() {
         let index = 1;
         let randao_commitment = Sha256Digest::zero();
         let balance_delta = 99;
