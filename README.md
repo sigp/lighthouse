@@ -14,14 +14,10 @@ largely based upon the
 Presently this is just a bunch of data structures and some tests.
 
 ```
-$ git clone --recurse-submodules <url>
+$ git clone <url>
 $ cd rust_beacon_chain
 $ cargo test
 ```
-
-_Note: don't forget to clone/pull with respect to submodules. Parity is
-included as a submodule so we can use their handy RLP module without compiling
-all the things._
 
 ## Contact
 
@@ -33,10 +29,6 @@ gitter](https://gitter.im/ethereum/sharding).
 
 ## TODO:
 
-- [x] Implement crystallized state.
-- [ ] Implement state transition.
-- [ ] Implement integration tests (some unit tests are implemented now).
+- [ ] Finish state transition implementation.
+- [ ] Ensure bls library is secure.
 - [ ] Implement RLP serialization for BLS signatures.
-- [x] Implement RLP serialization for all main structs.
-- [ ] Ensure bls library is legit (i.e., functioning and secure).
-- [ ] Implement the things, optimise them & scale to 1000000000 nodes.
