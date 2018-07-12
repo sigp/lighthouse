@@ -2,6 +2,7 @@ use super::utils::types::{ Sha256Digest };
 use super::blake2::{ Blake2s, Digest };
 use super::bytes::{ BytesMut, BufMut };
 use super::crystallized_state::CrystallizedState;
+use super::active_state::ActiveState;
 use super::aggregate_vote::AggregateVote;
 use super::config::Config;
 
@@ -66,10 +67,43 @@ pub fn get_crosslink_aggvote_msg(
     buf.to_vec()
 }
 
+// For a given state set and skip_count, return a proposer and set
+// of attestors.
+pub fn get_attesters_and_proposer(
+    cry_state: &CrystallizedState,
+    act_state: &ActiveState,
+    skip_count: &u64,
+    config: &Config)
+    -> (Vec<usize>, usize)
+{
+    let active_validator_count = cry_state.num_active_validators(); 
+    assert!(active_validator_count >= 2, "must be >=2 active validators");
+    let shuffled_validator_indicies = get_shuffling(
+        &act_state.randao,
+        &active_validator_count,
+        config);
+    let proposer_count: usize = 1;
+    let ideal_validator_count: usize = (config.attester_count as usize)
+        + (*skip_count as usize) + proposer_count;
+    if ideal_validator_count > active_validator_count {
+        return (
+            shuffled_validator_indicies[0..active_validator_count - 1].to_vec(),
+            shuffled_validator_indicies[active_validator_count - 1]);
+    } else {
+        return (
+            shuffled_validator_indicies[0..ideal_validator_count - 1].to_vec(),
+            shuffled_validator_indicies[ideal_validator_count - 1]);
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::validator_record::ValidatorRecord;
+    use super::super::utils::types::Address;
+    use super::super::
+        utils::test_helpers::get_dangerous_test_keypair;
 
     #[test]
     fn test_shuffling_shift_fn() {
