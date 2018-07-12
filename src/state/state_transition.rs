@@ -19,31 +19,20 @@ fn get_shift_from_source(source: &[u8], offset: usize) -> usize {
 pub fn get_shuffling(
     seed: &Sha256Digest,
     validator_count: &usize,
-    sample_size: &Option<usize>,
     config: &Config) 
     -> Vec<usize>
 {
-    assert!(*validator_count > 0);
+    assert!(*validator_count > 0, "cannot shuffle 0 validators");
     let mut output: Vec<usize> = (0..*validator_count).collect();
-
-    assert!(*validator_count <= (config.max_validators as usize));
-    
-    // Use a reduced "sample_size" output range if specified
-    let output_range: &usize = match sample_size {
-        Some(x) => {
-            assert!(x <= validator_count,
-                    "sample_size should be <= validator_count");
-            x
-        },
-        None => validator_count
-    };
+    assert!(*validator_count <= (config.max_validators as usize),
+        "validator_count exceeds max_validators");
 
     // Do the first blake hash round
     let mut source = Blake2s::new();
     source.input(&seed);
     
     let mut v = 0;
-    while v < *output_range {
+    while v < *validator_count {
         let current_source = source.result();
         let mut source_offset = 0;
         while source_offset < 30 {
@@ -58,7 +47,7 @@ pub fn get_shuffling(
         source = Blake2s::new();
         source.input(&current_source);
     }
-    output[0..*output_range].to_vec()
+    output
 }
 
 // Given an aggregate_vote and a crystallized_state,
@@ -111,7 +100,6 @@ mod tests {
         let s = get_shuffling(
             &Sha256Digest::zero(),
             &10,
-            &None,
             &Config::standard());
         assert_eq!(s,
                    vec!(0, 9, 7, 6, 4, 1, 8, 5, 2, 3),
@@ -125,7 +113,6 @@ mod tests {
         let s = get_shuffling(
             &Sha256Digest::zero(),
             &10,
-            &None,
             &Config::standard());
         assert_eq!(s,
                    vec!(0, 9, 7, 6, 4, 1, 8, 5, 2, 3),
@@ -153,4 +140,39 @@ mod tests {
         assert_eq!(m2[74..82], [0, 0, 0, 0, 0, 0, 0, 123]);
     }
 
+    #[test]
+    fn test_attester_and_proposer_selection() {
+        let mut cry_state = CrystallizedState::zero();
+        for _ in 0..10 {
+            cry_state.active_validators.push(ValidatorRecord {
+                pubkey: get_dangerous_test_keypair().public,
+                withdrawal_shard: 0,
+                withdrawal_address: Address::zero(),
+                randao_commitment: Sha256Digest::zero(),
+                balance: 0,
+                switch_dynasty: 0
+            });
+        }
+        let act_state = ActiveState::zero();
+        let (attestors, proposer) = get_attesters_and_proposer(
+            &cry_state,
+            &act_state,
+            &0,
+            &Config::standard());
+        assert_eq!(attestors, [0, 9, 7, 6, 4, 1, 8, 5, 2]);
+        assert_eq!(proposer, 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "must be >=2 active validators")]
+    fn test_attester_and_proposer_selection_with_zero_active_validators() {
+        let mut cry_state = CrystallizedState::zero();
+        cry_state.active_validators = Vec::new();
+        let act_state = ActiveState::zero();
+        let (_attestors, _proposer) = get_attesters_and_proposer(
+            &cry_state,
+            &act_state,
+            &0,
+            &Config::standard());
+    }
 }
