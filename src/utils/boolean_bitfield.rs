@@ -62,7 +62,7 @@ impl BooleanBitfield {
     }
 
     // Return the total number of bits set to true.
-    pub fn num_true_bits(&mut self) -> u64 {
+    pub fn num_true_bits(&self) -> u64 {
         let mut count: u64 = 0;
         for byte in &self.vec {
             for bit in 0..8 {
