@@ -1,4 +1,4 @@
-use super::utils::types::{ Sha256Digest, Address };
+use super::utils::types::{ Sha256Digest, Address, U256 };
 use super::utils::bls::PublicKey;
 use super::rlp::{ RlpStream, Encodable };
 
@@ -7,7 +7,7 @@ pub struct ValidatorRecord {
     pub withdrawal_shard: u16,
     pub withdrawal_address: Address,
     pub randao_commitment: Sha256Digest,
-    pub balance: u64,
+    pub balance: U256,
     pub switch_dynasty: u64
 }
 
@@ -16,17 +16,17 @@ impl ValidatorRecord {
                withdrawal_shard: u16,
                withdrawal_address: Address, 
                randao_commitment: Sha256Digest,
-               balance: u64,
+               balance: U256,
                switch_dynasty: u64) 
         -> Self 
     {
         Self {
-            pubkey: pubkey,
-            withdrawal_shard: withdrawal_shard,
-            withdrawal_address: withdrawal_address,
-            randao_commitment: randao_commitment,
-            balance: balance,
-            switch_dynasty: switch_dynasty
+            pubkey,
+            withdrawal_shard,
+            withdrawal_address,
+            randao_commitment,
+            balance,
+            switch_dynasty
         }
     }
 }
@@ -61,7 +61,7 @@ mod tests {
         let withdrawal_shard = 1;
         let withdrawal_address = Address::random();
         let randao_commitment = Sha256Digest::random();
-        let balance = 100;
+        let balance = U256::from(100);
         let switch_dynasty = 10;
 
         let v = ValidatorRecord::new(
@@ -88,7 +88,7 @@ mod tests {
             withdrawal_shard: 100,
             withdrawal_address: Address::zero(),
             randao_commitment: Sha256Digest::zero(),
-            balance: 120,
+            balance: U256::from(120),
             switch_dynasty: 30
         };
         let e = rlp::encode(&v);

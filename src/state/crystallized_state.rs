@@ -40,6 +40,11 @@ impl CrystallizedState {
         }
     }
 
+    pub fn finality_distance(&self) -> u64 {
+        assert!(self.current_epoch >= self.last_finalized_epoch);
+        self.current_epoch - self.last_finalized_epoch
+    }
+
     pub fn num_active_validators(&self) -> usize {
         self.active_validators.len()
     }

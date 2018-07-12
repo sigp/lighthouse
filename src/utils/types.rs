@@ -4,6 +4,7 @@ use super::crystallized_state::CrystallizedState;
 use super::boolean_bitfield::BooleanBitfield;
 
 pub use super::blake2::Blake2s;
+pub use super::ethereum_types::U256;
 
 // TODO: presently the compiler accepts these two types
 // as interchangable. This is somewhat loose typing, 
