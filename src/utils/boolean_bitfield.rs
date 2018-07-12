@@ -26,7 +26,7 @@ impl BooleanBitfield {
         }
     }
 
-    // Output the bitfield as a big-endian vec of u8
+    // Output the bitfield as a big-endian vec of u8.
     pub fn to_be_vec(&self) -> Vec<u8> {
         let mut o = self.vec.clone();
         o.reverse();
@@ -59,6 +59,19 @@ impl BooleanBitfield {
             true =>  self.vec[byte] = self.vec[byte] |  (1 << (bit as u8)),
             false => self.vec[byte] = self.vec[byte] & !(1 << (bit as u8))
         }
+    }
+
+    // Return the total number of bits set to true.
+    pub fn num_true_bits(&mut self) -> u64 {
+        let mut count: u64 = 0;
+        for byte in &self.vec {
+            for bit in 0..8 {
+                if byte & (1 << (bit as u8)) != 0 {
+                    count += 1;
+                }
+            }
+        }
+        count
     }
 }
 
@@ -137,5 +150,20 @@ mod tests {
         assert_eq!(e[0], 130);
         assert_eq!(e[1], 128);
         assert_eq!(e[2], 0);
+    }
+    
+    #[test]
+    fn test_bitfield_num_true_bits() {
+        let mut b = BooleanBitfield::new();
+        assert_eq!(b.num_true_bits(), 0);
+        b.set_bit(&15, &true);
+        assert_eq!(b.num_true_bits(), 1);
+        b.set_bit(&15, &false);
+        assert_eq!(b.num_true_bits(), 0);
+        b.set_bit(&0, &true);
+        b.set_bit(&7, &true);
+        b.set_bit(&8, &true);
+        b.set_bit(&1337, &true);
+        assert_eq!(b.num_true_bits(), 4);
     }
 }
