@@ -119,14 +119,13 @@ mod tests {
 
     #[test]
     fn test_bitfield_get() {
-        let mut b = BooleanBitfield::new();
         let test_nums = vec![0, 8, 15, 42, 1337];
         for i in test_nums {
-            b = BooleanBitfield::new();
-            assert_eq!(b.get_bit(&0), false);
-            b.set_bit(&0, &true);
-            assert_eq!(b.get_bit(&0), true);
-            b.set_bit(&0, &true);
+            let mut b = BooleanBitfield::new();
+            assert_eq!(b.get_bit(&i), false);
+            b.set_bit(&i, &true);
+            assert_eq!(b.get_bit(&i), true);
+            b.set_bit(&i, &true);
         } 
     }
     
