@@ -42,6 +42,8 @@ pub fn get_attesters_and_proposer(
     let proposer_count: usize = 1;
     let ideal_validator_count: usize = (config.attester_count as usize)
         + (*skip_count as usize) + proposer_count;
+    assert!(ideal_validator_count >= 2, 
+            "ideal_validator_count must be >=2");
     if ideal_validator_count > active_validator_count {
         return (
             shuffled_validator_indicies[0..active_validator_count - 1].to_vec(),
