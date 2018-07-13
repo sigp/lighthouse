@@ -123,7 +123,7 @@ mod tests {
 
         let validators: u16 = 10;
 
-        let c = get_crosslink_shards_count(
+        let _ = get_crosslink_shards_count(
             &(validators as usize),
             &config);
     }
@@ -179,7 +179,7 @@ mod tests {
                 ValidatorRecord::zero_with_thread_rand_pub_key()));
 
         cry_state.next_shard = 6;
-        let c = get_crosslink_shards(
+        let _ = get_crosslink_shards(
             &cry_state,
             &config);
     }
