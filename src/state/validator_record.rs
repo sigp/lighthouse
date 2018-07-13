@@ -1,6 +1,10 @@
+extern crate rand;
+
 use super::utils::types::{ Sha256Digest, Address, U256 };
-use super::utils::bls::PublicKey;
+use super::utils::bls::{ PublicKey, Keypair };
 use super::rlp::{ RlpStream, Encodable };
+
+use self::rand::thread_rng;
 
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
@@ -27,6 +31,19 @@ impl ValidatorRecord {
             randao_commitment,
             balance,
             switch_dynasty
+        }
+    }
+
+    pub fn zero_with_thread_rand_pub_key() -> Self {
+        let mut rng = thread_rng();
+        let keypair = Keypair::generate(&mut rng);
+        Self {
+            pubkey: keypair.public,
+            withdrawal_shard: 0,
+            withdrawal_address: Address::zero(),
+            randao_commitment: Sha256Digest::zero(),
+            balance: U256::zero(),
+            switch_dynasty: 0
         }
     }
 }
