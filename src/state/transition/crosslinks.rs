@@ -44,7 +44,37 @@ pub fn get_crosslink_shards(
     crosslink_shards
 }
 
-/* Work in progres...
+pub fn get_crosslink_notaries(
+    cry_state: &CrystallizedState,
+    shard_id: &u16,
+    crosslink_shards: &Vec<u16>)
+    -> Vec<usize>
+{
+    let shard_crosslink_index = crosslink_shards.iter().
+        position(|&s| s == *shard_id);
+
+    match shard_crosslink_index {
+        None => panic!("shard_id not in crosslink_shards."),
+        Some(i) => {
+            let crosslink_shards_count = crosslink_shards.len();
+            assert!(crosslink_shards_count > 0,
+                    "crosslink_shards_count must be > 0");
+            let active_validators = cry_state.num_active_validators();
+            assert!(active_validators > 0,
+                    "active_validators must be > 0");
+
+            let start = active_validators * i / crosslink_shards_count;
+            let end = active_validators * (i + 1) / crosslink_shards_count;
+
+            assert!(cry_state.current_shuffling.len() == active_validators,
+                    "Crystallized state shuffling does not match active \
+                    validator count");
+
+            cry_state.current_shuffling[start..end].to_vec()
+        }
+    }
+}
+
 pub fn process_crosslinks(
     cry_state: &CrystallizedState,
     partial_crosslinks: &Vec<PartialCrosslinkRecord>,
@@ -73,17 +103,26 @@ pub fn process_crosslinks(
     map.iter_mut()
         .for_each(|(_, v)| new_partial_crosslinks.push(v.0));
 
-    // To be completed...
+    let crosslink_shards = get_crosslink_shards(&cry_state, &config);
 
+    for shard_id in &crosslink_shards {
+        let _indicies = get_crosslink_notaries(
+            &cry_state,
+            &shard_id,
+            &crosslink_shards);
+        // To be completed...
+    }
+    // This function is incomplete...
     (Vec::new(), Vec::new())
 }
-*/
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::shuffling::get_shuffling;
     use super::super::super::validator_record::ValidatorRecord;
+    use super::super::super::super::utils::types::Sha256Digest;
 
     #[test]
     fn test_crosslink_shard_count_with_varying_active_vals() {
@@ -182,5 +221,88 @@ mod tests {
         let _ = get_crosslink_shards(
             &cry_state,
             &config);
+    }
+    
+    #[test]
+    fn test_crosslink_notaries_allocation() {
+        let mut cry_state = CrystallizedState::zero();
+        let mut config = Config::standard();
+config.shard_count = 5;
+        config.notaries_per_crosslink = 2;
+
+        (0..10).for_each(
+            |_| cry_state.active_validators.push(
+                ValidatorRecord::zero_with_thread_rand_pub_key()));
+
+        cry_state.next_shard = 0;
+        let crosslink_shards = get_crosslink_shards(
+            &cry_state,
+            &config);
+
+        let s = get_shuffling(
+            &Sha256Digest::zero(),
+            &cry_state.num_active_validators(),
+            &config);
+        assert_eq!(s, [0, 9, 7, 6, 4, 1, 8, 5, 2, 3]);
+        cry_state.current_shuffling = s.clone();
+
+        let mut n = get_crosslink_notaries(
+            &cry_state, 
+            &0, 
+            &crosslink_shards);
+        assert_eq!(n, [0, 9]);
+        
+        n = get_crosslink_notaries(
+            &cry_state, 
+            &1, 
+            &crosslink_shards);
+        assert_eq!(n, [7, 6]);
+        
+        n = get_crosslink_notaries(
+            &cry_state, 
+            &2, 
+            &crosslink_shards);
+        assert_eq!(n, [4, 1]);
+        
+        n = get_crosslink_notaries(
+            &cry_state, 
+            &3, 
+            &crosslink_shards);
+        assert_eq!(n, [8, 5]);
+        
+        n = get_crosslink_notaries(
+            &cry_state, 
+            &4, 
+            &crosslink_shards);
+        assert_eq!(n, [2, 3]);
+    }
+    
+    #[test]
+    #[should_panic(expected = "shard_id not in crosslink_shards")]
+    fn test_crosslink_notaries_allocation_with_invalid_shard() {
+        let mut cry_state = CrystallizedState::zero();
+        let mut config = Config::standard();
+
+        config.shard_count = 5;
+        config.notaries_per_crosslink = 2;
+
+        (0..10).for_each(
+            |_| cry_state.active_validators.push(
+                ValidatorRecord::zero_with_thread_rand_pub_key()));
+
+        cry_state.next_shard = 0;
+        let crosslink_shards = get_crosslink_shards(
+            &cry_state,
+            &config);
+
+        cry_state.current_shuffling = get_shuffling(
+            &Sha256Digest::zero(),
+            &cry_state.num_active_validators(),
+            &config);
+        
+        let _ = get_crosslink_notaries(
+            &cry_state, 
+            &5, 
+            &crosslink_shards);
     }
 }

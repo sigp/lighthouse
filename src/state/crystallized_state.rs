@@ -10,7 +10,7 @@ pub struct CrystallizedState {
     pub active_validators: Vec<ValidatorRecord>,
     pub queued_validators: Vec<ValidatorRecord>,
     pub exited_validators: Vec<ValidatorRecord>,
-    pub current_shuffling: Vec<u32>,  // TODO: should be u24
+    pub current_shuffling: Vec<usize>,  // TODO: should be u24
     pub current_epoch: u64,
     pub last_justified_epoch: u64,
     pub last_finalized_epoch: u64,
