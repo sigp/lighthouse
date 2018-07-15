@@ -8,11 +8,10 @@ pub struct PartialCrosslinkRecord {
 }
 
 impl PartialCrosslinkRecord {
-    pub fn new_for_shard(shard_id: u16, 
-               shard_block_hash: Sha256Digest) -> PartialCrosslinkRecord {
-        PartialCrosslinkRecord {
-            shard_id: shard_id,
-            shard_block_hash: shard_block_hash,
+    pub fn zero() -> Self {
+        Self {
+            shard_id: 0,
+            shard_block_hash: Sha256Digest::zero(),
             voter_bitfield: Bitfield::new()
         }
     }
@@ -36,21 +35,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_for_shard() {
-        let id = 1;
-        let hash = Sha256Digest::random();
-        let p = PartialCrosslinkRecord::new_for_shard(id, hash);
-        assert_eq!(p.shard_id, id);
-        assert_eq!(p.shard_block_hash, hash);
+    fn test_zero() {
+        let p = PartialCrosslinkRecord::zero();
+        assert_eq!(p.shard_id, 0);
+        assert_eq!(p.shard_block_hash.is_zero(), true);
+        assert_eq!(p.voter_bitfield.num_true_bits(), 0);
     }
 
     #[test]
     fn test_rlp_serialization() {
-        let p = PartialCrosslinkRecord {
-            shard_id: 1,
-            shard_block_hash: Sha256Digest::zero(),
-            voter_bitfield: Bitfield::new()
-        };
+        let mut p = PartialCrosslinkRecord::zero();
+        p.shard_id = 1;
         let e = rlp::encode(&p);
         assert_eq!(e.len(), 35);
         assert_eq!(e[0], 1);
