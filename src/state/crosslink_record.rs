@@ -1,6 +1,7 @@
 use super::utils::types::Sha256Digest;
 use super::rlp::{ RlpStream, Encodable };
 
+#[derive(Copy)]
 pub struct CrosslinkRecord {
     pub epoch: u64,
     pub hash: Sha256Digest
@@ -13,6 +14,10 @@ impl CrosslinkRecord {
             hash: hash
         }
     }
+}
+
+impl Clone for CrosslinkRecord {
+    fn clone(&self) -> CrosslinkRecord { *self }
 }
 
 /*
