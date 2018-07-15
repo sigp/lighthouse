@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::cmp::min;
 
 use super::crystallized_state::CrystallizedState;
+use super::crosslink_record::CrosslinkRecord;
 use super::partial_crosslink_record::PartialCrosslinkRecord;
 use super::config::Config;
 
@@ -79,41 +80,85 @@ pub fn process_crosslinks(
     cry_state: &CrystallizedState,
     partial_crosslinks: &Vec<PartialCrosslinkRecord>,
     config: &Config)
-    -> (Vec<i64>, Vec<PartialCrosslinkRecord>)
+    -> (Vec<i64>, Vec<CrosslinkRecord>)
 {
     assert!(partial_crosslinks.len() > 0, "No crosslinks present.");
    
-    let mut map: HashMap<u16, (&PartialCrosslinkRecord, u64)> = HashMap::new();
+    let mut shard_pc_map: 
+        HashMap<u16, (&PartialCrosslinkRecord, u64)> = HashMap::new();
 
     for pc in partial_crosslinks {
         let vote_count = pc.voter_bitfield.num_true_bits();
         let mut competiting_vote_count = 0;
-        match map.get(&pc.shard_id) {
+        match shard_pc_map.get(&pc.shard_id) {
             Some(&competitor) => competiting_vote_count = competitor.1,
             None => {}
         }
         // Here we implicitly avoid adding crosslinks with 0 votes
-        // to our map.
+        // to our shard_pc_map.
         if vote_count > competiting_vote_count {
-            map.insert(pc.shard_id, (pc, vote_count));
+            shard_pc_map.insert(pc.shard_id, (pc, vote_count));
         }
     }
 
     let mut new_partial_crosslinks: Vec<&PartialCrosslinkRecord> = Vec::new();
-    map.iter_mut()
+    shard_pc_map.iter_mut()
         .for_each(|(_, v)| new_partial_crosslinks.push(v.0));
 
     let crosslink_shards = get_crosslink_shards(&cry_state, &config);
 
+    let mut deltas = vec![0_i64; cry_state.num_active_validators()];
+
+    let mut new_crosslink_records: Vec<CrosslinkRecord> 
+        = Vec::new();
+
     for shard_id in &crosslink_shards {
-        let _indicies = get_crosslink_notaries(
+        let notaries_indicies = get_crosslink_notaries(
             &cry_state,
             &shard_id,
             &crosslink_shards);
-        // To be completed...
+        let new_partial_crosslink = shard_pc_map.get(&shard_id);
+        let previous_crosslink_epoch = 
+            match cry_state.crosslink_records.get(*shard_id as usize) {
+                None => panic!("shard_id not known by \
+                               crystallized state."),
+                Some(c) => c.epoch
+            };
+        let current_epoch = cry_state.current_epoch;
+        assert!(current_epoch >= previous_crosslink_epoch, "Previous crosslink \
+        epoch cannot be > current epoch.");
+        let crosslink_distance = cry_state.current_epoch- previous_crosslink_epoch;
+        let online_reward: i64 = if crosslink_distance <= 2 { 3 } else { 0 };
+        let offline_penalty: i64 = (crosslink_distance as i64).saturating_mul(2);
+        for notary in &notaries_indicies {
+            let voted = match new_partial_crosslink {
+                None => false,
+                Some(pc) => pc.0.voter_bitfield.get_bit(&notary)
+            };
+            match voted {
+                true => deltas[*notary] += online_reward,
+                false => deltas[*notary] -= offline_penalty
+            };
+        }
+        match new_partial_crosslink {
+            None => {
+                new_crosslink_records[*shard_id as usize] =
+                    cry_state.crosslink_records[*shard_id as usize].clone()
+            },
+            Some(pc) => {
+                let votes = pc.1;
+                if ((votes as usize) * 3) >= (notaries_indicies.len() * 2) {
+                    new_crosslink_records[*shard_id as usize] = 
+                        CrosslinkRecord {
+                            epoch: current_epoch,
+                            hash: pc.0.shard_block_hash
+                        };
+                }
+
+            }
+        }
     }
-    // This function is incomplete...
-    (Vec::new(), Vec::new())
+    (deltas, new_crosslink_records)
 }
 
 
