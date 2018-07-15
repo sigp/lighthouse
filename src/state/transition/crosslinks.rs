@@ -369,7 +369,7 @@ mod tests {
     }
     
     #[test]
-    fn test_crosslink_processing() {
+    fn test_crosslink_processing_with_perfect_partials() {
         let mut cry_state = CrystallizedState::zero();
         let mut config = Config::standard();
         let validator_count: usize = 10;
@@ -417,6 +417,56 @@ mod tests {
             let c = new_crosslinks[shard_id as usize];
             assert_eq!(c.epoch, cry_state.current_epoch);
             assert_eq!(c.hash.low_u64(), shard_id as u64);
+        }
+    }
+    
+    #[test]
+    fn test_crosslink_processing_with_no_voting() {
+        let mut cry_state = CrystallizedState::zero();
+        let mut config = Config::standard();
+        let validator_count: usize = 10;
+
+        config.shard_count = 5;
+        config.notaries_per_crosslink = 2;
+        
+        (0..validator_count).for_each(
+            |_| cry_state.active_validators.push(
+                ValidatorRecord::zero_with_thread_rand_pub_key()));
+
+        let s = get_shuffling(
+            &Sha256Digest::zero(),
+            &cry_state.num_active_validators(),
+            &config);
+        assert_eq!(s, [0, 9, 7, 6, 4, 1, 8, 5, 2, 3]);
+        cry_state.current_shuffling = s.clone();
+
+        cry_state.current_epoch = 100;
+
+        let mut partial_crosslinks: Vec<PartialCrosslinkRecord> = vec![];
+        for shard_id in 0..config.shard_count {
+            // Setup a recent crosslink record for each shard
+            cry_state.crosslink_records.push(CrosslinkRecord {
+                epoch: cry_state.current_epoch - 1,
+                hash: Sha256Digest::zero()
+            });
+            // Create a new partial crosslink record
+            partial_crosslinks.push(PartialCrosslinkRecord {
+                shard_id,
+                shard_block_hash: Sha256Digest::from(shard_id as u64),
+                voter_bitfield: Bitfield::new()
+            });
+        }
+
+        let (deltas, new_crosslinks) = process_crosslinks(
+            &cry_state,
+            &partial_crosslinks,
+            &config);
+
+        assert_eq!(deltas, vec![-2; validator_count]);
+        for shard_id in 0..config.shard_count {
+            let c = new_crosslinks[shard_id as usize];
+            assert_eq!(c.epoch, cry_state.current_epoch - 1);
+            assert_eq!(c.hash.low_u64(), 0);
         }
     }
 }
