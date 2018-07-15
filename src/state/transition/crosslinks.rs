@@ -83,10 +83,14 @@ pub fn process_crosslinks(
     -> (Vec<i64>, Vec<CrosslinkRecord>)
 {
     assert!(partial_crosslinks.len() > 0, "No crosslinks present.");
-   
+    
+    /*
+     * Create a map of shard_id -> (partial_crosslink, vote_count)
+     * to store the partial crosslink with the most votes for
+     * each shard.
+     */
     let mut shard_pc_map: 
         HashMap<u16, (&PartialCrosslinkRecord, u64)> = HashMap::new();
-
     for pc in partial_crosslinks {
         let vote_count = pc.voter_bitfield.num_true_bits();
         let mut competiting_vote_count = 0;
@@ -100,36 +104,44 @@ pub fn process_crosslinks(
             shard_pc_map.insert(pc.shard_id, (pc, vote_count));
         }
     }
-
-    let mut new_partial_crosslinks: Vec<&PartialCrosslinkRecord> = Vec::new();
-    shard_pc_map.iter_mut()
-        .for_each(|(_, v)| new_partial_crosslinks.push(v.0));
-
+    
+    // All shards which may are to be included in the next state.
     let crosslink_shards = get_crosslink_shards(&cry_state, &config);
-
+    // A list of balance deltas for each validator.
     let mut deltas = vec![0_i64; cry_state.num_active_validators()];
-
+    // A cloned list of validator records from crystallized state.
     let mut new_crosslink_records: Vec<CrosslinkRecord> 
-        = Vec::new();
+        = cry_state.crosslink_records.to_vec();
 
+    /*
+     * Loop through all shards up for inclusion in the next crystallized
+     * state and replace the existing CrosslinkRecord if we have a new
+     * PartialCrosslinkRecord with a quorum.
+     */
     for shard_id in &crosslink_shards {
+        // Set of validator indicies for a given shard.
         let notaries_indicies = get_crosslink_notaries(
             &cry_state,
             &shard_id,
             &crosslink_shards);
+        // Attempt to retrieve a partial crosslink for the current shard_id.
         let new_partial_crosslink = shard_pc_map.get(&shard_id);
+        // Retrieve present enshrined crosslink record for this shard.
         let previous_crosslink_epoch = 
             match cry_state.crosslink_records.get(*shard_id as usize) {
                 None => panic!("shard_id not known by \
                                crystallized state."),
                 Some(c) => c.epoch
             };
+        // Determine rewards
         let current_epoch = cry_state.current_epoch;
         assert!(current_epoch >= previous_crosslink_epoch, "Previous crosslink \
         epoch cannot be > current epoch.");
         let crosslink_distance = cry_state.current_epoch- previous_crosslink_epoch;
         let online_reward: i64 = if crosslink_distance <= 2 { 3 } else { 0 };
         let offline_penalty: i64 = (crosslink_distance as i64).saturating_mul(2);
+        // Loop through each notary for this shard and penalise/reward depending
+        // on if they voted or not.
         for notary in &notaries_indicies {
             let voted = match new_partial_crosslink {
                 None => false,
@@ -140,13 +152,18 @@ pub fn process_crosslinks(
                 false => deltas[*notary] -= offline_penalty
             };
         }
+        /*
+         * If there is a PartialCrosslinkRecord with a quorum of votes for 
+         * this shard, create a new CrosslinkRecord. By default, if there 
+         * is not a new partial record, the old CrosslinkRecord will be 
+         * maintained.
+         */
         match new_partial_crosslink {
-            None => {
-                new_crosslink_records[*shard_id as usize] =
-                    cry_state.crosslink_records[*shard_id as usize].clone()
-            },
+            None => {},
             Some(pc) => {
                 let votes = pc.1;
+                // If there are 2/3 or more votes from the notaries for this
+                // partial crosslink record, create a new CrosslinkRecord.
                 if ((votes as usize) * 3) >= (notaries_indicies.len() * 2) {
                     new_crosslink_records[*shard_id as usize] = 
                         CrosslinkRecord {
@@ -167,7 +184,7 @@ mod tests {
     use super::*;
     use super::super::shuffling::get_shuffling;
     use super::super::super::validator_record::ValidatorRecord;
-    use super::super::super::super::utils::types::Sha256Digest;
+    use super::super::super::super::utils::types::{ Sha256Digest, Bitfield };
 
     #[test]
     fn test_crosslink_shard_count_with_varying_active_vals() {
@@ -272,7 +289,7 @@ mod tests {
     fn test_crosslink_notaries_allocation() {
         let mut cry_state = CrystallizedState::zero();
         let mut config = Config::standard();
-config.shard_count = 5;
+        config.shard_count = 5;
         config.notaries_per_crosslink = 2;
 
         (0..10).for_each(
@@ -349,5 +366,57 @@ config.shard_count = 5;
             &cry_state, 
             &5, 
             &crosslink_shards);
+    }
+    
+    #[test]
+    fn test_crosslink_processing() {
+        let mut cry_state = CrystallizedState::zero();
+        let mut config = Config::standard();
+        let validator_count: usize = 10;
+
+        config.shard_count = 5;
+        config.notaries_per_crosslink = 2;
+        
+        (0..validator_count).for_each(
+            |_| cry_state.active_validators.push(
+                ValidatorRecord::zero_with_thread_rand_pub_key()));
+
+        let s = get_shuffling(
+            &Sha256Digest::zero(),
+            &cry_state.num_active_validators(),
+            &config);
+        assert_eq!(s, [0, 9, 7, 6, 4, 1, 8, 5, 2, 3]);
+        cry_state.current_shuffling = s.clone();
+
+        cry_state.current_epoch = 100;
+
+        let mut partial_crosslinks: Vec<PartialCrosslinkRecord> = vec![];
+        for shard_id in 0..config.shard_count {
+            // Setup a recent crosslink record for each shard
+            cry_state.crosslink_records.push(CrosslinkRecord {
+                epoch: cry_state.current_epoch - 1,
+                hash: Sha256Digest::zero()
+            });
+            // Create a new partial crosslink record
+            let mut voter_bitfield = Bitfield::new();
+            (0..validator_count).for_each(|i| voter_bitfield.set_bit(&i, &true));
+            partial_crosslinks.push(PartialCrosslinkRecord {
+                shard_id,
+                shard_block_hash: Sha256Digest::from(shard_id as u64),
+                voter_bitfield
+            });
+        }
+
+        let (deltas, new_crosslinks) = process_crosslinks(
+            &cry_state,
+            &partial_crosslinks,
+            &config);
+
+        assert_eq!(deltas, vec![3; validator_count]);
+        for shard_id in 0..config.shard_count {
+            let c = new_crosslinks[shard_id as usize];
+            assert_eq!(c.epoch, cry_state.current_epoch);
+            assert_eq!(c.hash.low_u64(), shard_id as u64);
+        }
     }
 }
