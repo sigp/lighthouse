@@ -29,6 +29,6 @@ gitter](https://gitter.im/ethereum/sharding).
 
 ## TODO:
 
-- [ ] Finish state transition implementation.
+- [ ] Implement state transitions up-to-par with the Python reference implementation.
 - [ ] Ensure bls library is secure.
 - [ ] Implement RLP serialization for BLS signatures.
