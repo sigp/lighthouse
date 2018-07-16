@@ -10,3 +10,4 @@ pub mod crosslinks;
 pub mod deposits;
 pub mod shuffling;
 pub mod validators;
+pub mod attestations;
