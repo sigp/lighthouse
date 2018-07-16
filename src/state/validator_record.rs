@@ -46,6 +46,20 @@ impl ValidatorRecord {
             switch_dynasty: 0
         }
     }
+    
+    pub fn zero_with_thread_rand_keypair() -> (Self, Keypair) {
+        let mut rng = thread_rng();
+        let keypair = Keypair::generate(&mut rng);
+        let s = Self {
+            pubkey: keypair.public.clone(),
+            withdrawal_shard: 0,
+            withdrawal_address: Address::zero(),
+            randao_commitment: Sha256Digest::zero(),
+            balance: U256::zero(),
+            switch_dynasty: 0
+        };
+        (s, keypair)
+    }
 }
 
 impl Clone for ValidatorRecord {
