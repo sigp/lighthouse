@@ -48,6 +48,16 @@ impl ValidatorRecord {
     }
 }
 
+impl Clone for ValidatorRecord {
+    fn clone(&self) -> ValidatorRecord {
+        ValidatorRecord {
+            pubkey: self.pubkey.clone(),
+            ..*self
+
+        }
+    }
+}
+
 /*
  * RLP Encoding
  */
