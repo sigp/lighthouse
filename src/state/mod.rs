@@ -13,6 +13,5 @@ pub mod block;
 pub mod crosslink_record;
 pub mod partial_crosslink_record;
 pub mod recent_proposer_record;
-pub mod state_transition;
 pub mod transition;
 pub mod validator_record;
