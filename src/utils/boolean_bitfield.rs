@@ -7,21 +7,25 @@
  * this is just to get the job done for now.
  */
 extern crate rlp;
+use std::cmp::max;
 use self::rlp::{ RlpStream, Encodable };
 
 pub struct BooleanBitfield{
+    len: usize,
     vec: Vec<u8>
 }
 
 impl BooleanBitfield {
     pub fn new() -> Self {
         Self {
+            len: 0,
             vec: vec![]
         }
     }
     
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
+            len: 0,
             vec: Vec::with_capacity(capacity)
         }
     }
@@ -47,6 +51,7 @@ impl BooleanBitfield {
     }
 
     pub fn set_bit(&mut self, bit: &usize, to: &bool) {
+        self.len = max(self.len, *bit + 1);
         self.set_bit_on_byte(*bit % 8, *bit / 8, to);
     }
 
@@ -60,6 +65,8 @@ impl BooleanBitfield {
             false => self.vec[byte] = self.vec[byte] & !(1 << (bit as u8))
         }
     }
+
+    pub fn len(&self) -> usize { self.len }
 
     // Return the total number of bits set to true.
     pub fn num_true_bits(&self) -> u64 {
@@ -102,6 +109,7 @@ mod tests {
         assert_eq!(b.to_be_vec(), [128]);
         b.set_bit(&7, &false);
         assert_eq!(b.to_be_vec(), [0]);
+        assert_eq!(b.len(), 8);
         
         b = BooleanBitfield::new();
         b.set_bit(&7, &true);
@@ -109,18 +117,21 @@ mod tests {
         assert_eq!(b.to_be_vec(), [129]);
         b.set_bit(&7, &false);
         assert_eq!(b.to_be_vec(), [1]);
+        assert_eq!(b.len(), 8);
         
         b = BooleanBitfield::new();
         b.set_bit(&8, &true);
         assert_eq!(b.to_be_vec(), [1, 0]);
         b.set_bit(&8, &false);
         assert_eq!(b.to_be_vec(), [0, 0]);
+        assert_eq!(b.len(), 9);
         
         b = BooleanBitfield::new();
         b.set_bit(&15, &true);
         assert_eq!(b.to_be_vec(), [128, 0]);
         b.set_bit(&15, &false);
         assert_eq!(b.to_be_vec(), [0, 0]);
+        assert_eq!(b.len(), 16);
         
         b = BooleanBitfield::new();
         b.set_bit(&8, &true);
@@ -128,6 +139,7 @@ mod tests {
         assert_eq!(b.to_be_vec(), [129, 0]);
         b.set_bit(&15, &false);
         assert_eq!(b.to_be_vec(), [1, 0]);
+        assert_eq!(b.len(), 16);
     }
 
     #[test]
