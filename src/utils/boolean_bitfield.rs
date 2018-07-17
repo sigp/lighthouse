@@ -10,6 +10,7 @@ extern crate rlp;
 use std::cmp::max;
 use self::rlp::{ RlpStream, Encodable };
 
+#[derive(Eq)]
 pub struct BooleanBitfield{
     len: usize,
     vec: Vec<u8>
@@ -81,6 +82,23 @@ impl BooleanBitfield {
         count
     }
 }
+
+impl PartialEq for BooleanBitfield {
+    fn eq(&self, other: &BooleanBitfield) -> bool {
+        (self.vec == other.vec) &
+            (self.len == other.len)
+    }
+}
+
+impl Clone for BooleanBitfield {
+    fn clone(&self) -> Self {
+        Self {
+            vec: self.vec.to_vec(),
+            ..*self
+        }
+    }
+}
+
 
 impl Encodable for BooleanBitfield {
     // TODO: ensure this is a sensible method of encoding
