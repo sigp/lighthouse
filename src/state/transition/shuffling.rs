@@ -85,6 +85,31 @@ mod tests {
     }
 
     #[test]
+    fn test_shuffling_32() {
+        let s = get_shuffling(
+            &Sha256Digest::zero(),
+            &32,
+            &Config::standard());
+
+        assert_eq!(s,
+                   vec!(30, 0, 31, 9, 22, 10, 20, 2, 13, 21, 1, 7, 29, 28, 3,
+                        27, 6, 8, 25, 15, 12, 26, 4, 18, 16, 23, 19, 11, 14,
+                        17, 5, 24),
+                   "32 Validator shuffle was not as expected");
+    }
+
+    #[test]
+    fn test_shuffling_unique() {
+        let s = get_shuffling(
+            &Sha256Digest::zero(),
+            &20,
+            &Config::standard());
+        assert_eq!(false,
+                   (1..s.len()).any(|i| s[i..].contains(&s[i-1])),
+                   "Validator Shuffle Non-Unique")
+    }
+
+    #[test]
     fn test_shuffling_with_gt_half_max_validators() {
         let mut config = Config::standard();
         config.max_validators = 19;
