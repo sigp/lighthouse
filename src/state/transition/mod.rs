@@ -12,6 +12,7 @@ use super::validator_record;
 pub mod crosslinks;
 pub mod deposits;
 pub mod ffg;
+pub mod proposers;
 pub mod shuffling;
 pub mod validators;
 pub mod attestors;
