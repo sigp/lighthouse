@@ -1,4 +1,4 @@
-# Rust Beacon Chain 
+# Lighthouse 
 
 [![Build Status](https://travis-ci.org/sigp/rust_beacon_chain.svg?branch=master)](https://travis-ci.org/sigp/rust_beacon_chain)
 
