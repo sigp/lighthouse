@@ -93,7 +93,7 @@ mod tests {
         
         // load some validators into the cry state and flag
         // they have all voted
-        for _i in 0..10 {
+        for _ in 0..10 {
             cry_state.active_validators.push(ValidatorRecord {
                 pubkey: get_dangerous_test_keypair().public,
                 withdrawal_shard: 0,
@@ -118,5 +118,48 @@ mod tests {
         assert_eq!(total_vote_deposits, U256::zero());
         assert_eq!(should_justify, false);
         assert_eq!(should_finalize, false);
+    }
+
+    #[test]
+    fn test_deposit_processing_scenario_3() {
+        let mut cry_state = CrystallizedState::zero();
+        let mut bitfield = Bitfield::new();
+        let mut total_deposits = U256::zero();
+        let individual_deposit = U256::from(50);
+
+        
+        // load some validators into the cry state and flag
+        // some have voted
+        for i in 0..10 {
+            cry_state.active_validators.push(ValidatorRecord {
+                pubkey: get_dangerous_test_keypair().public,
+                withdrawal_shard: 0,
+                withdrawal_address: Address::zero(),
+                randao_commitment: Sha256Digest::zero(),
+                balance: individual_deposit,
+                switch_dynasty: 0,
+            });
+
+            if i < 5 { 
+                bitfield.set_bit(&i, &true);
+                total_deposits = total_deposits + individual_deposit;
+            }
+        }
+
+        cry_state.current_epoch         = 100;
+        cry_state.last_justified_epoch  = 99;
+        cry_state.last_finalized_epoch  = 98;
+        cry_state.total_deposits = U256::from(5);
+
+        let (deltas, total_vote_count, total_vote_deposits,
+             should_justify, should_finalize) = process_ffg_deposits(
+                 &cry_state, &bitfield);
+
+        assert_eq!(deltas[0..5].to_vec(), [6;5]);
+        assert_eq!(deltas[5..10].to_vec(), [-6;5]);
+        assert_eq!(total_vote_count, 5);
+        assert_eq!(total_vote_deposits, total_deposits);
+        assert_eq!(should_justify, true);
+        assert_eq!(should_finalize, true);
     }
 }
