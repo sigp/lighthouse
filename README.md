@@ -11,7 +11,8 @@ largely based upon the
 
 ## Usage
 
-Presently this is just a bunch of data structures and some tests.
+Presently this is proof-of-concept with p2p or any expected node functionality.
+You can run the tests like this:
 
 ```
 $ git clone <url>
@@ -21,7 +22,7 @@ $ cargo test
 
 ## Contact
 
-This repo is presently authored by Paul Hauner (@paulhauner) as a Sigma Prime
+This repo is presently authored by Paul Hauner as a Sigma Prime
 project. 
 
 Best place for discussion is probably the [ethereum/sharding
@@ -29,6 +30,6 @@ gitter](https://gitter.im/ethereum/sharding).
 
 ## TODO:
 
-- [ ] Implement state transitions up-to-par with the Python reference implementation.
+- [X] Implement state transitions up-to-par with the Python reference implementation.
 - [ ] Ensure bls library is secure.
-- [ ] Implement RLP serialization for BLS signatures.
+- [ ] Implement aggregate pub keys for BLS.
