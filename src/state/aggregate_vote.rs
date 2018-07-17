@@ -1,6 +1,7 @@
 use super::utils::types::*;
 use super::utils::bls::AggregateSignature;
 use super::rlp::{ RlpStream, Encodable };
+use super::bytes::{ BytesMut, BufMut };
 
 pub struct AggregateVote {
     pub shard_id: u16,
@@ -17,6 +18,13 @@ impl AggregateVote {
             notary_bitfield: Bitfield::new(),
             aggregate_sig: AggregateSignature::new()
         }
+    }
+
+    pub fn vote_key(&self) -> Vec<u8> {
+        let mut buf = BytesMut::with_capacity(34);
+        buf.extend_from_slice(&self.shard_block_hash.to_vec());
+        buf.put_u16_be(self.shard_id);
+        buf.to_vec()
     }
 }
 
