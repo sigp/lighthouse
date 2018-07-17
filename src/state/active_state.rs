@@ -5,6 +5,7 @@ use super::rlp::encode as rlp_encode;
 use super::blake2::{ Blake2s, Digest };
 use super::utils::types::*;
 
+#[derive(Clone)]
 pub struct ActiveState {
     pub height: u64,
     pub randao: Sha256Digest,

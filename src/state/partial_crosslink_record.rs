@@ -3,7 +3,7 @@ use super::utils::types::{ Sha256Digest, Bitfield };
 use super::rlp::{ RlpStream, Encodable };
 use super::bytes::{ BytesMut, BufMut, Buf };
 
-#[derive(Eq)]
+#[derive(Eq, Clone)]
 pub struct PartialCrosslinkRecord {
     pub shard_id: u16,
     pub shard_block_hash: Sha256Digest,

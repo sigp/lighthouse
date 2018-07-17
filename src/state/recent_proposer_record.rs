@@ -1,6 +1,7 @@
 use super::rlp::{ RlpStream, Encodable };
 use super::utils::types::*;
 
+#[derive(Clone)]
 pub struct RecentPropserRecord {
     pub index: u32,     // TODO: make u24
     pub randao_commitment: Sha256Digest,
