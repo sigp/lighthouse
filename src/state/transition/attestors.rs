@@ -6,6 +6,19 @@ use super::active_state::ActiveState;
 use super::config::Config;
 use super::shuffling::get_shuffling;
 
+pub fn process_recent_attesters(
+    cry_state: &CrystallizedState,
+    recent_attesters: &Vec<usize>,
+    config: &Config)
+    -> Vec<i64>
+{
+    let mut deltas: Vec<i64> = vec![0; cry_state.num_active_validators()];
+    for v in recent_attesters {
+        deltas[*v] += config.attester_reward;
+    }
+    deltas
+}
+
 // For a given state set and skip_count, return a proposer and set
 // of attestors.
 pub fn get_attesters_and_proposer(
@@ -77,6 +90,38 @@ pub fn process_attestations(
 mod tests {
     use super::*;
     
+    #[test]
+    fn test_process_recent_attesters() {
+        let mut cry_state = CrystallizedState::zero();
+        let mut config = Config::standard();
+        let validator_count = 20;
+
+        config.attester_reward = 12;
+
+        let mut recent_attesters: Vec<usize> = vec![];
+
+        for i in 0..validator_count {
+            cry_state.active_validators
+                .push(ValidatorRecord::zero_with_thread_rand_pub_key());
+            if i % 2 == 0 {
+                recent_attesters.push(i);
+            }
+        }
+
+        let d = process_recent_attesters(
+            &cry_state,
+            &recent_attesters,
+            &config);
+
+        for i in 0..validator_count {
+            if i % 2 == 0 {
+                assert_eq!(d[i], config.attester_reward);
+            } else {
+                assert_eq!(d[i], 0);
+            }
+        }
+    }
+
     #[test]
     fn test_attester_and_proposer_selection() {
         let mut cry_state = CrystallizedState::zero();
