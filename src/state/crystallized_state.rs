@@ -6,6 +6,7 @@ use super::rlp::encode as rlp_encode;
 use super::ethereum_types::U256;
 use super::blake2::{ Blake2s, Digest };
 
+#[derive(Clone)]
 pub struct CrystallizedState {
     pub active_validators: Vec<ValidatorRecord>,
     pub queued_validators: Vec<ValidatorRecord>,
