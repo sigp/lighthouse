@@ -3,6 +3,7 @@
 [![Build Status](https://travis-ci.org/sigp/rust_beacon_chain.svg?branch=master)](https://travis-ci.org/sigp/rust_beacon_chain)
 
 A **work-in-progress** implementation of the Ethereum beacon_chain in Rust.
+It's named "lighthouse" because they are rusty beacons.
 
 It is an implementation of the [Full PoS Casper chain
 v2](https://notes.ethereum.org/SCIg8AH5SA-O4C1G1LYZHQ?view) spec and is also
