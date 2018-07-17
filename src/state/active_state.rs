@@ -10,7 +10,7 @@ pub struct ActiveState {
     pub height: u64,
     pub randao: Sha256Digest,
     pub ffg_voter_bitfield: Bitfield,
-    pub recent_attesters: Vec<u32>, // TODO: should be u24
+    pub recent_attesters: Vec<usize>, // TODO: should be u24
     pub partial_crosslinks: Vec<PartialCrosslinkRecord>,
     pub total_skip_count: u64,
     pub recent_proposers: Vec<RecentPropserRecord>
