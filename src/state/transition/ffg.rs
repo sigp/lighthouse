@@ -185,7 +185,7 @@ mod tests {
                 vote_count += 2;
             }
             assert_eq!(pc.voter_bitfield.num_true_bits(), vote_count,
-            "shard_id {} failed.", id);
+                       "shard_id {} failed.", id);
             assert_eq!(pc.shard_block_hash, shard_hashes[id as usize]);
         }
     }
