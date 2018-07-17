@@ -22,3 +22,40 @@ pub mod proposers;
 pub mod shuffling;
 pub mod validators;
 pub mod attestors;
+
+
+use super::block::Block;
+use super::config::Config;
+use super::crystallized_state::CrystallizedState;
+use super::active_state::ActiveState;
+use super::transition::epoch::initialize_new_epoch;
+use super::transition::new_active_state::compute_new_active_state;
+
+pub fn compute_state_transition (
+    parent_cry_state: &CrystallizedState,
+    parent_act_state: &ActiveState,
+    parent_block: &Block,
+    block: &Block,
+    config: &Config) 
+    -> (CrystallizedState, ActiveState)
+{
+    let is_new_epoch =  parent_act_state.height % 
+        config.epoch_length == 0;
+    
+    let (cry_state, mut act_state) = match is_new_epoch {
+        false => (parent_cry_state.clone(), parent_act_state.clone()),
+        true => initialize_new_epoch(
+            &parent_cry_state,
+            &parent_act_state,
+            &config)
+    };
+
+    act_state = compute_new_active_state(
+        &cry_state,
+        &act_state,
+        &parent_block,
+        &block,
+        &config);
+
+    (cry_state, act_state)
+}
