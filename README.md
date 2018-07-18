@@ -1,6 +1,6 @@
 # Lighthouse 
 
-[![Build Status](https://travis-ci.org/sigp/rust_beacon_chain.svg?branch=master)](https://travis-ci.org/sigp/rust_beacon_chain)
+[![Build Status](https://travis-ci.org/sigp/lighthouse.svg?branch=master)](https://travis-ci.org/sigp/lighthouse)
 
 A **work-in-progress** implementation of the Ethereum beacon_chain in Rust.
 
