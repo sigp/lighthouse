@@ -9,9 +9,12 @@ v2](https://notes.ethereum.org/SCIg8AH5SA-O4C1G1LYZHQ?view) spec and is also
 largely based upon the
 [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain) repo.
 
+Thanks to Parity for their excellent crates (e.g., RLP, ethereum_types).
+
 ## Usage
 
-Presently this is proof-of-concept without p2p or any expected node functionality.
+Presently this is proof-of-concept without p2p or any functionality you'd
+expect from Parity or Geth.
 You can run the tests like this:
 
 ```
