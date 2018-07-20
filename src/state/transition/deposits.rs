@@ -32,7 +32,8 @@ pub fn process_ffg_deposits(
         >= cry_state.total_deposits.saturating_mul(U256::from(2));
     let mut should_finalize = false;
     if should_justify {
-        if cry_state.last_justified_epoch == cry_state.current_epoch - 1 {
+        if cry_state.last_justified_epoch == 
+            cry_state.current_epoch.saturating_sub(1) {
             should_finalize = true;
         }
     }
