@@ -30,13 +30,15 @@ use super::crystallized_state::CrystallizedState;
 use super::active_state::ActiveState;
 use super::transition::epoch::initialize_new_epoch;
 use super::transition::new_active_state::compute_new_active_state;
+use super::utils::logging::Logger;
 
 pub fn compute_state_transition (
     parent_cry_state: &CrystallizedState,
     parent_act_state: &ActiveState,
     parent_block: &Block,
     block: &Block,
-    config: &Config) 
+    config: &Config,
+    log: &Logger) 
     -> (CrystallizedState, ActiveState)
 {
     let is_new_epoch =  parent_act_state.height % 
@@ -47,15 +49,23 @@ pub fn compute_state_transition (
         true => initialize_new_epoch(
             &parent_cry_state,
             &parent_act_state,
-            &config)
+            &config,
+            &log)
     };
+    
+    if is_new_epoch {
+        info!(log, "initialized new epoch";
+              "epoch" => cry_state.current_epoch);
+    }
+
 
     act_state = compute_new_active_state(
         &cry_state,
         &act_state,
         &parent_block,
         &block,
-        &config);
+        &config,
+        &log);
 
     (cry_state, act_state)
 }

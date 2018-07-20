@@ -1,9 +1,11 @@
 use super::crystallized_state::CrystallizedState;
 use super::utils::types::{ Bitfield, U256 };
+use super::utils::logging::Logger;
 
 pub fn process_ffg_deposits(
     cry_state: &CrystallizedState,
-    ffg_vote_bitfield: &Bitfield)
+    ffg_vote_bitfield: &Bitfield,
+    log: &Logger)
     -> (Vec<i64>, u64, U256, bool, bool)
 {
     let active_validators: usize = cry_state.num_active_validators();
@@ -34,6 +36,11 @@ pub fn process_ffg_deposits(
             should_finalize = true;
         }
     }
+    
+    info!(log, "counted ffg votes";
+            "total_vote_count" => total_vote_count, 
+            "total_vote_deposits" => total_vote_deposits.low_u64());
+
     (deltas, total_vote_count, total_vote_deposits, should_justify, should_finalize)
 }
 
@@ -41,12 +48,14 @@ pub fn process_ffg_deposits(
 mod tests {
     use super::*;
     use super::super::utils::types::{ Address, Sha256Digest };
+    use super::super::utils::logging::test_logger;
     use super::super::super::validator_record::ValidatorRecord;
     use super::super::
         utils::test_helpers::get_dangerous_test_keypair;
 
     #[test]
     fn test_deposit_processing_scenario_1() {
+        let log = test_logger();
         let mut cry_state = CrystallizedState::zero();
         let mut bitfield = Bitfield::new();
         let mut total_deposits = U256::zero();
@@ -75,7 +84,7 @@ mod tests {
 
         let (deltas, total_vote_count, total_vote_deposits,
              should_justify, should_finalize) = process_ffg_deposits(
-                 &cry_state, &bitfield);
+                 &cry_state, &bitfield, &log);
 
         assert_eq!(deltas, [6; 10]);
         assert_eq!(total_vote_count, 10);
@@ -86,6 +95,7 @@ mod tests {
     
     #[test]
     fn test_deposit_processing_scenario_2() {
+        let log = test_logger();
         let mut cry_state = CrystallizedState::zero();
         let bitfield = Bitfield::new();
         let individual_deposit = U256::from(0);
@@ -111,7 +121,7 @@ mod tests {
 
         let (deltas, total_vote_count, total_vote_deposits,
              should_justify, should_finalize) = process_ffg_deposits(
-                 &cry_state, &bitfield);
+                 &cry_state, &bitfield, &log);
 
         assert_eq!(deltas, [-6; 10]);
         assert_eq!(total_vote_count, 0);
@@ -122,6 +132,7 @@ mod tests {
 
     #[test]
     fn test_deposit_processing_scenario_3() {
+        let log = test_logger();
         let mut cry_state = CrystallizedState::zero();
         let mut bitfield = Bitfield::new();
         let mut total_deposits = U256::zero();
@@ -153,7 +164,7 @@ mod tests {
 
         let (deltas, total_vote_count, total_vote_deposits,
              should_justify, should_finalize) = process_ffg_deposits(
-                 &cry_state, &bitfield);
+                 &cry_state, &bitfield, &log);
 
         assert_eq!(deltas[0..5].to_vec(), [6;5]);
         assert_eq!(deltas[5..10].to_vec(), [-6;5]);

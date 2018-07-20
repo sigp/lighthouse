@@ -5,6 +5,7 @@ use super::crystallized_state::CrystallizedState;
 use super::recent_proposer_record::RecentPropserRecord;
 use super::block::Block;
 use super::utils::types::Sha256Digest;
+use super::utils::logging::Logger;
 use super::config::Config;
 use super::rlp;
 
@@ -19,14 +20,20 @@ pub fn compute_new_active_state(
     act_state: &ActiveState,
     parent_block: &Block,
     block: &Block,
-    config: &Config)
+    config: &Config,
+    log: &Logger)
     -> ActiveState
 {
     let (attestation_indicies, proposer) = get_attesters_and_proposer(
         &cry_state,
         &act_state,
         &block.skip_count,
-        &config);
+        &config,
+        &log);
+    
+    info!(log, "calculated attesters and proposers";
+          "attesters_count" => attestation_indicies.len(),
+          "proposer_index" => proposer);
 
     let parent_block_rlp = rlp::encode(parent_block);
     let attesters_option = process_attestations(
