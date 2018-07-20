@@ -1,6 +1,7 @@
 use super::validator_record::ValidatorRecord;
 use super::utils::types::Bitfield;
 use super::utils::bls::{ AggregateSignature, PublicKey };
+use super::utils::logging::Logger;
 use super::crystallized_state::CrystallizedState;
 use super::active_state::ActiveState;
 use super::config::Config;
@@ -25,7 +26,8 @@ pub fn get_attesters_and_proposer(
     cry_state: &CrystallizedState,
     act_state: &ActiveState,
     skip_count: &u64,
-    config: &Config)
+    config: &Config,
+    log:&Logger)
     -> (Vec<usize>, usize)
 {
     let active_validator_count = cry_state.num_active_validators(); 
@@ -89,6 +91,7 @@ pub fn process_attestations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::utils::logging::test_logger;
     
     #[test]
     fn test_process_recent_attesters() {
@@ -135,7 +138,8 @@ mod tests {
             &cry_state,
             &act_state,
             &0,
-            &Config::standard());
+            &Config::standard(),
+            &test_logger());
         assert_eq!(attestors, [0, 9, 7, 6, 4, 1, 8, 5, 2]);
         assert_eq!(proposer, 3);
     }
@@ -150,7 +154,8 @@ mod tests {
             &cry_state,
             &act_state,
             &0,
-            &Config::standard());
+            &Config::standard(),
+            &test_logger());
     }
 
     #[test]

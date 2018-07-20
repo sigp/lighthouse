@@ -2,6 +2,7 @@ use super::active_state::ActiveState;
 use super::crystallized_state::CrystallizedState;
 use super::validator_record::ValidatorRecord;
 use super::utils::types::{ Bitfield, U256, Sha256Digest };
+use super::utils::logging::Logger;
 use super::config::Config;
 
 use super::deposits::process_ffg_deposits;
@@ -14,7 +15,8 @@ use super::shuffling::get_shuffling;
 pub fn initialize_new_epoch(
     cry_state: &CrystallizedState,
     act_state: &ActiveState,
-    config: &Config) 
+    config: &Config,
+    log: &Logger) 
     -> (CrystallizedState, ActiveState)
 {
     let mut new_validator_records: Vec<ValidatorRecord> = 
@@ -25,13 +27,21 @@ pub fn initialize_new_epoch(
     let (ffg_deltas, _, _,
          should_justify, should_finalize) = process_ffg_deposits (
              &cry_state,
-             &ffg_voter_bitfield);
+             &ffg_voter_bitfield,
+             &log);
+
+    info!(log, "processed ffg deposits";
+            "should_justify" => should_justify, 
+            "should_finalize" => should_finalize);
 
     let (crosslink_notaries_deltas, new_crosslinks) = 
         process_crosslinks(
             &cry_state,
             &act_state.partial_crosslinks,
             &config);
+
+    info!(log, "processed crosslinks";
+            "new_crosslinks_count" => new_crosslinks.len());
 
     let recent_attesters_deltas = process_recent_attesters(
         &cry_state,
@@ -62,6 +72,9 @@ pub fn initialize_new_epoch(
         recent_attesters_deltas.iter().sum::<i64>() +
         recent_proposers_deltas.iter().sum::<i64>();
 
+    info!(log, "processed validator deltas";
+            "new_total_deposits" => deposit_sum);
+
     let total_deposits: U256 = match deposit_sum > 0 {
         true => U256::from(deposit_sum as u64),
         false => U256::zero()
@@ -83,7 +96,8 @@ pub fn initialize_new_epoch(
         true => get_incremented_validator_sets(
             &cry_state,
             &new_validator_records,
-            &config),
+            &config,
+            &log),
         false => (cry_state.queued_validators.to_vec(), 
                   cry_state.active_validators.to_vec(),
                   cry_state.exited_validators.to_vec())
@@ -111,6 +125,11 @@ pub fn initialize_new_epoch(
         total_deposits
     };
 
+    info!(log, "created new crystallized state";
+            "epoch" => new_cry_state.current_epoch,
+            "last_justified_epoch" => new_cry_state.last_justified_epoch,
+            "last_finalized_epoch" => new_cry_state.last_finalized_epoch);
+
     let new_act_state = ActiveState {
         height: act_state.height,
         randao: act_state.randao,
@@ -120,6 +139,9 @@ pub fn initialize_new_epoch(
         total_skip_count: act_state.total_skip_count,
         recent_proposers: vec![]
     };
+
+    info!(log, "created new active state";
+            "height" => new_act_state.height);
 
     (new_cry_state, new_act_state)
 }

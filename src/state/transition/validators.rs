@@ -2,23 +2,27 @@ use std::cmp::min;
 
 use super::crystallized_state::CrystallizedState;
 use super::validator_record::ValidatorRecord;
+use super::utils::logging::Logger;
 use super::config::Config;
 
 pub fn get_incremented_validator_sets(
     cry_state: &CrystallizedState,
     active_validators: &Vec<ValidatorRecord>,
-    config: &Config)
+    config: &Config,
+    log: &Logger)
     -> (Vec<ValidatorRecord>, Vec<ValidatorRecord>, Vec<ValidatorRecord>)
 {
     let mut new_active_validators: Vec<ValidatorRecord> = vec![];
     let mut new_exited_validators: Vec<ValidatorRecord> 
         = cry_state.exited_validators.clone();
     let next_dynasty = cry_state.dynasty + 1;
+    let mut ejection_count = 0;
 
     for v in active_validators {
         if (v.balance <= config.eject_balance) | 
             (v.switch_dynasty == next_dynasty) {
             new_exited_validators.push(v.clone());
+            ejection_count += 1;
         } 
         else {
             new_active_validators.push(v.clone());
@@ -39,6 +43,11 @@ pub fn get_incremented_validator_sets(
     let new_queued_validators = cry_state.
         queued_validators[first_ineligable..cry_state.queued_validators.len()]
             .to_vec();
+
+    info!(log, "updated validator sets";
+          "inducted_count" => induction_count,
+          "ejected_count" => ejection_count);
+
     (new_queued_validators, new_active_validators, new_exited_validators)
 }
 
@@ -46,7 +55,7 @@ pub fn get_incremented_validator_sets(
 mod tests {
     use super::*;
     use super::super::utils::types::U256;
-    // use super::super::shuffling::get_shuffling;
+    use super::super::utils::logging::test_logger;
     
     fn test_setup() -> (CrystallizedState, Config) {
         let mut cry_state = CrystallizedState::zero();
@@ -98,7 +107,8 @@ mod tests {
         let (nq, na, nx) = get_incremented_validator_sets(
             &cry_state,
             &a,
-            &config);
+            &config,
+            &test_logger());
 
         let inducted = validator_count / 30 + 1;
         assert!(inducted > 0);
@@ -155,7 +165,8 @@ mod tests {
         let (nq, na, nx) = get_incremented_validator_sets(
             &cry_state,
             &a,
-            &config);
+            &config,
+            &test_logger());
 
         let inducted = validator_count / 30 + 1;
         assert!(inducted > eligable_queued, "this test requires more inductable \

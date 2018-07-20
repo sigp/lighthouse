@@ -8,6 +8,9 @@ ethereum-types = ""
 rand = "0.3"
 bytes = ""
 blake2 = "^0.7.1"
+slog = "^2.2.3"
+slog-term = "^2.4.0"
+slog-async = "^2.3.0"
 crypto-mac = "^0.6.2"
 bls = { git = "https://github.com/sigp/bls" }
 rlp = { git = "https://github.com/paritytech/parity-common" }

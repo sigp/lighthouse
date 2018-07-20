@@ -9,3 +9,4 @@ pub mod types;
 pub mod bls;
 pub mod test_helpers;
 pub mod boolean_bitfield;
+pub mod logging;
