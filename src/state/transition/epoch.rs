@@ -131,7 +131,8 @@ pub fn initialize_new_epoch(
             "last_finalized_epoch" => new_cry_state.last_finalized_epoch);
 
     let new_act_state = ActiveState {
-        height: act_state.height,
+        height: act_state.height + 1,
+        // TODO: update to new randao
         randao: act_state.randao,
         ffg_voter_bitfield: Bitfield::new(),
         recent_attesters: vec![],
