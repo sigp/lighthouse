@@ -79,7 +79,10 @@ pub fn process_attestations(
     let mut key_msg_tuples: Vec<(&PublicKey, &[u8])> = vec![];
     let mut attesters: Vec<usize> = vec![];
 
-    assert_eq!(attestation_indicies.len(), attestation_bitfield.len());
+    assert_eq!(
+        attestation_indicies.len(), attestation_bitfield.len(),
+        "Bitfield length does not match required attestors."
+    );
     for (bitfield_bit, validators_index) in attestation_indicies.iter().enumerate() {
         if attestation_bitfield.get_bit(&bitfield_bit) {
             key_msg_tuples.push(
