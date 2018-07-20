@@ -43,6 +43,7 @@ pub fn compute_new_active_state(
         &parent_block_rlp.to_vec(),
         &block.attestation_aggregate_sig);
 
+
     // TODO: bls verify signature here.
     
     let (partial_crosslinks, ffg_voter_bitfield, total_new_voters) = 
