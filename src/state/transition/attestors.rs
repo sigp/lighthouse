@@ -41,14 +41,29 @@ pub fn get_attesters_and_proposer(
         + (*skip_count as usize) + proposer_count;
     assert!(ideal_validator_count >= 2, 
             "ideal_validator_count must be >=2");
-    if ideal_validator_count > active_validator_count {
-        return (
-            shuffled_validator_indicies[0..active_validator_count - 1].to_vec(),
-            shuffled_validator_indicies[active_validator_count - 1]);
-    } else {
-        return (
-            shuffled_validator_indicies[0..ideal_validator_count - 1].to_vec(),
-            shuffled_validator_indicies[ideal_validator_count - 1]);
+    /*
+     * If there are adequate validators to allocate a full set of assesters and
+     * a proposer, then do so. Otherwise, the amount of attesters will need to be
+     * validator_count - 1.
+     */
+    match ideal_validator_count > active_validator_count {
+        true => {
+            /*
+             * The active validator count is too low.
+             */
+            warn!(log, "active validator count is low";
+                  "active_validator_count" => active_validator_count,
+                  "ideal_validator_count" => ideal_validator_count);
+            (shuffled_validator_indicies[0..active_validator_count - 1].to_vec(),
+            shuffled_validator_indicies[active_validator_count - 1])
+        }
+        false => {
+            /*
+             * The active validator count is adequate.
+             */
+            (shuffled_validator_indicies[0..ideal_validator_count - 1].to_vec(),
+            shuffled_validator_indicies[ideal_validator_count - 1])
+        }
     }
 }
 
