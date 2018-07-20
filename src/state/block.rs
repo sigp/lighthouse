@@ -31,6 +31,20 @@ impl Block {
             sig: None
         }
     }
+    
+    pub fn zero() -> Block {
+        Block {
+            parent_hash: Sha256Digest::zero(),
+            skip_count: 0,
+            randao_reveal: Sha256Digest::zero(),
+            attestation_bitfield: Bitfield::new(),
+            attestation_aggregate_sig: AggregateSignature::new(),
+            shard_aggregate_votes: vec![],
+            main_chain_ref: Sha256Digest::zero(),
+            state_hash: StateHash::zero(),
+            sig: None
+        }
+    }
 
     /*
      * Take a Block and covert it into an array of u8 for BLS signing 
