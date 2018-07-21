@@ -43,7 +43,13 @@ pub fn compute_state_transition (
 {
     let is_new_epoch =  parent_act_state.height % 
         config.epoch_length == 0;
-    
+
+    /*
+     * If this transition will push the chain into a new epoch,
+     * calculate a new crystallized state and "reset" the 
+     * current active state. Otherwise, continue with the existing
+     * state pair.
+     */
     let (cry_state, mut act_state) = match is_new_epoch {
         false => (parent_cry_state.clone(), parent_act_state.clone()),
         true => initialize_new_epoch(
@@ -57,7 +63,6 @@ pub fn compute_state_transition (
         info!(log, "initialized new epoch";
               "epoch" => cry_state.current_epoch);
     }
-
 
     act_state = compute_new_active_state(
         &cry_state,
