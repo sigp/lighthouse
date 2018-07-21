@@ -4,6 +4,7 @@ extern crate blake2;
 extern crate bytes;
 
 use super::utils;
+use super::pubkeystore;
 
 pub mod active_state;
 pub mod crystallized_state;
