@@ -19,13 +19,28 @@ pub fn initialize_new_epoch(
     log: &Logger) 
     -> (CrystallizedState, ActiveState)
 {
+    /*
+     * Clone the cry_state active validators and the 
+     * act_state ffg bitfield for later modification.
+     */
     let mut new_validator_records: Vec<ValidatorRecord> = 
         cry_state.active_validators.to_vec();
+    // TODO: why isnt this mut?
     let ffg_voter_bitfield: Bitfield = 
         act_state.ffg_voter_bitfield.clone();
 
-    let (ffg_deltas, _, _,
-         should_justify, should_finalize) = process_ffg_deposits (
+    /*
+     * For each active_validator in the cry_state, reward/penalize
+     * them according to their presence in the ffg voter bitfield
+     * (also with consideration to the cry_state finality distance).
+     * These rewards/penalties are represented in the ffg_deltas vec.
+     *
+     * Determines if justification should take place based upon
+     * the ratio of total deposits to voting deposits. If justification
+     * is possible, finalize if the previous epoch was also justified.
+     */
+    let (ffg_deltas, _, _, should_justify, should_finalize) =
+        process_ffg_deposits (
              &cry_state,
              &ffg_voter_bitfield,
              &log);
@@ -34,6 +49,14 @@ pub fn initialize_new_epoch(
             "should_justify" => should_justify, 
             "should_finalize" => should_finalize);
 
+    /*
+     * For all the partial crosslinks in the active state, return a vec of
+     * complete crosslink records representing the most popular partial
+     * record for each shard_id.
+     *
+     * During this process, create a vec of deltas rewarding/penalizing each
+     * validator for thier votes/non-votes on their allocated shard_ids.
+     */
     let (crosslink_notaries_deltas, new_crosslinks) = 
         process_crosslinks(
             &cry_state,
@@ -43,15 +66,27 @@ pub fn initialize_new_epoch(
     info!(log, "processed crosslinks";
             "new_crosslinks_count" => new_crosslinks.len());
 
+    /*
+     * Create a vec of deltas rewarding/penalizing each validator
+     * for their votes/non-votes on blocks during the last epoch.
+     */
     let recent_attesters_deltas = process_recent_attesters(
         &cry_state,
         &act_state.recent_attesters,
         &config);
 
+    /*
+     * Create a vec of deltas rewarding/penalizing each validator
+     * for their block proposals during the past epoch.
+     */
     let recent_proposers_deltas = process_recent_proposers(
         &cry_state,
         &act_state.recent_proposers);
 
+    /*
+     * For each validator, update their balances as per the deltas calculated
+     * previously in this function.
+     */
     for (i, validator) in new_validator_records.iter_mut().enumerate() {
         let balance: i64 = 
             validator.balance.low_u64() as i64 +
@@ -65,16 +100,18 @@ pub fn initialize_new_epoch(
             validator.balance = U256::zero();
         }
     }
-   
+    
+    /*
+     * Determine the new total deposit sum, determined by the individual
+     * rewards/penalities accrued by validators during this epoch.
+     */
     let deposit_sum: i64 = 
         ffg_deltas.iter().sum::<i64>() + 
         crosslink_notaries_deltas.iter().sum::<i64>() +
         recent_attesters_deltas.iter().sum::<i64>() +
         recent_proposers_deltas.iter().sum::<i64>();
-
-    info!(log, "processed validator deltas";
+info!(log, "processed validator deltas";
             "new_total_deposits" => deposit_sum);
-
     let total_deposits: U256 = match deposit_sum > 0 {
         true => U256::from(deposit_sum as u64),
         false => U256::zero()
@@ -90,6 +127,12 @@ pub fn initialize_new_epoch(
         false => (cry_state.last_finalized_epoch, cry_state.dynasty)
     };
 
+    /*
+     * If finalization should take place, "increment" the validator sets.
+     * This involves exiting validators who's balance is too low (from
+     * deltas) or who's dynasty has ended and inducting queued validators
+     * (if possible).
+     */
     let (new_queued_validators, new_active_validators, new_exited_validators) =
         match should_finalize 
     {
@@ -103,11 +146,18 @@ pub fn initialize_new_epoch(
                   cry_state.exited_validators.to_vec())
     };
 
+    /*
+     * Get the validator shuffling for the new epoch, based upon
+     * the rando of the supplied active state.
+     */
     let shuffling = get_shuffling(
         &act_state.randao,
         &new_active_validators.len(),
         &config);
 
+    /*
+     * Generate a new CrystallizedState
+     */
     let new_cry_state = CrystallizedState {
         active_validators: new_active_validators,
         queued_validators: new_queued_validators,
@@ -129,7 +179,11 @@ pub fn initialize_new_epoch(
             "epoch" => new_cry_state.current_epoch,
             "last_justified_epoch" => new_cry_state.last_justified_epoch,
             "last_finalized_epoch" => new_cry_state.last_finalized_epoch);
-
+    /*
+     * Replicate the supplied active state, but reset the fields which
+     * accumulate things during the course of an epoch (e.g, recent_proposers,
+     * partial_crosslinks, etc)
+     */
     let new_act_state = ActiveState {
         height: act_state.height,
         randao: act_state.randao,
