@@ -30,8 +30,10 @@ pub fn listen(peer_id: PeerId,
                peer_store: Arc<MemoryPeerstore>,
                log: &Logger) 
 {
-    let listen_multiaddr: Multiaddr = "/ip4/0.0.0.0/tcp/10101/ws"
+    let listen_multiaddr: Multiaddr = "/ip4/0.0.0.0/tcp/0"
         .parse::<Multiaddr>().expect("Failed to parse listen multiaddr.");
+
+    info!(log, "Local PeerId: {:?}", peer_id);
     
     let core =  tokio_core::reactor::Core::new().expect("tokio failure.");
     let listened_addrs = Arc::new(RwLock::new(vec![]));
@@ -102,6 +104,8 @@ pub fn listen(peer_id: PeerId,
     let actual_addr = swarm_ctrl
         .listen_on(listen_multiaddr)
         .expect("Failed to listen on multiaddr");
+
+    info!(log, "Listening on: {:?}", actual_addr);
 }
 
 #[derive(Clone)]
