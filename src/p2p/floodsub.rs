@@ -1,6 +1,7 @@
 extern crate bigint;
 extern crate bytes;
 extern crate futures;
+extern crate hex;
 extern crate libp2p_peerstore;
 extern crate libp2p_identify;
 extern crate libp2p_core;
@@ -14,9 +15,9 @@ extern crate tokio_io;
 extern crate tokio_timer;
 extern crate tokio_stdin;
 
+use super::state::NetworkState;
 use self::bigint::U512;
 use self::futures::{ Future, Stream };
-use self::libp2p_peerstore::PeerId;
 use self::libp2p_core::{ AddrComponent, Endpoint, Multiaddr, Transport, ConnectionUpgrade };
 use self::libp2p_floodsub::{ FloodSubUpgrade, FloodSubFuture };
 use self::libp2p_kad::{ KademliaUpgrade, KademliaProcessingFuture};
@@ -26,16 +27,14 @@ use std::sync::{ Arc, RwLock };
 use std::time::{ Duration, Instant };
 use std::ops::Deref;
 use std::io::Error as IoError;
-use libp2p_peerstore::memory_peerstore::MemoryPeerstore;
 use self::tokio_io::{ AsyncRead, AsyncWrite };
 use self::bytes::Bytes;
 
-pub fn listen(peer_id: PeerId, 
-               peer_store: Arc<MemoryPeerstore>,
-               log: &Logger) 
+pub fn listen(state: NetworkState, log: &Logger) 
 {
-    let listen_multiaddr: Multiaddr = "/ip4/0.0.0.0/tcp/0"
-        .parse::<Multiaddr>().expect("Failed to parse listen multiaddr.");
+    let peer_store = state.peer_store;
+    let peer_id = state.peer_id;
+    let listen_multiaddr = state.listen_multiaddr;
 
     info!(log, "Local PeerId: {:?}", peer_id);
     
