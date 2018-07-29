@@ -10,14 +10,11 @@ pub mod pubkeystore;
 pub mod state;
 pub mod utils;
 
-use p2p::keys;
-use p2p::floodsub;
 use slog::Drain;
 use clap::{ App, SubCommand};
-use std::sync::Arc;
-use std::time::Duration;
-use libp2p_peerstore::{ PeerAccess, Peerstore };
-use libp2p_peerstore::memory_peerstore::MemoryPeerstore;
+use p2p::config::NetworkConfig;
+use p2p::floodsub;
+use p2p::state::NetworkState;
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -33,22 +30,12 @@ fn main() {
             .about("Generates a new set of random keys for p2p dev.")
         .get_matches();
 
+    let config = NetworkConfig::default();
     if let Some(_) = matches.subcommand_matches("generate-keys") {
-        keys::generate_keys(&log).expect("Failed to generate keys");
+        // keys::generate_keys(&log).expect("Failed to generate keys");
     } else {
-        let (s256k1_public, _s256k1_secret) = keys::load_local_keys(&log);
-        let peer_id = keys::peer_id_from_pub_key(&s256k1_public);
-        let bootstrap_peer_id = 
-            keys::peer_id_from_pub_key(&keys::load_bootstrap_pk(&log));
-        
-       let peer_store = Arc::new(MemoryPeerstore::empty());
-
-       peer_store.peer_or_create(&bootstrap_peer_id).add_addr(
-           "/ip4/127.0.0.1/tcp/10101/ws".parse().unwrap(),
-           Duration::from_secs(3600 * 24 * 356)
-        );
-        
-        floodsub::listen(peer_id, peer_store, &log);
+        let state = NetworkState::new(&config).expect("setup failed");
+        floodsub::listen(state, &log);
     }
     info!(log, "Exiting.");
 }
