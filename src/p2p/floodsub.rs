@@ -1,7 +1,6 @@
 extern crate bigint;
 extern crate bytes;
 extern crate futures;
-extern crate hex;
 extern crate libp2p_peerstore;
 extern crate libp2p_identify;
 extern crate libp2p_core;
