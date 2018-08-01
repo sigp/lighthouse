@@ -13,7 +13,6 @@ clap = "2.32.0"
 eth-secp256k1 = { git = "https://github.com/paritytech/rust-secp256k1" }
 ethereum-types = ""
 futures = "0.1.23"
-hex = "0.3.2"
 libp2p-peerstore = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
 libp2p-core = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
 libp2p-mplex = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
@@ -21,6 +20,8 @@ libp2p-tcp-transport = { git = "https://github.com/tomaka/libp2p-rs", branch ="z
 libp2p-floodsub = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
 libp2p-identify = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
 libp2p-kad = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
+# TODO: Bring pem module internal; too risky to have as external dep.
+pem = "0.5.0"
 rand = "0.3"
 rlp = { git = "https://github.com/paritytech/parity-common" }
 slog = "^2.2.3"

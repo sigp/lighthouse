@@ -1,14 +1,25 @@
+use std::env; 
+use std::path::PathBuf; 
+
 use super::libp2p_core::Multiaddr;
 
+#[derive(Clone)]
 pub struct NetworkConfig {
-    pub config_dir: String,
+    pub data_dir: PathBuf,
     pub listen_multiaddr: Multiaddr,
 }
 
+const DEFAULT_LIGHTHOUSE_DIR: &str = ".lighthouse";
+
 impl NetworkConfig {
     pub fn default() -> Self{
+        let data_dir = {
+            let home = env::home_dir()
+                .expect("Unable to determine home dir.");
+            home.join(DEFAULT_LIGHTHOUSE_DIR)
+        };
         Self {
-            config_dir: ".lighthouse".to_string(),
+            data_dir,
             listen_multiaddr: "/ip4/0.0.0.0/tcp/0"
                 .parse::<Multiaddr>().unwrap()
 
