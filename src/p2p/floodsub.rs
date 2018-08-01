@@ -1,3 +1,11 @@
+/*
+ * This is a scrappy floodsub implementation that is intended
+ * to "make-do" until a p2p impl is finalized.
+ *
+ * It is not guaranteed to be working and needs to be modified 
+ * to run in its own thread.
+ */
+
 extern crate bigint;
 extern crate bytes;
 extern crate futures;
@@ -140,7 +148,7 @@ pub fn listen(state: NetworkState, log: &Logger)
                 info!(log, "Peer discovery results:");
                 for peer in peers {
                     let peer_hash = U512::from(peer.hash());
-                    let distance = 512 - (local_hash ^ peer_hash).leading_zeros();
+                    let _distance = 512 - (local_hash ^ peer_hash).leading_zeros();
                     let peer_addr = AddrComponent::P2P(peer.into_bytes()).into();
                     let dial_result = swarm_ctl.dial(
                         peer_addr,
