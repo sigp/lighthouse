@@ -20,9 +20,14 @@ impl NetworkConfig {
         };
         Self {
             data_dir,
-            listen_multiaddr: "/ip4/0.0.0.0/tcp/0"
-                .parse::<Multiaddr>().unwrap()
+            listen_multiaddr: NetworkConfig::multiaddr_on_port("0")
 
         }
+    }
+
+    /// Return a TCP multiaddress on 0.0.0.0 for a given port.
+    pub fn multiaddr_on_port(port: &str) -> Multiaddr {
+        return format!("/ip4/0.0.0.0/tcp/{}", port)
+            .parse::<Multiaddr>().unwrap()
     }
 }

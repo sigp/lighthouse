@@ -42,8 +42,6 @@ pub fn listen(state: NetworkState, log: &Logger)
     let peer_store = state.peer_store;
     let peer_id = state.peer_id;
     let listen_multiaddr = state.listen_multiaddr;
-
-    info!(log, "Local PeerId: {:?}", peer_id);
     
     let mut core =  tokio_core::reactor::Core::new().expect("tokio failure.");
     let listened_addrs = Arc::new(RwLock::new(vec![]));
@@ -116,7 +114,7 @@ pub fn listen(state: NetworkState, log: &Logger)
         .listen_on(listen_multiaddr)
         .expect("Failed to listen on multiaddr");
 
-    info!(log, "Listening on: {:?}", actual_addr);
+    info!(log, "libp2p listening"; "listen_addr" => actual_addr.to_string());
 
     let (kad_ctl, kad_init) = kad_ctl_proto.start(
         swarm_ctl.clone(),
@@ -145,10 +143,12 @@ pub fn listen(state: NetworkState, log: &Logger)
             .and_then(move |()| kad_ctl.find_node(peer_id.clone()))
             .for_each(move |peers| {
                 let local_hash = U512::from(polling_peer_id.hash());
-                info!(log, "Peer discovery results:");
                 for peer in peers {
                     let peer_hash = U512::from(peer.hash());
-                    let _distance = 512 - (local_hash ^ peer_hash).leading_zeros();
+                    let distance = 512 - (local_hash ^ peer_hash).leading_zeros();
+                    info!(log, "Discovered peer"; 
+                          "distance" => distance,
+                          "peer_id" => peer.to_base58());
                     let peer_addr = AddrComponent::P2P(peer.into_bytes()).into();
                     let dial_result = swarm_ctl.dial(
                         peer_addr,
