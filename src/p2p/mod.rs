@@ -4,7 +4,7 @@ extern crate pem;
 extern crate secp256k1;
 extern crate slog;
 
-pub mod floodsub;
+pub mod service;
 pub mod state;
 // pub mod keys;
 pub mod config;
