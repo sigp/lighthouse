@@ -46,7 +46,8 @@ impl NetworkState {
             let base = JsonPeerstore::new(path)?;
             Arc::new(base)
         };
-        let listen_multiaddr = "/ip4/0.0.0.0/tcp/0".parse::<Multiaddr>()?;
+        info!(log, "Loaded peerstore"; "peer_count" => &peer_store.peers().count());
+        let listen_multiaddr = config.listen_multiaddr.clone();
         Ok(Self {
             config: config,
             seckey,
@@ -63,19 +64,6 @@ impl NetworkState {
                     duration_secs: u64) {
         self.peer_store.peer_or_create(&peer_id)
             .add_addr(multiaddr, Duration::from_secs(duration_secs));
-    }
-
-    // TODO: this shouldn't be hard-coded; distribute with peers json.
-    pub fn add_sigp_peer(&mut self) {
-        let peer_id = {
-            let b58 = "Qmajfeei87f8V5N7SQwPw3wr57M1dNcGNwhTqf72v73E7U";
-            b58.parse::<PeerId>().unwrap()
-        };
-        let multiaddr = {
-            let string = "/dns/lh.sigp.io/tcp/10101";
-            string.parse::<Multiaddr>().unwrap()
-        };
-        self.add_peer(peer_id, multiaddr, 3600 * 24 * 356);
     }
 
     /// Instantiate a SecretKey from a .pem file on disk. 
