@@ -1,4 +1,4 @@
-# Lighthouse: an Ethereum 2.0-only client 
+# Lighthouse: a (future) Ethereum 2.0 client 
 
 [![Build Status](https://travis-ci.org/sigp/lighthouse.svg?branch=master)](https://travis-ci.org/sigp/lighthouse)
 
@@ -10,7 +10,7 @@ largely based upon the
 [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain) repo.
 
 **NOTE: the cryptography libraries used in this implementation are very
-experimental and all cryptography should be assumed to be insecure.**
+experimental and as such all cryptography should be assumed to be insecure.**
 
 ## Motivation
 
@@ -60,8 +60,8 @@ $ cargo test
 
 ## Contact
 
-This repo is presently authored by Paul Hauner as a Sigma Prime
-project. 
+This repo is presently authored by Paul Hauner as a 
+[Sigma Prime](https://github.com/sigp) project. 
 
-Best place for discussion is probably the [ethereum/sharding
+The best place for discussion is probably the [ethereum/sharding
 gitter](https://gitter.im/ethereum/sharding).
