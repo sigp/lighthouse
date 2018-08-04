@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use slog::Drain;
 use clap::{ Arg, App };
 use p2p::config::NetworkConfig;
-use p2p::service;
+use p2p::service::NetworkService;
 use p2p::state::NetworkState;
 
 fn main() {
@@ -58,7 +58,10 @@ fn main() {
         // keys::generate_keys(&log).expect("Failed to generate keys");
     } else {
         let mut state = NetworkState::new(config, &log).expect("setup failed");
-        service::listen(state, &log);
+        let service = NetworkService::new(state, log.new(o!()));
+        service.send(vec![31, 32, 33]);
+        service.bg_thread.join().unwrap();
+
     }
     info!(log, "Exiting.");
 }
