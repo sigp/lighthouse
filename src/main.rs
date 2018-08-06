@@ -8,15 +8,18 @@ extern crate libp2p_peerstore;
 pub mod p2p;
 pub mod pubkeystore;
 pub mod state;
+pub mod sync;
 pub mod utils;
+pub mod config;
 
 use std::path::PathBuf; 
 
 use slog::Drain;
 use clap::{ Arg, App };
-use p2p::config::NetworkConfig;
+use config::LighthouseConfig;
 use p2p::service::NetworkService;
 use p2p::state::NetworkState;
+use sync::sync_start;
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -40,17 +43,16 @@ fn main() {
             .takes_value(true))
         .get_matches();
 
-    let mut config = NetworkConfig::default();
+    let mut config = LighthouseConfig::default();
 
     // Custom datadir
     if let Some(dir) = matches.value_of("datadir") {
         config.data_dir = PathBuf::from(dir.to_string());
     }
 
-    // Custom listen port
+    // Custom p2p listen port
     if let Some(port) = matches.value_of("port") {
-        config.listen_multiaddr =
-            NetworkConfig::multiaddr_on_port(&port.to_string());
+        config.p2p_listen_port = port.to_string();
     }
 
     info!(log, ""; "data_dir" => &config.data_dir.to_str());
@@ -58,10 +60,8 @@ fn main() {
         // keys::generate_keys(&log).expect("Failed to generate keys");
     } else {
         let mut state = NetworkState::new(config, &log).expect("setup failed");
-        let service = NetworkService::new(state, log.new(o!()));
-        service.send(vec![31, 32, 33]);
-        service.bg_thread.join().unwrap();
-
+        let (service, net_rx) = NetworkService::new(state, log.new(o!()));
+        sync_start(service, net_rx, log.new(o!()));
     }
     info!(log, "Exiting.");
 }

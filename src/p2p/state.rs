@@ -6,7 +6,7 @@ use std::fs::File;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::config::NetworkConfig;
+use super::super::config::LighthouseConfig;
 use super::libp2p_core::Multiaddr;
 use super::libp2p_peerstore::{ Peerstore, PeerAccess, PeerId };
 use super::libp2p_peerstore::json_peerstore::JsonPeerstore;
@@ -20,7 +20,7 @@ const PEERS_FILE: &str = "peerstore.json";
 const LOCAL_PEM_FILE: &str = "local_peer_id.pem";
 
 pub struct NetworkState {
-    pub config: NetworkConfig,
+    pub config: LighthouseConfig,
     pub pubkey: PublicKey,
     pub seckey: SecretKey,
     pub peer_id: PeerId,
@@ -29,7 +29,7 @@ pub struct NetworkState {
 }
 
 impl NetworkState {
-    pub fn new(config: NetworkConfig, log: &Logger) -> Result <Self, Box<Error>> {
+    pub fn new(config: LighthouseConfig, log: &Logger) -> Result <Self, Box<Error>> {
         let curve = Secp256k1::new();
         let seckey = match 
             NetworkState::load_secret_key_from_pem_file(&config, &curve)
@@ -47,7 +47,9 @@ impl NetworkState {
             Arc::new(base)
         };
         info!(log, "Loaded peerstore"; "peer_count" => &peer_store.peers().count());
-        let listen_multiaddr = config.listen_multiaddr.clone();
+        // let listen_multiaddr = config.listen_multiaddr.clone();
+        let listen_multiaddr =
+            NetworkState::multiaddr_on_port(&config.p2p_listen_port);
         Ok(Self {
             config: config,
             seckey,
@@ -56,6 +58,12 @@ impl NetworkState {
             listen_multiaddr,
             peer_store,
         })
+    }
+
+    /// Return a TCP multiaddress on 0.0.0.0 for a given port.
+    pub fn multiaddr_on_port(port: &str) -> Multiaddr {
+        return format!("/ip4/0.0.0.0/tcp/{}", port)
+            .parse::<Multiaddr>().unwrap()
     }
 
     pub fn add_peer(&mut self,
@@ -67,7 +75,7 @@ impl NetworkState {
     }
 
     /// Instantiate a SecretKey from a .pem file on disk. 
-    pub fn load_secret_key_from_pem_file(config: &NetworkConfig, curve: &Secp256k1)
+    pub fn load_secret_key_from_pem_file(config: &LighthouseConfig, curve: &Secp256k1)
         -> Result<SecretKey, Box<Error>> 
     {
         let path = config.data_dir.join(LOCAL_PEM_FILE);
@@ -81,7 +89,7 @@ impl NetworkState {
     
     /// Generate a new SecretKey and store it on disk as a .pem file. 
     pub fn generate_new_secret_key(
-        config: &NetworkConfig,
+        config: &LighthouseConfig,
         curve: &Secp256k1)
         -> Result<SecretKey, Box<Error>> 
     {
