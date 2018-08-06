@@ -6,5 +6,3 @@ extern crate slog;
 
 pub mod service;
 pub mod state;
-// pub mod keys;
-pub mod config;

@@ -27,6 +27,8 @@ rlp = { git = "https://github.com/paritytech/parity-common" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
+tokio = "0.1"
+# Old tokio required for libp2p
 tokio-io = "0.1"
 tokio-core = "0.1"
 tokio-timer = "0.1"
