@@ -1,11 +1,3 @@
-/*
- * This is a scrappy floodsub implementation that is intended
- * to "make-do" until a p2p impl is finalized.
- *
- * It is not guaranteed to be working and needs to be modified 
- * to run in its own thread.
- */
-
 extern crate bigint;
 extern crate bytes;
 extern crate futures;
