@@ -2,7 +2,7 @@ extern crate futures;
 extern crate slog;
 extern crate tokio;
 
-use super::p2p::service::NetworkService;
+use super::network_libp2p::service::NetworkService;
 use self::futures::sync::mpsc::UnboundedReceiver;
 use self::futures::Stream;
 use slog::Logger;
