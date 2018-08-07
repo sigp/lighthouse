@@ -4,36 +4,20 @@ version = "0.0.1"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 
 [dependencies]
-bigint = "4.2"
 blake2 = "^0.7.1"
 bls = { git = "https://github.com/sigp/bls" }
 bytes = ""
 crypto-mac = "^0.6.2"
 clap = "2.32.0"
-eth-secp256k1 = { git = "https://github.com/paritytech/rust-secp256k1" }
 ethereum-types = ""
 futures = "0.1.23"
-libp2p-peerstore = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
-libp2p-core = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
-libp2p-mplex = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
-libp2p-tcp-transport = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
-libp2p-floodsub = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
-libp2p-identify = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
-libp2p-kad = { git = "https://github.com/tomaka/libp2p-rs", branch ="zksummit" }
 network-libp2p = { path = "network-libp2p" }
-# TODO: Bring pem module internal; too risky to have as external dep.
-pem = "0.5.0"
 rand = "0.3"
 rlp = { git = "https://github.com/paritytech/parity-common" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
 tokio = "0.1"
-# Old tokio required for libp2p
-tokio-io = "0.1"
-tokio-core = "0.1"
-tokio-timer = "0.1"
-tokio-stdin = "0.1"
 
 [dependencies.pairing]
 git = "https://github.com/mmaker/pairing"
