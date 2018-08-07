@@ -4,8 +4,8 @@ extern crate slog_term;
 extern crate slog_async;
 extern crate clap;
 extern crate libp2p_peerstore;
+extern crate network_libp2p;
 
-pub mod p2p;
 pub mod pubkeystore;
 pub mod state;
 pub mod sync;
@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use slog::Drain;
 use clap::{ Arg, App };
 use config::LighthouseConfig;
-use p2p::service::NetworkService;
-use p2p::state::NetworkState;
+use network_libp2p::service::NetworkService;
+use network_libp2p::state::NetworkState;
 use sync::sync_start;
 
 fn main() {
@@ -51,17 +51,27 @@ fn main() {
     }
 
     // Custom p2p listen port
-    if let Some(port) = matches.value_of("port") {
-        config.p2p_listen_port = port.to_string();
+    if let Some(port_str) = matches.value_of("port") {
+        if let Ok(port) = port_str.parse::<u16>() {
+            config.p2p_listen_port = port;
+        } else {
+            error!(log, "Invalid port"; "port" => port_str);
+            return;
+        }
     }
+    
+    // Log configuration
+    info!(log, ""; 
+          "data_dir" => &config.data_dir.to_str(),
+          "port" => &config.p2p_listen_port);
+    
+    let state = NetworkState::new(
+        &config.data_dir,
+        &config.p2p_listen_port,
+        &log)
+        .expect("setup failed");
+    let (service, net_rx) = NetworkService::new(state, log.new(o!()));
+    sync_start(service, net_rx, log.new(o!()));
 
-    info!(log, ""; "data_dir" => &config.data_dir.to_str());
-    if let Some(_) = matches.subcommand_matches("generate-keys") {
-        // keys::generate_keys(&log).expect("Failed to generate keys");
-    } else {
-        let mut state = NetworkState::new(config, &log).expect("setup failed");
-        let (service, net_rx) = NetworkService::new(state, log.new(o!()));
-        sync_start(service, net_rx, log.new(o!()));
-    }
     info!(log, "Exiting.");
 }
