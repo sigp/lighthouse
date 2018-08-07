@@ -3,7 +3,6 @@ extern crate slog;
 extern crate slog_term;
 extern crate slog_async;
 extern crate clap;
-extern crate libp2p_peerstore;
 extern crate network_libp2p;
 
 pub mod pubkeystore;
