@@ -1,114 +1,56 @@
-use super::utils::types::{ Sha256Digest, Bitfield, StateHash };
+use super::utils::types::Hash256;
 use super::utils::bls::{ Signature, AggregateSignature, Keypair, PublicKey };
-use super::aggregate_vote::AggregateVote;
-use super::rlp::{ RlpStream, Encodable } ;
+use super::attestation_record::AttestationRecord;
+use super::ssz;
+
+use std::hash::{ Hash, Hasher };
+
+const SSZ_BLOCK_LENGTH: usize = 192;
 
 pub struct Block {
-    pub parent_hash: Sha256Digest,
-    pub skip_count: u64,
-    pub randao_reveal: Sha256Digest,
-    pub attestation_bitfield: Bitfield,
-    pub attestation_aggregate_sig: AggregateSignature,
-    pub shard_aggregate_votes: Vec<AggregateVote>,
-    pub main_chain_ref: Sha256Digest,
-    pub state_hash: StateHash,
-    pub sig: Option<Signature>
+    pub parent_hash: Hash256,
+    pub slot_number: u64,
+    pub randao_reveal: Hash256,
+    pub attestations: Vec<AttestationRecord>,
+    pub pow_chain_ref: Hash256,
+    pub active_state_root: Hash256,
+    pub crystallized_state_root: Hash256,
 } 
+
 impl Block {
-    pub fn new(parent_hash: Sha256Digest,
-               randao_reveal: Sha256Digest,
-               main_chain_ref: Sha256Digest,
-               state_hash: StateHash) -> Block {
-        Block {
-            parent_hash: parent_hash,
-            skip_count: 0,
-            randao_reveal: randao_reveal,
-            attestation_bitfield: Bitfield::new(),
-            attestation_aggregate_sig: AggregateSignature::new(),
-            shard_aggregate_votes: Vec::new(),
-            main_chain_ref: main_chain_ref,
-            state_hash: state_hash,
-            sig: None
-        }
-    }
-    
-    pub fn zero() -> Block {
-        Block {
-            parent_hash: Sha256Digest::zero(),
-            skip_count: 0,
-            randao_reveal: Sha256Digest::zero(),
-            attestation_bitfield: Bitfield::new(),
-            attestation_aggregate_sig: AggregateSignature::new(),
-            shard_aggregate_votes: vec![],
-            main_chain_ref: Sha256Digest::zero(),
-            state_hash: StateHash::zero(),
-            sig: None
+    pub fn zero() -> Self {
+        Self {
+            parent_hash: Hash256::zero(),
+            slot_number: 0,
+            randao_reveal: Hash256::zero(),
+            attestations: vec![],
+            pow_chain_ref: Hash256::zero(),
+            active_state_root: Hash256::zero(),
+            crystallized_state_root: Hash256::zero(),
         }
     }
 
-    /*
-     * Take a Block and covert it into an array of u8 for BLS signing 
-     * or verfication. The `sig` field is purposefully omitted.
-     */
-    pub fn encode_to_signable_message(&self) -> [u8; 9140] {
-        // Using biggest avg. block size from v2 spec
-        let mut message: [u8; 9140] = [0; 9140];    
-
-        // Create the RLP vector
-        let mut s = RlpStream::new();
+    /// Returns a Vec<u8> 
+    pub fn ssz_encode_without_attestations(&self) 
+        -> [u8; SSZ_BLOCK_LENGTH]
+    {
+        let mut s = ssz::SszStream::new();
         s.append(&self.parent_hash);
-        s.append(&self.skip_count);
+        s.append(&self.slot_number);
         s.append(&self.randao_reveal);
-        s.append(&self.attestation_bitfield);
-        // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
-        s.append_list(&self.shard_aggregate_votes);
-        s.append(&self.main_chain_ref);
-        // TODO: state hash serialization is probably incorrect.
-        s.append(&self.state_hash.crystallized_state);
-        s.append(&self.state_hash.active_state);
-        let rlp_vec = s.out();
-
-        // Parse the RLP vector into an array compatible with the BLS signer
-        let len = rlp_vec.len();
-        message[..len].copy_from_slice(&rlp_vec[..len]);
-        message
-    }
-    
-    /*
-     * Sign the block with the given keypair.
-     */
-    pub fn sig_sign(&mut self, keypair: &Keypair) {
-        let message = self.encode_to_signable_message();
-        self.sig = Some(keypair.sign(&message));
-    }
-   
-    /*
-     * Verify a block signature given some keypair.
-     */
-    pub fn sig_verify(&self, pub_key: &PublicKey) -> bool {
-        let message = self.encode_to_signable_message();
-        match &self.sig {
-            None => false,
-            Some(sig) => {
-                pub_key.verify(&message, &sig)
-            },
-        }
+        s.append(&self.pow_chain_ref);
+        s.append(&self.active_state_root);
+        s.append(&self.crystallized_state_root);
+        let vec = s.drain();
+        let mut encoded = [0; SSZ_BLOCK_LENGTH];
+        encoded.copy_from_slice(&vec); encoded
     }
 }
 
-impl Encodable for Block {
-    fn rlp_append(&self, s: &mut RlpStream) {
-        s.append(&self.parent_hash);
-        s.append(&self.skip_count);
-        s.append(&self.randao_reveal);
-        s.append(&self.attestation_bitfield);
-        // s.append(&self.attestation_aggregate_sig);   // TODO: RLP this
-        s.append_list(&self.shard_aggregate_votes);
-        s.append(&self.main_chain_ref);
-        // TODO: state hash serialization is probably incorrect.
-        s.append(&self.state_hash.crystallized_state);
-        s.append(&self.state_hash.active_state);
-        // s.append(&self.sig);    // TODO: RLP this
+impl Hash for Block {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let bytes = self.ssz_encode_without_attestations();
+        bytes.hash(state);
     }
 }
 
@@ -161,7 +103,7 @@ mod tests {
     }
     
     #[test]
-    fn test_rlp_serialization() {
+    fn test_ssz_serialization() {
         let b = Block {
             parent_hash: Sha256Digest::zero(),
             skip_count: 100,

@@ -1,129 +1,66 @@
-use super::utils::types::{ Sha256Digest, Blake2sDigest };
 use super::validator_record::ValidatorRecord;
 use super::crosslink_record::CrosslinkRecord;
-use super::rlp::{ RlpStream, Encodable };
-use super::rlp::encode as rlp_encode;
+use super::shard_and_committee::ShardAndCommittee;
 use super::ethereum_types::U256;
-use super::blake2::{ Blake2s, Digest };
+use super::utils::types::{ Hash256 };
+
 
 #[derive(Clone)]
 pub struct CrystallizedState {
-    pub active_validators: Vec<ValidatorRecord>,
-    pub queued_validators: Vec<ValidatorRecord>,
-    pub exited_validators: Vec<ValidatorRecord>,
-    pub current_shuffling: Vec<usize>,  // TODO: should be u24
-    pub current_epoch: u64,
-    pub last_justified_epoch: u64,
-    pub last_finalized_epoch: u64,
-    pub dynasty: u64,
-    pub next_shard: u16,
-    pub current_checkpoint: Sha256Digest,
+    pub validators: Vec<ValidatorRecord>,
+    pub epoch_number: u64,
+    pub indicies_for_heights: Vec<ShardAndCommittee>,
+    pub last_justified_slot: u64,
+    pub justified_streak: u16,
+    pub last_finalized_slot: u64,
+    pub current_dynasty: u64,
+    pub crosslinking_shard_start: u16,
     pub crosslink_records: Vec<CrosslinkRecord>,
     pub total_deposits: U256,
+    pub dynasty_seed: Hash256,
+    pub dynasty_seed_last_reset: u64,
 }
 
 impl CrystallizedState {
-    // Returns a new instance with all values set to zero.
+    /// Returns a new instance where all fields are either zero or an
+    /// empty vector.
     pub fn zero() -> Self {
         Self {
-            active_validators: Vec::new(),
-            queued_validators: Vec::new(),
-            exited_validators: Vec::new(),
-            current_shuffling: Vec::new(),
-            current_epoch: 0,
-            last_justified_epoch: 0,
-            last_finalized_epoch: 0,
-            dynasty: 0,
-            next_shard: 0,
-            current_checkpoint: Sha256Digest::zero(),
-            crosslink_records: Vec::new(),
+            validators: vec![],
+            epoch_number: 0,
+            indicies_for_heights: vec![],
+            last_justified_slot: 0,
+            justified_streak: 0,
+            last_finalized_slot: 0,
+            current_dynasty: 0,
+            crosslinking_shard_start: 0,
+            crosslink_records: vec![],
             total_deposits: U256::zero(),
+            dynasty_seed: Hash256::zero(),
+            dynasty_seed_last_reset: 0,
         }
-    }
-
-    pub fn finality_distance(&self) -> u64 {
-        assert!(self.current_epoch >= self.last_finalized_epoch);
-        self.current_epoch - self.last_finalized_epoch
-    }
-
-    pub fn num_active_validators(&self) -> usize {
-        self.active_validators.len()
-    }
-
-    pub fn num_queued_validators(&self) -> usize {
-        self.queued_validators.len()
-    }
-
-    pub fn num_exited_validators(&self) -> usize {
-        self.exited_validators.len()
-    }
-
-    pub fn num_crosslink_records(&self) -> usize {
-        self.crosslink_records.len()
-
-    }
-    
-    pub fn blake2s_hash(&self) -> Blake2sDigest {
-        let mut hasher = Blake2s::new();
-        hasher.input(&rlp_encode(self).into_vec());
-        let mut digest = Blake2sDigest::new();
-        digest.clone_from_slice(hasher.result().as_slice());
-        digest
-    }
-}
-
-/*
- * RLP Encoding
- */
-impl Encodable for CrystallizedState {
-    fn rlp_append(&self, s: &mut RlpStream) {
-        s.append_list(&self.active_validators);
-        s.append_list(&self.queued_validators);
-        s.append_list(&self.exited_validators);
-        s.append_list(&self.current_shuffling);
-        s.append(&self.current_epoch);
-        s.append(&self.last_justified_epoch);
-        s.append(&self.last_finalized_epoch);
-        s.append(&self.dynasty);
-        s.append(&self.next_shard);
-        s.append(&self.current_checkpoint);
-        s.append_list(&self.crosslink_records);
-        s.append(&self.total_deposits);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::rlp;
     use super::*;
 
     #[test]
-    fn test_rlp_serialization() {
-        let a = CrystallizedState {
-            active_validators: Vec::new(),
-            queued_validators: Vec::new(),
-            exited_validators: Vec::new(),
-            current_shuffling: Vec::new(),
-            current_epoch: 10,
-            last_justified_epoch: 8,
-            last_finalized_epoch: 2,
-            dynasty: 3,
-            next_shard: 12,
-            current_checkpoint: Sha256Digest::zero(),
-            crosslink_records: Vec::new(),
-            total_deposits: U256::zero(),
-        };
-        let e = rlp::encode(&a);
-        assert_eq!(e.len(), 44);
-        assert_eq!(e[0..4], [192; 4]);
-        assert_eq!(e[4], 10);
-        assert_eq!(e[5], 8);
-        assert_eq!(e[6], 2);
-        assert_eq!(e[7], 3);
-        assert_eq!(e[8], 12);
-        assert_eq!(e[9], 160);
-        assert_eq!(e[10..42], [0; 32]);
-        assert_eq!(e[42], 192);
-        assert_eq!(e[43], 128);
+    fn test_cry_state_zero() {
+        let c = CrystallizedState::zero();
+        assert_eq!(c.validators.len(), 0);
+        assert_eq!(c.epoch_number, 0);
+        assert_eq!(c.indicies_for_heights.len(), 0);
+        assert_eq!(c.last_justified_slot, 0);
+        assert_eq!(c.justified_streak, 0);
+        assert_eq!(c.last_finalized_slot, 0);
+        assert_eq!(c.current_dynasty, 0);
+        assert_eq!(c.crosslinking_shard_start, 0);
+        assert_eq!(c.crosslink_records.len(), 0);
+        assert!(c.total_deposits.is_zero());
+        assert!(c.dynasty_seed.is_zero());
+        assert_eq!(c.dynasty_seed_last_reset, 0);
     }
+
 }
