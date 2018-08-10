@@ -18,7 +18,6 @@ impl CrosslinkRecord {
 
 #[cfg(test)]
 mod tests {
-    use super::super::rlp;
     use super::*;
 
     #[test]

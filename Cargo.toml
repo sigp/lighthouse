@@ -17,6 +17,7 @@ rlp = { git = "https://github.com/paritytech/parity-common" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
+ssz = { path = "ssz" }
 tokio = "0.1"
 
 [dependencies.pairing]

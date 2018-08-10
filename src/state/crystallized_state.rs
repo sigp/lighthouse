@@ -5,7 +5,6 @@ use super::ethereum_types::U256;
 use super::utils::types::{ Hash256 };
 
 
-#[derive(Clone)]
 pub struct CrystallizedState {
     pub validators: Vec<ValidatorRecord>,
     pub epoch_number: u64,
