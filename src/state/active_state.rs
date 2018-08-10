@@ -1,7 +1,6 @@
 use super::utils::types::Hash256;
 use super::attestation_record::AttestationRecord;
 
-#[derive(Clone)]
 pub struct ActiveState {
     pub pending_attestations: Vec<AttestationRecord>,
     pub recent_block_hashes: Vec<Hash256>,

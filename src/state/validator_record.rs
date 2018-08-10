@@ -49,16 +49,11 @@ impl Clone for ValidatorRecord {
 
 #[cfg(test)]
 mod tests {
-    use super::super::rlp;
-    extern crate rand;
-
     use super::*;
-    use super::super::
-        utils::test_helpers::get_dangerous_test_keypair;
 
     #[test]
     fn test_validator_record_zero_rand_keypair() {
-        let (v, kp) = ValidatorRecord::zero_with_thread_rand_keypair();
+        let (v, _kp) = ValidatorRecord::zero_with_thread_rand_keypair();
         // TODO: check keys
         assert_eq!(v.withdrawal_shard, 0);
         assert!(v.withdrawal_address.is_zero());

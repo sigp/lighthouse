@@ -2,14 +2,13 @@ use super::utils::types::{ Hash256, Bitfield };
 use super::utils::bls::{ AggregateSignature };
 
 
-#[derive(Clone)]
 pub struct AttestationRecord {
-    slot: u64,
-    shard_id: u16,
-    oblique_parent_hashes: Vec<Hash256>,
-    shard_block_hash: Hash256,
-    attester_bitfield: Bitfield,
-    aggregate_sig: Option<AggregateSignature>,
+    pub slot: u64,
+    pub shard_id: u16,
+    pub oblique_parent_hashes: Vec<Hash256>,
+    pub shard_block_hash: Hash256,
+    pub attester_bitfield: Bitfield,
+    pub aggregate_sig: Option<AggregateSignature>,
 }
 
 impl AttestationRecord {
