@@ -11,6 +11,7 @@ pub use super::ethereum_types::U256;
 // which is bad. Make the compiler think they're incompatible.
 pub type Sha256Digest = H256;
 pub type Blake2sDigest = H256;
+pub type Hash256 = H256;
 
 pub type Address = H160;
 
