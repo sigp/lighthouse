@@ -4,7 +4,9 @@ version = "0.0.1"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 
 [dependencies]
+# TODO: remove "blake2" in favor of "blake2-rfc"
 blake2 = "^0.7.1"
+blake2-rfc = "0.2.18"
 bls = { git = "https://github.com/sigp/bls" }
 bytes = ""
 crypto-mac = "^0.6.2"

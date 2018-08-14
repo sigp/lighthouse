@@ -6,6 +6,7 @@ extern crate clap;
 extern crate network_libp2p;
 
 pub mod pubkeystore;
+pub mod shuffling;
 pub mod state;
 pub mod sync;
 pub mod utils;
