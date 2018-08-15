@@ -40,14 +40,6 @@ technologies:
 As of 02/08/2018, there is a basic libp2p implementation alongside a series of
 state objects and state transition functions. There are no syncing capabilities.
 
-### Roadmap
-
- - [ ] Upgrade to the v2.1 spec.
- - [ ] Implement local storage (e.g., RocksDB, LevelDB).
- - [ ] Implement a syncing procedure.
- - [ ] Align to whichever P2P spec is chosen for the Beacon Chain by the EF.
- - [ ] Provide validation services (participate in consensus)
-
 ## Usage
 
 You can run the tests like this:
