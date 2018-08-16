@@ -5,5 +5,6 @@ extern crate secp256k1;
 #[macro_use]
 extern crate slog;
 
+pub mod message;
 pub mod service;
 pub mod state;
