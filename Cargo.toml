@@ -15,6 +15,7 @@ ethereum-types = ""
 futures = "0.1.23"
 network-libp2p = { path = "network-libp2p" }
 rand = "0.3"
+rocksdb = "0.10.1"
 rlp = { git = "https://github.com/paritytech/parity-common" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"

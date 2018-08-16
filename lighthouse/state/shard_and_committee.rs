@@ -1,6 +1,6 @@
 pub struct ShardAndCommittee {
-    shard_id: u16,
-    committee: Vec<u32>
+    pub shard_id: u16,
+    pub committee: Vec<u32>
 }
 
 impl ShardAndCommittee {

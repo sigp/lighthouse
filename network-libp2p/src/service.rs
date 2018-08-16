@@ -15,10 +15,11 @@ extern crate tokio_timer;
 extern crate tokio_stdin;
 
 use super::state::NetworkState;
+use super::message::{ NetworkEvent, NetworkEventType, OutgoingMessage };
 use self::bigint::U512;
 use self::futures::{ Future, Stream, Poll };
 use self::futures::sync::mpsc::{ 
-    unbounded, UnboundedSender, UnboundedReceiver
+    UnboundedSender, UnboundedReceiver
 };
 use self::libp2p_core::{ AddrComponent, Endpoint, Multiaddr,
                          Transport, ConnectionUpgrade };
@@ -26,61 +27,18 @@ use self::libp2p_kad::{ KademliaUpgrade, KademliaProcessingFuture};
 use self::libp2p_floodsub::{ FloodSubFuture, FloodSubUpgrade };
 use self::libp2p_identify::{ IdentifyInfo, IdentifyTransport, IdentifyOutput };
 use self::slog::Logger;
-use std::sync::{ Arc, RwLock, Mutex };
+use std::sync::{ Arc, RwLock };
 use std::time::{ Duration, Instant };
-use std::thread;
 use std::ops::Deref;
 use std::io::Error as IoError;
-use std::collections::VecDeque;
 use self::tokio_io::{ AsyncRead, AsyncWrite };
 use self::bytes::Bytes;
 
 pub use self::libp2p_floodsub::Message;
 
-pub struct NetworkService {
-    app_to_net: UnboundedSender<Vec<u8>>,
-    pub bg_thread: thread::JoinHandle<()>,
-    msgs: Mutex<VecDeque<Message>>,
-}
-
-impl NetworkService {
-    /// Create a new network service. Spawns a new thread running tokio
-    /// services. Accepts a NetworkState, which is derived from a NetworkConfig.
-    /// Also accepts a logger.
-    pub fn new(state: NetworkState, log: Logger) 
-        -> (Self, UnboundedReceiver<Vec<u8>>)
-    {
-        let (input_tx, input_rx) = unbounded();     // app -> net
-        let (output_tx, output_rx) = unbounded();   // net -> app
-        let bg_thread = thread::spawn(move || {
-            listen(state, output_tx, input_rx, log);
-        });
-        let msgs = Mutex::new(VecDeque::new());
-        let ns = Self {
-            app_to_net: input_tx,
-            bg_thread,
-            msgs,
-        };
-        (ns, output_rx)
-    }
-
-    /// Sends a message (byte vector) to the network. The present network
-    /// determines which the recipients of the message.
-    pub fn send(&self, msg: Vec<u8>) {
-        self.app_to_net.unbounded_send(msg).expect("unable to contact network")
-    }
-
-    pub fn read_message(&mut self) 
-        -> Option<Message>
-    {
-        let mut buf = self.msgs.lock().unwrap();
-        buf.pop_front()
-    }
-}
-
-fn listen(state: NetworkState,
-          app_tx: UnboundedSender<Vec<u8>>,
-          raw_rx: UnboundedReceiver<Vec<u8>>,
+pub fn listen(state: NetworkState,
+          events_to_app: UnboundedSender<NetworkEvent>,
+          raw_rx: UnboundedReceiver<OutgoingMessage>,
           log: Logger) 
 {
     let peer_store = state.peer_store;
@@ -195,6 +153,7 @@ fn listen(state: NetworkState,
     // Generate a tokio timer "wheel" future that sends kad FIND_NODE at
     // a routine interval.
     let kad_poll_log = log.new(o!());
+    let kad_poll_event_tx = events_to_app.clone();
     let kad_poll = {
         let polling_peer_id = peer_id.clone();
         tokio_timer::wheel()
@@ -217,8 +176,14 @@ fn listen(state: NetworkState,
                     );
                     if let Err(err) = dial_result {
                         warn!(kad_poll_log, "Dialling {:?} failed.", err)
-                    }
-                }
+                    };
+                    let event = NetworkEvent {
+                        event: NetworkEventType::PeerConnect,
+                        data: None,
+                    };
+                    kad_poll_event_tx.unbounded_send(event)
+                        .expect("Network unable to contact application.");
+                };
                 Ok(())
             })
     };
@@ -226,7 +191,11 @@ fn listen(state: NetworkState,
     // Create a future to handle message recieved from the network
     let floodsub_rx = floodsub_rx.for_each(|msg| {
         debug!(&log, "Network receive"; "msg" => format!("{:?}", msg));
-        app_tx.unbounded_send(msg.data)
+        let event = NetworkEvent {
+            event: NetworkEventType::Message,
+            data: Some(msg.data),
+        };
+        events_to_app.unbounded_send(event)
             .expect("Network unable to contact application.");
         Ok(())
     });
@@ -234,7 +203,7 @@ fn listen(state: NetworkState,
     // Create a future to handle messages recieved from the application
     let app_rx = rx.for_each(|msg| {
         debug!(&log, "Network publish"; "msg" => format!("{:?}", msg));
-        floodsub_ctl.publish(&topic, msg);
+        floodsub_ctl.publish(&topic, msg.data);
         Ok(())
     });
 
@@ -249,11 +218,11 @@ fn listen(state: NetworkState,
 }
 
 struct ApplicationReciever {
-    inner: UnboundedReceiver<Vec<u8>>,
+    inner: UnboundedReceiver<OutgoingMessage>,
 }
 
 impl Stream for ApplicationReciever {
-    type Item = Vec<u8>;
+    type Item = OutgoingMessage;
     type Error = IoError;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
