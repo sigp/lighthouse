@@ -1,8 +1,8 @@
-pub struct Config {
+pub struct ChainConfig {
     pub cycle_length: u8,
 }
 
-impl Config {
+impl ChainConfig {
     pub fn standard() -> Self {
         Self {
             cycle_length: 8,
