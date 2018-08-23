@@ -13,4 +13,5 @@ pub mod chain_config;
 pub mod block;
 pub mod crosslink_record;
 pub mod shard_and_committee;
+pub mod transition;
 pub mod validator_record;
