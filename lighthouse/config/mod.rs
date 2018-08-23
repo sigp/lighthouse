@@ -1,6 +1,9 @@
 use std::{ env, fs }; 
 use std::path::PathBuf; 
 
+/// Stores the core configuration for this Lighthouse instance.
+/// This struct is general, other components may implement more
+/// specialized config structs.
 #[derive(Clone)]
 pub struct LighthouseConfig {
     pub data_dir: PathBuf,
@@ -17,7 +20,8 @@ impl LighthouseConfig {
                 .expect("Unable to determine home dir.");
             home.join(DEFAULT_LIGHTHOUSE_DIR)
         };
-        fs::create_dir_all(&data_dir).expect(&format!("Unable to create {:?}", &data_dir));
+        fs::create_dir_all(&data_dir)
+            .expect(&format!("Unable to create {:?}", &data_dir));
         let p2p_listen_port = 0;
         Self {
             data_dir,
