@@ -6,9 +6,7 @@
  * A future implementation should be more efficient,
  * this is just to get the job done for now.
  */
-extern crate rlp;
 use std::cmp::max;
-use self::rlp::{ RlpStream, Encodable };
 
 #[derive(Eq)]
 pub struct BooleanBitfield{
@@ -100,17 +98,6 @@ impl Clone for BooleanBitfield {
 }
 
 
-impl Encodable for BooleanBitfield {
-    // TODO: ensure this is a sensible method of encoding
-    // the bitfield. Currently, it is treated as a list of 
-    // bytes not as a string. I do not have any guidance as 
-    // to which method is correct -- don't follow my lead
-    // without seeking authoritative advice.
-    fn rlp_append(&self, s: &mut RlpStream) {
-        s.append(&self.to_be_vec());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,16 +157,6 @@ mod tests {
             assert_eq!(b.get_bit(&i), true);
             b.set_bit(&i, &true);
         } 
-    }
-    
-    #[test]
-    fn test_bitfield_rlp_serialization() {
-        let mut b = BooleanBitfield::new();
-        b.set_bit(&15, &true);
-        let e = rlp::encode(&b);
-        assert_eq!(e[0], 130);
-        assert_eq!(e[1], 128);
-        assert_eq!(e[2], 0);
     }
     
     #[test]
