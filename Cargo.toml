@@ -8,6 +8,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 blake2 = "^0.7.1"
 blake2-rfc = "0.2.18"
 bls = { git = "https://github.com/sigp/bls" }
+boolean-bitfield = { path = "boolean-bitfield" }
 bytes = ""
 crypto-mac = "^0.6.2"
 clap = "2.32.0"
