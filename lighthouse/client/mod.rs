@@ -10,12 +10,19 @@ use super::network_libp2p::state::NetworkState;
 use super::slog::Logger;
 use super::sync::start_sync;
 
+/// Represents the co-ordination of the
+/// networking, syncing and RPC (not-yet-implemented) threads.
 pub struct Client {
     pub db: Arc<RwLock<DB>>,
-    pub threads: Vec<thread::JoinHandle<()>>
+    pub network_thread: thread::JoinHandle<()>,
+    pub sync_thread: thread::JoinHandle<()>,
 }
 
 impl Client {
+    /// Instantiates a new "Client".
+    ///
+    /// Presently, this means starting network and sync threads
+    /// and plumbing them together.
     pub fn new(config: LighthouseConfig,
                log: Logger)
         -> Self
@@ -30,8 +37,7 @@ impl Client {
         let network_state = NetworkState::new(
             &config.data_dir,
             &config.p2p_listen_port,
-            &log).expect("Network setup failed");
-        let (network_thread, network_tx, network_rx) = {
+            &log).expect("Network setup failed"); let (network_thread, network_tx, network_rx) = {
             let (message_sender, message_receiver) = unbounded();
             let (event_sender, event_receiver) = unbounded();
             let network_log = log.new(o!());
@@ -68,7 +74,8 @@ impl Client {
         // Return the client struct
         Self {
             db: db,
-            threads: vec![sync_thread, network_thread]
+            network_thread,
+            sync_thread,
         }
     }
 }
