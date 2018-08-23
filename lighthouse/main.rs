@@ -66,9 +66,7 @@ fn main() {
           "port" => &config.p2p_listen_port);
 
     let client = Client::new(config, log.new(o!()));
-    for thread in client.threads {
-        thread.join().unwrap();
-    }
+    client.sync_thread.join().unwrap();
 
     info!(log, "Exiting.");
 }
