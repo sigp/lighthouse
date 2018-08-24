@@ -8,13 +8,12 @@ extern crate futures;
 
 pub mod db;
 pub mod client;
-pub mod shuffling;
 pub mod state;
 pub mod sync;
 pub mod utils;
 pub mod config;
 
-use std::path::PathBuf; 
+use std::path::PathBuf;
 
 use slog::Drain;
 use clap::{ Arg, App };
@@ -59,9 +58,9 @@ fn main() {
             return;
         }
     }
-    
+
     // Log configuration
-    info!(log, ""; 
+    info!(log, "";
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.p2p_listen_port);
 
