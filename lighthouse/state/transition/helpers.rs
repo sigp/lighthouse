@@ -1,6 +1,14 @@
 use super::Hash256;
 use super::TransitionError;
 
+/// This function is used to select the hashes used in
+/// the signing of an AttestationRecord.
+///
+/// It either returns Result with a vector of length `cycle_length,` or
+/// returns an Error.
+///
+/// See this slide for more information:
+/// https://tinyurl.com/ybzn2spw
 pub fn get_signed_parent_hashes(
     cycle_length: &u8,
     block_slot: &u64,
