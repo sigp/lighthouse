@@ -7,9 +7,12 @@ use super::TransitionError;
 /// It either returns Result with a vector of length `cycle_length,` or
 /// returns an Error.
 ///
+/// This function corresponds to the `get_signed_parent_hashes` function
+/// in the Python reference implentation.
+///
 /// See this slide for more information:
 /// https://tinyurl.com/ybzn2spw
-pub fn get_signed_parent_hashes(
+pub fn attestation_parent_hashes(
     cycle_length: &u8,
     block_slot: &u64,
     attestation_slot: &u64,
@@ -94,7 +97,7 @@ mod tests {
         let attestation_slot: u64 = 15;
         let current_hashes = get_range_of_hashes(3, 19);
         let oblique_hashes = get_range_of_hashes(100, 102);
-        let result = get_signed_parent_hashes(
+        let result = attestation_parent_hashes(
             &cycle_length,
             &block_slot,
             &attestation_slot,
@@ -119,7 +122,7 @@ mod tests {
         let attestation_slot: u64 = 15;
         let current_hashes = get_range_of_hashes(3, 19);
         let oblique_hashes = get_range_of_hashes(100, 108);
-        let result = get_signed_parent_hashes(
+        let result = attestation_parent_hashes(
             &cycle_length,
             &block_slot,
             &attestation_slot,
@@ -144,7 +147,7 @@ mod tests {
         let attestation_slot: u64 = 15;
         let current_hashes = get_range_of_hashes(3, 19);
         let oblique_hashes = vec![];
-        let result = get_signed_parent_hashes(
+        let result = attestation_parent_hashes(
             &cycle_length,
             &block_slot,
             &attestation_slot,
@@ -167,7 +170,7 @@ mod tests {
         let attestation_slot: u64 = 0;
         let current_hashes = get_range_of_hashes(0, 16);
         let oblique_hashes = vec![];
-        let result = get_signed_parent_hashes(
+        let result = attestation_parent_hashes(
             &cycle_length,
             &block_slot,
             &attestation_slot,
@@ -190,7 +193,7 @@ mod tests {
         let attestation_slot: u64 = 100;
         let current_hashes = get_range_of_hashes(0, 16);
         let oblique_hashes = vec![];
-        let result = get_signed_parent_hashes(
+        let result = attestation_parent_hashes(
             &cycle_length,
             &block_slot,
             &attestation_slot,
@@ -209,7 +212,7 @@ mod tests {
         let attestation_slot: u64 = 99;
         let current_hashes = get_range_of_hashes(0, 15);
         let oblique_hashes = vec![];
-        let result = get_signed_parent_hashes(
+        let result = attestation_parent_hashes(
             &cycle_length,
             &block_slot,
             &attestation_slot,
