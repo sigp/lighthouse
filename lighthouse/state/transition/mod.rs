@@ -1,6 +1,6 @@
 use super::super::utils::types::Hash256;
 
-pub mod helpers;
+pub mod attestation_parent_hashes;
 
 #[derive(Debug)]
 pub enum TransitionError {
