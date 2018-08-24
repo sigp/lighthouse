@@ -6,6 +6,6 @@ pub mod helpers;
 pub enum TransitionError {
     IntWrapping,
     OutOfBounds,
-    InvalidInput(&str),
+    InvalidInput(String),
 }
 
