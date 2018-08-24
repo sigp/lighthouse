@@ -2,16 +2,16 @@ use super::Hash256;
 use super::TransitionError;
 
 pub fn get_signed_parent_hashes(
-    cycle_length: u8,
-    block_slot: u64,
-    attestation_slot: u64,
-    current_hashes: Vec<Hash256>,
-    oblique_hashes: Vec<Hash256>)
+    cycle_length: &u8,
+    block_slot: &u64,
+    attestation_slot: &u64,
+    current_hashes: &Vec<Hash256>,
+    oblique_hashes: &Vec<Hash256>)
     -> Result<Vec<Hash256>, TransitionError>
 {
     // This cast places a limit on cycle_length. If you change it, check math
     // for overflow.
-    let cycle_length: u64 = cycle_length as u64;
+    let cycle_length: u64 = *cycle_length as u64;
 
     if current_hashes.len() as u64 != (cycle_length * 2) {
         return Err(TransitionError::InvalidInput(String::from(
@@ -47,7 +47,7 @@ pub fn get_signed_parent_hashes(
      * Overflow is potentially impossible, but proof is complicated
      * enough to just use checked math.
      *
-     * Math is:
+     * Arithmetic is:
      * start + cycle_length - oblique_hashes.len()
      */
     let end = start.checked_add(cycle_length)
@@ -77,9 +77,59 @@ mod tests {
     }
 
     #[test]
-    fn test_get_signed_hashes_no_oblique() {
+    fn test_get_signed_hashes_oblique_scenario_1() {
+        /*
+         * Two oblique hashes.
+         */
+        let cycle_length: u8 = 8;
+        let block_slot: u64 = 19;
+        let attestation_slot: u64 = 15;
+        let current_hashes = get_range_of_hashes(3, 19);
+        let oblique_hashes = get_range_of_hashes(100, 102);
+        let result = get_signed_parent_hashes(
+            &cycle_length,
+            &block_slot,
+            &attestation_slot,
+            &current_hashes,
+            &oblique_hashes);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.len(), cycle_length as usize);
+
+        let mut expected_result = get_range_of_hashes(7, 13);
+        expected_result.append(&mut get_range_of_hashes(100, 102));
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_get_signed_hashes_oblique_scenario_2() {
+        /*
+         * All oblique hashes.
+         */
+        let cycle_length: u8 = 8;
+        let block_slot: u64 = 19;
+        let attestation_slot: u64 = 15;
+        let current_hashes = get_range_of_hashes(3, 19);
+        let oblique_hashes = get_range_of_hashes(100, 108);
+        let result = get_signed_parent_hashes(
+            &cycle_length,
+            &block_slot,
+            &attestation_slot,
+            &current_hashes,
+            &oblique_hashes);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.len(), cycle_length as usize);
+
+        let expected_result = get_range_of_hashes(100, 108);
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_get_signed_hashes_scenario_1() {
         /*
          * Google Slides example.
+         * https://tinyurl.com/ybzn2spw
          */
         let cycle_length: u8 = 8;
         let block_slot: u64 = 19;
@@ -87,15 +137,76 @@ mod tests {
         let current_hashes = get_range_of_hashes(3, 19);
         let oblique_hashes = vec![];
         let result = get_signed_parent_hashes(
-            cycle_length,
-            block_slot,
-            attestation_slot,
-            current_hashes,
-            oblique_hashes);
+            &cycle_length,
+            &block_slot,
+            &attestation_slot,
+            &current_hashes,
+            &oblique_hashes);
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result.len(), cycle_length as usize);
         let expected_result = get_range_of_hashes(7, 15);
         assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_get_signed_hashes_scenario_2() {
+        /*
+         * Block 1, attestation 0.
+         */
+        let cycle_length: u8 = 8;
+        let block_slot: u64 = 1;
+        let attestation_slot: u64 = 0;
+        let current_hashes = get_range_of_hashes(0, 16);
+        let oblique_hashes = vec![];
+        let result = get_signed_parent_hashes(
+            &cycle_length,
+            &block_slot,
+            &attestation_slot,
+            &current_hashes,
+            &oblique_hashes);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.len(), cycle_length as usize);
+        let expected_result = get_range_of_hashes(7, 15);
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_get_signed_hashes_scenario_3() {
+        /*
+         * attestation_slot too large
+         */
+        let cycle_length: u8 = 8;
+        let block_slot: u64 = 100;
+        let attestation_slot: u64 = 100;
+        let current_hashes = get_range_of_hashes(0, 16);
+        let oblique_hashes = vec![];
+        let result = get_signed_parent_hashes(
+            &cycle_length,
+            &block_slot,
+            &attestation_slot,
+            &current_hashes,
+            &oblique_hashes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_signed_hashes_scenario_4() {
+        /*
+         * Current hashes too small
+         */
+        let cycle_length: u8 = 8;
+        let block_slot: u64 = 100;
+        let attestation_slot: u64 = 99;
+        let current_hashes = get_range_of_hashes(0, 15);
+        let oblique_hashes = vec![];
+        let result = get_signed_parent_hashes(
+            &cycle_length,
+            &block_slot,
+            &attestation_slot,
+            &current_hashes,
+            &oblique_hashes);
+        assert!(result.is_err());
     }
 }
