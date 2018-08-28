@@ -1,6 +1,8 @@
+
+#[derive(Clone,Debug)]
 pub struct ShardAndCommittee {
     pub shard_id: u16,
-    pub committee: Vec<u32>
+    pub committee: Vec<usize>
 }
 
 impl ShardAndCommittee {
