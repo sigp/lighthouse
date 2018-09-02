@@ -9,18 +9,18 @@ pub enum ShuffleErr {
     ExceedsListLength,
 }
 
-/// Performs a deterministic, in-place shuffle of a vector of bytes. 
+/// Performs a deterministic, in-place shuffle of a vector of bytes.
 /// The final order of the shuffle is determined by successive hashes
 /// of the supplied `seed`.
 pub fn shuffle(
     seed: &[u8],
-    mut list: Vec<usize>) 
+    mut list: Vec<usize>)
     -> Result<Vec<usize>, ShuffleErr>
 {
     let mut rng = ShuffleRng::new(seed);
     if list.len() > rng.rand_max as usize {
         return Err(ShuffleErr::ExceedsListLength);
-    } 
+    }
     for i in 0..(list.len() - 1) {
         let n = list.len() - i;
         let j = rng.rand_range(n as u32) as usize + i;
