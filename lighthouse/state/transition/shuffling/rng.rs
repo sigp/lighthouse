@@ -94,22 +94,22 @@ mod tests {
             &[0, 1, 1],
             0);
         assert_eq!(x, 257);
-        
+
         x = int_from_byte_slice(
             &[1, 1, 1],
             0);
         assert_eq!(x, 65793);
-        
+
         x = int_from_byte_slice(
             &[255, 1, 1],
             0);
         assert_eq!(x, 16711937);
-        
+
         x = int_from_byte_slice(
             &[255, 255, 255],
             0);
         assert_eq!(x, 16777215);
-        
+
         x = int_from_byte_slice(
             &[0x8f, 0xbb, 0xc7],
             0);
