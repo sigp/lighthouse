@@ -8,10 +8,16 @@ use super::network_libp2p::message::{
     NetworkEventType,
 };
 
+use super::wire_protocol::{ WireMessageType, message_type };
+
 use super::futures::sync::mpsc::{
     UnboundedSender,
 };
 
+/// Accept a network event and perform all required processing.
+///
+/// This function should be called whenever an underlying network
+/// (e.g., libp2p) has an event to push up to the sync process.
 pub fn handle_network_event(
     event: NetworkEvent,
     db: Arc<RwLock<DB>>,
@@ -19,26 +25,42 @@ pub fn handle_network_event(
     log: Logger)
     -> Result<(), ()>
 {
+        debug!(&log, "";
+               "network_event" => format!("{:?}", &event));
         match event.event {
             NetworkEventType::PeerConnect => Ok(()),
             NetworkEventType::PeerDrop => Ok(()),
-            NetworkEventType::Message => handle_network_message(
-                event.data,
-                db,
-                network_tx,
-                log
-            )
+            NetworkEventType::Message => {
+                if let Some(data) = event.data {
+                    handle_network_message(
+                        data,
+                        db,
+                        network_tx,
+                        log)
+                } else {
+                    Ok(())
+                }
+            }
         }
 }
 
+/// Accept a message from the network and perform all required
+/// processing.
+///
+/// This function should be called whenever a peer from a network
+/// (e.g., libp2p) has sent a message to us.
 fn handle_network_message(
-    message: Option<Vec<u8>>,
+    message: Vec<u8>,
     _db: Arc<RwLock<DB>>,
     _network_tx: UnboundedSender<OutgoingMessage>,
-    log: Logger)
+    _log: Logger)
     -> Result<(), ()>
 {
-    debug!(&log, "";
-           "network_msg" => format!("{:?}", message));
-    Ok(())
+    match message_type(&message) {
+        Some(WireMessageType::Blocks) => {
+            // Do something with inbound blocks.
+            Ok(())
+        }
+        _ => Ok(())
+    }
 }

@@ -21,17 +21,17 @@ type SyncReceiver = UnboundedReceiver<Vec<u8>>;
 
 /// Start a syncing tokio future.
 ///
-/// This is effectively a stub function being
-/// used to test network functionality.
-///
-/// Expect a full re-write.
+/// Uses green-threading to process messages
+/// from the network and the RPC and update
+/// the state.
 pub fn run_sync_future(
     db: Arc<RwLock<DB>>,
     network_tx: NetworkSender,
     network_rx: NetworkReceiver,
     _sync_tx: SyncSender,
     _sync_rx: SyncReceiver,
-    log: Logger) {
+    log: Logger)
+{
     let network_future = {
         network_rx
             .for_each(move |event| {
@@ -43,10 +43,6 @@ pub fn run_sync_future(
             })
             .map_err(|_| panic!("rx failed"))
     };
-
-    /*
-     * This is an unfinished stub function.
-     */
 
     tokio::run(network_future);
 }
