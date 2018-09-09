@@ -12,7 +12,7 @@ pub struct Block {
     pub pow_chain_ref: Hash256,
     pub active_state_root: Hash256,
     pub crystallized_state_root: Hash256,
-} 
+}
 
 impl Block {
     pub fn zero() -> Self {

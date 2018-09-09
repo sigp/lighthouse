@@ -8,7 +8,7 @@ use super::futures::sync::mpsc::{
 use super::network_libp2p::service::listen as network_listen;
 use super::network_libp2p::state::NetworkState;
 use super::slog::Logger;
-use super::sync::start_sync;
+use super::sync::run_sync_future;
 
 /// Represents the co-ordination of the
 /// networking, syncing and RPC (not-yet-implemented) threads.
@@ -59,7 +59,7 @@ impl Client {
             let sync_log = log.new(o!());
             let sync_db = Arc::clone(&db);
             let thread = thread::spawn(move || {
-                start_sync(
+                run_sync_future(
                     sync_db,
                     network_tx.clone(),
                     network_rx,
