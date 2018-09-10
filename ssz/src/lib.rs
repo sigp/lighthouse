@@ -1,8 +1,8 @@
 /*
- * This is a WIP of implementing an alternative 
+ * This is a WIP of implementing an alternative
  * serialization strategy. It attempts to follow Vitalik's
- * "ssz" format here: 
- * https://github.com/ethereum/research/tree/master/py_ssz
+ * "simpleserialize" format here:
+ * https://github.com/ethereum/beacon_chain/blob/master/beacon_chain/utils/simpleserialize.py
  *
  * This implementation is not final and would almost certainly
  * have issues.
@@ -24,12 +24,14 @@ pub struct SszStream {
 }
 
 impl SszStream {
+    /// Create a new, empty steam for writing ssz values.
     pub fn new() -> Self {
         SszStream {
             buffer: Vec::new()
         }
     }
 
+    /// Append some ssz encodable value to the stream.
     pub fn append<E>(&mut self, value: &E) -> &mut Self
         where E: Encodable
     {
@@ -37,28 +39,32 @@ impl SszStream {
         self
     }
 
-    fn append_encoded_vec(&mut self, v: &mut Vec<u8>) {
-        self.buffer.append(&mut encode_length(v.len(), LENGTH_BYTES));
-        self.buffer.append(v) ;
+    pub fn extend_buffer(&mut self, vec: &mut Vec<u8>) {
+        self.buffer.append(&mut encode_length(vec.len(), LENGTH_BYTES));
+        self.buffer.append(vec);
     }
-    
-    fn append_encoded_array(&mut self, a: &mut [u8]) {
+
+    /// Append some vector (list) of encoded values to the stream.
+    pub fn append_vec<E>(&mut self, vec: &mut Vec<E>)
+        where E: Encodable
+    {
+        self.buffer.append(&mut encode_length(vec.len(), LENGTH_BYTES));
+        for v in vec {
+            v.ssz_append(self);
+        }
+    }
+
+    /// Append some array (list) of encoded values to the stream.
+    pub fn append_encoded_array(&mut self, a: &mut [u8]) {
         let len = a.len();
         self.buffer.append(&mut encode_length(len, LENGTH_BYTES));
         self.buffer.extend_from_slice(&a[0..len]);
     }
 
+    /// Consume the stream and return the underlying bytes.
     pub fn drain(self) -> Vec<u8> {
         self.buffer
     }
-}
-
-pub fn encode<E>(value: &E) -> Vec<u8>
-    where E: Encodable
-{
-    let mut stream = SszStream::new();
-    stream.append(value);
-    stream.drain()
 }
 
 fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
@@ -75,12 +81,25 @@ fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
 /*
  * Implementations for various types
  */
+impl Encodable for u8 {
+    fn ssz_append(&self, s: &mut SszStream) {
+        s.buffer.append(&mut vec![*self]);
+    }
+}
+
+impl Encodable for u16 {
+    fn ssz_append(&self, s: &mut SszStream) {
+        let mut buf = BytesMut::with_capacity(16/8);
+        buf.put_u16_be(*self);
+        s.extend_buffer(&mut buf.to_vec());
+    }
+}
 
 impl Encodable for u32 {
     fn ssz_append(&self, s: &mut SszStream) {
         let mut buf = BytesMut::with_capacity(32/8);
         buf.put_u32_be(*self);
-        s.append_encoded_vec(&mut buf.to_vec());
+        s.extend_buffer(&mut buf.to_vec());
     }
 }
 
@@ -88,13 +107,13 @@ impl Encodable for u64 {
     fn ssz_append(&self, s: &mut SszStream) {
         let mut buf = BytesMut::with_capacity(64/8);
         buf.put_u64_be(*self);
-        s.append_encoded_vec(&mut buf.to_vec());
+        s.extend_buffer(&mut buf.to_vec());
     }
 }
 
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_vec(&mut self.to_vec());
+        s.extend_buffer(&mut self.to_vec());
     }
 }
 
@@ -110,7 +129,7 @@ impl Encodable for U256 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     #[should_panic]
     fn test_encode_length_0_bytes_panic() {
@@ -140,7 +159,7 @@ mod tests {
             vec![255, 255, 255, 255]
         );
     }
-    
+
     #[test]
     #[should_panic]
     fn test_encode_length_4_bytes_panic() {
@@ -152,7 +171,7 @@ mod tests {
         pub struct TestStruct {
             pub one: u32,
             pub two: H256,
-            pub three: u64,        
+            pub three: u64,
         }
 
         impl Encodable for TestStruct {
