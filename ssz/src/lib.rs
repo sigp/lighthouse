@@ -10,8 +10,7 @@
 extern crate bytes;
 extern crate ethereum_types;
 
-use self::bytes::{ BytesMut, BufMut };
-use self::ethereum_types::{ H256, U256 };
+mod impls;
 
 pub const LENGTH_BYTES: usize = 4;
 
@@ -80,57 +79,11 @@ fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
     header
 }
 
-/*
- * Implementations for various types
- */
-impl Encodable for u8 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.buffer.append(&mut vec![*self]);
-    }
-}
-
-impl Encodable for u16 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let mut buf = BytesMut::with_capacity(16/8);
-        buf.put_u16_be(*self);
-        s.extend_buffer(&buf.to_vec());
-    }
-}
-
-impl Encodable for u32 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let mut buf = BytesMut::with_capacity(32/8);
-        buf.put_u32_be(*self);
-        s.extend_buffer(&buf.to_vec());
-    }
-}
-
-impl Encodable for u64 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let mut buf = BytesMut::with_capacity(64/8);
-        buf.put_u64_be(*self);
-        s.extend_buffer(&buf.to_vec());
-    }
-}
-
-impl Encodable for H256 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.extend_buffer(&self.to_vec());
-    }
-}
-
-impl Encodable for U256 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let mut a = [0; 32];
-        self.to_big_endian(&mut a);
-        s.append_encoded_array(&mut a);
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::ethereum_types::{ H256, U256 };
 
     #[test]
     #[should_panic]
@@ -174,6 +127,7 @@ mod tests {
             pub one: u32,
             pub two: H256,
             pub three: u64,
+            pub four: U256,
         }
 
         impl Encodable for TestStruct {
@@ -181,18 +135,27 @@ mod tests {
                 s.append(&self.one);
                 s.append(&self.two);
                 s.append(&self.three);
+                s.append(&self.four);
             }
         }
 
         let t = TestStruct {
             one: 1,
             two: H256::zero(),
-            three: 100
+            three: 100,
+            four: U256::zero(),
         };
 
         let mut s = SszStream::new();
         s.append(&t);
         let e = s.drain();
+
+        let expected_len = {
+            4 + 4 +
+            4 + 32 +
+            4 + 8 +
+            4 + 32
+        };
 
         assert_eq!(e[0..4], [0, 0, 0, 4]);
         assert_eq!(e[4..8], [0, 0, 0, 1]);
@@ -200,6 +163,8 @@ mod tests {
         assert_eq!(e[12..44], [0; 32]);
         assert_eq!(e[44..48], [0, 0, 0, 8]);
         assert_eq!(e[48..56], [0, 0, 0, 0, 0, 0, 0, 100]);
-        assert_eq!(e.len(), 56);
+        assert_eq!(e[56..60], [0, 0, 0, 32]);
+        assert_eq!(e[60..92], [0; 32]);
+        assert_eq!(e.len(), expected_len);
     }
 }
