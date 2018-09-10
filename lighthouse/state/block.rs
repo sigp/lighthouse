@@ -47,11 +47,10 @@ impl Block {
 
 impl Encodable for Block {
     fn ssz_append(&self, s: &mut SszStream) {
-        let mut s = SszStream::new();
         s.append(&self.parent_hash);
         s.append(&self.slot_number);
         s.append(&self.randao_reveal);
-        s.append(&self.attestations);
+        s.append_vec(&self.attestations);
         s.append(&self.pow_chain_ref);
         s.append(&self.active_state_root);
         s.append(&self.crystallized_state_root);
