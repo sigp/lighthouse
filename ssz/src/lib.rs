@@ -18,13 +18,21 @@ pub trait Encodable {
     fn ssz_append(&self, s: &mut SszStream);
 }
 
+pub trait Decodable {
+    type Decoded;
+
+    fn ssz_decode<T>(bytes: &[u8]) -> Result<Self::Decoded, DecodeError>;
+}
+
 pub struct SszStream {
     buffer: Vec<u8>
 }
 
 #[derive(Debug)]
 pub enum DecodeError {
+    OutOfBounds,
     TooShort,
+    TooLong,
 }
 
 impl SszStream {

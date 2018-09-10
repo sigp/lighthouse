@@ -1,9 +1,49 @@
 /*
  * Implementations for various types
  */
-use super::{ Encodable, SszStream };
+use super::{
+    DecodeError,
+    Decodable,
+    Encodable,
+    SszStream
+};
 use super::bytes::{ BytesMut, BufMut };
 use super::ethereum_types::{ H256, U256 };
+
+macro_rules! impl_decodable_for_uint {
+    ($type: ident, $bit_size: expr) => {
+        impl Decodable for $type {
+            type Decoded = $type;
+
+            fn ssz_decode<$type>(bytes: &[u8])
+                -> Result<Self::Decoded, DecodeError>
+            {
+                // TOOD: figure out if than can be done at compile time
+                // instead of runtime (where I assume it happens).
+                assert!(0 < $bit_size &&
+                       $bit_size <= 64 &&
+                       $bit_size % 8 == 0);
+                let bytes_required = $bit_size / 8;
+                if bytes_required == bytes.len() {
+                    let mut result = 0;
+                    for i in 0..bytes.len() {
+                        let offset = (bytes.len() - i - 1) * 8;
+                        result = (bytes[i] << offset) | result;
+                    };
+                    Ok(result.into())
+                } else {
+                    match bytes_required > bytes.len() {
+                        true => Err(DecodeError::TooLong),
+                        false => Err(DecodeError::TooShort),
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl_decodable_for_uint!(u64, 64 / 8);
+impl_decodable_for_uint!(u16, 16 / 8);
 
 impl Encodable for u8 {
     fn ssz_append(&self, s: &mut SszStream) {
