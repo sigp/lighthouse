@@ -8,7 +8,7 @@
  */
 use std::cmp::max;
 
-#[derive(Eq)]
+#[derive(Eq,Clone)]
 pub struct BooleanBitfield{
     len: usize,
     vec: Vec<u8>
@@ -93,7 +93,7 @@ impl BooleanBitfield {
     }
 
     /// Clone and return the underlying byte array (`Vec<u8>`).
-    pub fn to_vec(&self) -> Vec<u8> {
+    pub fn to_be_vec(&self) -> Vec<u8> {
         let mut o = self.vec.clone();
         o.reverse();
         o
@@ -107,15 +107,6 @@ impl PartialEq for BooleanBitfield {
     }
 }
 
-impl Clone for BooleanBitfield {
-    fn clone(&self) -> Self {
-        Self {
-            vec: self.vec.to_vec(),
-            ..*self
-        }
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
@@ -125,44 +116,44 @@ mod tests {
     fn test_bitfield_set() {
         let mut b = BooleanBitfield::new();
         b.set_bit(&0, &false);
-        assert_eq!(b.to_vec(), [0]);
+        assert_eq!(b.to_be_vec(), [0]);
 
         b = BooleanBitfield::new();
         b.set_bit(&7, &true);
-        assert_eq!(b.to_vec(), [128]);
+        assert_eq!(b.to_be_vec(), [128]);
         b.set_bit(&7, &false);
-        assert_eq!(b.to_vec(), [0]);
+        assert_eq!(b.to_be_vec(), [0]);
         assert_eq!(b.len(), 8);
 
         b = BooleanBitfield::new();
         b.set_bit(&7, &true);
         b.set_bit(&0, &true);
-        assert_eq!(b.to_vec(), [129]);
+        assert_eq!(b.to_be_vec(), [129]);
         b.set_bit(&7, &false);
-        assert_eq!(b.to_vec(), [1]);
+        assert_eq!(b.to_be_vec(), [1]);
         assert_eq!(b.len(), 8);
 
         b = BooleanBitfield::new();
         b.set_bit(&8, &true);
-        assert_eq!(b.to_vec(), [1, 0]);
+        assert_eq!(b.to_be_vec(), [1, 0]);
         assert_eq!(b.len(), 9);
         b.set_bit(&8, &false);
-        assert_eq!(b.to_vec(), [0, 0]);
+        assert_eq!(b.to_be_vec(), [0, 0]);
         assert_eq!(b.len(), 9);
 
         b = BooleanBitfield::new();
         b.set_bit(&15, &true);
-        assert_eq!(b.to_vec(), [128, 0]);
+        assert_eq!(b.to_be_vec(), [128, 0]);
         b.set_bit(&15, &false);
-        assert_eq!(b.to_vec(), [0, 0]);
+        assert_eq!(b.to_be_vec(), [0, 0]);
         assert_eq!(b.len(), 16);
 
         b = BooleanBitfield::new();
         b.set_bit(&8, &true);
         b.set_bit(&15, &true);
-        assert_eq!(b.to_vec(), [129, 0]);
+        assert_eq!(b.to_be_vec(), [129, 0]);
         b.set_bit(&15, &false);
-        assert_eq!(b.to_vec(), [1, 0]);
+        assert_eq!(b.to_be_vec(), [1, 0]);
         assert_eq!(b.len(), 16);
     }
 
