@@ -22,6 +22,11 @@ pub struct SszStream {
     buffer: Vec<u8>
 }
 
+#[derive(Debug)]
+pub enum DecodeError {
+    TooShort,
+}
+
 impl SszStream {
     /// Create a new, empty steam for writing ssz values.
     pub fn new() -> Self {
@@ -79,6 +84,20 @@ fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
     header
 }
 
+fn decode_length(bytes: &Vec<u8>, length_bytes: usize)
+    -> Result<usize, DecodeError>
+{
+    if bytes.len() < length_bytes {
+        return Err(DecodeError::TooShort);
+    };
+    let mut len: usize = 0;
+    for i in 0..length_bytes {
+        let offset = (length_bytes - i - 1) * 8;
+        len = ((bytes[i] as usize) << offset) | len;
+    };
+    Ok(len)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -119,6 +138,45 @@ mod tests {
     #[should_panic]
     fn test_encode_length_4_bytes_panic() {
         encode_length(4294967296, 4);  // 2^(4*8)
+    }
+
+    #[test]
+    fn test_decode_length() {
+        let decoded = decode_length(
+            &vec![0, 0, 0, 1],
+            LENGTH_BYTES);
+        assert_eq!(decoded.unwrap(), 1);
+
+        let decoded = decode_length(
+            &vec![0, 0, 1, 0],
+            LENGTH_BYTES);
+        assert_eq!(decoded.unwrap(), 256);
+    }
+
+    #[test]
+    fn test_encode_decode_length() {
+        let params: Vec<usize> = vec![
+            0,
+            1,
+            2,
+            3,
+            7,
+            8,
+            16,
+            2^8,
+            2^8 + 1,
+            2^16,
+            2^16 + 1,
+            2^24,
+            2^24 + 1,
+            2^32,
+        ];
+        for i in params {
+            let decoded = decode_length(
+                &encode_length(i, LENGTH_BYTES),
+                LENGTH_BYTES).unwrap();
+            assert_eq!(i, decoded);
+        }
     }
 
     #[test]
