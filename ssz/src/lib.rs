@@ -39,16 +39,18 @@ impl SszStream {
         self
     }
 
-    pub fn extend_buffer(&mut self, vec: &mut Vec<u8>) {
-        self.buffer.append(&mut encode_length(vec.len(), LENGTH_BYTES));
-        self.buffer.append(vec);
+    pub fn extend_buffer(&mut self, vec: &Vec<u8>) {
+        self.buffer.extend_from_slice(
+            &encode_length(vec.len(),
+            LENGTH_BYTES));
+        self.buffer.extend_from_slice(&vec);
     }
 
     /// Append some vector (list) of encoded values to the stream.
-    pub fn append_vec<E>(&mut self, vec: &mut Vec<E>)
+    pub fn append_vec<E>(&mut self, vec: &Vec<E>)
         where E: Encodable
     {
-        self.buffer.append(&mut encode_length(vec.len(), LENGTH_BYTES));
+        self.buffer.extend_from_slice(&encode_length(vec.len(), LENGTH_BYTES));
         for v in vec {
             v.ssz_append(self);
         }
@@ -91,7 +93,7 @@ impl Encodable for u16 {
     fn ssz_append(&self, s: &mut SszStream) {
         let mut buf = BytesMut::with_capacity(16/8);
         buf.put_u16_be(*self);
-        s.extend_buffer(&mut buf.to_vec());
+        s.extend_buffer(&buf.to_vec());
     }
 }
 
@@ -99,7 +101,7 @@ impl Encodable for u32 {
     fn ssz_append(&self, s: &mut SszStream) {
         let mut buf = BytesMut::with_capacity(32/8);
         buf.put_u32_be(*self);
-        s.extend_buffer(&mut buf.to_vec());
+        s.extend_buffer(&buf.to_vec());
     }
 }
 
@@ -107,13 +109,13 @@ impl Encodable for u64 {
     fn ssz_append(&self, s: &mut SszStream) {
         let mut buf = BytesMut::with_capacity(64/8);
         buf.put_u64_be(*self);
-        s.extend_buffer(&mut buf.to_vec());
+        s.extend_buffer(&buf.to_vec());
     }
 }
 
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.extend_buffer(&mut self.to_vec());
+        s.extend_buffer(&self.to_vec());
     }
 }
 
@@ -188,7 +190,10 @@ mod tests {
             three: 100
         };
 
-        let e = encode(&t);
+        let mut s = SszStream::new();
+        s.append(&t);
+        let e = s.drain();
+
         assert_eq!(e[0..4], [0, 0, 0, 4]);
         assert_eq!(e[4..8], [0, 0, 0, 1]);
         assert_eq!(e[8..12], [0, 0, 0, 32]);
