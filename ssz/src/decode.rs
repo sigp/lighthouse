@@ -2,7 +2,7 @@ use super::{
     LENGTH_BYTES,
 };
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum DecodeError {
     OutOfBounds,
     TooShort,
@@ -13,7 +13,10 @@ pub trait Decodable: Sized {
     fn ssz_decode(bytes: &[u8]) -> Result<Self, DecodeError>;
 }
 
-
+/// Decode the nth element of some ssz list.
+///
+/// A single ssz encoded value can be considered a list of
+/// one element, so this function will work on it too.
 pub fn decode_ssz_list_element<T>(ssz_bytes: &[u8], n: usize)
     -> Result<T, DecodeError>
     where T: Decodable
@@ -21,6 +24,12 @@ pub fn decode_ssz_list_element<T>(ssz_bytes: &[u8], n: usize)
     T::ssz_decode(nth_value(ssz_bytes, n)?)
 }
 
+/// Return the nth value in some ssz encoded list.
+///
+/// The four-byte length prefix is not included in the return.
+///
+/// A single ssz encoded value can be considered a list of
+/// one element, so this function will work on it too.
 fn nth_value(ssz_bytes: &[u8], n: usize)
     -> Result<&[u8], DecodeError>
 {
@@ -42,6 +51,9 @@ fn nth_value(ssz_bytes: &[u8], n: usize)
     Err(DecodeError::OutOfBounds)
 }
 
+/// Given some number of bytes, interpret the first four
+/// bytes as a 32-bit big-endian integer and return the
+/// result.
 fn decode_length(bytes: &[u8], length_bytes: usize)
     -> Result<usize, DecodeError>
 {
