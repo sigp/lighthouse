@@ -59,7 +59,7 @@ fn decode_length(bytes: &[u8], length_bytes: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::encode_length;
+    use super::super::encode::encode_length;
 
     #[test]
     fn test_ssz_decode_length() {
