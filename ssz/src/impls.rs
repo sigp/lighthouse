@@ -13,18 +13,14 @@ use super::ethereum_types::{ H256, U256 };
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Decodable for $type {
-            type Decoded = $type;
-
-            fn ssz_decode<$type>(bytes: &[u8])
-                -> Result<Self::Decoded, DecodeError>
+            fn ssz_decode(bytes: &[u8])
+                -> Result<Self, DecodeError>
             {
-                // TOOD: figure out if than can be done at compile time
-                // instead of runtime (where I assume it happens).
                 assert!(0 < $bit_size &&
                        $bit_size <= 64 &&
                        $bit_size % 8 == 0);
                 let bytes_required = $bit_size / 8;
-                if bytes_required == bytes.len() {
+                if bytes_required <= bytes.len() {
                     let mut result = 0;
                     for i in 0..bytes.len() {
                         let offset = (bytes.len() - i - 1) * 8;
@@ -32,10 +28,7 @@ macro_rules! impl_decodable_for_uint {
                     };
                     Ok(result.into())
                 } else {
-                    match bytes_required > bytes.len() {
-                        true => Err(DecodeError::TooLong),
-                        false => Err(DecodeError::TooShort),
-                    }
+                    Err(DecodeError::TooLong)
                 }
             }
         }
