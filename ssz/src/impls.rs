@@ -40,7 +40,7 @@ impl_decodable_for_uint!(u16, 16 / 8);
 
 impl Encodable for u8 {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.buffer.append(&mut vec![*self]);
+        s.extend_buffer(&mut vec![*self]);
     }
 }
 
