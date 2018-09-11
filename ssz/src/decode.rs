@@ -2,7 +2,7 @@ use super::{
     LENGTH_BYTES,
 };
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub enum DecodeError {
     OutOfBounds,
     TooShort,
@@ -120,16 +120,4 @@ mod tests {
         let result = nth_value(&ssz, 0).unwrap();
         assert_eq!(result, vec![42; 511].as_slice());
     }
-
-    /*
-    #[test]
-    fn test_ssz_decode_u16() {
-        let x: u16 = 100;
-        let mut s = SszStream::new();
-        s.append(&x);
-        let y: u16 = u16::ssz_decode(s.nth_value(0).unwrap())
-            .unwrap();
-        assert_eq!(x, y);
-    }
-    */
 }
