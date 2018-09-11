@@ -4,6 +4,11 @@ pub trait Encodable {
     fn ssz_append(&self, s: &mut SszStream);
 }
 
+/// Provides a buffer for appending ssz-encodable values.
+///
+/// Use the `append()` fn to add a value to a list, then use
+/// the `drain()` method to consume the struct and return the
+/// ssz encoded bytes.
 pub struct SszStream {
     buffer: Vec<u8>
 }
@@ -24,14 +29,21 @@ impl SszStream {
         self
     }
 
-    pub fn extend_buffer(&mut self, vec: &Vec<u8>) {
+    /// Append some ssz encoded bytes to the steam.
+    ///
+    /// The length of the supplied bytes will be concatenated
+    /// to the stream before the supplied bytes.
+    pub fn append_encoded_val(&mut self, vec: &Vec<u8>) {
         self.buffer.extend_from_slice(
             &encode_length(vec.len(),
             LENGTH_BYTES));
         self.buffer.extend_from_slice(&vec);
     }
 
-    /// Append some vector (list) of encoded values to the stream.
+    /// Append some vector (list) of encodable values to the stream.
+    ///
+    /// The length of the list will be concatenated to the stream, then
+    /// each item in the vector will be encoded and concatenated.
     pub fn append_vec<E>(&mut self, vec: &Vec<E>)
         where E: Encodable
     {
@@ -41,19 +53,16 @@ impl SszStream {
         }
     }
 
-    /// Append some array (list) of encoded values to the stream.
-    pub fn append_encoded_array(&mut self, a: &mut [u8]) {
-        let len = a.len();
-        self.buffer.append(&mut encode_length(len, LENGTH_BYTES));
-        self.buffer.extend_from_slice(&a[0..len]);
-    }
-
     /// Consume the stream and return the underlying bytes.
     pub fn drain(self) -> Vec<u8> {
         self.buffer
     }
 }
 
+/// Encode some length into a ssz size prefix.
+///
+/// The ssz size prefix is 4 bytes, which is treated as a continuious
+/// 32bit big-endian integer.
 pub fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
     assert!(length_bytes > 0);  // For sanity
     assert!((len as usize) < 2usize.pow(length_bytes as u32 * 8));
@@ -108,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization() {
+    fn test_encode_struct() {
         pub struct TestStruct {
             pub one: u32,
             pub two: H256,
