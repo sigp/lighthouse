@@ -12,7 +12,8 @@ extern crate ethereum_types;
 
 mod encode;
 mod decode;
-mod impls;
+mod impl_encode;
+mod impl_decode;
 
 pub use decode::{
     Decodable,
@@ -24,4 +25,4 @@ pub use encode::{
     SszStream,
 };
 
-pub const LENGTH_BYTES: usize = 4;
+pub const LENGTH_BYTES: usize = 3;
