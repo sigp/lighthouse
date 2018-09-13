@@ -43,6 +43,7 @@ impl_encodable_for_uint!(u8);
 impl_encodable_for_uint!(u16);
 impl_encodable_for_uint!(u32);
 impl_encodable_for_uint!(u64);
+impl_encodable_for_uint!(usize);
 
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
@@ -155,6 +156,29 @@ mod tests {
         assert_eq!(ssz.drain(), vec![0, 0, 5, 1, 0, 0, 0, 0]);
 
         let x: u64 = !0;
+        let mut ssz = SszStream::new();
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0, 0, 8, 255, 255, 255, 255, 255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn test_ssz_encode_usize() {
+        let x: usize = 1;
+        let mut ssz = SszStream::new();
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0, 0, 1, 1]);
+
+        let x: usize = 100;
+        let mut ssz = SszStream::new();
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0, 0, 1, 100]);
+
+        let x: usize = 1 << 32;
+        let mut ssz = SszStream::new();
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0, 0, 5, 1, 0, 0, 0, 0]);
+
+        let x: usize = !0;
         let mut ssz = SszStream::new();
         ssz.append(&x);
         assert_eq!(ssz.drain(), vec![0, 0, 8, 255, 255, 255, 255, 255, 255, 255, 255]);
