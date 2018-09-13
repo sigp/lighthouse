@@ -18,7 +18,7 @@ use super::state::NetworkState;
 use super::message::{ NetworkEvent, NetworkEventType, OutgoingMessage };
 use self::bigint::U512;
 use self::futures::{ Future, Stream, Poll };
-use self::futures::sync::mpsc::{ 
+use self::futures::sync::mpsc::{
     UnboundedSender, UnboundedReceiver
 };
 use self::libp2p_core::{ AddrComponent, Endpoint, Multiaddr,
@@ -39,14 +39,14 @@ pub use self::libp2p_floodsub::Message;
 pub fn listen(state: NetworkState,
           events_to_app: UnboundedSender<NetworkEvent>,
           raw_rx: UnboundedReceiver<OutgoingMessage>,
-          log: Logger) 
+          log: Logger)
 {
     let peer_store = state.peer_store;
     let peer_id = state.peer_id;
     let listen_multiaddr = state.listen_multiaddr;
     let listened_addrs = Arc::new(RwLock::new(vec![]));
     let rx = ApplicationReciever{ inner: raw_rx };
-    
+
     // Build a tokio core
     let mut core =  tokio_core::reactor::Core::new().expect("tokio failure.");
     // Build a base TCP libp2p transport
@@ -65,10 +65,10 @@ pub fn listen(state: NetworkState,
             // is stored not the internal addr.
             .map(move |out, _, _| {
                 if let(Some(ref observed), ref listen_multiaddr) =
-                    (out.observed_addr, listen_multiaddr) 
+                    (out.observed_addr, listen_multiaddr)
                 {
-                    if let Some(viewed_from_outside) = 
-                        transport.nat_traversal(listen_multiaddr, observed) 
+                    if let Some(viewed_from_outside) =
+                        transport.nat_traversal(listen_multiaddr, observed)
                     {
                         listened_addrs.write().unwrap()
                             .push(viewed_from_outside);
@@ -79,7 +79,7 @@ pub fn listen(state: NetworkState,
     };
 
     // Configure and build a Kademlia upgrade to be applied
-    // to the base TCP transport. 
+    // to the base TCP transport.
     let kad_config = libp2p_kad::KademliaConfig {
         parallelism: 3,
         record_store: (),
@@ -91,10 +91,10 @@ pub fn listen(state: NetworkState,
         KademliaControllerPrototype::new(kad_config);
     let kad_upgrade = libp2p_kad::
         KademliaUpgrade::from_prototype(&kad_ctl_proto);
-   
+
     // Build a floodsub upgrade to allow pushing topic'ed
     // messages across the network.
-    let (floodsub_upgrade, floodsub_rx) = 
+    let (floodsub_upgrade, floodsub_rx) =
         FloodSubUpgrade::new(peer_id.clone());
 
     // Combine the Kademlia and Identify upgrades into a single
@@ -104,7 +104,7 @@ pub fn listen(state: NetworkState,
         floodsub: floodsub_upgrade.clone(),
         identify: libp2p_identify::IdentifyProtocolConfig,
     };
-  
+
     // Build a Swarm to manage upgrading connections to peers.
     let swarm_listened_addrs = listened_addrs.clone();
     let swarm_peer_id = peer_id.clone();
@@ -166,7 +166,7 @@ pub fn listen(state: NetworkState,
                 for peer in peers {
                     let peer_hash = U512::from(peer.hash());
                     let distance = 512 - (local_hash ^ peer_hash).leading_zeros();
-                    info!(kad_poll_log, "Discovered peer"; 
+                    info!(kad_poll_log, "Discovered peer";
                           "distance" => distance,
                           "peer_id" => peer.to_base58());
                     let peer_addr = AddrComponent::P2P(peer.into_bytes()).into();
@@ -240,7 +240,7 @@ struct ConnectionUpgrader<P, R> {
 }
 
 impl<C, P, R, Pc> ConnectionUpgrade<C> for ConnectionUpgrader<P, R>
-where 
+where
     C: AsyncRead + AsyncWrite + 'static,
     P: Deref<Target = Pc> + Clone + 'static,
     for<'r> &'r Pc: libp2p_peerstore::Peerstore,
@@ -251,7 +251,7 @@ where
     type Output = FinalUpgrade<C>;
     type Future = Box<Future<Item = FinalUpgrade<C>, Error = IoError>>;
 
-    #[inline] 
+    #[inline]
     fn protocol_names(&self) -> Self::NamesIter {
         vec![
             (Bytes::from("/ipfs/kad/1.0.0"), 0),
