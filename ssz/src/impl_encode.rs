@@ -23,9 +23,8 @@ macro_rules! impl_encodable_for_uint {
                         n >>= 1;
                         r += 1;
                     }
-                    r
+                    if r == 0 { 1 } else { r }
                 };
-                //let num_bits = ((*self as f64).log2().floor() as usize) + 1;
                 // Number of bytes required to represent this bit
                 let num_bytes = (num_bits + 8 - 1) / 8;
                 let mut ssz_val: Vec<u8> = Vec::with_capacity(num_bytes);
@@ -66,6 +65,11 @@ mod tests {
 
     #[test]
     fn test_ssz_encode_u8() {
+        let x: u16 = 0;
+        let mut ssz = SszStream::new();
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0, 0, 1, 0]);
+
         let x: u16 = 1;
         let mut ssz = SszStream::new();
         ssz.append(&x);
