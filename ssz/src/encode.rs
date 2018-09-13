@@ -14,7 +14,7 @@ pub struct SszStream {
 }
 
 impl SszStream {
-    /// Create a new, empty steam for writing ssz values.
+    /// Create a new, empty stream for writing ssz values.
     pub fn new() -> Self {
         SszStream {
             buffer: Vec::new()
@@ -29,7 +29,7 @@ impl SszStream {
         self
     }
 
-    /// Append some ssz encoded bytes to the steam.
+    /// Append some ssz encoded bytes to the stream.
     ///
     /// The length of the supplied bytes will be concatenated
     /// to the stream before the supplied bytes.
@@ -78,7 +78,6 @@ pub fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::ethereum_types::{ H256, U256 };
 
     #[test]
     #[should_panic]
