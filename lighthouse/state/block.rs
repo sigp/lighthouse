@@ -1,6 +1,6 @@
 use super::utils::types::Hash256;
 use super::attestation_record::AttestationRecord;
-use super::ssz;
+use super::ssz::{ Encodable, SszStream };
 
 const SSZ_BLOCK_LENGTH: usize = 192;
 
@@ -12,7 +12,7 @@ pub struct Block {
     pub pow_chain_ref: Hash256,
     pub active_state_root: Hash256,
     pub crystallized_state_root: Hash256,
-} 
+}
 
 impl Block {
     pub fn zero() -> Self {
@@ -27,12 +27,12 @@ impl Block {
         }
     }
 
-    // Not sure if this will be useful, leaving it here for the
-    // time being.
-    pub fn ssz_encode_without_attestations(&self) 
+    /// Return the bytes that should be signed in order to
+    /// attest for this block.
+    pub fn encode_for_signing(&self)
         -> [u8; SSZ_BLOCK_LENGTH]
     {
-        let mut s = ssz::SszStream::new();
+        let mut s = SszStream::new();
         s.append(&self.parent_hash);
         s.append(&self.slot_number);
         s.append(&self.randao_reveal);
@@ -42,6 +42,18 @@ impl Block {
         let vec = s.drain();
         let mut encoded = [0; SSZ_BLOCK_LENGTH];
         encoded.copy_from_slice(&vec); encoded
+    }
+}
+
+impl Encodable for Block {
+    fn ssz_append(&self, s: &mut SszStream) {
+        s.append(&self.parent_hash);
+        s.append(&self.slot_number);
+        s.append(&self.randao_reveal);
+        s.append_vec(&self.attestations);
+        s.append(&self.pow_chain_ref);
+        s.append(&self.active_state_root);
+        s.append(&self.crystallized_state_root);
     }
 }
 

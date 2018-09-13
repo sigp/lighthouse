@@ -8,66 +8,78 @@
  */
 use std::cmp::max;
 
-#[derive(Eq)]
+#[derive(Eq,Clone)]
 pub struct BooleanBitfield{
     len: usize,
     vec: Vec<u8>
 }
 
 impl BooleanBitfield {
+    /// Create a new bitfield with a length of zero.
     pub fn new() -> Self {
         Self {
             len: 0,
             vec: vec![]
         }
     }
-    
+
+    /// Create a new bitfield of a certain capacity
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             len: 0,
-            vec: Vec::with_capacity(capacity)
+            vec: Vec::with_capacity(capacity / 8 + 1)
         }
     }
 
-    // Output the bitfield as a big-endian vec of u8.
-    pub fn to_be_vec(&self) -> Vec<u8> {
-        let mut o = self.vec.clone();
-        o.reverse();
-        o
-    }
-
+    /// Read the value of a bit.
+    ///
+    /// Will return `true` if the bit has been set to `true`
+    /// without then being set to `False`.
     pub fn get_bit(&self, i: &usize) -> bool {
-        self.get_bit_on_byte(*i % 8, *i / 8)
-    }
+        let bit = |i: &usize| *i % 8;
+        let byte = |i: &usize| *i / 8;
 
-    fn get_bit_on_byte(&self, bit: usize, byte: usize) -> bool {
-        assert!(bit < 8);
-        if byte >= self.vec.len() {
+        if byte(i) >= self.vec.len() {
             false
         } else {
-             self.vec[byte] & (1 << (bit as u8)) != 0
+             self.vec[byte(i)] & (1 << (bit(i) as u8)) != 0
         }
     }
 
-    pub fn set_bit(&mut self, bit: &usize, to: &bool) {
-        self.len = max(self.len, *bit + 1);
-        self.set_bit_on_byte(*bit % 8, *bit / 8, to);
+    /// Set the value of a bit.
+    ///
+    /// If this bit is larger than the length of the underlying byte
+    /// array it will be extended.
+    pub fn set_bit(&mut self, i: &usize, to: &bool) {
+        let bit = |i: &usize| *i % 8;
+        let byte = |i: &usize| *i / 8;
+
+        self.len = max(self.len, i + 1);
+
+        if byte(i) >= self.vec.len() {
+            self.vec.resize(byte(i) + 1, 0);
+        }
+        match to {
+            true =>  {
+                self.vec[byte(i)] =
+                    self.vec[byte(i)] |  (1 << (bit(i) as u8))
+            }
+            false => {
+                self.vec[byte(i)] =
+                    self.vec[byte(i)] & !(1 << (bit(i) as u8))
+            }
+        }
     }
 
-    fn set_bit_on_byte(&mut self, bit: usize, byte: usize, val: &bool) {
-        assert!(bit < 8);
-        if byte >= self.vec.len() {
-            self.vec.resize(byte + 1, 0);
-        }
-        match val {
-            true =>  self.vec[byte] = self.vec[byte] |  (1 << (bit as u8)),
-            false => self.vec[byte] = self.vec[byte] & !(1 << (bit as u8))
-        }
-    }
-
+    /// Return the "length" of this bitfield. Length is defined as
+    /// the highest bit that has been set.
+    ///
+    /// Note: this is distinct from the length of the underlying
+    /// vector.
     pub fn len(&self) -> usize { self.len }
 
-    // Return the total number of bits set to true.
+    /// Iterate through the underlying vector and count the number of
+    /// true bits.
     pub fn num_true_bits(&self) -> u64 {
         let mut count: u64 = 0;
         for byte in &self.vec {
@@ -79,6 +91,13 @@ impl BooleanBitfield {
         }
         count
     }
+
+    /// Clone and return the underlying byte array (`Vec<u8>`).
+    pub fn to_be_vec(&self) -> Vec<u8> {
+        let mut o = self.vec.clone();
+        o.reverse();
+        o
+    }
 }
 
 impl PartialEq for BooleanBitfield {
@@ -88,34 +107,24 @@ impl PartialEq for BooleanBitfield {
     }
 }
 
-impl Clone for BooleanBitfield {
-    fn clone(&self) -> Self {
-        Self {
-            vec: self.vec.to_vec(),
-            ..*self
-        }
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::rlp;
 
     #[test]
     fn test_bitfield_set() {
         let mut b = BooleanBitfield::new();
         b.set_bit(&0, &false);
         assert_eq!(b.to_be_vec(), [0]);
-        
+
         b = BooleanBitfield::new();
         b.set_bit(&7, &true);
         assert_eq!(b.to_be_vec(), [128]);
         b.set_bit(&7, &false);
         assert_eq!(b.to_be_vec(), [0]);
         assert_eq!(b.len(), 8);
-        
+
         b = BooleanBitfield::new();
         b.set_bit(&7, &true);
         b.set_bit(&0, &true);
@@ -123,21 +132,22 @@ mod tests {
         b.set_bit(&7, &false);
         assert_eq!(b.to_be_vec(), [1]);
         assert_eq!(b.len(), 8);
-        
+
         b = BooleanBitfield::new();
         b.set_bit(&8, &true);
         assert_eq!(b.to_be_vec(), [1, 0]);
+        assert_eq!(b.len(), 9);
         b.set_bit(&8, &false);
         assert_eq!(b.to_be_vec(), [0, 0]);
         assert_eq!(b.len(), 9);
-        
+
         b = BooleanBitfield::new();
         b.set_bit(&15, &true);
         assert_eq!(b.to_be_vec(), [128, 0]);
         b.set_bit(&15, &false);
         assert_eq!(b.to_be_vec(), [0, 0]);
         assert_eq!(b.len(), 16);
-        
+
         b = BooleanBitfield::new();
         b.set_bit(&8, &true);
         b.set_bit(&15, &true);
@@ -156,9 +166,9 @@ mod tests {
             b.set_bit(&i, &true);
             assert_eq!(b.get_bit(&i), true);
             b.set_bit(&i, &true);
-        } 
+        }
     }
-    
+
     #[test]
     fn test_bitfield_num_true_bits() {
         let mut b = BooleanBitfield::new();
