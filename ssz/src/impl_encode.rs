@@ -14,8 +14,18 @@ macro_rules! impl_encodable_for_uint {
         impl Encodable for $type {
             fn ssz_append(&self, s: &mut SszStream)
             {
-                // Number of bits required to represent this integer
-                let num_bits = ((*self as f64).log2().floor() as usize) + 1;
+                // Number of bits required to represent this integer.
+                // This could be optimised at the expense of complexity.
+                let num_bits = {
+                    let mut n = *self;
+                    let mut r: usize = 0;
+                    while n > 0 {
+                        n >>= 1;
+                        r += 1;
+                    }
+                    r
+                };
+                //let num_bits = ((*self as f64).log2().floor() as usize) + 1;
                 // Number of bytes required to represent this bit
                 let num_bytes = (num_bits + 8 - 1) / 8;
                 let mut ssz_val: Vec<u8> = Vec::with_capacity(num_bytes);
