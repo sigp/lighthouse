@@ -1,4 +1,4 @@
-use std::sync::{ RwLock, Arc };
+use std::sync::Arc;
 use super::db::DB;
 use slog::Logger;
 
@@ -8,7 +8,12 @@ use super::network_libp2p::message::{
     NetworkEventType,
 };
 
-use super::wire_protocol::{ WireMessageType, message_type };
+use super::block::process_unverified_blocks;
+
+use super::wire_protocol::{
+    WireMessage,
+    WireMessageHeader,
+};
 
 use super::futures::sync::mpsc::{
     UnboundedSender,
@@ -20,7 +25,7 @@ use super::futures::sync::mpsc::{
 /// (e.g., libp2p) has an event to push up to the sync process.
 pub fn handle_network_event(
     event: NetworkEvent,
-    db: Arc<RwLock<DB>>,
+    db: Arc<DB>,
     network_tx: UnboundedSender<OutgoingMessage>,
     log: Logger)
     -> Result<(), ()>
@@ -34,7 +39,7 @@ pub fn handle_network_event(
                 if let Some(data) = event.data {
                     handle_network_message(
                         data,
-                        db,
+                        &db,
                         network_tx,
                         log)
                 } else {
@@ -51,16 +56,27 @@ pub fn handle_network_event(
 /// (e.g., libp2p) has sent a message to us.
 fn handle_network_message(
     message: Vec<u8>,
-    _db: Arc<RwLock<DB>>,
+    db: &DB,
     _network_tx: UnboundedSender<OutgoingMessage>,
-    _log: Logger)
+    log: Logger)
     -> Result<(), ()>
 {
-    match message_type(&message) {
-        Some(WireMessageType::Blocks) => {
-            // Do something with inbound blocks.
-            Ok(())
+    match WireMessage::decode(&message) {
+        Ok(msg) => {
+            match msg.header {
+                WireMessageHeader::Blocks => {
+                    process_unverified_blocks(
+                        msg.body,
+                        db,
+                        log
+                    );
+                    Ok(())
+                }
+                _ => Ok(())
+            }
         }
-        _ => Ok(())
+        Err(_) => {
+            return Ok(())  // No need to pass the error back
+        }
     }
 }
