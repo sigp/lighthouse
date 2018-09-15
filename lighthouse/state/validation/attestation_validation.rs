@@ -41,26 +41,37 @@ mod tests {
          Block,
          ChainConfig) { 
 
-        let mut crystallized_state = CrystallizedState::zero(); 
-        let mut active_state = ActiveState::zero();
-        let mut attestation_record = AttestationRecord::zero();
-        let mut block = Block::zero();
+        let crystallized_state = CrystallizedState::zero(); 
+        let active_state = ActiveState::zero();
+        let attestation_record = AttestationRecord::zero();
+        let block = Block::zero();
         let chain_config = ChainConfig::standard();
 
         return (crystallized_state, active_state, attestation_record, block, chain_config);
-
     }
     
 
     #[test]
     fn test_attestation_validation_slot_high() { 
         // generate standard state
-        let (mut crystallized_state, mut active_state, mut attestation_record, mut block, mut chain_config) = generate_standard_state();
+        let (crystallized_state, active_state, mut attestation_record, mut block, chain_config) = generate_standard_state();
         // set slot too high
         attestation_record.slot = 30;
         block.slot_number = 10;
 
         let result = validate_attestation(&crystallized_state, &active_state, &attestation_record, &block, &chain_config);
         assert_eq!(result, Err(AttestationValidationError::SlotTooHigh));
+    }
+
+    #[test]
+    fn test_attestation_validation_slot_low() { 
+        // generate standard state
+        let (crystallized_state, active_state, mut attestation_record, mut block, chain_config) = generate_standard_state();
+        // set slot too high
+        attestation_record.slot = 2;
+        block.slot_number = 10;
+
+        let result = validate_attestation(&crystallized_state, &active_state, &attestation_record, &block, &chain_config);
+        //assert_eq!(result, Err(AttestationValidationError::SlotTooLow));
     }
 }
