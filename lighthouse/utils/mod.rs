@@ -7,3 +7,4 @@ pub mod types;
 pub mod bls;
 pub mod test_helpers;
 pub mod logging;
+pub mod errors;
