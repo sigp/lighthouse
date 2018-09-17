@@ -1,8 +1,11 @@
-# simpleserialize (ssz)
+# simpleserialize (ssz) [WIP]
 
-This is a **work-in-progress** crate designed to perform the "simpleserialize"
-serialization described by Vitalik Buterin. The method is tentatively intended
-for use in the Ethereum Beacon Chain.
+This is currently a ***Work In Progress*** crate.
+
+
+SimpleSerialize is a serialization protocol described by Vitalik Buterin. The
+method is tentatively intended for use in the Ethereum Beacon Chain as
+described in the [Ethereum 2.1 Spec](https://notes.ethereum.org/s/Syj3QZSxm).
 
 There are two primary sources for this spec, and they are presently
 conflicting:
@@ -14,8 +17,230 @@ conflicting:
 This implementation is presently a placeholder until the final spec is decided.
 Do not rely upon it for reference.
 
-## TODO
+### TODO
 
- - Wait for spec to finalize.
- - Implement encoding for all useful types.
- - Implement decoding.
+ * [ ] Wait for spec to finalize.
+ * [ ] Implement encoding for all useful types.
+ * [ ] Implement decoding.
+
+## SimpleSerialize Overview
+
+The ``simpleserialize`` method for serialization follows simple byte conversion,
+making it effective and efficient for encoding and decoding.
+
+The decoding requires knowledge of the data **type** and the order of the
+serialization.
+
+Syntax:
+
+| Shorthand    | Meaning                                            |
+|:-------------|:---------------------------------------------------|
+| `big`        | ``big endian``                                     |
+| `little`     | ``little endian``                                  |
+| `to_bytes`   | convert to bytes params ``(size, byte order)``     |
+| `from_bytes` | convert from bytes params ``(bytes, byte order)``  |
+| `value`      | the value to serialize                             |
+| `len(value)` | get the length of the value. (number of bytes etc) |
+
+### Serialize/Encode
+
+#### int or uint: 8/16/32/64/256
+
+Convert directly to bytes the size of the int. (e.g. ``int16 = 2 bytes``)
+
+| Check to perform       | Code                    |
+|:-----------------------|:------------------------|
+| Int size is not 0      | ``int_size > 0``        |
+| Size is a byte integer | ``int_size % 8 == 0``   |
+| Value is less than max | ``2**int_size > value`` |
+
+```
+buffer_size = int_size / 8
+return value.to_bytes(buffer_size, 'big')
+```
+
+#### Address
+
+The address should already come as a hash/byte format. Ensure that length is
+**20**.
+
+```
+assert( len(value) == 20 )
+return value
+```
+
+#### Hash32
+
+The hash32 should already be a 32 byte length serialized data format. The safety
+check ensures the 32 byte length is satisfied.
+
+```
+assert( len(value) == 32 )
+return value
+```
+
+#### Bytes
+
+For general `byte` type:
+1. Get the length/number of bytes; Encode into a 4byte integer.
+2. Append the value to the length and return: ``[ length_bytes ] + [
+   value_bytes ]``
+
+```
+byte_length = (len(value)).to_bytes(4, 'big')
+return byte_length + value
+```
+
+#### List
+
+For lists of values, get the length of the list and then serialize the value
+of each item in the list:
+1. For each item in list:
+   1. serialize.
+   2. append to string.
+2. Get size of serialized string. Encode into a 4 byte integer.
+
+```
+serialized_list_string = ''
+
+for item in value:
+   serialized_list_string += serialize(item)
+
+serialized_len = len(serialized_list_string)
+
+return serialized_len + serialized_list_string
+```
+
+### Deserialize/Decode
+
+The decoding requires knowledge of the type of the item to be decoded. When
+performing decoding on an entire serialized string, it also requires knowledge
+of what order the objects have been serialized in.
+
+Note: Each return will provide ``deserialized_object, new_index`` keeping track
+of the new index.
+
+At each step, the following checks should be made:
+
+| Check Type               | Check                                                     |
+|:-------------------------|:----------------------------------------------------------|
+| Ensure sufficient length | ``length(rawbytes) > current_index + deserialize_length`` |
+
+#### Int or Uint: 8/16/32/64/256
+
+Convert directly from bytes into integer utilising the number of bytes the same
+size as the integer length. (e.g. ``int16 == 2 bytes``)
+
+```
+byte_length = int_size / 8
+new_index = current_index + int_size
+return int.from_bytes(rawbytes[current_index:current_index+int_size], 'big'), new_index
+```
+
+#### Address
+
+Return the 20 bytes.
+
+```
+new_index = current_index + 20
+return rawbytes[current_index:current_index+20], new_index
+```
+
+#### Hash32
+
+Return the 32 bytes.
+
+```
+new_index = current_index + 32
+return rawbytes[current_index:current_index+32], new_index
+```
+
+#### Bytes
+
+Get the length of the bytes, return the bytes.
+
+```
+bytes_length = int.from_bytes(rawbytes[current_index:current_index+4], 'big')
+new_index = current_index + 4 + bytes_lenth
+return rawbytes[current_index+4:current_index+4+bytes_length], new_index
+```
+
+#### List
+
+1. Get the length of the serialized list bytes.
+2. Loop through the bytes;
+   1. Deserialize the object with that length.
+   2. Keep track of current position
+
+Note Before: there are a number of checks to be performed, ensuring there is
+enough room left.
+
+| Check type                          | code                                  |
+|:------------------------------------|:--------------------------------------|
+| rawbytes has enough left for length | ``len(rawbytes) > current_index + 4`` |
+
+```
+total_length = int.from_bytes(rawbytes[current_index:current_index+4], 'big')
+new_index = current_index + 4 + total_length
+item_index = current_index + 4
+deserialized_list = []
+
+while item_index < new_index:
+   object, item_index = deserialize(rawbytes, item_index, item_type)
+   deserialized_list.append(object)
+
+return deserialized_list, new_index
+```
+
+## Technical Overview
+
+The SimpleSerialize is a simple method for serializing objects for use in the
+Ethereum beacon chain proposed by Vitalik Buterin. There are currently two
+implementations denoting the functionality, the [Reference
+Implementation](https://github.com/ethereum/beacon_chain/blob/master/beacon_chain/utils/simpleserialize.py)
+and the [Module](https://github.com/ethereum/research/tree/master/py_ssz) in
+Ethereum research. It is being developed as a crate for the [**Rust programming
+language**](https://www.rust-lang.org).
+
+The crate will provide the functionality to serialize several types in
+accordance with the spec and provide a serialized stream of bytes.
+
+## Building
+
+ssz currently builds on **rust v1.27.1**
+
+### Installing Rust
+
+The [**Rustup**](https://rustup.rs/) tool provides functionality to easily
+manage rust on your local instance. It is a recommended method for installing
+rust.
+
+Installing on Linux or OSX:
+
+```
+curl https://sh.rustup.rs -sSf | sh
+```
+
+Installing on Windows:
+
+* 32 Bit: [ https://win.rustup.rs/i686 ](https://win.rustup.rs/i686)
+* 64 Bit: [ https://win.rustup.rs/x86_64 ](https://win.rustup.rs/x86_64)
+
+## Dependencies
+
+All dependencies are listed in the ``Cargo.toml`` file.
+
+To build and install all related dependencies:
+
+```
+cargo build
+```
+
+### Running Tests
+
+Tests are included at the bottom of each of the implementation files.
+
+```
+cargo test
+```
+
