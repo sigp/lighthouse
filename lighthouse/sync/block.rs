@@ -1,4 +1,5 @@
-use super::db::DB;
+use std::sync::Arc;
+use super::db::ClientDB;
 use slog::Logger;
 
 pub enum BlockStatus {
@@ -14,7 +15,7 @@ pub enum BlockStatus {
 
 pub fn process_unverified_blocks(
     _serialized_block: &[u8],
-    _db: &DB,
+    _db: Arc<ClientDB>,
     _log: Logger)
 {
     //

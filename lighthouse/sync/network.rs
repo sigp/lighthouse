@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use super::db::DB;
+use super::db::ClientDB;
 use slog::Logger;
 
 use super::network_libp2p::message::{
@@ -25,7 +25,7 @@ use super::futures::sync::mpsc::{
 /// (e.g., libp2p) has an event to push up to the sync process.
 pub fn handle_network_event(
     event: NetworkEvent,
-    db: Arc<DB>,
+    db: Arc<ClientDB>,
     network_tx: UnboundedSender<OutgoingMessage>,
     log: Logger)
     -> Result<(), ()>
@@ -39,7 +39,7 @@ pub fn handle_network_event(
                 if let Some(data) = event.data {
                     handle_network_message(
                         data,
-                        &db,
+                        db,
                         network_tx,
                         log)
                 } else {
@@ -56,7 +56,7 @@ pub fn handle_network_event(
 /// (e.g., libp2p) has sent a message to us.
 fn handle_network_message(
     message: Vec<u8>,
-    db: &DB,
+    db: Arc<ClientDB>,
     _network_tx: UnboundedSender<OutgoingMessage>,
     log: Logger)
     -> Result<(), ()>

@@ -10,7 +10,7 @@ use super::network_libp2p::message::{
 };
 use super::network::handle_network_event;
 use std::sync::Arc;
-use super::db::DB;
+use super::db::ClientDB;
 use slog::Logger;
 
 type NetworkSender = UnboundedSender<OutgoingMessage>;
@@ -25,7 +25,7 @@ type SyncReceiver = UnboundedReceiver<Vec<u8>>;
 /// from the network and the RPC and update
 /// the state.
 pub fn run_sync_future(
-    db: Arc<DB>,
+    db: Arc<ClientDB>,
     network_tx: NetworkSender,
     network_rx: NetworkReceiver,
     _sync_tx: SyncSender,
