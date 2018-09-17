@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::thread;
-use super::db::{ DB, open_db };
+use super::db::{ DiskDB };
 use super::config::LighthouseConfig;
 use super::futures::sync::mpsc::{
     unbounded,
@@ -10,10 +10,12 @@ use super::network_libp2p::state::NetworkState;
 use super::slog::Logger;
 use super::sync::run_sync_future;
 
+use super::db::ClientDB;
+
 /// Represents the co-ordination of the
 /// networking, syncing and RPC (not-yet-implemented) threads.
 pub struct Client {
-    pub db: Arc<DB>,
+    pub db: Arc<ClientDB>,
     pub network_thread: thread::JoinHandle<()>,
     pub sync_thread: thread::JoinHandle<()>,
 }
@@ -29,7 +31,7 @@ impl Client {
     {
         // Open the local db
         let db = {
-            let db = open_db(&config.data_dir);
+            let db = DiskDB::open(&config.data_dir);
             Arc::new(db)
         };
 
