@@ -28,10 +28,9 @@ impl DiskDB {
         /*
          * Initialise the path
          */
-        let mut db_path = path.join("rocksdb");
-        fs::create_dir_all(&db_path)
-            .expect(&format!("Unable to create {:?}", &db_path));
-        db_path = db_path.join("database");
+        fs::create_dir_all(&path)
+            .expect(&format!("Unable to create {:?}", &path));
+        let db_path = path.join("database");
 
         /*
          * Open the database
