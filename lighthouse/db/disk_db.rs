@@ -13,11 +13,22 @@ use super::{
     DBError
 };
 
+/// A on-disk database which implements the ClientDB trait.
+///
+/// This implementation uses RocksDB with default options.
 pub struct DiskDB {
     db: DB,
 }
 
 impl DiskDB {
+    /// Open the RocksDB database, optionally supplying columns if required.
+    ///
+    /// The RocksDB database will be contained in a directory titled
+    /// "database" in the supplied path.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the database is unable to be created.
     pub fn open(path: &Path, columns: Option<&[&str]>) -> Self {
         /*
          * Initialise the options
@@ -53,6 +64,8 @@ impl From<RocksError> for DBError {
 }
 
 impl ClientDB for DiskDB {
+    /// Create a RocksDB column family. Corresponds to the
+    /// `create_cf()` function on the RocksDB API.
     fn create_col(&mut self, col: &str)
         -> Result<(), DBError>
     {
@@ -62,6 +75,11 @@ impl ClientDB for DiskDB {
         }
     }
 
+    /// Get the value for some key on some column.
+    ///
+    /// Corresponds to the `get_cf()` method on the RocksDB API.
+    /// Will attempt to get the `ColumnFamily` and return an Err
+    /// if it fails.
     fn get(&self, col: &str, key: &[u8])
         -> Result<Option<DBValue>, DBError>
     {
@@ -76,6 +94,11 @@ impl ClientDB for DiskDB {
         }
     }
 
+    /// Set some value for some key on some column.
+    ///
+    /// Corresponds to the `cf_handle()` method on the RocksDB API.
+    /// Will attempt to get the `ColumnFamily` and return an Err
+    /// if it fails.
     fn put(&self, col: &str, key: &[u8], val: &[u8])
         -> Result<(), DBError>
     {
