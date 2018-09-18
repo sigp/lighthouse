@@ -1,6 +1,6 @@
-use std::sync::{ Arc, RwLock };
+use std::sync::Arc;
 use std::thread;
-use super::db::{ DB, open_db };
+use super::db::{ DiskDB };
 use super::config::LighthouseConfig;
 use super::futures::sync::mpsc::{
     unbounded,
@@ -10,10 +10,12 @@ use super::network_libp2p::state::NetworkState;
 use super::slog::Logger;
 use super::sync::run_sync_future;
 
+use super::db::ClientDB;
+
 /// Represents the co-ordination of the
 /// networking, syncing and RPC (not-yet-implemented) threads.
 pub struct Client {
-    pub db: Arc<RwLock<DB>>,
+    pub db: Arc<ClientDB>,
     pub network_thread: thread::JoinHandle<()>,
     pub sync_thread: thread::JoinHandle<()>,
 }
@@ -29,8 +31,8 @@ impl Client {
     {
         // Open the local db
         let db = {
-            let db = open_db(&config.data_dir);
-            Arc::new(RwLock::new(db))
+            let db = DiskDB::open(&config.data_dir, None);
+            Arc::new(db)
         };
 
         // Start the network thread
@@ -57,7 +59,7 @@ impl Client {
             let (sync_out_sender, sync_out_receiver) = unbounded();
             let (sync_in_sender, sync_in_receiver) = unbounded();
             let sync_log = log.new(o!());
-            let sync_db = Arc::clone(&db);
+            let sync_db = db.clone();
             let thread = thread::spawn(move || {
                 run_sync_future(
                     sync_db,
