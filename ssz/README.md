@@ -270,6 +270,21 @@ To build and install all related dependencies:
 cargo build
 ```
 
+### bytes v0.4.9
+
+The `bytes` crate provides effective Byte Buffer implementations and
+interfaces.
+
+Documentation: [ https://docs.rs/bytes/0.4.9/bytes/ ](https://docs.rs/bytes/0.4.9/bytes/)
+
+### ethereum-types
+
+The `ethereum-types` provide primitives for types that are commonly used in the
+ethereum protocol. This crate is provided by [Parity](https://www.parity.io/).
+
+Github: [ https://github.com/paritytech/primitives ](https://github.com/paritytech/primitives)
+
+
 ---
 
 ## Interface
