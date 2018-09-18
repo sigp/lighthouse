@@ -37,6 +37,8 @@ Do not rely upon it for reference.
 * [Building](#building)
   + [Installing Rust](#installing-rust)
 * [Dependencies](#dependencies)
+  + [bytes v0.4.9](#bytes-v049)
+  + [ethereum-types](#ethereum-types)
 * [Interface](#interface)
   + [Encodable](#encodable)
   + [SszStream](#sszstream)
