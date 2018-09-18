@@ -27,17 +27,6 @@ pub fn decode_ssz<T>(ssz_bytes: &[u8], index: usize)
     T::ssz_decode(ssz_bytes, index)
 }
 
-/// Decode the nth element of some ssz list.
-///
-/// A single ssz encoded value can be considered a list of
-/// one element, so this function will work on it too.
-pub fn decode_ssz_list_element<T>(ssz_bytes: &[u8], n: usize)
-    -> Result<T, DecodeError>
-    where T: Decodable
-{
-    T::ssz_decode(nth_value(ssz_bytes, n)?)
-}
-
 /// Return the nth value in some ssz encoded list.
 ///
 /// The four-byte length prefix is not included in the return.
