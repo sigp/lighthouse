@@ -1,6 +1,6 @@
 # Lighthouse: a (future) Ethereum 2.0 client 
 
-[![Build Status](https://travis-ci.org/sigp/lighthouse.svg?branch=master)](https://travis-ci.org/sigp/lighthouse)
+[![Build Status](https://travis-ci.org/sigp/lighthouse.svg?branch=master)](https://travis-ci.org/sigp/lighthouse) [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/sigp/lighthouse?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
 A **work-in-progress** implementation of the Ethereum 2.0 Beacon Chain in Rust.
 
