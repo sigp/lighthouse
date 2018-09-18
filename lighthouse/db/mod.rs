@@ -18,6 +18,9 @@ impl DBError {
 }
 
 pub trait ClientDB: Sync + Send {
+    fn create_col(&mut self, col: &str)
+        -> Result<(), DBError>;
+
     fn get(&self, col: &str, key: &[u8])
         -> Result<Option<DBValue>, DBError>;
 

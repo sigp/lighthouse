@@ -31,7 +31,7 @@ impl Client {
     {
         // Open the local db
         let db = {
-            let db = DiskDB::open(&config.data_dir);
+            let db = DiskDB::open(&config.data_dir, None);
             Arc::new(db)
         };
 
