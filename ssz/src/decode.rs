@@ -10,7 +10,21 @@ pub enum DecodeError {
 }
 
 pub trait Decodable: Sized {
-    fn ssz_decode(bytes: &[u8]) -> Result<Self, DecodeError>;
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<Self, DecodeError>;
+}
+
+/// Decode the given bytes for the given type
+///
+/// The single ssz encoded value will be decoded as the given type at the
+/// given index.
+pub fn decode_ssz<T>(ssz_bytes: &[u8], index: usize)
+    -> Result<T, DecodeError>
+    where T: Decodable
+{
+    if index >= ssz_bytes.len() {
+        return Err(DecodeError::OutOfBounds)
+    }
+    T::ssz_decode(ssz_bytes, index)
 }
 
 /// Decode the nth element of some ssz list.
