@@ -27,31 +27,45 @@ pub fn decode_ssz<T>(ssz_bytes: &[u8], index: usize)
     T::ssz_decode(ssz_bytes, index)
 }
 
-/// Return the nth value in some ssz encoded list.
+/// Decode a vector (list) of encoded bytes.
 ///
-/// The four-byte length prefix is not included in the return.
-///
-/// A single ssz encoded value can be considered a list of
-/// one element, so this function will work on it too.
-fn nth_value(ssz_bytes: &[u8], n: usize)
-    -> Result<&[u8], DecodeError>
+/// Each element in the list will be decoded and placed into the vector.
+pub fn decode_ssz_list<T>(ssz_bytes: &[u8], index: usize)
+    -> Result<(Vec<T>, usize), DecodeError>
+    where T: Decodable
 {
-    let mut c: usize = 0;
-    for i in 0..(n + 1) {
-        let length = decode_length(&ssz_bytes[c..], LENGTH_BYTES)?;
-        let next = c + LENGTH_BYTES + length;
 
-        if i == n {
-            return Ok(&ssz_bytes[c + LENGTH_BYTES..next]);
-        } else {
-            if next >= ssz_bytes.len() {
-                return Err(DecodeError::OutOfBounds);
-            } else {
-                c = next;
-            }
-        }
-    }
-    Err(DecodeError::OutOfBounds)
+    if index + LENGTH_BYTES > ssz_bytes.len() {
+        return Err(DecodeError::OutOfBounds);
+    };
+
+    // get the length
+    let mut serialized_length = match decode_length(ssz_bytes, LENGTH_BYTES) {
+        Err(v) => return Err(v),
+        Ok(v) => v,
+    };
+
+    let final_len: usize = index + LENGTH_BYTES + serialized_length;
+
+    if final_len > ssz_bytes.len() {
+        return Err(DecodeError::OutOfBounds);
+    };
+
+    let mut tmp_index = index + LENGTH_BYTES;
+    let mut res_vec: Vec<T> = Vec::new();
+
+    while tmp_index < final_len {
+        match T::ssz_decode(ssz_bytes, tmp_index) {
+            Err(v) => return Err(v),
+            Ok(v) => {
+                tmp_index = v.1;
+                res_vec.push(v.0);
+            },
+        };
+
+    };
+
+    Ok((res_vec, final_len))
 }
 
 /// Given some number of bytes, interpret the first four
