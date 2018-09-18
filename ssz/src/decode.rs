@@ -10,7 +10,7 @@ pub enum DecodeError {
 }
 
 pub trait Decodable: Sized {
-    fn ssz_decode(bytes: &[u8], index: usize) -> Result<Self, DecodeError>;
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError>;
 }
 
 /// Decode the given bytes for the given type
@@ -18,7 +18,7 @@ pub trait Decodable: Sized {
 /// The single ssz encoded value will be decoded as the given type at the
 /// given index.
 pub fn decode_ssz<T>(ssz_bytes: &[u8], index: usize)
-    -> Result<T, DecodeError>
+    -> Result<(T, usize), DecodeError>
     where T: Decodable
 {
     if index >= ssz_bytes.len() {
@@ -79,24 +79,24 @@ mod tests {
     #[test]
     fn test_ssz_decode_length() {
         let decoded = decode_length(
-            &vec![0, 0, 1],
+            &vec![0, 0, 0, 1],
             LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 1);
 
         let decoded = decode_length(
-            &vec![0, 1, 0],
+            &vec![0, 0, 1, 0],
             LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 256);
 
         let decoded = decode_length(
-            &vec![0, 1, 255],
+            &vec![0, 0, 1, 255],
             LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 511);
 
         let decoded = decode_length(
-            &vec![255, 255, 255],
+            &vec![255, 255, 255, 255],
             LENGTH_BYTES);
-        assert_eq!(decoded.unwrap(), 16777215);
+        assert_eq!(decoded.unwrap(), 4294967295);
     }
 
     #[test]
@@ -114,25 +114,5 @@ mod tests {
                 LENGTH_BYTES).unwrap();
             assert_eq!(i, decoded);
         }
-    }
-
-    #[test]
-    fn test_ssz_nth_value() {
-        let ssz = vec![0, 0, 1, 0];
-        let result = nth_value(&ssz, 0).unwrap();
-        assert_eq!(result, vec![0].as_slice());
-
-        let ssz = vec![0, 0, 4, 1, 2, 3, 4];
-        let result = nth_value(&ssz, 0).unwrap();
-        assert_eq!(result, vec![1, 2, 3, 4].as_slice());
-
-        let ssz = vec![0, 0, 1, 0, 0, 0, 1, 1];
-        let result = nth_value(&ssz, 1).unwrap();
-        assert_eq!(result, vec![1].as_slice());
-
-        let mut ssz = vec![0, 1, 255];
-        ssz.append(&mut vec![42; 511]);
-        let result = nth_value(&ssz, 0).unwrap();
-        assert_eq!(result, vec![42; 511].as_slice());
     }
 }

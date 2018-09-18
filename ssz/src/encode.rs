@@ -96,29 +96,29 @@ mod tests {
     fn test_encode_length_4_bytes() {
         assert_eq!(
             encode_length(0, LENGTH_BYTES),
-            vec![0; 3]
+            vec![0; 4]
         );
         assert_eq!(
             encode_length(1, LENGTH_BYTES),
-            vec![0, 0, 1]
+            vec![0, 0, 0, 1]
         );
         assert_eq!(
             encode_length(255, LENGTH_BYTES),
-            vec![0, 0, 255]
+            vec![0, 0, 0, 255]
         );
         assert_eq!(
             encode_length(256, LENGTH_BYTES),
-            vec![0, 1, 0]
+            vec![0, 0, 1, 0]
         );
         assert_eq!(
-            encode_length(16777215, LENGTH_BYTES),  // 2^(3*8) - 1
-            vec![255, 255, 255]
+            encode_length(4294967295, LENGTH_BYTES),  // 2^(3*8) - 1
+            vec![255, 255, 255, 255]
         );
     }
 
     #[test]
     #[should_panic]
     fn test_encode_length_4_bytes_panic() {
-        encode_length(16777216, LENGTH_BYTES);  // 2^(3*8)
+        encode_length(4294967296, LENGTH_BYTES);  // 2^(3*8)
     }
 }

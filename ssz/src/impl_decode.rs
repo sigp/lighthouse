@@ -6,7 +6,7 @@ macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Decodable for $type {
             fn ssz_decode(bytes: &[u8], index: usize)
-                -> Result<Self, DecodeError>
+                -> Result<(Self, usize), DecodeError>
             {
                 assert!((0 < $bit_size) &
                         ($bit_size <= 64) &
@@ -19,7 +19,7 @@ macro_rules! impl_decodable_for_uint {
                         let offset = ((index + max_bytes) - i - 1) * 8;
                         result = ((bytes[i] as $type) << offset) | result;
                     };
-                    Ok(result)
+                    Ok((result, end_bytes))
                 } else {
                     Err(DecodeError::TooShort)
                 }
@@ -44,23 +44,28 @@ mod tests {
     #[test]
     fn test_ssz_decode_u16() {
         let ssz = vec![0, 0];
-        let result: u16 = decode_ssz(&ssz, 0).unwrap();
+
+        let (result, index): (u16, usize) = decode_ssz(&ssz, 0).unwrap();
         assert_eq!(result, 0);
+        assert_eq!(index, 2);
 
         let ssz = vec![0, 16];
-        let result: u16 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u16, usize) = decode_ssz(&ssz, 0).unwrap();
         assert_eq!(result, 16);
+        assert_eq!(index, 2);
 
         let ssz = vec![1, 0];
-        let result: u16 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u16, usize) = decode_ssz(&ssz, 0).unwrap();
         assert_eq!(result, 256);
+        assert_eq!(index, 2);
 
         let ssz = vec![255, 255];
-        let result: u16 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u16, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 2);
         assert_eq!(result, 65535);
 
         let ssz = vec![1];
-        let result: Result<u16, DecodeError> =
+        let result: Result<(u16, usize), DecodeError> =
             decode_ssz(&ssz, 0);
         assert_eq!(result, Err(DecodeError::TooShort));
     }
@@ -68,27 +73,32 @@ mod tests {
     #[test]
     fn test_ssz_decode_u32() {
         let ssz = vec![0, 0, 0, 0];
-        let result: u32 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u32, usize) = decode_ssz(&ssz, 0).unwrap();
         assert_eq!(result, 0);
+        assert_eq!(index, 4);
 
         let ssz = vec![0, 0, 1, 0];
-        let result: u32 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u32, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 4);
         assert_eq!(result, 256);
 
         let ssz = vec![255, 255, 255, 0, 0, 1, 0];
-        let result: u32 = decode_ssz(&ssz, 3).unwrap();
+        let (result, index): (u32, usize) = decode_ssz(&ssz, 3).unwrap();
+        assert_eq!(index, 7);
         assert_eq!(result, 256);
 
         let ssz = vec![0,200, 1, 0];
-        let result: u32 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u32, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 4);
         assert_eq!(result, 13107456);
 
         let ssz = vec![255, 255, 255, 255];
-        let result: u32 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u32, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 4);
         assert_eq!(result, 4294967295);
 
         let ssz = vec![0, 0, 1];
-        let result: Result<u32, DecodeError> =
+        let result: Result<(u32, usize), DecodeError> =
             decode_ssz(&ssz, 0);
         assert_eq!(result, Err(DecodeError::TooShort));
     }
@@ -96,19 +106,22 @@ mod tests {
     #[test]
     fn test_ssz_decode_u64() {
         let ssz = vec![0, 0, 0, 0, 0, 0, 0, 0];
-        let result: u64 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u64, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 8);
         assert_eq!(result, 0);
 
         let ssz = vec![255, 255, 255, 255, 255, 255, 255, 255];
-        let result: u64 = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (u64, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 8);
         assert_eq!(result, 18446744073709551615);
 
-        let ssz = vec![255, 255, 255, 0, 0, 0, 0, 0, 0, 0];
-        let result: u64 = decode_ssz(&ssz, 2).unwrap();
+        let ssz = vec![0, 0, 8, 255, 0, 0, 0, 0, 0, 0, 0];
+        let (result, index): (u64, usize) = decode_ssz(&ssz, 3).unwrap();
+        assert_eq!(index, 11);
         assert_eq!(result, 18374686479671623680);
 
         let ssz = vec![0,0,0,0,0,0,0];
-        let result: Result<u64, DecodeError> =
+        let result: Result<(u64, usize), DecodeError> =
             decode_ssz(&ssz, 0);
         assert_eq!(result, Err(DecodeError::TooShort));
     }
@@ -116,32 +129,35 @@ mod tests {
     #[test]
     fn test_ssz_decode_usize() {
         let ssz = vec![0, 0, 0, 0, 0, 0, 0, 0];
-        let result: usize = decode_ssz(&ssz, 0).unwrap();
+        let (result, index): (usize, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 8);
         assert_eq!(result, 0);
 
         let ssz = vec![0, 0, 8, 255, 255, 255, 255, 255, 255, 255, 255];
-        let result: usize = decode_ssz(&ssz, 3).unwrap();
+        let (result, index): (usize, usize) = decode_ssz(&ssz, 3).unwrap();
+        assert_eq!(index, 11);
         assert_eq!(result, 18446744073709551615);
 
-        let ssz = vec![255, 255, 255, 255, 255, 255, 255, 255];
-        let result: usize = decode_ssz(&ssz, 0).unwrap();
+        let ssz = vec![255, 255, 255, 255, 255, 255, 255, 255, 255];
+        let (result, index): (usize, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 8);
         assert_eq!(result, 18446744073709551615);
 
         let ssz = vec![0, 0, 0, 0, 0, 0, 1];
-        let result: Result<usize, DecodeError> =
+        let result: Result<(usize, usize), DecodeError> =
             decode_ssz(&ssz, 0);
         assert_eq!(result, Err(DecodeError::TooShort));
     }
 
     #[test]
     fn test_decode_ssz_bounds() {
-        let err: Result<u16, DecodeError> = decode_ssz(
+        let err: Result<(u16, usize), DecodeError> = decode_ssz(
             &vec![1],
             2
         );
         assert_eq!(err, Err(DecodeError::OutOfBounds));
 
-        let err: Result<u16, DecodeError> = decode_ssz(
+        let err: Result<(u16,usize), DecodeError> = decode_ssz(
             &vec![0, 0, 0, 0],
             3
         );
@@ -150,7 +166,7 @@ mod tests {
         let result: u16 = decode_ssz(
             &vec![0,0,0,0,1],
             3
-        ).unwrap();
+        ).unwrap().0;
         assert_eq!(result, 1);
     }
 }
