@@ -25,4 +25,4 @@ pub use encode::{
     SszStream,
 };
 
-pub const LENGTH_BYTES: usize = 3;
+pub const LENGTH_BYTES: usize = 4;
