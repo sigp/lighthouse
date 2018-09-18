@@ -69,14 +69,14 @@ serialization.
 
 Syntax:
 
-| Shorthand    | Meaning                                            |
-|:-------------|:---------------------------------------------------|
-| `big`        | ``big endian``                                     |
-| `little`     | ``little endian``                                  |
-| `to_bytes`   | convert to bytes params ``(size, byte order)``     |
-| `from_bytes` | convert from bytes params ``(bytes, byte order)``  |
-| `value`      | the value to serialize                             |
-| `len(value)` | get the length of the value. (number of bytes etc) |
+| Shorthand    | Meaning                                             |
+|:-------------|:----------------------------------------------------|
+| `big`        | ``big endian``                                      |
+| `to_bytes`   | convert to bytes. Params: ``(size, byte order)``    |
+| `from_bytes` | convert from bytes. Params: ``(bytes, byte order)`` |
+| `value`      | the value to serialize                              |
+| `rawbytes`   | raw encoded/serialized bytes                        |
+| `len(value)` | get the length of the value. (number of bytes etc)  |
 
 ### Serialize/Encode
 
@@ -100,6 +100,10 @@ return value.to_bytes(buffer_size, 'big')
 The address should already come as a hash/byte format. Ensure that length is
 **20**.
 
+| Check to perform       | Code                 |
+|:-----------------------|:---------------------|
+| Length is correct (20) | ``len(value) == 20`` |
+
 ```
 assert( len(value) == 20 )
 return value
@@ -109,6 +113,10 @@ return value
 
 The hash32 should already be a 32 byte length serialized data format. The safety
 check ensures the 32 byte length is satisfied.
+
+| Check to perform       | Code                 |
+|:-----------------------|:---------------------|
+| Length is correct (32) | ``len(value) == 32`` |
 
 ```
 assert( len(value) == 32 )
