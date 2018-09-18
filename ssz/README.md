@@ -17,11 +17,45 @@ conflicting:
 This implementation is presently a placeholder until the final spec is decided.
 Do not rely upon it for reference.
 
+
+## Table of Contents
+
+* [SimpleSerialize Overview](#simpleserialize-overview)
+  + [Serialize/Encode](#serializeencode)
+    - [int or uint: 8/16/24/32/64/256](#int-or-uint-816243264256)
+    - [Address](#address)
+    - [Hash32](#hash32)
+    - [Bytes](#bytes)
+    - [List](#list)
+  + [Deserialize/Decode](#deserializedecode)
+    - [Int or Uint: 8/16/24/32/64/256](#int-or-uint-816243264256)
+    - [Address](#address-1)
+    - [Hash32](#hash32-1)
+    - [Bytes](#bytes-1)
+    - [List](#list-1)
+* [Technical Overview](#technical-overview)
+* [Building](#building)
+  + [Installing Rust](#installing-rust)
+* [Dependencies](#dependencies)
+* [Interface](#interface)
+  + [Encodable](#encodable)
+  + [SszStream](#sszstream)
+    - [new()](#new)
+    - [append(&mut self, value: &E) -> &mut Self](#appendmut-self-value-e---mut-self)
+    - [append_encoded_val(&mut self, vec: &Vec)](#append_encoded_valmut-self-vec-vec)
+    - [append_vec(&mut self, vec: &Vec)](#append_vecmut-self-vec-vec)
+    - [drain(self) -> Vec](#drainself---vec)
+* [Usage](#usage)
+  + [Serializing/Encoding](#serializingencoding)
+    - [Rust](#rust)
+
 ### TODO
 
  * [ ] Wait for spec to finalize.
  * [ ] Implement encoding for all useful types.
  * [ ] Implement decoding.
+
+---
 
 ## SimpleSerialize Overview
 
@@ -44,7 +78,7 @@ Syntax:
 
 ### Serialize/Encode
 
-#### int or uint: 8/16/32/64/256
+#### int or uint: 8/16/24/32/64/256
 
 Convert directly to bytes the size of the int. (e.g. ``int16 = 2 bytes``)
 
@@ -126,7 +160,7 @@ At each step, the following checks should be made:
 |:-------------------------|:----------------------------------------------------------|
 | Ensure sufficient length | ``length(rawbytes) > current_index + deserialize_length`` |
 
-#### Int or Uint: 8/16/32/64/256
+#### Int or Uint: 8/16/24/32/64/256
 
 Convert directly from bytes into integer utilising the number of bytes the same
 size as the integer length. (e.g. ``int16 == 2 bytes``)
@@ -236,11 +270,124 @@ To build and install all related dependencies:
 cargo build
 ```
 
-### Running Tests
+---
 
-Tests are included at the bottom of each of the implementation files.
+## Interface
 
+### Encodable
+
+A type is **Encodable** if it has a valid ``ssz_append`` function. This is
+used to ensure that the object/type can be serialized.
+
+```rust
+pub trait Encodable {
+    fn ssz_append(&self, s: &mut SszStream);
+}
 ```
-cargo test
+
+
+### SszStream
+
+The main implementation is the `SszStream` struct. The struct contains a
+buffer of bytes, a Vector of `uint8`.
+
+#### new()
+
+Create a new, empty instance of the SszStream.
+
+```rust
+let mut ssz = SszStream::new()
 ```
 
+#### append<E>(&mut self, value: &E) -> &mut Self
+
+Appends a value that can be encoded into the stream.
+
+| Parameter | Description                              |
+|:---------:|:-----------------------------------------|
+| ``value`` | Encodable value to append to the stream. |
+
+```rust
+ssz.append(&x)
+```
+
+#### append_encoded_val(&mut self, vec: &Vec<u8>)
+
+Appends some ssz encoded bytes to the stream.
+
+| Parameter | Description                       |
+|:---------:|:----------------------------------|
+|  ``vec``  | A vector of serialized ssz bytes. |
+
+```rust
+let mut a = [0, 1];
+ssz.append_encoded_val(&a.to_vec());
+```
+
+#### append_vec<E>(&mut self, vec: &Vec<E>)
+
+Appends some vector (list) of encodable values to the stream.
+
+| Parameter | Description                                   |
+|:---------:|:----------------------------------------------|
+|  ``vec``  | Vector of Encodable objects to be serialized. |
+
+```rust
+ssz.append_vec(attestations);
+```
+
+#### drain(self) -> Vec<u8>
+
+Consumes the ssz stream and returns the buffer of bytes.
+
+```rust
+ssz.drain()
+```
+
+
+
+---
+
+## Usage
+
+### Serializing/Encoding
+
+#### Rust
+
+Create the `simpleserialize` stream that will produce the serialized objects.
+
+```rust
+let mut ssz = SszStream::new();
+```
+
+Encode the values that you need by using the ``append(..)`` method on the `SszStream`.
+
+The **append** function is how the value gets serialized.
+
+```rust
+let x: u64 = 1 << 32;
+ssz.append(&x);
+```
+
+To get the serialized byte vector use ``drain()`` on the `SszStream`.
+
+```rust
+ssz.drain()
+```
+
+**Example**
+
+```rust
+// 1 << 32 = 4294967296;
+// As bytes it should equal: [0,0,0,1,0,0,0]
+let x: u64 = 1 << 32;
+
+// Create the new ssz stream
+let mut ssz = SszStream::new();
+
+// Serialize x
+ssz.append(&x);
+
+// Check that it is correct.
+assert_eq!(ssz.drain(), vec![0,0,0,1,0,0,0]);
+```
