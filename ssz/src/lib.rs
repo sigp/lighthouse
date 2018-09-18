@@ -18,7 +18,7 @@ mod impl_decode;
 pub use decode::{
     Decodable,
     DecodeError,
-    decode_ssz_list_element,
+    decode_ssz,
 };
 pub use encode::{
     Encodable,
