@@ -71,7 +71,7 @@ pub fn decode_ssz_list<T>(ssz_bytes: &[u8], index: usize)
 /// Given some number of bytes, interpret the first four
 /// bytes as a 32-bit big-endian integer and return the
 /// result.
-fn decode_length(bytes: &[u8], index: usize, length_bytes: usize)
+pub fn decode_length(bytes: &[u8], index: usize, length_bytes: usize)
     -> Result<usize, DecodeError>
 {
     if bytes.len() < length_bytes {
