@@ -18,11 +18,11 @@ mod impl_decode;
 pub use decode::{
     Decodable,
     DecodeError,
-    decode_ssz_list_element,
+    decode_ssz,
 };
 pub use encode::{
     Encodable,
     SszStream,
 };
 
-pub const LENGTH_BYTES: usize = 3;
+pub const LENGTH_BYTES: usize = 4;
