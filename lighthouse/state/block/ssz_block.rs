@@ -12,7 +12,6 @@ use super::block::{
 pub enum BlockValidatorError {
     TooShort,
     TooLong,
-    NoAttestationRecords,
     BadPowHash,
     SlotTooLow,
     SlotTooHigh,
@@ -119,7 +118,7 @@ mod tests {
 
         assert_eq!(
             SszBlock::from_slice(&ssz[..]),
-            Err(BlockValidatorError::NoAttestationRecords)
+            Err(BlockValidatorError::TooShort)
         );
     }
 
@@ -129,9 +128,6 @@ mod tests {
         b.attestations = vec![AttestationRecord::zero()];
         let ssz = get_block_ssz(&b);
 
-        assert_eq!(
-            SszBlock::from_slice(&ssz[..]),
-            Err(BlockValidatorError::NoAttestationRecords)
-        );
+        assert!(SszBlock::from_slice(&ssz[..]).is_ok());
     }
 }
