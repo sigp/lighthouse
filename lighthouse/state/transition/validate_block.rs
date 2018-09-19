@@ -1,0 +1,4 @@
+enum BlockStatus {
+    NewBlock,
+    KnownBlock,
+}
