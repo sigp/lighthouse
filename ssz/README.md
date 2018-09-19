@@ -41,15 +41,21 @@ Do not rely upon it for reference.
   + [ethereum-types](#ethereum-types)
 * [Interface](#interface)
   + [Encodable](#encodable)
+  + [Decodable](#decodable)
   + [SszStream](#sszstream)
     - [new()](#new)
     - [append(&mut self, value: &E) -> &mut Self](#appendmut-self-value-e---mut-self)
     - [append_encoded_val(&mut self, vec: &Vec)](#append_encoded_valmut-self-vec-vec)
     - [append_vec(&mut self, vec: &Vec)](#append_vecmut-self-vec-vec)
     - [drain(self) -> Vec](#drainself---vec)
+  + [decode_ssz(ssz_bytes: &(u8), index: usize) -> Result](#decode_sszssz_bytes-u8-index-usize---resultt-usize-decodeerror)
+  + [decode_ssz_list(ssz_bytes: &(u8), index: usize) -> Result, usize), DecodeError>](#decode_ssz_listssz_bytes-u8-index-usize---resultvec-usize-decodeerror)
+  + [decode_length(bytes: &(u8), index: usize, length_bytes: usize) -> Result](#decode_lengthbytes-u8-index-usize-length_bytes-usize---resultusize-decodeerror)
 * [Usage](#usage)
   + [Serializing/Encoding](#serializingencoding)
     - [Rust](#rust)
+* [Deserializing/Decoding](#deserializingdecoding)
+    - [Rust](#rust-1)
 
 ### TODO
 
