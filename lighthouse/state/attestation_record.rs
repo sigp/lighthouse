@@ -2,6 +2,16 @@ use super::utils::types::{ Hash256, Bitfield };
 use super::utils::bls::{ AggregateSignature };
 use super::ssz::{ Encodable, SszStream };
 
+pub const MIN_SSZ_ATTESTION_RECORD_LENGTH: usize = {
+    8 +     // slot
+    2 +     // shard_id
+    4 +     // oblique_parent_hashes (empty list)
+    32 +    // shard_block_hash
+    5 +     // attester_bitfield (assuming 1 byte of bitfield)
+    8 +     // justified_slot
+    32 +    // justified_block_hash
+    2 * 32  // aggregate sig (two 256 bit points)
+};
 
 pub struct AttestationRecord {
     pub slot: u64,
