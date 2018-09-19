@@ -1,7 +1,7 @@
-// Collection of custom errors 
+// Collection of custom errors
 
 #[derive(Debug,PartialEq)]
-pub enum AttestationValidationError { 
+pub enum AttestationValidationError {
     SlotTooHigh,
     SlotTooLow(String),
     IncorrectBitField,
@@ -9,4 +9,9 @@ pub enum AttestationValidationError {
     AggregateSignatureFail
 }
 
-
+#[derive(Debug,PartialEq)]
+pub enum ParameterError {
+    IntWrapping,
+    OutOfBounds,
+    InvalidInput(String),
+}
