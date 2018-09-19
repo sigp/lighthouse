@@ -1,10 +1,11 @@
 extern crate rlp;
 extern crate ethereum_types;
-extern crate blake2;
+extern crate blake2_rfc as blake2;
 extern crate bytes;
 extern crate ssz;
 
 use super::utils;
+use super::db;
 
 pub mod active_state;
 pub mod attestation_record;
