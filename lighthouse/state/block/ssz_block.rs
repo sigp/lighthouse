@@ -23,7 +23,8 @@ const MIN_SSZ_BLOCK_LENGTH: usize = {
 };
 const MAX_SSZ_BLOCK_LENGTH: usize = MIN_SSZ_BLOCK_LENGTH + 2^24;
 
-
+/// Allows for reading of block values directly from serialized
+/// ssz bytes.
 pub struct SszBlock<'a> {
     ssz: &'a [u8],
     attestation_len: usize,
