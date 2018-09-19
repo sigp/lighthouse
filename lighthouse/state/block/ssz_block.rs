@@ -33,13 +33,14 @@ impl<'a> SszBlock<'a> {
     pub fn from_vec(vec: &'a Vec<u8>)
         -> Result<Self, BlockValidatorError>
     {
+        let ssz = &vec[..];
         if vec.len() < MIN_SSZ_BLOCK_LENGTH {
             return Err(BlockValidatorError::SszInvalid);
         }
         if vec.len() > MAX_SSZ_BLOCK_LENGTH {
             return Err(BlockValidatorError::SszInvalid);
         }
-        let attestation_len = decode_length(&vec[72..76], LENGTH_BYTES)
+        let attestation_len = decode_length(ssz, 72, LENGTH_BYTES)
             .map_err(|_| BlockValidatorError::SszInvalid)?;
         // Is the length adequate now we know now many attestation
         // records exist?
@@ -47,7 +48,7 @@ impl<'a> SszBlock<'a> {
             return Err(BlockValidatorError::SszInvalid);
         }
         Ok(Self{
-            ssz: &vec[..],
+            ssz,
             attestation_len
         })
     }
@@ -61,7 +62,7 @@ impl<'a> SszBlock<'a> {
     }
 
     pub fn slot_number(&self) -> u64 {
-        u64::ssz_decode(&self.ssz[32..40]).unwrap()
+        u64::ssz_decode(&self.ssz, 32).unwrap().0
     }
 
     pub fn randao_reveal(&self) -> &[u8] {
