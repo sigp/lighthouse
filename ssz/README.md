@@ -10,7 +10,7 @@ described in the [Ethereum 2.1 Spec](https://notes.ethereum.org/s/Syj3QZSxm).
 There are two primary sources for this spec, and they are presently
 conflicting:
 
- - The ethereum/beacon_chain reference implementation [simpleserialize.py](https://github.com/ethereum/beacon_chain/blob/master/beacon_chain/utils/simpleserialize.py) file.
+ - The ethereum/beacon_chain reference implementation [simpleserialize.py](https://github.com/ethereum/beacon_chain/blob/master/ssz/ssz.py) file.
  - The [py_ssz module](https://github.com/ethereum/research/tree/master/py_ssz)
    in ethereum/research.
 
