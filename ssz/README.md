@@ -310,6 +310,16 @@ pub trait Encodable {
 }
 ```
 
+### Decodable
+
+A type is **Decodable** if it has a valid ``ssz_decode`` function. This is
+used to ensure the object is deserializable.
+
+```rust
+pub trait Decodable: Sized {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError>;
+}
+```
 
 ### SszStream
 
@@ -319,6 +329,8 @@ buffer of bytes, a Vector of `uint8`.
 #### new()
 
 Create a new, empty instance of the SszStream.
+
+**Example**
 
 ```rust
 let mut ssz = SszStream::new()
@@ -332,6 +344,8 @@ Appends a value that can be encoded into the stream.
 |:---------:|:-----------------------------------------|
 | ``value`` | Encodable value to append to the stream. |
 
+**Example**
+
 ```rust
 ssz.append(&x)
 ```
@@ -343,6 +357,8 @@ Appends some ssz encoded bytes to the stream.
 | Parameter | Description                       |
 |:---------:|:----------------------------------|
 |  ``vec``  | A vector of serialized ssz bytes. |
+
+**Example**
 
 ```rust
 let mut a = [0, 1];
@@ -357,6 +373,8 @@ Appends some vector (list) of encodable values to the stream.
 |:---------:|:----------------------------------------------|
 |  ``vec``  | Vector of Encodable objects to be serialized. |
 
+**Example**
+
 ```rust
 ssz.append_vec(attestations);
 ```
@@ -365,11 +383,82 @@ ssz.append_vec(attestations);
 
 Consumes the ssz stream and returns the buffer of bytes.
 
+**Example**
+
 ```rust
 ssz.drain()
 ```
 
+### decode_ssz<T>(ssz_bytes: &[u8], index: usize) -> Result<(T, usize), DecodeError>
 
+Decodes a single ssz serialized value of type `T`. Note: `T` must be decodable.
+
+|   Parameter   | Description                         |
+|:-------------:|:------------------------------------|
+| ``ssz_bytes`` | Serialized list of bytes.           |
+|   ``index``   | Starting index to deserialize from. |
+
+**Returns**
+
+|     Return Value    | Description                                   |
+|:-------------------:|:----------------------------------------------|
+| ``Tuple(T, usize)`` | Returns the tuple of the type and next index. |
+|   ``DecodeError``   | Error if the decoding could not be performed. |
+
+**Example**
+
+```rust
+let res: Result<(u16, usize), DecodeError> = decode_ssz(&encoded_ssz, 0);
+```
+
+### decode_ssz_list<T>(ssz_bytes: &[u8], index: usize) -> Result<(Vec<T>, usize), DecodeError>
+
+Decodes a list of serialized values into a vector.
+
+|   Parameter   | Description                         |
+|:-------------:|:------------------------------------|
+| ``ssz_bytes`` | Serialized list of bytes.           |
+|   ``index``   | Starting index to deserialize from. |
+
+**Returns**
+
+|       Return Value       | Description                                   |
+|:------------------------:|:----------------------------------------------|
+| ``Tuple(Vec<T>, usize)`` | Returns the tuple of the type and next index. |
+|      ``DecodeError``     | Error if the decoding could not be performed. |
+
+**Example**
+
+```rust
+let decoded: Result<(Vec<usize>, usize), DecodeError> = decode_ssz_list( &encoded_ssz, 0);
+```
+
+### decode_length(bytes: &[u8], index: usize, length_bytes: usize) -> Result<usize, DecodeError>
+
+Deserializes the "length" value in the serialized bytes from the index. The
+length of bytes is given (usually 4 stated in the reference implementation) and
+is often the value appended to the list infront of the actual serialized
+object.
+
+|     Parameter    | Description                                |
+|:----------------:|:-------------------------------------------|
+|     ``bytes``    | Serialized list of bytes.                  |
+|     ``index``    | Starting index to deserialize from.        |
+| ``length_bytes`` | Number of bytes to deserialize into usize. |
+
+
+**Returns**
+
+|   Return Value  | Description                                                |
+|:---------------:|:-----------------------------------------------------------|
+|    ``usize``    | The length of the serialized object following this length. |
+| ``DecodeError`` | Error if the decoding could not be performed.              |
+
+**Example**
+
+```rust
+let length_of_serialized: Result<usize, DecodeError> = decode_length(&encoded, 0, 4);
+```
 
 ---
 
@@ -415,4 +504,40 @@ ssz.append(&x);
 
 // Check that it is correct.
 assert_eq!(ssz.drain(), vec![0,0,0,1,0,0,0]);
+```
+
+## Deserializing/Decoding
+
+#### Rust
+
+From the `simpleserialize` bytes, we are converting to the object.
+
+```rust
+let ssz = vec![0, 0, 8, 255, 255, 255, 255, 255, 255, 255, 255];
+
+// Returns the result and the next index to decode.
+let (result, index): (u64, usize) = decode_ssz(&ssz, 3).unwrap();
+
+// Check for correctness
+// 2**64-1 = 18446744073709551615
+assert_eq!(result, 18446744073709551615);
+// Index = 3 (initial index) + 8 (8 byte int) = 11
+assert_eq!(index, 11);
+```
+
+Decoding a list of items:
+
+```rust
+// Encoded/Serialized list with junk numbers at the front
+let serialized_list = vec![ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 32, 0, 0, 0,
+                            0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0,
+                            0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 15];
+
+// Returns the result (Vector of usize) and the index of the next
+let decoded: (Vec<usize>, usize) = decode_ssz_list(&serialized_list, 10).unwrap();
+
+// Check for correctness
+assert_eq!(decoded.0, vec![15,15,15,15]);
+
+assert_eq!(decoded.1, 46);
 ```
