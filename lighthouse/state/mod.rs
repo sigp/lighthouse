@@ -16,3 +16,4 @@ pub mod shard_and_committee;
 pub mod transition;
 pub mod validator_record;
 pub mod validation;
+pub mod helpers;
