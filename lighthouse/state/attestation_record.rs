@@ -19,7 +19,8 @@ impl Encodable for AttestationRecord {
         s.append_vec(&self.oblique_parent_hashes);
         s.append(&self.shard_block_hash);
         s.append_vec(&self.attester_bitfield.to_be_vec());
-        // TODO: add aggregate signature
+        // TODO: encode the aggregate sig correctly
+        s.append_vec(&vec![0_u8; 64])
     }
 }
 

@@ -54,6 +54,8 @@ impl Encodable for Block {
         s.append(&self.pow_chain_ref);
         s.append(&self.active_state_root);
         s.append(&self.crystallized_state_root);
+        // TODO: encode the aggregate sig correctly
+        s.append_vec(&vec![0_u8; 64])
     }
 }
 
