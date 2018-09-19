@@ -3,7 +3,10 @@ use super::ssz::decode::{
     Decodable,
 };
 use super::utils::hash::canonical_hash;
-use super::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH;
+use super::block::{
+    MIN_SSZ_BLOCK_LENGTH,
+    MAX_SSZ_BLOCK_LENGTH,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum BlockValidatorError {
@@ -16,16 +19,6 @@ pub enum BlockValidatorError {
 }
 
 const LENGTH_BYTES: usize = 4;
-const MIN_SSZ_BLOCK_LENGTH: usize = {
-    32 +    // parent_hash
-    8 +     // slot_number
-    32 +    // randao_reveal
-    LENGTH_BYTES +     // attestations (assuming zero)
-    32 +    // pow_chain_ref
-    32 +    // active_state_root
-    32      // crystallized_state_root
-};
-const MAX_SSZ_BLOCK_LENGTH: usize = MIN_SSZ_BLOCK_LENGTH + (1 << 24);
 
 /// Allows for reading of block values directly from serialized
 /// ssz bytes.
@@ -61,13 +54,6 @@ impl<'a> SszBlock<'a> {
          */
         let attestation_len = decode_length(ssz, 72, LENGTH_BYTES)
             .map_err(|_| BlockValidatorError::TooShort)?;
-        if attestation_len < MIN_SSZ_ATTESTION_RECORD_LENGTH {
-            return Err(BlockValidatorError::NoAttestationRecords)
-        }
-        /*
-         * Ensure that the SSZ is long enough, now we know the
-         * length of the attestation records field.
-         */
         if len < (76 + attestation_len + 96) {
             return Err(BlockValidatorError::TooShort);
         }
