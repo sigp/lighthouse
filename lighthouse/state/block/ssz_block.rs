@@ -52,7 +52,7 @@ impl<'a> SszBlock<'a> {
          * and ensure that length is enough to store at least one attestation
          * record.
          */
-        let attestation_len = decode_length(ssz, 72, LENGTH_BYTES)
+        let attestation_len = decode_length(ssz, 80, LENGTH_BYTES)
             .map_err(|_| BlockValidatorError::TooShort)?;
         if len < (76 + attestation_len + 96) {
             return Err(BlockValidatorError::TooShort);
@@ -69,7 +69,7 @@ impl<'a> SszBlock<'a> {
     }
 
     pub fn parent_hash(&self) -> &[u8] {
-        &self.ssz[0..32]
+        &self.ssz[5..37]
     }
 
     pub fn slot_number(&self) -> u64 {
