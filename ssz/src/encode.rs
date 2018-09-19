@@ -60,20 +60,13 @@ impl SszStream {
     /// The length of the list will be concatenated to the stream, then
     /// each item in the vector will be encoded and concatenated.
     pub fn append_vec<E>(&mut self, vec: &Vec<E>)
-        -> Result<(), EncodeError>
         where E: Encodable
     {
         let mut list_stream = SszStream::new();
         for item in vec {
             item.ssz_append(&mut list_stream);
         }
-        let list_ssz = list_stream.drain();
-        if list_ssz.len() <= MAX_LIST_SIZE {
-            self.append_encoded_val(&list_ssz);
-            Ok(())
-        } else {
-            Err(EncodeError::ListTooLong)
-        }
+        self.append_encoded_val(&list_stream.drain());
     }
 
     /// Consume the stream and return the underlying bytes.
@@ -142,7 +135,7 @@ mod tests {
     fn test_encode_list() {
         let test_vec: Vec<u16> = vec![256; 12];
         let mut stream = SszStream::new();
-        stream.append_vec(&test_vec).unwrap();
+        stream.append_vec(&test_vec);
         let ssz = stream.drain();
 
         assert_eq!(ssz.len(), 4 + (12 * 2));
