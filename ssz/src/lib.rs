@@ -27,3 +27,4 @@ pub use encode::{
 };
 
 pub const LENGTH_BYTES: usize = 4;
+pub const MAX_LIST_SIZE : usize = 1 << (4 * 8);
