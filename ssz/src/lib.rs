@@ -10,8 +10,9 @@
 extern crate bytes;
 extern crate ethereum_types;
 
+pub mod decode;
+
 mod encode;
-mod decode;
 mod impl_encode;
 mod impl_decode;
 
