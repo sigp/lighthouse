@@ -1,4 +1,12 @@
-use super::LENGTH_BYTES;
+use super::{
+    LENGTH_BYTES,
+    MAX_LIST_SIZE,
+};
+
+#[derive(Debug)]
+pub enum EncodeError {
+    ListTooLong,
+}
 
 pub trait Encodable {
     fn ssz_append(&self, s: &mut SszStream);
@@ -52,11 +60,19 @@ impl SszStream {
     /// The length of the list will be concatenated to the stream, then
     /// each item in the vector will be encoded and concatenated.
     pub fn append_vec<E>(&mut self, vec: &Vec<E>)
+        -> Result<(), EncodeError>
         where E: Encodable
     {
-        self.buffer.extend_from_slice(&encode_length(vec.len(), LENGTH_BYTES));
-        for v in vec {
-            v.ssz_append(self);
+        let mut list_stream = SszStream::new();
+        for item in vec {
+            item.ssz_append(&mut list_stream);
+        }
+        let list_ssz = list_stream.drain();
+        if list_ssz.len() <= MAX_LIST_SIZE {
+            self.append_encoded_val(&list_ssz);
+            Ok(())
+        } else {
+            Err(EncodeError::ListTooLong)
         }
     }
 
@@ -120,5 +136,17 @@ mod tests {
     #[should_panic]
     fn test_encode_length_4_bytes_panic() {
         encode_length(4294967296, LENGTH_BYTES);  // 2^(3*8)
+    }
+
+    #[test]
+    fn test_encode_list() {
+        let test_vec: Vec<u16> = vec![256; 12];
+        let mut stream = SszStream::new();
+        stream.append_vec(&test_vec).unwrap();
+        let ssz = stream.drain();
+
+        assert_eq!(ssz.len(), 4 + (12 * 2));
+        assert_eq!(ssz[0..4], *vec![0, 0, 0, 24]);
+        assert_eq!(ssz[4..6], *vec![1, 0]);
     }
 }
