@@ -19,15 +19,17 @@ impl BooleanBitfield {
     pub fn new() -> Self {
         Self {
             len: 0,
-            vec: vec![]
+            vec: vec![0]
         }
     }
 
     /// Create a new bitfield of a certain capacity
     pub fn with_capacity(capacity: usize) -> Self {
+        let mut vec = Vec::with_capacity(capacity / 8 + 1);
+        vec.push(0);
         Self {
             len: 0,
-            vec: Vec::with_capacity(capacity / 8 + 1)
+            vec
         }
     }
 
@@ -111,6 +113,17 @@ impl PartialEq for BooleanBitfield {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_new_bitfield_len() {
+        let b = BooleanBitfield::new();
+        assert_eq!(b.len(), 0);
+        assert_eq!(b.to_be_vec(), vec![0]);
+
+        let b = BooleanBitfield::with_capacity(100);
+        assert_eq!(b.len(), 0);
+        assert_eq!(b.to_be_vec(), vec![0]);
+    }
 
     #[test]
     fn test_bitfield_set() {
