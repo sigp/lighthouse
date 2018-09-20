@@ -20,13 +20,18 @@ pub enum BlockValidatorError {
 
 const LENGTH_BYTES: usize = 4;
 
-/// Allows for reading of block values directly from serialized
-/// ssz bytes.
+/// Allows for reading of block values directly from serialized ssz bytes.
 ///
-/// Use this to perform intial checks before we fully de-serialize
-/// a block. It should only really be used to verify blocks that come
-/// in from the network, for internal operations we should use a full
-/// `Block`.
+/// The purpose of this struct is to provide the functionality to read block fields directly from
+/// some serialized SSZ slice, effectively allowing us to read the block without fully
+/// de-serializing it.
+///
+/// This struct should be as "zero-copy" as possible. The `ssz` field is a reference to some slice
+/// and each function reads from that slice.
+///
+/// Use this to perform intial checks before we fully de-serialize a block. It should only really
+/// be used to verify blocks that come in from the network, for internal operations we should use a
+/// full `Block`.
 #[derive(Debug, PartialEq)]
 pub struct SszBlock<'a> {
     ssz: &'a [u8],
@@ -37,10 +42,12 @@ pub struct SszBlock<'a> {
 impl<'a> SszBlock<'a> {
     /// Create a new instance from a slice reference.
     ///
-    /// This function will validate the length of the ssz
-    /// string, however it will not validate the contents.
+    /// This function will validate the length of the ssz string, however it will not validate the
+    /// contents.
     ///
-    /// The slice will not be copied, instead referenced.
+    /// The returned `SszBlock` instance will contain a `len` field which can be used to determine
+    /// how many bytes were read from the slice. In the case of multiple, sequentually serialized
+    /// blocks `len` can be used to assume the location of the next serialized block.
     pub fn from_slice(vec: &'a [u8])
         -> Result<Self, BlockValidatorError>
     {
