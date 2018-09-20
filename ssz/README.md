@@ -247,7 +247,7 @@ return deserialized_list, new_index
 The SimpleSerialize is a simple method for serializing objects for use in the
 Ethereum beacon chain proposed by Vitalik Buterin. There are currently two
 implementations denoting the functionality, the [Reference
-Implementation](https://github.com/ethereum/beacon_chain/blob/master/beacon_chain/utils/simpleserialize.py)
+Implementation](https://github.com/ethereum/beacon_chain/blob/master/ssz/ssz.py)
 and the [Module](https://github.com/ethereum/research/tree/master/py_ssz) in
 Ethereum research. It is being developed as a crate for the [**Rust programming
 language**](https://www.rust-lang.org).
