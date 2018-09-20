@@ -7,6 +7,7 @@ use super::block::{
     MIN_SSZ_BLOCK_LENGTH,
     MAX_SSZ_BLOCK_LENGTH,
 };
+use super::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockValidatorError {
@@ -32,34 +33,41 @@ impl<'a> SszBlock<'a> {
     pub fn from_slice(vec: &'a [u8])
         -> Result<Self, BlockValidatorError>
     {
-        let ssz = &vec[..];
-        let len = vec.len();
+        let untrimmed_ssz = &vec[..];
         /*
-         * Ensure the SSZ is long enough to be a block.
+         * Ensure the SSZ is long enough to be a block with
+         * one attestation record (not necessarily a valid
+         * attestation record).
          */
-        if len < MIN_SSZ_BLOCK_LENGTH {
+        if vec.len() < MIN_SSZ_BLOCK_LENGTH + MIN_SSZ_ATTESTION_RECORD_LENGTH {
             return Err(BlockValidatorError::TooShort);
         }
         /*
          * Ensure the SSZ slice isn't longer than is possible for a block.
          */
-        if len > MAX_SSZ_BLOCK_LENGTH {
+        if vec.len() > MAX_SSZ_BLOCK_LENGTH {
             return Err(BlockValidatorError::TooLong);
         }
         /*
-         * Determine how many bytes are used to store attestation records
-         * and ensure that length is enough to store at least one attestation
-         * record.
+         * Determine how many bytes are used to store attestation records.
          */
-        let attestation_len = decode_length(ssz, 80, LENGTH_BYTES)
+        let attestation_len = decode_length(untrimmed_ssz, 80, LENGTH_BYTES)
             .map_err(|_| BlockValidatorError::TooShort)?;
-        if len < (76 + attestation_len + 96) {
+        /*
+         * The block only has one variable field, `attestations`, therefore
+         * the size of the block must be the minimum size, plus the length
+         * of the attestations.
+         */
+        let block_ssz_len = {
+            MIN_SSZ_BLOCK_LENGTH + attestation_len
+        };
+        if vec.len() < block_ssz_len {
             return Err(BlockValidatorError::TooShort);
         }
         Ok(Self{
-            ssz,
+            ssz: &untrimmed_ssz[0..block_ssz_len],
             attestation_len,
-            len,
+            len: block_ssz_len,
         })
     }
 
@@ -154,6 +162,19 @@ mod tests {
             SszBlock::from_slice(&ssz[0..(ssz.len() - 1)]),
             Err(BlockValidatorError::TooShort)
         );
+    }
+
+    #[test]
+    fn test_ssz_block_single_attestation_record_one_byte_long() {
+        let mut b = Block::zero();
+        b.attestations = vec![AttestationRecord::zero()];
+        let mut ssz = get_block_ssz(&b);
+        let original_len = ssz.len();
+        ssz.push(42);
+
+        let ssz_block = SszBlock::from_slice(&ssz[..]).unwrap();
+
+        assert_eq!(ssz_block.len, original_len);
     }
 
     #[test]

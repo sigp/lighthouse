@@ -1,15 +1,12 @@
 use super::utils::types::Hash256;
-use super::attestation_record::{
-    AttestationRecord,
-    MIN_SSZ_ATTESTION_RECORD_LENGTH,
-};
+use super::attestation_record::AttestationRecord;
 use super::ssz::{ Encodable, SszStream };
 
 pub const MIN_SSZ_BLOCK_LENGTH: usize = {
     4 + 32 +    // parent_hash
-    8 +     // slot_number
+    8 +         // slot_number
     4 + 32 +    // randao_reveal
-    4 + MIN_SSZ_ATTESTION_RECORD_LENGTH +  // attestations (minimum one)
+    4 +         // attestations (assuming zero)
     4 + 32 +    // pow_chain_ref
     4 + 32 +    // active_state_root
     4 + 32      // crystallized_state_root
@@ -71,8 +68,7 @@ mod tests {
 
     #[test]
     pub fn test_block_min_ssz_length() {
-        let mut b = Block::zero();
-        b.attestations = vec![AttestationRecord::zero()];
+        let b = Block::zero();
 
         let mut ssz_stream = SszStream::new();
         ssz_stream.append(&b);
