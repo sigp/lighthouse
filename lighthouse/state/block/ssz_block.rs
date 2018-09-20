@@ -222,6 +222,15 @@ mod tests {
             58, 145, 52, 47, 62, 158, 131, 46, 147
         ];
         assert_eq!(hash, expected_hash);
+
+        /*
+         * Test if you give the SszBlock too many ssz bytes
+         */
+        let mut too_long = serialized.clone();
+        too_long.push(42);
+        let ssz_block = SszBlock::from_slice(&too_long).unwrap();
+        let hash = ssz_block.block_hash();
+        assert_eq!(hash, expected_hash);
     }
 
     #[test]
