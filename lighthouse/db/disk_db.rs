@@ -107,6 +107,21 @@ impl ClientDB for DiskDB {
             Some(handle) => self.db.put_cf(handle, key, val).map_err(|e| e.into())
         }
     }
+
+    /// Return true if some key exists in some column.
+    fn exists(&self, col: &str, key: &[u8])
+        -> Result<bool, DBError>
+    {
+        /*
+         * I'm not sure if this is the correct way to read if some
+         * block exists. Naievely I would expect this to unncessarily
+         * copy some data, but I could be wrong.
+         */
+        match self.db.cf_handle(col) {
+            None => Err(DBError{ message: "Unknown column".to_string() }),
+            Some(handle) => Ok(self.db.get_cf(handle, key)?.is_some())
+        }
+    }
 }
 
 
