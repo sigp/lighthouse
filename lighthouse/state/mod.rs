@@ -5,7 +5,6 @@ extern crate bytes;
 extern crate ssz;
 
 use super::utils;
-use super::db;
 
 pub mod active_state;
 pub mod attestation_record;
