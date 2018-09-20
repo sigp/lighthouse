@@ -22,6 +22,11 @@ const LENGTH_BYTES: usize = 4;
 
 /// Allows for reading of block values directly from serialized
 /// ssz bytes.
+///
+/// Use this to perform intial checks before we fully de-serialize
+/// a block. It should only really be used to verify blocks that come
+/// in from the network, for internal operations we should use a full
+/// `Block`.
 #[derive(Debug, PartialEq)]
 pub struct SszBlock<'a> {
     ssz: &'a [u8],
@@ -30,6 +35,12 @@ pub struct SszBlock<'a> {
 }
 
 impl<'a> SszBlock<'a> {
+    /// Create a new instance from a slice reference.
+    ///
+    /// This function will validate the length of the ssz
+    /// string, however it will not validate the contents.
+    ///
+    /// The slice will not be copied, instead referenced.
     pub fn from_slice(vec: &'a [u8])
         -> Result<Self, BlockValidatorError>
     {
@@ -71,14 +82,17 @@ impl<'a> SszBlock<'a> {
         })
     }
 
+    /// Return the canonical hash for this block.
     pub fn block_hash(&self) -> Vec<u8> {
         canonical_hash(self.ssz)
     }
 
+    /// Return the `parent_hash` field.
     pub fn parent_hash(&self) -> &[u8] {
         &self.ssz[4..36]
     }
 
+    /// Return the `slot_number` field.
     pub fn slot_number(&self) -> u64 {
         /*
          * An error should be unreachable from this decode
@@ -95,25 +109,30 @@ impl<'a> SszBlock<'a> {
         }
     }
 
+    /// Return the `randao_reveal` field.
     pub fn randao_reveal(&self) -> &[u8] {
         &self.ssz[48..80]
     }
 
+    /// Return the `attestations` field.
     pub fn attestations(&self) -> &[u8] {
         let start = 80 + LENGTH_BYTES;
         &self.ssz[start..(start + self.attestation_len)]
     }
 
+    /// Return the `pow_chain_ref` field.
     pub fn pow_chain_ref(&self) -> &[u8] {
         let start = self.len - (32 + LENGTH_BYTES + 32 + LENGTH_BYTES + 32);
         &self.ssz[start..(start + 32)]
     }
 
+    /// Return the `active_state_root` field.
     pub fn act_state_root(&self) -> &[u8] {
         let start = self.len - (32 + LENGTH_BYTES + 32);
         &self.ssz[start..(start + 32)]
     }
 
+    /// Return the `active_state_root` field.
     pub fn cry_state_root(&self) -> &[u8] {
         let start = self.len - 32;
         &self.ssz[start..(start + 32)]
