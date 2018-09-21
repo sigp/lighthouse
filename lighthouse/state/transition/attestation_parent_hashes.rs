@@ -13,16 +13,16 @@ use super::TransitionError;
 /// See this slide for more information:
 /// https://tinyurl.com/ybzn2spw
 pub fn attestation_parent_hashes(
-    cycle_length: &u8,
-    block_slot: &u64,
-    attestation_slot: &u64,
-    current_hashes: &Vec<Hash256>,
-    oblique_hashes: &Vec<Hash256>)
+    cycle_length: u8,
+    block_slot: u64,
+    attestation_slot: u64,
+    current_hashes: &[Hash256],
+    oblique_hashes: &[Hash256])
     -> Result<Vec<Hash256>, TransitionError>
 {
     // This cast places a limit on cycle_length. If you change it, check math
     // for overflow.
-    let cycle_length: u64 = *cycle_length as u64;
+    let cycle_length: u64 = u64::from(cycle_length);
 
     if current_hashes.len() as u64 != (cycle_length * 2) {
         return Err(TransitionError::InvalidInput(String::from(
@@ -69,7 +69,7 @@ pub fn attestation_parent_hashes(
     let mut hashes = Vec::new();
     hashes.extend_from_slice(
         &current_hashes[(start as usize)..(end as usize)]);
-    hashes.append(&mut oblique_hashes.clone());
+    hashes.extend_from_slice(oblique_hashes);
 
     Ok(hashes)
 }
@@ -98,9 +98,9 @@ mod tests {
         let current_hashes = get_range_of_hashes(3, 19);
         let oblique_hashes = get_range_of_hashes(100, 102);
         let result = attestation_parent_hashes(
-            &cycle_length,
-            &block_slot,
-            &attestation_slot,
+            cycle_length,
+            block_slot,
+            attestation_slot,
             &current_hashes,
             &oblique_hashes);
         assert!(result.is_ok());
@@ -123,9 +123,9 @@ mod tests {
         let current_hashes = get_range_of_hashes(3, 19);
         let oblique_hashes = get_range_of_hashes(100, 108);
         let result = attestation_parent_hashes(
-            &cycle_length,
-            &block_slot,
-            &attestation_slot,
+            cycle_length,
+            block_slot,
+            attestation_slot,
             &current_hashes,
             &oblique_hashes);
         assert!(result.is_ok());
@@ -148,9 +148,9 @@ mod tests {
         let current_hashes = get_range_of_hashes(3, 19);
         let oblique_hashes = vec![];
         let result = attestation_parent_hashes(
-            &cycle_length,
-            &block_slot,
-            &attestation_slot,
+            cycle_length,
+            block_slot,
+            attestation_slot,
             &current_hashes,
             &oblique_hashes);
         assert!(result.is_ok());
@@ -171,9 +171,9 @@ mod tests {
         let current_hashes = get_range_of_hashes(0, 16);
         let oblique_hashes = vec![];
         let result = attestation_parent_hashes(
-            &cycle_length,
-            &block_slot,
-            &attestation_slot,
+            cycle_length,
+            block_slot,
+            attestation_slot,
             &current_hashes,
             &oblique_hashes);
         assert!(result.is_ok());
@@ -194,9 +194,9 @@ mod tests {
         let current_hashes = get_range_of_hashes(0, 16);
         let oblique_hashes = vec![];
         let result = attestation_parent_hashes(
-            &cycle_length,
-            &block_slot,
-            &attestation_slot,
+            cycle_length,
+            block_slot,
+            attestation_slot,
             &current_hashes,
             &oblique_hashes);
         assert!(result.is_err());
@@ -213,9 +213,9 @@ mod tests {
         let current_hashes = get_range_of_hashes(0, 15);
         let oblique_hashes = vec![];
         let result = attestation_parent_hashes(
-            &cycle_length,
-            &block_slot,
-            &attestation_slot,
+            cycle_length,
+            block_slot,
+            attestation_slot,
             &current_hashes,
             &oblique_hashes);
         assert!(result.is_err());

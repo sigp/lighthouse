@@ -8,8 +8,6 @@ use super::network_libp2p::message::{
     NetworkEventType,
 };
 
-use super::block::process_unverified_blocks;
-
 use super::wire_protocol::{
     WireMessage,
     WireMessageHeader,
@@ -25,9 +23,9 @@ use super::futures::sync::mpsc::{
 /// (e.g., libp2p) has an event to push up to the sync process.
 pub fn handle_network_event(
     event: NetworkEvent,
-    db: Arc<ClientDB>,
-    network_tx: UnboundedSender<OutgoingMessage>,
-    log: Logger)
+    db: &Arc<ClientDB>,
+    network_tx: &UnboundedSender<OutgoingMessage>,
+    log: &Logger)
     -> Result<(), ()>
 {
         debug!(&log, "";
@@ -38,10 +36,10 @@ pub fn handle_network_event(
             NetworkEventType::Message => {
                 if let Some(data) = event.data {
                     handle_network_message(
-                        data,
-                        db,
-                        network_tx,
-                        log)
+                        &data,
+                        &db,
+                        &network_tx,
+                        &log)
                 } else {
                     Ok(())
                 }
@@ -55,10 +53,10 @@ pub fn handle_network_event(
 /// This function should be called whenever a peer from a network
 /// (e.g., libp2p) has sent a message to us.
 fn handle_network_message(
-    message: Vec<u8>,
-    db: Arc<ClientDB>,
-    _network_tx: UnboundedSender<OutgoingMessage>,
-    log: Logger)
+    message: &[u8],
+    db: &Arc<ClientDB>,
+    _network_tx: &UnboundedSender<OutgoingMessage>,
+    log: &Logger)
     -> Result<(), ()>
 {
     match WireMessage::decode(&message) {
@@ -67,8 +65,8 @@ fn handle_network_message(
                 WireMessageHeader::Blocks => {
                     process_unverified_blocks(
                         msg.body,
-                        db,
-                        log
+                        &db,
+                        &log
                     );
                     Ok(())
                 }
@@ -76,7 +74,14 @@ fn handle_network_message(
             }
         }
         Err(_) => {
-            return Ok(())  // No need to pass the error back
+            Ok(())  // No need to pass the error back
         }
     }
+}
+
+fn process_unverified_blocks(_message: &[u8],
+                             _db: &Arc<ClientDB>,
+                             _log: &Logger)
+{
+    //
 }

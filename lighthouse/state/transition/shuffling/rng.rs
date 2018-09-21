@@ -2,7 +2,7 @@ use super::blake2_rfc::blake2s::{ Blake2s, Blake2sResult };
 
 const SEED_SIZE_BYTES: usize = 32;
 const RAND_BYTES: usize = 3;      // 24 / 8
-const RAND_MAX: u32 = 16777216;   // 2**24
+const RAND_MAX: u32 = 16_777_216;   // 2**24
 
 /// A pseudo-random number generator which given a seed
 /// uses successive blake2s hashing to generate "entropy".
@@ -31,17 +31,14 @@ impl ShuffleRng {
     /// Extracts 3 bytes from the `seed`. Rehashes seed if required.
     fn rand(&mut self) -> u32 {
         self.idx += RAND_BYTES;
-        match self.idx >= SEED_SIZE_BYTES {
-            true => {
-                self.rehash_seed();
-                self.rand()
-            }
-            false => {
-                int_from_byte_slice(
-                    self.seed.as_bytes(),
-                    self.idx - RAND_BYTES,
-                )
-            }
+        if self.idx >= SEED_SIZE_BYTES {
+            self.rehash_seed();
+            self.rand()
+        } else {
+            int_from_byte_slice(
+                self.seed.as_bytes(),
+                self.idx - RAND_BYTES,
+            )
         }
     }
 
@@ -65,9 +62,9 @@ impl ShuffleRng {
 /// Returns that integer.
 fn int_from_byte_slice(source: &[u8], offset: usize) -> u32 {
     (
-          source[offset + 2] as u32) |
-        ((source[offset + 1] as u32) << 8) |
-        ((source[offset    ] as u32) << 16
+         u32::from(source[offset + 2])) |
+        (u32::from(source[offset + 1]) << 8) |
+        (u32::from(source[offset    ]) << 16
     )
 }
 

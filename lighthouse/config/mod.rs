@@ -23,7 +23,7 @@ impl LighthouseConfig {
             home.join(DEFAULT_LIGHTHOUSE_DIR)
         };
         fs::create_dir_all(&data_dir)
-            .expect(&format!("Unable to create {:?}", &data_dir));
+            .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
         let p2p_listen_port = 0;
         Self {
             data_dir,

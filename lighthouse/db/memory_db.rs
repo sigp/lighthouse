@@ -53,12 +53,11 @@ impl ClientDB for MemoryDB {
         let db = self.db.read().unwrap();
         let known_columns = self.known_columns.read().unwrap();
 
-        match known_columns.contains(&col.to_string()) {
-            false => Err(DBError{ message: "Unknown column".to_string() }),
-            true => {
-                let column_key = MemoryDB::get_key_for_col(col, key);
-                Ok(db.get(&column_key).and_then(|val| Some(val.clone())))
-            }
+        if known_columns.contains(&col.to_string()) {
+            let column_key = MemoryDB::get_key_for_col(col, key);
+            Ok(db.get(&column_key).and_then(|val| Some(val.clone())))
+        } else {
+            Err(DBError{ message: "Unknown column".to_string() })
         }
     }
 
@@ -70,13 +69,12 @@ impl ClientDB for MemoryDB {
         let mut db = self.db.write().unwrap();
         let known_columns = self.known_columns.read().unwrap();
 
-        match known_columns.contains(&col.to_string()) {
-            false => Err(DBError{ message: "Unknown column".to_string() }),
-            true => {
-                let column_key = MemoryDB::get_key_for_col(col, key);
-                db.insert(column_key, val.to_vec());
-                Ok(())
-            }
+        if known_columns.contains(&col.to_string()) {
+            let column_key = MemoryDB::get_key_for_col(col, key);
+            db.insert(column_key, val.to_vec());
+            Ok(())
+        } else {
+            Err(DBError{ message: "Unknown column".to_string() })
         }
     }
 }

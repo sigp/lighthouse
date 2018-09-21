@@ -19,7 +19,7 @@ pub struct WireMessage<'a> {
 }
 
 impl<'a> WireMessage<'a> {
-    pub fn decode(bytes: &'a Vec<u8>)
+    pub fn decode(bytes: &'a [u8])
         -> Result<Self, WireMessageDecodeError>
     {
         if let Some((header_byte, body)) = bytes.split_first() {
