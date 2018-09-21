@@ -69,7 +69,7 @@ impl<'a> SszBlock<'a> {
         /*
          * Determine how many bytes are used to store attestation records.
          */
-        let attestation_len = decode_length(untrimmed_ssz, 80, LENGTH_BYTES)
+        let attestation_len = decode_length(untrimmed_ssz, 72, LENGTH_BYTES)
             .map_err(|_| BlockValidatorError::TooShort)?;
         /*
          * The block only has one variable field, `attestations`, therefore
@@ -96,7 +96,7 @@ impl<'a> SszBlock<'a> {
 
     /// Return the `parent_hash` field.
     pub fn parent_hash(&self) -> &[u8] {
-        &self.ssz[4..36]
+        &self.ssz[0..32]
     }
 
     /// Return the `slot_number` field.
@@ -109,7 +109,7 @@ impl<'a> SszBlock<'a> {
          * If you can make this function panic, please report
          * it to paul@sigmaprime.io
          */
-        if let Ok((n, _)) = u64::ssz_decode(&self.ssz, 36) {
+        if let Ok((n, _)) = u64::ssz_decode(&self.ssz, 32) {
             n
         } else {
             unreachable!();
@@ -118,24 +118,24 @@ impl<'a> SszBlock<'a> {
 
     /// Return the `randao_reveal` field.
     pub fn randao_reveal(&self) -> &[u8] {
-        &self.ssz[48..80]
+        &self.ssz[40..72]
     }
 
     /// Return the `attestations` field.
     pub fn attestations(&self) -> &[u8] {
-        let start = 80 + LENGTH_BYTES;
+        let start = 72 + LENGTH_BYTES;
         &self.ssz[start..(start + self.attestation_len)]
     }
 
     /// Return the `pow_chain_ref` field.
     pub fn pow_chain_ref(&self) -> &[u8] {
-        let start = self.len - (32 + LENGTH_BYTES + 32 + LENGTH_BYTES + 32);
+        let start = self.len - (32 * 3);
         &self.ssz[start..(start + 32)]
     }
 
     /// Return the `active_state_root` field.
     pub fn act_state_root(&self) -> &[u8] {
-        let start = self.len - (32 + LENGTH_BYTES + 32);
+        let start = self.len - (32 * 2);
         &self.ssz[start..(start + 32)]
     }
 
@@ -213,6 +213,17 @@ mod tests {
     }
 
     #[test]
+    fn test_ssz_block_attestation_length() {
+        let mut block = Block::zero();
+        block.attestations.push(AttestationRecord::zero());
+
+        let serialized = get_block_ssz(&block);
+        let ssz_block = SszBlock::from_slice(&serialized).unwrap();
+
+        assert_eq!(ssz_block.attestation_len, MIN_SSZ_ATTESTION_RECORD_LENGTH);
+    }
+
+    #[test]
     fn test_ssz_block_block_hash() {
         let mut block = Block::zero();
         block.attestations.push(AttestationRecord::zero());
@@ -224,9 +235,9 @@ mod tests {
         // will tell us if the hash changes, not that it matches some
         // canonical reference.
         let expected_hash = [
-            28, 184, 51, 12, 226, 15, 73, 50, 66, 19, 168, 149,
-            229, 122, 141, 111, 42, 236, 137, 157, 230, 90, 149,
-            58, 145, 52, 47, 62, 158, 131, 46, 147
+            214, 217, 16, 230, 17, 204, 99, 222, 104, 90, 128, 228,
+            12, 249, 56, 255, 110, 10, 229, 29, 110, 107, 105, 195,
+            219, 132, 138, 206, 204, 34, 21, 159
         ];
         assert_eq!(hash, expected_hash);
 
