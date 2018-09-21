@@ -28,8 +28,8 @@ pub fn run_sync_future(
     db: Arc<ClientDB>,
     network_tx: NetworkSender,
     network_rx: NetworkReceiver,
-    _sync_tx: SyncSender,
-    _sync_rx: SyncReceiver,
+    _sync_tx: &SyncSender,
+    _sync_rx: &SyncReceiver,
     log: Logger)
 {
     let network_future = {
@@ -37,9 +37,9 @@ pub fn run_sync_future(
             .for_each(move |event| {
                 handle_network_event(
                     event,
-                    db.clone(),
-                    network_tx.clone(),
-                    log.clone())
+                    &db.clone(),
+                    &network_tx.clone(),
+                    &log.clone())
             })
             .map_err(|_| panic!("rx failed"))
     };
