@@ -3,13 +3,13 @@ use super::attestation_record::AttestationRecord;
 use super::ssz::{ Encodable, SszStream };
 
 pub const MIN_SSZ_BLOCK_LENGTH: usize = {
-    4 + 32 +    // parent_hash
-    8 +         // slot_number
-    4 + 32 +    // randao_reveal
-    4 +         // attestations (assuming zero)
-    4 + 32 +    // pow_chain_ref
-    4 + 32 +    // active_state_root
-    4 + 32      // crystallized_state_root
+    32 +    // parent_hash
+    8 +     // slot_number
+    32 +    // randao_reveal
+    4 +     // attestations (assuming zero)
+    32 +    // pow_chain_ref
+    32 +    // active_state_root
+    32      // crystallized_state_root
 };
 pub const MAX_SSZ_BLOCK_LENGTH: usize = MIN_SSZ_BLOCK_LENGTH + (1 << 24);
 
