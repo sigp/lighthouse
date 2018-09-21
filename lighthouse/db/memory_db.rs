@@ -10,14 +10,22 @@ use super::{
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 type ColumnHashSet = HashSet<String>;
 
+/// An in-memory database implementing the ClientDB trait.
+///
+/// It is not particularily optimized, it exists for ease and speed of testing. It's not expected
+/// this DB would be used outside of tests.
 pub struct MemoryDB {
     db: RwLock<DBHashMap>,
     known_columns: RwLock<ColumnHashSet>
 }
 
 impl MemoryDB {
+    /// Open the in-memory database.
+    ///
+    /// All columns must be supplied initially, you will get an error if you try to access a column
+    /// that was not declared here. This condition is enforced artificially to simulate RocksDB.
     pub fn open(columns: Option<&[&str]>) -> Self {
-        let mut db: DBHashMap = HashMap::new();
+        let db: DBHashMap = HashMap::new();
         let mut known_columns: ColumnHashSet = HashSet::new();
         if let Some(columns) = columns {
             for col in columns {
@@ -30,6 +38,7 @@ impl MemoryDB {
         }
     }
 
+    /// Hashes a key and a column name in order to get a unique key for the supplied column.
     fn get_key_for_col(col: &str, key: &[u8]) -> Vec<u8> {
         blake2b(32, col.as_bytes(), key).as_bytes().to_vec()
     }
@@ -42,6 +51,7 @@ impl ClientDB for MemoryDB {
         Ok(())      // This field is not used. Will remove from trait.
     }
 
+    /// Get the value of some key from the database. Returns `None` if the key does not exist.
     fn get(&self, col: &str, key: &[u8])
         -> Result<Option<DBValue>, DBError>
     {
@@ -58,6 +68,7 @@ impl ClientDB for MemoryDB {
         }
     }
 
+    /// Puts a key in the database.
     fn put(&self, col: &str, key: &[u8], val: &[u8])
         -> Result<(), DBError>
     {
