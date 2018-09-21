@@ -79,6 +79,23 @@ impl ClientDB for MemoryDB {
             }
         }
     }
+
+    /// Return true if some key exists in some column.
+    fn exists(&self, col: &str, key: &[u8])
+        -> Result<bool, DBError>
+    {
+        // Panic if the DB locks are poisoned.
+        let db = self.db.read().unwrap();
+        let known_columns = self.known_columns.read().unwrap();
+
+        match known_columns.contains(&col.to_string()) {
+            false => Err(DBError{ message: "Unknown column".to_string() }),
+            true => {
+                let column_key = MemoryDB::get_key_for_col(col, key);
+                Ok(db.contains_key(&column_key))
+            }
+        }
+    }
 }
 
 
@@ -134,6 +151,31 @@ mod tests {
 
         assert!(db.get(col_a, "cats".as_bytes()).is_ok());
         assert!(db.get(col_x, "cats".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn test_memorydb_exists() {
+        let col_a: &str = "ColumnA";
+        let col_b: &str = "ColumnB";
+
+        let column_families = vec![
+            col_a,
+            col_b,
+        ];
+
+        let db = MemoryDB::open(Some(&column_families));
+
+        /*
+         * Testing that if we write to the same key in different columns that
+         * there is not an overlap.
+         */
+        db.put(col_a, "cats".as_bytes(), "lol".as_bytes()).unwrap();
+
+        assert_eq!(true, db.exists(col_a, "cats".as_bytes()).unwrap());
+        assert_eq!(false, db.exists(col_b, "cats".as_bytes()).unwrap());
+
+        assert_eq!(false, db.exists(col_a, "dogs".as_bytes()).unwrap());
+        assert_eq!(false, db.exists(col_b, "dogs".as_bytes()).unwrap());
     }
 
     #[test]
