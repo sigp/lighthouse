@@ -40,30 +40,15 @@ impl<T: ClientDB> BlockStore<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::ClientDB;
-    use super::super::super::DiskDB;
-    use std::{ env, fs, thread };
+    use super::super::super::MemoryDB;
+    use std::thread;
     use std::sync::Arc;
 
     #[test]
     fn test_block_store_on_disk_db() {
-        let pwd = env::current_dir().unwrap();
-        let path = pwd.join("block_store_testdb_please_remove");
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).unwrap();
+        let column_families = vec![DB_COLUMN];
 
-        let column_families = vec![
-            DB_COLUMN
-        ];
-
-        let mut db = DiskDB::open(&path, None);
-
-        for cf in column_families {
-            db.create_col(&cf).unwrap();
-        }
-
-        let db = Arc::new(db);
-
+        let db = Arc::new(MemoryDB::open(Some(&column_families)));
         let bs = Arc::new(BlockStore::new(db.clone()));
 
         let thread_count = 10;
@@ -98,6 +83,5 @@ mod tests {
                 assert_eq!(vec![42], val);
             }
         }
-        fs::remove_dir_all(&path).unwrap();
     }
 }
