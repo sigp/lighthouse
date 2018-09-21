@@ -1,5 +1,7 @@
-use std::{ env, fs }; 
-use std::path::PathBuf; 
+extern crate dirs;
+
+use std::fs;
+use std::path::PathBuf;
 
 /// Stores the core configuration for this Lighthouse instance.
 /// This struct is general, other components may implement more
@@ -16,7 +18,7 @@ impl LighthouseConfig {
     /// Build a new lighthouse configuration from defaults.
     pub fn default() -> Self{
         let data_dir = {
-            let home = env::home_dir()
+            let home = dirs::home_dir()
                 .expect("Unable to determine home dir.");
             home.join(DEFAULT_LIGHTHOUSE_DIR)
         };
