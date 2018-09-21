@@ -2,20 +2,18 @@
 
 This is currently a ***Work In Progress*** crate.
 
-
 SimpleSerialize is a serialization protocol described by Vitalik Buterin. The
 method is tentatively intended for use in the Ethereum Beacon Chain as
 described in the [Ethereum 2.1 Spec](https://notes.ethereum.org/s/Syj3QZSxm).
+The Beacon Chain specification is the core, canonical specification which we
+are following.
 
-There are two primary sources for this spec, and they are presently
-conflicting:
+The current reference implementation has been described in the [Beacon Chain
+Repository](https://github.com/ethereum/beacon_chain/blob/master/ssz/ssz.py).
 
- - The ethereum/beacon_chain reference implementation [simpleserialize.py](https://github.com/ethereum/beacon_chain/blob/master/ssz/ssz.py) file.
- - The [py_ssz module](https://github.com/ethereum/research/tree/master/py_ssz)
-   in ethereum/research.
-
-This implementation is presently a placeholder until the final spec is decided.
-Do not rely upon it for reference.
+*Please Note: This implementation is presently a placeholder until the final
+spec is decided.*\
+*Do not rely upon it for reference.*
 
 
 ## Table of Contents
@@ -225,7 +223,7 @@ entire length of the list.
 |:------------------------------------|:--------------------------------------|
 | rawbytes has enough left for length | ``len(rawbytes) > current_index + 4`` |
 
-```
+```python
 total_length = int.from_bytes(rawbytes[current_index:current_index+4], 'big')
 new_index = current_index + 4 + total_length
 item_index = current_index + 4
