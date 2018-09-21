@@ -1,4 +1,5 @@
-use super::super::utils::types::Hash256;
+use super::utils::types::Hash256;
+use super::db;
 
 mod attestation_parent_hashes;
 mod shuffling;
