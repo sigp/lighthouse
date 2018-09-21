@@ -64,7 +64,7 @@ fn main() {
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.p2p_listen_port);
 
-    let client = Client::new(config, log.new(o!()));
+    let client = Client::new(&config, &log);
     client.sync_thread.join().unwrap();
 
     info!(log, "Exiting.");
