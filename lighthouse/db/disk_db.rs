@@ -55,15 +55,7 @@ impl DiskDB {
             db,
         }
     }
-}
 
-impl From<RocksError> for DBError {
-    fn from(e: RocksError) -> Self {
-        Self { message: e.to_string() }
-    }
-}
-
-impl ClientDB for DiskDB {
     /// Create a RocksDB column family. Corresponds to the
     /// `create_cf()` function on the RocksDB API.
     fn create_col(&mut self, col: &str)
@@ -75,6 +67,15 @@ impl ClientDB for DiskDB {
         }
     }
 
+}
+
+impl From<RocksError> for DBError {
+    fn from(e: RocksError) -> Self {
+        Self { message: e.to_string() }
+    }
+}
+
+impl ClientDB for DiskDB {
     /// Get the value for some key on some column.
     ///
     /// Corresponds to the `get_cf()` method on the RocksDB API.

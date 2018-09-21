@@ -45,12 +45,6 @@ impl MemoryDB {
 }
 
 impl ClientDB for MemoryDB {
-    fn create_col(&mut self, col: &str)
-        -> Result<(), DBError>
-    {
-        Ok(())      // This field is not used. Will remove from trait.
-    }
-
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
     fn get(&self, col: &str, key: &[u8])
         -> Result<Option<DBValue>, DBError>
