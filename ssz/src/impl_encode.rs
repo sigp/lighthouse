@@ -4,7 +4,7 @@ use super::{
     Encodable,
     SszStream
 };
-use super::ethereum_types::{ H256, U256 };
+use super::ethereum_types::H256;
 use self::bytes::{ BytesMut, BufMut };
 
 /*
@@ -49,15 +49,7 @@ impl_encodable_for_uint!(usize, 64);
 
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_val(&self.to_vec());
-    }
-}
-
-impl Encodable for U256 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let mut a = [0; 32];
-        self.to_big_endian(&mut a);
-        s.append_encoded_val(&a.to_vec());
+        s.append_encoded_raw(&self.to_vec());
     }
 }
 
@@ -65,6 +57,14 @@ impl Encodable for U256 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_ssz_encode_h256() {
+        let h = H256::zero();
+        let mut ssz = SszStream::new();
+        ssz.append(&h);
+        assert_eq!(ssz.drain(), vec![0; 32]);
+    }
 
     #[test]
     fn test_ssz_encode_u8() {
