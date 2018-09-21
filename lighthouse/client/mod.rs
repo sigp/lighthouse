@@ -25,8 +25,8 @@ impl Client {
     ///
     /// Presently, this means starting network and sync threads
     /// and plumbing them together.
-    pub fn new(config: LighthouseConfig,
-               log: Logger)
+    pub fn new(config: &LighthouseConfig,
+               log: &Logger)
         -> Self
     {
         // Open the local db
@@ -65,8 +65,8 @@ impl Client {
                     sync_db,
                     network_tx.clone(),
                     network_rx,
-                    sync_out_sender,
-                    sync_in_receiver,
+                    &sync_out_sender,
+                    &sync_in_receiver,
                     sync_log,
                 );
             });
@@ -75,7 +75,7 @@ impl Client {
 
         // Return the client struct
         Self {
-            db: db,
+            db,
             network_thread,
             sync_thread,
         }

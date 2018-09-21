@@ -40,7 +40,7 @@ impl DiskDB {
          * Initialise the path
          */
         fs::create_dir_all(&path)
-            .expect(&format!("Unable to create {:?}", &path));
+            .unwrap_or_else(|_| panic!("Unable to create {:?}", &path));
         let db_path = path.join("database");
 
         /*
