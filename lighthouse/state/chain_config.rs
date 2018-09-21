@@ -2,6 +2,7 @@ pub struct ChainConfig {
     pub cycle_length: u8,
     pub shard_count: u16,
     pub min_committee_size: u64,
+    pub genesis_time: u64,
 }
 
 impl ChainConfig {
@@ -10,6 +11,7 @@ impl ChainConfig {
             cycle_length: 8,
             shard_count: 1024,
             min_committee_size: 128,
+            genesis_time: 1537488655,   // arbitrary
         }
     }
 }
