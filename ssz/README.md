@@ -57,12 +57,6 @@ Do not rely upon it for reference.
 * [Deserializing/Decoding](#deserializingdecoding)
     - [Rust](#rust-1)
 
-### TODO
-
- * [ ] Wait for spec to finalize.
- * [ ] Implement encoding for all useful types.
- * [ ] Implement decoding.
-
 ---
 
 ## SimpleSerialize Overview
@@ -90,13 +84,15 @@ Syntax:
 
 Convert directly to bytes the size of the int. (e.g. ``int16 = 2 bytes``)
 
+All integers are serialized as **big endian**.
+
 | Check to perform       | Code                    |
 |:-----------------------|:------------------------|
 | Int size is not 0      | ``int_size > 0``        |
 | Size is a byte integer | ``int_size % 8 == 0``   |
 | Value is less than max | ``2**int_size > value`` |
 
-```
+```python
 buffer_size = int_size / 8
 return value.to_bytes(buffer_size, 'big')
 ```
@@ -110,7 +106,7 @@ The address should already come as a hash/byte format. Ensure that length is
 |:-----------------------|:---------------------|
 | Length is correct (20) | ``len(value) == 20`` |
 
-```
+```python
 assert( len(value) == 20 )
 return value
 ```
@@ -124,7 +120,7 @@ check ensures the 32 byte length is satisfied.
 |:-----------------------|:---------------------|
 | Length is correct (32) | ``len(value) == 32`` |
 
-```
+```python
 assert( len(value) == 32 )
 return value
 ```
@@ -132,11 +128,11 @@ return value
 #### Bytes
 
 For general `byte` type:
-1. Get the length/number of bytes; Encode into a 4byte integer.
+1. Get the length/number of bytes; Encode into a 4 byte integer.
 2. Append the value to the length and return: ``[ length_bytes ] + [
    value_bytes ]``
 
-```
+```python
 byte_length = (len(value)).to_bytes(4, 'big')
 return byte_length + value
 ```
@@ -150,7 +146,7 @@ of each item in the list:
    2. append to string.
 2. Get size of serialized string. Encode into a 4 byte integer.
 
-```
+```python
 serialized_list_string = ''
 
 for item in value:
@@ -181,7 +177,9 @@ At each step, the following checks should be made:
 Convert directly from bytes into integer utilising the number of bytes the same
 size as the integer length. (e.g. ``int16 == 2 bytes``)
 
-```
+All integers are interpreted as **big endian**.
+
+```python
 byte_length = int_size / 8
 new_index = current_index + int_size
 return int.from_bytes(rawbytes[current_index:current_index+int_size], 'big'), new_index
@@ -191,7 +189,7 @@ return int.from_bytes(rawbytes[current_index:current_index+int_size], 'big'), ne
 
 Return the 20 bytes.
 
-```
+```python
 new_index = current_index + 20
 return rawbytes[current_index:current_index+20], new_index
 ```
@@ -200,7 +198,7 @@ return rawbytes[current_index:current_index+20], new_index
 
 Return the 32 bytes.
 
-```
+```python
 new_index = current_index + 32
 return rawbytes[current_index:current_index+32], new_index
 ```
@@ -209,7 +207,7 @@ return rawbytes[current_index:current_index+32], new_index
 
 Get the length of the bytes, return the bytes.
 
-```
+```python
 bytes_length = int.from_bytes(rawbytes[current_index:current_index+4], 'big')
 new_index = current_index + 4 + bytes_lenth
 return rawbytes[current_index+4:current_index+4+bytes_length], new_index
@@ -217,13 +215,11 @@ return rawbytes[current_index+4:current_index+4+bytes_length], new_index
 
 #### List
 
-1. Get the length of the serialized list bytes.
-2. Loop through the bytes;
-   1. Deserialize the object with that length.
-   2. Keep track of current position
+Deserailize each object in the list.
+1. Get the length of the serialized list.
+2. Loop through deseralizing each item in the list until you reach the
+entire length of the list.
 
-Note Before: there are a number of checks to be performed, ensuring there is
-enough room left.
 
 | Check type                          | code                                  |
 |:------------------------------------|:--------------------------------------|
@@ -267,7 +263,7 @@ rust.
 
 Installing on Linux or OSX:
 
-```
+```bash
 curl https://sh.rustup.rs -sSf | sh
 ```
 
@@ -282,7 +278,7 @@ All dependencies are listed in the ``Cargo.toml`` file.
 
 To build and install all related dependencies:
 
-```
+```bash
 cargo build
 ```
 
