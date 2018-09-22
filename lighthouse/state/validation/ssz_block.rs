@@ -35,7 +35,7 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
                              _validator_store: &ValidatorStore<T>,
                              _log: &Logger)
     -> Result<BlockStatus, SszBlockValidationError>
-    where T: Sized + ClientDB
+    where T: ClientDB + Sized
 {
     if block_store.block_exists(&b.block_hash())? {
         return Ok(BlockStatus::KnownBlock);
