@@ -1,8 +1,6 @@
 use super::utils::types::Hash256;
-use super::utils::errors::ParameterError;
 
-mod attestation_parent_hashes;
+pub mod attestation_parent_hashes;
 mod shuffling;
 
-pub use self::attestation_parent_hashes::attestation_parent_hashes;
 pub use self::shuffling::shuffle;
