@@ -1,7 +1,10 @@
+use super::ethereum_types::H256;
 use super::{
     DecodeError,
     Decodable,
 };
+
+
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Decodable for $type {
@@ -33,13 +36,57 @@ impl_decodable_for_uint!(u32, 32);
 impl_decodable_for_uint!(u64, 64);
 impl_decodable_for_uint!(usize, 64);
 
+impl Decodable for H256 {
+    fn ssz_decode(bytes: &[u8], index: usize)
+        -> Result<(Self, usize), DecodeError>
+    {
+        if bytes.len() < 32 {
+            return Err(DecodeError::TooShort)
+        }
+        else if bytes.len() - 32 < index {
+            return Err(DecodeError::TooShort)
+        }
+        else {
+            return Ok((H256::from(&bytes[index..(index + 32)]),
+                       index + 32));
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use super::super::{
         DecodeError,
         decode_ssz,
     };
+
+    #[test]
+    fn test_ssz_decode_h256() {
+        /*
+         * Input is exact length
+         */
+        let input = vec![42_u8; 32];
+        let (decoded, i) = H256::ssz_decode(&input, 0).unwrap();
+        assert_eq!(decoded.to_vec(), input);
+        assert_eq!(i, 32);
+
+        /*
+         * Input is too long
+         */
+        let mut input = vec![42_u8; 32];
+        input.push(12);
+        let (decoded, i) = H256::ssz_decode(&input, 0).unwrap();
+        assert_eq!(decoded.to_vec()[..], input[0..32]);
+        assert_eq!(i, 32);
+
+        /*
+         * Input is too short
+         */
+        let input = vec![42_u8; 31];
+        let res = H256::ssz_decode(&input, 0);
+        assert_eq!(res, Err(DecodeError::TooShort));
+    }
 
     #[test]
     fn test_ssz_decode_u16() {
