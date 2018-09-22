@@ -36,6 +36,9 @@ impl DiskDB {
         let mut options = Options::default();
         options.create_if_missing(true);
 
+        // TODO: ensure that columns are created (and remove
+        // the dead_code allow)
+
         /*
          * Initialise the path
          */
@@ -58,6 +61,7 @@ impl DiskDB {
 
     /// Create a RocksDB column family. Corresponds to the
     /// `create_cf()` function on the RocksDB API.
+    #[allow(dead_code)]
     fn create_col(&mut self, col: &str)
         -> Result<(), DBError>
     {

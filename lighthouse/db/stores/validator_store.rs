@@ -21,7 +21,7 @@ impl<T: ClientDB> ValidatorStore<T> {
     pub fn put_validator_record_by_index(&self, hash: &[u8], val: &[u8])
         -> Result<(), DBError>
     {
-        self.db.put(DB_COLUMN, hash, &vec![0])
+        self.db.put(DB_COLUMN, hash, val)
     }
 
     pub fn get_validator_record_by_index(&self, hash: &[u8])

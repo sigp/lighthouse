@@ -16,7 +16,6 @@ pub enum BlockStatus {
 }
 
 pub enum SszBlockValidationError {
-    SszInvalid,
     FutureSlot,
     UnknownPoWChainRef,
     DatabaseError(String),
@@ -28,13 +27,13 @@ impl From<DBError> for SszBlockValidationError {
     }
 }
 
-
+#[allow(dead_code)]
 pub fn validate_ssz_block<T>(b: &SszBlock,
-                          expected_slot: u64,
-                          block_store: &BlockStore<T>,
-                          pow_store: &PoWChainStore<T>,
-                          validator_store: &ValidatorStore<T>,
-                          log: &Logger)
+                             expected_slot: u64,
+                             block_store: &BlockStore<T>,
+                             pow_store: &PoWChainStore<T>,
+                             _validator_store: &ValidatorStore<T>,
+                             _log: &Logger)
     -> Result<BlockStatus, SszBlockValidationError>
     where T: Sized + ClientDB
 {
