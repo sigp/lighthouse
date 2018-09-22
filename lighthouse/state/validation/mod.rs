@@ -8,6 +8,10 @@ use super::chain_config::ChainConfig;
 use super::block;
 use super::Logger;
 use super::db;
+use super::attestation_record::AttestationRecord;
+use super::ssz;
+use super::transition::attestation_parent_hashes;
+use super::utils;
 
-// mod attestation_validation;
+mod attestation_validation;
 mod ssz_block;
