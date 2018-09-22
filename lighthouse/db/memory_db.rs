@@ -86,12 +86,12 @@ impl ClientDB for MemoryDB {
         let db = self.db.read().unwrap();
         let known_columns = self.known_columns.read().unwrap();
 
-        match known_columns.contains(&col.to_string()) {
-            false => Err(DBError{ message: "Unknown column".to_string() }),
-            true => {
-                let column_key = MemoryDB::get_key_for_col(col, key);
-                Ok(db.contains_key(&column_key))
-            }
+        if known_columns.contains(&col.to_string()) {
+            let column_key = MemoryDB::get_key_for_col(col, key);
+            Ok(db.contains_key(&column_key))
+        } else {
+            Err(DBError{ message: "Unknown column".to_string() })
+
         }
     }
 }
