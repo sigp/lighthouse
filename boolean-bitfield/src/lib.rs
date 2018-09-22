@@ -86,6 +86,9 @@ impl BooleanBitfield {
     /// vector.
     pub fn is_empty(&self) -> bool { self.len == 0 }
 
+    /// The number of bytes required to represent the bitfield.
+    pub fn num_bytes(&self) -> usize { self.vec.len() }
+
     /// Iterate through the underlying vector and count the number of
     /// true bits.
     pub fn num_true_bits(&self) -> u64 {
