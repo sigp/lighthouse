@@ -1,9 +1,6 @@
 /*
  * Collection of helper functions used in the state transition modules
  */
-use super::active_state::ActiveState;
-use super::block::Block;
-use super::chain_config::ChainConfig;
 use super::utils::errors::ParameterError;
 use super::utils::types::Hash256;
 
