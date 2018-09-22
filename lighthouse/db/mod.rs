@@ -4,7 +4,7 @@ extern crate blake2_rfc as blake2;
 mod disk_db;
 mod memory_db;
 mod traits;
-mod stores;
+pub mod stores;
 
 
 pub use self::disk_db::DiskDB;
