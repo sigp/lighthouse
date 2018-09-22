@@ -10,19 +10,22 @@
 extern crate bytes;
 extern crate ethereum_types;
 
+pub mod decode;
+
 mod encode;
-mod decode;
 mod impl_encode;
 mod impl_decode;
 
 pub use decode::{
     Decodable,
     DecodeError,
-    decode_ssz_list_element,
+    decode_ssz,
+    decode_ssz_list,
 };
 pub use encode::{
     Encodable,
     SszStream,
 };
 
-pub const LENGTH_BYTES: usize = 3;
+pub const LENGTH_BYTES: usize = 4;
+pub const MAX_LIST_SIZE : usize = 1 << (4 * 8);

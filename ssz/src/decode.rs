@@ -10,59 +10,76 @@ pub enum DecodeError {
 }
 
 pub trait Decodable: Sized {
-    fn ssz_decode(bytes: &[u8]) -> Result<Self, DecodeError>;
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError>;
 }
 
-/// Decode the nth element of some ssz list.
+/// Decode the given bytes for the given type
 ///
-/// A single ssz encoded value can be considered a list of
-/// one element, so this function will work on it too.
-pub fn decode_ssz_list_element<T>(ssz_bytes: &[u8], n: usize)
-    -> Result<T, DecodeError>
+/// The single ssz encoded value will be decoded as the given type at the
+/// given index.
+pub fn decode_ssz<T>(ssz_bytes: &[u8], index: usize)
+    -> Result<(T, usize), DecodeError>
     where T: Decodable
 {
-    T::ssz_decode(nth_value(ssz_bytes, n)?)
+    if index >= ssz_bytes.len() {
+        return Err(DecodeError::OutOfBounds)
+    }
+    T::ssz_decode(ssz_bytes, index)
 }
 
-/// Return the nth value in some ssz encoded list.
+/// Decode a vector (list) of encoded bytes.
 ///
-/// The four-byte length prefix is not included in the return.
-///
-/// A single ssz encoded value can be considered a list of
-/// one element, so this function will work on it too.
-fn nth_value(ssz_bytes: &[u8], n: usize)
-    -> Result<&[u8], DecodeError>
+/// Each element in the list will be decoded and placed into the vector.
+pub fn decode_ssz_list<T>(ssz_bytes: &[u8], index: usize)
+    -> Result<(Vec<T>, usize), DecodeError>
+    where T: Decodable
 {
-    let mut c: usize = 0;
-    for i in 0..(n + 1) {
-        let length = decode_length(&ssz_bytes[c..], LENGTH_BYTES)?;
-        let next = c + LENGTH_BYTES + length;
 
-        if i == n {
-            return Ok(&ssz_bytes[c + LENGTH_BYTES..next]);
-        } else {
-            if next >= ssz_bytes.len() {
-                return Err(DecodeError::OutOfBounds);
-            } else {
-                c = next;
-            }
-        }
-    }
-    Err(DecodeError::OutOfBounds)
+    if index + LENGTH_BYTES > ssz_bytes.len() {
+        return Err(DecodeError::TooShort);
+    };
+
+    // get the length
+    let serialized_length = match decode_length(ssz_bytes, index, LENGTH_BYTES) {
+        Err(v) => return Err(v),
+        Ok(v) => v,
+    };
+
+    let final_len: usize = index + LENGTH_BYTES + serialized_length;
+
+    if final_len > ssz_bytes.len() {
+        return Err(DecodeError::TooShort);
+    };
+
+    let mut tmp_index = index + LENGTH_BYTES;
+    let mut res_vec: Vec<T> = Vec::new();
+
+    while tmp_index < final_len {
+        match T::ssz_decode(ssz_bytes, tmp_index) {
+            Err(v) => return Err(v),
+            Ok(v) => {
+                tmp_index = v.1;
+                res_vec.push(v.0);
+            },
+        };
+
+    };
+
+    Ok((res_vec, final_len))
 }
 
 /// Given some number of bytes, interpret the first four
 /// bytes as a 32-bit big-endian integer and return the
 /// result.
-fn decode_length(bytes: &[u8], length_bytes: usize)
+pub fn decode_length(bytes: &[u8], index: usize, length_bytes: usize)
     -> Result<usize, DecodeError>
 {
     if bytes.len() < length_bytes {
         return Err(DecodeError::TooShort);
     };
     let mut len: usize = 0;
-    for i in 0..length_bytes {
-        let offset = (length_bytes - i - 1) * 8;
+    for i in index..index+length_bytes {
+        let offset = (index+length_bytes - i - 1) * 8;
         len = ((bytes[i] as usize) << offset) | len;
     };
     Ok(len)
@@ -76,24 +93,28 @@ mod tests {
     #[test]
     fn test_ssz_decode_length() {
         let decoded = decode_length(
-            &vec![0, 0, 1],
+            &vec![0, 0, 0, 1],
+            0,
             LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 1);
 
         let decoded = decode_length(
-            &vec![0, 1, 0],
+            &vec![0, 0, 1, 0],
+            0,
             LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 256);
 
         let decoded = decode_length(
-            &vec![0, 1, 255],
+            &vec![0, 0, 1, 255],
+            0,
             LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 511);
 
         let decoded = decode_length(
-            &vec![255, 255, 255],
+            &vec![255, 255, 255, 255],
+            0,
             LENGTH_BYTES);
-        assert_eq!(decoded.unwrap(), 16777215);
+        assert_eq!(decoded.unwrap(), 4294967295);
     }
 
     #[test]
@@ -108,28 +129,82 @@ mod tests {
         for i in params {
             let decoded = decode_length(
                 &encode_length(i, LENGTH_BYTES),
+                0,
                 LENGTH_BYTES).unwrap();
             assert_eq!(i, decoded);
         }
     }
 
     #[test]
-    fn test_ssz_nth_value() {
-        let ssz = vec![0, 0, 1, 0];
-        let result = nth_value(&ssz, 0).unwrap();
-        assert_eq!(result, vec![0].as_slice());
+    fn test_decode_ssz_list() {
+        // u16
+        let v: Vec<u16> = vec![10, 10, 10, 10];
+        let decoded: (Vec<u16>, usize) = decode_ssz_list(
+            &vec![0, 0, 0, 8, 0, 10, 0, 10, 0, 10, 0, 10],
+            0
+        ).unwrap();
 
-        let ssz = vec![0, 0, 4, 1, 2, 3, 4];
-        let result = nth_value(&ssz, 0).unwrap();
-        assert_eq!(result, vec![1, 2, 3, 4].as_slice());
+        assert_eq!(decoded.0, v);
+        assert_eq!(decoded.1, 12);
 
-        let ssz = vec![0, 0, 1, 0, 0, 0, 1, 1];
-        let result = nth_value(&ssz, 1).unwrap();
-        assert_eq!(result, vec![1].as_slice());
+        // u32
+        let v: Vec<u32> = vec![10, 10, 10, 10];
+        let decoded: (Vec<u32>, usize) = decode_ssz_list(
+            &vec![
+                0, 0, 0, 16,
+                0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 10
+            ],
+            0
+        ).unwrap();
+        assert_eq!(decoded.0, v);
+        assert_eq!(decoded.1, 20);
 
-        let mut ssz = vec![0, 1, 255];
-        ssz.append(&mut vec![42; 511]);
-        let result = nth_value(&ssz, 0).unwrap();
-        assert_eq!(result, vec![42; 511].as_slice());
+
+        // u64
+        let v: Vec<u64> = vec![10,10,10,10];
+        let decoded: (Vec<u64>, usize) = decode_ssz_list(
+            &vec![0, 0, 0, 32,
+                0, 0, 0, 0, 0, 0, 0, 10,
+                0, 0, 0, 0, 0, 0, 0, 10,
+                0, 0, 0, 0, 0, 0, 0, 10,
+                0, 0, 0, 0, 0, 0, 0, 10,
+            ],
+            0
+        ).unwrap();
+        assert_eq!(decoded.0, v);
+        assert_eq!(decoded.1, 36);
+
+        // Check that it can accept index
+        let v: Vec<usize> = vec![15,15,15,15];
+        let decoded: (Vec<usize>, usize) = decode_ssz_list(
+            &vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                0, 0, 0, 32,
+                0, 0, 0, 0, 0, 0, 0, 15,
+                0, 0, 0, 0, 0, 0, 0, 15,
+                0, 0, 0, 0, 0, 0, 0, 15,
+                0, 0, 0, 0, 0, 0, 0, 15,
+            ],
+            10
+        ).unwrap();
+        assert_eq!(decoded.0, v);
+        assert_eq!(decoded.1, 46);
+
+        // Check that length > bytes throws error
+        let decoded: Result<(Vec<usize>, usize), DecodeError> = decode_ssz_list(
+            &vec![0, 0, 0, 32,
+                0, 0, 0, 0, 0, 0, 0, 15,
+            ],
+            0
+        );
+        assert_eq!(decoded, Err(DecodeError::TooShort));
+
+        // Check that incorrect index throws error
+        let decoded: Result<(Vec<usize>, usize), DecodeError> = decode_ssz_list(
+            &vec![
+                0, 0, 0, 0, 0, 0, 0, 15,
+            ],
+            16
+        );
+        assert_eq!(decoded, Err(DecodeError::TooShort));
     }
 }
