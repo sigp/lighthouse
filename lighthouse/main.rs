@@ -15,7 +15,7 @@ pub mod config;
 
 use std::path::PathBuf;
 
-use slog::Drain;
+use slog::{ Drain, Logger };
 use clap::{ Arg, App };
 use config::LighthouseConfig;
 use client::Client;

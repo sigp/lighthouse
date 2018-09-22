@@ -4,6 +4,7 @@ extern crate blake2_rfc as blake2;
 extern crate bytes;
 extern crate ssz;
 
+use super::Logger;
 use super::utils;
 use super::db;
 

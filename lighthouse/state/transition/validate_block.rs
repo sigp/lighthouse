@@ -1,55 +1,54 @@
 use super::block::SszBlock;
 use super::Logger;
 use super::db::{
+    ClientDB,
+    DBError,
+};
+use super::db::stores::{
     BlockStore,
     PoWChainStore,
+    ValidatorStore,
 };
 
 pub enum BlockStatus {
     NewBlock,
     KnownBlock,
-    UnknownPoWChainRef,
 }
 
 pub enum SszBlockValidationError {
     SszInvalid,
     FutureSlot,
+    UnknownPoWChainRef,
+    DatabaseError(String),
 }
 
-macro_rules! valid_if {
-    ($cond:expr, $val:expr) => {
-        if ($cond)
-            return Ok($val);
-        }
-    };
+impl From<DBError> for SszBlockValidationError {
+    fn from(e: DBError) -> SszBlockValidationError {
+        SszBlockValidationError::DatabaseError(e.message)
+    }
 }
 
-macro_rules! invalid_if {
-    ($cond:expr, $val:expr) => {
-        if ($cond)
-            return Err($val);
-        }
-    };
-}
 
-fn slot_from_time()
-
-
-pub fn validate_ssz_block(b: &SszBlock,
-                          expected_slot: &u64,
-                          block_store: &BlockStore,
-                          pow_store: &PoWChainStore,
+pub fn validate_ssz_block<T>(b: &SszBlock,
+                          expected_slot: u64,
+                          block_store: &BlockStore<T>,
+                          pow_store: &PoWChainStore<T>,
+                          validator_store: &ValidatorStore<T>,
                           log: &Logger)
     -> Result<BlockStatus, SszBlockValidationError>
+    where T: Sized + ClientDB
 {
-    valid_if!(block_store.block_exists(b.block_hash()),
-              BlockStatus::KnownBlock);
+    if block_store.block_exists(&b.block_hash())? {
+        return Ok(BlockStatus::KnownBlock);
+    }
 
-    invalid_if!(b.slot_number() > expected_slot,
-                SszBlockValidationError::FutureSlot);
+    if b.slot_number() > expected_slot {
+        return Err(SszBlockValidationError::FutureSlot);
+    }
 
-    invalid_if!(pow_store.block_hash_exists(b.pow_chain_ref()) == false,
-                SszBlockValidationError::UnknownPoWChainRef);
+    if pow_store.block_hash_exists(b.pow_chain_ref())? == false {
+        return Err(SszBlockValidationError::UnknownPoWChainRef);
+    }
 
     // Do validation here
     Ok(BlockStatus::NewBlock)
