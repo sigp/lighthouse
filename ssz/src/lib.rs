@@ -20,6 +20,7 @@ pub use decode::{
     Decodable,
     DecodeError,
     decode_ssz,
+    decode_ssz_list,
 };
 pub use encode::{
     Encodable,
