@@ -161,7 +161,8 @@ impl ssz::Decodable for BooleanBitfield {
             Ok((BooleanBitfield::new(),
                 index + ssz::LENGTH_BYTES))
         } else {
-            let b = BooleanBitfield::from(&bytes[(index + 4)..(len + 4)]);
+            let b = BooleanBitfield::
+                from(&bytes[(index + 4)..(index + len + 4)]);
             let index = index + ssz::LENGTH_BYTES + len;
             Ok((b, index))
         }
