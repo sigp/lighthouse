@@ -7,11 +7,10 @@ pub use slog::Logger;
 
 pub fn test_logger() -> slog::Logger {
     let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
-    let logger = Logger::root(
+    Logger::root(
         slog_term::FullFormat::new(plain)
         .build().fuse(), o!()
-    );
-    logger
+    )
 }
 
 pub fn get_logger() -> slog::Logger {
