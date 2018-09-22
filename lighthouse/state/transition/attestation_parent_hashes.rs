@@ -1,5 +1,6 @@
 use super::Hash256;
 
+#[derive(Debug)]
 pub enum ParentHashesError {
     BadCurrentHashes,
     BadObliqueHashes,
@@ -179,7 +180,6 @@ mod tests {
             attestation_slot,
             &current_hashes,
             &oblique_hashes);
-        assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result.len(), cycle_length as usize);
         let expected_result = get_range_of_hashes(7, 15);
