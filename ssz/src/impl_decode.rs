@@ -36,6 +36,18 @@ impl_decodable_for_uint!(u32, 32);
 impl_decodable_for_uint!(u64, 64);
 impl_decodable_for_uint!(usize, 64);
 
+impl Decodable for u8 {
+    fn ssz_decode(bytes: &[u8], index: usize)
+        -> Result<(Self, usize), DecodeError>
+    {
+        if index >= bytes.len() {
+            Err(DecodeError::TooShort)
+        } else {
+            Ok((bytes[index], index + 1))
+        }
+    }
+}
+
 impl Decodable for H256 {
     fn ssz_decode(bytes: &[u8], index: usize)
         -> Result<(Self, usize), DecodeError>
