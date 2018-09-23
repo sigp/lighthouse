@@ -6,7 +6,7 @@ use super::attestation_parent_hashes::{
 use super::db::ClientDB;
 use super::db::stores::BlockStore;
 use super::ssz::SszStream;
-use super::utils::bls::{
+use super::bls::{
     AggregateSignature,
     PublicKey,
 };

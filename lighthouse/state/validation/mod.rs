@@ -6,6 +6,7 @@ use super::block::Block;
 use super::chain_config::ChainConfig;
 */
 use super::block;
+use super::bls;
 use super::Logger;
 use super::db;
 use super::attestation_record::AttestationRecord;

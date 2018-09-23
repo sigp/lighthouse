@@ -2,6 +2,7 @@
 extern crate slog;
 extern crate slog_term;
 extern crate slog_async;
+extern crate ssz;
 extern crate clap;
 extern crate network_libp2p;
 extern crate futures;

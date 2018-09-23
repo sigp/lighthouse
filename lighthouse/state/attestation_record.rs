@@ -1,5 +1,8 @@
 use super::utils::types::{ Hash256, Bitfield };
-use super::utils::bls::{ AggregateSignature };
+use super::bls::{
+    AggregateSignature,
+    BLS_AGG_SIG_BYTE_SIZE,
+};
 use super::ssz::{
     Encodable,
     Decodable,
@@ -16,7 +19,7 @@ pub const MIN_SSZ_ATTESTION_RECORD_LENGTH: usize = {
     5 +             // attester_bitfield (assuming 1 byte of bitfield)
     8 +             // justified_slot
     32 +            // justified_block_hash
-    4 + (2 * 8)    // aggregate sig (two 256 bit points)
+    4 + BLS_AGG_SIG_BYTE_SIZE    // aggregate sig (two 256 bit points)
 };
 
 #[derive(Debug)]
@@ -28,7 +31,7 @@ pub struct AttestationRecord {
     pub attester_bitfield: Bitfield,
     pub justified_slot: u64,
     pub justified_block_hash: Hash256,
-    pub aggregate_sig: Option<AggregateSignature>,
+    pub aggregate_sig: AggregateSignature,
 }
 
 impl Encodable for AttestationRecord {
@@ -40,8 +43,7 @@ impl Encodable for AttestationRecord {
         s.append_vec(&self.attester_bitfield.to_be_vec());
         s.append(&self.justified_slot);
         s.append(&self.justified_block_hash);
-        // TODO: encode the aggregate sig correctly
-        s.append_vec(&vec![0_u8; 16])
+        s.append_vec(&self.aggregate_sig.as_bytes());
     }
 }
 
@@ -57,7 +59,10 @@ impl Decodable for AttestationRecord {
         let (justified_slot, i) = u64::ssz_decode(bytes, i)?;
         let (justified_block_hash, i) = Hash256::ssz_decode(bytes, i)?;
         // Do aggregate sig decoding properly.
-        let aggregate_sig = None; let i = i + 20;
+        let (agg_sig_bytes, i) = decode_ssz_list(bytes, i)?;
+        let aggregate_sig = AggregateSignature::from_bytes(&agg_sig_bytes)
+            .map_err(|_| DecodeError::OutOfBounds)?;
+
         let attestation_record = Self {
             slot,
             shard_id,
@@ -82,7 +87,7 @@ impl AttestationRecord {
             attester_bitfield: Bitfield::new(),
             justified_slot: 0,
             justified_block_hash: Hash256::zero(),
-            aggregate_sig: None,
+            aggregate_sig: AggregateSignature::new(),
         }
     }
 }
@@ -113,7 +118,7 @@ mod tests {
             attester_bitfield: Bitfield::from(&vec![17; 42][..]),
             justified_slot: 19,
             justified_block_hash: Hash256::from(&vec![15; 32][..]),
-            aggregate_sig: None,
+            aggregate_sig: AggregateSignature::new(),
         };
 
         let mut ssz_stream = SszStream::new();
