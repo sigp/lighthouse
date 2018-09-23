@@ -4,9 +4,10 @@ extern crate blake2_rfc as blake2;
 extern crate bytes;
 extern crate ssz;
 
+use super::bls;
+use super::db;
 use super::Logger;
 use super::utils;
-use super::db;
 
 pub mod active_state;
 pub mod attestation_record;

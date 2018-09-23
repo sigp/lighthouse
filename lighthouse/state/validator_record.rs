@@ -1,7 +1,7 @@
 extern crate rand;
 
 use super::utils::types::{ Hash256, Address, U256 };
-use super::utils::bls::{ PublicKey, Keypair };
+use super::bls::{ PublicKey, Keypair };
 
 use self::rand::thread_rng;
 
@@ -21,10 +21,9 @@ impl ValidatorRecord {
     ///
     /// Returns the new instance and new keypair.
     pub fn zero_with_thread_rand_keypair() -> (Self, Keypair) {
-        let mut rng = thread_rng();
-        let keypair = Keypair::generate(&mut rng);
+        let keypair = Keypair::random();
         let s = Self {
-            pubkey: keypair.public.clone(),
+            pubkey: keypair.pk.clone(),
             withdrawal_shard: 0,
             withdrawal_address: Address::zero(),
             randao_commitment: Hash256::zero(),
