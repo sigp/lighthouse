@@ -8,12 +8,13 @@ extern crate network_libp2p;
 extern crate futures;
 
 #[macro_use]
-pub mod utils;
-pub mod db;
-pub mod client;
-pub mod state;
-pub mod sync;
-pub mod config;
+mod utils;
+mod bls;
+mod db;
+mod client;
+mod state;
+mod sync;
+mod config;
 
 use std::path::PathBuf;
 
