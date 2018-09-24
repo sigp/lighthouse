@@ -117,6 +117,11 @@ impl BooleanBitfield {
         0
     }
 
+    /// Get the byte at a position, assuming big-endian encoding.
+    pub fn get_byte(&self, n: usize) -> Option<&u8> {
+        self.vec.get(n)
+    }
+
     /// Clone and return the underlying byte array (`Vec<u8>`).
     pub fn to_be_vec(&self) -> Vec<u8> {
         let mut o = self.vec.clone();
