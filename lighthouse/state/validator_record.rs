@@ -3,8 +3,6 @@ extern crate rand;
 use super::utils::types::{ Hash256, Address, U256 };
 use super::bls::{ PublicKey, Keypair };
 
-use self::rand::thread_rng;
-
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
     pub withdrawal_shard: u16,

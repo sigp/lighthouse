@@ -22,7 +22,7 @@ pub const MIN_SSZ_ATTESTION_RECORD_LENGTH: usize = {
     4 + BLS_AGG_SIG_BYTE_SIZE    // aggregate sig (two 256 bit points)
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AttestationRecord {
     pub slot: u64,
     pub shard_id: u16,

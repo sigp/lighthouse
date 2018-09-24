@@ -52,6 +52,11 @@ fn bytes_for_bits(bits: usize) -> usize {
     (bits.saturating_sub(1) / 8) + 1
 }
 
+fn any_of_last_n_bits_are_set(byte: &u8, n: usize) -> bool {
+    let shift = 8_u8.saturating_sub(n as u8);
+    ((!0 >> shift) & byte) > 0
+}
+
 pub fn validate_attestation<T>(a: &AttestationRecord,
                                block_slot: u64,
                                cycle_length: u8,
@@ -160,11 +165,6 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
             &validator_store)?;
 
     Ok((signature_valid, voted_hashmap))
-}
-
-fn any_of_last_n_bits_are_set(byte: &u8, n: usize) -> bool {
-    let shift = 8_u8.saturating_sub(n as u8);
-    ((!0 >> shift) & byte) > 0
 }
 
 /// Generates the message used to validate the signature provided with an AttestationRecord.

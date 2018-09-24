@@ -14,6 +14,5 @@ use super::ssz;
 use super::transition::attestation_parent_hashes;
 use super::utils;
 
-mod attestation_validation;
-mod signatures;
+mod attestation;
 mod ssz_block;
