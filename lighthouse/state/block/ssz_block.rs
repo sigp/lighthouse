@@ -13,9 +13,6 @@ use super::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH;
 pub enum BlockValidatorError {
     TooShort,
     TooLong,
-    BadPowHash,
-    SlotTooLow,
-    SlotTooHigh,
 }
 
 const LENGTH_BYTES: usize = 4;
@@ -23,7 +20,7 @@ const LENGTH_BYTES: usize = 4;
 /// Allows for reading of block values directly from serialized ssz bytes.
 ///
 /// The purpose of this struct is to provide the functionality to read block fields directly from
-/// some serialized SSZ slice, effectively allowing us to read the block without fully
+/// some serialized SSZ slice allowing us to read the block without fully
 /// de-serializing it.
 ///
 /// This struct should be as "zero-copy" as possible. The `ssz` field is a reference to some slice
