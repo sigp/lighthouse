@@ -1,9 +1,10 @@
 use std::collections::HashSet;
-use super::AttestationRecord;
+use super::attestation_record::AttestationRecord;
 use super::attestation_parent_hashes::{
     attestation_parent_hashes,
     ParentHashesError,
 };
+use super::AttesterMap;
 use super::db::{
     ClientDB,
     DBError
@@ -17,7 +18,6 @@ use super::utils::hash::canonical_hash;
 use super::utils::types::{
     Hash256,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 use super::signatures::{
     verify_aggregate_signature_for_indices,
@@ -44,10 +44,6 @@ pub enum AttestationValidationError {
     DBError(String),
 }
 
-type Slot = u64;
-type ShardId = u64;
-type AttesterMap = HashMap<(Slot, ShardId), Vec<usize>>;
-
 fn bytes_for_bits(bits: usize) -> usize {
     (bits.saturating_sub(1) / 8) + 1
 }
@@ -62,12 +58,14 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
                                cycle_length: u8,
                                known_last_justified_slot: u64,
                                known_parent_hashes: Arc<Vec<Hash256>>,
-                               block_store: BlockStore<T>,
-                               validator_store: ValidatorStore<T>,
+                               block_store: Arc<BlockStore<T>>,
+                               validator_store: Arc<ValidatorStore<T>>,
                                attester_map: Arc<AttesterMap>)
-    -> Result<(bool, Option<HashSet<usize>>), AttestationValidationError>
+    -> Result<Option<HashSet<usize>>, AttestationValidationError>
     where T: ClientDB + Sized
 {
+    // TODO: assert attestion isn't already known
+
     /*
      * The attesation slot must not be higher than the block that contained it.
      */
@@ -156,7 +154,7 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
             a.justified_slot)
     };
 
-    let (signature_valid, voted_hashmap) =
+    let voted_hashmap =
         verify_aggregate_signature_for_indices(
             &signed_message,
             &a.aggregate_sig,
@@ -164,7 +162,7 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
             &a.attester_bitfield,
             &validator_store)?;
 
-    Ok((signature_valid, voted_hashmap))
+    Ok(voted_hashmap)
 }
 
 /// Generates the message used to validate the signature provided with an AttestationRecord.
