@@ -44,7 +44,7 @@ pub fn split_one_attestation<'a>(full_ssz: &'a [u8], index: usize)
         + hashes_len
         + bitfield_len;
 
-    if index + full_ssz.len() < len {
+    if full_ssz.len() < index + len {
         return Err(AttestationSplitError::TooShort);
     }
 
