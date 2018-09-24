@@ -6,6 +6,8 @@ mod memory_db;
 mod traits;
 pub mod stores;
 
+use super::bls;
+
 
 pub use self::disk_db::DiskDB;
 pub use self::memory_db::MemoryDB;
