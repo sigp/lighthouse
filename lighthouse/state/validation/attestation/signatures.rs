@@ -18,6 +18,13 @@ pub enum SignatureVerificationError {
     DBError(String),
 }
 
+/// Verify an aggregate signature across the supplied message.
+///
+/// The public keys used for verification are collected by mapping
+/// each true bitfield bit to canonical ValidatorRecord index through
+/// the attestation_indicies map.
+///
+/// Each public key is loaded from the store on-demand.
 pub fn verify_aggregate_signature_for_indices<T>(
     message: &[u8],
     agg_sig: &AggregateSignature,
@@ -33,13 +40,32 @@ pub fn verify_aggregate_signature_for_indices<T>(
     for i in 0..attestation_indices.len() {
         let voted = bitfield.get_bit(i);
         if voted {
-            let validator = attestation_indices[i];
+            /*
+             * De-reference the attestation index into a canonical ValidatorRecord index.
+             */
+            let validator = attestation_indices.get(i)
+                .ok_or(SignatureVerificationError::BadValidatorIndex)?;
+            /*
+             * Load the validators public key from our store.
+             */
             let pub_key = validator_store.get_public_key_by_index(i)?
                 .ok_or(SignatureVerificationError::NoPublicKeyForValidator)?;
+            /*
+             * Add the validators public key to the aggregate public key.
+             */
             agg_pub_key.add(&pub_key);
+            /*
+             * Add to the validator to the set of voters for this attestation record.
+             */
             voters.insert(validator);
         }
     }
+    /*
+     * Verify the aggregate public key against the aggregate signature.
+     *
+     * This verification will only succeed if the exact set of public keys
+     * were added to the aggregate public key as those that signed the aggregate signature.
+     */
     if agg_sig.verify(&message, &agg_pub_key) {
         Ok(Some(voters))
     } else {
