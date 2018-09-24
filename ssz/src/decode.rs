@@ -4,7 +4,6 @@ use super::{
 
 #[derive(Debug, PartialEq)]
 pub enum DecodeError {
-    OutOfBounds,
     TooShort,
     TooLong,
 }
@@ -22,7 +21,7 @@ pub fn decode_ssz<T>(ssz_bytes: &[u8], index: usize)
     where T: Decodable
 {
     if index >= ssz_bytes.len() {
-        return Err(DecodeError::OutOfBounds)
+        return Err(DecodeError::TooShort)
     }
     T::ssz_decode(ssz_bytes, index)
 }

@@ -61,7 +61,7 @@ impl Decodable for AttestationRecord {
         // Do aggregate sig decoding properly.
         let (agg_sig_bytes, i) = decode_ssz_list(bytes, i)?;
         let aggregate_sig = AggregateSignature::from_bytes(&agg_sig_bytes)
-            .map_err(|_| DecodeError::OutOfBounds)?;
+            .map_err(|_| DecodeError::TooShort)?;   // also could be TooLong
 
         let attestation_record = Self {
             slot,

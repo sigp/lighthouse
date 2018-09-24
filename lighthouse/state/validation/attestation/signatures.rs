@@ -24,7 +24,7 @@ pub fn verify_aggregate_signature_for_indices<T>(
     attestation_indices: &[usize],
     bitfield: &Bitfield,
     validator_store: &ValidatorStore<T>)
-    -> Result<(bool, Option<HashSet<usize>>), SignatureVerificationError>
+    -> Result<Option<HashSet<usize>>, SignatureVerificationError>
     where T: ClientDB + Sized
 {
     let mut voters = HashSet::new();
@@ -41,9 +41,9 @@ pub fn verify_aggregate_signature_for_indices<T>(
         }
     }
     if agg_sig.verify(&message, &agg_pub_key) {
-        Ok((true, Some(voters)))
+        Ok(Some(voters))
     } else {
-        Ok((false, None))
+        Ok(None)
     }
 }
 
@@ -126,7 +126,7 @@ mod tests {
         /*
          * Test using all valid parameters.
          */
-        let (is_valid, voters) = verify_aggregate_signature_for_indices(
+        let voters = verify_aggregate_signature_for_indices(
             &message,
             &agg_sig,
             &attestation_indices,
@@ -134,7 +134,6 @@ mod tests {
             &store).unwrap();
 
         let voters = voters.unwrap();
-        assert_eq!(is_valid, true);
         (0..signing_keypairs.len())
             .for_each(|i| assert!(voters.contains(&i)));
         (signing_keypairs.len()..non_signing_keypairs.len())
@@ -145,14 +144,13 @@ mod tests {
          * parameters the same and assert that it fails.
          */
         bitfield.set_bit(signing_keypairs.len() + 1, true);
-        let (is_valid, voters) = verify_aggregate_signature_for_indices(
+        let voters = verify_aggregate_signature_for_indices(
             &message,
             &agg_sig,
             &attestation_indices,
             &bitfield,
             &store).unwrap();
 
-        assert_eq!(is_valid, false);
         assert_eq!(voters, None);
     }
 }

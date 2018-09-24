@@ -11,7 +11,7 @@ pub use self::attestation_record::{
     MIN_SSZ_ATTESTION_RECORD_LENGTH,
 };
 pub use self::ssz_splitter::{
-    split_all,
-    split_one,
+    split_all_attestations,
+    split_one_attestation,
     AttestationSplitError,
 };
