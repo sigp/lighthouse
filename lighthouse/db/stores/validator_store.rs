@@ -7,10 +7,22 @@ use self::bytes::{
 use std::sync::Arc;
 use super::{
     ClientDB,
-    StoreError,
+    DBError,
 };
 use super::VALIDATOR_DB_COLUMN as DB_COLUMN;
 use super::bls::PublicKey;
+
+#[derive(Debug, PartialEq)]
+pub enum ValidatorStoreError {
+    DBError(String),
+    DecodeError,
+}
+
+impl From<DBError> for ValidatorStoreError {
+    fn from(error: DBError) -> Self {
+        ValidatorStoreError::DBError(error.message)
+    }
+}
 
 #[derive(Debug, PartialEq)]
 enum KeyPrefixes {
@@ -48,16 +60,16 @@ impl<T: ClientDB> ValidatorStore<T> {
     }
 
     pub fn put_public_key_by_index(&self, index: usize, public_key: &PublicKey)
-        -> Result<(), StoreError>
+        -> Result<(), ValidatorStoreError>
     {
         let key = self.get_db_key_for_index(KeyPrefixes::PublicKey, index);
         let val = public_key.as_bytes();
         self.db.put(DB_COLUMN, &key[..], &val[..])
-                    .map_err(|e| StoreError::from(e))
+                    .map_err(|e| ValidatorStoreError::from(e))
     }
 
     pub fn get_public_key_by_index(&self, index: usize)
-        -> Result<Option<PublicKey>, StoreError>
+        -> Result<Option<PublicKey>, ValidatorStoreError>
     {
         let key = self.get_db_key_for_index(KeyPrefixes::PublicKey, index);
         let val = self.db.get(DB_COLUMN, &key[..])?;
@@ -66,7 +78,7 @@ impl<T: ClientDB> ValidatorStore<T> {
             Some(val) => {
                 match PublicKey::from_bytes(&val) {
                     Ok(key) => Ok(Some(key)),
-                    Err(_) => Err(StoreError::DecodeError),
+                    Err(_) => Err(ValidatorStoreError::DecodeError),
                 }
             }
         }
@@ -121,6 +133,6 @@ mod tests {
         db.put(DB_COLUMN, &key[..], "cats".as_bytes()).unwrap();
 
         assert_eq!(store.get_public_key_by_index(42),
-            Err(StoreError::DecodeError));
+            Err(ValidatorStoreError::DecodeError));
     }
 }

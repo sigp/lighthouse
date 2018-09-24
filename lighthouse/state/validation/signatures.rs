@@ -6,7 +6,7 @@ use super::bls::{
 use super::db::ClientDB;
 use super::db::stores::{
     ValidatorStore,
-    StoreError,
+    ValidatorStoreError,
 };
 use super::utils::types::Bitfield;
 
@@ -46,12 +46,12 @@ fn verify_aggregate_signature_for_indices<T>(message: &[u8],
     }
 }
 
-impl From<StoreError> for SignatureVerificationError {
-    fn from(error: StoreError) -> Self {
+impl From<ValidatorStoreError> for SignatureVerificationError {
+    fn from(error: ValidatorStoreError) -> Self {
         match error {
-            StoreError::DBError(s) =>
+            ValidatorStoreError::DBError(s) =>
                 SignatureVerificationError::DBError(s),
-            StoreError::DecodeError =>
+            ValidatorStoreError::DecodeError =>
                 SignatureVerificationError::PublicKeyCorrupt,
         }
     }

@@ -9,7 +9,10 @@ mod validator_store;
 
 pub use self::block_store::BlockStore;
 pub use self::pow_chain_store::PoWChainStore;
-pub use self::validator_store::ValidatorStore;
+pub use self::validator_store::{
+    ValidatorStore,
+    ValidatorStoreError,
+};
 
 use super::bls;
 
@@ -22,15 +25,3 @@ pub const COLUMNS: [&str; 3] = [
     POW_CHAIN_DB_COLUMN,
     VALIDATOR_DB_COLUMN,
 ];
-
-#[derive(Debug, PartialEq)]
-pub enum StoreError {
-    DBError(String),
-    DecodeError,
-}
-
-impl From<DBError> for StoreError {
-    fn from(error: DBError) -> Self {
-        StoreError::DBError(error.message)
-    }
-}
