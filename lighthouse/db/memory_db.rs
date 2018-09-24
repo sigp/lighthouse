@@ -1,6 +1,7 @@
 use std::collections::{ HashSet, HashMap };
 use std::sync::RwLock;
 use super::blake2::blake2b::blake2b;
+use super::COLUMNS;
 use super::{
     ClientDB,
     DBValue,
@@ -24,13 +25,11 @@ impl MemoryDB {
     ///
     /// All columns must be supplied initially, you will get an error if you try to access a column
     /// that was not declared here. This condition is enforced artificially to simulate RocksDB.
-    pub fn open(columns: Option<&[&str]>) -> Self {
+    pub fn open() -> Self {
         let db: DBHashMap = HashMap::new();
         let mut known_columns: ColumnHashSet = HashSet::new();
-        if let Some(columns) = columns {
-            for col in columns {
-                known_columns.insert(col.to_string());
-            }
+        for col in COLUMNS.iter() {
+            known_columns.insert(col.to_string());
         }
         Self {
             db: RwLock::new(db),
@@ -103,18 +102,22 @@ mod tests {
     use super::super::ClientDB;
     use std::thread;
     use std::sync::Arc;
+    use super::super::stores::{
+        BLOCKS_DB_COLUMN,
+        VALIDATOR_DB_COLUMN,
+    };
 
     #[test]
     fn test_memorydb_column_access() {
-        let col_a: &str = "ColumnA";
-        let col_b: &str = "ColumnB";
+        let col_a: &str = BLOCKS_DB_COLUMN;
+        let col_b: &str = VALIDATOR_DB_COLUMN;
 
         let column_families = vec![
             col_a,
             col_b,
         ];
 
-        let db = MemoryDB::open(Some(&column_families));
+        let db = MemoryDB::open();
 
         /*
          * Testing that if we write to the same key in different columns that
@@ -131,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_memorydb_unknown_column_access() {
-        let col_a: &str = "ColumnA";
+        let col_a: &str = BLOCKS_DB_COLUMN;
         let col_x: &str = "ColumnX";
 
         let column_families = vec![
@@ -139,7 +142,7 @@ mod tests {
             // col_x is excluded on purpose
         ];
 
-        let db = MemoryDB::open(Some(&column_families));
+        let db = MemoryDB::open();
 
         /*
          * Test that we get errors when using undeclared columns
@@ -153,15 +156,15 @@ mod tests {
 
     #[test]
     fn test_memorydb_exists() {
-        let col_a: &str = "ColumnA";
-        let col_b: &str = "ColumnB";
+        let col_a: &str = BLOCKS_DB_COLUMN;
+        let col_b: &str = VALIDATOR_DB_COLUMN;
 
         let column_families = vec![
             col_a,
             col_b,
         ];
 
-        let db = MemoryDB::open(Some(&column_families));
+        let db = MemoryDB::open();
 
         /*
          * Testing that if we write to the same key in different columns that
@@ -178,10 +181,9 @@ mod tests {
 
     #[test]
     fn test_memorydb_threading() {
-        let col_name: &str = "TestColumn";
-        let column_families = vec![col_name];
+        let col_name: &str = BLOCKS_DB_COLUMN;
 
-        let db = Arc::new(MemoryDB::open(Some(&column_families)));
+        let db = Arc::new(MemoryDB::open());
 
         let thread_count = 10;
         let write_count = 10;

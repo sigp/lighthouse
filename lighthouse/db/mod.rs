@@ -7,7 +7,7 @@ mod traits;
 pub mod stores;
 
 use super::bls;
-
+use self::stores::COLUMNS;
 
 pub use self::disk_db::DiskDB;
 pub use self::memory_db::MemoryDB;
