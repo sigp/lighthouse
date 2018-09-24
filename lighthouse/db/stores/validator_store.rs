@@ -76,20 +76,12 @@ impl<T: ClientDB> ValidatorStore<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::super::{
-        MemoryDB,
-        ClientDB,
-    };
+    use super::super::super::MemoryDB;
     use super::super::bls::Keypair;
-
-    fn open_client_db() -> MemoryDB {
-        let columns = vec![DB_COLUMN];
-        MemoryDB::open(Some(&columns))
-    }
 
     #[test]
     fn test_validator_store_put_get() {
-        let db = Arc::new(open_client_db());
+        let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db);
 
         let keys = vec![
@@ -122,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_validator_store_bad_key() {
-        let db = Arc::new(open_client_db());
+        let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db.clone());
 
         let key = store.get_db_key_for_index(KeyPrefixes::PublicKey, 42);

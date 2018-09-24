@@ -46,9 +46,7 @@ mod tests {
 
     #[test]
     fn test_block_store_on_disk_db() {
-        let column_families = vec![DB_COLUMN];
-
-        let db = Arc::new(MemoryDB::open(Some(&column_families)));
+        let db = Arc::new(MemoryDB::open());
         let bs = Arc::new(BlockStore::new(db.clone()));
 
         let thread_count = 10;

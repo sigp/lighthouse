@@ -13,15 +13,20 @@ pub use self::validator_store::ValidatorStore;
 
 use super::bls;
 
-const BLOCKS_DB_COLUMN: &str = "blocks";
-const POW_CHAIN_DB_COLUMN: &str = "powchain";
-const VALIDATOR_DB_COLUMN: &str = "validator";
+pub const BLOCKS_DB_COLUMN: &str = "blocks";
+pub const POW_CHAIN_DB_COLUMN: &str = "powchain";
+pub const VALIDATOR_DB_COLUMN: &str = "validator";
+
+pub const COLUMNS: [&str; 3] = [
+    BLOCKS_DB_COLUMN,
+    POW_CHAIN_DB_COLUMN,
+    VALIDATOR_DB_COLUMN,
+];
 
 #[derive(Debug, PartialEq)]
 pub enum StoreError {
     DBError(String),
     DecodeError,
-    EncodeError,
 }
 
 impl From<DBError> for StoreError {
