@@ -43,7 +43,7 @@ pub fn verify_aggregate_signature_for_indices<T>(
             /*
              * De-reference the attestation index into a canonical ValidatorRecord index.
              */
-            let validator = attestation_indices.get(i)
+            let validator = *attestation_indices.get(i)
                 .ok_or(SignatureVerificationError::BadValidatorIndex)?;
             /*
              * Load the validators public key from our store.
