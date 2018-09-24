@@ -23,7 +23,7 @@ fn verify_aggregate_signature_for_indices<T>(message: &[u8],
                                              attestation_indices: &[usize],
                                              bitfield: &Bitfield,
                                              validator_store: &ValidatorStore<T>)
-    -> Result<(bool, HashSet<usize>), SignatureVerificationError>
+    -> Result<(bool, Option<HashSet<usize>>), SignatureVerificationError>
     where T: ClientDB + Sized
 {
     let mut voters = HashSet::new();
@@ -39,8 +39,11 @@ fn verify_aggregate_signature_for_indices<T>(message: &[u8],
             voters.insert(validator);
         }
     }
-    Ok((agg_sig.verify(&message, &agg_pub_key),
-        voters))
+    if agg_sig.verify(&message, &agg_pub_key) {
+        Ok((true, Some(voters)))
+    } else {
+        Ok((false, None))
+    }
 }
 
 impl From<StoreError> for SignatureVerificationError {
@@ -110,6 +113,9 @@ mod tests {
             agg_sig.add(&sig);
         }
 
+        /*
+         * Test using all valid parameters.
+         */
         let (is_valid, voters) = verify_aggregate_signature_for_indices(
             &message,
             &agg_sig,
@@ -117,10 +123,26 @@ mod tests {
             &bitfield,
             &store).unwrap();
 
+        let voters = voters.unwrap();
         assert_eq!(is_valid, true);
         (0..signing_keypairs.len())
             .for_each(|i| assert!(voters.contains(&i)));
         (signing_keypairs.len()..non_signing_keypairs.len())
             .for_each(|i| assert!(!voters.contains(&i)));
+
+        /*
+         * Add another validator to the bitfield, run validation will all other
+         * parameters the same and assert that it fails.
+         */
+        bitfield.set_bit(signing_keypairs.len() + 1, true);
+        let (is_valid, voters) = verify_aggregate_signature_for_indices(
+            &message,
+            &agg_sig,
+            &attestation_indices,
+            &bitfield,
+            &store).unwrap();
+
+        assert_eq!(is_valid, false);
+        assert_eq!(voters, None);
     }
 }
