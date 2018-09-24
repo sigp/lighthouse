@@ -4,10 +4,15 @@ use super::attestation_parent_hashes::{
     ParentHashesError,
 };
 use super::db::ClientDB;
-use super::db::stores::BlockStore;
+use super::db::stores::{
+    BlockStore,
+    ValidatorStore,
+    StoreError,
+};
 use super::ssz::SszStream;
 use super::bls::{
     AggregateSignature,
+    AggregatePublicKey,
     PublicKey,
 };
 use super::utils::hash::canonical_hash;
