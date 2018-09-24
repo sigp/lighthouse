@@ -3,11 +3,13 @@ use super::attestation_parent_hashes::{
     attestation_parent_hashes,
     ParentHashesError,
 };
-use super::db::ClientDB;
+use super::db::{
+    ClientDB,
+    DBError
+};
 use super::db::stores::{
     BlockStore,
     ValidatorStore,
-    StoreError,
 };
 use super::ssz::SszStream;
 use super::bls::{
