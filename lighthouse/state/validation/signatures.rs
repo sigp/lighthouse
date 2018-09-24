@@ -18,11 +18,12 @@ pub enum SignatureVerificationError {
     DBError(String),
 }
 
-fn verify_aggregate_signature_for_indices<T>(message: &[u8],
-                                             agg_sig: &AggregateSignature,
-                                             attestation_indices: &[usize],
-                                             bitfield: &Bitfield,
-                                             validator_store: &ValidatorStore<T>)
+pub fn verify_aggregate_signature_for_indices<T>(
+    message: &[u8],
+    agg_sig: &AggregateSignature,
+    attestation_indices: &[usize],
+    bitfield: &Bitfield,
+    validator_store: &ValidatorStore<T>)
     -> Result<(bool, Option<HashSet<usize>>), SignatureVerificationError>
     where T: ClientDB + Sized
 {
@@ -67,6 +68,15 @@ mod tests {
     };
     use super::super::db::MemoryDB;
     use std::sync::Arc;
+
+    /*
+     * Cases that still need testing:
+     *
+     * - No signatures.
+     * - Database failure.
+     * - Unknown validator index.
+     * - Extra validator on signature.
+     */
 
     #[test]
     fn test_signature_verification() {
