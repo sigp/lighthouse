@@ -11,6 +11,21 @@ pub use self::block_store::BlockStore;
 pub use self::pow_chain_store::PoWChainStore;
 pub use self::validator_store::ValidatorStore;
 
+use super::bls;
+
 const BLOCKS_DB_COLUMN: &str = "blocks";
 const POW_CHAIN_DB_COLUMN: &str = "powchain";
 const VALIDATOR_DB_COLUMN: &str = "validator";
+
+#[derive(Debug, PartialEq)]
+pub enum StoreError {
+    DBError(String),
+    DecodeError,
+    EncodeError,
+}
+
+impl From<DBError> for StoreError {
+    fn from(error: DBError) -> Self {
+        StoreError::DBError(error.message)
+    }
+}
