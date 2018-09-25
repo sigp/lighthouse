@@ -123,6 +123,11 @@ impl BooleanBitfield {
     }
 
     /// Clone and return the underlying byte array (`Vec<u8>`).
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.vec.clone()
+    }
+
+    /// Clone and return the underlying byte array (`Vec<u8>`) in big-endinan format.
     pub fn to_be_vec(&self) -> Vec<u8> {
         let mut o = self.vec.clone();
         o.reverse();
@@ -150,7 +155,7 @@ impl PartialEq for BooleanBitfield {
 
 impl ssz::Encodable for BooleanBitfield {
     fn ssz_append(&self, s: &mut ssz::SszStream) {
-        s.append_vec(&self.to_be_vec());
+        s.append_vec(&self.to_vec());
     }
 }
 
@@ -191,7 +196,7 @@ mod tests {
         let mut stream = ssz::SszStream::new();
         stream.append(&b);
 
-        assert_eq!(stream.drain(), vec![0, 0, 0, 2, 1, 0]);
+        assert_eq!(stream.drain(), vec![0, 0, 0, 2, 0, 1]);
     }
 
     #[test]
@@ -199,7 +204,7 @@ mod tests {
         /*
          * Correct input
          */
-        let input = vec![0, 0, 0, 2, 1, 0];
+        let input = vec![0, 0, 0, 2, 0, 1];
         let (b, i) = BooleanBitfield::ssz_decode(&input, 0).unwrap();
         assert_eq!(i, 6);
         assert_eq!(b.num_true_bits(), 1);
@@ -208,7 +213,7 @@ mod tests {
         /*
          * Input too long
          */
-        let mut input = vec![0, 0, 0, 2, 1, 0];
+        let mut input = vec![0, 0, 0, 2, 0, 1];
         input.push(42);
         let (b, i) = BooleanBitfield::ssz_decode(&input, 0).unwrap();
         assert_eq!(i, 6);
@@ -221,17 +226,6 @@ mod tests {
         let input = vec![0, 0, 0, 2, 1];
         let res = BooleanBitfield::ssz_decode(&input, 0);
         assert_eq!(res, Err(ssz::DecodeError::TooShort));
-    }
-
-    #[test]
-    fn test_new_bitfield_len() {
-        let b = BooleanBitfield::new();
-        assert_eq!(b.len(), 0);
-        assert_eq!(b.to_be_vec(), vec![0]);
-
-        let b = BooleanBitfield::with_capacity(100);
-        assert_eq!(b.len(), 0);
-        assert_eq!(b.to_be_vec(), vec![0]);
     }
 
     #[test]
