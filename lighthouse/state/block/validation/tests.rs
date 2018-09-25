@@ -66,7 +66,7 @@ fn test_block_validation() {
     let justified_slot = present_slot - u64::from(cycle_length);
     let justified_block_hash = Hash256::from("justified_hash".as_bytes());
     let shard_block_hash = Hash256::from("shard_hash".as_bytes());
-    let parent_hashes = (0..(cycle_length * 2))
+    let parent_hashes: Vec<Hash256> = (0..(cycle_length * 2))
         .map(|i| Hash256::from(i as u64))
         .collect();
     let pow_chain_ref = Hash256::from("pow_chain".as_bytes());
@@ -97,10 +97,17 @@ fn test_block_validation() {
             let mut aggregate_sig = AggregateSignature::new();
             let attestation_slot = block_slot - 1;
 
+            let parent_hashes_slice = {
+                let distance: usize = (block_slot - attestation_slot) as usize;
+                let last: usize = parent_hashes.len() - distance;
+                let first: usize = last - usize::from(cycle_length);
+                &parent_hashes[first..last]
+            };
+
             let attestation_message = {
                 let mut stream = SszStream::new();
                 stream.append(&attestation_slot);
-                stream.append_vec(&parent_hashes);
+                stream.append_vec(&parent_hashes_slice.to_vec());
                 stream.append(&shard);
                 stream.append(&shard_block_hash);
                 stream.append(&justified_slot);
