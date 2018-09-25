@@ -1,18 +1,9 @@
-/*
- * Collection of helper functions used in the state transition modules
- */
 use super::utils::errors::ParameterError;
 use super::utils::types::Hash256;
 
 /*
-   pub fn get_signed_parent_hashes(
-   active_state: &ActiveState,
-   block: &Block,
-   attestation: &AttestationRecord,
-   chain_config: &ChainConfig)
-   -> Vec<Hash256> {
-   }
-   */
+ * Work-in-progress function: not ready for review.
+ */
 
 pub fn get_block_hash(
     active_state_recent_block_hashes: &Vec<Hash256>,

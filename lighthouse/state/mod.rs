@@ -14,7 +14,6 @@ pub mod block;
 pub mod crosslink_record;
 pub mod shard_and_committee;
 pub mod validator_record;
-pub mod helpers;
 
 use super::bls;
 use super::db;
