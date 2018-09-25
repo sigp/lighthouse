@@ -49,8 +49,8 @@ fn bytes_for_bits(bits: usize) -> usize {
 }
 
 fn any_of_last_n_bits_are_set(byte: &u8, n: usize) -> bool {
-    let shift = 8_u8.saturating_sub(n as u8);
-    ((!0 >> shift) & byte) > 0
+    let shift = 8_u16.saturating_sub(n as u16);
+    ((!0 << shift) & u16::from(*byte)) > 0
 }
 
 pub fn validate_attestation<T>(a: &AttestationRecord,
