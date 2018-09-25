@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use super::attestation_record::AttestationRecord;
+use super::AttesterMap;
 use super::attestation_parent_hashes::{
     attestation_parent_hashes,
     ParentHashesError,
 };
-use super::AttesterMap;
 use super::db::{
     ClientDB,
     DBError

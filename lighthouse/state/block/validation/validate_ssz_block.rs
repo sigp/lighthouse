@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use super::attestation::{
+use super::attestation_record::validation::{
     validate_attestation,
     AttestationValidationError,
 };
@@ -13,7 +13,7 @@ use super::{
     AttesterMap,
     ProposerMap,
 };
-use super::block::SszBlock;
+use super::SszBlock;
 use super::db::{
     ClientDB,
     DBError,

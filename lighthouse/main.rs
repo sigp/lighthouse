@@ -8,11 +8,16 @@ extern crate network_libp2p;
 extern crate futures;
 
 #[macro_use]
+#[allow(dead_code)]
 mod utils;
+#[allow(dead_code)]
 mod bls;
+#[allow(dead_code)]
 mod db;
 mod client;
+#[allow(dead_code)]
 mod state;
+#[allow(dead_code)]
 mod sync;
 mod config;
 

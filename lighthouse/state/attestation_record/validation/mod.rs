@@ -1,9 +1,9 @@
-use super::AttesterMap;
+use super::common::maps::AttesterMap;
 use super::db;
 use super::bls;
 use super::attestation_record;
 use super::ssz;
-use super::attestation_parent_hashes;
+use super::common::attestation_parent_hashes;
 use super::utils;
 
 mod attestation_validation;
