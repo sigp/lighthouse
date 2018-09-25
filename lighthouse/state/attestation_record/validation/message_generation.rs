@@ -23,9 +23,7 @@ pub fn generate_signed_message(slot: u64,
      */
     let mut ssz_stream = SszStream::new();
     ssz_stream.append(&slot);
-    for h in parent_hashes {
-        ssz_stream.append_encoded_raw(&h.to_vec())
-    }
+    ssz_stream.append_vec(&parent_hashes.to_vec());
     ssz_stream.append(&shard_id);
     ssz_stream.append(shard_block_hash);
     ssz_stream.append(&justified_slot);
