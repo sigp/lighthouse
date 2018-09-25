@@ -6,5 +6,3 @@ macro_rules! assert_error {
         }
     }
 }
-
-
