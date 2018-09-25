@@ -41,7 +41,8 @@ pub enum SszBlockValidationError {
     UnknownPoWChainRef,
     BadAttestationSsz,
     AttestationValidationError(AttestationValidationError),
-    InvalidAttestation,
+    AttestationSignatureFailed,
+    FirstAttestationSignatureFailed,
     NoProposerSignature,
     BadProposerMap,
     DatabaseError(String),
@@ -141,7 +142,8 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
      * If the set of voters is None, the attestation was invalid.
      */
     let attestation_voters = attestation_voters
-        .ok_or(SszBlockValidationError::InvalidAttestation)?;
+        .ok_or(SszBlockValidationError::
+               FirstAttestationSignatureFailed)?;
 
     /*
      * Read the proposer from the map of slot -> validator index.
@@ -180,7 +182,8 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
             validator_store.clone(),
             attester_map.clone())?;
         if attestation_voters.is_none() {
-            return Err(SszBlockValidationError::InvalidAttestation);
+            return Err(SszBlockValidationError::
+                       AttestationSignatureFailed);
         }
     }
 
