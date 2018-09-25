@@ -18,7 +18,6 @@ use super::db::{
     ClientDB,
     DBError,
 };
-use super::Logger;
 use super::db::stores::{
     BlockStore,
     PoWChainStore,
@@ -30,11 +29,13 @@ use super::ssz::{
 };
 use super::utils::types::Hash256;
 
+#[derive(Debug, PartialEq)]
 pub enum BlockStatus {
     NewBlock,
     KnownBlock,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum SszBlockValidationError {
     FutureSlot,
     UnknownPoWChainRef,
@@ -62,7 +63,6 @@ pub enum SszBlockValidationError {
 #[allow(dead_code)]
 pub fn validate_ssz_block<T>(b: &SszBlock,
                              expected_slot: u64,
-                             pow_store: &PoWChainStore<T>,
                              cycle_length: u8,
                              last_justified_slot: u64,
                              parent_hashes: Arc<Vec<Hash256>>,
@@ -70,7 +70,7 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
                              attester_map: Arc<AttesterMap>,
                              block_store: Arc<BlockStore<T>>,
                              validator_store: Arc<ValidatorStore<T>>,
-                             _log: &Logger)
+                             pow_store: Arc<PoWChainStore<T>>)
     -> Result<BlockStatus, SszBlockValidationError>
     where T: ClientDB + Sized
 {

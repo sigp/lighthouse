@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 use super::attestation_record::AttestationRecord;
 use super::AttesterMap;
 use super::attestation_parent_hashes::{
@@ -13,13 +14,11 @@ use super::db::stores::{
     BlockStore,
     ValidatorStore,
 };
-use super::ssz::SszStream;
-use super::utils::hash::canonical_hash;
 use super::utils::types::{
     Hash256,
 };
-use std::sync::Arc;
-use super::signatures::{
+use super::message_generation::generate_signed_message;
+use super::signature_verification::{
     verify_aggregate_signature_for_indices,
     SignatureVerificationError,
 };
@@ -37,7 +36,9 @@ pub enum AttestationValidationError {
     IntWrapping,
     PublicKeyCorrupt,
     NoPublicKeyForValidator,
-    IncorrectBitField,
+    BadBitfieldLength,
+    InvalidBitfield,
+    InvalidBitfieldEndBits,
     NoSignatures,
     NonZeroTrailingBits,
     AggregateSignatureFail,
@@ -115,7 +116,7 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
     if a.attester_bitfield.num_bytes() !=
         bytes_for_bits(attestation_indices.len())
     {
-        return Err(AttestationValidationError::IncorrectBitField);
+        return Err(AttestationValidationError::BadBitfieldLength);
     }
 
     /*
@@ -126,10 +127,10 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
      * refer to the same AttesationRecord.
      */
     let last_byte =
-        a.attester_bitfield.get_byte(a.attester_bitfield.num_bytes())
-        .ok_or(AttestationValidationError::IncorrectBitField)?;
+        a.attester_bitfield.get_byte(a.attester_bitfield.num_bytes() - 1)
+        .ok_or(AttestationValidationError::InvalidBitfield)?;
     if any_of_last_n_bits_are_set(last_byte, a.attester_bitfield.len() % 8) {
-        return Err(AttestationValidationError::IncorrectBitField)
+        return Err(AttestationValidationError::InvalidBitfieldEndBits)
     }
 
     /*
@@ -163,37 +164,6 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
             &validator_store)?;
 
     Ok(voted_hashmap)
-}
-
-/// Generates the message used to validate the signature provided with an AttestationRecord.
-///
-/// Ensures that the signer of the message has a view of the chain that is compatible with ours.
-fn generate_signed_message(slot: u64,
-                           parent_hashes: &[Hash256],
-                           shard_id: u16,
-                           shard_block_hash: &Hash256,
-                           justified_slot: u64)
-    -> Vec<u8>
-{
-    /*
-     * Note: it's a little risky here to use SSZ, because the encoding is not necessarily SSZ
-     * (for example, SSZ might change whilst this doesn't).
-     *
-     * I have suggested switching this to ssz here:
-     * https://github.com/ethereum/eth2.0-specs/issues/5
-     *
-     * If this doesn't happen, it would be safer to not use SSZ at all.
-     */
-    let mut ssz_stream = SszStream::new();
-    ssz_stream.append(&slot);
-    for h in parent_hashes {
-        ssz_stream.append_encoded_raw(&h.to_vec())
-    }
-    ssz_stream.append(&shard_id);
-    ssz_stream.append(shard_block_hash);
-    ssz_stream.append(&justified_slot);
-    let bytes = ssz_stream.drain();
-    canonical_hash(&bytes)
 }
 
 impl From<ParentHashesError> for AttestationValidationError {

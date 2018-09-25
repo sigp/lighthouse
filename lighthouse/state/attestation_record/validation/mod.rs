@@ -7,7 +7,8 @@ use super::common::attestation_parent_hashes;
 use super::utils;
 
 mod attestation_validation;
-mod signatures;
+mod signature_verification;
+mod message_generation;
 
 pub use self::attestation_validation::{
     validate_attestation,
