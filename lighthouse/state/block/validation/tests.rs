@@ -91,7 +91,6 @@ fn test_block_validation() {
         let mut attestations = vec![];
         let mut keypairs = vec![];
         for shard in 0..shard_count {
-            println!("hello");
             let mut attesters = vec![];
             let mut attester_bitfield = Bitfield::new();
             let mut aggregate_sig = AggregateSignature::new();
@@ -177,8 +176,6 @@ fn test_block_validation() {
     stream.append(&block);
     let serialized_block = stream.drain();
     let ssz_block = SszBlock::from_slice(&serialized_block[..]).unwrap();
-
-    println!("this happened");
 
     let status = validate_ssz_block(
         &ssz_block,

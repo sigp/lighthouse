@@ -17,5 +17,4 @@ pub mod validator_record;
 
 use super::bls;
 use super::db;
-use super::Logger;
 use super::utils;
