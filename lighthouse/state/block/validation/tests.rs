@@ -18,6 +18,7 @@ use super::db::stores::{
 use super::db::{
     MemoryDB,
 };
+use super::utils::hash::canonical_hash;
 use super::utils::types::{
     Hash256,
     Bitfield,
@@ -59,8 +60,8 @@ impl TestStore {
 fn test_block_validation() {
     let stores = TestStore::new();
 
-    let cycle_length = 2;
-    let shard_count = 2;
+    let cycle_length: u8 = 2;
+    let shard_count: u16 = 2;
     let present_slot = u64::from(cycle_length) * 10000;
     let justified_slot = present_slot - u64::from(cycle_length);
     let justified_block_hash = Hash256::from("justified_hash".as_bytes());
@@ -103,7 +104,8 @@ fn test_block_validation() {
                 stream.append(&shard);
                 stream.append(&shard_block_hash);
                 stream.append(&justified_slot);
-                stream.drain()
+                let bytes = stream.drain();
+                canonical_hash(&bytes)
             };
 
             for _ in 0..validators_per_shard {
