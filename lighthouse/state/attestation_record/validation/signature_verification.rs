@@ -48,7 +48,8 @@ pub fn verify_aggregate_signature_for_indices<T>(
             /*
              * Load the validators public key from our store.
              */
-            let pub_key = validator_store.get_public_key_by_index(i)?
+            let pub_key = validator_store
+                .get_public_key_by_index(validator)?
                 .ok_or(SignatureVerificationError::NoPublicKeyForValidator)?;
             /*
              * Add the validators public key to the aggregate public key.
