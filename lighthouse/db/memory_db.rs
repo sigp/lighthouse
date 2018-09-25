@@ -112,11 +112,6 @@ mod tests {
         let col_a: &str = BLOCKS_DB_COLUMN;
         let col_b: &str = VALIDATOR_DB_COLUMN;
 
-        let column_families = vec![
-            col_a,
-            col_b,
-        ];
-
         let db = MemoryDB::open();
 
         /*
@@ -137,11 +132,6 @@ mod tests {
         let col_a: &str = BLOCKS_DB_COLUMN;
         let col_x: &str = "ColumnX";
 
-        let column_families = vec![
-            col_a,
-            // col_x is excluded on purpose
-        ];
-
         let db = MemoryDB::open();
 
         /*
@@ -158,11 +148,6 @@ mod tests {
     fn test_memorydb_exists() {
         let col_a: &str = BLOCKS_DB_COLUMN;
         let col_b: &str = VALIDATOR_DB_COLUMN;
-
-        let column_families = vec![
-            col_a,
-            col_b,
-        ];
 
         let db = MemoryDB::open();
 
