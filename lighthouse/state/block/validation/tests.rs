@@ -152,7 +152,7 @@ fn test_block_validation() {
                 slot: attestation_slot,
                 shard_id: shard,
                 oblique_parent_hashes: vec![],
-                shard_block_hash: Hash256::from("shardhash".as_bytes()),
+                shard_block_hash,
                 attester_bitfield,
                 justified_slot,
                 justified_block_hash,
