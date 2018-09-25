@@ -115,7 +115,9 @@ fn test_block_validation() {
                 canonical_hash(&bytes)
             };
 
-            for _ in 0..validators_per_shard {
+
+
+            for attestation_index in 0..validators_per_shard {
                /*
                 * Add the attester to the attestation indices for this shard.
                 */
@@ -123,7 +125,7 @@ fn test_block_validation() {
                /*
                 * Set the voters bit on the bitfield to true.
                 */
-               attester_bitfield.set_bit(i, true);
+               attester_bitfield.set_bit(attestation_index, true);
                /*
                 * Generate a random keypair for this validatior and clone it into the
                 * list of keypairs.
