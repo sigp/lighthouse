@@ -16,4 +16,5 @@ pub mod shard_and_committee;
 pub mod validator_record;
 
 use super::bls;
+use super::db;
 use super::utils;
