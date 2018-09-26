@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    RwLock,
+};
 use super::attestation_record::{
     validate_attestation,
     AttestationValidationError,
@@ -170,22 +173,44 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
      *
      * TODO: make this parallelized.
      */
-    for attestation in other_attestations {
-        let (a, _) = AttestationRecord::ssz_decode(&attestation, 0)?;
-        let attestation_voters = validate_attestation(
-            &a,
-            block_slot,
-            cycle_length,
-            last_justified_slot,
-            &parent_hashes,
-            &block_store,
-            &validator_store,
-            &attester_map)?;
-        if attestation_voters.is_none() {
-            return Err(SszBlockValidationError::
-                       AttestationSignatureFailed);
-        }
-    }
+    let failure: Option<SszBlockValidationError> = None;
+    let failure = RwLock::new(failure);
+    other_attestations.iter()
+        .for_each(|attestation| {
+            if let Some(_) = *failure.read().unwrap() {
+                ()
+            };
+            match AttestationRecord::ssz_decode(&attestation, 0) {
+                Ok((a, _)) => {
+                    let result = validate_attestation(
+                        &a,
+                        block_slot,
+                        cycle_length,
+                        last_justified_slot,
+                        &parent_hashes,
+                        &block_store,
+                        &validator_store,
+                        &attester_map);
+                    match result {
+                        Err(e) => {
+                            let mut failure = failure.write().unwrap();
+                            *failure = Some(SszBlockValidationError::from(e));
+                        }
+                        Ok(None) => {
+                            let mut failure = failure.write().unwrap();
+                            *failure = Some(SszBlockValidationError::AttestationSignatureFailed);
+                        }
+                        _ => ()
+                    }
+                }
+                Err(e) => {
+                    let mut failure = failure.write().unwrap();
+                    *failure = Some(SszBlockValidationError::from(e));
+                }
+            };
+        });
+
+    // TODO: handle validation failure. Presently, it will just pass everything
 
     /*
      * If we have reached this point, the block is a new valid block that is worthy of
