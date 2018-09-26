@@ -28,7 +28,7 @@ impl MemoryDB {
     pub fn open() -> Self {
         let db: DBHashMap = HashMap::new();
         let mut known_columns: ColumnHashSet = HashSet::new();
-        for col in COLUMNS.iter() {
+        for col in &COLUMNS {
             known_columns.insert(col.to_string());
         }
         Self {

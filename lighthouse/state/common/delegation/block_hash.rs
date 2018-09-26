@@ -6,10 +6,10 @@ use super::utils::types::Hash256;
  */
 
 pub fn get_block_hash(
-    active_state_recent_block_hashes: &Vec<Hash256>,
-    current_block_slot: &u64,
-    slot: &u64,
-    cycle_length: &u64, // convert from standard u8
+    active_state_recent_block_hashes: &[Hash256],
+    current_block_slot: u64,
+    slot: u64,
+    cycle_length: u64, // convert from standard u8
 ) -> Result<Hash256, ParameterError> {
     // active_state must have at 2*cycle_length hashes
     assert_error!(
@@ -19,16 +19,16 @@ pub fn get_block_hash(
         ))
     );
 
-    let state_start_slot = (*current_block_slot)
+    let state_start_slot = (current_block_slot)
         .checked_sub(cycle_length * 2)
         .unwrap_or(0);
 
     assert_error!(
-        (state_start_slot <= *slot) && (*slot < *current_block_slot),
+        (state_start_slot <= slot) && (slot < current_block_slot),
         ParameterError::InvalidInput(String::from("incorrect slot number"))
     );
 
-    let index = 2 * cycle_length + (*slot) - *current_block_slot; // should always be positive
+    let index = 2 * cycle_length + slot - current_block_slot; // should always be positive
     Ok(active_state_recent_block_hashes[index as usize])
 }
 
@@ -47,13 +47,16 @@ mod tests {
             block_hashes.push(Hash256::random());
         }
 
-        let result = get_block_hash(&block_hashes, &block_slot, &slot, &cycle_length).unwrap();
+        let result = get_block_hash(
+            &block_hashes,
+            block_slot,
+            slot,
+            cycle_length)
+            .unwrap();
 
         assert_eq!(
             result,
             block_hashes[(2 * cycle_length + slot - block_slot) as usize]
         );
-
-        println!("{:?}", result);
     }
 }

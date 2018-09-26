@@ -24,8 +24,8 @@ pub fn split_all_attestations<'a>(full_ssz: &'a [u8], index: usize)
 
 /// Given some ssz slice, find the bounds of one serialized AttestationRecord
 /// and return a slice pointing to that.
-pub fn split_one_attestation<'a>(full_ssz: &'a [u8], index: usize)
-    -> Result<(&'a [u8], usize), AttestationSplitError>
+pub fn split_one_attestation(full_ssz: &[u8], index: usize)
+    -> Result<(&[u8], usize), AttestationSplitError>
 {
     if full_ssz.len() < MIN_LENGTH {
         return Err(AttestationSplitError::TooShort);

@@ -42,7 +42,7 @@ impl<T: ClientDB> ValidatorStore<T> {
         }
     }
 
-    fn prefix_bytes(&self, key_prefix: KeyPrefixes)
+    fn prefix_bytes(&self, key_prefix: &KeyPrefixes)
         -> Vec<u8>
     {
         match key_prefix {
@@ -50,7 +50,7 @@ impl<T: ClientDB> ValidatorStore<T> {
         }
     }
 
-    fn get_db_key_for_index(&self, key_prefix: KeyPrefixes, index: usize)
+    fn get_db_key_for_index(&self, key_prefix: &KeyPrefixes, index: usize)
         -> Vec<u8>
     {
         let mut buf = BytesMut::with_capacity(6 + 8);
@@ -62,16 +62,16 @@ impl<T: ClientDB> ValidatorStore<T> {
     pub fn put_public_key_by_index(&self, index: usize, public_key: &PublicKey)
         -> Result<(), ValidatorStoreError>
     {
-        let key = self.get_db_key_for_index(KeyPrefixes::PublicKey, index);
+        let key = self.get_db_key_for_index(&KeyPrefixes::PublicKey, index);
         let val = public_key.as_bytes();
         self.db.put(DB_COLUMN, &key[..], &val[..])
-                    .map_err(|e| ValidatorStoreError::from(e))
+                    .map_err(ValidatorStoreError::from)
     }
 
     pub fn get_public_key_by_index(&self, index: usize)
         -> Result<Option<PublicKey>, ValidatorStoreError>
     {
-        let key = self.get_db_key_for_index(KeyPrefixes::PublicKey, index);
+        let key = self.get_db_key_for_index(&KeyPrefixes::PublicKey, index);
         let val = self.db.get(DB_COLUMN, &key[..])?;
         match val {
             None => Ok(None),
@@ -129,7 +129,7 @@ mod tests {
         let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db.clone());
 
-        let key = store.get_db_key_for_index(KeyPrefixes::PublicKey, 42);
+        let key = store.get_db_key_for_index(&KeyPrefixes::PublicKey, 42);
         db.put(DB_COLUMN, &key[..], "cats".as_bytes()).unwrap();
 
         assert_eq!(store.get_public_key_by_index(42),
