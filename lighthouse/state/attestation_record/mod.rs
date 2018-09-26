@@ -1,13 +1,10 @@
 use super::bls;
-use super::common;
-use super::db;
 use super::ssz;
 use super::utils;
 
 
 mod attestation_record;
 mod ssz_splitter;
-pub mod validation;
 
 pub use self::attestation_record::{
     AttestationRecord,
