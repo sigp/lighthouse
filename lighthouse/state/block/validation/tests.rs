@@ -32,11 +32,11 @@ use super::super::super::bls::{
     AggregateSignature,
 };
 
-struct TestStore {
-    db: Arc<MemoryDB>,
-    block: Arc<BlockStore<MemoryDB>>,
-    pow_chain: Arc<PoWChainStore<MemoryDB>>,
-    validator: Arc<ValidatorStore<MemoryDB>>,
+pub struct TestStore {
+    pub db: Arc<MemoryDB>,
+    pub block: Arc<BlockStore<MemoryDB>>,
+    pub pow_chain: Arc<PoWChainStore<MemoryDB>>,
+    pub validator: Arc<ValidatorStore<MemoryDB>>,
 }
 
 impl TestStore {
@@ -54,7 +54,7 @@ impl TestStore {
     }
 }
 
-fn generate_attestations_for_slot(attestation_slot: u64,
+pub fn generate_attestations_for_slot(attestation_slot: u64,
                                   block_slot: u64,
                                   shard_count: u16,
                                   validators_per_shard: usize,

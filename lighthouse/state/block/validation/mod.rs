@@ -1,6 +1,8 @@
 mod validate_ssz_block;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod benches;
 
 use super::attestation_record;
 use super::SszBlock;
