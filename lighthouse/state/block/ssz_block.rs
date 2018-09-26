@@ -3,7 +3,7 @@ use super::ssz::decode::{
     Decodable,
 };
 use super::utils::hash::canonical_hash;
-use super::block::{
+use super::structs::{
     MIN_SSZ_BLOCK_LENGTH,
     MAX_SSZ_BLOCK_LENGTH,
 };
@@ -146,7 +146,7 @@ impl<'a> SszBlock<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::block::Block;
+    use super::super::structs::Block;
     use super::super::attestation_record::AttestationRecord;
     use super::super::ssz::SszStream;
     use super::super::utils::types::Hash256;

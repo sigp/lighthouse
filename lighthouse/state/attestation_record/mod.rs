@@ -3,10 +3,10 @@ use super::ssz;
 use super::utils;
 
 
-mod attestation_record;
+mod structs;
 mod ssz_splitter;
 
-pub use self::attestation_record::{
+pub use self::structs::{
     AttestationRecord,
     MIN_SSZ_ATTESTION_RECORD_LENGTH,
 };

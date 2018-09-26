@@ -8,7 +8,7 @@ pub struct ChainConfig {
 /*
  * Presently this is just some arbitrary time in Sept 2018.
  */
-const GENESIS_TIME: u64 = 1537488655;
+const GENESIS_TIME: u64 = 1_537_488_655;
 
 impl ChainConfig {
     pub fn standard() -> Self {

@@ -21,7 +21,7 @@ impl<T: ClientDB> PoWChainStore<T> {
     pub fn put_block_hash(&self, hash: &[u8])
         -> Result<(), DBError>
     {
-        self.db.put(DB_COLUMN, hash, &vec![0])
+        self.db.put(DB_COLUMN, hash, &[0])
     }
 
     pub fn block_hash_exists(&self, hash: &[u8])
