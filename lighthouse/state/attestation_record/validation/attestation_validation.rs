@@ -65,8 +65,6 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
     -> Result<Option<HashSet<usize>>, AttestationValidationError>
     where T: ClientDB + Sized
 {
-    // TODO: assert attestion isn't already known
-
     /*
      * The attesation slot must not be higher than the block that contained it.
      */
