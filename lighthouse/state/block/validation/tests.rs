@@ -54,6 +54,93 @@ impl TestStore {
     }
 }
 
+fn generate_attestations_for_slot(attestation_slot: u64,
+                                  block_slot: u64,
+                                  shard_count: u16,
+                                  validators_per_shard: usize,
+                                  cycle_length: u8,
+                                  parent_hashes: &[Hash256],
+                                  shard_block_hash: &Hash256,
+                                  justified_block_hash: &Hash256,
+                                  justified_slot: u64,
+                                  stores: &TestStore)
+    -> (AttesterMap, Vec<AttestationRecord>, Vec<Keypair>)
+{
+    let mut i = 0;
+    let mut attester_map = AttesterMap::new();
+    let mut attestations = vec![];
+    let mut keypairs = vec![];
+    for shard in 0..shard_count {
+        let mut attesters = vec![];
+        let mut attester_bitfield = Bitfield::new();
+        let mut aggregate_sig = AggregateSignature::new();
+
+        let parent_hashes_slice = {
+            let distance: usize = (block_slot - attestation_slot) as usize;
+            let last: usize = parent_hashes.len() - distance;
+            let first: usize = last - usize::from(cycle_length);
+            &parent_hashes[first..last]
+        };
+
+        let attestation_message = {
+            let mut stream = SszStream::new();
+            stream.append(&attestation_slot);
+            stream.append_vec(&parent_hashes_slice.to_vec());
+            stream.append(&shard);
+            stream.append(shard_block_hash);
+            stream.append(&justified_slot);
+            let bytes = stream.drain();
+            canonical_hash(&bytes)
+        };
+
+
+
+        for attestation_index in 0..validators_per_shard {
+           /*
+            * Add the attester to the attestation indices for this shard.
+            */
+           attesters.push(i);
+           /*
+            * Set the voters bit on the bitfield to true.
+            */
+           attester_bitfield.set_bit(attestation_index, true);
+           /*
+            * Generate a random keypair for this validatior and clone it into the
+            * list of keypairs.
+            */
+           let keypair = Keypair::random();
+           keypairs.push(keypair.clone());
+           /*
+            * Store the validators public key in the database.
+            */
+           stores.validator.put_public_key_by_index(i, &keypair.pk).unwrap();
+           /*
+            * Generate a new signature and aggregate it on the rolling signature.
+            */
+           let sig = Signature::new(&attestation_message, &keypair.sk);
+           aggregate_sig.add(&sig);
+           /*
+            * Increment the validator counter to monotonically assign validators.
+            */
+           i += 1;
+        }
+
+        attester_map.insert((attestation_slot, shard), attesters);
+        let attestation = AttestationRecord {
+            slot: attestation_slot,
+            shard_id: shard,
+            oblique_parent_hashes: vec![],
+            shard_block_hash: *shard_block_hash,
+            attester_bitfield,
+            justified_slot,
+            justified_block_hash: *justified_block_hash,
+            aggregate_sig,
+        };
+        attestations.push(attestation);
+    }
+    (attester_map, attestations, keypairs)
+}
+
 #[test]
 fn test_block_validation() {
     let stores = TestStore::new();
@@ -83,82 +170,19 @@ fn test_block_validation() {
         proposer_map.insert(present_slot, validator_index);
         proposer_map
     };
-    let (attester_map, attestations, _keypairs) = {
-        let mut i = 0;
-        let mut attester_map = AttesterMap::new();
-        let mut attestations = vec![];
-        let mut keypairs = vec![];
-        for shard in 0..shard_count {
-            let mut attesters = vec![];
-            let mut attester_bitfield = Bitfield::new();
-            let mut aggregate_sig = AggregateSignature::new();
-            let attestation_slot = block_slot - 1;
-
-            let parent_hashes_slice = {
-                let distance: usize = (block_slot - attestation_slot) as usize;
-                let last: usize = parent_hashes.len() - distance;
-                let first: usize = last - usize::from(cycle_length);
-                &parent_hashes[first..last]
-            };
-
-            let attestation_message = {
-                let mut stream = SszStream::new();
-                stream.append(&attestation_slot);
-                stream.append_vec(&parent_hashes_slice.to_vec());
-                stream.append(&shard);
-                stream.append(&shard_block_hash);
-                stream.append(&justified_slot);
-                let bytes = stream.drain();
-                canonical_hash(&bytes)
-            };
-
-
-
-            for attestation_index in 0..validators_per_shard {
-               /*
-                * Add the attester to the attestation indices for this shard.
-                */
-               attesters.push(i);
-               /*
-                * Set the voters bit on the bitfield to true.
-                */
-               attester_bitfield.set_bit(attestation_index, true);
-               /*
-                * Generate a random keypair for this validatior and clone it into the
-                * list of keypairs.
-                */
-               let keypair = Keypair::random();
-               keypairs.push(keypair.clone());
-               /*
-                * Store the validators public key in the database.
-                */
-               stores.validator.put_public_key_by_index(i, &keypair.pk).unwrap();
-               /*
-                * Generate a new signature and aggregate it on the rolling signature.
-                */
-               let sig = Signature::new(&attestation_message, &keypair.sk);
-               aggregate_sig.add(&sig);
-               /*
-                * Increment the validator counter to monotonically assign validators.
-                */
-               i += 1;
-            }
-
-            attester_map.insert((attestation_slot, shard), attesters);
-            let attestation = AttestationRecord {
-                slot: attestation_slot,
-                shard_id: shard,
-                oblique_parent_hashes: vec![],
-                shard_block_hash,
-                attester_bitfield,
-                justified_slot,
-                justified_block_hash,
-                aggregate_sig,
-            };
-            attestations.push(attestation);
-        }
-        (attester_map, attestations, keypairs)
-    };
+    let attestation_slot = block_slot - 1;
+    let (attester_map, attestations, _keypairs) =
+        generate_attestations_for_slot(
+            attestation_slot,
+            block_slot,
+            shard_count,
+            validators_per_shard,
+            cycle_length,
+            &parent_hashes,
+            &shard_block_hash,
+            &justified_block_hash,
+            justified_slot,
+            &stores);
 
     let block = Block {
         parent_hash: Hash256::from("parent".as_bytes()),
