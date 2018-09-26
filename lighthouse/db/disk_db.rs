@@ -36,6 +36,9 @@ impl DiskDB {
         let mut options = Options::default();
         options.create_if_missing(true);
 
+        // TODO: ensure that columns are created (and remove
+        // the dead_code allow)
+
         /*
          * Initialise the path
          */
@@ -58,6 +61,7 @@ impl DiskDB {
 
     /// Create a RocksDB column family. Corresponds to the
     /// `create_cf()` function on the RocksDB API.
+    #[allow(dead_code)]
     fn create_col(&mut self, col: &str)
         -> Result<(), DBError>
     {
@@ -106,6 +110,21 @@ impl ClientDB for DiskDB {
         match self.db.cf_handle(col) {
             None => Err(DBError{ message: "Unknown column".to_string() }),
             Some(handle) => self.db.put_cf(handle, key, val).map_err(|e| e.into())
+        }
+    }
+
+    /// Return true if some key exists in some column.
+    fn exists(&self, col: &str, key: &[u8])
+        -> Result<bool, DBError>
+    {
+        /*
+         * I'm not sure if this is the correct way to read if some
+         * block exists. Naievely I would expect this to unncessarily
+         * copy some data, but I could be wrong.
+         */
+        match self.db.cf_handle(col) {
+            None => Err(DBError{ message: "Unknown column".to_string() }),
+            Some(handle) => Ok(self.db.get_cf(handle, key)?.is_some())
         }
     }
 }

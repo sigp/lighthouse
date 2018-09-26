@@ -2,7 +2,16 @@ use super::utils::types::Hash256;
 use super::attestation_record::AttestationRecord;
 use super::ssz::{ Encodable, SszStream };
 
-const SSZ_BLOCK_LENGTH: usize = 192;
+pub const MIN_SSZ_BLOCK_LENGTH: usize = {
+    32 +    // parent_hash
+    8 +     // slot_number
+    32 +    // randao_reveal
+    4 +     // attestations (assuming zero)
+    32 +    // pow_chain_ref
+    32 +    // active_state_root
+    32      // crystallized_state_root
+};
+pub const MAX_SSZ_BLOCK_LENGTH: usize = MIN_SSZ_BLOCK_LENGTH + (1 << 24);
 
 pub struct Block {
     pub parent_hash: Hash256,
@@ -25,23 +34,6 @@ impl Block {
             active_state_root: Hash256::zero(),
             crystallized_state_root: Hash256::zero(),
         }
-    }
-
-    /// Return the bytes that should be signed in order to
-    /// attest for this block.
-    pub fn encode_for_signing(&self)
-        -> [u8; SSZ_BLOCK_LENGTH]
-    {
-        let mut s = SszStream::new();
-        s.append(&self.parent_hash);
-        s.append(&self.slot_number);
-        s.append(&self.randao_reveal);
-        s.append(&self.pow_chain_ref);
-        s.append(&self.active_state_root);
-        s.append(&self.crystallized_state_root);
-        let vec = s.drain();
-        let mut encoded = [0; SSZ_BLOCK_LENGTH];
-        encoded.copy_from_slice(&vec); encoded
     }
 }
 
@@ -72,5 +64,16 @@ mod tests {
         assert!(b.pow_chain_ref.is_zero());
         assert!(b.active_state_root.is_zero());
         assert!(b.crystallized_state_root.is_zero());
+    }
+
+    #[test]
+    pub fn test_block_min_ssz_length() {
+        let b = Block::zero();
+
+        let mut ssz_stream = SszStream::new();
+        ssz_stream.append(&b);
+        let ssz = ssz_stream.drain();
+
+        assert_eq!(ssz.len(), MIN_SSZ_BLOCK_LENGTH);
     }
 }

@@ -2,16 +2,24 @@
 extern crate slog;
 extern crate slog_term;
 extern crate slog_async;
+extern crate ssz;
 extern crate clap;
 extern crate network_libp2p;
 extern crate futures;
 
-pub mod db;
-pub mod client;
-pub mod state;
-pub mod sync;
-pub mod utils;
-pub mod config;
+#[macro_use]
+#[allow(dead_code)]
+mod utils;
+#[allow(dead_code)]
+mod bls;
+#[allow(dead_code)]
+mod db;
+mod client;
+#[allow(dead_code)]
+mod state;
+#[allow(dead_code)]
+mod sync;
+mod config;
 
 use std::path::PathBuf;
 
