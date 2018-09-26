@@ -23,5 +23,8 @@ pub trait ClientDB: Sync + Send {
 
     fn put(&self, col: &str, key: &[u8], val: &[u8])
         -> Result<(), DBError>;
+
+    fn exists(&self, col: &str, key: &[u8])
+        -> Result<bool, DBError>;
 }
 

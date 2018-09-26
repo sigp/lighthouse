@@ -1,5 +1,13 @@
 use super::Hash256;
-use super::TransitionError;
+
+#[derive(Debug)]
+pub enum ParentHashesError {
+    BadCurrentHashes,
+    BadObliqueHashes,
+    SlotTooHigh,
+    SlotTooLow,
+    IntWrapping,
+}
 
 /// This function is used to select the hashes used in
 /// the signing of an AttestationRecord.
@@ -18,23 +26,20 @@ pub fn attestation_parent_hashes(
     attestation_slot: u64,
     current_hashes: &[Hash256],
     oblique_hashes: &[Hash256])
-    -> Result<Vec<Hash256>, TransitionError>
+    -> Result<Vec<Hash256>, ParentHashesError>
 {
     // This cast places a limit on cycle_length. If you change it, check math
     // for overflow.
     let cycle_length: u64 = u64::from(cycle_length);
 
     if current_hashes.len() as u64 != (cycle_length * 2) {
-        return Err(TransitionError::InvalidInput(String::from(
-                    "current_hashes.len() must equal cycle_length * 2")));
-    }
-    if attestation_slot >= block_slot {
-        return Err(TransitionError::InvalidInput(String::from(
-                    "attestation_slot must be less than block_slot")));
+        return Err(ParentHashesError::BadCurrentHashes);
     }
     if oblique_hashes.len() as u64 > cycle_length {
-        return Err(TransitionError::InvalidInput(String::from(
-                    "oblique_hashes.len() must be <= cycle_length * 2")));
+        return Err(ParentHashesError::BadObliqueHashes);
+    }
+    if attestation_slot >= block_slot {
+        return Err(ParentHashesError::SlotTooHigh);
     }
 
     /*
@@ -44,8 +49,7 @@ pub fn attestation_parent_hashes(
     let attestation_distance = block_slot - attestation_slot;
 
     if attestation_distance > cycle_length {
-        return Err(TransitionError::InvalidInput(String::from(
-                    "attestation_slot must be withing one cycle of block_slot")));
+        return Err(ParentHashesError::SlotTooLow);
     }
 
     /*
@@ -63,7 +67,7 @@ pub fn attestation_parent_hashes(
      */
     let end = start.checked_add(cycle_length)
         .and_then(|x| x.checked_sub(oblique_hashes.len() as u64))
-        .ok_or(TransitionError::IntWrapping)?;
+        .ok_or(ParentHashesError::IntWrapping)?;
 
 
     let mut hashes = Vec::new();
@@ -176,7 +180,6 @@ mod tests {
             attestation_slot,
             &current_hashes,
             &oblique_hashes);
-        assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result.len(), cycle_length as usize);
         let expected_result = get_range_of_hashes(7, 15);

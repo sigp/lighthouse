@@ -86,6 +86,9 @@ impl BooleanBitfield {
     /// vector.
     pub fn is_empty(&self) -> bool { self.len == 0 }
 
+    /// The number of bytes required to represent the bitfield.
+    pub fn num_bytes(&self) -> usize { self.vec.len() }
+
     /// Iterate through the underlying vector and count the number of
     /// true bits.
     pub fn num_true_bits(&self) -> u64 {
@@ -114,7 +117,17 @@ impl BooleanBitfield {
         0
     }
 
+    /// Get the byte at a position, assuming big-endian encoding.
+    pub fn get_byte(&self, n: usize) -> Option<&u8> {
+        self.vec.get(n)
+    }
+
     /// Clone and return the underlying byte array (`Vec<u8>`).
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.vec.clone()
+    }
+
+    /// Clone and return the underlying byte array (`Vec<u8>`) in big-endinan format.
     pub fn to_be_vec(&self) -> Vec<u8> {
         let mut o = self.vec.clone();
         o.reverse();
@@ -142,7 +155,7 @@ impl PartialEq for BooleanBitfield {
 
 impl ssz::Encodable for BooleanBitfield {
     fn ssz_append(&self, s: &mut ssz::SszStream) {
-        s.append_vec(&self.to_be_vec());
+        s.append_vec(&self.to_vec());
     }
 }
 
@@ -161,7 +174,8 @@ impl ssz::Decodable for BooleanBitfield {
             Ok((BooleanBitfield::new(),
                 index + ssz::LENGTH_BYTES))
         } else {
-            let b = BooleanBitfield::from(&bytes[(index + 4)..(len + 4)]);
+            let b = BooleanBitfield::
+                from(&bytes[(index + 4)..(index + len + 4)]);
             let index = index + ssz::LENGTH_BYTES + len;
             Ok((b, index))
         }
@@ -182,7 +196,7 @@ mod tests {
         let mut stream = ssz::SszStream::new();
         stream.append(&b);
 
-        assert_eq!(stream.drain(), vec![0, 0, 0, 2, 1, 0]);
+        assert_eq!(stream.drain(), vec![0, 0, 0, 2, 0, 1]);
     }
 
     #[test]
@@ -190,7 +204,7 @@ mod tests {
         /*
          * Correct input
          */
-        let input = vec![0, 0, 0, 2, 1, 0];
+        let input = vec![0, 0, 0, 2, 0, 1];
         let (b, i) = BooleanBitfield::ssz_decode(&input, 0).unwrap();
         assert_eq!(i, 6);
         assert_eq!(b.num_true_bits(), 1);
@@ -199,7 +213,7 @@ mod tests {
         /*
          * Input too long
          */
-        let mut input = vec![0, 0, 0, 2, 1, 0];
+        let mut input = vec![0, 0, 0, 2, 0, 1];
         input.push(42);
         let (b, i) = BooleanBitfield::ssz_decode(&input, 0).unwrap();
         assert_eq!(i, 6);
