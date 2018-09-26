@@ -3,7 +3,6 @@ mod validate_ssz_block;
 mod tests;
 
 use super::attestation_record;
-use super::Block;
 use super::SszBlock;
 use super::db;
 use super::ssz;

@@ -23,7 +23,7 @@ mod config;
 
 use std::path::PathBuf;
 
-use slog::{ Drain, Logger };
+use slog::Drain;
 use clap::{ Arg, App };
 use config::LighthouseConfig;
 use client::Client;
