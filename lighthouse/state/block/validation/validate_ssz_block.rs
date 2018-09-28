@@ -1,3 +1,6 @@
+extern crate rayon;
+use self::rayon::prelude::*;
+
 use std::sync::{
     Arc,
     RwLock,
@@ -48,6 +51,7 @@ pub enum SszBlockValidationError {
     FirstAttestationSignatureFailed,
     NoProposerSignature,
     BadProposerMap,
+    RwLockPoisoned,
     DatabaseError(String),
 }
 
@@ -175,7 +179,7 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
      */
     let failure: Option<SszBlockValidationError> = None;
     let failure = RwLock::new(failure);
-    other_attestations.iter()
+    other_attestations.par_iter()
         .for_each(|attestation| {
             if let Some(_) = *failure.read().unwrap() {
                 ()
@@ -210,6 +214,16 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
             };
         });
 
+    match failure.into_inner() {
+        Err(_) => return Err(SszBlockValidationError::RwLockPoisoned),
+        Ok(failure) => {
+            match failure {
+                Some(error) => return Err(error),
+                _ => ()
+            }
+
+        }
+    }
     // TODO: handle validation failure. Presently, it will just pass everything
 
     /*
