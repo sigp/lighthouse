@@ -45,15 +45,6 @@ pub enum AttestationValidationError {
     DBError(String),
 }
 
-fn bytes_for_bits(bits: usize) -> usize {
-    (bits.saturating_sub(1) / 8) + 1
-}
-
-fn any_of_last_n_bits_are_set(byte: u8, n: usize) -> bool {
-    let shift = 8_u16.saturating_sub(n as u16);
-    ((!0 << shift) & u16::from(byte)) > 0
-}
-
 pub fn validate_attestation<T>(a: &AttestationRecord,
                                block_slot: u64,
                                cycle_length: u8,
@@ -162,6 +153,20 @@ pub fn validate_attestation<T>(a: &AttestationRecord,
             &validator_store)?;
 
     Ok(voted_hashmap)
+}
+
+fn bytes_for_bits(bits: usize) -> usize {
+    (bits.saturating_sub(1) / 8) + 1
+}
+
+fn any_of_last_n_bits_are_set(byte: u8, n: usize) -> bool {
+    for i in 0..n {
+        let mask = 0_u8 >> 8_usize - i as usize;
+        if byte & mask > 0 {
+            return true
+        }
+    }
+    false
 }
 
 impl From<ParentHashesError> for AttestationValidationError {
