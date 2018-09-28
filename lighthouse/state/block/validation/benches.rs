@@ -4,151 +4,139 @@
  *
  * This file should be moved into a bench/ dir in the root and structured correctly.
  */
-
-extern crate ssz;
 extern crate test;
 
 use self::test::Bencher;
-use self::ssz::{
-    SszStream,
-};
+
 use std::sync::Arc;
+
 use super::{
     validate_ssz_block,
-    BlockStatus,
+    AttesterMap,
     ProposerMap,
 };
-use super::utils::types::{
-    Hash256,
-};
-use super::SszBlock;
-use super::super::Block;
 
 use super::tests::{
     TestStore,
-    generate_attestations_for_slot,
+    TestParams,
+    setup_block_validation_scenario,
+    serialize_block,
 };
 
-#[derive(Debug)]
-struct BenchmarkParams {
-    total_validators: usize,
-    cycle_length: u8,
-    shard_count: u16,
-    shards_per_slot: u16,
-    validators_per_shard: usize,
-}
+use super::super::{
+    Block,
+    SszBlock,
+};
 
-impl BenchmarkParams {
-    pub fn danny_wants() -> Self {
-        /*
-         * 10M Eth where each validator is 32 ETH
-         */
-        let total_validators: usize = 10_000_000 / 32;
-        /*
-         * 64 slots per cycle
-         */
-        let cycle_length: u8 = 64;
-        /*
-         * 1024 shards
-         */
-        let shard_count: u16 = 1024;
-        /*
-         * Number of shards per slot
-         */
-        let shards_per_slot: u16 = 1024 / u16::from(cycle_length);
-        /*
-         * Number of validators in each shard
-         */
-        let validators_per_shard: usize = total_validators / usize::from(shard_count);
+fn bench_block_validation_scenario<F>(
+    b: &mut Bencher,
+    validation_slot: u64,
+    validation_last_justified_slot: u64,
+    params: &TestParams,
+    mutator_func: F)
+    where F: FnOnce(Block, AttesterMap, ProposerMap, TestStore)
+                -> (Block, AttesterMap, ProposerMap, TestStore)
+{
+    let (block,
+     parent_hashes,
+     attester_map,
+     proposer_map,
+     stores) = setup_block_validation_scenario(&params);
 
-        Self {
-            total_validators,
-            cycle_length,
-            shard_count,
-            shards_per_slot,
-            validators_per_shard,
-        }
-    }
-}
+    let (block,
+         attester_map,
+         proposer_map,
+         stores) = mutator_func(block, attester_map, proposer_map, stores);
 
-#[bench]
-fn bench_block_validation(b: &mut Bencher) {
-    let stores = TestStore::new();
-
-    let params = BenchmarkParams::danny_wants();
-
-    println!("{:?}", params);
-
-    let cycle_length = params.cycle_length;
-    let shards_per_slot = params.shards_per_slot;
-    let validators_per_shard = params.validators_per_shard;
-
-    let present_slot = u64::from(cycle_length) * 10000;
-    let justified_slot = present_slot - u64::from(cycle_length);
-    let justified_block_hash = Hash256::from("justified_hash".as_bytes());
-    let shard_block_hash = Hash256::from("shard_hash".as_bytes());
-    let parent_hashes: Vec<Hash256> = (0..(cycle_length * 2))
-        .map(|i| Hash256::from(i as u64))
-        .collect();
-    let pow_chain_ref = Hash256::from("pow_chain".as_bytes());
-    let active_state_root = Hash256::from("active_state".as_bytes());
-    let crystallized_state_root = Hash256::from("cry_state".as_bytes());
-
-    stores.pow_chain.put_block_hash(pow_chain_ref.as_ref()).unwrap();
-    stores.block.put_block(justified_block_hash.as_ref(), &vec![42]).unwrap();
-
-
-    let block_slot = present_slot;
-    let validator_index: usize = 0;
-    let proposer_map = {
-        let mut proposer_map = ProposerMap::new();
-        proposer_map.insert(present_slot, validator_index);
-        proposer_map
-    };
-    let attestation_slot = block_slot - 1;
-    let (attester_map, attestations, _keypairs) =
-        generate_attestations_for_slot(
-            attestation_slot,
-            block_slot,
-            shards_per_slot,
-            validators_per_shard,
-            cycle_length,
-            &parent_hashes,
-            &shard_block_hash,
-            &justified_block_hash,
-            justified_slot,
-            &stores);
-
-    let block = Block {
-        parent_hash: Hash256::from("parent".as_bytes()),
-        slot_number: block_slot,
-        randao_reveal: Hash256::from("randao".as_bytes()),
-        attestations,
-        pow_chain_ref,
-        active_state_root,
-        crystallized_state_root,
-    };
-
-    let mut stream = SszStream::new();
-    stream.append(&block);
-    let serialized_block = stream.drain();
-    let ssz_block = SszBlock::from_slice(&serialized_block[..]).unwrap();
+    let ssz_bytes = serialize_block(&block);
+    let ssz_block = SszBlock::from_slice(&ssz_bytes[..])
+        .unwrap();
 
     let parent_hashes = Arc::new(parent_hashes);
     let proposer_map = Arc::new(proposer_map);
     let attester_map = Arc::new(attester_map);
     b.iter(|| {
-        let status = validate_ssz_block(
+        validate_ssz_block(
             &ssz_block,
-            present_slot,
-            cycle_length,
-            justified_slot,
-            &parent_hashes,
-            &proposer_map,
-            &attester_map,
+            validation_slot,
+            params.cycle_length,
+            validation_last_justified_slot,
+            &parent_hashes.clone(),
+            &proposer_map.clone(),
+            &attester_map.clone(),
             &stores.block.clone(),
             &stores.validator.clone(),
-            &stores.pow_chain.clone()).unwrap();
-        assert_eq!(status, BlockStatus::NewBlock);
+            &stores.pow_chain.clone())
     });
+}
+
+#[bench]
+#[ignore]
+fn bench_block_validation_10m_eth(b: &mut Bencher) {
+    let total_validators: usize = 10_000_000 / 32;
+    let cycle_length: u8 = 64;
+    let shard_count: u16 = 1024;
+    let shards_per_slot: u16 = 1024 / u16::from(cycle_length);
+    let validators_per_shard: usize = total_validators / usize::from(shard_count);
+    let block_slot = u64::from(cycle_length) * 10000;
+    let attestations_justified_slot = block_slot - u64::from(cycle_length);
+
+    let params = TestParams {
+        total_validators,
+        cycle_length,
+        shard_count,
+        shards_per_slot,
+        validators_per_shard,
+        block_slot,
+        attestations_justified_slot,
+    };
+    let validation_slot = params.block_slot;
+    let validation_last_justified_slot = params.attestations_justified_slot;
+
+    let no_mutate = |block, attester_map, proposer_map, stores| {
+        (block, attester_map, proposer_map, stores)
+    };
+
+    bench_block_validation_scenario(
+        b,
+        validation_slot,
+        validation_last_justified_slot,
+        &params,
+        no_mutate);
+}
+
+#[bench]
+#[ignore]
+fn bench_block_validation_100m_eth(b: &mut Bencher) {
+    let total_validators: usize = 100_000_000 / 32;
+    let cycle_length: u8 = 64;
+    let shard_count: u16 = 1024;
+    let shards_per_slot: u16 = 1024 / u16::from(cycle_length);
+    let validators_per_shard: usize = total_validators / usize::from(shard_count);
+    let block_slot = u64::from(cycle_length) * 10000;
+    let attestations_justified_slot = block_slot - u64::from(cycle_length);
+
+    let params = TestParams {
+        total_validators,
+        cycle_length,
+        shard_count,
+        shards_per_slot,
+        validators_per_shard,
+        block_slot,
+        attestations_justified_slot,
+    };
+
+    let validation_slot = params.block_slot;
+    let validation_last_justified_slot = params.attestations_justified_slot;
+
+    let no_mutate = |block, attester_map, proposer_map, stores| {
+        (block, attester_map, proposer_map, stores)
+    };
+
+    bench_block_validation_scenario(
+        b,
+        validation_slot,
+        validation_last_justified_slot,
+        &params,
+        no_mutate);
 }
