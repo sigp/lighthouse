@@ -1,9 +1,3 @@
-/*
- * Note: this is a copy of the ./tests.rs file that is rigged to give some fast and easy
- * benchmarking.
- *
- * This file should be moved into a bench/ dir in the root and structured correctly.
- */
 extern crate test;
 
 use self::test::Bencher;
