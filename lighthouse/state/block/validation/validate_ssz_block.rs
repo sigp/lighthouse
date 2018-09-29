@@ -175,7 +175,9 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
     /*
      * Verify each other AttestationRecord.
      *
-     * TODO: make this parallelized.
+     * Note: this uses the `rayon` library to do "sometimes" parallelization. Put simply,
+     * if there's some spare threads the verification of attestation records will happen
+     * concurrently.
      */
     let failure: Option<SszBlockValidationError> = None;
     let failure = RwLock::new(failure);
@@ -224,7 +226,6 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
 
         }
     }
-    // TODO: handle validation failure. Presently, it will just pass everything
 
     /*
      * If we have reached this point, the block is a new valid block that is worthy of
