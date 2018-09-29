@@ -19,7 +19,10 @@ use super::{
     AttesterMap,
     ProposerMap,
 };
-use super::SszBlock;
+use super::{
+    SszBlock,
+    Block,
+};
 use super::db::{
     ClientDB,
     DBError,
@@ -37,7 +40,8 @@ use super::utils::types::Hash256;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockStatus {
-    NewBlock,
+    NewBlockInCanonicalChain,
+    NewBlockInForkChain,
     KnownBlock,
 }
 
@@ -45,6 +49,7 @@ pub enum BlockStatus {
 pub enum SszBlockValidationError {
     FutureSlot,
     UnknownPoWChainRef,
+    UnknownParentHash,
     BadAttestationSsz,
     AttestationValidationError(AttestationValidationError),
     AttestationSignatureFailed,
@@ -68,6 +73,9 @@ pub enum SszBlockValidationError {
 ///
 /// This function will determine if the block is new, already known or invalid (either
 /// intrinsically or due to some application error.)
+///
+/// Note: this function does not implement randao_reveal checking as it is not in the
+/// specification.
 #[allow(dead_code)]
 pub fn validate_ssz_block<T>(b: &SszBlock,
                              expected_slot: u64,
@@ -79,28 +87,27 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
                              block_store: &Arc<BlockStore<T>>,
                              validator_store: &Arc<ValidatorStore<T>>,
                              pow_store: &Arc<PoWChainStore<T>>)
-    -> Result<BlockStatus, SszBlockValidationError>
+    -> Result<(BlockStatus, Option<Block>), SszBlockValidationError>
     where T: ClientDB + Sized
 {
-    /*
-     * If this block is already known, return immediately.
-     */
-    if block_store.block_exists(&b.block_hash())? {
-        return Ok(BlockStatus::KnownBlock);
-    }
-
-    /*
-     * Copy the block slot (will be used multiple times)
-     */
-    let block_slot = b.slot_number();
 
     /*
      * If the block slot corresponds to a slot in the future (according to the local time),
      * drop it.
      */
+    let block_slot = b.slot_number();
     if block_slot > expected_slot {
         return Err(SszBlockValidationError::FutureSlot);
     }
+
+    /*
+     * If this block is already known, return immediately.
+     */
+    let block_hash = &b.block_hash();
+    if block_store.block_exists(&block_hash)? {
+        return Ok((BlockStatus::KnownBlock, None));
+    }
+
 
     /*
      * If the PoW chain hash is not known to us, drop it.
@@ -110,6 +117,7 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
      * Note: it is not clear what a "known" PoW chain ref is. Likely,
      * it means "sufficienty deep in the canonical PoW chain".
      */
+    let pow_chain_ref = b.pow_chain_ref();
     if !pow_store.block_hash_exists(b.pow_chain_ref())? {
         return Err(SszBlockValidationError::UnknownPoWChainRef);
     }
@@ -175,21 +183,44 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
     /*
      * Verify each other AttestationRecord.
      *
-     * Note: this uses the `rayon` library to do "sometimes" parallelization. Put simply,
-     * if there's some spare threads the verification of attestation records will happen
+     * This uses the `rayon` library to do "sometimes" parallelization. Put simply,
+     * if there are some spare threads, the verification of attestation records will happen
      * concurrently.
+     *
+     * There is a thread-safe `failure` variable which is set whenever an attestation fails
+     * validation. This is so all attestation validation is halted if a single bad attestation
+     * is found.
      */
-    let failure: Option<SszBlockValidationError> = None;
-    let failure = RwLock::new(failure);
-    other_attestations.par_iter()
-        .for_each(|attestation| {
+    let failure: RwLock<Option<SszBlockValidationError>> = RwLock::new(None);
+    let deserialized_attestations: Vec<AttestationRecord> = other_attestations
+        .par_iter()
+        .filter_map(|attestation_ssz| {
+            /*
+             * If some thread has set the `failure` variable to `Some(error)` the abandon
+             * attestation serialization and validation.
+             */
             if let Some(_) = *failure.read().unwrap() {
-                ()
-            };
-            match AttestationRecord::ssz_decode(&attestation, 0) {
-                Ok((a, _)) => {
+                return None;
+            }
+            /*
+             * If there has not been a failure yet, attempt to serialize and validate the
+             * attestation.
+             */
+            match AttestationRecord::ssz_decode(&attestation_ssz, 0) {
+                /*
+                 * Deserialization failed, therefore the block is invalid.
+                 */
+                Err(e) => {
+                    let mut failure = failure.write().unwrap();
+                    *failure = Some(SszBlockValidationError::from(e));
+                    None
+                }
+                /*
+                 * Deserialization succeeded and the attestation should be validated.
+                 */
+                Ok((attestation, _)) => {
                     let result = validate_attestation(
-                        &a,
+                        &attestation,
                         block_slot,
                         cycle_length,
                         last_justified_slot,
@@ -198,23 +229,31 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
                         &validator_store,
                         &attester_map);
                     match result {
+                        /*
+                         * Attestation validation failed with some error.
+                         */
                         Err(e) => {
                             let mut failure = failure.write().unwrap();
                             *failure = Some(SszBlockValidationError::from(e));
+                            None
                         }
+                        /*
+                         * Attestation validation failed due to a bad signature.
+                         */
                         Ok(None) => {
                             let mut failure = failure.write().unwrap();
                             *failure = Some(SszBlockValidationError::AttestationSignatureFailed);
+                            None
                         }
-                        _ => ()
+                        /*
+                         * Attestation validation succeded.
+                         */
+                        Ok(_) => Some(attestation)
                     }
                 }
-                Err(e) => {
-                    let mut failure = failure.write().unwrap();
-                    *failure = Some(SszBlockValidationError::from(e));
-                }
-            };
-        });
+            }
+        })
+        .collect();
 
     match failure.into_inner() {
         Err(_) => return Err(SszBlockValidationError::RwLockPoisoned),
@@ -231,7 +270,27 @@ pub fn validate_ssz_block<T>(b: &SszBlock,
      * If we have reached this point, the block is a new valid block that is worthy of
      * processing.
      */
-    Ok(BlockStatus::NewBlock)
+
+    /*
+     * If the block's parent_hash _is_ in the canonical chain, the block is a
+     * new block in the canonical chain. Otherwise, it's a new block in a fork chain.
+     */
+    let parent_hash = b.parent_hash();
+    let status = if block_store.block_exists_in_canonical_chain(&parent_hash)? {
+        BlockStatus::NewBlockInCanonicalChain
+    } else {
+        BlockStatus::NewBlockInForkChain
+    };
+    let block = Block {
+        parent_hash: Hash256::from(parent_hash),
+        slot_number: block_slot,
+        randao_reveal: Hash256::from(b.randao_reveal()),
+        attestations: deserialized_attestations,
+        pow_chain_ref: Hash256::from(pow_chain_ref),
+        active_state_root: Hash256::from(b.act_state_root()),
+        crystallized_state_root: Hash256::from(b.cry_state_root()),
+    };
+    Ok((status, Some(block)))
 }
 
 impl From<DBError> for SszBlockValidationError {

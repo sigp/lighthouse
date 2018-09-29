@@ -5,7 +5,10 @@ mod tests;
 mod benches;
 
 use super::attestation_record;
-use super::SszBlock;
+use super::{
+    SszBlock,
+    Block,
+};
 use super::db;
 use super::ssz;
 use super::utils;

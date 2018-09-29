@@ -93,6 +93,7 @@ pub fn setup_block_validation_scenario(params: &TestParams)
 
     stores.pow_chain.put_block_hash(pow_chain_ref.as_ref()).unwrap();
     stores.block.put_block(justified_block_hash.as_ref(), &vec![42]).unwrap();
+    stores.block.put_block(parent_hash.as_ref(), &vec![42]).unwrap();
 
     let validator_index: usize = 0;
     let proposer_map = {
@@ -224,7 +225,7 @@ pub fn run_block_validation_scenario<F>(
     validation_last_justified_slot: u64,
     params: &TestParams,
     mutator_func: F)
-    -> Result<BlockStatus, SszBlockValidationError>
+    -> Result<(BlockStatus, Option<Block>), SszBlockValidationError>
     where F: FnOnce(Block, AttesterMap, ProposerMap, TestStore)
                 -> (Block, AttesterMap, ProposerMap, TestStore)
 {
@@ -277,7 +278,7 @@ fn get_simple_params() -> TestParams {
 }
 
 #[test]
-fn test_block_validation_simple_scenario_valid() {
+fn test_block_validation_simple_scenario_valid_in_canonical_chain() {
     let params = get_simple_params();
 
     let validation_slot = params.block_slot;
@@ -293,7 +294,28 @@ fn test_block_validation_simple_scenario_valid() {
         &params,
         no_mutate);
 
-    assert_eq!(status.unwrap(), BlockStatus::NewBlock);
+    assert_eq!(status.unwrap().0, BlockStatus::NewBlockInCanonicalChain);
+}
+
+#[test]
+fn test_block_validation_simple_scenario_valid_not_in_canonical_chain() {
+    let params = get_simple_params();
+
+    let validation_slot = params.block_slot;
+    let validation_last_justified_slot = params.attestations_justified_slot;
+
+    let no_mutate = |mut block: Block, attester_map, proposer_map, stores| {
+        block.parent_hash = Hash256::from("not in canonical chain".as_bytes());
+        (block, attester_map, proposer_map, stores)
+    };
+
+    let status = run_block_validation_scenario(
+        validation_slot,
+        validation_last_justified_slot,
+        &params,
+        no_mutate);
+
+    assert_eq!(status.unwrap().0, BlockStatus::NewBlockInForkChain);
 }
 
 #[test]
