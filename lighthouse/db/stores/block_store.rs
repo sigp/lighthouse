@@ -35,6 +35,13 @@ impl<T: ClientDB> BlockStore<T> {
     {
         self.db.exists(DB_COLUMN, hash)
     }
+
+    pub fn block_exists_in_canonical_chain(&self, hash: &[u8])
+        -> Result<bool, DBError>
+    {
+        // TODO: implement logic for canonical chain
+        self.db.exists(DB_COLUMN, hash)
+    }
 }
 
 #[cfg(test)]
