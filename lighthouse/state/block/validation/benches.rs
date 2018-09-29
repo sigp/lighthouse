@@ -5,7 +5,7 @@ use self::test::Bencher;
 use std::sync::Arc;
 
 use super::{
-    validate_ssz_block,
+    BlockValidationContext,
     AttesterMap,
     ProposerMap,
 };
@@ -50,17 +50,18 @@ fn bench_block_validation_scenario<F>(
     let proposer_map = Arc::new(proposer_map);
     let attester_map = Arc::new(attester_map);
     b.iter(|| {
-        validate_ssz_block(
-            &ssz_block,
-            validation_slot,
-            params.cycle_length,
-            validation_last_justified_slot,
-            &parent_hashes.clone(),
-            &proposer_map.clone(),
-            &attester_map.clone(),
-            &stores.block.clone(),
-            &stores.validator.clone(),
-            &stores.pow_chain.clone())
+        let context = BlockValidationContext {
+            present_slot: validation_slot,
+            cycle_length: params.cycle_length,
+            last_justified_slot: validation_last_justified_slot,
+            parent_hashes: parent_hashes.clone(),
+            proposer_map: proposer_map.clone(),
+            attester_map: attester_map.clone(),
+            block_store: stores.block.clone(),
+            validator_store: stores.validator.clone(),
+            pow_store: stores.pow_chain.clone()
+        };
+        context.validate_ssz_block(&ssz_block)
     });
 }
 

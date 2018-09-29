@@ -18,7 +18,7 @@ use super::common::maps::{
     ProposerMap,
 };
 pub use self::validate_ssz_block::{
-    validate_ssz_block,
+    BlockValidationContext,
     SszBlockValidationError,
     BlockStatus,
 };

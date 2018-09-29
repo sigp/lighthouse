@@ -5,7 +5,7 @@ use self::ssz::{
 };
 use std::sync::Arc;
 use super::{
-    validate_ssz_block,
+    BlockValidationContext,
     SszBlockValidationError,
     BlockStatus,
     AttesterMap,
@@ -101,21 +101,7 @@ pub fn setup_block_validation_scenario(params: &TestParams)
         proposer_map.insert(block_slot, validator_index);
         proposer_map
     };
-    /*
-    let attestation_slot = block_slot - 1;
-    let (attester_map, attestations, _keypairs) =
-        generate_attestations_for_slot(
-            attestation_slot,
-            block_slot,
-            shards_per_slot,
-            validators_per_shard,
-            cycle_length,
-            &parent_hashes,
-            &Hash256::from("shard_hash".as_bytes()),
-            &justified_block_hash,
-            attestations_justified_slot,
-            &stores);
-    */
+
     let (attester_map, attestations, _keypairs) = {
         let mut i = 0;
         let attestation_slot = block_slot - 1;
@@ -244,17 +230,18 @@ pub fn run_block_validation_scenario<F>(
     let ssz_block = SszBlock::from_slice(&ssz_bytes[..])
         .unwrap();
 
-    validate_ssz_block(
-        &ssz_block,
-        validation_slot,
-        params.cycle_length,
-        validation_last_justified_slot,
-        &Arc::new(parent_hashes),
-        &Arc::new(proposer_map),
-        &Arc::new(attester_map),
-        &stores.block.clone(),
-        &stores.validator.clone(),
-        &stores.pow_chain.clone())
+    let context = BlockValidationContext {
+        present_slot: validation_slot,
+        cycle_length: params.cycle_length,
+        last_justified_slot: validation_last_justified_slot,
+        parent_hashes: Arc::new(parent_hashes),
+        proposer_map: Arc::new(proposer_map),
+        attester_map: Arc::new(attester_map),
+        block_store: stores.block.clone(),
+        validator_store: stores.validator.clone(),
+        pow_store: stores.pow_chain.clone()
+    };
+    context.validate_ssz_block(&ssz_block)
 }
 
 fn get_simple_params() -> TestParams {
