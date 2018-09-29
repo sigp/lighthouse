@@ -65,7 +65,6 @@ fn bench_block_validation_scenario<F>(
 }
 
 #[bench]
-#[ignore]
 fn bench_block_validation_10m_eth(b: &mut Bencher) {
     let total_validators: usize = 10_000_000 / 32;
     let cycle_length: u8 = 64;
@@ -100,7 +99,6 @@ fn bench_block_validation_10m_eth(b: &mut Bencher) {
 }
 
 #[bench]
-#[ignore]
 fn bench_block_validation_100m_eth(b: &mut Bencher) {
     let total_validators: usize = 100_000_000 / 32;
     let cycle_length: u8 = 64;
