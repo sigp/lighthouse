@@ -13,7 +13,7 @@ pub const MIN_SSZ_BLOCK_LENGTH: usize = {
 };
 pub const MAX_SSZ_BLOCK_LENGTH: usize = MIN_SSZ_BLOCK_LENGTH + (1 << 24);
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Block {
     pub parent_hash: Hash256,
     pub slot_number: u64,
