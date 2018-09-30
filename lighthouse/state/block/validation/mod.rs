@@ -1,7 +1,7 @@
 mod validate_ssz_block;
 #[cfg(test)]
 mod tests;
-#[cfg(all(feature = "benches", test))]
+#[cfg(test)]
 mod benches;
 
 use super::attestation_record;
