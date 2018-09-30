@@ -36,6 +36,3 @@ ring = { git = "https://github.com/paritytech/ring" }
 [[bin]]
 path = "lighthouse/main.rs"
 name = "lighthouse"
-
-[features]
-benches = []
