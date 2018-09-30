@@ -64,6 +64,9 @@ pub struct TestParams {
     pub validators_per_shard: usize,
     pub block_slot: u64,
     pub attestations_justified_slot: u64,
+    pub validation_context_slot: u64,
+    pub validation_context_justified_slot: u64,
+    pub validation_context_finalized_slot: u64,
 }
 type ParentHashes = Vec<Hash256>;
 
@@ -216,9 +219,6 @@ pub fn serialize_block(b: &Block) -> Vec<u8> {
 ///
 /// Returns the Result returned from the block validation function.
 pub fn run_block_validation_scenario<F>(
-    validation_slot: u64,
-    validation_last_justified_slot: u64,
-    validation_last_finalized_slot: u64,
     params: &TestParams,
     mutator_func: F)
     -> Result<(BlockStatus, Option<Block>), SszBlockValidationError>
@@ -241,10 +241,10 @@ pub fn run_block_validation_scenario<F>(
         .unwrap();
 
     let context = BlockValidationContext {
-        present_slot: validation_slot,
+        present_slot: params.validation_context_slot,
         cycle_length: params.cycle_length,
-        last_justified_slot: validation_last_justified_slot,
-        last_finalized_slot: validation_last_finalized_slot,
+        last_justified_slot: params.validation_context_justified_slot,
+        last_finalized_slot: params.validation_context_finalized_slot,
         parent_hashes: Arc::new(parent_hashes),
         proposer_map: Arc::new(proposer_map),
         attester_map: Arc::new(attester_map),
@@ -264,6 +264,10 @@ fn get_simple_params() -> TestParams {
     let block_slot = u64::from(cycle_length) * 10000;
     let attestations_justified_slot = block_slot - u64::from(cycle_length);
 
+    let validation_context_slot = block_slot;
+    let validation_context_justified_slot = attestations_justified_slot;
+    let validation_context_finalized_slot = 0;
+
     TestParams {
         total_validators,
         cycle_length,
@@ -272,6 +276,9 @@ fn get_simple_params() -> TestParams {
         validators_per_shard,
         block_slot,
         attestations_justified_slot,
+        validation_context_slot,
+        validation_context_justified_slot,
+        validation_context_finalized_slot,
     }
 }
 
@@ -279,18 +286,11 @@ fn get_simple_params() -> TestParams {
 fn test_block_validation_simple_scenario_valid() {
     let params = get_simple_params();
 
-    let validation_slot = params.block_slot;
-    let validation_last_justified_slot = params.attestations_justified_slot;
-    let validation_last_finalized_slot = 0;
-
     let no_mutate = |block, attester_map, proposer_map, stores| {
         (block, attester_map, proposer_map, stores)
     };
 
     let status = run_block_validation_scenario(
-        validation_slot,
-        validation_last_justified_slot,
-        validation_last_finalized_slot,
         &params,
         no_mutate);
 
@@ -301,19 +301,12 @@ fn test_block_validation_simple_scenario_valid() {
 fn test_block_validation_simple_scenario_invalid_unknown_parent_block() {
     let params = get_simple_params();
 
-    let validation_slot = params.block_slot;
-    let validation_last_justified_slot = params.attestations_justified_slot;
-    let validation_last_finalized_slot = 0;
-
     let no_mutate = |mut block: Block, attester_map, proposer_map, stores| {
         block.parent_hash = Hash256::from("unknown parent block".as_bytes());
         (block, attester_map, proposer_map, stores)
     };
 
     let status = run_block_validation_scenario(
-        validation_slot,
-        validation_last_justified_slot,
-        validation_last_finalized_slot,
         &params,
         no_mutate);
 
@@ -324,10 +317,6 @@ fn test_block_validation_simple_scenario_invalid_unknown_parent_block() {
 fn test_block_validation_simple_scenario_invalid_2nd_attestation() {
     let params = get_simple_params();
 
-    let validation_slot = params.block_slot;
-    let validation_last_justified_slot = params.attestations_justified_slot;
-    let validation_last_finalized_slot = 0;
-
     let mutator = |mut block: Block, attester_map, proposer_map, stores| {
         /*
          * Set the second attestaion record to have an invalid signature.
@@ -337,9 +326,6 @@ fn test_block_validation_simple_scenario_invalid_2nd_attestation() {
     };
 
     let status = run_block_validation_scenario(
-        validation_slot,
-        validation_last_justified_slot,
-        validation_last_finalized_slot,
         &params,
         mutator);
 
