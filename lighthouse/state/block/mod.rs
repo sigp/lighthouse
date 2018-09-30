@@ -11,4 +11,7 @@ mod ssz_block;
 mod validation;
 
 pub use self::structs::Block;
-pub use self::ssz_block::SszBlock;
+pub use self::ssz_block::{
+    SszBlock,
+    SszBlockError,
+};
