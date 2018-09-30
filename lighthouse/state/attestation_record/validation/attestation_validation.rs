@@ -161,7 +161,7 @@ fn bytes_for_bits(bits: usize) -> usize {
 
 fn any_of_last_n_bits_are_set(byte: u8, n: usize) -> bool {
     for i in 0..n {
-        let mask = 0_u8 >> 8_usize - i as usize;
+        let mask = 1_u8 >> 7_usize.saturating_sub(i as usize);
         if byte & mask > 0 {
             return true
         }
