@@ -109,8 +109,8 @@ impl BooleanBitfield {
     pub fn compute_length(bytes: &[u8]) -> usize {
         for byte in (0..bytes.len()).rev() {
             for bit in (0..8).rev() {
-                if byte & (1 << (bit as u8)) != 0 {
-                    return (byte * 8) + bit
+                if bytes[byte] & (1 << (bit as u8)) != 0 {
+                    return (byte * 8) + bit + 1
                 }
             }
         }
@@ -187,6 +187,25 @@ impl ssz::Decodable for BooleanBitfield {
 mod tests {
     use super::*;
     use ssz::Decodable;
+
+    #[test]
+    fn test_new_from_slice() {
+        let s = [0];
+        let b = BooleanBitfield::from(&s[..]);
+        assert_eq!(b.len, 0);
+
+        let s = [255];
+        let b = BooleanBitfield::from(&s[..]);
+        assert_eq!(b.len, 8);
+
+        let s = [0, 1];
+        let b = BooleanBitfield::from(&s[..]);
+        assert_eq!(b.len, 9);
+
+        let s = [31];
+        let b = BooleanBitfield::from(&s[..]);
+        assert_eq!(b.len, 5);
+    }
 
     #[test]
     fn test_ssz_encoding() {
