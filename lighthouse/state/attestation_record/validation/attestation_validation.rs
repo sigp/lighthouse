@@ -45,114 +45,133 @@ pub enum AttestationValidationError {
     DBError(String),
 }
 
-pub fn validate_attestation<T>(a: &AttestationRecord,
-                               block_slot: u64,
-                               cycle_length: u8,
-                               known_last_justified_slot: u64,
-                               known_parent_hashes: &Arc<Vec<Hash256>>,
-                               block_store: &Arc<BlockStore<T>>,
-                               validator_store: &Arc<ValidatorStore<T>>,
-                               attester_map: &Arc<AttesterMap>)
-    -> Result<Option<HashSet<usize>>, AttestationValidationError>
+pub struct AttestationValidationContext<T>
     where T: ClientDB + Sized
 {
-    /*
-     * The attesation slot must not be higher than the block that contained it.
-     */
-    if a.slot > block_slot {
-        return Err(AttestationValidationError::SlotTooHigh);
-    }
+    pub block_slot: u64,
+    pub cycle_length: u8,
+    pub last_justified_slot: u64,
+    pub parent_hashes: Arc<Vec<Hash256>>,
+    pub block_store: Arc<BlockStore<T>>,
+    pub validator_store: Arc<ValidatorStore<T>>,
+    pub attester_map: Arc<AttesterMap>,
+}
 
-    /*
-     * The slot of this attestation must not be more than cycle_length + 1 distance
-     * from the block that contained it.
-     *
-     * The below code stays overflow-safe as long as cycle length is a < 64 bit integer.
-     */
-    if a.slot < block_slot.saturating_sub(u64::from(cycle_length) + 1) {
-        return Err(AttestationValidationError::SlotTooLow);
-    }
-
-    /*
-     * The attestation must indicate that its last justified slot is the same as the last justified
-     * slot known to us.
-     */
-    if a.justified_slot > known_last_justified_slot {
-        return Err(AttestationValidationError::JustifiedSlotTooHigh);
-    }
-
-    /*
-     * There is no need to include more oblique parents hashes than there are blocks
-     * in a cycle.
-     */
-    if a.oblique_parent_hashes.len() > usize::from(cycle_length) {
-        return Err(AttestationValidationError::TooManyObliqueHashes);
-    }
-
-    /*
-     * Retrieve the set of attestation indices for this slot and shard id.
-     *
-     * This is an array mapping the order that validators will appear in the bitfield to the
-     * canonincal index of a validator.
-     */
-    let attestation_indices = attester_map.get(&(a.slot, a.shard_id))
-        .ok_or(AttestationValidationError::BadAttesterMap)?;
-
-    /*
-     * The bitfield must be no longer than the minimum required to represent each validator in the
-     * attestation indicies for this slot and shard id.
-     */
-    if a.attester_bitfield.num_bytes() !=
-        bytes_for_bits(attestation_indices.len())
+impl<T> AttestationValidationContext<T>
+    where T: ClientDB
+{
+    pub fn validate_attestation(&self, a: &AttestationRecord)
+                                   /*
+                                   block_slot: u64,
+                                   cycle_length: u8,
+                                   known_last_justified_slot: u64,
+                                   known_parent_hashes: &Arc<Vec<Hash256>>,
+                                   block_store: &Arc<BlockStore<T>>,
+                                   validator_store: &Arc<ValidatorStore<T>>,
+                                   attester_map: &Arc<AttesterMap>)
+                                   */
+        -> Result<Option<HashSet<usize>>, AttestationValidationError>
+        where T: ClientDB + Sized
     {
-        return Err(AttestationValidationError::BadBitfieldLength);
+        /*
+         * The attesation slot must not be higher than the block that contained it.
+         */
+        if a.slot > self.block_slot {
+            return Err(AttestationValidationError::SlotTooHigh);
+        }
+
+        /*
+         * The slot of this attestation must not be more than cycle_length + 1 distance
+         * from the block that contained it.
+         *
+         * The below code stays overflow-safe as long as cycle length is a < 64 bit integer.
+         */
+        if a.slot < self.block_slot
+            .saturating_sub(u64::from(self.cycle_length).saturating_add(1)) {
+            return Err(AttestationValidationError::SlotTooLow);
+        }
+
+        /*
+         * The attestation must indicate that its last justified slot is the same as the last justified
+         * slot known to us.
+         */
+        if a.justified_slot > self.last_justified_slot {
+            return Err(AttestationValidationError::JustifiedSlotTooHigh);
+        }
+
+        /*
+         * There is no need to include more oblique parents hashes than there are blocks
+         * in a cycle.
+         */
+        if a.oblique_parent_hashes.len() > usize::from(self.cycle_length) {
+            return Err(AttestationValidationError::TooManyObliqueHashes);
+        }
+
+        /*
+         * Retrieve the set of attestation indices for this slot and shard id.
+         *
+         * This is an array mapping the order that validators will appear in the bitfield to the
+         * canonincal index of a validator.
+         */
+        let attestation_indices = self.attester_map.get(&(a.slot, a.shard_id))
+            .ok_or(AttestationValidationError::BadAttesterMap)?;
+
+        /*
+         * The bitfield must be no longer than the minimum required to represent each validator in the
+         * attestation indicies for this slot and shard id.
+         */
+        if a.attester_bitfield.num_bytes() !=
+            bytes_for_bits(attestation_indices.len())
+        {
+            return Err(AttestationValidationError::BadBitfieldLength);
+        }
+
+        /*
+         * If there are excess bits in the bitfield because the number of a validators in not a
+         * multiple of 8, reject this attestation record.
+         *
+         * Allow extra set bits would permit mutliple different byte layouts (and therefore hashes) to
+         * refer to the same AttesationRecord.
+         */
+        let last_byte =
+            a.attester_bitfield.get_byte(a.attester_bitfield.num_bytes() - 1)
+            .ok_or(AttestationValidationError::InvalidBitfield)?;
+        if any_of_last_n_bits_are_set(*last_byte, a.attester_bitfield.len() % 8) {
+            return Err(AttestationValidationError::InvalidBitfieldEndBits)
+        }
+
+        /*
+         * The specified justified block hash must be known to us
+         */
+        if !self.block_store.block_exists(&a.justified_block_hash)? {
+            return Err(AttestationValidationError::UnknownJustifiedBlock)
+        }
+
+        let signed_message = {
+            let parent_hashes = attestation_parent_hashes(
+                self.cycle_length,
+                self.block_slot,
+                a.slot,
+                &self.parent_hashes,
+                &a.oblique_parent_hashes)?;
+            generate_signed_message(
+                a.slot,
+                &parent_hashes,
+                a.shard_id,
+                &a.shard_block_hash,
+                a.justified_slot)
+        };
+
+        let voted_hashmap =
+            verify_aggregate_signature_for_indices(
+                &signed_message,
+                &a.aggregate_sig,
+                &attestation_indices,
+                &a.attester_bitfield,
+                &self.validator_store)?;
+
+        Ok(voted_hashmap)
     }
-
-    /*
-     * If there are excess bits in the bitfield because the number of a validators in not a
-     * multiple of 8, reject this attestation record.
-     *
-     * Allow extra set bits would permit mutliple different byte layouts (and therefore hashes) to
-     * refer to the same AttesationRecord.
-     */
-    let last_byte =
-        a.attester_bitfield.get_byte(a.attester_bitfield.num_bytes() - 1)
-        .ok_or(AttestationValidationError::InvalidBitfield)?;
-    if any_of_last_n_bits_are_set(*last_byte, a.attester_bitfield.len() % 8) {
-        return Err(AttestationValidationError::InvalidBitfieldEndBits)
-    }
-
-    /*
-     * The specified justified block hash must be known to us
-     */
-    if !block_store.block_exists(&a.justified_block_hash)? {
-        return Err(AttestationValidationError::UnknownJustifiedBlock)
-    }
-
-    let signed_message = {
-        let parent_hashes = attestation_parent_hashes(
-            cycle_length,
-            block_slot,
-            a.slot,
-            &known_parent_hashes,
-            &a.oblique_parent_hashes)?;
-        generate_signed_message(
-            a.slot,
-            &parent_hashes,
-            a.shard_id,
-            &a.shard_block_hash,
-            a.justified_slot)
-    };
-
-    let voted_hashmap =
-        verify_aggregate_signature_for_indices(
-            &signed_message,
-            &a.aggregate_sig,
-            &attestation_indices,
-            &a.attester_bitfield,
-            &validator_store)?;
-
-    Ok(voted_hashmap)
 }
 
 fn bytes_for_bits(bits: usize) -> usize {

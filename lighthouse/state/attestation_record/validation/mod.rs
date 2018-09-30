@@ -11,6 +11,6 @@ mod signature_verification;
 mod message_generation;
 
 pub use self::attestation_validation::{
-    validate_attestation,
+    AttestationValidationContext,
     AttestationValidationError,
 };
