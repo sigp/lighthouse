@@ -7,7 +7,7 @@ use std::sync::{
     RwLock,
 };
 use super::attestation_record::{
-    validate_attestation,
+    AttestationValidationContext,
     AttestationValidationError,
 };
 use super::attestation_record::{
@@ -99,10 +99,6 @@ impl<T> BlockValidationContext<T>
     /// a suspicion that the block might be invalid. Such a suspicion should be applied to
     /// all blocks coming from the network.
     ///
-    /// Of course, this function will only be more efficient if a block is already serialized.
-    /// Serializing a complete block and then validating with this function will be less
-    /// efficient than just validating the original block.
-    ///
     /// This function will determine if the block is new, already known or invalid (either
     /// intrinsically or due to some application error.)
     ///
@@ -184,17 +180,23 @@ impl<T> BlockValidationContext<T>
         }
 
         /*
+         * Generate the context in which attestations will be validated.
+         */
+        let attestation_validation_context = Arc::new(AttestationValidationContext {
+            block_slot,
+            cycle_length: self.cycle_length,
+            last_justified_slot: self.last_justified_slot,
+            parent_hashes: self.parent_hashes.clone(),
+            block_store: self.block_store.clone(),
+            validator_store: self.validator_store.clone(),
+            attester_map: self.attester_map.clone(),
+        });
+
+        /*
          * Validate this first attestation.
          */
-        let attestation_voters = validate_attestation(
-            &first_attestation,
-            block_slot,
-            self.cycle_length,
-            self.last_justified_slot,
-            &self.parent_hashes,
-            &self.block_store,
-            &self.validator_store,
-            &self.attester_map)?;
+        let attestation_voters = attestation_validation_context
+            .validate_attestation(&first_attestation)?;
 
         /*
          * If the set of voters is None, the attestation was invalid.
@@ -274,16 +276,7 @@ impl<T> BlockValidationContext<T>
                      * Deserialization succeeded and the attestation should be validated.
                      */
                     Ok((attestation, _)) => {
-                        let result = validate_attestation(
-                            &attestation,
-                            block_slot,
-                            self.cycle_length,
-                            self.last_justified_slot,
-                            &self.parent_hashes,
-                            &self.block_store,
-                            &self.validator_store,
-                            &self.attester_map);
-                        match result {
+                        match attestation_validation_context.validate_attestation(&attestation) {
                             /*
                              * Attestation validation failed with some error.
                              */

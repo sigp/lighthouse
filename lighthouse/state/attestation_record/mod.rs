@@ -19,6 +19,6 @@ pub use self::ssz_splitter::{
     AttestationSplitError,
 };
 pub use self::validation::{
-    validate_attestation,
+    AttestationValidationContext,
     AttestationValidationError,
 };
