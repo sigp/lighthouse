@@ -18,13 +18,13 @@ impl<T: ClientDB> BlockStore<T> {
         }
     }
 
-    pub fn put_block(&self, hash: &[u8], ssz: &[u8])
+    pub fn put_serialized_block(&self, hash: &[u8], ssz: &[u8])
         -> Result<(), DBError>
     {
         self.db.put(DB_COLUMN, hash, ssz)
     }
 
-    pub fn get_block(&self, hash: &[u8])
+    pub fn get_serialized_block(&self, hash: &[u8])
         -> Result<Option<Vec<u8>>, DBError>
     {
         self.db.get(DB_COLUMN, hash)
@@ -70,7 +70,7 @@ mod tests {
                 for w in 0..wc {
                     let key = (t * w) as u8;
                     let val = 42;
-                    bs.put_block(&vec![key], &vec![val]).unwrap();
+                    bs.put_serialized_block(&vec![key], &vec![val]).unwrap();
                 }
             });
             handles.push(handle);
@@ -84,7 +84,7 @@ mod tests {
             for w in 0..write_count {
                 let key = (t * w) as u8;
                 assert!(bs.block_exists(&vec![key]).unwrap());
-                let val = bs.get_block(&vec![key]).unwrap().unwrap();
+                let val = bs.get_serialized_block(&vec![key]).unwrap().unwrap();
                 assert_eq!(vec![42], val);
             }
         }
