@@ -1,4 +1,5 @@
 extern crate rayon;
+
 use self::rayon::prelude::*;
 
 use std::sync::{
@@ -21,6 +22,7 @@ use super::{
 };
 use super::{
     SszBlock,
+    SszBlockError,
     Block,
 };
 use super::db::{
@@ -40,24 +42,25 @@ use super::utils::types::Hash256;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockStatus {
-    NewBlockInCanonicalChain,
-    NewBlockInForkChain,
+    NewBlock,
     KnownBlock,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum SszBlockValidationError {
     FutureSlot,
+    SlotAlreadyFinalized,
     UnknownPoWChainRef,
     UnknownParentHash,
     BadAttestationSsz,
     AttestationValidationError(AttestationValidationError),
     AttestationSignatureFailed,
     FirstAttestationSignatureFailed,
+    ProposerAttestationHasObliqueHashes,
     NoProposerSignature,
     BadProposerMap,
     RwLockPoisoned,
-    DatabaseError(String),
+    DBError(String),
 }
 
 /// The context against which a block should be validated.
@@ -70,6 +73,8 @@ pub struct BlockValidationContext<T>
     pub cycle_length: u8,
     /// The last justified slot as per the client's view of the canonical chain.
     pub last_justified_slot: u64,
+    /// The last finalized slot as per the client's view of the canonical chain.
+    pub last_finalized_slot: u64,
     /// A vec of the hashes of the blocks preceeding the present slot.
     pub parent_hashes: Arc<Vec<Hash256>>,
     /// A map of slots to a block proposer validation index.
@@ -110,8 +115,16 @@ impl<T> BlockValidationContext<T>
     {
 
         /*
-         * If the block slot corresponds to a slot in the future (according to the local time),
-         * drop it.
+         * If this block is already known, return immediately and indicate the the block is
+         * known. Don't attempt to deserialize the block.
+         */
+        let block_hash = &b.block_hash();
+        if self.block_store.block_exists(&block_hash)? {
+            return Ok((BlockStatus::KnownBlock, None));
+        }
+
+        /*
+         * If the block slot corresponds to a slot in the future, drop it.
          */
         let block_slot = b.slot_number();
         if block_slot > self.present_slot {
@@ -119,21 +132,23 @@ impl<T> BlockValidationContext<T>
         }
 
         /*
-         * If this block is already known, return immediately.
+         * If the block is unknown (assumed unknown because we checked the db earlier in this
+         * function) and it comes from a slot that is already finalized, drop the block.
+         *
+         * If a slot is finalized, there's no point in considering any other blocks for that slot.
          */
-        let block_hash = &b.block_hash();
-        if self.block_store.block_exists(&block_hash)? {
-            return Ok((BlockStatus::KnownBlock, None));
+        if block_slot <= self.last_finalized_slot {
+            return Err(SszBlockValidationError::SlotAlreadyFinalized);
         }
-
 
         /*
          * If the PoW chain hash is not known to us, drop it.
          *
          * We only accept blocks that reference a known PoW hash.
          *
-         * Note: it is not clear what a "known" PoW chain ref is. Likely,
-         * it means "sufficienty deep in the canonical PoW chain".
+         * Note: it is not clear what a "known" PoW chain ref is. Likely it means the block hash is
+         * "sufficienty deep in the canonical PoW chain". This should be clarified as the spec
+         * crystallizes.
          */
         let pow_chain_ref = b.pow_chain_ref();
         if !self.pow_store.block_hash_exists(b.pow_chain_ref())? {
@@ -141,13 +156,16 @@ impl<T> BlockValidationContext<T>
         }
 
         /*
-         * Store a reference to the serialized attestations from the block.
+         * Store a slice of the serialized attestations from the block SSZ.
          */
         let attestations_ssz = &b.attestations();
 
         /*
-         * Get a slice of the first serialized attestation (the 0th) and decode it into
+         * Get a slice of the first serialized attestation (the 0'th) and decode it into
          * a full AttestationRecord object.
+         *
+         * The first attestation must be validated separately as it must contain a signature of the
+         * proposer of the previous block (this is checked later in this function).
          */
         let (first_attestation_ssz, next_index) = split_one_attestation(
             &attestations_ssz,
@@ -156,10 +174,17 @@ impl<T> BlockValidationContext<T>
             &first_attestation_ssz, 0)?;
 
         /*
-         * Validate this first attestation.
+         * The first attestation may not have oblique hashes.
          *
-         * It is a requirement that the block proposer for this slot
-         * must have signed the 0th attestation record.
+         * The presence of oblique hashes in the first attestation would indicate that the proposer
+         * of the previous block is attesting to some other block than the one they produced.
+         */
+        if first_attestation.oblique_parent_hashes.len() > 0 {
+            return Err(SszBlockValidationError::ProposerAttestationHasObliqueHashes);
+        }
+
+        /*
+         * Validate this first attestation.
          */
         let attestation_voters = validate_attestation(
             &first_attestation,
@@ -179,16 +204,28 @@ impl<T> BlockValidationContext<T>
                    FirstAttestationSignatureFailed)?;
 
         /*
-         * Read the proposer from the map of slot -> validator index.
+         * Read the parent hash from the block we are validating then attempt to load
+         * the parent block ssz from the database. If that parent doesn't exist in
+         * the database, reject the block.
+         *
+         * If the parent does exist in the database, read the slot of that parent. Then,
+         * determine the proposer of that slot (the parent slot) by looking it up
+         * in the proposer map.
+         *
+         * If that proposer (the proposer of the parent block) was not present in the first (0'th)
+         * attestation of this block, reject the block.
          */
-        let proposer = self.proposer_map.get(&block_slot)
-            .ok_or(SszBlockValidationError::BadProposerMap)?;
-
-        /*
-         * If the proposer for this slot was not a voter, reject the block.
-         */
-        if !attestation_voters.contains(&proposer) {
-            return Err(SszBlockValidationError::NoProposerSignature);
+        let parent_hash = b.parent_hash();
+        match self.block_store.get_serialized_block(&parent_hash)? {
+            None => return Err(SszBlockValidationError::UnknownParentHash),
+            Some(ssz) => {
+                let parent_block = SszBlock::from_slice(&ssz[..])?;
+                let proposer = self.proposer_map.get(&parent_block.slot_number())
+                    .ok_or(SszBlockValidationError::BadProposerMap)?;
+                if !attestation_voters.contains(&proposer) {
+                    return Err(SszBlockValidationError::NoProposerSignature);
+                }
+            }
         }
 
         /*
@@ -210,7 +247,7 @@ impl<T> BlockValidationContext<T>
          * is found.
          */
         let failure: RwLock<Option<SszBlockValidationError>> = RwLock::new(None);
-        let deserialized_attestations: Vec<AttestationRecord> = other_attestations
+        let mut deserialized_attestations: Vec<AttestationRecord> = other_attestations
             .par_iter()
             .filter_map(|attestation_ssz| {
                 /*
@@ -285,20 +322,15 @@ impl<T> BlockValidationContext<T>
         }
 
         /*
+         * Add the first attestation to the vec of deserialized attestations at
+         * index 0.
+         */
+        deserialized_attestations.insert(0, first_attestation);
+
+        /*
          * If we have reached this point, the block is a new valid block that is worthy of
          * processing.
          */
-
-        /*
-         * If the block's parent_hash _is_ in the canonical chain, the block is a
-         * new block in the canonical chain. Otherwise, it's a new block in a fork chain.
-         */
-        let parent_hash = b.parent_hash();
-        let status = if self.block_store.block_exists_in_canonical_chain(&parent_hash)? {
-            BlockStatus::NewBlockInCanonicalChain
-        } else {
-            BlockStatus::NewBlockInForkChain
-        };
         let block = Block {
             parent_hash: Hash256::from(parent_hash),
             slot_number: block_slot,
@@ -308,13 +340,13 @@ impl<T> BlockValidationContext<T>
             active_state_root: Hash256::from(b.act_state_root()),
             crystallized_state_root: Hash256::from(b.cry_state_root()),
         };
-        Ok((status, Some(block)))
+        Ok((BlockStatus::NewBlock, Some(block)))
     }
 }
 
 impl From<DBError> for SszBlockValidationError {
     fn from(e: DBError) -> Self {
-        SszBlockValidationError::DatabaseError(e.message)
+        SszBlockValidationError::DBError(e.message)
     }
 }
 
@@ -323,6 +355,17 @@ impl From<AttestationSplitError> for SszBlockValidationError {
         match e {
             AttestationSplitError::TooShort =>
                 SszBlockValidationError::BadAttestationSsz
+        }
+    }
+}
+
+impl From<SszBlockError> for SszBlockValidationError {
+    fn from(e: SszBlockError) -> Self {
+        match e {
+            SszBlockError::TooShort =>
+                SszBlockValidationError::DBError("Bad parent block in db.".to_string()),
+            SszBlockError::TooLong =>
+                SszBlockValidationError::DBError("Bad parent block in db.".to_string()),
         }
     }
 }

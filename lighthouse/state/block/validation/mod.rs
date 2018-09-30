@@ -7,6 +7,7 @@ mod benches;
 use super::attestation_record;
 use super::{
     SszBlock,
+    SszBlockError,
     Block,
 };
 use super::db;

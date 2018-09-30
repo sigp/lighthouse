@@ -92,13 +92,22 @@ pub fn setup_block_validation_scenario(params: &TestParams)
     let shard_block_hash = Hash256::from("shard_block_hash".as_bytes());
 
     stores.pow_chain.put_block_hash(pow_chain_ref.as_ref()).unwrap();
-    stores.block.put_block(justified_block_hash.as_ref(), &vec![42]).unwrap();
-    stores.block.put_block(parent_hash.as_ref(), &vec![42]).unwrap();
+    stores.block.put_serialized_block(justified_block_hash.as_ref(), &vec![42]).unwrap();
+
+    /*
+     * Generate a minimum viable parent block and store it in the database.
+     */
+    let mut parent_block = Block::zero();
+    let parent_attestation = AttestationRecord::zero();
+    parent_block.slot_number = block_slot - 1;
+    parent_block.attestations.push(parent_attestation);
+    let parent_block_ssz = serialize_block(&parent_block);
+    stores.block.put_serialized_block(parent_hash.as_ref(), &parent_block_ssz).unwrap();
 
     let validator_index: usize = 0;
     let proposer_map = {
         let mut proposer_map = ProposerMap::new();
-        proposer_map.insert(block_slot, validator_index);
+        proposer_map.insert(parent_block.slot_number, validator_index);
         proposer_map
     };
 
@@ -209,6 +218,7 @@ pub fn serialize_block(b: &Block) -> Vec<u8> {
 pub fn run_block_validation_scenario<F>(
     validation_slot: u64,
     validation_last_justified_slot: u64,
+    validation_last_finalized_slot: u64,
     params: &TestParams,
     mutator_func: F)
     -> Result<(BlockStatus, Option<Block>), SszBlockValidationError>
@@ -234,6 +244,7 @@ pub fn run_block_validation_scenario<F>(
         present_slot: validation_slot,
         cycle_length: params.cycle_length,
         last_justified_slot: validation_last_justified_slot,
+        last_finalized_slot: validation_last_finalized_slot,
         parent_hashes: Arc::new(parent_hashes),
         proposer_map: Arc::new(proposer_map),
         attester_map: Arc::new(attester_map),
@@ -265,11 +276,12 @@ fn get_simple_params() -> TestParams {
 }
 
 #[test]
-fn test_block_validation_simple_scenario_valid_in_canonical_chain() {
+fn test_block_validation_simple_scenario_valid() {
     let params = get_simple_params();
 
     let validation_slot = params.block_slot;
     let validation_last_justified_slot = params.attestations_justified_slot;
+    let validation_last_finalized_slot = 0;
 
     let no_mutate = |block, attester_map, proposer_map, stores| {
         (block, attester_map, proposer_map, stores)
@@ -278,31 +290,34 @@ fn test_block_validation_simple_scenario_valid_in_canonical_chain() {
     let status = run_block_validation_scenario(
         validation_slot,
         validation_last_justified_slot,
+        validation_last_finalized_slot,
         &params,
         no_mutate);
 
-    assert_eq!(status.unwrap().0, BlockStatus::NewBlockInCanonicalChain);
+    assert_eq!(status.unwrap().0, BlockStatus::NewBlock);
 }
 
 #[test]
-fn test_block_validation_simple_scenario_valid_not_in_canonical_chain() {
+fn test_block_validation_simple_scenario_invalid_unknown_parent_block() {
     let params = get_simple_params();
 
     let validation_slot = params.block_slot;
     let validation_last_justified_slot = params.attestations_justified_slot;
+    let validation_last_finalized_slot = 0;
 
     let no_mutate = |mut block: Block, attester_map, proposer_map, stores| {
-        block.parent_hash = Hash256::from("not in canonical chain".as_bytes());
+        block.parent_hash = Hash256::from("unknown parent block".as_bytes());
         (block, attester_map, proposer_map, stores)
     };
 
     let status = run_block_validation_scenario(
         validation_slot,
         validation_last_justified_slot,
+        validation_last_finalized_slot,
         &params,
         no_mutate);
 
-    assert_eq!(status.unwrap().0, BlockStatus::NewBlockInForkChain);
+    assert_eq!(status, Err(SszBlockValidationError::UnknownParentHash));
 }
 
 #[test]
@@ -311,6 +326,7 @@ fn test_block_validation_simple_scenario_invalid_2nd_attestation() {
 
     let validation_slot = params.block_slot;
     let validation_last_justified_slot = params.attestations_justified_slot;
+    let validation_last_finalized_slot = 0;
 
     let mutator = |mut block: Block, attester_map, proposer_map, stores| {
         /*
@@ -323,6 +339,7 @@ fn test_block_validation_simple_scenario_invalid_2nd_attestation() {
     let status = run_block_validation_scenario(
         validation_slot,
         validation_last_justified_slot,
+        validation_last_finalized_slot,
         &params,
         mutator);
 

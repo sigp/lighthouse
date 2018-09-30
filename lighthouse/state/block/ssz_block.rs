@@ -10,7 +10,7 @@ use super::structs::{
 use super::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH;
 
 #[derive(Debug, PartialEq)]
-pub enum BlockValidatorError {
+pub enum SszBlockError {
     TooShort,
     TooLong,
 }
@@ -46,7 +46,7 @@ impl<'a> SszBlock<'a> {
     /// how many bytes were read from the slice. In the case of multiple, sequentually serialized
     /// blocks `len` can be used to assume the location of the next serialized block.
     pub fn from_slice(vec: &'a [u8])
-        -> Result<Self, BlockValidatorError>
+        -> Result<Self, SszBlockError>
     {
         let untrimmed_ssz = &vec[..];
         /*
@@ -55,19 +55,19 @@ impl<'a> SszBlock<'a> {
          * attestation record).
          */
         if vec.len() < MIN_SSZ_BLOCK_LENGTH + MIN_SSZ_ATTESTION_RECORD_LENGTH {
-            return Err(BlockValidatorError::TooShort);
+            return Err(SszBlockError::TooShort);
         }
         /*
          * Ensure the SSZ slice isn't longer than is possible for a block.
          */
         if vec.len() > MAX_SSZ_BLOCK_LENGTH {
-            return Err(BlockValidatorError::TooLong);
+            return Err(SszBlockError::TooLong);
         }
         /*
          * Determine how many bytes are used to store attestation records.
          */
         let attestation_len = decode_length(untrimmed_ssz, 72, LENGTH_BYTES)
-            .map_err(|_| BlockValidatorError::TooShort)?;
+            .map_err(|_| SszBlockError::TooShort)?;
         /*
          * The block only has one variable field, `attestations`, therefore
          * the size of the block must be the minimum size, plus the length
@@ -77,7 +77,7 @@ impl<'a> SszBlock<'a> {
             MIN_SSZ_BLOCK_LENGTH + attestation_len
         };
         if vec.len() < block_ssz_len {
-            return Err(BlockValidatorError::TooShort);
+            return Err(SszBlockError::TooShort);
         }
         Ok(Self{
             ssz: &untrimmed_ssz[0..block_ssz_len],
@@ -171,7 +171,7 @@ mod tests {
 
         assert_eq!(
             SszBlock::from_slice(&ssz[..]),
-            Err(BlockValidatorError::TooShort)
+            Err(SszBlockError::TooShort)
         );
     }
 
@@ -183,7 +183,7 @@ mod tests {
 
         assert_eq!(
             SszBlock::from_slice(&ssz[0..(ssz.len() - 1)]),
-            Err(BlockValidatorError::TooShort)
+            Err(SszBlockError::TooShort)
         );
     }
 
