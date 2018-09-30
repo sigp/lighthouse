@@ -1,4 +1,4 @@
-mod validate_ssz_block;
+mod block_validation;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -18,7 +18,7 @@ use super::common::maps::{
     AttesterMap,
     ProposerMap,
 };
-pub use self::validate_ssz_block::{
+pub use self::block_validation::{
     BlockValidationContext,
     SszBlockValidationError,
     BlockStatus,
