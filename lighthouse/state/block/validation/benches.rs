@@ -24,8 +24,6 @@ use super::super::{
 
 fn bench_block_validation_scenario<F>(
     b: &mut Bencher,
-    validation_slot: u64,
-    validation_last_justified_slot: u64,
     params: &TestParams,
     mutator_func: F)
     where F: FnOnce(Block, AttesterMap, ProposerMap, TestStore)
@@ -51,9 +49,10 @@ fn bench_block_validation_scenario<F>(
     let attester_map = Arc::new(attester_map);
     b.iter(|| {
         let context = BlockValidationContext {
-            present_slot: validation_slot,
+            present_slot: params.validation_context_slot,
             cycle_length: params.cycle_length,
-            last_justified_slot: validation_last_justified_slot,
+            last_justified_slot: params.validation_context_justified_slot,
+            last_finalized_slot: params.validation_context_finalized_slot,
             parent_hashes: parent_hashes.clone(),
             proposer_map: proposer_map.clone(),
             attester_map: attester_map.clone(),
@@ -61,7 +60,8 @@ fn bench_block_validation_scenario<F>(
             validator_store: stores.validator.clone(),
             pow_store: stores.pow_chain.clone()
         };
-        context.validate_ssz_block(&ssz_block)
+        let result = context.validate_ssz_block(&ssz_block);
+        assert!(result.is_ok());
     });
 }
 
@@ -74,6 +74,11 @@ fn bench_block_validation_10m_eth(b: &mut Bencher) {
     let validators_per_shard: usize = total_validators / usize::from(shard_count);
     let block_slot = u64::from(cycle_length) * 10000;
     let attestations_justified_slot = block_slot - u64::from(cycle_length);
+    let parent_proposer_index = 0;
+
+    let validation_context_slot = block_slot;
+    let validation_context_justified_slot = attestations_justified_slot;
+    let validation_context_finalized_slot = 0;
 
     let params = TestParams {
         total_validators,
@@ -81,11 +86,13 @@ fn bench_block_validation_10m_eth(b: &mut Bencher) {
         shard_count,
         shards_per_slot,
         validators_per_shard,
+        parent_proposer_index,
         block_slot,
         attestations_justified_slot,
+        validation_context_slot,
+        validation_context_justified_slot,
+        validation_context_finalized_slot,
     };
-    let validation_slot = params.block_slot;
-    let validation_last_justified_slot = params.attestations_justified_slot;
 
     let no_mutate = |block, attester_map, proposer_map, stores| {
         (block, attester_map, proposer_map, stores)
@@ -93,8 +100,6 @@ fn bench_block_validation_10m_eth(b: &mut Bencher) {
 
     bench_block_validation_scenario(
         b,
-        validation_slot,
-        validation_last_justified_slot,
         &params,
         no_mutate);
 }
@@ -108,6 +113,11 @@ fn bench_block_validation_100m_eth(b: &mut Bencher) {
     let validators_per_shard: usize = total_validators / usize::from(shard_count);
     let block_slot = u64::from(cycle_length) * 10000;
     let attestations_justified_slot = block_slot - u64::from(cycle_length);
+    let parent_proposer_index = 0;
+
+    let validation_context_slot = block_slot;
+    let validation_context_justified_slot = attestations_justified_slot;
+    let validation_context_finalized_slot = 0;
 
     let params = TestParams {
         total_validators,
@@ -115,12 +125,13 @@ fn bench_block_validation_100m_eth(b: &mut Bencher) {
         shard_count,
         shards_per_slot,
         validators_per_shard,
+        parent_proposer_index,
         block_slot,
         attestations_justified_slot,
+        validation_context_slot,
+        validation_context_justified_slot,
+        validation_context_finalized_slot,
     };
-
-    let validation_slot = params.block_slot;
-    let validation_last_justified_slot = params.attestations_justified_slot;
 
     let no_mutate = |block, attester_map, proposer_map, stores| {
         (block, attester_map, proposer_map, stores)
@@ -128,8 +139,6 @@ fn bench_block_validation_100m_eth(b: &mut Bencher) {
 
     bench_block_validation_scenario(
         b,
-        validation_slot,
-        validation_last_justified_slot,
         &params,
         no_mutate);
 }
