@@ -120,12 +120,8 @@ pub fn generate_attestation(shard_id: u16,
     }
 }
 
-/*
-fn get_valid_attestation_and_context(shard_id: u16,
-                                     shard_block_hash: Hash256,
-                                     attester_count: usize,
-                                     signing_attesters: &[usize])
-    -> (AttestationRecord, AttestationValidationContext<MemoryDB>)
+pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
+    -> (AttestationRecord, AttestationValidationContext<MemoryDB>, TestStore)
 {
     let stores = TestStore::new();
 
@@ -136,42 +132,50 @@ fn get_valid_attestation_and_context(shard_id: u16,
         .map(|i| Hash256::from(i as u64))
         .collect();
     let parent_hashes = Arc::new(parent_hashes);
-    let attester_map = Arc::new(AttesterMap::new());
     let justified_block_hash = Hash256::from("justified_block".as_bytes());
+    let shard_block_hash = Hash256::from("shard_block".as_bytes());
 
     stores.block.put_serialized_block(&justified_block_hash.as_ref(), &[42]).unwrap();
 
-    let aggregate_sig = AggregateSignature::new();
-    let attester_bitfield = Bitfield::new();
+    let attestation_slot = block_slot - 1;
 
-    let mut attestation_indices = vec![];
-    for attester_index in 0..attester_count {
-        let kp = Keypair::random();
-        let validator_index = attester_count - attester_index;
-        attestation_indices.push(validator_index);
-        stores.validator.put_public_key_by_index(validator_index, &kp.pk);
+    let mut keypairs = vec![];
+    let mut signing_keys = vec![];
+    let mut attester_map = AttesterMap::new();
+    let mut attesters = vec![];
+
+    /*
+     * Generate a random keypair for each validator and clone it into the
+     * list of keypairs. Store it in the database.
+     */
+    for i in 0..attester_count {
+       let keypair = Keypair::random();
+       keypairs.push(keypair.clone());
+       stores.validator.put_public_key_by_index(i, &keypair.pk).unwrap();
+       signing_keys.push(Some(keypair.sk.clone()));
+       attesters.push(i);
     }
+    attester_map.insert((attestation_slot, shard_id), attesters);
 
     let context: AttestationValidationContext<MemoryDB> = AttestationValidationContext {
         block_slot,
         cycle_length,
         last_justified_slot,
-        parent_hashes,
+        parent_hashes: parent_hashes.clone(),
         block_store: stores.block.clone(),
         validator_store: stores.validator.clone(),
-        attester_map,
+        attester_map: Arc::new(attester_map),
     };
-
-    let attestation = AttestationRecord {
-        slot: block_slot - 1,
+    let attestation = generate_attestation(
         shard_id,
-        oblique_parent_hashes: vec![],
-        shard_block_hash,
-        attester_bitfield,
-        justified_slot: last_justified_slot,
-        justified_block_hash,
-        aggregate_sig,
-    };
-    (attestation, context)
+        &shard_block_hash,
+        block_slot,
+        attestation_slot,
+        last_justified_slot,
+        &justified_block_hash,
+        cycle_length,
+        &parent_hashes.clone(),
+        &signing_keys);
+
+    (attestation, context, stores)
 }
-*/

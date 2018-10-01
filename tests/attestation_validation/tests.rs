@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::helpers::{
     TestStore,
+    setup_attestation_validation_test,
 };
 use super::state::attestation_record::{
     AttestationRecord,
@@ -27,5 +28,9 @@ use super::utils::types::{
 
 #[test]
 fn test_attestation_validation_valid() {
-    // TODO
+    let (a, c, _stores) = setup_attestation_validation_test(10, 2);
+
+    let result = c.validate_attestation(&a);
+
+    assert!(result.unwrap().is_some());
 }

@@ -126,7 +126,7 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
          */
         for shard in 0..shards_per_slot {
            let mut signing_keys = vec![];
-            let mut attesters = vec![];
+           let mut attesters = vec![];
            /*
             * Generate a random keypair for each validator and clone it into the
             * list of keypairs. Store it in the database.
