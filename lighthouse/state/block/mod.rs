@@ -8,7 +8,7 @@ use super::utils;
 
 mod structs;
 mod ssz_block;
-mod validation;
+pub mod validation;
 
 pub use self::structs::Block;
 pub use self::ssz_block::{

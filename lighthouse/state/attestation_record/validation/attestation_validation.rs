@@ -61,17 +61,7 @@ impl<T> AttestationValidationContext<T>
     where T: ClientDB
 {
     pub fn validate_attestation(&self, a: &AttestationRecord)
-                                   /*
-                                   block_slot: u64,
-                                   cycle_length: u8,
-                                   known_last_justified_slot: u64,
-                                   known_parent_hashes: &Arc<Vec<Hash256>>,
-                                   block_store: &Arc<BlockStore<T>>,
-                                   validator_store: &Arc<ValidatorStore<T>>,
-                                   attester_map: &Arc<AttesterMap>)
-                                   */
         -> Result<Option<HashSet<usize>>, AttestationValidationError>
-        where T: ClientDB + Sized
     {
         /*
          * The attesation slot must not be higher than the block that contained it.
