@@ -10,7 +10,6 @@ use super::db::stores::{
 use super::state::attestation_record::{
     AttestationRecord,
     AttestationValidationContext,
-    AttestationValidationError,
 };
 use super::state::block::validation::AttesterMap;
 use super::bls::{
@@ -46,6 +45,13 @@ impl TestStore {
             validator,
         }
     }
+}
+
+pub struct TestRig {
+    pub attestation: AttestationRecord,
+    pub context: AttestationValidationContext<MemoryDB>,
+    pub stores: TestStore,
+    pub attester_count: usize,
 }
 
 fn generate_message_hash(slot: u64,
@@ -121,7 +127,7 @@ pub fn generate_attestation(shard_id: u16,
 }
 
 pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
-    -> (AttestationRecord, AttestationValidationContext<MemoryDB>, TestStore)
+    -> TestRig
 {
     let stores = TestStore::new();
 
@@ -177,5 +183,10 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         &parent_hashes.clone(),
         &signing_keys);
 
-    (attestation, context, stores)
+    TestRig {
+        attestation,
+        context,
+        stores,
+        attester_count,
+    }
 }
