@@ -379,3 +379,8 @@ impl From<AttestationValidationError> for SszBlockValidationError {
         SszBlockValidationError::AttestationValidationError(e)
     }
 }
+
+/*
+ * Tests for block validation are contained in the root directory "tests" directory (AKA
+ * "integration tests directory").
+ */
