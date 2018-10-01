@@ -1,8 +1,4 @@
 mod block_validation;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod benches;
 
 use super::attestation_record;
 use super::{
@@ -14,7 +10,7 @@ use super::db;
 use super::ssz;
 use super::utils;
 
-use super::common::maps::{
+pub use super::common::maps::{
     AttesterMap,
     ProposerMap,
 };

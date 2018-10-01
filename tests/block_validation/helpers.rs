@@ -1,26 +1,52 @@
 use std::sync::Arc;
-use super::{
+
+use super::generate_attestation;
+use super::bls::{
+    Keypair,
+};
+use super::db::{
+    MemoryDB,
+};
+use super::db::stores::{
+    BlockStore,
+    PoWChainStore,
+    ValidatorStore,
+};
+use super::state::attestation_record::{
+    AttestationRecord,
+};
+use super::state::block::{
+    SszBlock,
+    Block,
+};
+use super::state::block::validation::{
     BlockValidationContext,
     SszBlockValidationError,
     BlockStatus,
     AttesterMap,
     ProposerMap,
-    MemoryDB,
-    canonical_hash,
-    Hash256,
-    Bitfield,
-    Keypair,
-    Signature,
-    AggregateSignature,
-    BlockStore,
-    PoWChainStore,
-    ValidatorStore,
-    SszStream,
-    SszBlock,
-    Block,
-    AttestationRecord,
-    TestParams,
 };
+use super::ssz::{
+    SszStream,
+};
+use super::utils::types::{
+    Hash256,
+};
+
+#[derive(Debug)]
+pub struct BlockTestParams {
+    pub total_validators: usize,
+    pub cycle_length: u8,
+    pub shard_count: u16,
+    pub shards_per_slot: u16,
+    pub validators_per_shard: usize,
+    pub block_slot: u64,
+    pub attestations_justified_slot: u64,
+    pub parent_proposer_index: usize,
+    pub validation_context_slot: u64,
+    pub validation_context_justified_slot: u64,
+    pub validation_context_finalized_slot: u64,
+}
 
 pub struct TestStore {
     pub db: Arc<MemoryDB>,
@@ -48,7 +74,7 @@ type ParentHashes = Vec<Hash256>;
 
 /// Setup for a block validation function, without actually executing the
 /// block validation function.
-pub fn setup_block_validation_scenario(params: &TestParams)
+pub fn setup_block_validation_scenario(params: &BlockTestParams)
     -> (Block, ParentHashes, AttesterMap, ProposerMap, TestStore)
 {
     let stores = TestStore::new();
@@ -95,72 +121,36 @@ pub fn setup_block_validation_scenario(params: &TestParams)
         let mut attester_map = AttesterMap::new();
         let mut attestations = vec![];
         let mut keypairs = vec![];
+        /*
+         * For each shard in this slot, generate an attestation.
+         */
         for shard in 0..shards_per_slot {
+           let mut signing_keys = vec![];
             let mut attesters = vec![];
-            let mut attester_bitfield = Bitfield::new();
-            let mut aggregate_sig = AggregateSignature::new();
-
-            let parent_hashes_slice = {
-                let distance: usize = (block_slot - attestation_slot) as usize;
-                let last: usize = parent_hashes.len() - distance;
-                let first: usize = last - usize::from(cycle_length);
-                &parent_hashes[first..last]
-            };
-
-            let attestation_message = {
-                let mut stream = SszStream::new();
-                stream.append(&attestation_slot);
-                stream.append_vec(&parent_hashes_slice.to_vec());
-                stream.append(&shard);
-                stream.append(&shard_block_hash);
-                stream.append(&attestations_justified_slot);
-                let bytes = stream.drain();
-                canonical_hash(&bytes)
-            };
-
-
-
-            for attestation_index in 0..validators_per_shard {
-               /*
-                * Add the attester to the attestation indices for this shard.
-                */
-               attesters.push(i);
-               /*
-                * Set the voters bit on the bitfield to true.
-                */
-               attester_bitfield.set_bit(attestation_index, true);
-               /*
-                * Generate a random keypair for this validatior and clone it into the
-                * list of keypairs.
-                */
+           /*
+            * Generate a random keypair for each validator and clone it into the
+            * list of keypairs. Store it in the database.
+            */
+            for _ in 0..validators_per_shard {
                let keypair = Keypair::random();
                keypairs.push(keypair.clone());
-               /*
-                * Store the validators public key in the database.
-                */
                stores.validator.put_public_key_by_index(i, &keypair.pk).unwrap();
-               /*
-                * Generate a new signature and aggregate it on the rolling signature.
-                */
-               let sig = Signature::new(&attestation_message, &keypair.sk);
-               aggregate_sig.add(&sig);
-               /*
-                * Increment the validator counter to monotonically assign validators.
-                */
+               signing_keys.push(Some(keypair.sk.clone()));
+               attesters.push(i);
                i += 1;
             }
-
             attester_map.insert((attestation_slot, shard), attesters);
-            let attestation = AttestationRecord {
-                slot: attestation_slot,
-                shard_id: shard,
-                oblique_parent_hashes: vec![],
-                shard_block_hash,
-                attester_bitfield,
-                justified_slot: attestations_justified_slot,
-                justified_block_hash,
-                aggregate_sig,
-            };
+
+            let attestation = generate_attestation(
+                shard,
+                &shard_block_hash,
+                block_slot,
+                attestation_slot,
+                attestations_justified_slot,
+                &justified_block_hash,
+                cycle_length,
+                &parent_hashes,
+                &signing_keys[..]);
             attestations.push(attestation);
         }
         (attester_map, attestations, keypairs)
@@ -194,7 +184,7 @@ pub fn serialize_block(b: &Block) -> Vec<u8> {
 ///
 /// Returns the Result returned from the block validation function.
 pub fn run_block_validation_scenario<F>(
-    params: &TestParams,
+    params: &BlockTestParams,
     mutator_func: F)
     -> Result<(BlockStatus, Option<Block>), SszBlockValidationError>
     where F: FnOnce(Block, AttesterMap, ProposerMap, TestStore)

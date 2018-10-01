@@ -1,62 +1,27 @@
-extern crate ssz;
-
-mod helpers;
-
-pub use self::helpers::{
+use super::bls::{
+    AggregateSignature,
+};
+use super::helpers::{
+    BlockTestParams,
     TestStore,
-    setup_block_validation_scenario,
     run_block_validation_scenario,
     serialize_block,
 };
-
-use self::ssz::{
-    SszStream,
+use super::state::block::{
+    SszBlock,
+    Block,
 };
-use super::{
-    BlockValidationContext,
+use super::state::block::validation::{
     SszBlockValidationError,
     BlockStatus,
-    AttesterMap,
     ProposerMap,
-};
-use super::db::stores::{
-    BlockStore,
-    PoWChainStore,
-    ValidatorStore,
-};
-use super::db::{
-    MemoryDB,
 };
 use super::utils::hash::canonical_hash;
 use super::utils::types::{
     Hash256,
-    Bitfield,
-};
-use super::SszBlock;
-use super::super::Block;
-use super::super::attestation_record::AttestationRecord;
-use super::super::super::bls::{
-    Keypair,
-    Signature,
-    AggregateSignature,
 };
 
-#[derive(Debug)]
-pub struct TestParams {
-    pub total_validators: usize,
-    pub cycle_length: u8,
-    pub shard_count: u16,
-    pub shards_per_slot: u16,
-    pub validators_per_shard: usize,
-    pub block_slot: u64,
-    pub attestations_justified_slot: u64,
-    pub parent_proposer_index: usize,
-    pub validation_context_slot: u64,
-    pub validation_context_justified_slot: u64,
-    pub validation_context_finalized_slot: u64,
-}
-
-fn get_simple_params() -> TestParams {
+fn get_simple_params() -> BlockTestParams {
     let validators_per_shard: usize = 5;
     let cycle_length: u8 = 2;
     let shard_count: u16 = 4;
@@ -70,7 +35,7 @@ fn get_simple_params() -> TestParams {
     let validation_context_justified_slot = attestations_justified_slot;
     let validation_context_finalized_slot = 0;
 
-    TestParams {
+    BlockTestParams {
         total_validators,
         cycle_length,
         shard_count,
