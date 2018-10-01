@@ -27,7 +27,7 @@ use super::signature_verification::{
 pub enum AttestationValidationError {
     SlotTooHigh,
     SlotTooLow,
-    JustifiedSlotTooHigh,
+    JustifiedSlotIncorrect,
     UnknownJustifiedBlock,
     TooManyObliqueHashes,
     BadCurrentHashes,
@@ -41,7 +41,7 @@ pub enum AttestationValidationError {
     InvalidBitfieldEndBits,
     NoSignatures,
     NonZeroTrailingBits,
-    AggregateSignatureFail,
+    BadAggregateSignature,
     DBError(String),
 }
 
@@ -61,7 +61,7 @@ impl<T> AttestationValidationContext<T>
     where T: ClientDB
 {
     pub fn validate_attestation(&self, a: &AttestationRecord)
-        -> Result<Option<HashSet<usize>>, AttestationValidationError>
+        -> Result<HashSet<usize>, AttestationValidationError>
     {
         /*
          * The attesation slot must not be higher than the block that contained it.
@@ -73,8 +73,6 @@ impl<T> AttestationValidationContext<T>
         /*
          * The slot of this attestation must not be more than cycle_length + 1 distance
          * from the block that contained it.
-         *
-         * The below code stays overflow-safe as long as cycle length is a < 64 bit integer.
          */
         if a.slot < self.block_slot
             .saturating_sub(u64::from(self.cycle_length).saturating_add(1)) {
@@ -85,8 +83,8 @@ impl<T> AttestationValidationContext<T>
          * The attestation must indicate that its last justified slot is the same as the last justified
          * slot known to us.
          */
-        if a.justified_slot > self.last_justified_slot {
-            return Err(AttestationValidationError::JustifiedSlotTooHigh);
+        if a.justified_slot != self.last_justified_slot {
+            return Err(AttestationValidationError::JustifiedSlotIncorrect);
         }
 
         /*
@@ -114,7 +112,7 @@ impl<T> AttestationValidationContext<T>
             bytes_for_bits(attestation_indices.len())
         {
             return Err(AttestationValidationError::BadBitfieldLength);
-        }
+       }
 
         /*
          * If there are excess bits in the bitfield because the number of a validators in not a
@@ -123,10 +121,7 @@ impl<T> AttestationValidationContext<T>
          * Allow extra set bits would permit mutliple different byte layouts (and therefore hashes) to
          * refer to the same AttesationRecord.
          */
-        let last_byte =
-            a.attester_bitfield.get_byte(a.attester_bitfield.num_bytes() - 1)
-            .ok_or(AttestationValidationError::InvalidBitfield)?;
-        if any_of_last_n_bits_are_set(*last_byte, a.attester_bitfield.len() % 8) {
+        if a.attester_bitfield.len() > attestation_indices.len() {
             return Err(AttestationValidationError::InvalidBitfieldEndBits)
         }
 
@@ -160,22 +155,18 @@ impl<T> AttestationValidationContext<T>
                 &a.attester_bitfield,
                 &self.validator_store)?;
 
-        Ok(voted_hashmap)
+        /*
+         * If the hashmap of voters is None, the signature verification failed.
+         */
+        match voted_hashmap {
+            None => Err(AttestationValidationError::BadAggregateSignature),
+            Some(hashmap) => Ok(hashmap),
+        }
     }
 }
 
 fn bytes_for_bits(bits: usize) -> usize {
     (bits.saturating_sub(1) / 8) + 1
-}
-
-fn any_of_last_n_bits_are_set(byte: u8, n: usize) -> bool {
-    for i in 0..n {
-        let mask = 1_u8 >> 7_usize.saturating_sub(i as usize);
-        if byte & mask > 0 {
-            return true
-        }
-    }
-    false
 }
 
 impl From<ParentHashesError> for AttestationValidationError {

@@ -55,7 +55,6 @@ pub enum SszBlockValidationError {
     BadAttestationSsz,
     AttestationValidationError(AttestationValidationError),
     AttestationSignatureFailed,
-    FirstAttestationSignatureFailed,
     ProposerAttestationHasObliqueHashes,
     NoProposerSignature,
     BadProposerMap,
@@ -199,13 +198,6 @@ impl<T> BlockValidationContext<T>
             .validate_attestation(&first_attestation)?;
 
         /*
-         * If the set of voters is None, the attestation was invalid.
-         */
-        let attestation_voters = attestation_voters
-            .ok_or(SszBlockValidationError::
-                   FirstAttestationSignatureFailed)?;
-
-        /*
          * Read the parent hash from the block we are validating then attempt to load
          * the parent block ssz from the database. If that parent doesn't exist in
          * the database, reject the block.
@@ -283,14 +275,6 @@ impl<T> BlockValidationContext<T>
                             Err(e) => {
                                 let mut failure = failure.write().unwrap();
                                 *failure = Some(SszBlockValidationError::from(e));
-                                None
-                            }
-                            /*
-                             * Attestation validation failed due to a bad signature.
-                             */
-                            Ok(None) => {
-                                let mut failure = failure.write().unwrap();
-                                *failure = Some(SszBlockValidationError::AttestationSignatureFailed);
                                 None
                             }
                             /*
