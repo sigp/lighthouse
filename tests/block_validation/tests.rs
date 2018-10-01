@@ -16,6 +16,9 @@ use super::state::block::validation::{
     BlockStatus,
     ProposerMap,
 };
+use super::state::attestation_record::{
+    AttestationValidationError,
+};
 use super::utils::hash::canonical_hash;
 use super::utils::types::{
     Hash256,
@@ -177,7 +180,8 @@ fn test_block_validation_invalid_1st_attestation_signature() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::FirstAttestationSignatureFailed));
+    assert_eq!(status, Err(SszBlockValidationError::AttestationValidationError(
+                AttestationValidationError::BadAggregateSignature)));
 }
 
 #[test]
@@ -236,5 +240,6 @@ fn test_block_validation_invalid_2nd_attestation_signature() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::AttestationSignatureFailed));
+    assert_eq!(status, Err(SszBlockValidationError::AttestationValidationError(
+                AttestationValidationError::BadAggregateSignature)));
 }
