@@ -2,22 +2,14 @@
 extern crate slog;
 extern crate slog_term;
 extern crate slog_async;
-extern crate ssz;
+// extern crate ssz;
 extern crate clap;
 extern crate network_libp2p;
 extern crate futures;
 
-#[macro_use]
-#[allow(dead_code)]
-mod utils;
-#[allow(dead_code)]
-mod bls;
-#[allow(dead_code)]
-mod db;
+extern crate db;
+
 mod client;
-#[allow(dead_code)]
-mod state;
-#[allow(dead_code)]
 mod sync;
 mod config;
 
