@@ -47,21 +47,36 @@ pub enum AttestationValidationError {
     DBError(String),
 }
 
+/// The context against which some attestation should be validated.
 pub struct AttestationValidationContext<T>
     where T: ClientDB + Sized
 {
+    /// The slot as determined by the system time.
     pub block_slot: u64,
+    /// The cycle_length as determined by the chain configuration.
     pub cycle_length: u8,
+    /// The last justified slot as per the client's view of the canonical chain.
     pub last_justified_slot: u64,
+    /// A vec of the hashes of the blocks preceeding the present slot.
     pub parent_hashes: Arc<Vec<Hash256>>,
+    /// The store containing block information.
     pub block_store: Arc<BlockStore<T>>,
+    /// The store containing validator information.
     pub validator_store: Arc<ValidatorStore<T>>,
+    /// A map of (slot, shard_id) to the attestation set of validation indices.
     pub attester_map: Arc<AttesterMap>,
 }
 
 impl<T> AttestationValidationContext<T>
     where T: ClientDB
 {
+    /// Validate a (fully deserialized) AttestationRecord against this context.
+    ///
+    /// The function will return a HashSet of validator indices (canonical validator indices not
+    /// attestation indices) if the validation passed successfully, or an error otherwise.
+    ///
+    /// The attestation's aggregate signature will be verified, therefore the function must able to
+    /// access all required validation public keys via the `validator_store`.
     pub fn validate_attestation(&self, a: &AttestationRecord)
         -> Result<HashSet<usize>, AttestationValidationError>
     {
