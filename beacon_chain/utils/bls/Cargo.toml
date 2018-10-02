@@ -1,0 +1,7 @@
+[package]
+name = "bls"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+bls-aggregates = { git = "https://github.com/sigp/signature-schemes" }

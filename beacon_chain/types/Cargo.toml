@@ -1,0 +1,11 @@
+[package]
+name = "types"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+bls = { path = "../utils/bls" }
+boolean-bitfield = { path = "../utils/boolean-bitfield" }
+ethereum-types = "0.4.0"
+rand = "0.3"
+ssz = { path = "../utils/ssz" }
