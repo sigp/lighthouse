@@ -1,0 +1,10 @@
+[package]
+name = "ssz_helpers"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+bls = { path = "../bls" }
+hashing = { path = "../hashing" }
+types = { path = "../../types" }
+ssz = { path = "../ssz" }

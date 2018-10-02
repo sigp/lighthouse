@@ -1,0 +1,10 @@
+[package]
+name = "db"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+bls = { path = "../../beacon_chain/utils/bls" }
+bytes = "0.4.10"
+rocksdb = "0.10.1"
+blake2-rfc = "0.2.18"

@@ -4,25 +4,20 @@ version = "0.0.1"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 
 [dependencies]
-# TODO: remove "blake2" in favor of "blake2-rfc"
-blake2 = "^0.7.1"
 blake2-rfc = "0.2.18"
 bls-aggregates = { git = "https://github.com/sigp/signature-schemes" }
-boolean-bitfield = { path = "boolean-bitfield" }
 bytes = ""
 crypto-mac = "^0.6.2"
 clap = "2.32.0"
+db = { path = "lighthouse/db" }
 dirs = "1.0.3"
-ethereum-types = "0.4.0"
 futures = "0.1.23"
 network-libp2p = { path = "network-libp2p" }
 rand = "0.3"
-rocksdb = "0.10.1"
 rlp = { git = "https://github.com/paritytech/parity-common" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
-ssz = { path = "ssz" }
 tokio = "0.1"
 
 [dependencies.pairing]
@@ -35,3 +30,14 @@ ring = { git = "https://github.com/paritytech/ring" }
 [[bin]]
 path = "lighthouse/main.rs"
 name = "lighthouse"
+
+[workspace]
+members = [
+	"beacon_chain/types",
+	"beacon_chain/utils/bls",
+	"beacon_chain/utils/boolean-bitfield",
+	"beacon_chain/utils/hashing",
+	"beacon_chain/utils/ssz",
+	"beacon_chain/utils/ssz_helpers",
+	"lighthouse/db",
+]
