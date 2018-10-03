@@ -4,13 +4,16 @@ pub enum WireMessageDecodeError {
 }
 
 pub enum WireMessageHeader {
+    Blocks,
+    /*
+    // Leave out until used
     Status,
     NewBlockHashes,
     GetBlockHashes,
     BlockHashes,
     GetBlocks,
-    Blocks,
     NewBlock,
+    */
 }
 
 pub struct WireMessage<'a> {
