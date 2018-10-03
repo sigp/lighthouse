@@ -31,17 +31,17 @@ pub struct NetworkState {
 }
 
 impl NetworkState {
-    /// Create a new libp2p network state. Used to initialize 
+    /// Create a new libp2p network state. Used to initialize
     /// network service.
     pub fn new(
-        // config: LighthouseConfig, 
+        // config: LighthouseConfig,
         base_dir: &Path,
-        listen_port: &u16,
-        log: &Logger) 
+        listen_port: u16,
+        log: &Logger)
         -> Result <Self, Box<Error>>
     {
         let curve = Secp256k1::new();
-        let seckey = match 
+        let seckey = match
             NetworkState::load_secret_key_from_pem_file(base_dir, &curve)
         {
             Ok(k) => k,
@@ -71,23 +71,23 @@ impl NetworkState {
 
     /// Return a TCP multiaddress on 0.0.0.0 for a given port.
     pub fn multiaddr_on_port(port: &str) -> Multiaddr {
-        return format!("/ip4/0.0.0.0/tcp/{}", port)
+        format!("/ip4/0.0.0.0/tcp/{}", port)
             .parse::<Multiaddr>().unwrap()
     }
 
     pub fn add_peer(&mut self,
-                    peer_id: PeerId,
+                    peer_id: &PeerId,
                     multiaddr: Multiaddr,
                     duration_secs: u64) {
         self.peer_store.peer_or_create(&peer_id)
             .add_addr(multiaddr, Duration::from_secs(duration_secs));
     }
 
-    /// Instantiate a SecretKey from a .pem file on disk. 
+    /// Instantiate a SecretKey from a .pem file on disk.
     pub fn load_secret_key_from_pem_file(
         base_dir: &Path,
         curve: &Secp256k1)
-        -> Result<SecretKey, Box<Error>> 
+        -> Result<SecretKey, Box<Error>>
     {
         let path = base_dir.join(LOCAL_PEM_FILE);
         let mut contents = String::new();
@@ -97,12 +97,12 @@ impl NetworkState {
         let key = SecretKey::from_slice(curve, &pem_key.contents)?;
         Ok(key)
     }
-    
-    /// Generate a new SecretKey and store it on disk as a .pem file. 
+
+    /// Generate a new SecretKey and store it on disk as a .pem file.
     pub fn generate_new_secret_key(
         base_dir: &Path,
         curve: &Secp256k1)
-        -> Result<SecretKey, Box<Error>> 
+        -> Result<SecretKey, Box<Error>>
     {
         let mut rng = rand::thread_rng();
         let sk = SecretKey::new(&curve, &mut rng);
@@ -113,7 +113,7 @@ impl NetworkState {
         let s_string = pem::encode(&pem_key);
         let path = base_dir.join(LOCAL_PEM_FILE);
         let mut s_file = File::create(path)?;
-        s_file.write(s_string.as_bytes())?;
+        s_file.write_all(s_string.as_bytes())?;
         Ok(sk)
     }
 }

@@ -37,9 +37,9 @@ use self::bytes::Bytes;
 pub use self::libp2p_floodsub::Message;
 
 pub fn listen(state: NetworkState,
-          events_to_app: UnboundedSender<NetworkEvent>,
+          events_to_app: &UnboundedSender<NetworkEvent>,
           raw_rx: UnboundedReceiver<OutgoingMessage>,
-          log: Logger)
+          log: &Logger)
 {
     let peer_store = state.peer_store;
     let peer_id = state.peer_id;
@@ -83,7 +83,7 @@ pub fn listen(state: NetworkState,
     let kad_config = libp2p_kad::KademliaConfig {
         parallelism: 3,
         record_store: (),
-        peer_store: peer_store,
+        peer_store,
         local_peer_id: peer_id.clone(),
         timeout: Duration::from_secs(2)
     };
