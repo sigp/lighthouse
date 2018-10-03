@@ -70,7 +70,6 @@ fn handle_network_message(
                     );
                     Ok(())
                 }
-                _ => Ok(())
             }
         }
         Err(_) => {

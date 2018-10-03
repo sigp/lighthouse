@@ -1,4 +1,8 @@
-extern crate blake2_rfc;
+/// A library for performing deterministic, pseudo-random shuffling on a vector.
+///
+/// This library is designed to confirm to the Ethereum 2.0 specification.
+
+extern crate hashing;
 
 mod rng;
 
@@ -9,13 +13,16 @@ pub enum ShuffleErr {
     ExceedsListLength,
 }
 
-/// Performs a deterministic, in-place shuffle of a vector of bytes.
+/// Performs a deterministic, in-place shuffle of a vector.
+///
 /// The final order of the shuffle is determined by successive hashes
 /// of the supplied `seed`.
-pub fn shuffle(
+///
+/// This is a Fisher-Yates-Durtstenfeld shuffle.
+pub fn shuffle<T>(
     seed: &[u8],
-    mut list: Vec<usize>)
-    -> Result<Vec<usize>, ShuffleErr>
+    mut list: Vec<T>)
+    -> Result<Vec<T>, ShuffleErr>
 {
     let mut rng = ShuffleRng::new(seed);
     if list.len() > rng.rand_max as usize {
@@ -33,20 +40,16 @@ pub fn shuffle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::blake2_rfc::blake2s::{ blake2s, Blake2sResult };
-
-    fn hash(seed: &[u8]) -> Blake2sResult {
-        blake2s(32, &[], seed)
-    }
+    use super::hashing::canonical_hash;
 
     #[test]
     fn test_shuffling() {
-        let seed = hash(b"4kn4driuctg8");
+        let seed = canonical_hash(b"4kn4driuctg8");
         let list: Vec<usize> = (0..12).collect();
-        let s = shuffle(seed.as_bytes(), list).unwrap();
+        let s = shuffle(&seed, list).unwrap();
         assert_eq!(
             s,
-            vec![7, 4, 8, 6, 5, 3, 0, 11, 1, 2, 10, 9],
+            vec![7, 3, 2, 5, 11, 9, 1, 0, 4, 6, 10, 8],
         )
     }
 }
