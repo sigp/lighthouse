@@ -1,4 +1,4 @@
-use super::blake2_rfc::blake2s::{ Blake2s, Blake2sResult };
+use super::hashing::canonical_hash;
 
 const SEED_SIZE_BYTES: usize = 32;
 const RAND_BYTES: usize = 3;      // 24 / 8
@@ -7,7 +7,7 @@ const RAND_MAX: u32 = 16_777_216;   // 2**24
 /// A pseudo-random number generator which given a seed
 /// uses successive blake2s hashing to generate "entropy".
 pub struct ShuffleRng {
-    seed: Blake2sResult,
+    seed: Vec<u8>,
     idx: usize,
     pub rand_max: u32,
 }
@@ -16,7 +16,7 @@ impl ShuffleRng {
     /// Create a new instance given some "seed" bytes.
     pub fn new(initial_seed: &[u8]) -> Self {
         Self {
-            seed: hash(initial_seed),
+            seed: canonical_hash(initial_seed),
             idx: 0,
             rand_max: RAND_MAX,
         }
@@ -24,7 +24,7 @@ impl ShuffleRng {
 
     /// "Regenerates" the seed by hashing it.
     fn rehash_seed(&mut self) {
-        self.seed  = hash(self.seed.as_bytes());
+        self.seed  = canonical_hash(&self.seed);
         self.idx = 0;
     }
 
@@ -36,7 +36,7 @@ impl ShuffleRng {
             self.rand()
         } else {
             int_from_byte_slice(
-                self.seed.as_bytes(),
+                &self.seed,
                 self.idx - RAND_BYTES,
             )
         }
@@ -66,13 +66,6 @@ fn int_from_byte_slice(source: &[u8], offset: usize) -> u32 {
         (u32::from(source[offset + 1]) << 8) |
         (u32::from(source[offset    ]) << 16
     )
-}
-
-/// Peform a blake2s hash on the given bytes.
-fn hash(bytes: &[u8]) -> Blake2sResult {
-    let mut hasher = Blake2s::new(SEED_SIZE_BYTES);
-    hasher.update(bytes);
-    hasher.finalize()
 }
 
 
@@ -115,15 +108,12 @@ mod tests {
 
     #[test]
     fn test_shuffling_hash_fn() {
-        let digest = hash(hash(b"4kn4driuctg8").as_bytes());  // double-hash is intentional
-        let digest_bytes = digest.as_bytes();
+        let digest = canonical_hash(&canonical_hash(&"4kn4driuctg8".as_bytes()));  // double-hash is intentional
         let expected = [
-            0xff, 0xff, 0xff, 0x8f, 0xbb, 0xc7, 0xab, 0x64, 0x43, 0x9a,
-            0xe5, 0x12, 0x44, 0xd8, 0x70, 0xcf, 0xe5, 0x79, 0xf6, 0x55,
-            0x6b, 0xbd, 0x81, 0x43, 0xc5, 0xcd, 0x70, 0x2b, 0xbe, 0xe3,
-            0x87, 0xc7,
+            103, 21, 99, 143, 60, 75, 116, 81, 248, 175, 190, 114, 54, 65, 23, 8, 3, 116,
+            160, 178, 7, 75, 63, 47, 180, 239, 191, 247, 57, 194, 144, 88
         ];
-        assert_eq!(digest_bytes.len(), expected.len());
-        assert_eq!(digest_bytes, expected)
+        assert_eq!(digest.len(), expected.len());
+        assert_eq!(digest, expected)
     }
 }

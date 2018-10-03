@@ -1,4 +1,4 @@
-extern crate blake2_rfc;
+extern crate hashing;
 
 mod rng;
 
@@ -33,20 +33,16 @@ pub fn shuffle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::blake2_rfc::blake2s::{ blake2s, Blake2sResult };
-
-    fn hash(seed: &[u8]) -> Blake2sResult {
-        blake2s(32, &[], seed)
-    }
+    use super::hashing::canonical_hash;
 
     #[test]
     fn test_shuffling() {
-        let seed = hash(b"4kn4driuctg8");
+        let seed = canonical_hash(b"4kn4driuctg8");
         let list: Vec<usize> = (0..12).collect();
-        let s = shuffle(seed.as_bytes(), list).unwrap();
+        let s = shuffle(&seed, list).unwrap();
         assert_eq!(
             s,
-            vec![7, 4, 8, 6, 5, 3, 0, 11, 1, 2, 10, 9],
+            vec![7, 3, 2, 5, 11, 9, 1, 0, 4, 6, 10, 8],
         )
     }
 }
