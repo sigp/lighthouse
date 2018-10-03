@@ -37,7 +37,10 @@ fn honey_badger_split<T: Clone>(list: &Vec<T>, n: usize) -> Vec<Vec<T>> {
   let mut split_list: Vec<Vec<T>> = vec![];
   let list_length = list.len();
   for i in 0..n {
-    let partition = list.get(list_length*i/n..list_length*(i+1)/n).unwrap(); // cannot go out of bounds
+    let partition = match list.get(list_length*i/n..list_length*(i+1)/n) {
+        Some(v) => v,
+        None => unreachable!(),
+    };
     split_list.push(partition.to_vec());
   }
   split_list
