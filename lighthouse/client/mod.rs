@@ -38,7 +38,7 @@ impl Client {
         // Start the network thread
         let network_state = NetworkState::new(
             &config.data_dir,
-            &config.p2p_listen_port,
+            config.p2p_listen_port,
             &log).expect("Network setup failed"); let (network_thread, network_tx, network_rx) = {
             let (message_sender, message_receiver) = unbounded();
             let (event_sender, event_receiver) = unbounded();
@@ -46,9 +46,9 @@ impl Client {
             let thread = thread::spawn(move || {
                 network_listen(
                     network_state,
-                    event_sender,
+                    &event_sender,
                     message_receiver,
-                    network_log,
+                    &network_log,
                 );
             });
             (thread, message_sender, event_receiver)
