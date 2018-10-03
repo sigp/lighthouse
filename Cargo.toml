@@ -34,6 +34,7 @@ name = "lighthouse"
 [workspace]
 members = [
 	"beacon_chain/types",
+	"beacon_chain/transition",
 	"beacon_chain/utils/bls",
 	"beacon_chain/utils/boolean-bitfield",
 	"beacon_chain/utils/hashing",
