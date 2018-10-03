@@ -29,6 +29,19 @@ fn active_validator_indicies(
         .collect()
 }
 
+/*
+ * splits a vector into chunks of size n. All postive n values are applicable,
+ * hence the honey_badger prefix.
+ */
+fn honey_badger_split<T: Clone>(list: &Vec<T>, n: usize) -> Vec<Vec<T>> {
+  let mut split_list: Vec<Vec<T>> = vec![];
+  let list_length = list.len();
+  for i in 0..n {
+    let partition = list.get(list_length*i/n..list_length*(i+1)/n).unwrap(); // cannot go out of bounds
+    split_list.push(partition.to_vec());
+  }
+  split_list
+}
 
 /*
  * Delegates active validators into slots for a given cycle, given a random seed.
@@ -75,8 +88,16 @@ fn generate_cycle(
     min_committee_size: &usize)
     -> Result<DelegatedCycle, TransitionError>
 {
+
     let validator_count = validator_indices.len();
     let shard_count = shard_indices.len();
+
+    if shard_count / cycle_length == 0 {
+	    return Err(TransitionError::InvalidInput(String::from("Number of
+					    shards needs to be greater than
+					    cycle length")));
+
+    }
 
     let (committees_per_slot, slots_per_committee) = {
         if validator_count >= cycle_length * min_committee_size {
@@ -216,6 +237,46 @@ mod tests {
         let shards_in_slots = flatten_shards_in_slots(&cycle);
         assert_eq!(assigned_validators, validators, "Validator assignment incorrect");
         assert_eq!(assigned_shards, shards, "Shard assignment incorrect");
+
+        let expected_shards_in_slots: Vec<Vec<usize>> = vec![
+            vec![0], vec![0],   // Each line is 2 slots..
+            vec![1], vec![1],
+            vec![2], vec![2],
+            vec![3], vec![3],
+            vec![4], vec![4],
+            vec![5], vec![5],
+            vec![6], vec![6],
+            vec![7], vec![7],
+            vec![8], vec![8],
+            vec![9], vec![9],
+        ];
+        // assert!(compare_shards_in_slots(&cycle, &expected_shards_in_slots));
+        assert_eq!(expected_shards_in_slots, shards_in_slots, "Shard assignment incorrect.")
+    }
+
+    #[test]
+    // Check that the committees per slot is upper bounded by shard count
+    fn test_generate_cycle_committees_bounded() {
+        let validator_count: usize = 101;
+        let shard_count: usize = 15;
+        let crosslinking_shard_start: usize = 0;
+        let cycle_length: usize = 10;
+        let min_committee_size: usize = 10;
+        let (validators, shards, result) = generate_cycle_helper(
+            &validator_count,
+            &shard_count,
+            &crosslinking_shard_start,
+            &cycle_length,
+            &min_committee_size);
+        let cycle = result.unwrap();
+
+        let assigned_validators = flatten_validators(&cycle);
+        let assigned_shards = flatten_and_dedup_shards(&cycle);
+        let shards_in_slots = flatten_shards_in_slots(&cycle);
+        print_cycle(&cycle);
+        assert_eq!(assigned_validators, validators, "Validator assignment incorrect");
+        assert_eq!(assigned_shards, shards, "Shard assignment incorrect");
+
 
         let expected_shards_in_slots: Vec<Vec<usize>> = vec![
             vec![0], vec![0],   // Each line is 2 slots..
