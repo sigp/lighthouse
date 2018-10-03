@@ -1,6 +1,7 @@
 use super::types::{ShardAndCommittee, ValidatorRecord, ChainConfig};
 use super::TransitionError;
 use super::shuffle;
+use std::cmp::min;
 
 type DelegatedSlot = Vec<ShardAndCommittee>;
 type DelegatedCycle = Vec<DelegatedSlot>;
@@ -79,7 +80,9 @@ fn generate_cycle(
 
     let (committees_per_slot, slots_per_committee) = {
         if validator_count >= cycle_length * min_committee_size {
-            let committees_per_slot = validator_count / cycle_length / (min_committee_size * 2) + 1;
+            let committees_per_slot = min(validator_count / cycle_length /
+			    (min_committee_size * 2) + 1, shard_count /
+			    cycle_length);
             let slots_per_committee = 1;
             (committees_per_slot, slots_per_committee)
         } else {
