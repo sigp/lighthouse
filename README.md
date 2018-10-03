@@ -15,7 +15,7 @@ reproducing the work that other clients are already doing very well.
 This readme is split into two major sections:
 
 - [Lighthouse Client](#lighthouse-client): information about this
-  implemenation.
+  implementation.
 - [What is Ethereum 2.0](#what-is-ethereum-20): an introduction to Ethereum 2.0.
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
@@ -54,7 +54,7 @@ reject valid blocks even quicker. See the
 [issue](https://github.com/ethereum/beacon_chain/issues/103) on
 [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain)
 .
-- **P2P networking**: Eth 2.0 is likely use the [libp2p
+- **P2P networking**: Eth 2.0 is likely to use the [libp2p
   framework](https://libp2p.io/), lighthouse hopes to work alongside
 [Parity](https://www.parity.io/) to get
 [libp2p-rust](https://github.com/libp2p/rust-libp2p) fit-for-purpose.
@@ -72,9 +72,9 @@ on serialization formats.
   FFG](https://arxiv.org/abs/1710.09437) fork-choice rules allow the chain to
 select a canonical chain in the case of a fork.
 - **Efficient state transition logic**: "state transition" logic deals with
-  updating the validator set as valiators log in/out, penalising/rewarding
+  updating the validator set as validators log in/out, penalising/rewarding
 validators, rotating validators across shards, and many other core tasks.
-- **Fuzzing and testing environments**: we preparing to implement lab
+- **Fuzzing and testing environments**: we are preparing to implement lab
   environments with CI work-flows to provide automated security analysis.
 
 On top of these components we're also working on database schemas,
@@ -149,7 +149,7 @@ write-access to the repository). This helps to detect bugs, improve consistency
 and relieves any one individual of the responsibility of an error.
 
 Discussion should be respectful and intellectual. Have fun, make jokes but
-respect other peoples limits.
+respect other people's limits.
 
 ### Directory Structure
 
@@ -190,7 +190,7 @@ shards:
 
 - A source of entropy, likely using a [RANDAO + VDF
   scheme](https://ethresear.ch/t/minimal-vdf-randomness-beacon/3566).
-- Valdidator management, including:
+- Validator management, including:
     - Inducting and ejecting validators.
     - Delegating randomly-shuffled subsets of validators to validate shards.
     - Penalising and rewarding validators.
@@ -239,7 +239,3 @@ channel. There is a proof-of-concept implementation in Python at
 Presently, the spec almost exclusively defines the Beacon Chain as it
 is the focus of present development efforts. Progress on shard chain
 specification will soon follow.
-
-
-
-
