@@ -6,6 +6,54 @@ use std::cmp::min;
 type DelegatedSlot = Vec<ShardAndCommittee>;
 type DelegatedCycle = Vec<DelegatedSlot>;
 
+/*
+ * Iterator for the honey_badger_split function
+ */
+struct Split<'a, T: 'a> {
+    n: usize,
+    current_pos: usize,
+    list: &'a [T],
+    list_length: usize
+}
+
+impl<'a,T> Iterator for Split<'a, T> {
+    type Item = &'a [T];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.current_pos +=1;
+        if self.current_pos <= self.n {
+            match self.list.get(self.list_length*(self.current_pos-1)/self.n..self.list_length*self.current_pos/self.n) {
+                Some(v) => Some(v),
+                None => unreachable!()
+            }
+        }
+        else {
+            None
+        }
+    }
+}
+
+/*
+ * splits a slice into chunks of size n. All postive n values are applicable,
+ * hence the honey_badger prefix.
+ * Returns an iterator over the original list.
+ */
+trait SplitExt<T> {
+    fn honey_badger_split(&self, n: usize) -> Split<T>;
+}
+
+impl<T> SplitExt<T> for [T] {
+
+    fn honey_badger_split(&self, n: usize) -> Split<T> {
+        Split {
+            n: n,
+            current_pos: 0,
+            list: &self,
+            list_length: self.len(),
+        }
+    }
+}
+
 
 /* Produce a vector of validators indicies where those validators start and end
  * dynasties are within the supplied `dynasty`.
@@ -27,23 +75,6 @@ fn active_validator_indicies(
             }
         })
         .collect()
-}
-
-/*
- * splits a vector into chunks of size n. All postive n values are applicable,
- * hence the honey_badger prefix.
- */
-fn honey_badger_split<T: Clone>(list: &Vec<T>, n: usize) -> Vec<Vec<T>> {
-  let mut split_list: Vec<Vec<T>> = vec![];
-  let list_length = list.len();
-  for i in 0..n {
-    let partition = match list.get(list_length*i/n..list_length*(i+1)/n) {
-        Some(v) => v,
-        None => unreachable!(),
-    };
-    split_list.push(partition.to_vec());
-  }
-  split_list
 }
 
 /*
@@ -120,13 +151,11 @@ fn generate_cycle(
         }
     };
 
-    let cycle = validator_indices
-        .chunks(validator_indices.len() / *cycle_length)
+    let cycle = validator_indices.honey_badger_split(*cycle_length)
         .enumerate()
         .map(|(i, slot_indices)| {
             let shard_id_start = crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
-            return slot_indices
-                .chunks(slot_indices.len() / committees_per_slot)
+            return slot_indices.honey_badger_split(committees_per_slot)
                 .enumerate()
                 .map(|(j, shard_indices)| {
                     return ShardAndCommittee{
@@ -260,7 +289,7 @@ mod tests {
     #[test]
     // Check that the committees per slot is upper bounded by shard count
     fn test_generate_cycle_committees_bounded() {
-        let validator_count: usize = 101;
+        let validator_count: usize = 1001;
         let shard_count: usize = 15;
         let crosslinking_shard_start: usize = 0;
         let cycle_length: usize = 10;
@@ -272,11 +301,10 @@ mod tests {
             &cycle_length,
             &min_committee_size);
         let cycle = result.unwrap();
-
+        print_cycle(&cycle);
         let assigned_validators = flatten_validators(&cycle);
         let assigned_shards = flatten_and_dedup_shards(&cycle);
         let shards_in_slots = flatten_shards_in_slots(&cycle);
-        print_cycle(&cycle);
         assert_eq!(assigned_validators, validators, "Validator assignment incorrect");
         assert_eq!(assigned_shards, shards, "Shard assignment incorrect");
 
