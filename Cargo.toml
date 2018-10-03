@@ -37,6 +37,7 @@ members = [
 	"beacon_chain/utils/bls",
 	"beacon_chain/utils/boolean-bitfield",
 	"beacon_chain/utils/hashing",
+	"beacon_chain/utils/shuffling",
 	"beacon_chain/utils/ssz",
 	"beacon_chain/utils/ssz_helpers",
 	"lighthouse/db",
