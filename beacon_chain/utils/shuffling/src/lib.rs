@@ -1,3 +1,7 @@
+/// A library for performing deterministic, pseudo-random shuffling on a vector.
+///
+/// This library is designed to confirm to the Ethereum 2.0 specification.
+
 extern crate hashing;
 
 mod rng;
@@ -9,13 +13,16 @@ pub enum ShuffleErr {
     ExceedsListLength,
 }
 
-/// Performs a deterministic, in-place shuffle of a vector of bytes.
+/// Performs a deterministic, in-place shuffle of a vector.
+///
 /// The final order of the shuffle is determined by successive hashes
 /// of the supplied `seed`.
-pub fn shuffle(
+///
+/// This is a Fisher-Yates-Durtstenfeld shuffle.
+pub fn shuffle<T>(
     seed: &[u8],
-    mut list: Vec<usize>)
-    -> Result<Vec<usize>, ShuffleErr>
+    mut list: Vec<T>)
+    -> Result<Vec<T>, ShuffleErr>
 {
     let mut rng = ShuffleRng::new(seed);
     if list.len() > rng.rand_max as usize {
