@@ -119,7 +119,10 @@ impl<T> BlockValidationContext<T>
         }
 
         /*
-         * If the block slot corresponds to a slot in the future, drop it.
+         * If the block slot corresponds to a slot in the future, return immediately with an error.
+         *
+         * It is up to the calling fn to determine what should be done with "future" blocks (e.g.,
+         * cache or discard).
          */
         let block_slot = b.slot_number();
         if block_slot > self.present_slot {
