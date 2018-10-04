@@ -248,11 +248,11 @@ mod tests {
         shards_in_slots
     }
 
-
+    // TODO: Improve these tests to check committee lengths
     #[test]
     fn test_generate_cycle() {
         let validator_count: usize = 100;
-        let shard_count: usize = 10;
+        let shard_count: usize = 20;
         let crosslinking_shard_start: usize = 0;
         let cycle_length: usize = 20;
         let min_committee_size: usize = 10;
@@ -267,8 +267,9 @@ mod tests {
         let assigned_validators = flatten_validators(&cycle);
         let assigned_shards = flatten_and_dedup_shards(&cycle);
         let shards_in_slots = flatten_shards_in_slots(&cycle);
+        let expected_shards = shards.get(0..10).unwrap();
         assert_eq!(assigned_validators, validators, "Validator assignment incorrect");
-        assert_eq!(assigned_shards, shards, "Shard assignment incorrect");
+        assert_eq!(assigned_shards, expected_shards, "Shard assignment incorrect");
 
         let expected_shards_in_slots: Vec<Vec<usize>> = vec![
             vec![0], vec![0],   // Each line is 2 slots..
@@ -289,11 +290,11 @@ mod tests {
     #[test]
     // Check that the committees per slot is upper bounded by shard count
     fn test_generate_cycle_committees_bounded() {
-        let validator_count: usize = 1001;
-        let shard_count: usize = 15;
+        let validator_count: usize = 523;
+        let shard_count: usize = 31;
         let crosslinking_shard_start: usize = 0;
-        let cycle_length: usize = 10;
-        let min_committee_size: usize = 10;
+        let cycle_length: usize = 11;
+        let min_committee_size: usize = 5;
         let (validators, shards, result) = generate_cycle_helper(
             &validator_count,
             &shard_count,
@@ -301,26 +302,14 @@ mod tests {
             &cycle_length,
             &min_committee_size);
         let cycle = result.unwrap();
-        print_cycle(&cycle);
         let assigned_validators = flatten_validators(&cycle);
         let assigned_shards = flatten_and_dedup_shards(&cycle);
         let shards_in_slots = flatten_shards_in_slots(&cycle);
+        let expected_shards = shards.get(0..22).unwrap();
+        let expected_shards_in_slots: Vec<Vec<usize>> =
+            (0_usize..11_usize) .map(|x| vec![2*x,2*x+1]).collect();
         assert_eq!(assigned_validators, validators, "Validator assignment incorrect");
-        assert_eq!(assigned_shards, shards, "Shard assignment incorrect");
-
-
-        let expected_shards_in_slots: Vec<Vec<usize>> = vec![
-            vec![0], vec![0],   // Each line is 2 slots..
-            vec![1], vec![1],
-            vec![2], vec![2],
-            vec![3], vec![3],
-            vec![4], vec![4],
-            vec![5], vec![5],
-            vec![6], vec![6],
-            vec![7], vec![7],
-            vec![8], vec![8],
-            vec![9], vec![9],
-        ];
+        assert_eq!(assigned_shards, expected_shards, "Shard assignment incorrect");
         // assert!(compare_shards_in_slots(&cycle, &expected_shards_in_slots));
         assert_eq!(expected_shards_in_slots, shards_in_slots, "Shard assignment incorrect.")
     }
