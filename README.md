@@ -7,15 +7,6 @@ by Sigma Prime.
 
 ## Introduction
 
-Lighthouse is an open-source Ethereum 2.0 client, in development. Designed as
-an Ethereum 2.0-only client, Lighthouse will not re-implement the existing
-proof-of-work protocol. Maintaining a forward-focus on Ethereum 2.0 ensures
-that Lighthouse will avoid reproducing the high-quality work already undertaken
-by existing clients. For present-Ethereum functionality, Lighthouse will
-connect to existing clients like
-[Geth](https://github.com/ethereum/go-ethereum) or
-[Parity-Ethereum](https://github.com/paritytech/parity-ethereum) via RPC.
-
 This readme is split into two major sections:
 
 - [Lighthouse Client](#lighthouse-client): information about this
@@ -28,6 +19,14 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 
 ## Lighthouse Client
 
+Lighthouse is an open-source Ethereum 2.0 client, in development. Designed as
+an Ethereum 2.0-only client, Lighthouse will not re-implement the existing
+proof-of-work protocol. Maintaining a forward-focus on Ethereum 2.0 ensures
+that Lighthouse will avoid reproducing the high-quality work already undertaken
+by existing clients. For present-Ethereum functionality, Lighthouse will
+connect to existing clients like
+[Geth](https://github.com/ethereum/go-ethereum) or
+[Parity-Ethereum](https://github.com/paritytech/parity-ethereum) via RPC.
 
 ### Goals
 
