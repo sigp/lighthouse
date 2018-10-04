@@ -54,13 +54,8 @@ reject invalid blocks even quicker. See the
 [issue](https://github.com/ethereum/beacon_chain/issues/103) on
 [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain)
 .
-<<<<<<< HEAD
 - **P2P networking**: Eth 2.0 will likely use the [libp2p
   framework](https://libp2p.io/). Lighthouse aims to work alongside
-=======
-- **P2P networking**: Eth 2.0 is likely to use the [libp2p
-  framework](https://libp2p.io/), lighthouse hopes to work alongside
->>>>>>> f765f4e08d84346a936e77859b2cb91110a9c007
 [Parity](https://www.parity.io/) to get
 [libp2p-rust](https://github.com/libp2p/rust-libp2p) fit-for-purpose.
 - **Validator duties** : the project involves the development of "validator"
@@ -77,7 +72,6 @@ on serialization formats.
 - **Casper FFG fork-choice**: the [Casper
   FFG](https://arxiv.org/abs/1710.09437) fork-choice rules allow the chain to
 select a canonical chain in the case of a fork.
-<<<<<<< HEAD
 - **Efficient state transition logic**: "state transition" logic governs
   updates to the validator set as validators log in/out, penalises/rewards
 validators, rotates validators across shards, and implements other core tasks.
@@ -86,16 +80,6 @@ environments with CI work-flows to provide automated security analysis..
 
 In addition to these components we're also working on database schemas, RPC
 frameworks, specification development, database optimizations (e.g.,
-=======
-- **Efficient state transition logic**: "state transition" logic deals with
-  updating the validator set as validators log in/out, penalising/rewarding
-validators, rotating validators across shards, and many other core tasks.
-- **Fuzzing and testing environments**: we are preparing to implement lab
-  environments with CI work-flows to provide automated security analysis.
-
-On top of these components we're also working on database schemas,
-RPC frameworks, specification development, database optimizations (e.g.,
->>>>>>> f765f4e08d84346a936e77859b2cb91110a9c007
 bloom-filters) and tons of other interesting stuff (at least we think so).
 
 ### Contributing
