@@ -11,7 +11,10 @@ Lighthouse is an open-source Ethereum 2.0 client, in development. Designed as
 an Ethereum 2.0-only client, Lighthouse will not re-implement the existing
 proof-of-work protocol. Maintaining a forward-focus on Ethereum 2.0 ensures
 that Lighthouse will avoid reproducing the high-quality work already undertaken
-by existing clients.
+by existing clients. For present-Ethereum functionality, Lighthouse will
+connect to existing clients like
+[Geth](https://github.com/ethereum/go-ethereum) or
+[Parity-Ethereum](https://github.com/paritytech/parity-ethereum) via RPC.
 
 This readme is split into two major sections:
 
@@ -20,7 +23,8 @@ This readme is split into two major sections:
 - [What is Ethereum 2.0](#what-is-ethereum-20): an introduction to Ethereum 2.0.
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
-\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post.
+\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or our
+[website](https://sigmaprime.io).
 
 ## Lighthouse Client
 
@@ -88,8 +92,8 @@ bloom-filters) and tons of other interesting stuff (at least we think so).
 
 Layer-1 infrastructure is a critical component of the ecosystem and relies
 heavily on community contribution. Building Ethereum 2.0 is a huge task and we
-refuse to "do an ICO" or charge licensing fees. Instead, we fund development
-through grants and support from Sigma Prime.
+refuse to conduct an inappropriate ICO or charge licensing fees. Instead, we
+fund development through grants and support from Sigma Prime.
 
 If you would like to learn more about Ethereum 2.0 and/or
 [Rust](https://www.rust-lang.org/), we would be more than happy to on-board you
@@ -217,6 +221,10 @@ parameters](https://github.com/ethereum/eth2.0-specs/blob/master/specs/casper_sh
 to allow them to become Beacon Chain validators. Each Beacon Chain will
 reference a PoW block hash allowing PoW clients to use the Beacon Chain as a
 source of [Casper FFG finality](https://arxiv.org/abs/1710.09437), if desired.
+
+It is a requirement that ETH can move freely between shard chains and between
+Eth 2.0 and present-Ethereum. The exact mechanics of these transfers are still
+a topic of research and their details are yet to be confirmed.
 
 ## Ethereum 2.0 Progress
 
