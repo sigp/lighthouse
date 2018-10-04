@@ -182,6 +182,23 @@ impl<T> BlockValidationContext<T>
         }
 
         /*
+         * Read the parent hash from the block we are validating then attempt to load
+         * that parent block ssz from the database.
+         *
+         * If that parent doesn't exist in the database or is invalid, reject the block.
+         *
+         * Also, read the slot from the parent block for later use.
+         */
+        let parent_hash = b.parent_hash();
+        let parent_slot = match self.block_store.get_serialized_block(&parent_hash)? {
+            None => return Err(SszBlockValidationError::UnknownParentHash),
+            Some(ssz) => {
+                let parent_block = SszBlock::from_slice(&ssz[..])?;
+                parent_block.slot_number()
+            }
+        };
+
+        /*
          * Generate the context in which attestations will be validated.
          */
         let attestation_validation_context = Arc::new(AttestationValidationContext {
@@ -201,28 +218,16 @@ impl<T> BlockValidationContext<T>
             .validate_attestation(&first_attestation)?;
 
         /*
-         * Read the parent hash from the block we are validating then attempt to load
-         * the parent block ssz from the database. If that parent doesn't exist in
-         * the database, reject the block.
+         * Attempt to read load the parent block proposer from the proposer map. Return with an
+         * error if it fails.
          *
-         * If the parent does exist in the database, read the slot of that parent. Then,
-         * determine the proposer of that slot (the parent slot) by looking it up
-         * in the proposer map.
-         *
-         * If that proposer (the proposer of the parent block) was not present in the first (0'th)
+         * If the signature of proposer for the parent slot was not present in the first (0'th)
          * attestation of this block, reject the block.
          */
-        let parent_hash = b.parent_hash();
-        match self.block_store.get_serialized_block(&parent_hash)? {
-            None => return Err(SszBlockValidationError::UnknownParentHash),
-            Some(ssz) => {
-                let parent_block = SszBlock::from_slice(&ssz[..])?;
-                let proposer = self.proposer_map.get(&parent_block.slot_number())
-                    .ok_or(SszBlockValidationError::BadProposerMap)?;
-                if !attestation_voters.contains(&proposer) {
-                    return Err(SszBlockValidationError::NoProposerSignature);
-                }
-            }
+        let parent_block_proposer = self.proposer_map.get(&parent_slot)
+            .ok_or(SszBlockValidationError::BadProposerMap)?;
+        if !attestation_voters.contains(&parent_block_proposer) {
+            return Err(SszBlockValidationError::NoProposerSignature);
         }
 
         /*
