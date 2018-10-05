@@ -172,19 +172,19 @@ mod tests {
     fn generate_cycle_helper(
         validator_count: &usize,
         shard_count: &usize,
-        crosslinking_shard_start: &usize,
-        cycle_length: &usize,
-        min_committee_size: &usize)
+        crosslinking_shard_start: usize,
+        cycle_length: usize,
+        min_committee_size: usize)
         -> (Vec<usize>, Vec<usize>, Result<DelegatedCycle, TransitionError>)
     {
-        let validator_indices = (0_usize..*validator_count).into_iter().collect();
-        let shard_indices = (0_usize..*shard_count).into_iter().collect();
+        let validator_indices: Vec<usize> = (0_usize..*validator_count).into_iter().collect();
+        let shard_indices: Vec<usize> = (0_usize..*shard_count).into_iter().collect();
         let result = generate_cycle(
             &validator_indices,
             &shard_indices,
-            &crosslinking_shard_start,
-            &cycle_length,
-            &min_committee_size);
+            crosslinking_shard_start,
+            cycle_length,
+            min_committee_size);
         (validator_indices, shard_indices, result)
     }
 
@@ -255,9 +255,9 @@ mod tests {
         let (validators, shards, result) = generate_cycle_helper(
             &validator_count,
             &shard_count,
-            &crosslinking_shard_start,
-            &cycle_length,
-            &min_committee_size);
+            crosslinking_shard_start,
+            cycle_length,
+            min_committee_size);
         let cycle = result.unwrap();
 
         let assigned_validators = flatten_validators(&cycle);
@@ -294,9 +294,9 @@ mod tests {
         let (validators, shards, result) = generate_cycle_helper(
             &validator_count,
             &shard_count,
-            &crosslinking_shard_start,
-            &cycle_length,
-            &min_committee_size);
+            crosslinking_shard_start,
+            cycle_length,
+            min_committee_size);
         let cycle = result.unwrap();
         let assigned_validators = flatten_validators(&cycle);
         let assigned_shards = flatten_and_dedup_shards(&cycle);
