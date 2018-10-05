@@ -3,12 +3,9 @@ use super::TransitionError;
 use super::shuffle;
 use std::cmp::min;
 
-type DelegatedSlot = Vec<ShardAndCommittee>;
-type DelegatedCycle = Vec<DelegatedSlot>;
+type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
 
-/*
- * Iterator for the honey_badger_split function
- */
+/// Iterator for the honey_badger_split function
 struct Split<'a, T: 'a> {
     n: usize,
     current_pos: usize,
@@ -33,11 +30,10 @@ impl<'a,T> Iterator for Split<'a, T> {
     }
 }
 
-/*
- * splits a slice into chunks of size n. All postive n values are applicable,
- * hence the honey_badger prefix.
- * Returns an iterator over the original list.
- */
+
+/// splits a slice into chunks of size n. All postive n values are applicable,
+/// hence the honey_badger prefix.
+/// Returns an iterator over the original list.
 trait SplitExt<T> {
     fn honey_badger_split(&self, n: usize) -> Split<T>;
 }
@@ -46,7 +42,7 @@ impl<T> SplitExt<T> for [T] {
 
     fn honey_badger_split(&self, n: usize) -> Split<T> {
         Split {
-            n: n,
+            n,
             current_pos: 0,
             list: &self,
             list_length: self.len(),
@@ -59,15 +55,15 @@ impl<T> SplitExt<T> for [T] {
  * dynasties are within the supplied `dynasty`.
 */
 fn active_validator_indicies(
-    dynasty: &u64,
-    validators: &Vec<ValidatorRecord>)
+    dynasty: u64,
+    validators: &[ValidatorRecord])
     -> Vec<usize>
 {
     validators.iter()
         .enumerate()
         .filter_map(|(i, validator)| {
-            if (validator.start_dynasty >= *dynasty) &
-                (validator.end_dynasty < *dynasty)
+            if (validator.start_dynasty >= dynasty) &
+                (validator.end_dynasty < dynasty)
             {
                 Some(i)
             } else {
@@ -85,9 +81,9 @@ fn active_validator_indicies(
  */
 pub fn delegate_validators(
     seed: &[u8],
-    validators: &Vec<ValidatorRecord>,
-    dynasty: &u64,
-    crosslinking_shard_start: &u16,
+    validators: &[ValidatorRecord],
+    dynasty: u64,
+    crosslinking_shard_start: u16,
     config: &ChainConfig)
     -> Result<DelegatedCycle, TransitionError>
 {
@@ -99,27 +95,27 @@ pub fn delegate_validators(
                     String::from("Shuffle list length exceed.")))
         }
     };
-    let shard_indices = (0_usize..config.shard_count as usize).into_iter().collect();
-    let crosslinking_shard_start = *crosslinking_shard_start as usize;
+    let shard_indices: Vec<usize> = (0_usize..config.shard_count as usize).into_iter().collect();
+    let crosslinking_shard_start = crosslinking_shard_start as usize;
     let cycle_length = config.cycle_length as usize;
     let min_committee_size = config.min_committee_size as usize;
     generate_cycle(
         &shuffled_validator_indices,
         &shard_indices,
-        &crosslinking_shard_start,
-        &cycle_length,
-        &min_committee_size)
+        crosslinking_shard_start,
+        cycle_length,
+        min_committee_size)
 }
 
 /*
  * Given the validator list, delegates the validators into slots and comittees for a given cycle.
  */
 fn generate_cycle(
-    validator_indices: &Vec<usize>,
-    shard_indices: &Vec<usize>,
-    crosslinking_shard_start: &usize,
-    cycle_length: &usize,
-    min_committee_size: &usize)
+    validator_indices: &[usize],
+    shard_indices: &[usize],
+    crosslinking_shard_start: usize,
+    cycle_length: usize,
+    min_committee_size: usize)
     -> Result<DelegatedCycle, TransitionError>
 {
 
@@ -144,21 +140,21 @@ fn generate_cycle(
             let committees_per_slot = 1;
             let mut slots_per_committee = 1;
             while (validator_count * slots_per_committee < cycle_length * min_committee_size) &
-                (slots_per_committee < *cycle_length) {
-                slots_per_committee = slots_per_committee * 2;
+                (slots_per_committee < cycle_length) {
+                slots_per_committee *= 2;
             }
             (committees_per_slot, slots_per_committee)
         }
     };
 
-    let cycle = validator_indices.honey_badger_split(*cycle_length)
+    let cycle = validator_indices.honey_badger_split(cycle_length)
         .enumerate()
         .map(|(i, slot_indices)| {
             let shard_id_start = crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
-            return slot_indices.honey_badger_split(committees_per_slot)
+            slot_indices.honey_badger_split(committees_per_slot)
                 .enumerate()
                 .map(|(j, shard_indices)| {
-                    return ShardAndCommittee{
+                    ShardAndCommittee{
                         shard_id: ((shard_id_start + j) % shard_count) as u16,
                         committee: shard_indices.to_vec(),
                     }
