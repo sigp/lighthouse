@@ -4,7 +4,7 @@ Lighthouse is an Ethereum 2.0 client built in Rust.
 
 If you are interested in contributing to the Ethereum ecosystem, and you want to learn Rust, Lighthouse is a great project to work on.
 
-Initially this wiki will contain reading material to help get you started in Rust and Ethereum. Eventually it will have guides specific to Lighthouse.
+Initially this doc will contain reading material to help get you started in Rust and Ethereum. Eventually it will have guides specific to Lighthouse.
 
 ## Learn Rust
 
