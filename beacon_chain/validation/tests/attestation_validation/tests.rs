@@ -107,6 +107,38 @@ fn test_attestation_validation_invalid_bad_bitfield_length() {
 }
 
 #[test]
+fn test_attestation_validation_invalid_invalid_bitfield_end_bit() {
+    let mut rig = generic_rig();
+
+    let one_bit_high = rig.attester_count + 1;
+    rig.attestation.attester_bitfield.set_bit(one_bit_high, true);
+
+    let result = rig.context.validate_attestation(&rig.attestation);
+    assert_eq!(result, Err(AttestationValidationError::InvalidBitfieldEndBits));
+}
+
+#[test]
+fn test_attestation_validation_invalid_invalid_bitfield_end_bit_with_irreguar_bitfield_len() {
+    let mut rig = generic_rig();
+
+    /*
+     * This test ensure that if the number of attesters is "irregular" (with respect to the
+     * bitfield), and there is a invalid bit is set, validation will still fail.
+     *
+     * "Irregular" here means that number of validators + 1 is not a clean multiple of eight.
+     *
+     * This test exists to ensure that the application can distinguish between the highest set
+     * bit in a bitfield and the byte length of that bitfield
+     */
+    let one_bit_high = rig.attester_count + 1;
+    assert!(one_bit_high % 8 != 0, "the test is ineffective in this case.");
+    rig.attestation.attester_bitfield.set_bit(one_bit_high, true);
+
+    let result = rig.context.validate_attestation(&rig.attestation);
+    assert_eq!(result, Err(AttestationValidationError::InvalidBitfieldEndBits));
+}
+
+#[test]
 fn test_attestation_validation_invalid_unknown_justfied_block_hash() {
     let mut rig = generic_rig();
 
