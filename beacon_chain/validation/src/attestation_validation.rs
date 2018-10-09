@@ -12,10 +12,7 @@ use super::db::{
     ClientDB,
     DBError
 };
-use super::db::stores::{
-    BlockStore,
-    ValidatorStore,
-};
+use super::db::stores::ValidatorStore;
 use super::types::{
     Hash256,
 };
@@ -57,10 +54,10 @@ pub struct AttestationValidationContext<T>
     pub cycle_length: u8,
     /// The last justified slot as per the client's view of the canonical chain.
     pub last_justified_slot: u64,
+    /// The last justified block hash as per the client's view of the canonical chain.
+    pub last_justified_block_hash: Hash256,
     /// A vec of the hashes of the blocks preceeding the present slot.
     pub parent_hashes: Arc<Vec<Hash256>>,
-    /// The store containing block information.
-    pub block_store: Arc<BlockStore<T>>,
     /// The store containing validator information.
     pub validator_store: Arc<ValidatorStore<T>>,
     /// A map of (slot, shard_id) to the attestation set of validation indices.
@@ -105,6 +102,14 @@ impl<T> AttestationValidationContext<T>
         }
 
         /*
+         * The specified justified block hash supplied in the attestation must match our knowledge
+         * of the last justified block this chain.
+         */
+        if a.justified_block_hash != self.last_justified_block_hash {
+            return Err(AttestationValidationError::UnknownJustifiedBlock)
+        }
+
+        /*
          * There is no need to include more oblique parents hashes than there are blocks
          * in a cycle.
          */
@@ -140,13 +145,6 @@ impl<T> AttestationValidationContext<T>
          */
         if a.attester_bitfield.len() > attestation_indices.len() {
             return Err(AttestationValidationError::InvalidBitfieldEndBits)
-        }
-
-        /*
-         * The specified justified block hash must be known to us
-         */
-        if !self.block_store.block_exists(&a.justified_block_hash)? {
-            return Err(AttestationValidationError::UnknownJustifiedBlock)
         }
 
         let signed_message = {

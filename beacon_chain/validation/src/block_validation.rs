@@ -72,6 +72,8 @@ pub struct BlockValidationContext<T>
     pub cycle_length: u8,
     /// The last justified slot as per the client's view of the canonical chain.
     pub last_justified_slot: u64,
+    /// The last justified block hash as per the client's view of the canonical chain.
+    pub last_justified_block_hash: Hash256,
     /// The last finalized slot as per the client's view of the canonical chain.
     pub last_finalized_slot: u64,
     /// A vec of the hashes of the blocks preceeding the present slot.
@@ -205,8 +207,8 @@ impl<T> BlockValidationContext<T>
             block_slot,
             cycle_length: self.cycle_length,
             last_justified_slot: self.last_justified_slot,
+            last_justified_block_hash: self.last_justified_block_hash,
             parent_hashes: self.parent_hashes.clone(),
-            block_store: self.block_store.clone(),
             validator_store: self.validator_store.clone(),
             attester_map: self.attester_map.clone(),
         });

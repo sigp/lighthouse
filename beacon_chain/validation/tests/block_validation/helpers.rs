@@ -41,6 +41,7 @@ pub struct BlockTestParams {
     pub parent_proposer_index: usize,
     pub validation_context_slot: u64,
     pub validation_context_justified_slot: u64,
+    pub validation_context_justified_block_hash: Hash256,
     pub validation_context_finalized_slot: u64,
 }
 
@@ -93,7 +94,6 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
     let shard_block_hash = Hash256::from("shard_block_hash".as_bytes());
 
     stores.pow_chain.put_block_hash(pow_chain_ref.as_ref()).unwrap();
-    stores.block.put_serialized_block(justified_block_hash.as_ref(), &vec![42]).unwrap();
 
     /*
      * Generate a minimum viable parent block and store it in the database.
@@ -205,6 +205,7 @@ pub fn run_block_validation_scenario<F>(
         present_slot: params.validation_context_slot,
         cycle_length: params.cycle_length,
         last_justified_slot: params.validation_context_justified_slot,
+        last_justified_block_hash: params.validation_context_justified_block_hash,
         last_finalized_slot: params.validation_context_finalized_slot,
         parent_hashes: Arc::new(parent_hashes),
         proposer_map: Arc::new(proposer_map),

@@ -3,10 +3,7 @@ use std::sync::Arc;
 use super::db::{
     MemoryDB,
 };
-use super::db::stores::{
-    BlockStore,
-    ValidatorStore,
-};
+use super::db::stores::ValidatorStore;
 use super::types::{
     AttestationRecord,
     AttesterMap,
@@ -30,18 +27,15 @@ use super::hashing::{
 
 pub struct TestStore {
     pub db: Arc<MemoryDB>,
-    pub block: Arc<BlockStore<MemoryDB>>,
     pub validator: Arc<ValidatorStore<MemoryDB>>,
 }
 
 impl TestStore {
     pub fn new() -> Self {
         let db = Arc::new(MemoryDB::open());
-        let block = Arc::new(BlockStore::new(db.clone()));
         let validator = Arc::new(ValidatorStore::new(db.clone()));
         Self {
             db,
-            block,
             validator,
         }
     }
@@ -141,8 +135,6 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
     let justified_block_hash = Hash256::from("justified_block".as_bytes());
     let shard_block_hash = Hash256::from("shard_block".as_bytes());
 
-    stores.block.put_serialized_block(&justified_block_hash.as_ref(), &[42]).unwrap();
-
     let attestation_slot = block_slot - 1;
 
     let mut keypairs = vec![];
@@ -167,8 +159,8 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         block_slot,
         cycle_length,
         last_justified_slot,
+        last_justified_block_hash: justified_block_hash,
         parent_hashes: parent_hashes.clone(),
-        block_store: stores.block.clone(),
         validator_store: stores.validator.clone(),
         attester_map: Arc::new(attester_map),
     };
