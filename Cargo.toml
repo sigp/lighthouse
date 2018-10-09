@@ -12,7 +12,6 @@ clap = "2.32.0"
 db = { path = "lighthouse/db" }
 dirs = "1.0.3"
 futures = "0.1.23"
-network-libp2p = { path = "network-libp2p" }
 rand = "0.3"
 rlp = { git = "https://github.com/paritytech/parity-common" }
 slog = "^2.2.3"
@@ -37,6 +36,7 @@ members = [
 	"beacon_chain/utils/bls",
 	"beacon_chain/utils/boolean-bitfield",
 	"beacon_chain/utils/hashing",
+	"beacon_chain/utils/shuffling",
 	"beacon_chain/utils/ssz",
 	"beacon_chain/utils/ssz_helpers",
 	"beacon_chain/validation",
