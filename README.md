@@ -165,8 +165,6 @@ Here we provide an overview of the directory structure:
 validation, BLS crypto, etc.
 - `/lighthouse`: contains logic specific to this client implementation. E.g.,
   CLI parsing, RPC end-points, databases, etc.
-- `/network-libp2p`: contains a proof-of-concept libp2p implementation. This component will be
-  replaced once research around p2p has been finalized.
 
 ## Contact
 
