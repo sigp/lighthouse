@@ -164,7 +164,7 @@ impl<T> AttestationValidationContext<T>
                 a.justified_slot)
         };
 
-        let voted_hashmap =
+        let voted_hashset =
             verify_aggregate_signature_for_indices(
                 &signed_message,
                 &a.aggregate_sig,
@@ -175,7 +175,7 @@ impl<T> AttestationValidationContext<T>
         /*
          * If the hashmap of voters is None, the signature verification failed.
          */
-        match voted_hashmap {
+        match voted_hashset {
             None => Err(AttestationValidationError::BadAggregateSignature),
             Some(hashmap) => Ok(hashmap),
         }
