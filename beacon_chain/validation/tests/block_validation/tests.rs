@@ -34,6 +34,7 @@ fn get_simple_params() -> BlockTestParams {
 
     let validation_context_slot = block_slot;
     let validation_context_justified_slot = attestations_justified_slot;
+    let validation_context_justified_block_hash = Hash256::from("justified_hash".as_bytes());
     let validation_context_finalized_slot = 0;
 
     BlockTestParams {
@@ -47,6 +48,7 @@ fn get_simple_params() -> BlockTestParams {
         attestations_justified_slot,
         validation_context_slot,
         validation_context_justified_slot,
+        validation_context_justified_block_hash,
         validation_context_finalized_slot,
     }
 }
