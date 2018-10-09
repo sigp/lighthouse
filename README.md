@@ -160,12 +160,12 @@ always respect the limits of other people.
 
 Here we provide an overview of the directory structure:
 
-- `\beacon_chain`: contains logic derived directly from the specification.
+- `/beacon_chain`: contains logic derived directly from the specification.
   E.g., shuffling algorithms, state transition logic and structs, block
 validation, BLS crypto, etc.
-- `\lighthouse`: contains logic specific to this client implementation. E.g.,
+- `/lighthouse`: contains logic specific to this client implementation. E.g.,
   CLI parsing, RPC end-points, databases, etc.
-- `\network-libp2p`: contains a proof-of-concept libp2p implementation. This component will be
+- `/network-libp2p`: contains a proof-of-concept libp2p implementation. This component will be
   replaced once research around p2p has been finalized.
 
 ## Contact
@@ -215,7 +215,7 @@ processing schemes, however, that is not in scope of this discussion.
 
 ## The Proof-of-Work Chain
 
-The proof-of-work (PoW) chain will host a smart contract that enables accounts to deposit 32
+The present-Ethereum proof-of-work (PoW) chain will host a smart contract that enables accounts to deposit 32
 ETH, a BLS public key, and some [other
 parameters](https://github.com/ethereum/eth2.0-specs/blob/master/specs/casper_sharding_v2.1.md#pow-chain-changes),
 allowing them to become beacon chain validators. Each beacon chain will
