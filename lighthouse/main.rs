@@ -4,13 +4,10 @@ extern crate slog_term;
 extern crate slog_async;
 // extern crate ssz;
 extern crate clap;
-extern crate network_libp2p;
 extern crate futures;
 
 extern crate db;
 
-mod client;
-mod sync;
 mod config;
 
 use std::path::PathBuf;
@@ -18,7 +15,6 @@ use std::path::PathBuf;
 use slog::Drain;
 use clap::{ Arg, App };
 use config::LighthouseConfig;
-use client::Client;
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -64,8 +60,8 @@ fn main() {
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.p2p_listen_port);
 
-    let client = Client::new(&config, &log);
-    client.sync_thread.join().unwrap();
+    error!(log,
+           "Lighthouse under development and does not provide a user demo.");
 
     info!(log, "Exiting.");
 }
