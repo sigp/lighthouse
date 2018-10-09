@@ -56,7 +56,7 @@ pub fn verify_aggregate_signature_for_indices<T>(
              */
             agg_pub_key.add(&pub_key);
             /*
-             * Add to the validator to the set of voters for this attestation record.
+             * Add validator to the set of voters for this attestation record.
              */
             voters.insert(validator);
         }
