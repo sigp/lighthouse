@@ -39,11 +39,3 @@ pub type AttesterMap = HashMap<(u64, u16), Vec<usize>>;
 
 /// Maps a slot to a block proposer.
 pub type ProposerMap = HashMap<u64, usize>;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
