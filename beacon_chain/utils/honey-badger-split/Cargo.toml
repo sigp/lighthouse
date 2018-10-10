@@ -1,0 +1,6 @@
+[package]
+name = "honey-badger-split"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]

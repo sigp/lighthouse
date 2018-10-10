@@ -1,3 +1,4 @@
+extern crate honey_badger_split;
 extern crate types;
 extern crate shuffling;
 

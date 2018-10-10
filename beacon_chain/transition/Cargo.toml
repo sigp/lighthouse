@@ -4,5 +4,6 @@ version = "0.1.0"
 authors = ["Age Manning <Age@AgeManning.com>"]
 
 [dependencies]
+honey-badger-split = { path = "../utils/honey-badger-split" }
 types = { path = "../types" }
 shuffling = { path = "../utils/shuffling" }
