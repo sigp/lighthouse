@@ -58,12 +58,15 @@ impl<T: ClientDB> BlockStore<T> {
 
     /// Retrieve the block at a slot given a "head_hash" and a slot.
     ///
-    /// A "head_hash" must be a block with a slot number greater than or equal to the desired slot.
+    /// A "head_hash" must be a block hash with a slot number greater than or equal to the desired
+    /// slot.
     ///
     /// This function will read each block down the chain until it finds a block with the given
     /// slot number. If the slot is skipped, the function will return None.
+    ///
+    /// If a block is found, a tuple of (block_hash, serialized_block) is returned.
     pub fn block_at_slot(&self, head_hash: &[u8], slot: u64)
-        -> Result<Option<Vec<u8>>, BlockAtSlotError>
+        -> Result<Option<(Vec<u8>, Vec<u8>)>, BlockAtSlotError>
     {
         match self.get_serialized_block(head_hash)? {
             None => Err(BlockAtSlotError::UnknownBlock),
@@ -71,7 +74,7 @@ impl<T: ClientDB> BlockStore<T> {
                 let block = SszBlock::from_slice(&ssz)
                     .map_err(|_| BlockAtSlotError::InvalidBlock)?;
                 match block.slot_number() {
-                    s if s == slot => Ok(Some(ssz.to_vec())),
+                    s if s == slot => Ok(Some((head_hash.to_vec(), ssz.to_vec()))),
                     s if s < slot => Ok(None),
                     _ => self.block_at_slot(block.parent_hash(), slot)
                 }
@@ -180,17 +183,25 @@ mod tests {
             bs.put_serialized_block(&hashes[i].to_vec(), &ssz).unwrap();
         }
 
-        let ssz = bs.block_at_slot(&hashes[4], 5).unwrap().unwrap();
-        let block = SszBlock::from_slice(&ssz).unwrap();
+        let tuple = bs.block_at_slot(&hashes[4], 5).unwrap().unwrap();
+        let block = SszBlock::from_slice(&tuple.1).unwrap();
         assert_eq!(block.slot_number(), 5);
+        assert_eq!(tuple.0, hashes[4].to_vec());
 
-        let ssz = bs.block_at_slot(&hashes[4], 3).unwrap().unwrap();
-        let block = SszBlock::from_slice(&ssz).unwrap();
+        let tuple = bs.block_at_slot(&hashes[4], 4).unwrap().unwrap();
+        let block = SszBlock::from_slice(&tuple.1).unwrap();
+        assert_eq!(block.slot_number(), 4);
+        assert_eq!(tuple.0, hashes[3].to_vec());
+
+        let tuple = bs.block_at_slot(&hashes[4], 3).unwrap().unwrap();
+        let block = SszBlock::from_slice(&tuple.1).unwrap();
         assert_eq!(block.slot_number(), 3);
+        assert_eq!(tuple.0, hashes[2].to_vec());
 
-        let ssz = bs.block_at_slot(&hashes[4], 0).unwrap().unwrap();
-        let block = SszBlock::from_slice(&ssz).unwrap();
+        let tuple = bs.block_at_slot(&hashes[4], 0).unwrap().unwrap();
+        let block = SszBlock::from_slice(&tuple.1).unwrap();
         assert_eq!(block.slot_number(), 0);
+        assert_eq!(tuple.0, hashes[0].to_vec());
 
         let ssz = bs.block_at_slot(&hashes[4], 2).unwrap();
         assert_eq!(ssz, None);
