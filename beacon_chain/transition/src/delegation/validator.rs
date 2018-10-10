@@ -1,55 +1,10 @@
+use super::honey_badger_split::SplitExt;
 use super::types::{ShardAndCommittee, ValidatorRecord, ChainConfig};
 use super::TransitionError;
 use super::shuffle;
 use std::cmp::min;
 
 type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
-
-/// Iterator for the honey_badger_split function
-struct Split<'a, T: 'a> {
-    n: usize,
-    current_pos: usize,
-    list: &'a [T],
-    list_length: usize
-}
-
-impl<'a,T> Iterator for Split<'a, T> {
-    type Item = &'a [T];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.current_pos +=1;
-        if self.current_pos <= self.n {
-            match self.list.get(self.list_length*(self.current_pos-1)/self.n..self.list_length*self.current_pos/self.n) {
-                Some(v) => Some(v),
-                None => unreachable!()
-            }
-        }
-        else {
-            None
-        }
-    }
-}
-
-
-/// Splits a slice into chunks of size n. All postive n values are applicable,
-/// hence the honey_badger prefix.
-/// Returns an iterator over the original list.
-trait SplitExt<T> {
-    fn honey_badger_split(&self, n: usize) -> Split<T>;
-}
-
-impl<T> SplitExt<T> for [T] {
-
-    fn honey_badger_split(&self, n: usize) -> Split<T> {
-        Split {
-            n,
-            current_pos: 0,
-            list: &self,
-            list_length: self.len(),
-        }
-    }
-}
-
 
 /// Produce a vector of validators indicies where those validators start and end
 /// dynasties are within the supplied `dynasty`.
