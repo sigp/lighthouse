@@ -20,6 +20,20 @@ impl ChainConfig {
         }
     }
 
+    pub fn validate(&self) -> bool {
+	    // criteria that ensure the config is valid
+
+	    // shard_count / cycle_length > 0 otherwise validator delegation
+	    // will fail.
+	    if self.shard_count / self.cycle_length as u16 == 0  {
+		    return false;
+	    }
+
+	    true
+    }
+
+
+
     #[cfg(test)]
     pub fn super_fast_tests() -> Self {
         Self {
