@@ -1,9 +1,22 @@
+extern crate ssz_helpers;
+
+use self::ssz_helpers::ssz_block::{
+    SszBlock,
+    SszBlockError,
+};
 use std::sync::Arc;
 use super::{
     ClientDB,
     DBError,
 };
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum BlockAtSlotError {
+    UnknownBlock,
+    InvalidBlock,
+    DBError(String),
+}
 
 pub struct BlockStore<T>
     where T: ClientDB
@@ -42,17 +55,54 @@ impl<T: ClientDB> BlockStore<T> {
         // TODO: implement logic for canonical chain
         self.db.exists(DB_COLUMN, hash)
     }
+
+    /// Retrieve the block at a slot given a "head_hash" and a slot.
+    ///
+    /// A "head_hash" must be a block with a slot number greater than or equal to the desired slot.
+    ///
+    /// This function will read each block down the chain until it finds a block with the given
+    /// slot number. If the slot is skipped, the function will return None.
+    pub fn block_at_slot(&self, head_hash: &[u8], slot: u64)
+        -> Result<Option<Vec<u8>>, BlockAtSlotError>
+    {
+        match self.get_serialized_block(head_hash)? {
+            None => Err(BlockAtSlotError::UnknownBlock),
+            Some(ssz) => {
+                let block = SszBlock::from_slice(&ssz)
+                    .map_err(|_| BlockAtSlotError::InvalidBlock)?;
+                match block.slot_number() {
+                    s if s == slot => Ok(Some(ssz.to_vec())),
+                    s if s < slot => Ok(None),
+                    _ => self.block_at_slot(block.parent_hash(), slot)
+                }
+            }
+        }
+    }
+}
+
+impl From<DBError> for BlockAtSlotError {
+    fn from(e: DBError) -> Self {
+        BlockAtSlotError::DBError(e.message)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    extern crate ssz;
+    extern crate types;
+
+    use self::types::block::Block;
+    use self::types::attestation_record::AttestationRecord;
+    use self::types::Hash256;
+    use self::ssz::SszStream;
+
     use super::*;
     use super::super::super::MemoryDB;
     use std::thread;
     use std::sync::Arc;
 
     #[test]
-    fn test_block_store_on_disk_db() {
+    fn test_block_store_on_memory_db() {
         let db = Arc::new(MemoryDB::open());
         let bs = Arc::new(BlockStore::new(db.clone()));
 
@@ -88,5 +138,64 @@ mod tests {
                 assert_eq!(vec![42], val);
             }
         }
+    }
+
+    #[test]
+    fn test_block_at_slot() {
+        let db = Arc::new(MemoryDB::open());
+        let bs = Arc::new(BlockStore::new(db.clone()));
+
+        let blocks = (0..5).into_iter()
+            .map(|_| {
+                let mut block = Block::zero();
+                let ar = AttestationRecord::zero();
+                block.attestations.push(ar);
+                block
+            });
+
+        let hashes = [
+            Hash256::from("zero".as_bytes()),
+            Hash256::from("one".as_bytes()),
+            Hash256::from("two".as_bytes()),
+            Hash256::from("three".as_bytes()),
+            Hash256::from("four".as_bytes()),
+        ];
+
+        let parent_hashes = [
+            Hash256::from("genesis".as_bytes()),
+            Hash256::from("zero".as_bytes()),
+            Hash256::from("one".as_bytes()),
+            Hash256::from("two".as_bytes()),
+            Hash256::from("three".as_bytes()),
+        ];
+
+        let slots = [0, 1, 3, 4, 5];
+
+        for (i, mut block) in blocks.enumerate() {
+            block.parent_hash = parent_hashes[i];
+            block.slot_number = slots[i];
+            let mut s = SszStream::new();
+            s.append(&block);
+            let ssz = s.drain();
+            bs.put_serialized_block(&hashes[i].to_vec(), &ssz).unwrap();
+        }
+
+        let ssz = bs.block_at_slot(&hashes[4], 5).unwrap().unwrap();
+        let block = SszBlock::from_slice(&ssz).unwrap();
+        assert_eq!(block.slot_number(), 5);
+
+        let ssz = bs.block_at_slot(&hashes[4], 3).unwrap().unwrap();
+        let block = SszBlock::from_slice(&ssz).unwrap();
+        assert_eq!(block.slot_number(), 3);
+
+        let ssz = bs.block_at_slot(&hashes[4], 0).unwrap().unwrap();
+        let block = SszBlock::from_slice(&ssz).unwrap();
+        assert_eq!(block.slot_number(), 0);
+
+        let ssz = bs.block_at_slot(&hashes[4], 2).unwrap();
+        assert_eq!(ssz, None);
+
+        let ssz = bs.block_at_slot(&hashes[4], 6).unwrap();
+        assert_eq!(ssz, None);
     }
 }
