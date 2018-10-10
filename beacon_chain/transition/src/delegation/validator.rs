@@ -31,7 +31,7 @@ impl<'a,T> Iterator for Split<'a, T> {
 }
 
 
-/// splits a slice into chunks of size n. All postive n values are applicable,
+/// Splits a slice into chunks of size n. All postive n values are applicable,
 /// hence the honey_badger prefix.
 /// Returns an iterator over the original list.
 trait SplitExt<T> {
@@ -51,9 +51,8 @@ impl<T> SplitExt<T> for [T] {
 }
 
 
-/* Produce a vector of validators indicies where those validators start and end
- * dynasties are within the supplied `dynasty`.
-*/
+/// Produce a vector of validators indicies where those validators start and end
+/// dynasties are within the supplied `dynasty`.
 fn active_validator_indicies(
     dynasty: u64,
     validators: &[ValidatorRecord])
@@ -73,12 +72,11 @@ fn active_validator_indicies(
         .collect()
 }
 
-/*
- * Delegates active validators into slots for a given cycle, given a random seed.
- * Returns a vector or ShardAndComitte vectors representing the shards and committiees for
- * each slot.
- * References get_new_shuffling (ethereum 2.1 specification)
- */
+
+/// Delegates active validators into slots for a given cycle, given a random seed.
+/// Returns a vector or ShardAndComitte vectors representing the shards and committiees for
+/// each slot.
+/// References get_new_shuffling (ethereum 2.1 specification)
 pub fn delegate_validators(
     seed: &[u8],
     validators: &[ValidatorRecord],
@@ -107,9 +105,7 @@ pub fn delegate_validators(
         min_committee_size)
 }
 
-/*
- * Given the validator list, delegates the validators into slots and comittees for a given cycle.
- */
+/// Given the validator list, delegates the validators into slots and comittees for a given cycle.
 fn generate_cycle(
     validator_indices: &[usize],
     shard_indices: &[usize],
