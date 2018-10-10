@@ -2,8 +2,8 @@
 
 [![Build Status](https://travis-ci.org/sigp/lighthouse.svg?branch=master)](https://travis-ci.org/sigp/lighthouse) [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/sigp/lighthouse?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
-A work-in-progress, open-source implementation of the Ethereum 2.0 Beacon Chain, maintained
-by Sigma Prime.
+A work-in-progress, open-source implementation of the Ethereum 2.0 Beacon
+Chain, maintained by Sigma Prime.
 
 ## Introduction
 
@@ -19,24 +19,24 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 
 ## Lighthouse Client
 
-Lighthouse is an open-source Ethereum 2.0 client that is currently under development.
-Designed as an Ethereum 2.0-only client, Lighthouse will not re-implement the existing
-proof-of-work protocol. Maintaining a forward-focus on Ethereum 2.0 ensures
-that Lighthouse avoids reproducing the high-quality work already undertaken
-by existing projects. As such, Lighthouse will
-connect to existing clients, such as
+Lighthouse is an open-source Ethereum 2.0 client that is currently under
+development.  Designed as an Ethereum 2.0-only client, Lighthouse will not
+re-implement the existing proof-of-work protocol. Maintaining a forward-focus
+on Ethereum 2.0 ensures that Lighthouse avoids reproducing the high-quality
+work already undertaken by existing projects. As such, Lighthouse will connect
+to existing clients, such as
 [Geth](https://github.com/ethereum/go-ethereum) or
 [Parity-Ethereum](https://github.com/paritytech/parity-ethereum), via RPC to enable
 present-Ethereum functionality.
 
 ### Goals
 
-The purpose of this project is to further research and development towards a secure,
-efficient, and decentralized Ethereum protocol, facilitated by a new open-source
-Ethereum 2.0 client.
+The purpose of this project is to further research and development towards a
+secure, efficient, and decentralized Ethereum protocol, facilitated by a new
+open-source Ethereum 2.0 client.
 
-In addition to implementing a new client, the project seeks to maintain and improve
-the Ethereum protocol wherever possible.
+In addition to implementing a new client, the project seeks to maintain and
+improve the Ethereum protocol wherever possible.
 
 ### Components
 
@@ -45,30 +45,32 @@ by the team:
 
 - **BLS cryptography**: Lighthouse presently use the [Apache
   Milagro](https://milagro.apache.org/) cryptography library to create and
-verify BLS aggregate signatures. BLS signatures are core to Eth 2.0 as they
-allow the signatures of many validators to be compressed into a constant 96
-bytes and efficiently verified. The Lighthouse project is presently maintaining its own [BLS
-aggregates library](https://github.com/sigp/signature-schemes), gratefully
-forked from [@lovesh](https://github.com/lovesh).
+  verify BLS aggregate signatures. BLS signatures are core to Eth 2.0 as they
+  allow the signatures of many validators to be compressed into a constant 96
+  bytes and efficiently verified. The Lighthouse project is presently
+  maintaining its own [BLS aggregates
+  library](https://github.com/sigp/signature-schemes), gratefully forked from
+  [@lovesh](https://github.com/lovesh).
 - **DoS-resistant block pre-processing**: Processing blocks in proof-of-stake
   is more resource intensive than proof-of-work. As such, clients need to
-ensure that bad blocks can be rejected as efficiently as possible. At present,
-blocks having 10 million ETH staked can be processed in 0.006 seconds, and
-invalid blocks are rejected even more quickly. See
-[issue #103](https://github.com/ethereum/beacon_chain/issues/103) on
-[ethereum/beacon_chain](https://github.com/ethereum/beacon_chain).
+  ensure that bad blocks can be rejected as efficiently as possible. At
+  present, blocks having 10 million ETH staked can be processed in 0.006
+  seconds, and invalid blocks are rejected even more quickly. See [issue
+  #103](https://github.com/ethereum/beacon_chain/issues/103) on
+  [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain).
 .
 - **P2P networking**: Eth 2.0 will likely use the [libp2p
   framework](https://libp2p.io/). Lighthouse aims to work alongside
 [Parity](https://www.parity.io/) to ensure
 [libp2p-rust](https://github.com/libp2p/rust-libp2p) is fit-for-purpose.
 - **Validator duties** : The project involves development of "validator
-  services" for users who wish to stake ETH. To fulfill their duties, validators
-require a consistent view of the chain and the ability to vote upon blocks from both shard
-and beacon chains.
-- **New serialization formats**: Lighthouse is working alongside researchers from the Ethereum Foundation
-  to develop *simpleserialize*, a purpose-built serialization format for sending
-information across a network. Check out the [SSZ
+  services" for users who wish to stake ETH. To fulfill their duties,
+  validators require a consistent view of the chain and the ability to vote
+  upon blocks from both shard and beacon chains.
+- **New serialization formats**: Lighthouse is working alongside researchers
+  from the Ethereum Foundation to develop *simpleserialize* (SSZ), a
+  purpose-built serialization format for sending information across a network.
+  Check out the [SSZ
 implementation](https://github.com/sigp/lighthouse/tree/master/beacon_chain/utils/ssz)
 and this
 [research](https://github.com/sigp/serialization_sandbox/blob/report/report/serialization_report.md)
@@ -79,8 +81,8 @@ select a canonical chain in the case of a fork.
 - **Efficient state transition logic**: State transition logic governs
   updates to the validator set as validators log in/out, penalizes/rewards
 validators, rotates validators across shards, and implements other core tasks.
-- **Fuzzing and testing environments**: Implementation of lab
-environments with continuous integration (CI) workflows, providing automated security analysis.
+- **Fuzzing and testing environments**: Implementation of lab environments with
+  continuous integration (CI) workflows, providing automated security analysis.
 
 In addition to these components we are also working on database schemas, RPC
 frameworks, specification development, database optimizations (e.g.,
@@ -91,9 +93,9 @@ bloom-filters), and tons of other interesting stuff (at least we think so).
 **Lighthouse welcomes contributors with open-arms.**
 
 Layer-1 infrastructure is a critical component for the ecosystem and relies
-heavily on contributions from the community. Building Ethereum 2.0 is a huge task and we
-refuse to conduct an inappropriate ICO or charge licensing fees. Instead, we
-fund development through grants and support from Sigma Prime.
+heavily on contributions from the community. Building Ethereum 2.0 is a huge
+task and we refuse to conduct an inappropriate ICO or charge licensing fees.
+Instead, we fund development through grants and support from Sigma Prime.
 
 If you would like to learn more about Ethereum 2.0 and/or
 [Rust](https://www.rust-lang.org/), we are more than happy to on-board you
@@ -117,9 +119,9 @@ your support!
 **NOTE: The cryptography libraries used in this implementation are
 experimental. As such all cryptography is assumed to be insecure.**
 
-This code-base is still very much under-development and does not provide any user-facing
-functionality. For developers and researchers, there are several tests and benchmarks
-which may be of interest.
+This code-base is still very much under-development and does not provide any
+user-facing functionality. For developers and researchers, there are several
+tests and benchmarks which may be of interest.
 
 To run tests, use:
 
@@ -142,16 +144,18 @@ Lighthouse aims to produce many small easily-tested components, each separated
 into individual crates wherever possible.
 
 Generally, tests can be kept in the same file, as is typical in Rust.
-Integration tests should be placed in the `tests` directory in the crate's root.
-Particularity large (line-count) tests should be placed into a separate file.
+Integration tests should be placed in the `tests` directory in the crate's
+root.  Particularity large (line-count) tests should be placed into a separate
+file.
 
-A function is not considered complete until a test exists for it. We produce tests to protect
-against regression (accidentally breaking things) and to provide examples that
-help readers of the code base understand how functions should (or should not) be used.
+A function is not considered complete until a test exists for it. We produce
+tests to protect against regression (accidentally breaking things) and to
+provide examples that help readers of the code base understand how functions
+should (or should not) be used.
 
-Each pull request is to be reviewed by at least one "core developer" (i.e., someone with
-write-access to the repository). This helps to ensure bugs are detected, consistency is maintained,
-and responsibility of errors is dispersed.
+Each pull request is to be reviewed by at least one "core developer" (i.e.,
+someone with write-access to the repository). This helps to ensure bugs are
+detected, consistency is maintained, and responsibility of errors is dispersed.
 
 Discussion must be respectful and intellectual. Have fun and make jokes, but
 always respect the limits of other people.
@@ -174,19 +178,20 @@ Ping @paulhauner or @AgeManning to get the quickest response.
 
 # What is Ethereum 2.0
 
-Ethereum 2.0 refers to a new blockchain system currently under development
-by the Ethereum Foundation and the Ethereum community. The Ethereum 2.0 blockchain
-consists of 1,025 proof-of-stake blockchains. This includes the "beacon chain" and 1,024
-"shard chains".
+Ethereum 2.0 refers to a new blockchain system currently under development by
+the Ethereum Foundation and the Ethereum community. The Ethereum 2.0 blockchain
+consists of 1,025 proof-of-stake blockchains. This includes the "beacon chain"
+and 1,024 "shard chains".
 
 ## Beacon Chain
 
-The concept of a beacon chain differs from existing blockchains, such as Bitcoin and
-Ethereum, in that it doesn't process transactions per se. Instead, it
-maintains a set of bonded (staked) validators and coordinates these to provide
-services to a static set of *sub-blockchains* (i.e. shards). Each of these shard blockchains
-processes normal transactions (e.g. "Transfer 5 ETH from A to B") in parallel whilst deferring
-consensus mechanisms to the beacon chain.
+The concept of a beacon chain differs from existing blockchains, such as
+Bitcoin and Ethereum, in that it doesn't process transactions per se. Instead,
+it maintains a set of bonded (staked) validators and coordinates these to
+provide services to a static set of *sub-blockchains* (i.e. shards). Each of
+these shard blockchains processes normal transactions (e.g. "Transfer 5 ETH
+from A to B") in parallel whilst deferring consensus mechanisms to the beacon
+chain.
 
 Major services provided by the beacon chain to its shards include the following:
 
@@ -202,19 +207,20 @@ Major services provided by the beacon chain to its shards include the following:
 
 Shards are analogous to CPU cores - they're a resource where transactions can
 execute in series (one-after-another). Presently, Ethereum is single-core and
-can only _fully_ process one transaction at a time. Sharding allows processing of multiple
-transactions simultaneously, greatly increasing the per-second
+can only _fully_ process one transaction at a time. Sharding allows processing
+of multiple transactions simultaneously, greatly increasing the per-second
 transaction capacity of Ethereum.
 
-Each shard uses a proof-of-stake consensus mechanism and shares its validators (stakers) with other
-shards. The beacon chain rotates validators pseudo-randomly between different shards.
-Shards will likely be the basis of layer-2 transaction
-processing schemes, however, that is not in scope of this discussion.
+Each shard uses a proof-of-stake consensus mechanism and shares its validators
+(stakers) with other shards. The beacon chain rotates validators
+pseudo-randomly between different shards.  Shards will likely be the basis of
+layer-2 transaction processing schemes, however, that is not in scope of this
+discussion.
 
 ## The Proof-of-Work Chain
 
-The present-Ethereum proof-of-work (PoW) chain will host a smart contract that enables accounts to deposit 32
-ETH, a BLS public key, and some [other
+The present-Ethereum proof-of-work (PoW) chain will host a smart contract that
+enables accounts to deposit 32 ETH, a BLS public key, and some [other
 parameters](https://github.com/ethereum/eth2.0-specs/blob/master/specs/casper_sharding_v2.1.md#pow-chain-changes),
 allowing them to become beacon chain validators. Each beacon chain will
 reference a PoW block hash allowing PoW clients to use the beacon chain as a
@@ -226,10 +232,10 @@ an active topic of research and their details are yet to be confirmed.
 
 ## Ethereum 2.0 Progress
 
-Ethereum 2.0 is not fully specified and a working implementation does not yet exist. Some
-teams have demos available which indicate progress, but do not constitute a complete product.
-We look forward to providing user functionality once we are ready to provide a
-minimum-viable user experience.
+Ethereum 2.0 is not fully specified and a working implementation does not yet
+exist. Some teams have demos available which indicate progress, but do not
+constitute a complete product.  We look forward to providing user functionality
+once we are ready to provide a minimum-viable user experience.
 
 The work-in-progress Eth 2.0 specification lives
 [here](https://github.com/ethereum/eth2.0-specs/blob/master/specs/casper_sharding_v2.1.md)
