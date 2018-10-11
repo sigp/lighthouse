@@ -189,11 +189,11 @@ impl<T> AttestationValidationContext<T>
                 &self.validator_store)?;
 
         /*
-         * If the hashmap of voters is None, the signature verification failed.
+         * If the hashset of voters is None, the signature verification failed.
          */
         match voted_hashset {
             None => Err(AttestationValidationError::BadAggregateSignature),
-            Some(hashmap) => Ok(hashmap),
+            Some(hashset) => Ok(hashset),
         }
     }
 }
