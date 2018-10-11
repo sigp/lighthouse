@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use super::generate_attestation;
+use super::attestation_validation::helpers::{
+    generate_attestation,
+    insert_justified_block_hash,
+};
 use super::bls::{
     Keypair,
 };
@@ -82,7 +85,7 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
     let block_slot = params.block_slot;
     let attestations_justified_slot = params.attestations_justified_slot;
 
-    let parent_hashes: Vec<Hash256> = (0..(cycle_length * 2))
+    let mut parent_hashes: Vec<Hash256> = (0..(cycle_length * 2))
         .map(|i| Hash256::from(i as u64))
         .collect();
     let parent_hash = Hash256::from("parent_hash".as_bytes());
@@ -93,6 +96,9 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
     let crystallized_state_root = Hash256::from("cry_state".as_bytes());
     let shard_block_hash = Hash256::from("shard_block_hash".as_bytes());
 
+    /*
+     * Store a valid PoW chain ref
+     */
     stores.pow_chain.put_block_hash(pow_chain_ref.as_ref()).unwrap();
 
     /*
@@ -117,6 +123,15 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
         let mut attester_map = AttesterMap::new();
         let mut attestations = vec![];
         let mut keypairs = vec![];
+
+        /*
+         * Insert the required justified_block_hash into parent_hashes
+         */
+        insert_justified_block_hash(
+            &mut parent_hashes,
+            &justified_block_hash,
+            block_slot,
+            attestation_slot);
         /*
          * For each shard in this slot, generate an attestation.
          */
@@ -146,7 +161,8 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
                 &justified_block_hash,
                 cycle_length,
                 &parent_hashes,
-                &signing_keys[..]);
+                &signing_keys[..],
+                &stores.block);
             attestations.push(attestation);
         }
         (attester_map, attestations, keypairs)

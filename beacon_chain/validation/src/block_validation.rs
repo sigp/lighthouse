@@ -207,8 +207,8 @@ impl<T> BlockValidationContext<T>
             block_slot,
             cycle_length: self.cycle_length,
             last_justified_slot: self.last_justified_slot,
-            last_justified_block_hash: self.last_justified_block_hash,
             parent_hashes: self.parent_hashes.clone(),
+            block_store: self.block_store.clone(),
             validator_store: self.validator_store.clone(),
             attester_map: self.attester_map.clone(),
         });

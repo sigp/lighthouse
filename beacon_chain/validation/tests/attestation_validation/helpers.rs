@@ -3,11 +3,15 @@ use std::sync::Arc;
 use super::db::{
     MemoryDB,
 };
-use super::db::stores::ValidatorStore;
+use super::db::stores::{
+    ValidatorStore,
+    BlockStore,
+};
 use super::types::{
     AttestationRecord,
     AttesterMap,
     Bitfield,
+    Block,
     Hash256,
 };
 use super::validation::attestation_validation::{
@@ -28,15 +32,18 @@ use super::hashing::{
 pub struct TestStore {
     pub db: Arc<MemoryDB>,
     pub validator: Arc<ValidatorStore<MemoryDB>>,
+    pub block: Arc<BlockStore<MemoryDB>>,
 }
 
 impl TestStore {
     pub fn new() -> Self {
         let db = Arc::new(MemoryDB::open());
         let validator = Arc::new(ValidatorStore::new(db.clone()));
+        let block = Arc::new(BlockStore::new(db.clone()));
         Self {
             db,
             validator,
+            block,
         }
     }
 }
@@ -73,7 +80,8 @@ pub fn generate_attestation(shard_id: u16,
                             justified_block_hash: &Hash256,
                             cycle_length: u8,
                             parent_hashes: &[Hash256],
-                            signing_keys: &[Option<SecretKey>])
+                            signing_keys: &[Option<SecretKey>],
+                            block_store: &BlockStore<MemoryDB>)
     -> AttestationRecord
 {
     let mut attester_bitfield = Bitfield::new();
@@ -85,6 +93,11 @@ pub fn generate_attestation(shard_id: u16,
         let first: usize = last - usize::from(cycle_length);
         &parent_hashes[first..last]
     };
+
+    /*
+     * Create a justified block at the correct slot and store it in the db.
+     */
+    create_block_at_slot(&block_store, &justified_block_hash, justified_slot);
 
     /*
      * Generate the message that will be signed across for this attr record.
@@ -120,6 +133,31 @@ pub fn generate_attestation(shard_id: u16,
     }
 }
 
+/// Create a minimum viable block at some slot.
+///
+/// Allows the validation function to read the block and verify its slot.
+pub fn create_block_at_slot(block_store: &BlockStore<MemoryDB>, hash: &Hash256, slot: u64) {
+    let mut justified_block = Block::zero();
+    justified_block.attestations.push(AttestationRecord::zero());
+    justified_block.slot_number = slot;
+    let mut s = SszStream::new();
+    s.append(&justified_block);
+    let justified_block_ssz = s.drain();
+    block_store.put_serialized_block(&hash.to_vec(), &justified_block_ssz).unwrap();
+}
+
+/// Inserts a justified_block_hash in a position that will be referenced by an attestation record.
+pub fn insert_justified_block_hash(
+    parent_hashes: &mut Vec<Hash256>,
+    justified_block_hash: &Hash256,
+    block_slot: u64,
+    attestation_slot: u64)
+{
+    let attestation_parent_hash_index = parent_hashes.len() - 1 -
+        (block_slot as usize - attestation_slot as usize);
+    parent_hashes[attestation_parent_hash_index] = justified_block_hash.clone();
+}
+
 pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
     -> TestRig
 {
@@ -127,15 +165,24 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
 
     let block_slot = 10000;
     let cycle_length: u8 = 64;
-    let last_justified_slot = block_slot - u64::from(cycle_length);
-    let parent_hashes: Vec<Hash256> = (0..(cycle_length * 2))
+    let mut parent_hashes: Vec<Hash256> = (0..(cycle_length * 2))
         .map(|i| Hash256::from(i as u64))
         .collect();
-    let parent_hashes = Arc::new(parent_hashes);
+    let attestation_slot = block_slot - 1;
+    let last_justified_slot = attestation_slot - 1;
     let justified_block_hash = Hash256::from("justified_block".as_bytes());
     let shard_block_hash = Hash256::from("shard_block".as_bytes());
 
-    let attestation_slot = block_slot - 1;
+    /*
+     * Insert the required justified_block_hash into parent_hashes
+     */
+    insert_justified_block_hash(
+        &mut parent_hashes,
+        &justified_block_hash,
+        block_slot,
+        attestation_slot);
+
+    let parent_hashes = Arc::new(parent_hashes);
 
     let mut keypairs = vec![];
     let mut signing_keys = vec![];
@@ -159,8 +206,8 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         block_slot,
         cycle_length,
         last_justified_slot,
-        last_justified_block_hash: justified_block_hash,
         parent_hashes: parent_hashes.clone(),
+        block_store: stores.block.clone(),
         validator_store: stores.validator.clone(),
         attester_map: Arc::new(attester_map),
     };
@@ -173,7 +220,8 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         &justified_block_hash,
         cycle_length,
         &parent_hashes.clone(),
-        &signing_keys);
+        &signing_keys,
+        &stores.block);
 
     TestRig {
         attestation,

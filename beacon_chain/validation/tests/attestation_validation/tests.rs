@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::helpers::{
     TestRig,
     setup_attestation_validation_test,
+    create_block_at_slot,
 };
 use super::validation::attestation_validation::{
     AttestationValidationError,
@@ -56,12 +57,25 @@ fn test_attestation_validation_invalid_justified_slot_incorrect() {
 
     let original = rig.attestation.justified_slot;
     rig.attestation.justified_slot = original - 1;
+    // Ensures we don't get a bad justified block error instead.
+    create_block_at_slot(
+        &rig.stores.block,
+        &rig.attestation.justified_block_hash,
+        rig.attestation.justified_slot);
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::JustifiedSlotIncorrect));
+    assert_eq!(result, Err(AttestationValidationError::BadAggregateSignature));
 
     rig.attestation.justified_slot = original + 1;
+    // Ensures we don't get a bad justified block error instead.
+    create_block_at_slot(
+        &rig.stores.block,
+        &rig.attestation.justified_block_hash,
+        rig.attestation.justified_slot);
+    // Ensures we don't get an error that the last justified slot is ahead of the context justified
+    // slot.
+    rig.context.last_justified_slot = rig.attestation.justified_slot;
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::JustifiedSlotIncorrect));
+    assert_eq!(result, Err(AttestationValidationError::BadAggregateSignature));
 }
 
 #[test]
@@ -139,13 +153,38 @@ fn test_attestation_validation_invalid_invalid_bitfield_end_bit_with_irreguar_bi
 }
 
 #[test]
-fn test_attestation_validation_invalid_unknown_justfied_block_hash() {
+fn test_attestation_validation_invalid_unknown_justified_block_hash() {
     let mut rig = generic_rig();
 
     rig.attestation.justified_block_hash = Hash256::from("unknown block hash".as_bytes());
 
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::UnknownJustifiedBlock));
+    assert_eq!(result, Err(AttestationValidationError::InvalidJustifiedBlockHash));
+}
+
+#[test]
+fn test_attestation_validation_invalid_unknown_justified_block_hash_wrong_slot() {
+    let rig = generic_rig();
+
+    /*
+     * justified_block_hash points to a block with a slot that is too high.
+     */
+    create_block_at_slot(
+        &rig.stores.block,
+        &rig.attestation.justified_block_hash,
+        rig.attestation.justified_slot + 1);
+    let result = rig.context.validate_attestation(&rig.attestation);
+    assert_eq!(result, Err(AttestationValidationError::InvalidJustifiedBlockHash));
+
+    /*
+     * justified_block_hash points to a block with a slot that is too low.
+     */
+    create_block_at_slot(
+        &rig.stores.block,
+        &rig.attestation.justified_block_hash,
+        rig.attestation.justified_slot - 1);
+    let result = rig.context.validate_attestation(&rig.attestation);
+    assert_eq!(result, Err(AttestationValidationError::InvalidJustifiedBlockHash));
 }
 
 #[test]
