@@ -7,7 +7,10 @@ mod block_store;
 mod pow_chain_store;
 mod validator_store;
 
-pub use self::block_store::BlockStore;
+pub use self::block_store::{
+    BlockStore,
+    BlockAtSlotError,
+};
 pub use self::pow_chain_store::PoWChainStore;
 pub use self::validator_store::{
     ValidatorStore,
