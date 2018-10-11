@@ -124,7 +124,7 @@ impl<T> AttestationValidationContext<T>
 
         /*
          * The bitfield must be no longer than the minimum required to represent each validator in the
-         * attestation indicies for this slot and shard id.
+         * attestation indices for this slot and shard id.
          */
         if a.attester_bitfield.num_bytes() !=
             bytes_for_bits(attestation_indices.len())
