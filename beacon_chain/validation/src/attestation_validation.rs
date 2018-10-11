@@ -12,7 +12,11 @@ use super::db::{
     ClientDB,
     DBError
 };
-use super::db::stores::ValidatorStore;
+use super::db::stores::{
+    BlockStore,
+    BlockAtSlotError,
+    ValidatorStore,
+};
 use super::types::{
     Hash256,
 };
@@ -27,7 +31,7 @@ pub enum AttestationValidationError {
     SlotTooHigh,
     SlotTooLow,
     JustifiedSlotIncorrect,
-    UnknownJustifiedBlock,
+    InvalidJustifiedBlockHash,
     TooManyObliqueHashes,
     BadCurrentHashes,
     BadObliqueHashes,
@@ -54,10 +58,10 @@ pub struct AttestationValidationContext<T>
     pub cycle_length: u8,
     /// The last justified slot as per the client's view of the canonical chain.
     pub last_justified_slot: u64,
-    /// The last justified block hash as per the client's view of the canonical chain.
-    pub last_justified_block_hash: Hash256,
     /// A vec of the hashes of the blocks preceeding the present slot.
     pub parent_hashes: Arc<Vec<Hash256>>,
+    /// The store containing block information.
+    pub block_store: Arc<BlockStore<T>>,
     /// The store containing validator information.
     pub validator_store: Arc<ValidatorStore<T>>,
     /// A map of (slot, shard_id) to the attestation set of validation indices.
@@ -97,16 +101,8 @@ impl<T> AttestationValidationContext<T>
          * The attestation must indicate that its last justified slot is the same as the last justified
          * slot known to us.
          */
-        if a.justified_slot != self.last_justified_slot {
+        if a.justified_slot > self.last_justified_slot {
             return Err(AttestationValidationError::JustifiedSlotIncorrect);
-        }
-
-        /*
-         * The specified justified block hash supplied in the attestation must match our knowledge
-         * of the last justified block this chain.
-         */
-        if a.justified_block_hash != self.last_justified_block_hash {
-            return Err(AttestationValidationError::UnknownJustifiedBlock)
         }
 
         /*
@@ -147,13 +143,35 @@ impl<T> AttestationValidationContext<T>
             return Err(AttestationValidationError::InvalidBitfieldEndBits)
         }
 
+        /*
+         * Generate the parent hashes for this attestation
+         */
+        let parent_hashes = attestation_parent_hashes(
+            self.cycle_length,
+            self.block_slot,
+            a.slot,
+            &self.parent_hashes,
+            &a.oblique_parent_hashes)?;
+
+        /*
+         * The specified justified block hash supplied in the attestation must be in the chain at
+         * the given slot number.
+         *
+         * First, we find the latest parent hash from the parent_hashes array. Then, using the
+         * block store (database) we iterate back through the blocks until we find (or fail to
+         * find) the justified block hash referenced in the attestation record.
+         */
+        let latest_parent_hash = parent_hashes.last()
+            .ok_or(AttestationValidationError::BadCurrentHashes)?;
+        match self.block_store.block_at_slot(&latest_parent_hash, a.justified_slot)? {
+            Some((ref hash, _)) if *hash == a.justified_block_hash.to_vec() => (),
+            _ => return Err(AttestationValidationError::InvalidJustifiedBlockHash)
+        };
+
+        /*
+         * Generate the message that this attestation aggregate signature must sign across.
+         */
         let signed_message = {
-            let parent_hashes = attestation_parent_hashes(
-                self.cycle_length,
-                self.block_slot,
-                a.slot,
-                &self.parent_hashes,
-                &a.oblique_parent_hashes)?;
             generate_signed_message(
                 a.slot,
                 &parent_hashes,
@@ -197,6 +215,16 @@ impl From<ParentHashesError> for AttestationValidationError {
                 => AttestationValidationError::SlotTooHigh,
             ParentHashesError::IntWrapping
                 => AttestationValidationError::IntWrapping
+        }
+    }
+}
+
+impl From<BlockAtSlotError> for AttestationValidationError {
+    fn from(e: BlockAtSlotError) -> Self {
+        match e {
+            BlockAtSlotError::DBError(s) => AttestationValidationError::DBError(s),
+            _ => AttestationValidationError::InvalidJustifiedBlockHash
+
         }
     }
 }

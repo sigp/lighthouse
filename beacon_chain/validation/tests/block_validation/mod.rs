@@ -9,4 +9,4 @@ use super::ssz_helpers;
 use super::types;
 use super::validation;
 
-use super::attestation_validation::helpers::generate_attestation;
+use super::attestation_validation;
