@@ -208,5 +208,8 @@ mod tests {
 
         let ssz = bs.block_at_slot(&hashes[4], 6).unwrap();
         assert_eq!(ssz, None);
+
+        let ssz = bs.block_at_slot(&Hash256::from("unknown".as_bytes()), 2);
+        assert_eq!(ssz, Err(BlockAtSlotError::UnknownBlock));
     }
 }
