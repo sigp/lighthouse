@@ -53,6 +53,7 @@ pub enum SszBlockValidationError {
     UnknownPoWChainRef,
     UnknownParentHash,
     BadAttestationSsz,
+    ParentSlotHigherThanBlockSlot,
     AttestationValidationError(AttestationValidationError),
     AttestationSignatureFailed,
     ProposerAttestationHasObliqueHashes,
@@ -203,6 +204,15 @@ impl<T> BlockValidationContext<T>
                 parent_block.slot_number()
             }
         };
+
+        /*
+         * The parent block slot must be less than the block slot.
+         *
+         * In other words, the parent must come before the child.
+         */
+        if parent_block_slot >= block_slot {
+            return Err(SszBlockValidationError::ParentSlotHigherThanBlockSlot);
+        }
 
         /*
          * Generate the context in which attestations will be validated.

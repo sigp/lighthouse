@@ -95,6 +95,22 @@ fn test_block_validation_valid_known_block() {
 }
 
 #[test]
+fn test_block_validation_parent_slot_too_high() {
+    let params = get_simple_params();
+
+    let mutator = |mut block: Block, attester_map, proposer_map, stores| {
+        block.slot_number = params.validation_context_justified_slot + 1;
+        (block, attester_map, proposer_map, stores)
+    };
+
+    let status = run_block_validation_scenario(
+        &params,
+        mutator);
+
+    assert_eq!(status, Err(SszBlockValidationError::ParentSlotHigherThanBlockSlot));
+}
+
+#[test]
 fn test_block_validation_invalid_future_slot() {
     let params = get_simple_params();
 
