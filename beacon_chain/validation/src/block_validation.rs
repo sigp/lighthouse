@@ -196,7 +196,7 @@ impl<T> BlockValidationContext<T>
          * Also, read the slot from the parent block for later use.
          */
         let parent_hash = b.parent_hash();
-        let parent_slot = match self.block_store.get_serialized_block(&parent_hash)? {
+        let parent_block_slot = match self.block_store.get_serialized_block(&parent_hash)? {
             None => return Err(SszBlockValidationError::UnknownParentHash),
             Some(ssz) => {
                 let parent_block = SszBlock::from_slice(&ssz[..])?;
@@ -209,6 +209,7 @@ impl<T> BlockValidationContext<T>
          */
         let attestation_validation_context = Arc::new(AttestationValidationContext {
             block_slot,
+            parent_block_slot,
             cycle_length: self.cycle_length,
             last_justified_slot: self.last_justified_slot,
             parent_hashes: self.parent_hashes.clone(),
@@ -230,7 +231,7 @@ impl<T> BlockValidationContext<T>
          * If the signature of proposer for the parent slot was not present in the first (0'th)
          * attestation of this block, reject the block.
          */
-        let parent_block_proposer = self.proposer_map.get(&parent_slot)
+        let parent_block_proposer = self.proposer_map.get(&parent_block_slot)
             .ok_or(SszBlockValidationError::BadProposerMap)?;
         if !attestation_voters.contains(&parent_block_proposer) {
             return Err(SszBlockValidationError::NoProposerSignature);
