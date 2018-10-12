@@ -169,6 +169,7 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         .map(|i| Hash256::from(i as u64))
         .collect();
     let attestation_slot = block_slot - 1;
+    let parent_block_slot = attestation_slot;
     let last_justified_slot = attestation_slot - 1;
     let justified_block_hash = Hash256::from("justified_block".as_bytes());
     let shard_block_hash = Hash256::from("shard_block".as_bytes());
@@ -204,6 +205,7 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
 
     let context: AttestationValidationContext<MemoryDB> = AttestationValidationContext {
         block_slot,
+        parent_block_slot,
         cycle_length,
         last_justified_slot,
         parent_hashes: parent_hashes.clone(),

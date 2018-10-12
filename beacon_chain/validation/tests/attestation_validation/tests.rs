@@ -33,22 +33,32 @@ fn test_attestation_validation_valid() {
 }
 
 #[test]
-fn test_attestation_validation_invalid_slot_too_high() {
+fn test_attestation_validation_invalid_parent_slot_too_high() {
     let mut rig = generic_rig();
 
-    rig.attestation.slot = rig.context.block_slot + 1;
+    rig.context.parent_block_slot = rig.attestation.slot - 1;
 
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::SlotTooHigh));
+    assert_eq!(result, Err(AttestationValidationError::ParentSlotTooHigh));
 }
 
 #[test]
-fn test_attestation_validation_invalid_slot_too_low() {
+fn test_attestation_validation_invalid_block_slot_too_high() {
+    let mut rig = generic_rig();
+
+    rig.context.block_slot = rig.attestation.slot - 1;
+
+    let result = rig.context.validate_attestation(&rig.attestation);
+    assert_eq!(result, Err(AttestationValidationError::BlockSlotTooHigh));
+}
+
+#[test]
+fn test_attestation_validation_invalid_block_slot_too_low() {
     let mut rig = generic_rig();
 
     rig.attestation.slot = rig.context.block_slot - u64::from(rig.context.cycle_length) - 2;
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::SlotTooLow));
+    assert_eq!(result, Err(AttestationValidationError::BlockSlotTooLow));
 }
 
 #[test]

@@ -28,8 +28,9 @@ use super::signature_verification::{
 
 #[derive(Debug,PartialEq)]
 pub enum AttestationValidationError {
-    SlotTooHigh,
-    SlotTooLow,
+    ParentSlotTooHigh,
+    BlockSlotTooHigh,
+    BlockSlotTooLow,
     JustifiedSlotIncorrect,
     InvalidJustifiedBlockHash,
     TooManyObliqueHashes,
@@ -54,6 +55,8 @@ pub struct AttestationValidationContext<T>
 {
     /// The slot as determined by the system time.
     pub block_slot: u64,
+    /// The slot of the parent of the block that contained this attestation.
+    pub parent_block_slot: u64,
     /// The cycle_length as determined by the chain configuration.
     pub cycle_length: u8,
     /// The last justified slot as per the client's view of the canonical chain.
@@ -82,10 +85,11 @@ impl<T> AttestationValidationContext<T>
         -> Result<HashSet<usize>, AttestationValidationError>
     {
         /*
-         * The attesation slot must not be higher than the block that contained it.
+         * The attesation slot must be less than or equal to the parent of the slot of the block
+         * that contained the attestation.
          */
-        if a.slot > self.block_slot {
-            return Err(AttestationValidationError::SlotTooHigh);
+        if a.slot > self.parent_block_slot {
+            return Err(AttestationValidationError::ParentSlotTooHigh);
         }
 
         /*
@@ -94,7 +98,7 @@ impl<T> AttestationValidationContext<T>
          */
         if a.slot < self.block_slot
             .saturating_sub(u64::from(self.cycle_length).saturating_add(1)) {
-            return Err(AttestationValidationError::SlotTooLow);
+            return Err(AttestationValidationError::BlockSlotTooLow);
         }
 
         /*
@@ -210,9 +214,9 @@ impl From<ParentHashesError> for AttestationValidationError {
             ParentHashesError::BadObliqueHashes
                 => AttestationValidationError::BadObliqueHashes,
             ParentHashesError::SlotTooLow
-                => AttestationValidationError::SlotTooLow,
+                => AttestationValidationError::BlockSlotTooLow,
             ParentHashesError::SlotTooHigh
-                => AttestationValidationError::SlotTooHigh,
+                => AttestationValidationError::BlockSlotTooHigh,
             ParentHashesError::IntWrapping
                 => AttestationValidationError::IntWrapping
         }
