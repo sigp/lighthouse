@@ -136,6 +136,10 @@ impl<T> BlockValidationContext<T>
          * function) and it comes from a slot that is already finalized, drop the block.
          *
          * If a slot is finalized, there's no point in considering any other blocks for that slot.
+         *
+         * TODO: We can more strongly throw away blocks based on the `last_finalized_block` related
+         * to this `last_finalized_slot`. Namely, any block in a future slot must include the
+         * `last_finalized_block` in it's chain.
          */
         if block_slot <= self.last_finalized_slot {
             return Err(SszBlockValidationError::SlotAlreadyFinalized);
