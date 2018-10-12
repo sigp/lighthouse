@@ -29,6 +29,7 @@ use super::signature_verification::{
 #[derive(Debug,PartialEq)]
 pub enum AttestationValidationError {
     ParentSlotTooHigh,
+    ParentSlotTooLow,
     BlockSlotTooHigh,
     BlockSlotTooLow,
     JustifiedSlotIncorrect,
@@ -94,11 +95,11 @@ impl<T> AttestationValidationContext<T>
 
         /*
          * The slot of this attestation must not be more than cycle_length + 1 distance
-         * from the block that contained it.
+         * from the parent_slot of block that contained it.
          */
-        if a.slot < self.block_slot
+        if a.slot < self.parent_block_slot
             .saturating_sub(u64::from(self.cycle_length).saturating_add(1)) {
-            return Err(AttestationValidationError::BlockSlotTooLow);
+            return Err(AttestationValidationError::ParentSlotTooLow);
         }
 
         /*
