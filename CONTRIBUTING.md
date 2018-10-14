@@ -115,4 +115,7 @@ knowledge. You can learn about Ethereum as you go.
 Don't be. We're all about personal development and constructive feedback. If you
 make a mistake and learn from it, everyone wins.
 
-<img src="https://i.imgflip.com/ktrbc.jpg" alt="hi" class="inline"/>
+### I don't like the way you do things
+
+Please, make an issue and explain why. We're open to constructive criticism and
+will happily change our ways.
