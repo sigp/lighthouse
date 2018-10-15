@@ -73,7 +73,7 @@ pub fn decode_ssz_list<T>(ssz_bytes: &[u8], index: usize)
 pub fn decode_length(bytes: &[u8], index: usize, length_bytes: usize)
     -> Result<usize, DecodeError>
 {
-    if bytes.len() < length_bytes {
+    if bytes.len() < index + length_bytes {
         return Err(DecodeError::TooShort);
     };
     let mut len: usize = 0;
