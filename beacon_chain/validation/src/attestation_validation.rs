@@ -102,8 +102,8 @@ impl<T> AttestationValidationContext<T>
         }
 
         /*
-         * The attestation must indicate that its last justified slot is the same as the last justified
-         * slot known to us.
+         * The attestation justified slot must not be higher than the last_justified_slot of the
+         * context.
          */
         if a.justified_slot > self.last_justified_slot {
             return Err(AttestationValidationError::JustifiedSlotIncorrect);
