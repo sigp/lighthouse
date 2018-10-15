@@ -10,6 +10,7 @@ pub mod chain_config;
 pub mod block;
 pub mod crosslink_record;
 pub mod shard_and_committee;
+pub mod special_record;
 pub mod validator_record;
 
 use self::ethereum_types::{
@@ -27,6 +28,7 @@ pub use chain_config::ChainConfig;
 pub use block::Block;
 pub use crosslink_record::CrosslinkRecord;
 pub use shard_and_committee::ShardAndCommittee;
+pub use special_record::{ SpecialRecord, SpecialRecordKind };
 pub use validator_record::ValidatorRecord;
 
 pub type Hash256 = H256;
