@@ -1,7 +1,12 @@
 use super::Hash256;
 use super::attestation_record::AttestationRecord;
 use super::special_record::SpecialRecord;
-use super::ssz::{ Encodable, SszStream };
+use super::ssz::{
+    Encodable,
+    Decodable,
+    DecodeError,
+    SszStream,
+};
 
 pub const MIN_SSZ_BLOCK_LENGTH: usize = {
     8 +                 // slot
@@ -54,11 +59,37 @@ impl Encodable for BeaconBlock {
         s.append(&self.slot);
         s.append(&self.randao_reveal);
         s.append(&self.pow_chain_reference);
-        s.append_vec(&self.ancestor_hashes.to_vec());
+        s.append_vec(&self.ancestor_hashes);
         s.append(&self.active_state_root);
         s.append(&self.crystallized_state_root);
         s.append_vec(&self.attestations);
         s.append_vec(&self.specials);
+    }
+}
+
+impl Decodable for BeaconBlock {
+    fn ssz_decode(bytes: &[u8], i: usize)
+        -> Result<(Self, usize), DecodeError>
+    {
+        let (slot, i) = u64::ssz_decode(bytes, i)?;
+        let (randao_reveal, i) = Hash256::ssz_decode(bytes, i)?;
+        let (pow_chain_reference, i) = Hash256::ssz_decode(bytes, i)?;
+        let (ancestor_hashes, i) = Decodable::ssz_decode(bytes, i)?;
+        let (active_state_root, i) = Hash256::ssz_decode(bytes, i)?;
+        let (crystallized_state_root, i) = Hash256::ssz_decode(bytes, i)?;
+        let (attestations, i) = Decodable::ssz_decode(bytes, i)?;
+        let (specials, i) = Decodable::ssz_decode(bytes, i)?;
+        let block = BeaconBlock {
+            slot,
+            randao_reveal,
+            pow_chain_reference,
+            ancestor_hashes,
+            active_state_root,
+            crystallized_state_root,
+            attestations,
+            specials
+        };
+        Ok((block, i))
     }
 }
 
@@ -73,11 +104,25 @@ mod tests {
         assert_eq!(b.slot, 0);
         assert!(b.randao_reveal.is_zero());
         assert!(b.pow_chain_reference.is_zero());
-        assert_eq!(b.ancestor_hashes, vec![Hash256::zero()]);
+        assert_eq!(b.ancestor_hashes, vec![]);
         assert!(b.active_state_root.is_zero());
         assert!(b.crystallized_state_root.is_zero());
         assert_eq!(b.attestations.len(), 0);
         assert_eq!(b.specials.len(), 0);
+    }
+
+    #[test]
+    pub fn test_block_ssz_encode_decode() {
+        let mut b = BeaconBlock::zero();
+        b.ancestor_hashes = vec![Hash256::zero(); 32];
+
+        let mut ssz_stream = SszStream::new();
+        ssz_stream.append(&b);
+        let ssz = ssz_stream.drain();
+
+        let (b_decoded, _) = BeaconBlock::ssz_decode(&ssz, 0).unwrap();
+
+        assert_eq!(b, b_decoded);
     }
 
     #[test]
