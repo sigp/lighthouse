@@ -179,6 +179,7 @@ mod tests {
         let slots = [0, 1, 3, 4, 5];
 
         for (i, mut block) in blocks.enumerate() {
+            block.ancestor_hashes.push(parent_hashes[i]);
             block.slot = slots[i];
             let mut s = SszStream::new();
             s.append(&block);
