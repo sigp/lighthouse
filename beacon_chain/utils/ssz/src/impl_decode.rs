@@ -1,4 +1,5 @@
 use super::ethereum_types::H256;
+use super::decode::decode_ssz_list;
 use super::{
     DecodeError,
     Decodable,
@@ -62,6 +63,16 @@ impl Decodable for H256 {
             return Ok((H256::from(&bytes[index..(index + 32)]),
                        index + 32));
         }
+    }
+}
+
+impl<T> Decodable for Vec<T>
+    where T: Decodable
+{
+    fn ssz_decode(bytes: &[u8], index: usize)
+        -> Result<(Self, usize), DecodeError>
+    {
+        decode_ssz_list(bytes, index)
     }
 }
 
