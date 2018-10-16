@@ -7,7 +7,6 @@ use super::types::beacon_block::{
     MIN_SSZ_BLOCK_LENGTH,
     MAX_SSZ_BLOCK_LENGTH,
 };
-use super::types::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH;
 
 #[derive(Debug, PartialEq)]
 pub enum SszBeaconBlockError {
@@ -136,8 +135,9 @@ impl<'a> SszBeaconBlock<'a> {
     /// The first hash in `ancestor_hashes` is the parent of the block.
     pub fn parent_hash(&self) -> Option<&[u8]> {
         let ancestor_ssz = self.ancestor_hashes();
+        let start = LENGTH_BYTES;
         if ancestor_ssz.len() >= 32 {
-            Some(&ancestor_ssz[0..32])
+            Some(&ancestor_ssz[start..start + 32])
         } else {
             None
         }
@@ -174,10 +174,10 @@ impl<'a> SszBeaconBlock<'a> {
         &self.ssz[start..start + 32]
     }
 
-    /// Return the serialized `ancestor_hashes` bytes.
+    /// Return the serialized `ancestor_hashes` bytes, including length prefix.
     pub fn ancestor_hashes(&self) -> &[u8] {
-        let start = self.ancestors_position + LENGTH_BYTES;
-        &self.ssz[start..start + self.ancestors_len]
+        let start = self.ancestors_position;
+        &self.ssz[start..(start + self.ancestors_len + LENGTH_BYTES)]
     }
 
     /// Return the `active_state_root` field.
@@ -194,16 +194,22 @@ impl<'a> SszBeaconBlock<'a> {
         &self.ssz[start..(start + 32)]
     }
 
-    /// Return the serialized `attestations` bytes.
+    /// Return the serialized `attestations` bytes, including length prefix.
     pub fn attestations(&self) -> &[u8] {
-        let start = self.attestations_position + LENGTH_BYTES;
-        &self.ssz[start..(start + self.attestations_len)]
+        let start = self.attestations_position;
+        &self.ssz[start..(start + self.attestations_len + LENGTH_BYTES)]
     }
 
-    /// Return the serialized `specials` bytes.
+    /// Return the serialized `attestations` bytes _without_ the length prefix.
+    pub fn attestations_without_length(&self) -> &[u8] {
+        let start = self.attestations_position + LENGTH_BYTES;
+        &self.ssz[start..start + self.attestations_len]
+    }
+
+    /// Return the serialized `specials` bytes, including length prefix.
     pub fn specials(&self) -> &[u8] {
-        let start = self.specials_position + LENGTH_BYTES;
-        &self.ssz[start..(start + self.specials_len)]
+        let start = self.specials_position;
+        &self.ssz[start..(start + self.specials_len + LENGTH_BYTES)]
     }
 }
 
@@ -218,6 +224,7 @@ mod tests {
     };
     use super::super::ssz::SszStream;
     use super::super::types::Hash256;
+    use super::super::ssz::encode::encode_length;
 
     fn get_block_ssz(b: &BeaconBlock) -> Vec<u8> {
         let mut ssz_stream = SszStream::new();
@@ -282,17 +289,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ssz_block_attestations_length() {
-        let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
-
-        let serialized = get_block_ssz(&block);
-        let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
-
-        assert_eq!(ssz_block.attestations_len, MIN_SSZ_ATTESTION_RECORD_LENGTH);
-    }
-
-    #[test]
     fn test_ssz_block_block_hash() {
         let mut block = BeaconBlock::zero();
         block.attestations.push(AttestationRecord::zero());
@@ -353,7 +349,10 @@ mod tests {
         let serialized = get_block_ssz(&block);
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
 
-        assert_eq!(ssz_block.ancestor_hashes(), &h.to_vec()[..]);
+        let mut expected = encode_length(32, LENGTH_BYTES);
+        expected.append(&mut h.to_vec());
+
+        assert_eq!(ssz_block.ancestor_hashes(), &expected[..]);
     }
 
     #[test]
@@ -384,7 +383,10 @@ mod tests {
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
         let sr_ssz = get_special_record_ssz(&s);
 
-        assert_eq!(ssz_block.specials(), &sr_ssz[..]);
+        let mut expected = encode_length(sr_ssz.len(), LENGTH_BYTES);
+        expected.append(&mut sr_ssz.to_vec());
+
+        assert_eq!(ssz_block.specials(), &expected[..]);
 
         /*
          * With data
@@ -397,7 +399,10 @@ mod tests {
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
         let sr_ssz = get_special_record_ssz(&s);
 
-        assert_eq!(ssz_block.specials(), &sr_ssz[..]);
+        let mut expected = encode_length(sr_ssz.len(), LENGTH_BYTES);
+        expected.append(&mut sr_ssz.to_vec());
+
+        assert_eq!(ssz_block.specials(), &expected[..]);
     }
 
     #[test]
@@ -412,7 +417,10 @@ mod tests {
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
         let ssz_ar = get_attestation_record_ssz(&AttestationRecord::zero());
 
-        assert_eq!(ssz_block.attestations(), &ssz_ar[..]);
+        let mut expected = encode_length(ssz_ar.len(), LENGTH_BYTES);
+        expected.append(&mut ssz_ar.to_vec());
+
+        assert_eq!(ssz_block.attestations(), &expected[..]);
 
         /*
          * Multiple AttestationRecords
@@ -426,7 +434,10 @@ mod tests {
         let mut ssz_ar = get_attestation_record_ssz(&AttestationRecord::zero());
         ssz_ar.append(&mut get_attestation_record_ssz(&AttestationRecord::zero()));
 
-        assert_eq!(ssz_block.attestations(), &ssz_ar[..]);
+        let mut expected = encode_length(ssz_ar.len(), LENGTH_BYTES);
+        expected.append(&mut ssz_ar.to_vec());
+
+        assert_eq!(ssz_block.attestations(), &expected[..]);
     }
 
     #[test]
