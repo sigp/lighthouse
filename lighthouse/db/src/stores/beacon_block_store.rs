@@ -10,6 +10,9 @@ use super::{
 };
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
 
+type BeaconBlockHash = Vec<u8>;
+type BeaconBlockSsz = Vec<u8>;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum BeaconBlockAtSlotError {
     UnknownBeaconBlock,
@@ -65,7 +68,7 @@ impl<T: ClientDB> BeaconBlockStore<T> {
     ///
     /// If a block is found, a tuple of (block_hash, serialized_block) is returned.
     pub fn block_at_slot(&self, head_hash: &[u8], slot: u64)
-        -> Result<Option<(Vec<u8>, Vec<u8>)>, BeaconBlockAtSlotError>
+        -> Result<Option<(BeaconBlockHash, BeaconBlockSsz)>, BeaconBlockAtSlotError>
     {
         match self.get_serialized_block(head_hash)? {
             None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
