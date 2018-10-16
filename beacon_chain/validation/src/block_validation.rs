@@ -186,7 +186,7 @@ impl<T> BeaconBlockValidationContext<T>
          * The presence of oblique hashes in the first attestation would indicate that the proposer
          * of the previous block is attesting to some other block than the one they produced.
          */
-        if first_attestation.oblique_parent_hashes.len() > 0 {
+        if !first_attestation.oblique_parent_hashes.is_empty() {
             return Err(SszBeaconBlockValidationError::ProposerAttestationHasObliqueHashes);
         }
 
@@ -274,10 +274,12 @@ impl<T> BeaconBlockValidationContext<T>
             .filter_map(|attestation_ssz| {
                 /*
                  * If some thread has set the `failure` variable to `Some(error)` the abandon
-                 * attestation serialization and validation.
+                 * attestation serialization and validation. Also, fail early if the lock has been
+                 * poisoned.
                  */
-                if let Some(_) = *failure.read().unwrap() {
-                    return None;
+                match failure.read() {
+                    Ok(ref option) if option.is_none() => (),
+                    _ => return None
                 }
                 /*
                  * If there has not been a failure yet, attempt to serialize and validate the
@@ -288,8 +290,12 @@ impl<T> BeaconBlockValidationContext<T>
                      * Deserialization failed, therefore the block is invalid.
                      */
                     Err(e) => {
-                        let mut failure = failure.write().unwrap();
-                        *failure = Some(SszBeaconBlockValidationError::from(e));
+                        /*
+                         * If the failure lock isn't poisoned, set it to some error.
+                         */
+                        if let Ok(mut f) = failure.write() {
+                            *f = Some(SszBeaconBlockValidationError::from(e));
+                        }
                         None
                     }
                     /*
@@ -301,8 +307,12 @@ impl<T> BeaconBlockValidationContext<T>
                              * Attestation validation failed with some error.
                              */
                             Err(e) => {
-                                let mut failure = failure.write().unwrap();
-                                *failure = Some(SszBeaconBlockValidationError::from(e));
+                                /*
+                                 * If the failure lock isn't poisoned, set it to some error.
+                                 */
+                                if let Ok(mut f) = failure.write() {
+                                    *f = Some(SszBeaconBlockValidationError::from(e));
+                                }
                                 None
                             }
                             /*

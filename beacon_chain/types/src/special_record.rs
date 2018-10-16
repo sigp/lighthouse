@@ -80,8 +80,6 @@ impl Decodable for SpecialRecord {
 }
 
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
