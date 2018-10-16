@@ -11,8 +11,8 @@ extern crate bytes;
 extern crate ethereum_types;
 
 pub mod decode;
+pub mod encode;
 
-mod encode;
 mod impl_encode;
 mod impl_decode;
 
@@ -29,3 +29,13 @@ pub use encode::{
 
 pub const LENGTH_BYTES: usize = 4;
 pub const MAX_LIST_SIZE : usize = 1 << (4 * 8);
+
+
+/// Convenience function to SSZ encode an object supporting ssz::Encode.
+pub fn ssz_encode<T>(val: &T) -> Vec<u8>
+    where T: Encodable
+{
+    let mut ssz_stream = SszStream::new();
+    ssz_stream.append(val);
+    ssz_stream.drain()
+}
