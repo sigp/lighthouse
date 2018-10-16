@@ -13,8 +13,8 @@ use super::db::{
     DBError
 };
 use super::db::stores::{
-    BlockStore,
-    BlockAtSlotError,
+    BeaconBlockStore,
+    BeaconBlockAtSlotError,
     ValidatorStore,
 };
 use super::types::{
@@ -64,7 +64,7 @@ pub struct AttestationValidationContext<T>
     /// A vec of the hashes of the blocks preceeding the present slot.
     pub parent_hashes: Arc<Vec<Hash256>>,
     /// The store containing block information.
-    pub block_store: Arc<BlockStore<T>>,
+    pub block_store: Arc<BeaconBlockStore<T>>,
     /// The store containing validator information.
     pub validator_store: Arc<ValidatorStore<T>>,
     /// A map of (slot, shard_id) to the attestation set of validation indices.
@@ -223,10 +223,10 @@ impl From<ParentHashesError> for AttestationValidationError {
     }
 }
 
-impl From<BlockAtSlotError> for AttestationValidationError {
-    fn from(e: BlockAtSlotError) -> Self {
+impl From<BeaconBlockAtSlotError> for AttestationValidationError {
+    fn from(e: BeaconBlockAtSlotError) -> Self {
         match e {
-            BlockAtSlotError::DBError(s) => AttestationValidationError::DBError(s),
+            BeaconBlockAtSlotError::DBError(s) => AttestationValidationError::DBError(s),
             _ => AttestationValidationError::InvalidJustifiedBlockHash
 
         }

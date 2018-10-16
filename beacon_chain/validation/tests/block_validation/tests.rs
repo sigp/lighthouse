@@ -2,27 +2,27 @@ use super::bls::{
     AggregateSignature,
 };
 use super::helpers::{
-    BlockTestParams,
+    BeaconBlockTestParams,
     TestStore,
     run_block_validation_scenario,
     serialize_block,
 };
 use super::types::{
-    Block,
+    BeaconBlock,
     Hash256,
     ProposerMap,
 };
-use super::ssz_helpers::ssz_block::SszBlock;
+use super::ssz_helpers::ssz_beacon_block::SszBeaconBlock;
 use super::validation::block_validation::{
-    SszBlockValidationError,
-    BlockStatus,
+    SszBeaconBlockValidationError,
+    BeaconBlockStatus,
 };
 use super::validation::attestation_validation::{
     AttestationValidationError,
 };
 use super::hashing::canonical_hash;
 
-fn get_simple_params() -> BlockTestParams {
+fn get_simple_params() -> BeaconBlockTestParams {
     let validators_per_shard: usize = 5;
     let cycle_length: u8 = 2;
     let shard_count: u16 = 4;
@@ -37,7 +37,7 @@ fn get_simple_params() -> BlockTestParams {
     let validation_context_justified_block_hash = Hash256::from("justified_hash".as_bytes());
     let validation_context_finalized_slot = 0;
 
-    BlockTestParams {
+    BeaconBlockTestParams {
         total_validators,
         cycle_length,
         shard_count,
@@ -59,7 +59,7 @@ fn get_simple_params() -> BlockTestParams {
 fn test_block_validation_valid() {
     let params = get_simple_params();
 
-    let mutator = |block: Block, attester_map, proposer_map, stores| {
+    let mutator = |block: BeaconBlock, attester_map, proposer_map, stores| {
         /*
          * Do not mutate
          */
@@ -70,14 +70,14 @@ fn test_block_validation_valid() {
         &params,
         mutator);
 
-    assert_eq!(status.unwrap().0, BlockStatus::NewBlock);
+    assert_eq!(status.unwrap().0, BeaconBlockStatus::NewBlock);
 }
 
 #[test]
 fn test_block_validation_valid_known_block() {
     let params = get_simple_params();
 
-    let mutator = |block: Block, attester_map, proposer_map, stores: TestStore| {
+    let mutator = |block: BeaconBlock, attester_map, proposer_map, stores: TestStore| {
         /*
          * Pre-store the block in the database
          */
@@ -91,15 +91,15 @@ fn test_block_validation_valid_known_block() {
         &params,
         mutator);
 
-    assert_eq!(status.unwrap(), (BlockStatus::KnownBlock, None));
+    assert_eq!(status.unwrap(), (BeaconBlockStatus::KnownBlock, None));
 }
 
 #[test]
 fn test_block_validation_parent_slot_too_high() {
     let params = get_simple_params();
 
-    let mutator = |mut block: Block, attester_map, proposer_map, stores| {
-        block.slot_number = params.validation_context_justified_slot + 1;
+    let mutator = |mut block: BeaconBlock, attester_map, proposer_map, stores| {
+        block.slot = params.validation_context_justified_slot + 1;
         (block, attester_map, proposer_map, stores)
     };
 
@@ -107,15 +107,15 @@ fn test_block_validation_parent_slot_too_high() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::ParentSlotHigherThanBlockSlot));
+    assert_eq!(status, Err(SszBeaconBlockValidationError::ParentSlotHigherThanBlockSlot));
 }
 
 #[test]
 fn test_block_validation_invalid_future_slot() {
     let params = get_simple_params();
 
-    let mutator = |mut block: Block, attester_map, proposer_map, stores| {
-        block.slot_number = block.slot_number + 1;
+    let mutator = |mut block: BeaconBlock, attester_map, proposer_map, stores| {
+        block.slot = block.slot + 1;
         (block, attester_map, proposer_map, stores)
     };
 
@@ -123,7 +123,7 @@ fn test_block_validation_invalid_future_slot() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::FutureSlot));
+    assert_eq!(status, Err(SszBeaconBlockValidationError::FutureSlot));
 }
 
 #[test]
@@ -145,15 +145,15 @@ fn test_block_validation_invalid_slot_already_finalized() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::SlotAlreadyFinalized));
+    assert_eq!(status, Err(SszBeaconBlockValidationError::SlotAlreadyFinalized));
 }
 
 #[test]
 fn test_block_validation_invalid_unknown_pow_hash() {
     let params = get_simple_params();
 
-    let mutator = |mut block: Block, attester_map, proposer_map, stores| {
-        block.pow_chain_ref = Hash256::from("unknown pow hash".as_bytes());
+    let mutator = |mut block: BeaconBlock, attester_map, proposer_map, stores| {
+        block.pow_chain_reference = Hash256::from("unknown pow hash".as_bytes());
         (block, attester_map, proposer_map, stores)
     };
 
@@ -161,15 +161,15 @@ fn test_block_validation_invalid_unknown_pow_hash() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::UnknownPoWChainRef));
+    assert_eq!(status, Err(SszBeaconBlockValidationError::UnknownPoWChainRef));
 }
 
 #[test]
 fn test_block_validation_invalid_unknown_parent_hash() {
     let params = get_simple_params();
 
-    let mutator = |mut block: Block, attester_map, proposer_map, stores| {
-        block.parent_hash = Hash256::from("unknown parent block".as_bytes());
+    let mutator = |mut block: BeaconBlock, attester_map, proposer_map, stores| {
+        block.ancestor_hashes[0] = Hash256::from("unknown parent block".as_bytes());
         (block, attester_map, proposer_map, stores)
     };
 
@@ -177,14 +177,14 @@ fn test_block_validation_invalid_unknown_parent_hash() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::UnknownParentHash));
+    assert_eq!(status, Err(SszBeaconBlockValidationError::UnknownParentHash));
 }
 
 #[test]
 fn test_block_validation_invalid_1st_attestation_signature() {
     let params = get_simple_params();
 
-    let mutator = |mut block: Block, attester_map, proposer_map, stores| {
+    let mutator = |mut block: BeaconBlock, attester_map, proposer_map, stores| {
         /*
          * Set the second attestaion record to have an invalid signature.
          */
@@ -196,7 +196,7 @@ fn test_block_validation_invalid_1st_attestation_signature() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::AttestationValidationError(
+    assert_eq!(status, Err(SszBeaconBlockValidationError::AttestationValidationError(
                 AttestationValidationError::BadAggregateSignature)));
 }
 
@@ -204,12 +204,15 @@ fn test_block_validation_invalid_1st_attestation_signature() {
 fn test_block_validation_invalid_no_parent_proposer_signature() {
     let params = get_simple_params();
 
-    let mutator = |block: Block, attester_map, mut proposer_map: ProposerMap, stores: TestStore| {
+    let mutator = |block: BeaconBlock, attester_map, mut proposer_map: ProposerMap, stores: TestStore| {
         /*
          * Set the proposer for this slot to be a validator that does not exist.
          */
-        let ssz = stores.block.get_serialized_block(&block.parent_hash.as_ref()).unwrap().unwrap();
-        let parent_block_slot = SszBlock::from_slice(&ssz[..]).unwrap().slot_number();
+        let ssz = {
+            let parent_hash = block.parent_hash().unwrap().as_ref();
+            stores.block.get_serialized_block(parent_hash).unwrap().unwrap()
+        };
+        let parent_block_slot = SszBeaconBlock::from_slice(&ssz[..]).unwrap().slot();
         proposer_map.insert(parent_block_slot, params.total_validators + 1);
         (block, attester_map, proposer_map, stores)
     };
@@ -218,7 +221,7 @@ fn test_block_validation_invalid_no_parent_proposer_signature() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::NoProposerSignature));
+    assert_eq!(status, Err(SszBeaconBlockValidationError::NoProposerSignature));
 }
 
 #[test]
@@ -237,14 +240,14 @@ fn test_block_validation_invalid_bad_proposer_map() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::BadProposerMap));
+    assert_eq!(status, Err(SszBeaconBlockValidationError::BadProposerMap));
 }
 
 #[test]
 fn test_block_validation_invalid_2nd_attestation_signature() {
     let params = get_simple_params();
 
-    let mutator = |mut block: Block, attester_map, proposer_map, stores| {
+    let mutator = |mut block: BeaconBlock, attester_map, proposer_map, stores| {
         /*
          * Set the second attestaion record to have an invalid signature.
          */
@@ -256,6 +259,6 @@ fn test_block_validation_invalid_2nd_attestation_signature() {
         &params,
         mutator);
 
-    assert_eq!(status, Err(SszBlockValidationError::AttestationValidationError(
+    assert_eq!(status, Err(SszBeaconBlockValidationError::AttestationValidationError(
                 AttestationValidationError::BadAggregateSignature)));
 }
