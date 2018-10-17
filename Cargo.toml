@@ -41,5 +41,6 @@ members = [
 	"beacon_chain/utils/shuffling",
 	"beacon_chain/utils/ssz",
 	"beacon_chain/utils/ssz_helpers",
+	"beacon_chain/validation",
 	"lighthouse/db",
 ]
