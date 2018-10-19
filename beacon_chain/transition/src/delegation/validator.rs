@@ -1,27 +1,26 @@
 use super::honey_badger_split::SplitExt;
-use super::types::{ShardAndCommittee, ValidatorRecord, ChainConfig};
+use super::types::{
+    ShardAndCommittee,
+    ValidatorRecord,
+    ValidatorStatus,
+    ChainConfig,
+};
 use super::TransitionError;
 use super::shuffle;
 use std::cmp::min;
 
 type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
 
-/// Produce a vector of validators indicies where those validators start and end
-/// dynasties are within the supplied `dynasty`.
-fn active_validator_indicies(
-    dynasty: u64,
-    validators: &[ValidatorRecord])
+/// Returns the indicies of each active validator in a given vec of validators.
+fn active_validator_indicies(validators: &[ValidatorRecord])
     -> Vec<usize>
 {
     validators.iter()
         .enumerate()
         .filter_map(|(i, validator)| {
-            if (validator.start_dynasty >= dynasty) &
-                (validator.end_dynasty < dynasty)
-            {
-                Some(i)
-            } else {
-                None
+            match validator.status {
+                x if x == ValidatorStatus::Active as u8 => Some(i),
+                _ => None
             }
         })
         .collect()
@@ -35,13 +34,12 @@ fn active_validator_indicies(
 pub fn delegate_validators(
     seed: &[u8],
     validators: &[ValidatorRecord],
-    dynasty: u64,
     crosslinking_shard_start: u16,
     config: &ChainConfig)
     -> Result<DelegatedCycle, TransitionError>
 {
     let shuffled_validator_indices = {
-        let mut validator_indices = active_validator_indicies(dynasty, validators);
+        let mut validator_indices = active_validator_indicies(validators);
         match shuffle(seed, validator_indices) {
             Ok(shuffled) => shuffled,
             _ => return Err(TransitionError::InvalidInput(
