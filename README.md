@@ -136,7 +136,19 @@ $ cargo bench --all
 ```
 
 Lighthouse presently runs on Rust `stable`, however, benchmarks currently require the
-`nightly` version.
+`nightly` version. To get Rust (1.26.1 or later) and then support software, please do
+
+```
+curl https://sh.rustup.rs -sSf | sh
+```
+
+```
+sudo apt install make clang pkg-config libssl-dev
+```
+```
+sudo apt-get update
+```
+
 
 ### Engineering Ethos
 
