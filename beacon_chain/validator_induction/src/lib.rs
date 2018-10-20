@@ -10,3 +10,7 @@ pub use inductor::{
     ValidatorInductor,
     ValidatorInductionError,
 };
+
+pub use registration::{
+    ValidatorRegistration,
+};
