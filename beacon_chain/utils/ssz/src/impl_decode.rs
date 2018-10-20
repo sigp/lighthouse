@@ -53,11 +53,10 @@ impl Decodable for H256 {
         -> Result<(Self, usize), DecodeError>
     {
         if bytes.len() < 32 || bytes.len() - 32 < index {
-            return Err(DecodeError::TooShort)
+            Err(DecodeError::TooShort)
         }
         else {
-            return Ok((H256::from(&bytes[index..(index + 32)]),
-                       index + 32));
+            Ok((H256::from(&bytes[index..(index + 32)]), index + 32))
         }
     }
 }

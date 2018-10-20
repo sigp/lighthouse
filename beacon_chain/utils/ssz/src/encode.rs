@@ -1,14 +1,8 @@
 #![cfg_attr(not(feature = "clippy"), allow(needless_range_loop))]
 
 use super::{
-    LENGTH_BYTES,
-    MAX_LIST_SIZE,
+    LENGTH_BYTES
 };
-
-#[derive(Debug)]
-pub enum EncodeError {
-    ListTooLong,
-}
 
 pub trait Encodable {
     fn ssz_append(&self, s: &mut SszStream);

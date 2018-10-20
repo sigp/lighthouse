@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "clippy"), allow(needless_range_loop))]
+
 use super::{
     LENGTH_BYTES,
 };
@@ -79,7 +81,7 @@ pub fn decode_length(bytes: &[u8], index: usize, length_bytes: usize)
     let mut len: usize = 0;
     for i in index..index+length_bytes {
         let offset = (index+length_bytes - i - 1) * 8;
-        len = ((bytes[i] as usize) << offset) | len;
+        len |= (bytes[i] as usize) << offset;
     };
     Ok(len)
 }
