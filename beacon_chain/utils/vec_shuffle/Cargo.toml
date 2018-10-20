@@ -1,5 +1,5 @@
 [package]
-name = "shuffling"
+name = "vec_shuffle"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 

@@ -1,29 +1,20 @@
-use super::honey_badger_split::SplitExt;
-use super::types::{
+use std::cmp::min;
+
+use honey_badger_split::SplitExt;
+use vec_shuffle::shuffle;
+use types::{
     ShardAndCommittee,
     ValidatorRecord,
-    ValidatorStatus,
     ChainConfig,
 };
-use super::TransitionError;
-use super::shuffle;
-use std::cmp::min;
+
+use super::active_validator_indices::active_validator_indices;
 
 type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
 
-/// Returns the indicies of each active validator in a given vec of validators.
-fn active_validator_indicies(validators: &[ValidatorRecord])
-    -> Vec<usize>
-{
-    validators.iter()
-        .enumerate()
-        .filter_map(|(i, validator)| {
-            match validator.status {
-                x if x == ValidatorStatus::Active as u8 => Some(i),
-                _ => None
-            }
-        })
-        .collect()
+#[derive(Debug)]
+pub enum TransitionError {
+	InvalidInput(String),
 }
 
 
@@ -31,7 +22,7 @@ fn active_validator_indicies(validators: &[ValidatorRecord])
 /// Returns a vector or ShardAndComitte vectors representing the shards and committiees for
 /// each slot.
 /// References get_new_shuffling (ethereum 2.1 specification)
-pub fn delegate_validators(
+pub fn shard_and_committees_for_cycle(
     seed: &[u8],
     validators: &[ValidatorRecord],
     crosslinking_shard_start: u16,
@@ -39,7 +30,7 @@ pub fn delegate_validators(
     -> Result<DelegatedCycle, TransitionError>
 {
     let shuffled_validator_indices = {
-        let mut validator_indices = active_validator_indicies(validators);
+        let mut validator_indices = active_validator_indices(validators);
         match shuffle(seed, validator_indices) {
             Ok(shuffled) => shuffled,
             _ => return Err(TransitionError::InvalidInput(

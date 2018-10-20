@@ -1,9 +1,9 @@
 [package]
-name = "transition"
+name = "validator_shuffling"
 version = "0.1.0"
-authors = ["Age Manning <Age@AgeManning.com>"]
+authors = ["Paul Hauner <paul@paulhauner.com>"]
 
 [dependencies]
 honey-badger-split = { path = "../utils/honey-badger-split" }
 types = { path = "../types" }
-shuffling = { path = "../utils/shuffling" }
+vec_shuffle = { path = "../utils/vec_shuffle" }
