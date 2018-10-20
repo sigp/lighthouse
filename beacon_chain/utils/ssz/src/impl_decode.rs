@@ -20,7 +20,7 @@ macro_rules! impl_decodable_for_uint {
                     let mut result: $type = 0;
                     for i in index..end_bytes {
                         let offset = ((index + max_bytes) - i - 1) * 8;
-                        result = ((bytes[i] as $type) << offset) | result;
+                        result |= ($type::from(bytes[i])) << offset;
                     };
                     Ok((result, end_bytes))
                 } else {
@@ -52,10 +52,7 @@ impl Decodable for H256 {
     fn ssz_decode(bytes: &[u8], index: usize)
         -> Result<(Self, usize), DecodeError>
     {
-        if bytes.len() < 32 {
-            return Err(DecodeError::TooShort)
-        }
-        else if bytes.len() - 32 < index {
+        if bytes.len() < 32 || bytes.len() - 32 < index {
             return Err(DecodeError::TooShort)
         }
         else {
