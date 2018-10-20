@@ -35,7 +35,7 @@ macro_rules! impl_encodable_for_uint {
                 }
 
                 // Append bytes to the SszStream
-                s.append_encoded_raw(&mut buf.to_vec());
+                s.append_encoded_raw(&buf.to_vec());
             }
         }
     }
