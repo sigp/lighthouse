@@ -5,26 +5,33 @@ extern crate validator_shuffling;
 use types::{
     ActiveState,
     ChainConfig,
+    CrosslinkRecord,
     CrystallizedState,
+    Hash256,
     ValidatorRecord,
 };
 use validator_induction::{
     ValidatorInductor,
     ValidatorRegistration,
 };
-use validator_shuffling::shard_and_committees_for_cycle;
+use validator_shuffling::{
+    shard_and_committees_for_cycle,
+    ValidatorAssignmentError,
+};
 
-pub struct ChainHead<'a> {
-    act_state: ActiveState,
-    cry_state: &'a CrystallizedState,
+pub const INITIAL_FORK_VERSION: u32 = 0;
+
+pub struct ChainHead {
+    active_state: ActiveState,
+    crystallized_state: CrystallizedState,
     config: ChainConfig,
 }
 
-impl<'a> ChainHead<'a> {
+impl ChainHead {
     pub fn genesis(
         initial_validator_entries: &[ValidatorRegistration],
         config: ChainConfig)
-        -> Self
+        -> Result<Self, ValidatorAssignmentError>
     {
         /*
          * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
@@ -46,15 +53,71 @@ impl<'a> ChainHead<'a> {
         };
 
         /*
-         * Delegate the validators to shards.
+         * Assign the validators to shards, using all zeros as the seed.
+         *
+         * Crystallizedstate stores two cycles, so we simply repeat the same assignment twice.
          */
-        let shard_and_committees = shard_and_committees_for_cycle(
-            &vec![0; 32],
-            &validators,
-            0,
-            &config);
+        let shard_and_committee_for_slots = {
+            let x = shard_and_committees_for_cycle(&vec![0; 32], &validators, 0, &config)?;
+            x.append(&mut x.clone());
+            x
+        };
 
-        //TODO: complete this
+        /*
+         * Set all the crosslink records to reference zero hashes.
+         */
+        let crosslinks = {
+            let mut c = vec![];
+            for _ in 0..config.shard_count {
+                c.push(CrosslinkRecord {
+                    recently_changed: false,
+                    slot: 0,
+                    hash: Hash256::zero(),
+                });
+            }
+            c
+        };
+
+        /*
+         * Initialize a genesis `Crystallizedstate`
+         */
+        let crystallized_state = CrystallizedState {
+            validator_set_change_slot: 0,
+            validators,
+            crosslinks,
+            last_state_recalculation_slot: 0,
+            last_finalized_slot: 0,
+            last_justified_slot: 0,
+            justified_streak: 0,
+            shard_and_committee_for_slots,
+            deposits_penalized_in_period: vec![],
+            validator_set_delta_hash_chain: Hash256::zero(),
+            pre_fork_version: INITIAL_FORK_VERSION,
+            post_fork_version: INITIAL_FORK_VERSION,
+            fork_slot_number: 0,
+        };
+
+        let recent_block_hashes = {
+            let mut x = vec![];
+            for _ in 0..config.cycle_length {
+                x.push(Hash256::zero());
+            }
+            x
+        };
+
+        let active_state = ActiveState {
+            pending_attestations: vec![],
+            pending_specials: vec![],
+            recent_block_hashes,
+            randao_mix: Hash256::zero(),
+        };
+
+
+        Ok(Self {
+            active_state,
+            crystallized_state,
+            config,
+        })
     }
 }
 
