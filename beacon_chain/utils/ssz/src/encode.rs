@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "clippy"), allow(needless_range_loop))]
+
 use super::{
     LENGTH_BYTES,
     MAX_LIST_SIZE,
@@ -17,6 +19,7 @@ pub trait Encodable {
 /// Use the `append()` fn to add a value to a list, then use
 /// the `drain()` method to consume the struct and return the
 /// ssz encoded bytes.
+#[derive(Default)]
 pub struct SszStream {
     buffer: Vec<u8>
 }
