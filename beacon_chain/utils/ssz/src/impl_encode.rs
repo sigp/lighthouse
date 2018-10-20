@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "clippy"), allow(cast_lossless))]
+
 extern crate bytes;
 
 use super::{

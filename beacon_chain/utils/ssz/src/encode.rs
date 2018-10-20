@@ -41,7 +41,7 @@ impl SszStream {
     ///
     /// The length of the supplied bytes will be concatenated
     /// to the stream before the supplied bytes.
-    pub fn append_encoded_val(&mut self, vec: &Vec<u8>) {
+    pub fn append_encoded_val(&mut self, vec: &[u8]) {
         self.buffer.extend_from_slice(
             &encode_length(vec.len(),
             LENGTH_BYTES));
@@ -51,7 +51,7 @@ impl SszStream {
     /// Append some ssz encoded bytes to the stream without calculating length
     ///
     /// The raw bytes will be concatenated to the stream.
-    pub fn append_encoded_raw(&mut self, vec: &Vec<u8>) {
+    pub fn append_encoded_raw(&mut self, vec: &[u8]) {
         self.buffer.extend_from_slice(&vec);
     }
 
@@ -59,7 +59,7 @@ impl SszStream {
     ///
     /// The length of the list will be concatenated to the stream, then
     /// each item in the vector will be encoded and concatenated.
-    pub fn append_vec<E>(&mut self, vec: &Vec<E>)
+    pub fn append_vec<E>(&mut self, vec: &[E])
         where E: Encodable
     {
         let mut list_stream = SszStream::new();
