@@ -107,6 +107,12 @@ impl<'a> ValidatorInductor<'a> {
             }
         }
     }
+
+    fn to_ref(self)
+        -> &'a Vec<ValidatorRecord>
+    {
+        self.validators
+    }
 }
 
 
