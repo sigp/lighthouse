@@ -24,6 +24,17 @@ pub enum ValidatorInductionError {
 }
 
 impl<'a> ValidatorInductor<'a> {
+    pub fn new(current_slot: u64, shard_count: u16, validators: &'a mut Vec<ValidatorRecord>)
+        -> Self
+    {
+        Self {
+            current_slot,
+            shard_count,
+            validators,
+            empty_validator_start: 0,
+        }
+    }
+
     /// Attempt to induct a validator into the CrystallizedState.
     ///
     /// Returns an error if the registration is invalid, otherwise returns the index of the
@@ -138,12 +149,10 @@ mod tests {
                     shard_count: u16)
         -> Result<usize, ValidatorInductionError>
     {
-        let mut inductor = ValidatorInductor {
+        let mut inductor = ValidatorInductor::new(
             current_slot,
             shard_count,
-            empty_validator_start: 0,
-            validators,
-        };
+            validators);
         inductor.induct(&validator_rego)
     }
 
