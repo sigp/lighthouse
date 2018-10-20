@@ -10,10 +10,10 @@ use super::registration::ValidatorRegistration;
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
 
 /// Inducts validators into a `CrystallizedState`.
-pub struct ValidatorInductor<'a> {
+pub struct ValidatorInductor {
     pub current_slot: u64,
     pub shard_count: u16,
-    validators: &'a mut Vec<ValidatorRecord>,
+    validators: Vec<ValidatorRecord>,
     empty_validator_start: usize,
 }
 
@@ -23,8 +23,8 @@ pub enum ValidatorInductionError {
     InvaidProofOfPossession,
 }
 
-impl<'a> ValidatorInductor<'a> {
-    pub fn new(current_slot: u64, shard_count: u16, validators: &'a mut Vec<ValidatorRecord>)
+impl ValidatorInductor {
+    pub fn new(current_slot: u64, shard_count: u16, validators: Vec<ValidatorRecord>)
         -> Self
     {
         Self {
@@ -108,8 +108,8 @@ impl<'a> ValidatorInductor<'a> {
         }
     }
 
-    fn to_ref(self)
-        -> &'a Vec<ValidatorRecord>
+    pub fn to_vec(self)
+        -> Vec<ValidatorRecord>
     {
         self.validators
     }
@@ -148,27 +148,15 @@ mod tests {
         }
     }
 
-    /// Induct a validator using the ValidatorInductor, return the result.
-    fn do_induction(validator_rego: &ValidatorRegistration,
-                    validators: &mut Vec<ValidatorRecord>,
-                    current_slot: u64,
-                    shard_count: u16)
-        -> Result<usize, ValidatorInductionError>
-    {
-        let mut inductor = ValidatorInductor::new(
-            current_slot,
-            shard_count,
-            validators);
-        inductor.induct(&validator_rego)
-    }
-
     #[test]
     fn test_validator_inductor_valid_empty_validators() {
-        let mut validators = vec![];
+        let validators = vec![];
 
         let r = get_registration();
 
-        let result = do_induction(&r, &mut validators, 0, 1024);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r);
+        let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 0);
         assert_eq!(r, validators[0]);
@@ -186,7 +174,9 @@ mod tests {
 
         let r = get_registration();
 
-        let result = do_induction(&r, &mut validators, 0, 1024);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r);
+        let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 5);
         assert_eq!(r, validators[5]);
@@ -207,7 +197,9 @@ mod tests {
 
         let r = get_registration();
 
-        let result = do_induction(&r, &mut validators, 0, 1024);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r);
+        let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 1);
         assert_eq!(r, validators[1]);
@@ -227,7 +219,9 @@ mod tests {
          * Ensure the first validator gets the 0'th slot
          */
         let r = get_registration();
-        let result = do_induction(&r, &mut validators, 0, 1024);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r);
+        let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 0);
         assert_eq!(r, validators[0]);
         assert_eq!(validators.len(), 5);
@@ -236,7 +230,9 @@ mod tests {
          * Ensure the second validator gets the 1'st slot
          */
         let r_two = get_registration();
-        let result = do_induction(&r_two, &mut validators, 0, 1024);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r);
+        let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 1);
         assert_eq!(r_two, validators[1]);
         assert_eq!(validators.len(), 5);
@@ -244,12 +240,14 @@ mod tests {
 
     #[test]
     fn test_validator_inductor_shard_too_high() {
-        let mut validators = vec![];
+        let validators = vec![];
 
         let mut r = get_registration();
         r.withdrawal_shard = 1025;
 
-        let result = do_induction(&r, &mut validators, 0, 1024);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r);
+        let validators = inductor.to_vec();
 
         assert_eq!(result, Err(ValidatorInductionError::InvalidShard));
         assert_eq!(validators.len(), 0);
@@ -257,13 +255,15 @@ mod tests {
 
     #[test]
     fn test_validator_inductor_shard_proof_of_possession_failure() {
-        let mut validators = vec![];
+        let validators = vec![];
 
         let mut r = get_registration();
         let kp = Keypair::random();
         r.proof_of_possession = get_proof_of_possession(&kp);
 
-        let result = do_induction(&r, &mut validators, 0, 1024);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r);
+        let validators = inductor.to_vec();
 
         assert_eq!(result, Err(ValidatorInductionError::InvaidProofOfPossession));
         assert_eq!(validators.len(), 0);
