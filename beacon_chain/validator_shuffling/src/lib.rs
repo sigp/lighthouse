@@ -5,4 +5,7 @@ extern crate types;
 mod active_validator_indices;
 mod shuffle;
 
-pub use shuffle::shard_and_committees_for_cycle;
+pub use shuffle::{
+    shard_and_committees_for_cycle,
+    ValidatorAssignmentError,
+};
