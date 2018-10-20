@@ -2,7 +2,7 @@ use super::hashing::canonical_hash;
 
 const SEED_SIZE_BYTES: usize = 32;
 const RAND_BYTES: usize = 3;      // 24 / 8
-const RAND_MAX: u32 = 16_777_216;   // 2**24
+const RAND_MAX: u32 = 16_777_215;   // 2 ** (rand_bytes * 8) - 1
 
 /// A pseudo-random number generator which given a seed
 /// uses successive blake2s hashing to generate "entropy".
