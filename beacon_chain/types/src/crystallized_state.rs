@@ -13,7 +13,7 @@ pub struct CrystallizedState {
     pub last_justified_slot: u64,
     pub justified_streak: u64,
     pub shard_and_committee_for_slots: Vec<Vec<ShardAndCommittee>>,
-    pub deposits_penalized_in_period: u32,
+    pub deposits_penalized_in_period: Vec<u32>,
     pub validator_set_delta_hash_chain: Hash256,
     pub pre_fork_version: u32,
     pub post_fork_version: u32,
