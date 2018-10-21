@@ -5,3 +5,6 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 
 [dependencies]
 hashing = { path = "../hashing" }
+
+[dev-dependencies]
+yaml-rust = "0.4.2"
