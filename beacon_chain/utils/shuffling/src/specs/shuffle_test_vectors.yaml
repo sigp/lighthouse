@@ -1,41 +1,5 @@
-# This file was generated with a modified version of shuffling_sandbox
+# This file was generated with sigp/shuffling_sandbox
 # python3 sandbox.py test_vectors
-#diff --git a/sandbox.py b/sandbox.py
-#index 99b0ba7..cd7cafe 100644
-#--- a/sandbox.py
-#+++ b/sandbox.py
-#@@ -126,13 +126,13 @@ elif args.method == "test_vectors":
-#     results = []
-# 
-#     seeds = [
-#-        b"",
-#-        blake("4kn4driuctg8".encode()),     # known to cause conflicts with old shuffler
-#-        blake("ytre1p".encode()),
-#-        blake("mytobcffnkvj".encode()),
-#-        blake("myzu3g7evxp5nkvj".encode()),
-#-        blake("xdpli1jsx5xb".encode()),
-#-        blake("oab3mbb3xe8qsx5xb".encode()),
-#+        "",
-#+        "4kn4driuctg8",     # known to cause conflicts with old shuffler
-#+        "ytre1p",
-#+        "mytobcffnkvj",
-#+        "myzu3g7evxp5nkvj",
-#+        "xdpli1jsx5xb",
-#+        "oab3mbb3xe8qsx5xb",
-#     ]
-#     lists = [
-#         [],
-#@@ -147,7 +147,8 @@ elif args.method == "test_vectors":
-# 
-#     for seed in seeds:
-#         for lst in lists:
-#-            output = shuffler(lst, seed)
-#+            blake_seed = blake(seed.encode()) if len(seed) > 0 else b""
-#+            output = shuffler(lst, blake_seed)
-#             results.append({"seed": seed, "input": lst, "output": output})
-# 
-#     body = {
-
 title: Shuffling Algorithm Tests
 summary: Test vectors for shuffling a list based upon a seed.
 test_suite: Shuffling
