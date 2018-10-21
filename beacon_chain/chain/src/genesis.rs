@@ -1,6 +1,7 @@
 use types::{
     CrosslinkRecord,
     Hash256,
+    ValidatorRegistration,
 };
 use super::{
     ActiveState,
@@ -9,10 +10,7 @@ use super::{
     BeaconChainError,
     ChainConfig,
 };
-use validator_induction::{
-    ValidatorInductor,
-    ValidatorRegistration,
-};
+use validator_induction::ValidatorInductor;
 use validator_shuffling::{
     shard_and_committees_for_cycle,
     ValidatorAssignmentError,
@@ -30,9 +28,7 @@ impl BeaconChain {
     /// Initialize a new ChainHead with genesis parameters.
     ///
     /// Used when syncing a chain from scratch.
-    pub fn genesis_states(
-        initial_validator_entries: &[ValidatorRegistration],
-        config: &ChainConfig)
+    pub fn genesis_states(config: &ChainConfig)
         -> Result<(ActiveState, CrystallizedState), ValidatorAssignmentError>
     {
         /*
@@ -42,7 +38,7 @@ impl BeaconChain {
          */
         let validators = {
             let mut inductor = ValidatorInductor::new(0, config.shard_count, vec![]);
-            for registration in initial_validator_entries {
+            for registration in &config.initial_validators {
                 let _ = inductor.induct(&registration);
             };
             inductor.to_vec()
@@ -120,17 +116,19 @@ mod tests {
     extern crate bls;
 
     use super::*;
-    use self::bls::Keypair;
+    use self::bls::{
+        create_proof_of_possession,
+        Keypair,
+    };
     use types::{
         Hash256,
         Address,
     };
-    use validator_induction::create_proof_of_possession;
 
     #[test]
     fn test_genesis_no_validators() {
         let config = ChainConfig::standard();
-        let (act, cry) = BeaconChain::genesis_states(&vec![], &config).unwrap();
+        let (act, cry) = BeaconChain::genesis_states(&config).unwrap();
 
         assert_eq!(cry.validator_set_change_slot, 0);
         assert_eq!(cry.validators.len(), 0);
@@ -170,41 +168,39 @@ mod tests {
 
     #[test]
     fn test_genesis_valid_validators() {
-        let config = ChainConfig::standard();
+        let mut config = ChainConfig::standard();
         let validator_count = 5;
 
-        let mut validators = vec![];
         for _ in 0..validator_count {
-            validators.push(random_registration());
+            config.initial_validators.push(random_registration());
         }
 
-        let (_, cry) = BeaconChain::genesis_states(&validators, &config).unwrap();
+        let (_, cry) = BeaconChain::genesis_states(&config).unwrap();
 
         assert_eq!(cry.validators.len(), validator_count);
     }
 
     #[test]
     fn test_genesis_invalid_validators() {
-        let config = ChainConfig::standard();
+        let mut config = ChainConfig::standard();
         let good_validator_count = 5;
 
-        let mut all_validators = vec![];
         for _ in 0..good_validator_count {
-            all_validators.push(random_registration());
+            config.initial_validators.push(random_registration());
         }
 
         let mut bad_v = random_registration();
         let bad_kp = Keypair::random();
         bad_v.proof_of_possession =  create_proof_of_possession(&bad_kp);
-        all_validators.push(bad_v);
+        config.initial_validators.push(bad_v);
 
         let mut bad_v = random_registration();
         bad_v.withdrawal_shard =  config.shard_count + 1;
-        all_validators.push(bad_v);
+        config.initial_validators.push(bad_v);
 
-        let (_, cry) = BeaconChain::genesis_states(&all_validators, &config).unwrap();
+        let (_, cry) = BeaconChain::genesis_states(&config).unwrap();
 
-        assert!(all_validators.len() != good_validator_count, "test is invalid");
+        assert!(config.initial_validators.len() != good_validator_count, "test is invalid");
         assert_eq!(cry.validators.len(), good_validator_count);
     }
 }

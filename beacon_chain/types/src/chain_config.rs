@@ -1,8 +1,12 @@
+use super::ValidatorRegistration;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChainConfig {
     pub cycle_length: u8,
     pub shard_count: u16,
     pub min_committee_size: u64,
     pub genesis_time: u64,
+    pub initial_validators: Vec<ValidatorRegistration>,
 }
 
 /*
@@ -17,6 +21,7 @@ impl ChainConfig {
             shard_count: 1024,
             min_committee_size: 128,
             genesis_time: GENESIS_TIME,   // arbitrary
+            initial_validators: vec![],
         }
     }
 
@@ -41,6 +46,7 @@ impl ChainConfig {
             shard_count: 2,
             min_committee_size: 2,
             genesis_time: GENESIS_TIME,   // arbitrary
+            initial_validators: vec![],
         }
     }
 }

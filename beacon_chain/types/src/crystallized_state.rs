@@ -4,6 +4,7 @@ use super::shard_and_committee::ShardAndCommittee;
 use super::Hash256;
 
 
+#[derive(Debug, PartialEq)]
 pub struct CrystallizedState {
     pub validator_set_change_slot: u64,
     pub validators: Vec<ValidatorRecord>,

@@ -4,6 +4,7 @@ use super::{
     SpecialRecord,
 };
 
+#[derive(Debug, PartialEq)]
 pub struct ActiveState {
     pub pending_attestations: Vec<AttestationRecord>,
     pub pending_specials: Vec<SpecialRecord>,
