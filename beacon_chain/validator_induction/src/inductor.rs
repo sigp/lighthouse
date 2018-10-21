@@ -1,10 +1,11 @@
+use bls::{
+    verify_proof_of_possession,
+};
 use types::{
     ValidatorRecord,
     ValidatorStatus,
     ValidatorRegistration,
 };
-
-use super::proof_of_possession::verify_proof_of_possession;
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
