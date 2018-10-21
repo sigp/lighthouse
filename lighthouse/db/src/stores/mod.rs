@@ -3,13 +3,13 @@ use super::{
     DBError,
 };
 
-mod block_store;
+mod beacon_block_store;
 mod pow_chain_store;
 mod validator_store;
 
-pub use self::block_store::{
-    BlockStore,
-    BlockAtSlotError,
+pub use self::beacon_block_store::{
+    BeaconBlockStore,
+    BeaconBlockAtSlotError,
 };
 pub use self::pow_chain_store::PoWChainStore;
 pub use self::validator_store::{

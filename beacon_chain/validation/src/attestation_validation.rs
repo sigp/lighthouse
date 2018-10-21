@@ -13,8 +13,8 @@ use super::db::{
     DBError
 };
 use super::db::stores::{
-    BlockStore,
-    BlockAtSlotError,
+    BeaconBlockStore,
+    BeaconBlockAtSlotError,
     ValidatorStore,
 };
 use super::types::{
@@ -65,7 +65,7 @@ pub struct AttestationValidationContext<T>
     /// A vec of the hashes of the blocks preceeding the present slot.
     pub parent_hashes: Arc<Vec<Hash256>>,
     /// The store containing block information.
-    pub block_store: Arc<BlockStore<T>>,
+    pub block_store: Arc<BeaconBlockStore<T>>,
     /// The store containing validator information.
     pub validator_store: Arc<ValidatorStore<T>>,
     /// A map of (slot, shard_id) to the attestation set of validation indices.
@@ -103,8 +103,8 @@ impl<T> AttestationValidationContext<T>
         }
 
         /*
-         * The attestation must indicate that its last justified slot is the same as the last justified
-         * slot known to us.
+         * The attestation justified slot must not be higher than the last_justified_slot of the
+         * context.
          */
         if a.justified_slot > self.last_justified_slot {
             return Err(AttestationValidationError::JustifiedSlotIncorrect);
@@ -224,10 +224,10 @@ impl From<ParentHashesError> for AttestationValidationError {
     }
 }
 
-impl From<BlockAtSlotError> for AttestationValidationError {
-    fn from(e: BlockAtSlotError) -> Self {
+impl From<BeaconBlockAtSlotError> for AttestationValidationError {
+    fn from(e: BeaconBlockAtSlotError) -> Self {
         match e {
-            BlockAtSlotError::DBError(s) => AttestationValidationError::DBError(s),
+            BeaconBlockAtSlotError::DBError(s) => AttestationValidationError::DBError(s),
             _ => AttestationValidationError::InvalidJustifiedBlockHash
 
         }

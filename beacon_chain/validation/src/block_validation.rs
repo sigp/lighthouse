@@ -13,7 +13,7 @@ use super::attestation_validation::{
 use super::types::{
     AttestationRecord,
     AttesterMap,
-    Block,
+    BeaconBlock,
     ProposerMap,
 };
 use super::ssz_helpers::attestation_ssz_splitter::{
@@ -21,16 +21,16 @@ use super::ssz_helpers::attestation_ssz_splitter::{
     split_all_attestations,
     AttestationSplitError,
 };
-use super::ssz_helpers::ssz_block::{
-    SszBlock,
-    SszBlockError,
+use super::ssz_helpers::ssz_beacon_block::{
+    SszBeaconBlock,
+    SszBeaconBlockError,
 };
 use super::db::{
     ClientDB,
     DBError,
 };
 use super::db::stores::{
-    BlockStore,
+    BeaconBlockStore,
     PoWChainStore,
     ValidatorStore,
 };
@@ -41,18 +41,20 @@ use super::ssz::{
 use super::types::Hash256;
 
 #[derive(Debug, PartialEq)]
-pub enum BlockStatus {
+pub enum BeaconBlockStatus {
     NewBlock,
     KnownBlock,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum SszBlockValidationError {
+pub enum SszBeaconBlockValidationError {
     FutureSlot,
     SlotAlreadyFinalized,
     UnknownPoWChainRef,
     UnknownParentHash,
     BadAttestationSsz,
+    BadAncestorHashesSsz,
+    BadSpecialsSsz,
     ParentSlotHigherThanBlockSlot,
     AttestationValidationError(AttestationValidationError),
     AttestationSignatureFailed,
@@ -64,7 +66,7 @@ pub enum SszBlockValidationError {
 }
 
 /// The context against which a block should be validated.
-pub struct BlockValidationContext<T>
+pub struct BeaconBlockValidationContext<T>
     where T: ClientDB + Sized
 {
     /// The slot as determined by the system time.
@@ -84,20 +86,20 @@ pub struct BlockValidationContext<T>
     /// A map of (slot, shard_id) to the attestation set of validation indices.
     pub attester_map: Arc<AttesterMap>,
     /// The store containing block information.
-    pub block_store: Arc<BlockStore<T>>,
+    pub block_store: Arc<BeaconBlockStore<T>>,
     /// The store containing validator information.
     pub validator_store: Arc<ValidatorStore<T>>,
     /// The store containing information about the proof-of-work chain.
     pub pow_store: Arc<PoWChainStore<T>>,
 }
 
-impl<T> BlockValidationContext<T>
+impl<T> BeaconBlockValidationContext<T>
     where T: ClientDB
 {
-    /// Validate some SszBlock against a block validation context. An SszBlock varies from a Block in
+    /// Validate some SszBeaconBlock against a block validation context. An SszBeaconBlock varies from a BeaconBlock in
     /// that is a read-only structure that reads directly from encoded SSZ.
     ///
-    /// The reason to validate an SzzBlock is to avoid decoding it in its entirety if there is
+    /// The reason to validate an SzzBeaconBlock is to avoid decoding it in its entirety if there is
     /// a suspicion that the block might be invalid. Such a suspicion should be applied to
     /// all blocks coming from the network.
     ///
@@ -107,8 +109,8 @@ impl<T> BlockValidationContext<T>
     /// Note: this function does not implement randao_reveal checking as it is not in the
     /// specification.
     #[allow(dead_code)]
-    pub fn validate_ssz_block(&self, b: &SszBlock)
-        -> Result<(BlockStatus, Option<Block>), SszBlockValidationError>
+    pub fn validate_ssz_block(&self, b: &SszBeaconBlock)
+        -> Result<(BeaconBlockStatus, Option<BeaconBlock>), SszBeaconBlockValidationError>
         where T: ClientDB + Sized
     {
 
@@ -118,7 +120,7 @@ impl<T> BlockValidationContext<T>
          */
         let block_hash = &b.block_hash();
         if self.block_store.block_exists(&block_hash)? {
-            return Ok((BlockStatus::KnownBlock, None));
+            return Ok((BeaconBlockStatus::KnownBlock, None));
         }
 
         /*
@@ -127,9 +129,9 @@ impl<T> BlockValidationContext<T>
          * It is up to the calling fn to determine what should be done with "future" blocks (e.g.,
          * cache or discard).
          */
-        let block_slot = b.slot_number();
+        let block_slot = b.slot();
         if block_slot > self.present_slot {
-            return Err(SszBlockValidationError::FutureSlot);
+            return Err(SszBeaconBlockValidationError::FutureSlot);
         }
 
         /*
@@ -143,7 +145,7 @@ impl<T> BlockValidationContext<T>
          * `last_finalized_block` in it's chain.
          */
         if block_slot <= self.last_finalized_slot {
-            return Err(SszBlockValidationError::SlotAlreadyFinalized);
+            return Err(SszBeaconBlockValidationError::SlotAlreadyFinalized);
         }
 
         /*
@@ -155,15 +157,15 @@ impl<T> BlockValidationContext<T>
          * "sufficienty deep in the canonical PoW chain". This should be clarified as the spec
          * crystallizes.
          */
-        let pow_chain_ref = b.pow_chain_ref();
-        if !self.pow_store.block_hash_exists(b.pow_chain_ref())? {
-            return Err(SszBlockValidationError::UnknownPoWChainRef);
+        let pow_chain_reference = b.pow_chain_reference();
+        if !self.pow_store.block_hash_exists(b.pow_chain_reference())? {
+            return Err(SszBeaconBlockValidationError::UnknownPoWChainRef);
         }
 
         /*
          * Store a slice of the serialized attestations from the block SSZ.
          */
-        let attestations_ssz = &b.attestations();
+        let attestations_ssz = &b.attestations_without_length();
 
         /*
          * Get a slice of the first serialized attestation (the 0'th) and decode it into
@@ -184,8 +186,8 @@ impl<T> BlockValidationContext<T>
          * The presence of oblique hashes in the first attestation would indicate that the proposer
          * of the previous block is attesting to some other block than the one they produced.
          */
-        if first_attestation.oblique_parent_hashes.len() > 0 {
-            return Err(SszBlockValidationError::ProposerAttestationHasObliqueHashes);
+        if !first_attestation.oblique_parent_hashes.is_empty() {
+            return Err(SszBeaconBlockValidationError::ProposerAttestationHasObliqueHashes);
         }
 
         /*
@@ -196,12 +198,13 @@ impl<T> BlockValidationContext<T>
          *
          * Also, read the slot from the parent block for later use.
          */
-        let parent_hash = b.parent_hash();
+        let parent_hash = b.parent_hash()
+            .ok_or(SszBeaconBlockValidationError::BadAncestorHashesSsz)?;
         let parent_block_slot = match self.block_store.get_serialized_block(&parent_hash)? {
-            None => return Err(SszBlockValidationError::UnknownParentHash),
+            None => return Err(SszBeaconBlockValidationError::UnknownParentHash),
             Some(ssz) => {
-                let parent_block = SszBlock::from_slice(&ssz[..])?;
-                parent_block.slot_number()
+                let parent_block = SszBeaconBlock::from_slice(&ssz[..])?;
+                parent_block.slot()
             }
         };
 
@@ -211,7 +214,7 @@ impl<T> BlockValidationContext<T>
          * In other words, the parent must come before the child.
          */
         if parent_block_slot >= block_slot {
-            return Err(SszBlockValidationError::ParentSlotHigherThanBlockSlot);
+            return Err(SszBeaconBlockValidationError::ParentSlotHigherThanBlockSlot);
         }
 
         /*
@@ -242,9 +245,9 @@ impl<T> BlockValidationContext<T>
          * attestation of this block, reject the block.
          */
         let parent_block_proposer = self.proposer_map.get(&parent_block_slot)
-            .ok_or(SszBlockValidationError::BadProposerMap)?;
+            .ok_or(SszBeaconBlockValidationError::BadProposerMap)?;
         if !attestation_voters.contains(&parent_block_proposer) {
-            return Err(SszBlockValidationError::NoProposerSignature);
+            return Err(SszBeaconBlockValidationError::NoProposerSignature);
         }
 
         /*
@@ -265,16 +268,18 @@ impl<T> BlockValidationContext<T>
          * validation. This is so all attestation validation is halted if a single bad attestation
          * is found.
          */
-        let failure: RwLock<Option<SszBlockValidationError>> = RwLock::new(None);
+        let failure: RwLock<Option<SszBeaconBlockValidationError>> = RwLock::new(None);
         let mut deserialized_attestations: Vec<AttestationRecord> = other_attestations
             .par_iter()
             .filter_map(|attestation_ssz| {
                 /*
                  * If some thread has set the `failure` variable to `Some(error)` the abandon
-                 * attestation serialization and validation.
+                 * attestation serialization and validation. Also, fail early if the lock has been
+                 * poisoned.
                  */
-                if let Some(_) = *failure.read().unwrap() {
-                    return None;
+                match failure.read() {
+                    Ok(ref option) if option.is_none() => (),
+                    _ => return None
                 }
                 /*
                  * If there has not been a failure yet, attempt to serialize and validate the
@@ -285,8 +290,12 @@ impl<T> BlockValidationContext<T>
                      * Deserialization failed, therefore the block is invalid.
                      */
                     Err(e) => {
-                        let mut failure = failure.write().unwrap();
-                        *failure = Some(SszBlockValidationError::from(e));
+                        /*
+                         * If the failure lock isn't poisoned, set it to some error.
+                         */
+                        if let Ok(mut f) = failure.write() {
+                            *f = Some(SszBeaconBlockValidationError::from(e));
+                        }
                         None
                     }
                     /*
@@ -298,8 +307,12 @@ impl<T> BlockValidationContext<T>
                              * Attestation validation failed with some error.
                              */
                             Err(e) => {
-                                let mut failure = failure.write().unwrap();
-                                *failure = Some(SszBlockValidationError::from(e));
+                                /*
+                                 * If the failure lock isn't poisoned, set it to some error.
+                                 */
+                                if let Ok(mut f) = failure.write() {
+                                    *f = Some(SszBeaconBlockValidationError::from(e));
+                                }
                                 None
                             }
                             /*
@@ -313,7 +326,7 @@ impl<T> BlockValidationContext<T>
             .collect();
 
         match failure.into_inner() {
-            Err(_) => return Err(SszBlockValidationError::RwLockPoisoned),
+            Err(_) => return Err(SszBeaconBlockValidationError::RwLockPoisoned),
             Ok(failure) => {
                 match failure {
                     Some(error) => return Err(error),
@@ -329,63 +342,69 @@ impl<T> BlockValidationContext<T>
          */
         deserialized_attestations.insert(0, first_attestation);
 
+        let (ancestor_hashes, _) = Decodable::ssz_decode(&b.ancestor_hashes(), 0)
+            .map_err(|_| SszBeaconBlockValidationError::BadAncestorHashesSsz)?;
+        let (specials, _) = Decodable::ssz_decode(&b.specials(), 0)
+            .map_err(|_| SszBeaconBlockValidationError::BadSpecialsSsz)?;
+
         /*
          * If we have reached this point, the block is a new valid block that is worthy of
          * processing.
          */
-        let block = Block {
-            parent_hash: Hash256::from(parent_hash),
-            slot_number: block_slot,
+        let block = BeaconBlock {
+            slot: block_slot,
             randao_reveal: Hash256::from(b.randao_reveal()),
-            attestations: deserialized_attestations,
-            pow_chain_ref: Hash256::from(pow_chain_ref),
+            pow_chain_reference: Hash256::from(pow_chain_reference),
+            ancestor_hashes,
             active_state_root: Hash256::from(b.act_state_root()),
             crystallized_state_root: Hash256::from(b.cry_state_root()),
+            attestations: deserialized_attestations,
+            specials,
         };
-        Ok((BlockStatus::NewBlock, Some(block)))
+        Ok((BeaconBlockStatus::NewBlock, Some(block)))
     }
 }
 
-impl From<DBError> for SszBlockValidationError {
+impl From<DBError> for SszBeaconBlockValidationError {
     fn from(e: DBError) -> Self {
-        SszBlockValidationError::DBError(e.message)
+        SszBeaconBlockValidationError::DBError(e.message)
     }
 }
 
-impl From<AttestationSplitError> for SszBlockValidationError {
+impl From<AttestationSplitError> for SszBeaconBlockValidationError {
     fn from(e: AttestationSplitError) -> Self {
         match e {
             AttestationSplitError::TooShort =>
-                SszBlockValidationError::BadAttestationSsz
+                SszBeaconBlockValidationError::BadAttestationSsz
         }
     }
 }
 
-impl From<SszBlockError> for SszBlockValidationError {
-    fn from(e: SszBlockError) -> Self {
+impl From<SszBeaconBlockError> for SszBeaconBlockValidationError {
+    fn from(e: SszBeaconBlockError) -> Self {
         match e {
-            SszBlockError::TooShort =>
-                SszBlockValidationError::DBError("Bad parent block in db.".to_string()),
-            SszBlockError::TooLong =>
-                SszBlockValidationError::DBError("Bad parent block in db.".to_string()),
+            SszBeaconBlockError::TooShort =>
+                SszBeaconBlockValidationError::DBError("Bad parent block in db.".to_string()),
+            SszBeaconBlockError::TooLong =>
+                SszBeaconBlockValidationError::DBError("Bad parent block in db.".to_string()),
         }
     }
 }
 
-impl From<DecodeError> for SszBlockValidationError {
+impl From<DecodeError> for SszBeaconBlockValidationError {
     fn from(e: DecodeError) -> Self {
         match e {
             DecodeError::TooShort =>
-                SszBlockValidationError::BadAttestationSsz,
+                SszBeaconBlockValidationError::BadAttestationSsz,
             DecodeError::TooLong =>
-                SszBlockValidationError::BadAttestationSsz,
+                SszBeaconBlockValidationError::BadAttestationSsz,
         }
     }
 }
 
-impl From<AttestationValidationError> for SszBlockValidationError {
+impl From<AttestationValidationError> for SszBeaconBlockValidationError {
     fn from(e: AttestationValidationError) -> Self {
-        SszBlockValidationError::AttestationValidationError(e)
+        SszBeaconBlockValidationError::AttestationValidationError(e)
     }
 }
 
