@@ -34,7 +34,7 @@ pub fn shuffle<T>(
         return Ok(list);
     }
 
-    for i in 0..(list.len() - 1) {
+    for i in 0..(list.len().saturating_sub(1)) {
         let n = list.len() - i;
         let j = rng.rand_range(n as u32) as usize + i;
         list.swap(i, j);
