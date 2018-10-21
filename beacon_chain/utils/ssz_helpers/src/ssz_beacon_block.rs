@@ -138,12 +138,8 @@ impl<'a> SszBeaconBlock<'a> {
     /// The first hash in `ancestor_hashes` is the parent of the block.
     pub fn parent_hash(&self) -> Option<&[u8]> {
         let ancestor_ssz = self.ancestor_hashes();
-        let start = LENGTH_BYTES;
-        if ancestor_ssz.len() >= 32 {
-            Some(&ancestor_ssz[start..start + 32])
-        } else {
-            None
-        }
+        let start = LENGTH_PREFIX_BYTES;
+        ancestor_ssz.get(start..start + HASH_SIZE)
     }
 
     /// Return the `slot` field.
