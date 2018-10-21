@@ -5,13 +5,13 @@ use super::db::{
 };
 use super::db::stores::{
     ValidatorStore,
-    BlockStore,
+    BeaconBlockStore,
 };
 use super::types::{
     AttestationRecord,
     AttesterMap,
     Bitfield,
-    Block,
+    BeaconBlock,
     Hash256,
 };
 use super::validation::attestation_validation::{
@@ -32,14 +32,14 @@ use super::hashing::{
 pub struct TestStore {
     pub db: Arc<MemoryDB>,
     pub validator: Arc<ValidatorStore<MemoryDB>>,
-    pub block: Arc<BlockStore<MemoryDB>>,
+    pub block: Arc<BeaconBlockStore<MemoryDB>>,
 }
 
 impl TestStore {
     pub fn new() -> Self {
         let db = Arc::new(MemoryDB::open());
         let validator = Arc::new(ValidatorStore::new(db.clone()));
-        let block = Arc::new(BlockStore::new(db.clone()));
+        let block = Arc::new(BeaconBlockStore::new(db.clone()));
         Self {
             db,
             validator,
@@ -81,7 +81,7 @@ pub fn generate_attestation(shard_id: u16,
                             cycle_length: u8,
                             parent_hashes: &[Hash256],
                             signing_keys: &[Option<SecretKey>],
-                            block_store: &BlockStore<MemoryDB>)
+                            block_store: &BeaconBlockStore<MemoryDB>)
     -> AttestationRecord
 {
     let mut attester_bitfield = Bitfield::new();
@@ -136,10 +136,10 @@ pub fn generate_attestation(shard_id: u16,
 /// Create a minimum viable block at some slot.
 ///
 /// Allows the validation function to read the block and verify its slot.
-pub fn create_block_at_slot(block_store: &BlockStore<MemoryDB>, hash: &Hash256, slot: u64) {
-    let mut justified_block = Block::zero();
+pub fn create_block_at_slot(block_store: &BeaconBlockStore<MemoryDB>, hash: &Hash256, slot: u64) {
+    let mut justified_block = BeaconBlock::zero();
     justified_block.attestations.push(AttestationRecord::zero());
-    justified_block.slot_number = slot;
+    justified_block.slot = slot;
     let mut s = SszStream::new();
     s.append(&justified_block);
     let justified_block_ssz = s.drain();

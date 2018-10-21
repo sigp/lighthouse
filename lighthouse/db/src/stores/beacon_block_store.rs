@@ -1,8 +1,7 @@
 extern crate ssz_helpers;
 
-use self::ssz_helpers::ssz_block::{
-    SszBlock,
-    SszBlockError,
+use self::ssz_helpers::ssz_beacon_block::{
+    SszBeaconBlock,
 };
 use std::sync::Arc;
 use super::{
@@ -11,20 +10,23 @@ use super::{
 };
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
 
+type BeaconBlockHash = Vec<u8>;
+type BeaconBlockSsz = Vec<u8>;
+
 #[derive(Clone, Debug, PartialEq)]
-pub enum BlockAtSlotError {
-    UnknownBlock,
-    InvalidBlock,
+pub enum BeaconBlockAtSlotError {
+    UnknownBeaconBlock,
+    InvalidBeaconBlock,
     DBError(String),
 }
 
-pub struct BlockStore<T>
+pub struct BeaconBlockStore<T>
     where T: ClientDB
 {
     db: Arc<T>,
 }
 
-impl<T: ClientDB> BlockStore<T> {
+impl<T: ClientDB> BeaconBlockStore<T> {
     pub fn new(db: Arc<T>) -> Self {
         Self {
             db,
@@ -66,26 +68,31 @@ impl<T: ClientDB> BlockStore<T> {
     ///
     /// If a block is found, a tuple of (block_hash, serialized_block) is returned.
     pub fn block_at_slot(&self, head_hash: &[u8], slot: u64)
-        -> Result<Option<(Vec<u8>, Vec<u8>)>, BlockAtSlotError>
+        -> Result<Option<(BeaconBlockHash, BeaconBlockSsz)>, BeaconBlockAtSlotError>
     {
         match self.get_serialized_block(head_hash)? {
-            None => Err(BlockAtSlotError::UnknownBlock),
+            None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
             Some(ssz) => {
-                let block = SszBlock::from_slice(&ssz)
-                    .map_err(|_| BlockAtSlotError::InvalidBlock)?;
-                match block.slot_number() {
+                let block = SszBeaconBlock::from_slice(&ssz)
+                    .map_err(|_| BeaconBlockAtSlotError::InvalidBeaconBlock)?;
+                match block.slot() {
                     s if s == slot => Ok(Some((head_hash.to_vec(), ssz.to_vec()))),
                     s if s < slot => Ok(None),
-                    _ => self.block_at_slot(block.parent_hash(), slot)
+                    _ => {
+                        match block.parent_hash() {
+                            Some(parent_hash) => self.block_at_slot(parent_hash, slot),
+                            None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock)
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-impl From<DBError> for BlockAtSlotError {
+impl From<DBError> for BeaconBlockAtSlotError {
     fn from(e: DBError) -> Self {
-        BlockAtSlotError::DBError(e.message)
+        BeaconBlockAtSlotError::DBError(e.message)
     }
 }
 
@@ -94,7 +101,7 @@ mod tests {
     extern crate ssz;
     extern crate types;
 
-    use self::types::block::Block;
+    use self::types::beacon_block::BeaconBlock;
     use self::types::attestation_record::AttestationRecord;
     use self::types::Hash256;
     use self::ssz::SszStream;
@@ -107,7 +114,7 @@ mod tests {
     #[test]
     fn test_block_store_on_memory_db() {
         let db = Arc::new(MemoryDB::open());
-        let bs = Arc::new(BlockStore::new(db.clone()));
+        let bs = Arc::new(BeaconBlockStore::new(db.clone()));
 
         let thread_count = 10;
         let write_count = 10;
@@ -146,11 +153,11 @@ mod tests {
     #[test]
     fn test_block_at_slot() {
         let db = Arc::new(MemoryDB::open());
-        let bs = Arc::new(BlockStore::new(db.clone()));
+        let bs = Arc::new(BeaconBlockStore::new(db.clone()));
 
         let blocks = (0..5).into_iter()
             .map(|_| {
-                let mut block = Block::zero();
+                let mut block = BeaconBlock::zero();
                 let ar = AttestationRecord::zero();
                 block.attestations.push(ar);
                 block
@@ -175,8 +182,8 @@ mod tests {
         let slots = [0, 1, 3, 4, 5];
 
         for (i, mut block) in blocks.enumerate() {
-            block.parent_hash = parent_hashes[i];
-            block.slot_number = slots[i];
+            block.ancestor_hashes.push(parent_hashes[i]);
+            block.slot = slots[i];
             let mut s = SszStream::new();
             s.append(&block);
             let ssz = s.drain();
@@ -184,23 +191,23 @@ mod tests {
         }
 
         let tuple = bs.block_at_slot(&hashes[4], 5).unwrap().unwrap();
-        let block = SszBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot_number(), 5);
+        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
+        assert_eq!(block.slot(), 5);
         assert_eq!(tuple.0, hashes[4].to_vec());
 
         let tuple = bs.block_at_slot(&hashes[4], 4).unwrap().unwrap();
-        let block = SszBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot_number(), 4);
+        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
+        assert_eq!(block.slot(), 4);
         assert_eq!(tuple.0, hashes[3].to_vec());
 
         let tuple = bs.block_at_slot(&hashes[4], 3).unwrap().unwrap();
-        let block = SszBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot_number(), 3);
+        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
+        assert_eq!(block.slot(), 3);
         assert_eq!(tuple.0, hashes[2].to_vec());
 
         let tuple = bs.block_at_slot(&hashes[4], 0).unwrap().unwrap();
-        let block = SszBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot_number(), 0);
+        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
+        assert_eq!(block.slot(), 0);
         assert_eq!(tuple.0, hashes[0].to_vec());
 
         let ssz = bs.block_at_slot(&hashes[4], 2).unwrap();
@@ -210,6 +217,6 @@ mod tests {
         assert_eq!(ssz, None);
 
         let ssz = bs.block_at_slot(&Hash256::from("unknown".as_bytes()), 2);
-        assert_eq!(ssz, Err(BlockAtSlotError::UnknownBlock));
+        assert_eq!(ssz, Err(BeaconBlockAtSlotError::UnknownBeaconBlock));
     }
 }

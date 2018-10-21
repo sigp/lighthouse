@@ -11,29 +11,29 @@ use super::db::{
     MemoryDB,
 };
 use super::db::stores::{
-    BlockStore,
+    BeaconBlockStore,
     PoWChainStore,
     ValidatorStore,
 };
 use super::types::{
     AttestationRecord,
     AttesterMap,
-    Block,
+    BeaconBlock,
     Hash256,
     ProposerMap,
 };
-use super::ssz_helpers::ssz_block::SszBlock;
+use super::ssz_helpers::ssz_beacon_block::SszBeaconBlock;
 use super::validation::block_validation::{
-    BlockValidationContext,
-    SszBlockValidationError,
-    BlockStatus,
+    BeaconBlockValidationContext,
+    SszBeaconBlockValidationError,
+    BeaconBlockStatus,
 };
 use super::ssz::{
     SszStream,
 };
 
 #[derive(Debug)]
-pub struct BlockTestParams {
+pub struct BeaconBlockTestParams {
     pub total_validators: usize,
     pub cycle_length: u8,
     pub shard_count: u16,
@@ -50,7 +50,7 @@ pub struct BlockTestParams {
 
 pub struct TestStore {
     pub db: Arc<MemoryDB>,
-    pub block: Arc<BlockStore<MemoryDB>>,
+    pub block: Arc<BeaconBlockStore<MemoryDB>>,
     pub pow_chain: Arc<PoWChainStore<MemoryDB>>,
     pub validator: Arc<ValidatorStore<MemoryDB>>,
 }
@@ -58,7 +58,7 @@ pub struct TestStore {
 impl TestStore {
     pub fn new() -> Self {
         let db = Arc::new(MemoryDB::open());
-        let block = Arc::new(BlockStore::new(db.clone()));
+        let block = Arc::new(BeaconBlockStore::new(db.clone()));
         let pow_chain = Arc::new(PoWChainStore::new(db.clone()));
         let validator = Arc::new(ValidatorStore::new(db.clone()));
         Self {
@@ -74,8 +74,8 @@ type ParentHashes = Vec<Hash256>;
 
 /// Setup for a block validation function, without actually executing the
 /// block validation function.
-pub fn setup_block_validation_scenario(params: &BlockTestParams)
-    -> (Block, ParentHashes, AttesterMap, ProposerMap, TestStore)
+pub fn setup_block_validation_scenario(params: &BeaconBlockTestParams)
+    -> (BeaconBlock, ParentHashes, AttesterMap, ProposerMap, TestStore)
 {
     let stores = TestStore::new();
 
@@ -89,6 +89,7 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
         .map(|i| Hash256::from(i as u64))
         .collect();
     let parent_hash = Hash256::from("parent_hash".as_bytes());
+    let ancestor_hashes = vec![parent_hash.clone(); 32];
     let randao_reveal = Hash256::from("randao_reveal".as_bytes());
     let justified_block_hash = Hash256::from("justified_hash".as_bytes());
     let pow_chain_ref = Hash256::from("pow_chain".as_bytes());
@@ -104,16 +105,16 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
     /*
      * Generate a minimum viable parent block and store it in the database.
      */
-    let mut parent_block = Block::zero();
+    let mut parent_block = BeaconBlock::zero();
     let parent_attestation = AttestationRecord::zero();
-    parent_block.slot_number = block_slot - 1;
+    parent_block.slot = block_slot - 1;
     parent_block.attestations.push(parent_attestation);
     let parent_block_ssz = serialize_block(&parent_block);
     stores.block.put_serialized_block(parent_hash.as_ref(), &parent_block_ssz).unwrap();
 
     let proposer_map = {
         let mut proposer_map = ProposerMap::new();
-        proposer_map.insert(parent_block.slot_number, params.parent_proposer_index);
+        proposer_map.insert(parent_block.slot, params.parent_proposer_index);
         proposer_map
     };
 
@@ -168,14 +169,15 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
         (attester_map, attestations, keypairs)
     };
 
-    let block = Block {
-        parent_hash,
-        slot_number: block_slot,
+    let block = BeaconBlock {
+        slot: block_slot,
         randao_reveal,
-        attestations,
-        pow_chain_ref,
+        pow_chain_reference: pow_chain_ref,
+        ancestor_hashes,
         active_state_root,
         crystallized_state_root,
+        attestations,
+        specials: vec![],
     };
 
     (block,
@@ -185,8 +187,8 @@ pub fn setup_block_validation_scenario(params: &BlockTestParams)
      stores)
 }
 
-/// Helper function to take some Block and SSZ serialize it.
-pub fn serialize_block(b: &Block) -> Vec<u8> {
+/// Helper function to take some BeaconBlock and SSZ serialize it.
+pub fn serialize_block(b: &BeaconBlock) -> Vec<u8> {
     let mut stream = SszStream::new();
     stream.append(b);
     stream.drain()
@@ -196,11 +198,11 @@ pub fn serialize_block(b: &Block) -> Vec<u8> {
 ///
 /// Returns the Result returned from the block validation function.
 pub fn run_block_validation_scenario<F>(
-    params: &BlockTestParams,
+    params: &BeaconBlockTestParams,
     mutator_func: F)
-    -> Result<(BlockStatus, Option<Block>), SszBlockValidationError>
-    where F: FnOnce(Block, AttesterMap, ProposerMap, TestStore)
-                -> (Block, AttesterMap, ProposerMap, TestStore)
+    -> Result<(BeaconBlockStatus, Option<BeaconBlock>), SszBeaconBlockValidationError>
+    where F: FnOnce(BeaconBlock, AttesterMap, ProposerMap, TestStore)
+                -> (BeaconBlock, AttesterMap, ProposerMap, TestStore)
 {
     let (block,
      parent_hashes,
@@ -214,10 +216,10 @@ pub fn run_block_validation_scenario<F>(
          stores) = mutator_func(block, attester_map, proposer_map, stores);
 
     let ssz_bytes = serialize_block(&block);
-    let ssz_block = SszBlock::from_slice(&ssz_bytes[..])
+    let ssz_block = SszBeaconBlock::from_slice(&ssz_bytes[..])
         .unwrap();
 
-    let context = BlockValidationContext {
+    let context = BeaconBlockValidationContext {
         present_slot: params.validation_context_slot,
         cycle_length: params.cycle_length,
         last_justified_slot: params.validation_context_justified_slot,
