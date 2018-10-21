@@ -1,5 +1,3 @@
-#![cfg_attr(not(feature = "clippy"), allow(needless_range_loop))]
-
 use super::{
     LENGTH_BYTES
 };
@@ -80,6 +78,7 @@ pub fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
     assert!(length_bytes > 0);  // For sanity
     assert!((len as usize) < 2usize.pow(length_bytes as u32 * 8));
     let mut header: Vec<u8> = vec![0; length_bytes];
+    #[allow(needless_range_loop)]
     for i in 0..length_bytes {
         let offset = (length_bytes - i - 1) * 8;
         header[i] = ((len >> offset) & 0xff) as u8;
