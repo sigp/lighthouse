@@ -18,7 +18,3 @@ pub struct ValidatorRegistration {
     pub randao_commitment: Hash256,
     pub proof_of_possession: Signature,
 }
-
-impl ValidatorRegistration {
-    pub fn random()
-}
