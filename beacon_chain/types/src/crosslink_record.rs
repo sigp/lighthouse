@@ -1,6 +1,6 @@
 use super::Hash256;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CrosslinkRecord {
     pub recently_changed: bool,
     pub slot: u64,

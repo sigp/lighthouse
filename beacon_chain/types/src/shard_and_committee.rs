@@ -1,4 +1,4 @@
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ShardAndCommittee {
     pub shard_id: u16,
     pub committee: Vec<usize>
