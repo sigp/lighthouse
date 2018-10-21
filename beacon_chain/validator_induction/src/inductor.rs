@@ -1,10 +1,10 @@
 use types::{
     ValidatorRecord,
     ValidatorStatus,
+    ValidatorRegistration,
 };
 
 use super::proof_of_possession::verify_proof_of_possession;
-use super::registration::ValidatorRegistration;
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
@@ -130,6 +130,16 @@ mod tests {
     };
     use hashing::proof_of_possession_hash;
 
+    fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord)
+        -> bool
+    {
+        (reg.pubkey == rec.pubkey) &
+        (reg.withdrawal_shard == rec.withdrawal_shard) &
+        (reg.withdrawal_address == rec.withdrawal_address) &
+        (reg.randao_commitment == rec.randao_commitment) &
+        (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
+    }
+
     /// Generate a proof of possession for some keypair.
     fn get_proof_of_possession(kp: &Keypair) -> Signature {
         let pop_message = proof_of_possession_hash(&kp.pk.as_bytes());
@@ -159,7 +169,7 @@ mod tests {
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 0);
-        assert_eq!(r, validators[0]);
+        assert!(registration_equals_record(&r, &validators[0]));
         assert_eq!(validators.len(), 1);
     }
 
@@ -179,7 +189,7 @@ mod tests {
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 5);
-        assert_eq!(r, validators[5]);
+        assert!(registration_equals_record(&r, &validators[5]));
         assert_eq!(validators.len(), 6);
     }
 
@@ -202,7 +212,7 @@ mod tests {
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 1);
-        assert_eq!(r, validators[1]);
+        assert!(registration_equals_record(&r, &validators[1]));
         assert_eq!(validators.len(), 5);
     }
 
@@ -223,18 +233,17 @@ mod tests {
         let result = inductor.induct(&r);
         let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 0);
-        assert_eq!(r, validators[0]);
-        assert_eq!(validators.len(), 5);
+        assert!(registration_equals_record(&r, &validators[0]));
 
         /*
          * Ensure the second validator gets the 1'st slot
          */
         let r_two = get_registration();
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r);
+        let result = inductor.induct(&r_two);
         let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 1);
-        assert_eq!(r_two, validators[1]);
+        assert!(registration_equals_record(&r_two, &validators[1]));
         assert_eq!(validators.len(), 5);
     }
 

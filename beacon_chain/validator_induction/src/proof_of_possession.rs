@@ -1,6 +1,7 @@
 use bls::{
-    Signature,
+    Keypair,
     PublicKey,
+    Signature,
 };
 use hashing::proof_of_possession_hash;
 
@@ -11,4 +12,11 @@ pub fn verify_proof_of_possession(sig: &Signature, pubkey: &PublicKey)
 {
     let hash = proof_of_possession_hash(&pubkey.as_bytes());
     sig.verify_hashed(&hash, &pubkey)
+}
+
+pub fn create_proof_of_possession(keypair: &Keypair)
+    -> Signature
+{
+    let hash = proof_of_possession_hash(&keypair.pk.as_bytes());
+    Signature::new_hashed(&hash, &keypair.sk)
 }
