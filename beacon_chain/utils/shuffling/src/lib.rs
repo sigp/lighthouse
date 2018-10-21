@@ -30,7 +30,7 @@ pub fn shuffle<T>(
         return Err(ShuffleErr::ExceedsListLength);
     }
 
-    if list.len() == 0 {
+    if list.is_empty() {
         return Ok(list);
     }
 
@@ -78,10 +78,7 @@ mod tests {
 
             let mut s = shuffle(&seed, input).unwrap();
 
-            assert_eq!(
-                s,
-                output,
-                );
+            assert_eq!(s, output);
         }
     }
 }
