@@ -1,7 +1,13 @@
+extern crate types;
+
 use types::{
     ValidatorRecord,
     ValidatorStatus,
 };
+
+pub fn validator_is_active(v: &ValidatorRecord) -> bool {
+    v.status == ValidatorStatus::Active as u8
+}
 
 /// Returns the indicies of each active validator in a given vec of validators.
 pub fn active_validator_indices(validators: &[ValidatorRecord])
@@ -10,9 +16,10 @@ pub fn active_validator_indices(validators: &[ValidatorRecord])
     validators.iter()
         .enumerate()
         .filter_map(|(i, validator)| {
-            match validator.status {
-                x if x == ValidatorStatus::Active as u8 => Some(i),
-                _ => None
+            if validator_is_active(&validator) {
+                Some(i)
+            } else {
+                None
             }
         })
         .collect()
