@@ -6,6 +6,7 @@ pub struct ChainConfig {
     pub shard_count: u16,
     pub min_committee_size: u64,
     pub genesis_time: u64,
+    pub slot_duration_millis: u64,
     pub initial_validators: Vec<ValidatorRegistration>,
 }
 
@@ -20,7 +21,8 @@ impl ChainConfig {
             cycle_length: 64,
             shard_count: 1024,
             min_committee_size: 128,
-            genesis_time: GENESIS_TIME,   // arbitrary
+            genesis_time: GENESIS_TIME,
+            slot_duration_millis: 16 * 1000,
             initial_validators: vec![],
         }
     }
@@ -46,6 +48,7 @@ impl ChainConfig {
             shard_count: 2,
             min_committee_size: 2,
             genesis_time: GENESIS_TIME,   // arbitrary
+            slot_duration_millis: 16 * 1000,
             initial_validators: vec![],
         }
     }
