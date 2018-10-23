@@ -208,7 +208,7 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         parent_block_slot,
         cycle_length,
         last_justified_slot,
-        parent_hashes: parent_hashes.clone(),
+        recent_block_hashes: parent_hashes.clone(),
         block_store: stores.block.clone(),
         validator_store: stores.validator.clone(),
         attester_map: Arc::new(attester_map),
