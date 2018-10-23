@@ -86,12 +86,12 @@ fn generate_cycle(
     let cycle = validator_indices.honey_badger_split(cycle_length)
         .enumerate()
         .map(|(i, slot_indices)| {
-            let shard_id_start = crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
+            let shard_start = crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
             slot_indices.honey_badger_split(committees_per_slot)
                 .enumerate()
                 .map(|(j, shard_indices)| {
                     ShardAndCommittee{
-                        shard_id: ((shard_id_start + j) % shard_count) as u16,
+                        shard: ((shard_start + j) % shard_count) as u16,
                         committee: shard_indices.to_vec(),
                     }
                 })
@@ -141,8 +141,8 @@ mod tests {
                 slot.iter()
                     .enumerate()
                     .for_each(|(i, sac)| {
-                        println!("#{:?}\tshard_id={}\tcommittee.len()={}",
-                            &i, &sac.shard_id, &sac.committee.len())
+                        println!("#{:?}\tshard={}\tcommittee.len()={}",
+                            &i, &sac.shard, &sac.committee.len())
                     })
             });
     }
@@ -167,7 +167,7 @@ mod tests {
         let mut flattened = vec![];
         for slot in cycle.iter() {
             for sac in slot.iter() {
-                flattened.push(sac.shard_id as usize);
+                flattened.push(sac.shard as usize);
             }
         }
         flattened.dedup();
@@ -181,7 +181,7 @@ mod tests {
         for slot in cycle.iter() {
             let mut shards: Vec<usize> = vec![];
             for sac in slot.iter() {
-                shards.push(sac.shard_id as usize);
+                shards.push(sac.shard as usize);
             }
             shards_in_slots.push(shards);
         }
