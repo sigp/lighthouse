@@ -1,5 +1,6 @@
 use std::cmp::min;
 
+use active_validators::active_validator_indices;
 use honey_badger_split::SplitExt;
 use vec_shuffle::{
     shuffle,
@@ -11,7 +12,6 @@ use types::{
     ChainConfig,
 };
 
-use super::active_validator_indices::active_validator_indices;
 
 type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
 
