@@ -80,7 +80,7 @@ pub struct BeaconBlockValidationContext<T>
     /// The last finalized slot as per the client's view of the canonical chain.
     pub last_finalized_slot: u64,
     /// A vec of the hashes of the blocks preceeding the present slot.
-    pub parent_hashes: Arc<Vec<Hash256>>,
+    pub recent_block_hashes: Arc<Vec<Hash256>>,
     /// A map of slots to a block proposer validation index.
     pub proposer_map: Arc<ProposerMap>,
     /// A map of (slot, shard_id) to the attestation set of validation indices.
@@ -109,7 +109,7 @@ impl<T> BeaconBlockValidationContext<T>
     /// Note: this function does not implement randao_reveal checking as it is not in the
     /// specification.
     #[allow(dead_code)]
-    pub fn validate_ssz_block(&self, b: &SszBeaconBlock)
+    pub fn validate_ssz_block(&self, block_hash: &Hash256,  b: &SszBeaconBlock)
         -> Result<(BeaconBlockStatus, Option<BeaconBlock>), SszBeaconBlockValidationError>
         where T: ClientDB + Sized
     {
@@ -118,7 +118,6 @@ impl<T> BeaconBlockValidationContext<T>
          * If this block is already known, return immediately and indicate the the block is
          * known. Don't attempt to deserialize the block.
          */
-        let block_hash = &b.block_hash();
         if self.block_store.block_exists(&block_hash)? {
             return Ok((BeaconBlockStatus::KnownBlock, None));
         }
@@ -225,7 +224,7 @@ impl<T> BeaconBlockValidationContext<T>
             parent_block_slot,
             cycle_length: self.cycle_length,
             last_justified_slot: self.last_justified_slot,
-            parent_hashes: self.parent_hashes.clone(),
+            recent_block_hashes: self.recent_block_hashes.clone(),
             block_store: self.block_store.clone(),
             validator_store: self.validator_store.clone(),
             attester_map: self.attester_map.clone(),
