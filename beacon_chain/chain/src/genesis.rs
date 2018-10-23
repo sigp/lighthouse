@@ -6,7 +6,6 @@ use types::{
 use super::{
     ActiveState,
     CrystallizedState,
-    BeaconChain,
     BeaconChainError,
     ChainConfig,
 };
@@ -24,89 +23,87 @@ impl From<ValidatorAssignmentError> for BeaconChainError {
     }
 }
 
-impl BeaconChain {
-    /// Initialize a new ChainHead with genesis parameters.
-    ///
-    /// Used when syncing a chain from scratch.
-    pub fn genesis_states(config: &ChainConfig)
-        -> Result<(ActiveState, CrystallizedState), ValidatorAssignmentError>
-    {
-        /*
-         * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
-         *
-         * Ignore any records which fail proof-of-possession or are invalid.
-         */
-        let validators = {
-            let mut inductor = ValidatorInductor::new(0, config.shard_count, vec![]);
-            for registration in &config.initial_validators {
-                let _ = inductor.induct(&registration);
-            };
-            inductor.to_vec()
+/// Initialize a new ChainHead with genesis parameters.
+///
+/// Used when syncing a chain from scratch.
+pub fn genesis_states(config: &ChainConfig)
+    -> Result<(ActiveState, CrystallizedState), ValidatorAssignmentError>
+{
+    /*
+     * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
+     *
+     * Ignore any records which fail proof-of-possession or are invalid.
+     */
+    let validators = {
+        let mut inductor = ValidatorInductor::new(0, config.shard_count, vec![]);
+        for registration in &config.initial_validators {
+            let _ = inductor.induct(&registration);
         };
+        inductor.to_vec()
+    };
 
-        /*
-         * Assign the validators to shards, using all zeros as the seed.
-         *
-         * Crystallizedstate stores two cycles, so we simply repeat the same assignment twice.
-         */
-        let shard_and_committee_for_slots = {
-            let mut a = shard_and_committees_for_cycle(&vec![0; 32], &validators, 0, &config)?;
-            let mut b = a.clone();
-            a.append(&mut b);
-            a
-        };
+    /*
+     * Assign the validators to shards, using all zeros as the seed.
+     *
+     * Crystallizedstate stores two cycles, so we simply repeat the same assignment twice.
+     */
+    let shard_and_committee_for_slots = {
+        let mut a = shard_and_committees_for_cycle(&vec![0; 32], &validators, 0, &config)?;
+        let mut b = a.clone();
+        a.append(&mut b);
+        a
+    };
 
-        /*
-         * Set all the crosslink records to reference zero hashes.
-         */
-        let crosslinks = {
-            let mut c = vec![];
-            for _ in 0..config.shard_count {
-                c.push(CrosslinkRecord {
-                    recently_changed: false,
-                    slot: 0,
-                    hash: Hash256::zero(),
-                });
-            }
-            c
-        };
+    /*
+     * Set all the crosslink records to reference zero hashes.
+     */
+    let crosslinks = {
+        let mut c = vec![];
+        for _ in 0..config.shard_count {
+            c.push(CrosslinkRecord {
+                recently_changed: false,
+                slot: 0,
+                hash: Hash256::zero(),
+            });
+        }
+        c
+    };
 
-        /*
-         * Initialize a genesis `Crystallizedstate`
-         */
-        let crystallized_state = CrystallizedState {
-            validator_set_change_slot: 0,
-            validators: validators.to_vec(),
-            crosslinks,
-            last_state_recalculation_slot: 0,
-            last_finalized_slot: 0,
-            last_justified_slot: 0,
-            justified_streak: 0,
-            shard_and_committee_for_slots,
-            deposits_penalized_in_period: vec![],
-            validator_set_delta_hash_chain: Hash256::zero(),
-            pre_fork_version: INITIAL_FORK_VERSION,
-            post_fork_version: INITIAL_FORK_VERSION,
-            fork_slot_number: 0,
-        };
+    /*
+     * Initialize a genesis `Crystallizedstate`
+     */
+    let crystallized_state = CrystallizedState {
+        validator_set_change_slot: 0,
+        validators: validators.to_vec(),
+        crosslinks,
+        last_state_recalculation_slot: 0,
+        last_finalized_slot: 0,
+        last_justified_slot: 0,
+        justified_streak: 0,
+        shard_and_committee_for_slots,
+        deposits_penalized_in_period: vec![],
+        validator_set_delta_hash_chain: Hash256::zero(),
+        pre_fork_version: INITIAL_FORK_VERSION,
+        post_fork_version: INITIAL_FORK_VERSION,
+        fork_slot_number: 0,
+    };
 
-        /*
-         * Set all recent block hashes to zero.
-         */
-        let recent_block_hashes = vec![Hash256::zero(); config.cycle_length as usize];
+    /*
+     * Set all recent block hashes to zero.
+     */
+    let recent_block_hashes = vec![Hash256::zero(); config.cycle_length as usize];
 
-        /*
-         * Create an active state.
-         */
-        let active_state = ActiveState {
-            pending_attestations: vec![],
-            pending_specials: vec![],
-            recent_block_hashes,
-            randao_mix: Hash256::zero(),
-        };
+    /*
+     * Create an active state.
+     */
+    let active_state = ActiveState {
+        pending_attestations: vec![],
+        pending_specials: vec![],
+        recent_block_hashes,
+        randao_mix: Hash256::zero(),
+    };
 
-        Ok((active_state, crystallized_state))
-    }
+    Ok((active_state, crystallized_state))
 }
 
 
@@ -128,7 +125,7 @@ mod tests {
     #[test]
     fn test_genesis_no_validators() {
         let config = ChainConfig::standard();
-        let (act, cry) = BeaconChain::genesis_states(&config).unwrap();
+        let (act, cry) = genesis_states(&config).unwrap();
 
         assert_eq!(cry.validator_set_change_slot, 0);
         assert_eq!(cry.validators.len(), 0);
@@ -175,7 +172,7 @@ mod tests {
             config.initial_validators.push(random_registration());
         }
 
-        let (_, cry) = BeaconChain::genesis_states(&config).unwrap();
+        let (_, cry) = genesis_states(&config).unwrap();
 
         assert_eq!(cry.validators.len(), validator_count);
     }
@@ -198,7 +195,7 @@ mod tests {
         bad_v.withdrawal_shard =  config.shard_count + 1;
         config.initial_validators.push(bad_v);
 
-        let (_, cry) = BeaconChain::genesis_states(&config).unwrap();
+        let (_, cry) = genesis_states(&config).unwrap();
 
         assert!(config.initial_validators.len() != good_validator_count, "test is invalid");
         assert_eq!(cry.validators.len(), good_validator_count);
