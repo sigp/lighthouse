@@ -15,8 +15,8 @@ use self::bytes::{ BytesMut, BufMut };
 macro_rules! impl_encodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Encodable for $type {
-            fn ssz_append(&self, s: &mut SszStream)
-            {
+            #[allow(cast_lossless)]
+            fn ssz_append(&self, s: &mut SszStream) {
                 // Ensure bit size is valid
                 assert!((0 < $bit_size) &&
                         ($bit_size % 8 == 0) &&
@@ -35,7 +35,7 @@ macro_rules! impl_encodable_for_uint {
                 }
 
                 // Append bytes to the SszStream
-                s.append_encoded_raw(&mut buf.to_vec());
+                s.append_encoded_raw(&buf.to_vec());
             }
         }
     }
