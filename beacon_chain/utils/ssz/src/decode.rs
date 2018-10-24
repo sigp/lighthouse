@@ -77,10 +77,10 @@ pub fn decode_length(bytes: &[u8], index: usize, length_bytes: usize)
         return Err(DecodeError::TooShort);
     };
     let mut len: usize = 0;
-    for i in index..index+length_bytes {
+    for (i, byte) in bytes.iter().enumerate().take(index+length_bytes).skip(index) {
         let offset = (index+length_bytes - i - 1) * 8;
-        len = ((bytes[i] as usize) << offset) | len;
-    };
+        len |= (*byte as usize) << offset;
+    }
     Ok(len)
 }
 
