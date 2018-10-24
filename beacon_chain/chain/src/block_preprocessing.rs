@@ -54,11 +54,10 @@ impl From<SszBeaconBlockValidationError> for BeaconChainBlockError {
 
 pub type BlockStatusTriple = (BeaconBlockStatus, Hash256, BeaconBlock);
 
-
 impl<T> BeaconChain<T>
     where T: ClientDB + Sized
 {
-    pub fn process_incoming_block(&self, ssz: &[u8], rx_time: u64)
+    fn block_preprocessing(&self, ssz: &[u8], present_slot: u64)
         -> Result<BlockStatusTriple, BeaconChainBlockError>
     {
         /*
@@ -101,8 +100,6 @@ impl<T> BeaconChain<T>
          */
         let (attester_map, proposer_map) = self.attester_proposer_maps.get(&cry_state_root)
             .ok_or(BeaconChainBlockError::UnknownAttesterProposerMaps)?;
-
-        let present_slot =  100;    // TODO: fix this
 
         /*
          * Build a block validation context to test the block against.
