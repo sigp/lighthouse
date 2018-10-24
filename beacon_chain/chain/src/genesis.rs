@@ -2,6 +2,7 @@ use types::{
     CrosslinkRecord,
     Hash256,
     ValidatorRegistration,
+    ValidatorStatus,
 };
 use super::{
     ActiveState,
@@ -37,7 +38,7 @@ pub fn genesis_states(config: &ChainConfig)
     let validators = {
         let mut inductor = ValidatorInductor::new(0, config.shard_count, vec![]);
         for registration in &config.initial_validators {
-            let _ = inductor.induct(&registration);
+            let _ = inductor.induct(&registration, ValidatorStatus::Active);
         };
         inductor.to_vec()
     };
