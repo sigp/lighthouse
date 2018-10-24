@@ -49,7 +49,7 @@ impl SpecialRecord {
     /// Match `self.kind` to a `SpecialRecordKind`.
     ///
     /// Returns `None` if `self.kind` is an unknown value.
-    fn resolve_kind(&self) -> Option<SpecialRecordKind> {
+    pub fn resolve_kind(&self) -> Option<SpecialRecordKind> {
         match self.kind {
             x if x == SpecialRecordKind::Logout as u8
                 => Some(SpecialRecordKind::Logout),
