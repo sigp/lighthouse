@@ -78,7 +78,7 @@ impl<T> BeaconChain<T>
         let mut attester_proposer_maps = HashMap::new();
 
         let (attester_map, proposer_map) = generate_attester_and_proposer_maps(
-            &crystallized_state, 0)?;
+            &crystallized_state.shard_and_committee_for_slots, 0)?;
 
         active_states.insert(canonical_latest_block_hash, active_state);
         crystallized_states.insert(canonical_latest_block_hash, crystallized_state);
