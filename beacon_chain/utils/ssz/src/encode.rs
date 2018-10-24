@@ -1,12 +1,6 @@
 use super::{
-    LENGTH_BYTES,
-    MAX_LIST_SIZE,
+    LENGTH_BYTES
 };
-
-#[derive(Debug)]
-pub enum EncodeError {
-    ListTooLong,
-}
 
 pub trait Encodable {
     fn ssz_append(&self, s: &mut SszStream);
@@ -17,6 +11,7 @@ pub trait Encodable {
 /// Use the `append()` fn to add a value to a list, then use
 /// the `drain()` method to consume the struct and return the
 /// ssz encoded bytes.
+#[derive(Default)]
 pub struct SszStream {
     buffer: Vec<u8>
 }
@@ -41,7 +36,7 @@ impl SszStream {
     ///
     /// The length of the supplied bytes will be concatenated
     /// to the stream before the supplied bytes.
-    pub fn append_encoded_val(&mut self, vec: &Vec<u8>) {
+    pub fn append_encoded_val(&mut self, vec: &[u8]) {
         self.buffer.extend_from_slice(
             &encode_length(vec.len(),
             LENGTH_BYTES));
@@ -51,7 +46,7 @@ impl SszStream {
     /// Append some ssz encoded bytes to the stream without calculating length
     ///
     /// The raw bytes will be concatenated to the stream.
-    pub fn append_encoded_raw(&mut self, vec: &Vec<u8>) {
+    pub fn append_encoded_raw(&mut self, vec: &[u8]) {
         self.buffer.extend_from_slice(&vec);
     }
 
@@ -59,7 +54,7 @@ impl SszStream {
     ///
     /// The length of the list will be concatenated to the stream, then
     /// each item in the vector will be encoded and concatenated.
-    pub fn append_vec<E>(&mut self, vec: &Vec<E>)
+    pub fn append_vec<E>(&mut self, vec: &[E])
         where E: Encodable
     {
         let mut list_stream = SszStream::new();
@@ -83,9 +78,9 @@ pub fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
     assert!(length_bytes > 0);  // For sanity
     assert!((len as usize) < 2usize.pow(length_bytes as u32 * 8));
     let mut header: Vec<u8> = vec![0; length_bytes];
-    for i in 0..length_bytes {
+    for (i, header_byte) in header.iter_mut().enumerate() {
         let offset = (length_bytes - i - 1) * 8;
-        header[i] = ((len >> offset) & 0xff) as u8;
+        *header_byte = ((len >> offset) & 0xff) as u8;
     };
     header
 }

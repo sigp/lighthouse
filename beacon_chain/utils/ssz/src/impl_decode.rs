@@ -19,10 +19,10 @@ macro_rules! impl_decodable_for_uint {
                 if bytes.len() >= (index + max_bytes) {
                     let end_bytes = index + max_bytes;
                     let mut result: $type = 0;
-                    for i in index..end_bytes {
-                        let offset = ((index + max_bytes) - i - 1) * 8;
-                        result = ((bytes[i] as $type) << offset) | result;
-                    };
+                    for (i, byte) in bytes.iter().enumerate().take(end_bytes).skip(index) {
+                        let offset = (end_bytes - i - 1) * 8;
+                        result |= ($type::from(*byte)) << offset;
+                    }
                     Ok((result, end_bytes))
                 } else {
                     Err(DecodeError::TooShort)
@@ -53,15 +53,11 @@ impl Decodable for H256 {
     fn ssz_decode(bytes: &[u8], index: usize)
         -> Result<(Self, usize), DecodeError>
     {
-        if bytes.len() < 32 {
-            return Err(DecodeError::TooShort)
-        }
-        else if bytes.len() - 32 < index {
-            return Err(DecodeError::TooShort)
+        if bytes.len() < 32 || bytes.len() - 32 < index {
+            Err(DecodeError::TooShort)
         }
         else {
-            return Ok((H256::from(&bytes[index..(index + 32)]),
-                       index + 32));
+            Ok((H256::from(&bytes[index..(index + 32)]), index + 32))
         }
     }
 }
