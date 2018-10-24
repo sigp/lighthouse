@@ -8,18 +8,18 @@ use super::{
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Decodable for $type {
-            fn ssz_decode(bytes: &[u8], start_bytes: usize)
+            fn ssz_decode(bytes: &[u8], index: usize)
                 -> Result<(Self, usize), DecodeError>
             {
                 assert!((0 < $bit_size) &
                         ($bit_size <= 64) &
                         ($bit_size % 8 == 0));
                 let max_bytes = $bit_size / 8;
-                if bytes.len() >= (start_bytes + max_bytes) {
-                    let end_bytes = start_bytes + max_bytes;
+                if bytes.len() >= (index + max_bytes) {
+                    let end_bytes = index + max_bytes;
                     let mut result: $type = 0;
-                    for (index, byte) in bytes.iter().enumerate().take(end_bytes).skip(start_bytes) {
-                        let offset = (end_bytes - index - 1) * 8;
+                    for (i, byte) in bytes.iter().enumerate().take(end_bytes).skip(index) {
+                        let offset = (end_bytes - i - 1) * 8;
                         result |= ($type::from(*byte)) << offset;
                     }
                     Ok((result, end_bytes))

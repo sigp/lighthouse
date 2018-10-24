@@ -1,3 +1,5 @@
+#![allow(unknown_lints)]
+
 use super::{
     LENGTH_BYTES
 };
