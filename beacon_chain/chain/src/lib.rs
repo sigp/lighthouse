@@ -1,10 +1,13 @@
 extern crate db;
 extern crate types;
+extern crate ssz_helpers;
+extern crate validation;
 extern crate validator_induction;
 extern crate validator_shuffling;
 
 mod stores;
-mod block_preprocessing;
+mod block_context;
+mod block_processing;
 mod maps;
 mod genesis;
 
@@ -43,10 +46,10 @@ impl From<AttesterAndProposerMapError> for BeaconChainError {
 pub struct BeaconChain<T: ClientDB + Sized> {
     /// The last slot which has been finalized, this is common to all forks.
     pub last_finalized_slot: u64,
-    /// The hash of the head of the canonical chain.
-    pub canonical_latest_block_hash: Hash256,
-    /// A vec of hashes of heads of fork (non-canonical) chains.
-    pub fork_latest_block_hashes: Vec<Hash256>,
+    /// A vec of all block heads (tips of chains).
+    pub head_block_hashes: Vec<Hash256>,
+    /// The index of the canonical block in `head_block_hashes`.
+    pub canonical_head_block_hash: usize,
     /// A map where the value is an active state the the key is its hash.
     pub active_states: HashMap<Hash256, ActiveState>,
     /// A map where the value is crystallized state the the key is its hash.
@@ -72,7 +75,8 @@ impl<T> BeaconChain<T>
         let (active_state, crystallized_state) = genesis_states(&config)?;
 
         let canonical_latest_block_hash = Hash256::zero();
-        let fork_latest_block_hashes = vec![];
+        let head_block_hashes = vec![canonical_latest_block_hash];
+        let canonical_head_block_hash = 0;
         let mut active_states = HashMap::new();
         let mut crystallized_states = HashMap::new();
         let mut attester_proposer_maps = HashMap::new();
@@ -88,14 +92,18 @@ impl<T> BeaconChain<T>
 
         Ok(Self{
             last_finalized_slot: 0,
-            canonical_latest_block_hash,
-            fork_latest_block_hashes,
+            head_block_hashes,
+            canonical_head_block_hash,
             active_states,
             crystallized_states,
             attester_proposer_maps,
             store,
             config,
         })
+    }
+
+    pub fn canonical_block_hash(self) -> Hash256 {
+        self.head_block_hashes[self.canonical_head_block_hash]
     }
 }
 
@@ -128,7 +136,7 @@ mod tests {
         let (act, cry) = genesis_states(&config).unwrap();
 
         assert_eq!(chain.last_finalized_slot, 0);
-        assert_eq!(chain.canonical_latest_block_hash, Hash256::zero());
+        assert_eq!(chain.canonical_block_hash(), Hash256::zero());
 
         let stored_act = chain.active_states.get(&Hash256::zero()).unwrap();
         assert_eq!(act, *stored_act);

@@ -51,13 +51,6 @@ impl<T: ClientDB> BeaconBlockStore<T> {
         self.db.exists(DB_COLUMN, hash)
     }
 
-    pub fn block_exists_in_canonical_chain(&self, hash: &[u8])
-        -> Result<bool, DBError>
-    {
-        // TODO: implement logic for canonical chain
-        self.db.exists(DB_COLUMN, hash)
-    }
-
     /// Retrieve the block at a slot given a "head_hash" and a slot.
     ///
     /// A "head_hash" must be a block hash with a slot number greater than or equal to the desired
