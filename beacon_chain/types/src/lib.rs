@@ -12,6 +12,7 @@ pub mod crosslink_record;
 pub mod shard_and_committee;
 pub mod special_record;
 pub mod validator_record;
+pub mod validator_registration;
 
 use self::ethereum_types::{
     H256,
@@ -30,6 +31,7 @@ pub use crosslink_record::CrosslinkRecord;
 pub use shard_and_committee::ShardAndCommittee;
 pub use special_record::{ SpecialRecord, SpecialRecordKind };
 pub use validator_record::{ ValidatorRecord, ValidatorStatus };
+pub use validator_registration::{ ValidatorRegistration };
 
 pub type Hash256 = H256;
 pub type Address = H160;
