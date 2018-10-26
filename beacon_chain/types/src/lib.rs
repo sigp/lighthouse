@@ -16,7 +16,7 @@ pub mod validator_record;
 use self::ethereum_types::{
     H256,
     H160,
-    U256
+    U256,
 };
 use self::boolean_bitfield::BooleanBitfield;
 use std::collections::HashMap;
@@ -29,7 +29,7 @@ pub use beacon_block::BeaconBlock;
 pub use crosslink_record::CrosslinkRecord;
 pub use shard_and_committee::ShardAndCommittee;
 pub use special_record::{ SpecialRecord, SpecialRecordKind };
-pub use validator_record::ValidatorRecord;
+pub use validator_record::{ ValidatorRecord, ValidatorStatus };
 
 pub type Hash256 = H256;
 pub type Address = H160;
