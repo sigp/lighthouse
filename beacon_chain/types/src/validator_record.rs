@@ -1,21 +1,32 @@
 use super::{
     Hash256,
     Address,
-    EthBalance,
 };
 use super::bls::{
     PublicKey,
     Keypair
 };
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ValidatorStatus {
+    PendingActivation   = 0,
+    Active              = 1,
+    PendingExit         = 2,
+    PendingWithdraw     = 3,
+    Withdrawn           = 5,
+    Penalized           = 127,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
     pub withdrawal_shard: u16,
     pub withdrawal_address: Address,
     pub randao_commitment: Hash256,
-    pub balance: EthBalance,
-    pub start_dynasty: u64,
-    pub end_dynasty: u64,
+    pub randao_last_change: u64,
+    pub balance: u64,
+    pub status: u8,
+    pub exit_slot: u64,
 }
 
 impl ValidatorRecord {
@@ -30,21 +41,12 @@ impl ValidatorRecord {
             withdrawal_shard: 0,
             withdrawal_address: Address::zero(),
             randao_commitment: Hash256::zero(),
-            balance: EthBalance::zero(),
-            start_dynasty: 0,
-            end_dynasty: 0,
+            randao_last_change: 0,
+            balance: 0,
+            status: 0,
+            exit_slot: 0,
         };
         (s, keypair)
-    }
-}
-
-impl Clone for ValidatorRecord {
-    fn clone(&self) -> ValidatorRecord {
-        ValidatorRecord {
-            pubkey: self.pubkey.clone(),
-            ..*self
-
-        }
     }
 }
 
@@ -56,12 +58,12 @@ mod tests {
     #[test]
     fn test_validator_record_zero_rand_keypair() {
         let (v, _kp) = ValidatorRecord::zero_with_thread_rand_keypair();
-        // TODO: check keys
         assert_eq!(v.withdrawal_shard, 0);
         assert!(v.withdrawal_address.is_zero());
         assert!(v.randao_commitment.is_zero());
-        assert!(v.balance.is_zero());
-        assert_eq!(v.start_dynasty, 0);
-        assert_eq!(v.end_dynasty, 0);
+        assert_eq!(v.randao_last_change, 0);
+        assert_eq!(v.balance, 0);
+        assert_eq!(v.status, 0);
+        assert_eq!(v.exit_slot, 0);
     }
 }
