@@ -1,50 +1,40 @@
-use super::honey_badger_split::SplitExt;
-use super::types::{
+use std::cmp::min;
+
+use active_validators::active_validator_indices;
+use honey_badger_split::SplitExt;
+use vec_shuffle::{
+    shuffle,
+    ShuffleErr,
+};
+use types::{
     ShardAndCommittee,
     ValidatorRecord,
-    ValidatorStatus,
     ChainConfig,
 };
-use super::TransitionError;
-use super::shuffle;
-use std::cmp::min;
+
 
 type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
 
-/// Returns the indicies of each active validator in a given vec of validators.
-fn active_validator_indicies(validators: &[ValidatorRecord])
-    -> Vec<usize>
-{
-    validators.iter()
-        .enumerate()
-        .filter_map(|(i, validator)| {
-            match validator.status {
-                x if x == ValidatorStatus::Active as u8 => Some(i),
-                _ => None
-            }
-        })
-        .collect()
+#[derive(Debug, PartialEq)]
+pub enum ValidatorAssignmentError {
+    TooManyValidators,
+    TooFewShards,
 }
-
 
 /// Delegates active validators into slots for a given cycle, given a random seed.
 /// Returns a vector or ShardAndComitte vectors representing the shards and committiees for
 /// each slot.
 /// References get_new_shuffling (ethereum 2.1 specification)
-pub fn delegate_validators(
+pub fn shard_and_committees_for_cycle(
     seed: &[u8],
     validators: &[ValidatorRecord],
     crosslinking_shard_start: u16,
     config: &ChainConfig)
-    -> Result<DelegatedCycle, TransitionError>
+    -> Result<DelegatedCycle, ValidatorAssignmentError>
 {
     let shuffled_validator_indices = {
-        let mut validator_indices = active_validator_indicies(validators);
-        match shuffle(seed, validator_indices) {
-            Ok(shuffled) => shuffled,
-            _ => return Err(TransitionError::InvalidInput(
-                    String::from("Shuffle list length exceed.")))
-        }
+        let mut validator_indices = active_validator_indices(validators);
+        shuffle(seed, validator_indices)?
     };
     let shard_indices: Vec<usize> = (0_usize..config.shard_count as usize).into_iter().collect();
     let crosslinking_shard_start = crosslinking_shard_start as usize;
@@ -65,17 +55,14 @@ fn generate_cycle(
     crosslinking_shard_start: usize,
     cycle_length: usize,
     min_committee_size: usize)
-    -> Result<DelegatedCycle, TransitionError>
+    -> Result<DelegatedCycle, ValidatorAssignmentError>
 {
 
     let validator_count = validator_indices.len();
     let shard_count = shard_indices.len();
 
     if shard_count / cycle_length == 0 {
-	    return Err(TransitionError::InvalidInput(String::from("Number of
-					    shards needs to be greater than
-					    cycle length")));
-
+        return Err(ValidatorAssignmentError::TooFewShards)
     }
 
     let (committees_per_slot, slots_per_committee) = {
@@ -99,12 +86,12 @@ fn generate_cycle(
     let cycle = validator_indices.honey_badger_split(cycle_length)
         .enumerate()
         .map(|(i, slot_indices)| {
-            let shard_id_start = crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
+            let shard_start = crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
             slot_indices.honey_badger_split(committees_per_slot)
                 .enumerate()
                 .map(|(j, shard_indices)| {
                     ShardAndCommittee{
-                        shard_id: ((shard_id_start + j) % shard_count) as u16,
+                        shard: ((shard_start + j) % shard_count) as u16,
                         committee: shard_indices.to_vec(),
                     }
                 })
@@ -112,6 +99,14 @@ fn generate_cycle(
         })
         .collect();
     Ok(cycle)
+}
+
+impl From<ShuffleErr> for ValidatorAssignmentError {
+    fn from(e: ShuffleErr) -> ValidatorAssignmentError {
+        match e {
+            ShuffleErr::ExceedsListLength => ValidatorAssignmentError::TooManyValidators,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -124,7 +119,7 @@ mod tests {
         crosslinking_shard_start: usize,
         cycle_length: usize,
         min_committee_size: usize)
-        -> (Vec<usize>, Vec<usize>, Result<DelegatedCycle, TransitionError>)
+        -> (Vec<usize>, Vec<usize>, Result<DelegatedCycle, ValidatorAssignmentError>)
     {
         let validator_indices: Vec<usize> = (0_usize..*validator_count).into_iter().collect();
         let shard_indices: Vec<usize> = (0_usize..*shard_count).into_iter().collect();
@@ -146,8 +141,8 @@ mod tests {
                 slot.iter()
                     .enumerate()
                     .for_each(|(i, sac)| {
-                        println!("#{:?}\tshard_id={}\tcommittee.len()={}",
-                            &i, &sac.shard_id, &sac.committee.len())
+                        println!("#{:?}\tshard={}\tcommittee.len()={}",
+                            &i, &sac.shard, &sac.committee.len())
                     })
             });
     }
@@ -172,7 +167,7 @@ mod tests {
         let mut flattened = vec![];
         for slot in cycle.iter() {
             for sac in slot.iter() {
-                flattened.push(sac.shard_id as usize);
+                flattened.push(sac.shard as usize);
             }
         }
         flattened.dedup();
@@ -186,7 +181,7 @@ mod tests {
         for slot in cycle.iter() {
             let mut shards: Vec<usize> = vec![];
             for sac in slot.iter() {
-                shards.push(sac.shard_id as usize);
+                shards.push(sac.shard as usize);
             }
             shards_in_slots.push(shards);
         }

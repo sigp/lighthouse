@@ -127,6 +127,7 @@ impl<'a> SszBeaconBlock<'a> {
     }
 
     pub fn len(&self) -> usize { self.ssz.len() }
+    pub fn is_empty(&self) -> bool { self.ssz.is_empty() }
 
     /// Return the canonical hash for this block.
     pub fn block_hash(&self) -> Vec<u8> {

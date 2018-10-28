@@ -1,0 +1,10 @@
+[package]
+name = "validator_shuffling"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+active-validators = { path = "../utils/active-validators" }
+honey-badger-split = { path = "../utils/honey-badger-split" }
+types = { path = "../types" }
+vec_shuffle = { path = "../utils/vec_shuffle" }

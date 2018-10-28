@@ -1,8 +1,9 @@
 use super::Hash256;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CrosslinkRecord {
-    pub dynasty: u64,
+    pub recently_changed: bool,
+    pub slot: u64,
     pub hash: Hash256,
 }
 
@@ -10,7 +11,8 @@ impl CrosslinkRecord {
     /// Generates a new instance where `dynasty` and `hash` are both zero.
     pub fn zero() -> Self {
         Self {
-            dynasty: 0,
+            recently_changed: false,
+            slot: 0,
             hash: Hash256::zero(),
         }
     }
@@ -23,7 +25,8 @@ mod tests {
     #[test]
     fn test_crosslink_record_zero() {
         let c = CrosslinkRecord::zero();
-        assert_eq!(c.dynasty, 0);
+        assert_eq!(c.recently_changed, false);
+        assert_eq!(c.slot, 0);
         assert!(c.hash.is_zero());
     }
 }

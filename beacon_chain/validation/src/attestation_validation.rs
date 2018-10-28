@@ -63,7 +63,7 @@ pub struct AttestationValidationContext<T>
     /// The last justified slot as per the client's view of the canonical chain.
     pub last_justified_slot: u64,
     /// A vec of the hashes of the blocks preceeding the present slot.
-    pub parent_hashes: Arc<Vec<Hash256>>,
+    pub recent_block_hashes: Arc<Vec<Hash256>>,
     /// The store containing block information.
     pub block_store: Arc<BeaconBlockStore<T>>,
     /// The store containing validator information.
@@ -155,7 +155,7 @@ impl<T> AttestationValidationContext<T>
             self.cycle_length,
             self.block_slot,
             a.slot,
-            &self.parent_hashes,
+            &self.recent_block_hashes,
             &a.oblique_parent_hashes)?;
 
         /*
