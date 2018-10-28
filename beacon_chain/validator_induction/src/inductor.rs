@@ -40,15 +40,15 @@ impl ValidatorInductor {
     ///
     /// Returns an error if the registration is invalid, otherwise returns the index of the
     /// validator in `CrystallizedState.validators`.
-    pub fn induct(&mut self, rego: &ValidatorRegistration)
+    pub fn induct(&mut self, rego: &ValidatorRegistration, status: ValidatorStatus)
         -> Result<usize, ValidatorInductionError>
     {
-        let v = self.process_registration(rego)?;
+        let v = self.process_registration(rego, status)?;
         Ok(self.add_validator(v))
     }
 
     /// Verify a `ValidatorRegistration` and return a `ValidatorRecord` if valid.
-    fn process_registration(&self, r: &ValidatorRegistration)
+    fn process_registration(&self, r: &ValidatorRegistration, status: ValidatorStatus)
         -> Result<ValidatorRecord, ValidatorInductionError>
     {
         /*
@@ -72,7 +72,7 @@ impl ValidatorInductor {
             randao_commitment: r.randao_commitment,
             randao_last_change: self.current_slot,
             balance: DEPOSIT_GWEI,
-            status: ValidatorStatus::PendingActivation as u8,
+            status: status as u8,
             exit_slot: 0,
         })
     }
@@ -166,12 +166,28 @@ mod tests {
         let r = get_registration();
 
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r);
+        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 0);
         assert!(registration_equals_record(&r, &validators[0]));
         assert_eq!(validators.len(), 1);
+    }
+
+    #[test]
+    fn test_validator_inductor_status() {
+        let validators = vec![];
+
+        let r = get_registration();
+
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let _ = inductor.induct(&r, ValidatorStatus::PendingActivation);
+        let _ = inductor.induct(&r, ValidatorStatus::Active);
+        let validators = inductor.to_vec();
+
+        assert!(validators[0].status == ValidatorStatus::PendingActivation as u8);
+        assert!(validators[1].status == ValidatorStatus::Active as u8);
+        assert_eq!(validators.len(), 2);
     }
 
     #[test]
@@ -186,7 +202,7 @@ mod tests {
         let r = get_registration();
 
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r);
+        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 5);
@@ -209,7 +225,7 @@ mod tests {
         let r = get_registration();
 
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r);
+        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 1);
@@ -231,7 +247,7 @@ mod tests {
          */
         let r = get_registration();
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r);
+        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 0);
         assert!(registration_equals_record(&r, &validators[0]));
@@ -241,7 +257,7 @@ mod tests {
          */
         let r_two = get_registration();
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r_two);
+        let result = inductor.induct(&r_two, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 1);
         assert!(registration_equals_record(&r_two, &validators[1]));
@@ -256,7 +272,7 @@ mod tests {
         r.withdrawal_shard = 1025;
 
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r);
+        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
 
         assert_eq!(result, Err(ValidatorInductionError::InvalidShard));
@@ -272,7 +288,7 @@ mod tests {
         r.proof_of_possession = get_proof_of_possession(&kp);
 
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r);
+        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
 
         assert_eq!(result, Err(ValidatorInductionError::InvaidProofOfPossession));

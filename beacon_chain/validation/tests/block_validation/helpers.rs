@@ -225,14 +225,15 @@ pub fn run_block_validation_scenario<F>(
         last_justified_slot: params.validation_context_justified_slot,
         last_justified_block_hash: params.validation_context_justified_block_hash,
         last_finalized_slot: params.validation_context_finalized_slot,
-        parent_hashes: Arc::new(parent_hashes),
+        recent_block_hashes: Arc::new(parent_hashes),
         proposer_map: Arc::new(proposer_map),
         attester_map: Arc::new(attester_map),
         block_store: stores.block.clone(),
         validator_store: stores.validator.clone(),
         pow_store: stores.pow_chain.clone()
     };
-    let validation_status = context.validate_ssz_block(&ssz_block);
+    let block_hash = Hash256::from(&ssz_block.block_hash()[..]);
+    let validation_status = context.validate_ssz_block(&block_hash, &ssz_block);
     /*
      * If validation returned a block, make sure it's the same block we supplied to it.
      *
