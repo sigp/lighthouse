@@ -2,7 +2,7 @@ pub type DBValue = Vec<u8>;
 
 #[derive(Debug)]
 pub struct DBError {
-    pub message: String
+    pub message: String,
 }
 
 impl DBError {
@@ -18,13 +18,11 @@ impl DBError {
 /// program to use a persistent on-disk database during production,
 /// but use a transient database during tests.
 pub trait ClientDB: Sync + Send {
-    fn get(&self, col: &str, key: &[u8])
-        -> Result<Option<DBValue>, DBError>;
+    fn get(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, DBError>;
 
-    fn put(&self, col: &str, key: &[u8], val: &[u8])
-        -> Result<(), DBError>;
+    fn put(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), DBError>;
 
-    fn exists(&self, col: &str, key: &[u8])
-        -> Result<bool, DBError>;
+    fn exists(&self, col: &str, key: &[u8]) -> Result<bool, DBError>;
+
+    fn delete(&self, col: &str, key: &[u8]) -> Result<(), DBError>;
 }
-
