@@ -1,12 +1,8 @@
-use std::collections::{ HashSet, HashMap };
-use std::sync::RwLock;
 use super::blake2::blake2b::blake2b;
 use super::COLUMNS;
-use super::{
-    ClientDB,
-    DBValue,
-    DBError
-};
+use super::{ClientDB, DBError, DBValue};
+use std::collections::{HashMap, HashSet};
+use std::sync::RwLock;
 
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 type ColumnHashSet = HashSet<String>;
@@ -17,7 +13,7 @@ type ColumnHashSet = HashSet<String>;
 /// this DB would be used outside of tests.
 pub struct MemoryDB {
     db: RwLock<DBHashMap>,
-    known_columns: RwLock<ColumnHashSet>
+    known_columns: RwLock<ColumnHashSet>,
 }
 
 impl MemoryDB {
@@ -45,9 +41,7 @@ impl MemoryDB {
 
 impl ClientDB for MemoryDB {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
-    fn get(&self, col: &str, key: &[u8])
-        -> Result<Option<DBValue>, DBError>
-    {
+    fn get(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, DBError> {
         // Panic if the DB locks are poisoned.
         let db = self.db.read().unwrap();
         let known_columns = self.known_columns.read().unwrap();
@@ -56,14 +50,14 @@ impl ClientDB for MemoryDB {
             let column_key = MemoryDB::get_key_for_col(col, key);
             Ok(db.get(&column_key).and_then(|val| Some(val.clone())))
         } else {
-            Err(DBError{ message: "Unknown column".to_string() })
+            Err(DBError {
+                message: "Unknown column".to_string(),
+            })
         }
     }
 
     /// Puts a key in the database.
-    fn put(&self, col: &str, key: &[u8], val: &[u8])
-        -> Result<(), DBError>
-    {
+    fn put(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), DBError> {
         // Panic if the DB locks are poisoned.
         let mut db = self.db.write().unwrap();
         let known_columns = self.known_columns.read().unwrap();
@@ -73,14 +67,14 @@ impl ClientDB for MemoryDB {
             db.insert(column_key, val.to_vec());
             Ok(())
         } else {
-            Err(DBError{ message: "Unknown column".to_string() })
+            Err(DBError {
+                message: "Unknown column".to_string(),
+            })
         }
     }
 
     /// Return true if some key exists in some column.
-    fn exists(&self, col: &str, key: &[u8])
-        -> Result<bool, DBError>
-    {
+    fn exists(&self, col: &str, key: &[u8]) -> Result<bool, DBError> {
         // Panic if the DB locks are poisoned.
         let db = self.db.read().unwrap();
         let known_columns = self.known_columns.read().unwrap();
@@ -89,23 +83,55 @@ impl ClientDB for MemoryDB {
             let column_key = MemoryDB::get_key_for_col(col, key);
             Ok(db.contains_key(&column_key))
         } else {
-            Err(DBError{ message: "Unknown column".to_string() })
+            Err(DBError {
+                message: "Unknown column".to_string(),
+            })
+        }
+    }
 
+    /// Delete some key from the database.
+    fn delete(&self, col: &str, key: &[u8]) -> Result<(), DBError> {
+        // Panic if the DB locks are poisoned.
+        let mut db = self.db.write().unwrap();
+        let known_columns = self.known_columns.read().unwrap();
+
+        if known_columns.contains(&col.to_string()) {
+            let column_key = MemoryDB::get_key_for_col(col, key);
+            db.remove(&column_key);
+            Ok(())
+        } else {
+            Err(DBError {
+                message: "Unknown column".to_string(),
+            })
         }
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::stores::{BLOCKS_DB_COLUMN, VALIDATOR_DB_COLUMN};
     use super::super::ClientDB;
-    use std::thread;
+    use super::*;
     use std::sync::Arc;
-    use super::super::stores::{
-        BLOCKS_DB_COLUMN,
-        VALIDATOR_DB_COLUMN,
-    };
+    use std::thread;
+
+    #[test]
+    fn test_memorydb_can_delete() {
+        let col_a: &str = BLOCKS_DB_COLUMN;
+
+        let db = MemoryDB::open();
+
+        db.put(col_a, "dogs".as_bytes(), "lol".as_bytes()).unwrap();
+
+        assert_eq!(
+            db.get(col_a, "dogs".as_bytes()).unwrap().unwrap(),
+            "lol".as_bytes()
+        );
+
+        db.delete(col_a, "dogs".as_bytes()).unwrap();
+
+        assert_eq!(db.get(col_a, "dogs".as_bytes()).unwrap(), None);
+    }
 
     #[test]
     fn test_memorydb_column_access() {
@@ -121,10 +147,14 @@ mod tests {
         db.put(col_a, "same".as_bytes(), "cat".as_bytes()).unwrap();
         db.put(col_b, "same".as_bytes(), "dog".as_bytes()).unwrap();
 
-        assert_eq!(db.get(col_a, "same".as_bytes()).unwrap().unwrap(), "cat".as_bytes());
-        assert_eq!(db.get(col_b, "same".as_bytes()).unwrap().unwrap(), "dog".as_bytes());
-
-
+        assert_eq!(
+            db.get(col_a, "same".as_bytes()).unwrap().unwrap(),
+            "cat".as_bytes()
+        );
+        assert_eq!(
+            db.get(col_b, "same".as_bytes()).unwrap().unwrap(),
+            "dog".as_bytes()
+        );
     }
 
     #[test]
