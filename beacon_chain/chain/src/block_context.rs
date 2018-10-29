@@ -1,22 +1,10 @@
-use db::{
-    ClientDB,
-};
-use db::stores::{
-    BeaconBlockAtSlotError,
-};
-use validation::block_validation::{
-    BeaconBlockValidationContext,
-};
-use super::{
-    BeaconChain,
-};
-use ssz_helpers::ssz_beacon_block::{
-    SszBeaconBlock,
-};
+use super::BeaconChain;
+use db::stores::BeaconBlockAtSlotError;
+use db::ClientDB;
+use ssz_helpers::ssz_beacon_block::SszBeaconBlock;
 use std::sync::Arc;
-use types::{
-    Hash256,
-};
+use types::Hash256;
+use validation::block_validation::BeaconBlockValidationContext;
 
 pub enum BlockValidationContextError {
     UnknownCrystallizedState,
@@ -35,18 +23,24 @@ impl From<BeaconBlockAtSlotError> for BlockValidationContextError {
 }
 
 impl<T> BeaconChain<T>
-    where T: ClientDB + Sized
+where
+    T: ClientDB + Sized,
 {
-    pub(crate) fn block_validation_context(&self, block: &SszBeaconBlock, present_slot: u64)
-        -> Result<BeaconBlockValidationContext<T>, BlockValidationContextError>
-    {
+    pub(crate) fn block_validation_context(
+        &self,
+        block: &SszBeaconBlock,
+        parent_block: &SszBeaconBlock,
+        present_slot: u64,
+    ) -> Result<BeaconBlockValidationContext<T>, BlockValidationContextError> {
         /*
          * Load the crystallized state for this block from our caches.
          *
          * Fail if the crystallized state is unknown.
          */
-        let cry_state_root = Hash256::from(block.cry_state_root());
-        let cry_state = self.crystallized_states.get(&cry_state_root)
+        let cry_state_root = Hash256::from(parent_block.cry_state_root());
+        let cry_state = self
+            .crystallized_states
+            .get(&cry_state_root)
             .ok_or(BlockValidationContextError::UnknownCrystallizedState)?;
 
         /*
@@ -54,8 +48,10 @@ impl<T> BeaconChain<T>
          *
          * Fail if the active state is unknown.
          */
-        let act_state_root = Hash256::from(block.act_state_root());
-        let act_state = self.active_states.get(&act_state_root)
+        let act_state_root = Hash256::from(parent_block.act_state_root());
+        let act_state = self
+            .active_states
+            .get(&act_state_root)
             .ok_or(BlockValidationContextError::UnknownActiveState)?;
 
         /*
@@ -63,16 +59,21 @@ impl<T> BeaconChain<T>
          * the hash of this block from the database
          */
         let last_justified_slot = cry_state.last_justified_slot;
-        let parent_block_hash = block.parent_hash()
+        let parent_block_hash = block
+            .parent_hash()
             .ok_or(BlockValidationContextError::NoParentHash)?;
-        let (last_justified_block_hash, _) = self.store.block.block_at_slot(
-            &parent_block_hash, last_justified_slot)?
+        let (last_justified_block_hash, _) = self
+            .store
+            .block
+            .block_at_slot(&parent_block_hash, last_justified_slot)?
             .ok_or(BlockValidationContextError::UnknownJustifiedBlock)?;
 
         /*
          * Load the attester and proposer maps for the crystallized state.
          */
-        let (attester_map, proposer_map) = self.attester_proposer_maps.get(&cry_state_root)
+        let (attester_map, proposer_map) = self
+            .attester_proposer_maps
+            .get(&cry_state_root)
             .ok_or(BlockValidationContextError::UnknownAttesterProposerMaps)?;
 
         Ok(BeaconBlockValidationContext {

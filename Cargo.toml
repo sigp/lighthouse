@@ -33,6 +33,8 @@ name = "lighthouse"
 [workspace]
 members = [
 	"beacon_chain/chain",
+	"beacon_chain/naive_fork_choice",
+	"beacon_chain/state-transition",
 	"beacon_chain/types",
 	"beacon_chain/utils/active-validators",
 	"beacon_chain/utils/bls",

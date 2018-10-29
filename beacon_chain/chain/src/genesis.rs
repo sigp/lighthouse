@@ -1,20 +1,7 @@
-use types::{
-    CrosslinkRecord,
-    Hash256,
-    ValidatorRegistration,
-    ValidatorStatus,
-};
-use super::{
-    ActiveState,
-    CrystallizedState,
-    BeaconChainError,
-    ChainConfig,
-};
+use super::{ActiveState, BeaconChainError, ChainConfig, CrystallizedState};
+use types::{CrosslinkRecord, Hash256, ValidatorStatus};
 use validator_induction::ValidatorInductor;
-use validator_shuffling::{
-    shard_and_committees_for_cycle,
-    ValidatorAssignmentError,
-};
+use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
 pub const INITIAL_FORK_VERSION: u32 = 0;
 
@@ -27,9 +14,9 @@ impl From<ValidatorAssignmentError> for BeaconChainError {
 /// Initialize a new ChainHead with genesis parameters.
 ///
 /// Used when syncing a chain from scratch.
-pub fn genesis_states(config: &ChainConfig)
-    -> Result<(ActiveState, CrystallizedState), ValidatorAssignmentError>
-{
+pub fn genesis_states(
+    config: &ChainConfig,
+) -> Result<(ActiveState, CrystallizedState), ValidatorAssignmentError> {
     /*
      * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
      *
@@ -39,7 +26,7 @@ pub fn genesis_states(config: &ChainConfig)
         let mut inductor = ValidatorInductor::new(0, config.shard_count, vec![]);
         for registration in &config.initial_validators {
             let _ = inductor.induct(&registration, ValidatorStatus::Active);
-        };
+        }
         inductor.to_vec()
     };
 
@@ -107,21 +94,14 @@ pub fn genesis_states(config: &ChainConfig)
     Ok((active_state, crystallized_state))
 }
 
-
 #[cfg(test)]
 mod tests {
-    extern crate validator_induction;
     extern crate bls;
+    extern crate validator_induction;
 
+    use self::bls::{create_proof_of_possession, Keypair};
     use super::*;
-    use self::bls::{
-        create_proof_of_possession,
-        Keypair,
-    };
-    use types::{
-        Hash256,
-        Address,
-    };
+    use types::{Address, Hash256, ValidatorRegistration};
 
     #[test]
     fn test_genesis_no_validators() {
@@ -140,7 +120,10 @@ mod tests {
         assert_eq!(cry.last_finalized_slot, 0);
         assert_eq!(cry.last_justified_slot, 0);
         assert_eq!(cry.justified_streak, 0);
-        assert_eq!(cry.shard_and_committee_for_slots.len(), (config.cycle_length as usize) * 2);
+        assert_eq!(
+            cry.shard_and_committee_for_slots.len(),
+            (config.cycle_length as usize) * 2
+        );
         assert_eq!(cry.deposits_penalized_in_period.len(), 0);
         assert_eq!(cry.validator_set_delta_hash_chain, Hash256::zero());
         assert_eq!(cry.pre_fork_version, INITIAL_FORK_VERSION);
@@ -149,7 +132,10 @@ mod tests {
 
         assert_eq!(act.pending_attestations.len(), 0);
         assert_eq!(act.pending_specials.len(), 0);
-        assert_eq!(act.recent_block_hashes, vec![Hash256::zero(); config.cycle_length as usize]);
+        assert_eq!(
+            act.recent_block_hashes,
+            vec![Hash256::zero(); config.cycle_length as usize]
+        );
         assert_eq!(act.randao_mix, Hash256::zero());
     }
 
@@ -160,7 +146,7 @@ mod tests {
             withdrawal_shard: 0,
             withdrawal_address: Address::random(),
             randao_commitment: Hash256::random(),
-            proof_of_possession: create_proof_of_possession(&keypair)
+            proof_of_possession: create_proof_of_possession(&keypair),
         }
     }
 
@@ -189,16 +175,19 @@ mod tests {
 
         let mut bad_v = random_registration();
         let bad_kp = Keypair::random();
-        bad_v.proof_of_possession =  create_proof_of_possession(&bad_kp);
+        bad_v.proof_of_possession = create_proof_of_possession(&bad_kp);
         config.initial_validators.push(bad_v);
 
         let mut bad_v = random_registration();
-        bad_v.withdrawal_shard =  config.shard_count + 1;
+        bad_v.withdrawal_shard = config.shard_count + 1;
         config.initial_validators.push(bad_v);
 
         let (_, cry) = genesis_states(&config).unwrap();
 
-        assert!(config.initial_validators.len() != good_validator_count, "test is invalid");
+        assert!(
+            config.initial_validators.len() != good_validator_count,
+            "test is invalid"
+        );
         assert_eq!(cry.validators.len(), good_validator_count);
     }
 }
