@@ -1,26 +1,12 @@
-use super::bls::{
-    AggregateSignature,
-};
+use super::bls::AggregateSignature;
+use super::hashing::canonical_hash;
 use super::helpers::{
-    BeaconBlockTestParams,
-    TestStore,
-    run_block_validation_scenario,
-    serialize_block,
-};
-use super::types::{
-    BeaconBlock,
-    Hash256,
-    ProposerMap,
+    run_block_validation_scenario, serialize_block, BeaconBlockTestParams, TestStore,
 };
 use super::ssz_helpers::ssz_beacon_block::SszBeaconBlock;
-use super::validation::block_validation::{
-    SszBeaconBlockValidationError,
-    BeaconBlockStatus,
-};
-use super::validation::attestation_validation::{
-    AttestationValidationError,
-};
-use super::hashing::canonical_hash;
+use super::types::{BeaconBlock, Hash256, ProposerMap};
+use super::validation::attestation_validation::AttestationValidationError;
+use super::validation::block_validation::SszBeaconBlockValidationError;
 
 fn get_simple_params() -> BeaconBlockTestParams {
     let validators_per_shard: usize = 5;
@@ -66,11 +52,9 @@ fn test_block_validation_valid() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status.unwrap().0, BeaconBlockStatus::NewBlock);
+    assert!(status.is_ok())
 }
 
 #[test]
@@ -83,15 +67,21 @@ fn test_block_validation_valid_known_block() {
          */
         let block_ssz = serialize_block(&block);
         let block_hash = canonical_hash(&block_ssz);
-        stores.block.put_serialized_block(&block_hash, &block_ssz).unwrap();
+        stores
+            .block
+            .put_serialized_block(&block_hash, &block_ssz)
+            .unwrap();
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status.unwrap(), (BeaconBlockStatus::KnownBlock, None));
+    /*
+     * This function does _not_ check if a block is already known.
+     *
+     * Known blocks will appear as valid blocks.
+     */
+    assert!(status.is_ok())
 }
 
 #[test]
@@ -103,11 +93,12 @@ fn test_block_validation_parent_slot_too_high() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status, Err(SszBeaconBlockValidationError::ParentSlotHigherThanBlockSlot));
+    assert_eq!(
+        status,
+        Err(SszBeaconBlockValidationError::ParentSlotHigherThanBlockSlot)
+    );
 }
 
 #[test]
@@ -119,9 +110,7 @@ fn test_block_validation_invalid_future_slot() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
     assert_eq!(status, Err(SszBeaconBlockValidationError::FutureSlot));
 }
@@ -131,8 +120,8 @@ fn test_block_validation_invalid_slot_already_finalized() {
     let mut params = get_simple_params();
 
     params.validation_context_finalized_slot = params.block_slot;
-    params.validation_context_justified_slot = params.validation_context_finalized_slot +
-        u64::from(params.cycle_length);
+    params.validation_context_justified_slot =
+        params.validation_context_finalized_slot + u64::from(params.cycle_length);
 
     let mutator = |block, attester_map, proposer_map, stores| {
         /*
@@ -141,11 +130,12 @@ fn test_block_validation_invalid_slot_already_finalized() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status, Err(SszBeaconBlockValidationError::SlotAlreadyFinalized));
+    assert_eq!(
+        status,
+        Err(SszBeaconBlockValidationError::SlotAlreadyFinalized)
+    );
 }
 
 #[test]
@@ -157,11 +147,12 @@ fn test_block_validation_invalid_unknown_pow_hash() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status, Err(SszBeaconBlockValidationError::UnknownPoWChainRef));
+    assert_eq!(
+        status,
+        Err(SszBeaconBlockValidationError::UnknownPoWChainRef)
+    );
 }
 
 #[test]
@@ -173,11 +164,12 @@ fn test_block_validation_invalid_unknown_parent_hash() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status, Err(SszBeaconBlockValidationError::UnknownParentHash));
+    assert_eq!(
+        status,
+        Err(SszBeaconBlockValidationError::UnknownParentHash)
+    );
 }
 
 #[test]
@@ -192,36 +184,44 @@ fn test_block_validation_invalid_1st_attestation_signature() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status, Err(SszBeaconBlockValidationError::AttestationValidationError(
-                AttestationValidationError::BadAggregateSignature)));
+    assert_eq!(
+        status,
+        Err(SszBeaconBlockValidationError::AttestationValidationError(
+            AttestationValidationError::BadAggregateSignature
+        ))
+    );
 }
 
 #[test]
 fn test_block_validation_invalid_no_parent_proposer_signature() {
     let params = get_simple_params();
 
-    let mutator = |block: BeaconBlock, attester_map, mut proposer_map: ProposerMap, stores: TestStore| {
-        /*
-         * Set the proposer for this slot to be a validator that does not exist.
-         */
-        let ssz = {
-            let parent_hash = block.parent_hash().unwrap().as_ref();
-            stores.block.get_serialized_block(parent_hash).unwrap().unwrap()
+    let mutator =
+        |block: BeaconBlock, attester_map, mut proposer_map: ProposerMap, stores: TestStore| {
+            /*
+             * Set the proposer for this slot to be a validator that does not exist.
+             */
+            let ssz = {
+                let parent_hash = block.parent_hash().unwrap().as_ref();
+                stores
+                    .block
+                    .get_serialized_block(parent_hash)
+                    .unwrap()
+                    .unwrap()
+            };
+            let parent_block_slot = SszBeaconBlock::from_slice(&ssz[..]).unwrap().slot();
+            proposer_map.insert(parent_block_slot, params.total_validators + 1);
+            (block, attester_map, proposer_map, stores)
         };
-        let parent_block_slot = SszBeaconBlock::from_slice(&ssz[..]).unwrap().slot();
-        proposer_map.insert(parent_block_slot, params.total_validators + 1);
-        (block, attester_map, proposer_map, stores)
-    };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status, Err(SszBeaconBlockValidationError::NoProposerSignature));
+    assert_eq!(
+        status,
+        Err(SszBeaconBlockValidationError::NoProposerSignature)
+    );
 }
 
 #[test]
@@ -236,9 +236,7 @@ fn test_block_validation_invalid_bad_proposer_map() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
     assert_eq!(status, Err(SszBeaconBlockValidationError::BadProposerMap));
 }
@@ -255,10 +253,12 @@ fn test_block_validation_invalid_2nd_attestation_signature() {
         (block, attester_map, proposer_map, stores)
     };
 
-    let status = run_block_validation_scenario(
-        &params,
-        mutator);
+    let status = run_block_validation_scenario(&params, mutator);
 
-    assert_eq!(status, Err(SszBeaconBlockValidationError::AttestationValidationError(
-                AttestationValidationError::BadAggregateSignature)));
+    assert_eq!(
+        status,
+        Err(SszBeaconBlockValidationError::AttestationValidationError(
+            AttestationValidationError::BadAggregateSignature
+        ))
+    );
 }

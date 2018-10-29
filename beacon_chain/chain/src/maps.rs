@@ -1,8 +1,4 @@
-use types::{
-    AttesterMap,
-    ProposerMap,
-    ShardAndCommittee,
-};
+use types::{AttesterMap, ProposerMap, ShardAndCommittee};
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterAndProposerMapError {
@@ -15,9 +11,8 @@ pub enum AttesterAndProposerMapError {
 /// The attester map is used to optimise the lookup of a committee.
 pub fn generate_attester_and_proposer_maps(
     shard_and_committee_for_slots: &Vec<Vec<ShardAndCommittee>>,
-    start_slot: u64)
-    -> Result<(AttesterMap, ProposerMap), AttesterAndProposerMapError>
-{
+    start_slot: u64,
+) -> Result<(AttesterMap, ProposerMap), AttesterAndProposerMapError> {
     let mut attester_map = AttesterMap::new();
     let mut proposer_map = ProposerMap::new();
     for (i, slot) in shard_and_committee_for_slots.iter().enumerate() {
@@ -25,10 +20,12 @@ pub fn generate_attester_and_proposer_maps(
          * Store the proposer for the block.
          */
         let slot_number = (i as u64).saturating_add(start_slot);
-        let first_committee = &slot.get(0)
+        let first_committee = &slot
+            .get(0)
             .ok_or(AttesterAndProposerMapError::NoShardAndCommitteeForSlot)?
             .committee;
-        let proposer_index = (slot_number as usize).checked_rem(first_committee.len())
+        let proposer_index = (slot_number as usize)
+            .checked_rem(first_committee.len())
             .ok_or(AttesterAndProposerMapError::NoAvailableProposer)?;
         proposer_map.insert(slot_number, first_committee[proposer_index]);
 
@@ -39,7 +36,7 @@ pub fn generate_attester_and_proposer_maps(
             let committee = shard_and_committee.committee.clone();
             attester_map.insert((slot_number, shard_and_committee.shard), committee);
         }
-    };
+    }
     Ok((attester_map, proposer_map))
 }
 
@@ -47,12 +44,12 @@ pub fn generate_attester_and_proposer_maps(
 mod tests {
     use super::*;
 
-    fn sac_generator(shard_count: u16,
-                     slot_count: usize,
-                     sac_per_slot: usize,
-                     committee_size: usize)
-        -> Vec<Vec<ShardAndCommittee>>
-    {
+    fn sac_generator(
+        shard_count: u16,
+        slot_count: usize,
+        sac_per_slot: usize,
+        committee_size: usize,
+    ) -> Vec<Vec<ShardAndCommittee>> {
         let mut shard = 0;
         let mut validator = 0;
         let mut cycle = vec![];
@@ -80,14 +77,20 @@ mod tests {
     fn test_attester_proposer_maps_empty_slots() {
         let sac = sac_generator(4, 4, 0, 1);
         let result = generate_attester_and_proposer_maps(&sac, 0);
-        assert_eq!(result, Err(AttesterAndProposerMapError::NoShardAndCommitteeForSlot));
+        assert_eq!(
+            result,
+            Err(AttesterAndProposerMapError::NoShardAndCommitteeForSlot)
+        );
     }
 
     #[test]
     fn test_attester_proposer_maps_empty_committees() {
         let sac = sac_generator(4, 4, 1, 0);
         let result = generate_attester_and_proposer_maps(&sac, 0);
-        assert_eq!(result, Err(AttesterAndProposerMapError::NoAvailableProposer));
+        assert_eq!(
+            result,
+            Err(AttesterAndProposerMapError::NoAvailableProposer)
+        );
     }
 
     #[test]

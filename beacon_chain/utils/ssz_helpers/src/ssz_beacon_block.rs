@@ -40,6 +40,7 @@ const CRYSTALLIZED_STATE_BYTES: usize = HASH_SIZE;
 #[derive(Debug, PartialEq)]
 pub struct SszBeaconBlock<'a> {
     ssz: &'a [u8],
+    block_ssz_len: usize,
     // Ancestors
     ancestors_position: usize,
     ancestors_len: usize,
@@ -117,6 +118,7 @@ impl<'a> SszBeaconBlock<'a> {
 
         Ok(Self{
             ssz: &untrimmed_ssz[0..block_ssz_len],
+            block_ssz_len,
             ancestors_position,
             ancestors_len,
             attestations_position,
@@ -129,9 +131,16 @@ impl<'a> SszBeaconBlock<'a> {
     pub fn len(&self) -> usize { self.ssz.len() }
     pub fn is_empty(&self) -> bool { self.ssz.is_empty() }
 
+    /// Returns this block as ssz.
+    ///
+    /// Does not include any excess ssz bytes that were supplied to this struct.
+    pub fn block_ssz(&self) -> &'a [u8] {
+        &self.ssz[0..self.block_ssz_len]
+    }
+
     /// Return the canonical hash for this block.
     pub fn block_hash(&self) -> Vec<u8> {
-        canonical_hash(self.ssz)
+        canonical_hash(&self.ssz)
     }
 
     /// Return the bytes representing `ancestor_hashes[0]`.

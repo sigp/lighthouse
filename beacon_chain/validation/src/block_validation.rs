@@ -2,49 +2,17 @@ extern crate rayon;
 
 use self::rayon::prelude::*;
 
-use std::sync::{
-    Arc,
-    RwLock,
-};
-use super::attestation_validation::{
-    AttestationValidationContext,
-    AttestationValidationError,
-};
-use super::types::{
-    AttestationRecord,
-    AttesterMap,
-    BeaconBlock,
-    ProposerMap,
-};
+use super::attestation_validation::{AttestationValidationContext, AttestationValidationError};
+use super::db::stores::{BeaconBlockStore, PoWChainStore, ValidatorStore};
+use super::db::{ClientDB, DBError};
+use super::ssz::{Decodable, DecodeError};
 use super::ssz_helpers::attestation_ssz_splitter::{
-    split_one_attestation,
-    split_all_attestations,
-    AttestationSplitError,
+    split_all_attestations, split_one_attestation, AttestationSplitError,
 };
-use super::ssz_helpers::ssz_beacon_block::{
-    SszBeaconBlock,
-    SszBeaconBlockError,
-};
-use super::db::{
-    ClientDB,
-    DBError,
-};
-use super::db::stores::{
-    BeaconBlockStore,
-    PoWChainStore,
-    ValidatorStore,
-};
-use super::ssz::{
-    Decodable,
-    DecodeError,
-};
+use super::ssz_helpers::ssz_beacon_block::{SszBeaconBlock, SszBeaconBlockError};
 use super::types::Hash256;
-
-#[derive(Debug, PartialEq)]
-pub enum BeaconBlockStatus {
-    NewBlock,
-    KnownBlock,
-}
+use super::types::{AttestationRecord, AttesterMap, BeaconBlock, ProposerMap};
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, PartialEq)]
 pub enum SszBeaconBlockValidationError {
@@ -67,7 +35,8 @@ pub enum SszBeaconBlockValidationError {
 
 /// The context against which a block should be validated.
 pub struct BeaconBlockValidationContext<T>
-    where T: ClientDB + Sized
+where
+    T: ClientDB + Sized,
 {
     /// The slot as determined by the system time.
     pub present_slot: u64,
@@ -94,7 +63,8 @@ pub struct BeaconBlockValidationContext<T>
 }
 
 impl<T> BeaconBlockValidationContext<T>
-    where T: ClientDB
+where
+    T: ClientDB,
 {
     /// Validate some SszBeaconBlock against a block validation context. An SszBeaconBlock varies from a BeaconBlock in
     /// that is a read-only structure that reads directly from encoded SSZ.
@@ -109,19 +79,13 @@ impl<T> BeaconBlockValidationContext<T>
     /// Note: this function does not implement randao_reveal checking as it is not in the
     /// specification.
     #[allow(dead_code)]
-    pub fn validate_ssz_block(&self, block_hash: &Hash256,  b: &SszBeaconBlock)
-        -> Result<(BeaconBlockStatus, Option<BeaconBlock>), SszBeaconBlockValidationError>
-        where T: ClientDB + Sized
+    pub fn validate_ssz_block(
+        &self,
+        b: &SszBeaconBlock,
+    ) -> Result<BeaconBlock, SszBeaconBlockValidationError>
+    where
+        T: ClientDB + Sized,
     {
-
-        /*
-         * If this block is already known, return immediately and indicate the the block is
-         * known. Don't attempt to deserialize the block.
-         */
-        if self.block_store.block_exists(&block_hash)? {
-            return Ok((BeaconBlockStatus::KnownBlock, None));
-        }
-
         /*
          * If the block slot corresponds to a slot in the future, return immediately with an error.
          *
@@ -173,11 +137,8 @@ impl<T> BeaconBlockValidationContext<T>
          * The first attestation must be validated separately as it must contain a signature of the
          * proposer of the previous block (this is checked later in this function).
          */
-        let (first_attestation_ssz, next_index) = split_one_attestation(
-            &attestations_ssz,
-            0)?;
-        let (first_attestation, _) = AttestationRecord::ssz_decode(
-            &first_attestation_ssz, 0)?;
+        let (first_attestation_ssz, next_index) = split_one_attestation(&attestations_ssz, 0)?;
+        let (first_attestation, _) = AttestationRecord::ssz_decode(&first_attestation_ssz, 0)?;
 
         /*
          * The first attestation may not have oblique hashes.
@@ -197,7 +158,8 @@ impl<T> BeaconBlockValidationContext<T>
          *
          * Also, read the slot from the parent block for later use.
          */
-        let parent_hash = b.parent_hash()
+        let parent_hash = b
+            .parent_hash()
             .ok_or(SszBeaconBlockValidationError::BadAncestorHashesSsz)?;
         let parent_block_slot = match self.block_store.get_serialized_block(&parent_hash)? {
             None => return Err(SszBeaconBlockValidationError::UnknownParentHash),
@@ -233,8 +195,8 @@ impl<T> BeaconBlockValidationContext<T>
         /*
          * Validate this first attestation.
          */
-        let attestation_voters = attestation_validation_context
-            .validate_attestation(&first_attestation)?;
+        let attestation_voters =
+            attestation_validation_context.validate_attestation(&first_attestation)?;
 
         /*
          * Attempt to read load the parent block proposer from the proposer map. Return with an
@@ -243,7 +205,9 @@ impl<T> BeaconBlockValidationContext<T>
          * If the signature of proposer for the parent slot was not present in the first (0'th)
          * attestation of this block, reject the block.
          */
-        let parent_block_proposer = self.proposer_map.get(&parent_block_slot)
+        let parent_block_proposer = self
+            .proposer_map
+            .get(&parent_block_slot)
             .ok_or(SszBeaconBlockValidationError::BadProposerMap)?;
         if !attestation_voters.contains(&parent_block_proposer) {
             return Err(SszBeaconBlockValidationError::NoProposerSignature);
@@ -253,8 +217,7 @@ impl<T> BeaconBlockValidationContext<T>
          * Split the remaining attestations into a vector of slices, each containing
          * a single serialized attestation record.
          */
-        let other_attestations = split_all_attestations(attestations_ssz,
-                                                        next_index)?;
+        let other_attestations = split_all_attestations(attestations_ssz, next_index)?;
 
         /*
          * Verify each other AttestationRecord.
@@ -278,7 +241,7 @@ impl<T> BeaconBlockValidationContext<T>
                  */
                 match failure.read() {
                     Ok(ref option) if option.is_none() => (),
-                    _ => return None
+                    _ => return None,
                 }
                 /*
                  * If there has not been a failure yet, attempt to serialize and validate the
@@ -317,22 +280,18 @@ impl<T> BeaconBlockValidationContext<T>
                             /*
                              * Attestation validation succeded.
                              */
-                            Ok(_) => Some(attestation)
+                            Ok(_) => Some(attestation),
                         }
                     }
                 }
-            })
-            .collect();
+            }).collect();
 
         match failure.into_inner() {
             Err(_) => return Err(SszBeaconBlockValidationError::RwLockPoisoned),
-            Ok(failure) => {
-                match failure {
-                    Some(error) => return Err(error),
-                    _ => ()
-                }
-
-            }
+            Ok(failure) => match failure {
+                Some(error) => return Err(error),
+                _ => (),
+            },
         }
 
         /*
@@ -360,7 +319,7 @@ impl<T> BeaconBlockValidationContext<T>
             attestations: deserialized_attestations,
             specials,
         };
-        Ok((BeaconBlockStatus::NewBlock, Some(block)))
+        Ok(block)
     }
 }
 
@@ -373,8 +332,7 @@ impl From<DBError> for SszBeaconBlockValidationError {
 impl From<AttestationSplitError> for SszBeaconBlockValidationError {
     fn from(e: AttestationSplitError) -> Self {
         match e {
-            AttestationSplitError::TooShort =>
-                SszBeaconBlockValidationError::BadAttestationSsz
+            AttestationSplitError::TooShort => SszBeaconBlockValidationError::BadAttestationSsz,
         }
     }
 }
@@ -382,10 +340,12 @@ impl From<AttestationSplitError> for SszBeaconBlockValidationError {
 impl From<SszBeaconBlockError> for SszBeaconBlockValidationError {
     fn from(e: SszBeaconBlockError) -> Self {
         match e {
-            SszBeaconBlockError::TooShort =>
-                SszBeaconBlockValidationError::DBError("Bad parent block in db.".to_string()),
-            SszBeaconBlockError::TooLong =>
-                SszBeaconBlockValidationError::DBError("Bad parent block in db.".to_string()),
+            SszBeaconBlockError::TooShort => {
+                SszBeaconBlockValidationError::DBError("Bad parent block in db.".to_string())
+            }
+            SszBeaconBlockError::TooLong => {
+                SszBeaconBlockValidationError::DBError("Bad parent block in db.".to_string())
+            }
         }
     }
 }
@@ -393,10 +353,8 @@ impl From<SszBeaconBlockError> for SszBeaconBlockValidationError {
 impl From<DecodeError> for SszBeaconBlockValidationError {
     fn from(e: DecodeError) -> Self {
         match e {
-            DecodeError::TooShort =>
-                SszBeaconBlockValidationError::BadAttestationSsz,
-            DecodeError::TooLong =>
-                SszBeaconBlockValidationError::BadAttestationSsz,
+            DecodeError::TooShort => SszBeaconBlockValidationError::BadAttestationSsz,
+            DecodeError::TooLong => SszBeaconBlockValidationError::BadAttestationSsz,
         }
     }
 }
