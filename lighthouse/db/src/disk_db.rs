@@ -1,17 +1,10 @@
 extern crate rocksdb;
 
+use super::rocksdb::Error as RocksError;
+use super::rocksdb::{Options, DB};
+use super::{ClientDB, DBError, DBValue};
 use std::fs;
 use std::path::Path;
-use super::rocksdb::{
-    DB,
-    Options,
-};
-use super::rocksdb::Error as RocksError;
-use super::{
-    ClientDB,
-    DBValue,
-    DBError
-};
 
 /// A on-disk database which implements the ClientDB trait.
 ///
@@ -42,8 +35,7 @@ impl DiskDB {
         /*
          * Initialise the path
          */
-        fs::create_dir_all(&path)
-            .unwrap_or_else(|_| panic!("Unable to create {:?}", &path));
+        fs::create_dir_all(&path).unwrap_or_else(|_| panic!("Unable to create {:?}", &path));
         let db_path = path.join("database");
 
         /*
@@ -51,31 +43,28 @@ impl DiskDB {
          */
         let db = match columns {
             None => DB::open(&options, db_path),
-            Some(columns) => DB::open_cf(&options, db_path, columns)
+            Some(columns) => DB::open_cf(&options, db_path, columns),
         }.expect("Unable to open local database");;
 
-        Self {
-            db,
-        }
+        Self { db }
     }
 
     /// Create a RocksDB column family. Corresponds to the
     /// `create_cf()` function on the RocksDB API.
     #[allow(dead_code)]
-    fn create_col(&mut self, col: &str)
-        -> Result<(), DBError>
-    {
+    fn create_col(&mut self, col: &str) -> Result<(), DBError> {
         match self.db.create_cf(col, &Options::default()) {
             Err(e) => Err(e.into()),
-            Ok(_) => Ok(())
+            Ok(_) => Ok(()),
         }
     }
-
 }
 
 impl From<RocksError> for DBError {
     fn from(e: RocksError) -> Self {
-        Self { message: e.to_string() }
+        Self {
+            message: e.to_string(),
+        }
     }
 }
 
@@ -85,17 +74,15 @@ impl ClientDB for DiskDB {
     /// Corresponds to the `get_cf()` method on the RocksDB API.
     /// Will attempt to get the `ColumnFamily` and return an Err
     /// if it fails.
-    fn get(&self, col: &str, key: &[u8])
-        -> Result<Option<DBValue>, DBError>
-    {
+    fn get(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, DBError> {
         match self.db.cf_handle(col) {
-            None => Err(DBError{ message: "Unknown column".to_string() }),
-            Some(handle) => {
-                match self.db.get_cf(handle, key)? {
-                    None => Ok(None),
-                    Some(db_vec) => Ok(Some(DBValue::from(&*db_vec)))
-                }
-            }
+            None => Err(DBError {
+                message: "Unknown column".to_string(),
+            }),
+            Some(handle) => match self.db.get_cf(handle, key)? {
+                None => Ok(None),
+                Some(db_vec) => Ok(Some(DBValue::from(&*db_vec))),
+            },
         }
     }
 
@@ -104,38 +91,54 @@ impl ClientDB for DiskDB {
     /// Corresponds to the `cf_handle()` method on the RocksDB API.
     /// Will attempt to get the `ColumnFamily` and return an Err
     /// if it fails.
-    fn put(&self, col: &str, key: &[u8], val: &[u8])
-        -> Result<(), DBError>
-    {
+    fn put(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), DBError> {
         match self.db.cf_handle(col) {
-            None => Err(DBError{ message: "Unknown column".to_string() }),
-            Some(handle) => self.db.put_cf(handle, key, val).map_err(|e| e.into())
+            None => Err(DBError {
+                message: "Unknown column".to_string(),
+            }),
+            Some(handle) => self.db.put_cf(handle, key, val).map_err(|e| e.into()),
         }
     }
 
     /// Return true if some key exists in some column.
-    fn exists(&self, col: &str, key: &[u8])
-        -> Result<bool, DBError>
-    {
+    fn exists(&self, col: &str, key: &[u8]) -> Result<bool, DBError> {
         /*
          * I'm not sure if this is the correct way to read if some
-         * block exists. Naievely I would expect this to unncessarily
+         * block exists. Naively I would expect this to unncessarily
          * copy some data, but I could be wrong.
          */
         match self.db.cf_handle(col) {
-            None => Err(DBError{ message: "Unknown column".to_string() }),
-            Some(handle) => Ok(self.db.get_cf(handle, key)?.is_some())
+            None => Err(DBError {
+                message: "Unknown column".to_string(),
+            }),
+            Some(handle) => Ok(self.db.get_cf(handle, key)?.is_some()),
+        }
+    }
+
+    /// Delete the value for some key on some column.
+    ///
+    /// Corresponds to the `delete_cf()` method on the RocksDB API.
+    /// Will attempt to get the `ColumnFamily` and return an Err
+    /// if it fails.
+    fn delete(&self, col: &str, key: &[u8]) -> Result<(), DBError> {
+        match self.db.cf_handle(col) {
+            None => Err(DBError {
+                message: "Unknown column".to_string(),
+            }),
+            Some(handle) => {
+                self.db.delete_cf(handle, key)?;
+                Ok(())
+            }
         }
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::ClientDB;
-    use std::{ env, fs, thread };
+    use super::*;
     use std::sync::Arc;
+    use std::{env, fs, thread};
 
     #[test]
     #[ignore]
