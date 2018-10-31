@@ -1,9 +1,11 @@
-# Lighthouse: an Ethereum 2.0 client
+# Lighthouse: an Ethereum Serenity client
 
 [![Build Status](https://travis-ci.org/sigp/lighthouse.svg?branch=master)](https://travis-ci.org/sigp/lighthouse) [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/sigp/lighthouse?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
-A work-in-progress, open-source implementation of the Ethereum 2.0 Beacon
+A work-in-progress, open-source implementation of the Serenity Beacon
 Chain, maintained by Sigma Prime.
+
+The "Serenity" project is also known as "Ethereum 2.0" or "Shasper".
 
 ## Introduction
 
@@ -11,7 +13,7 @@ This readme is split into two major sections:
 
 - [Lighthouse Client](#lighthouse-client): information about this
   implementation.
-- [What is Ethereum 2.0](#what-is-ethereum-20): an introduction to Ethereum 2.0.
+- [What is Ethereum Serenity](#what-is-ethereum-serenity): an introduction to Ethereum Serenity.
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
@@ -19,10 +21,10 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 
 ## Lighthouse Client
 
-Lighthouse is an open-source Ethereum 2.0 client that is currently under
-development.  Designed as an Ethereum 2.0-only client, Lighthouse will not
+Lighthouse is an open-source Ethereum Serenity client that is currently under
+development.  Designed as a Serenity-only client, Lighthouse will not
 re-implement the existing proof-of-work protocol. Maintaining a forward-focus
-on Ethereum 2.0 ensures that Lighthouse avoids reproducing the high-quality
+on Ethereum Serenity ensures that Lighthouse avoids reproducing the high-quality
 work already undertaken by existing projects. As such, Lighthouse will connect
 to existing clients, such as
 [Geth](https://github.com/ethereum/go-ethereum) or
@@ -33,7 +35,7 @@ present-Ethereum functionality.
 
 The purpose of this project is to further research and development towards a
 secure, efficient, and decentralized Ethereum protocol, facilitated by a new
-open-source Ethereum 2.0 client.
+open-source Ethereum Serenity client.
 
 In addition to implementing a new client, the project seeks to maintain and
 improve the Ethereum protocol wherever possible.
@@ -45,7 +47,7 @@ by the team:
 
 - **BLS cryptography**: Lighthouse presently use the [Apache
   Milagro](https://milagro.apache.org/) cryptography library to create and
-  verify BLS aggregate signatures. BLS signatures are core to Eth 2.0 as they
+  verify BLS aggregate signatures. BLS signatures are core to Serenity as they
   allow the signatures of many validators to be compressed into a constant 96
   bytes and efficiently verified. The Lighthouse project is presently
   maintaining its own [BLS aggregates
@@ -59,7 +61,7 @@ by the team:
   #103](https://github.com/ethereum/beacon_chain/issues/103) on
   [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain).
 .
-- **P2P networking**: Eth 2.0 will likely use the [libp2p
+- **P2P networking**: Serenity will likely use the [libp2p
   framework](https://libp2p.io/). Lighthouse aims to work alongside
 [Parity](https://www.parity.io/) to ensure
 [libp2p-rust](https://github.com/libp2p/rust-libp2p) is fit-for-purpose.
@@ -93,11 +95,11 @@ bloom-filters), and tons of other interesting stuff (at least we think so).
 **Lighthouse welcomes contributors with open-arms.**
 
 Layer-1 infrastructure is a critical component for the ecosystem and relies
-heavily on contributions from the community. Building Ethereum 2.0 is a huge
+heavily on contributions from the community. Building Ethereum Serenity is a huge
 task and we refuse to conduct an inappropriate ICO or charge licensing fees.
 Instead, we fund development through grants and support from Sigma Prime.
 
-If you would like to learn more about Ethereum 2.0 and/or
+If you would like to learn more about Ethereum Serenity and/or
 [Rust](https://www.rust-lang.org/), we are more than happy to on-board you
 and assign you some tasks. We aim to be as accepting and understanding as
 possible; we are more than happy to up-skill contributors in exchange for their
@@ -176,12 +178,16 @@ The best place for discussion is the [sigp/lighthouse gitter](https://gitter.im/
 Ping @paulhauner or @AgeManning to get the quickest response.
 
 
-# What is Ethereum 2.0
+# What is Ethereum Serenity
 
-Ethereum 2.0 refers to a new blockchain system currently under development by
-the Ethereum Foundation and the Ethereum community. The Ethereum 2.0 blockchain
+Ethereum Serenity refers to a new blockchain system currently under development by
+the Ethereum Foundation and the Ethereum community. The Serenity blockchain
 consists of 1,025 proof-of-stake blockchains. This includes the "beacon chain"
 and 1,024 "shard chains".
+
+Ethereum Serenity is also known as "Ethereum 2.0" and "Shasper". We prefer
+Serenity as it more accurately reflects the established Ethereum roadmap (plus
+we think it's a nice name).
 
 ## Beacon Chain
 
@@ -227,21 +233,21 @@ reference a PoW block hash allowing PoW clients to use the beacon chain as a
 source of [Casper FFG finality](https://arxiv.org/abs/1710.09437), if desired.
 
 It is a requirement that ETH can move freely between shard chains, as well as between
-Eth 2.0 and present-Ethereum blockchains. The exact mechanics of these transfers remain
+Serenity and present-Ethereum blockchains. The exact mechanics of these transfers remain
 an active topic of research and their details are yet to be confirmed.
 
-## Ethereum 2.0 Progress
+## Ethereum Serenity Progress
 
-Ethereum 2.0 is not fully specified and a working implementation does not yet
+Ethereum Serenity is not fully specified and a working implementation does not yet
 exist. Some teams have demos available which indicate progress, but do not
 constitute a complete product.  We look forward to providing user functionality
 once we are ready to provide a minimum-viable user experience.
 
-The work-in-progress Eth 2.0 specification lives
+The work-in-progress Serenity specification lives
 [here](https://github.com/ethereum/eth2.0-specs/blob/master/specs/casper_sharding_v2.1.md)
 in the [ethereum/eth2.0-specs](https://github.com/ethereum/eth2.0-specs)
 repository. The spec is still in a draft phase, however there are several teams
-basing their Eth 2.0 implementations upon it while the Ethereum Foundation research
+basing their Serenity implementations upon it while the Ethereum Foundation research
 team continue to fill in the gaps. There is active discussion about the specification in the
 [ethereum/sharding](https://gitter.im/ethereum/sharding) gitter channel. A
 proof-of-concept implementation in Python is available at
