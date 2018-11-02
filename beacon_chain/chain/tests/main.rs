@@ -1,7 +1,7 @@
+extern crate bls;
 extern crate chain;
+extern crate db;
+extern crate ssz;
+extern crate types;
 
-#[cfg(test)]
-mod tests {
-    use chain::{BeaconChain, BeaconChainError};
-
-}
+mod chain_tester;

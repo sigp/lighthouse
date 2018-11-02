@@ -17,7 +17,7 @@ impl DBError {
 /// The purpose of having this generic trait is to allow the
 /// program to use a persistent on-disk database during production,
 /// but use a transient database during tests.
-pub trait ClientDB: Sync + Send {
+pub trait ClientDB: Sync + Send + Sized {
     fn get(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, DBError>;
 
     fn put(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), DBError>;

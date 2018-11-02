@@ -1,5 +1,5 @@
 [package]
-name = "state-transition"
+name = "state_transition"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 

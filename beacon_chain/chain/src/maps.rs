@@ -1,10 +1,7 @@
 use types::{AttesterMap, ProposerMap, ShardAndCommittee};
+use validator_shuffling::block_proposer_for_slot;
 
-#[derive(Debug, PartialEq)]
-pub enum AttesterAndProposerMapError {
-    NoShardAndCommitteeForSlot,
-    NoAvailableProposer,
-}
+pub use validator_shuffling::BlockProposerError;
 
 /// Generate a map of `(slot, shard) |--> committee`.
 ///
@@ -12,7 +9,7 @@ pub enum AttesterAndProposerMapError {
 pub fn generate_attester_and_proposer_maps(
     shard_and_committee_for_slots: &Vec<Vec<ShardAndCommittee>>,
     start_slot: u64,
-) -> Result<(AttesterMap, ProposerMap), AttesterAndProposerMapError> {
+) -> Result<(AttesterMap, ProposerMap), BlockProposerError> {
     let mut attester_map = AttesterMap::new();
     let mut proposer_map = ProposerMap::new();
     for (i, slot) in shard_and_committee_for_slots.iter().enumerate() {
@@ -20,14 +17,8 @@ pub fn generate_attester_and_proposer_maps(
          * Store the proposer for the block.
          */
         let slot_number = (i as u64).saturating_add(start_slot);
-        let first_committee = &slot
-            .get(0)
-            .ok_or(AttesterAndProposerMapError::NoShardAndCommitteeForSlot)?
-            .committee;
-        let proposer_index = (slot_number as usize)
-            .checked_rem(first_committee.len())
-            .ok_or(AttesterAndProposerMapError::NoAvailableProposer)?;
-        proposer_map.insert(slot_number, first_committee[proposer_index]);
+        let proposer_index = block_proposer_for_slot(slot, slot_number)?;
+        proposer_map.insert(slot_number, proposer_index);
 
         /*
          * Loop through the shards and extend the attester map.
@@ -77,20 +68,14 @@ mod tests {
     fn test_attester_proposer_maps_empty_slots() {
         let sac = sac_generator(4, 4, 0, 1);
         let result = generate_attester_and_proposer_maps(&sac, 0);
-        assert_eq!(
-            result,
-            Err(AttesterAndProposerMapError::NoShardAndCommitteeForSlot)
-        );
+        assert_eq!(result, Err(BlockProposerError::NoShardAndCommitteeForSlot));
     }
 
     #[test]
     fn test_attester_proposer_maps_empty_committees() {
         let sac = sac_generator(4, 4, 1, 0);
         let result = generate_attester_and_proposer_maps(&sac, 0);
-        assert_eq!(
-            result,
-            Err(AttesterAndProposerMapError::NoAvailableProposer)
-        );
+        assert_eq!(result, Err(BlockProposerError::NoAvailableProposer));
     }
 
     #[test]

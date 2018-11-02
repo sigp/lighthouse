@@ -15,19 +15,20 @@ mod maps;
 mod transition;
 mod stores;
 
+pub use stores::BeaconChainStore;
+
 use db::ClientDB;
 use genesis::genesis_states;
-use maps::{generate_attester_and_proposer_maps, AttesterAndProposerMapError};
+use maps::{generate_attester_and_proposer_maps, BlockProposerError};
 use std::collections::HashMap;
 use std::sync::Arc;
-use stores::BeaconChainStore;
 use types::{ActiveState, AttesterMap, ChainConfig, CrystallizedState, Hash256, ProposerMap};
 
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
     InvalidGenesis,
     InsufficientValidators,
-    UnableToGenerateMaps(AttesterAndProposerMapError),
+    UnableToGenerateMaps(BlockProposerError),
     DBError(String),
 }
 
@@ -97,8 +98,8 @@ where
     }
 }
 
-impl From<AttesterAndProposerMapError> for BeaconChainError {
-    fn from(e: AttesterAndProposerMapError) -> BeaconChainError {
+impl From<BlockProposerError> for BeaconChainError {
+    fn from(e: BlockProposerError) -> BeaconChainError {
         BeaconChainError::UnableToGenerateMaps(e)
     }
 }
