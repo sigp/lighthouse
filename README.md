@@ -121,9 +121,9 @@ experimental. As such all cryptography is assumed to be insecure.**
 
 This code-base is still very much under-development and does not provide any
 user-facing functionality. For developers and researchers, there are several
-tests and benchmarks which may be of interest. Few basic setup needed before starting like:
+tests and benchmarks which may be of interest. Few basic setups needed before starting like:
 
-   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macos | Windows) . For installation run the below command in your termainal
+   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macos | Windows). For installation run the below command in your terminal
    ```
         $ curl https://sh.rustup.rs -sSf | sh
 ```
@@ -133,11 +133,11 @@ tests and benchmarks which may be of interest. Few basic setup needed before sta
         $ source $HOME/.cargo/env
 ```
    
-   3. Use `rustup show` to get the info about the Rust setup. You will see active toolchain is in stable version. 
-   4. Run  `rustc --version` to get the version of rustup. For doing an update use `rustup update` .
+   3. Use `rustup show` to get the info about the Rust setup. You will see active toolchain is in the stable version. 
+   4. Run  `rustc --version` to get the version of rustup. For doing an update using` rustup update` .
    5. Navigate to the working directory.
-   6. Run the test by using command `cargo test --all` . By running, it will pass all the required testcases. If you are doing it for first time, then you can grab a coffee meantime. Usually it takes time to build, compile and pass all test cases. If there are no error then, it means everything is working properly and it's time to get hand's dirty. In case, if there is error, then please raise the [issue](https://github.com/sigp/lighthouse/issues).  We will help you.
-   7. Alternative of abhove step, You  can also run benchmarks by using `cargo bench --all`
+   6. Run the test by using command `cargo test --all` . By running, it will pass all the required test cases. If you are doing it for the first time, then you can grab a coffee meantime. Usually, it takes time to build, compile and pass all test cases. If there is no error then, it means everything is working properly and it's time to get hand's dirty. In case, if there is an error, then please raise the [issue](https://github.com/sigp/lighthouse/issues).  We will help you.
+   7. The alternative of the above step, You  can also run benchmarks by using `cargo bench --all`
 
 ##### Note:
 Lighthouse presently runs on Rust `stable`, however, benchmarks currently require the
