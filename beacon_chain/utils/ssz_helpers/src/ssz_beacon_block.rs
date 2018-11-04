@@ -1,6 +1,7 @@
 use super::hashing::canonical_hash;
 use super::ssz::decode::{decode_length, Decodable};
 use super::types::beacon_block::{MAX_SSZ_BLOCK_LENGTH, MIN_SSZ_BLOCK_LENGTH};
+use std::borrow::Cow;
 
 #[derive(Debug, PartialEq)]
 pub enum SszBeaconBlockError {
@@ -33,7 +34,8 @@ const CRYSTALLIZED_STATE_BYTES: usize = HASH_SIZE;
 /// full `BeaconBlock`.
 #[derive(Debug, PartialEq)]
 pub struct SszBeaconBlock<'a> {
-    ssz: &'a [u8],
+    // ssz: &'a [u8],
+    ssz: Cow<'a, [u8]>,
     block_ssz_len: usize,
     // Ancestors
     ancestors_position: usize,
@@ -106,7 +108,7 @@ impl<'a> SszBeaconBlock<'a> {
         }
 
         Ok(Self {
-            ssz: &untrimmed_ssz[0..block_ssz_len],
+            ssz: Cow::Borrowed(&untrimmed_ssz[0..block_ssz_len]),
             block_ssz_len,
             ancestors_position,
             ancestors_len,

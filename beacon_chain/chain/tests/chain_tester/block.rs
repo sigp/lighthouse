@@ -2,6 +2,7 @@ use super::ChainTester;
 use db::ClientDB;
 use ssz::decode::Decodable;
 use types::{BeaconBlock, Hash256};
+use validator_shuffling::{block_proposer_for_slot, shard_and_committee_for_slot};
 
 impl<T: ClientDB> ChainTester<T> {
     pub fn valid_block_at_slot(&self, slot: u64, parent_hash: &Hash256) -> BeaconBlock {

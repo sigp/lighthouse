@@ -10,6 +10,7 @@ extern crate validator_shuffling;
 
 mod block_context;
 mod block_processing;
+mod block_production;
 mod genesis;
 mod maps;
 mod stores;

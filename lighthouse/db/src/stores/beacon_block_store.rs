@@ -43,6 +43,22 @@ impl<T: ClientDB> BeaconBlockStore<T> {
         self.db.delete(DB_COLUMN, hash)
     }
 
+    /*
+    pub fn get_ssz_block(
+        &self,
+        hash: &[u8],
+    ) -> Result<Option<(SszBeaconBlock, Vec<u8>)>, SszBlockReadError> {
+        match self.get_serialized_block(hash)? {
+            None => Ok(None),
+            Some(bytes) => {
+                let ssz_block = SszBeaconBlock::from_slice(&bytes[..])?;
+                Ok(Some((ssz_block, bytes)))
+            }
+        }
+        //
+    }
+    */
+
     /// Retrieve the block at a slot given a "head_hash" and a slot.
     ///
     /// A "head_hash" must be a block hash with a slot number greater than or equal to the desired

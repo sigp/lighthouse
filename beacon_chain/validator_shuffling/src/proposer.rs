@@ -6,6 +6,14 @@ pub enum BlockProposerError {
     NoAvailableProposer,
 }
 
+pub fn shard_and_committee_for_slot(
+    canonical_slot_number: u64,
+    shard_and_committee_for_slots: &Vec<Vec<ShardAndCommittee>>,
+) -> Option<&Vec<ShardAndCommittee>> {
+    shard_and_committee_for_slots
+        .get(canonical_slot_number as usize % shard_and_committee_for_slots.len())
+}
+
 /// Return the block proposer given the "canonical slot number" and the set of `ShardAndCommittee`
 /// objects for that slot.
 ///
