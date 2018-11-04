@@ -1,11 +1,8 @@
 extern crate bytes;
 
-use super::{
-    Encodable,
-    SszStream
-};
+use self::bytes::{BufMut, BytesMut};
 use super::ethereum_types::H256;
-use self::bytes::{ BytesMut, BufMut };
+use super::{Encodable, SszStream};
 
 /*
  * Note: there is a "to_bytes" function for integers
@@ -18,12 +15,14 @@ macro_rules! impl_encodable_for_uint {
             #[allow(cast_lossless)]
             fn ssz_append(&self, s: &mut SszStream) {
                 // Ensure bit size is valid
-                assert!((0 < $bit_size) &&
-                        ($bit_size % 8 == 0) &&
-                        (2_u128.pow($bit_size) > *self as u128));
+                assert!(
+                    (0 < $bit_size)
+                        && ($bit_size % 8 == 0)
+                        && (2_u128.pow($bit_size) > *self as u128)
+                );
 
                 // Serialize to bytes
-                let mut buf = BytesMut::with_capacity($bit_size/8);
+                let mut buf = BytesMut::with_capacity($bit_size / 8);
 
                 // Match bit size with encoding
                 match $bit_size {
@@ -31,14 +30,14 @@ macro_rules! impl_encodable_for_uint {
                     16 => buf.put_u16_be(*self as u16),
                     32 => buf.put_u32_be(*self as u32),
                     64 => buf.put_u64_be(*self as u64),
-                    _ => { ; }
+                    _ => {}
                 }
 
                 // Append bytes to the SszStream
                 s.append_encoded_raw(&buf.to_vec());
             }
         }
-    }
+    };
 }
 
 impl_encodable_for_uint!(u8, 8);
@@ -52,7 +51,6 @@ impl Encodable for H256 {
         s.append_encoded_raw(&self.to_vec());
     }
 }
-
 
 #[cfg(test)]
 mod tests {

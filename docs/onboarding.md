@@ -9,6 +9,9 @@ Initially this doc will contain reading material to help get you started in Rust
 ## Learn Rust
 
 * [The Rust Programming Language](https://doc.rust-lang.org/book/2018-edition/index.html)
+* [Learning Rust With Entirely Too Many Linked Lists](http://cglab.ca/~abeinges/blah/too-many-lists/book/)
+* [Rustlings](https://github.com/rustlings/rustlings) - Small exercises to get you used to reading and writing Rust code.
+* [Rust Exercism](https://exercism.io/tracks/rust) - 88 exercises to learn Rust.
 
 ## Learn Ethereum
 
