@@ -1,0 +1,9 @@
+[package]
+name = "naive_fork_choice"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+db = { path = "../../lighthouse/db" }
+ssz = { path = "../utils/ssz" }
+types = { path = "../types" }

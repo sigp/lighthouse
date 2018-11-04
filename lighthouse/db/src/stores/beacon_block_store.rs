@@ -1,14 +1,9 @@
 extern crate ssz_helpers;
 
-use self::ssz_helpers::ssz_beacon_block::{
-    SszBeaconBlock,
-};
-use std::sync::Arc;
-use super::{
-    ClientDB,
-    DBError,
-};
+use self::ssz_helpers::ssz_beacon_block::SszBeaconBlock;
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
+use super::{ClientDB, DBError};
+use std::sync::Arc;
 
 type BeaconBlockHash = Vec<u8>;
 type BeaconBlockSsz = Vec<u8>;
@@ -21,41 +16,31 @@ pub enum BeaconBlockAtSlotError {
 }
 
 pub struct BeaconBlockStore<T>
-    where T: ClientDB
+where
+    T: ClientDB,
 {
     db: Arc<T>,
 }
 
 impl<T: ClientDB> BeaconBlockStore<T> {
     pub fn new(db: Arc<T>) -> Self {
-        Self {
-            db,
-        }
+        Self { db }
     }
 
-    pub fn put_serialized_block(&self, hash: &[u8], ssz: &[u8])
-        -> Result<(), DBError>
-    {
+    pub fn put_serialized_block(&self, hash: &[u8], ssz: &[u8]) -> Result<(), DBError> {
         self.db.put(DB_COLUMN, hash, ssz)
     }
 
-    pub fn get_serialized_block(&self, hash: &[u8])
-        -> Result<Option<Vec<u8>>, DBError>
-    {
+    pub fn get_serialized_block(&self, hash: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         self.db.get(DB_COLUMN, hash)
     }
 
-    pub fn block_exists(&self, hash: &[u8])
-        -> Result<bool, DBError>
-    {
+    pub fn block_exists(&self, hash: &[u8]) -> Result<bool, DBError> {
         self.db.exists(DB_COLUMN, hash)
     }
 
-    pub fn block_exists_in_canonical_chain(&self, hash: &[u8])
-        -> Result<bool, DBError>
-    {
-        // TODO: implement logic for canonical chain
-        self.db.exists(DB_COLUMN, hash)
+    pub fn delete_block(&self, hash: &[u8]) -> Result<(), DBError> {
+        self.db.delete(DB_COLUMN, hash)
     }
 
     /// Retrieve the block at a slot given a "head_hash" and a slot.
@@ -67,9 +52,11 @@ impl<T: ClientDB> BeaconBlockStore<T> {
     /// slot number. If the slot is skipped, the function will return None.
     ///
     /// If a block is found, a tuple of (block_hash, serialized_block) is returned.
-    pub fn block_at_slot(&self, head_hash: &[u8], slot: u64)
-        -> Result<Option<(BeaconBlockHash, BeaconBlockSsz)>, BeaconBlockAtSlotError>
-    {
+    pub fn block_at_slot(
+        &self,
+        head_hash: &[u8],
+        slot: u64,
+    ) -> Result<Option<(BeaconBlockHash, BeaconBlockSsz)>, BeaconBlockAtSlotError> {
         match self.get_serialized_block(head_hash)? {
             None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
             Some(ssz) => {
@@ -78,12 +65,10 @@ impl<T: ClientDB> BeaconBlockStore<T> {
                 match block.slot() {
                     s if s == slot => Ok(Some((head_hash.to_vec(), ssz.to_vec()))),
                     s if s < slot => Ok(None),
-                    _ => {
-                        match block.parent_hash() {
-                            Some(parent_hash) => self.block_at_slot(parent_hash, slot),
-                            None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock)
-                        }
-                    }
+                    _ => match block.parent_hash() {
+                        Some(parent_hash) => self.block_at_slot(parent_hash, slot),
+                        None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
+                    },
                 }
             }
         }
@@ -101,15 +86,15 @@ mod tests {
     extern crate ssz;
     extern crate types;
 
-    use self::types::beacon_block::BeaconBlock;
-    use self::types::attestation_record::AttestationRecord;
-    use self::types::Hash256;
     use self::ssz::SszStream;
+    use self::types::attestation_record::AttestationRecord;
+    use self::types::beacon_block::BeaconBlock;
+    use self::types::Hash256;
 
-    use super::*;
     use super::super::super::MemoryDB;
-    use std::thread;
+    use super::*;
     use std::sync::Arc;
+    use std::thread;
 
     #[test]
     fn test_block_store_on_memory_db() {
@@ -155,13 +140,12 @@ mod tests {
         let db = Arc::new(MemoryDB::open());
         let bs = Arc::new(BeaconBlockStore::new(db.clone()));
 
-        let blocks = (0..5).into_iter()
-            .map(|_| {
-                let mut block = BeaconBlock::zero();
-                let ar = AttestationRecord::zero();
-                block.attestations.push(ar);
-                block
-            });
+        let blocks = (0..5).into_iter().map(|_| {
+            let mut block = BeaconBlock::zero();
+            let ar = AttestationRecord::zero();
+            block.attestations.push(ar);
+            block
+        });
 
         let hashes = [
             Hash256::from("zero".as_bytes()),

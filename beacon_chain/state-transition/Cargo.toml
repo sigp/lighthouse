@@ -1,0 +1,7 @@
+[package]
+name = "state-transition"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+types = { path = "../types" }
