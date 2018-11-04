@@ -1,14 +1,8 @@
-use std::collections::HashSet;
-use super::bls::{
-    AggregateSignature,
-    AggregatePublicKey,
-};
+use super::bls::{AggregatePublicKey, AggregateSignature};
+use super::db::stores::{ValidatorStore, ValidatorStoreError};
 use super::db::ClientDB;
-use super::db::stores::{
-    ValidatorStore,
-    ValidatorStoreError,
-};
 use super::types::Bitfield;
+use std::collections::HashSet;
 
 #[derive(Debug, PartialEq)]
 pub enum SignatureVerificationError {
@@ -30,9 +24,10 @@ pub fn verify_aggregate_signature_for_indices<T>(
     agg_sig: &AggregateSignature,
     attestation_indices: &[usize],
     bitfield: &Bitfield,
-    validator_store: &ValidatorStore<T>)
-    -> Result<Option<HashSet<usize>>, SignatureVerificationError>
-    where T: ClientDB + Sized
+    validator_store: &ValidatorStore<T>,
+) -> Result<Option<HashSet<usize>>, SignatureVerificationError>
+where
+    T: ClientDB + Sized,
 {
     let mut voters = HashSet::new();
     let mut agg_pub_key = AggregatePublicKey::new();
@@ -43,7 +38,8 @@ pub fn verify_aggregate_signature_for_indices<T>(
             /*
              * De-reference the attestation index into a canonical ValidatorRecord index.
              */
-            let validator = *attestation_indices.get(i)
+            let validator = *attestation_indices
+                .get(i)
                 .ok_or(SignatureVerificationError::BadValidatorIndex)?;
             /*
              * Load the validators public key from our store.
@@ -77,23 +73,17 @@ pub fn verify_aggregate_signature_for_indices<T>(
 impl From<ValidatorStoreError> for SignatureVerificationError {
     fn from(error: ValidatorStoreError) -> Self {
         match error {
-            ValidatorStoreError::DBError(s) =>
-                SignatureVerificationError::DBError(s),
-            ValidatorStoreError::DecodeError =>
-                SignatureVerificationError::PublicKeyCorrupt,
+            ValidatorStoreError::DBError(s) => SignatureVerificationError::DBError(s),
+            ValidatorStoreError::DecodeError => SignatureVerificationError::PublicKeyCorrupt,
         }
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::bls::{
-        Keypair,
-        Signature,
-    };
+    use super::super::bls::{Keypair, Signature};
     use super::super::db::MemoryDB;
+    use super::*;
     use std::sync::Arc;
 
     /*
@@ -130,8 +120,7 @@ mod tests {
         let mut all_keypairs = signing_keypairs.clone();
         all_keypairs.append(&mut non_signing_keypairs.clone());
 
-        let attestation_indices: Vec<usize> = (0..all_keypairs.len())
-            .collect();
+        let attestation_indices: Vec<usize> = (0..all_keypairs.len()).collect();
         let mut bitfield = Bitfield::new();
         for i in 0..signing_keypairs.len() {
             bitfield.set_bit(i, true);
@@ -158,11 +147,11 @@ mod tests {
             &agg_sig,
             &attestation_indices,
             &bitfield,
-            &store).unwrap();
+            &store,
+        ).unwrap();
 
         let voters = voters.unwrap();
-        (0..signing_keypairs.len())
-            .for_each(|i| assert!(voters.contains(&i)));
+        (0..signing_keypairs.len()).for_each(|i| assert!(voters.contains(&i)));
         (signing_keypairs.len()..non_signing_keypairs.len())
             .for_each(|i| assert!(!voters.contains(&i)));
 
@@ -176,7 +165,8 @@ mod tests {
             &agg_sig,
             &attestation_indices,
             &bitfield,
-            &store).unwrap();
+            &store,
+        ).unwrap();
 
         assert_eq!(voters, None);
     }

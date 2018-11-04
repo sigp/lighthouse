@@ -11,9 +11,9 @@ extern crate ssz;
 use std::cmp::max;
 
 #[derive(Eq, Clone, Default, Debug)]
-pub struct BooleanBitfield{
+pub struct BooleanBitfield {
     len: usize,
-    vec: Vec<u8>
+    vec: Vec<u8>,
 }
 
 impl BooleanBitfield {
@@ -21,7 +21,7 @@ impl BooleanBitfield {
     pub fn new() -> Self {
         Self {
             len: 0,
-            vec: vec![0]
+            vec: vec![0],
         }
     }
 
@@ -29,10 +29,7 @@ impl BooleanBitfield {
     pub fn with_capacity(capacity: usize) -> Self {
         let mut vec = Vec::with_capacity(capacity / 8 + 1);
         vec.push(0);
-        Self {
-            len: 0,
-            vec
-        }
+        Self { len: 0, vec }
     }
 
     /// Read the value of a bit.
@@ -46,7 +43,7 @@ impl BooleanBitfield {
         if byte(i) >= self.vec.len() {
             false
         } else {
-             self.vec[byte(i)] & (1 << (bit(i) as u8)) != 0
+            self.vec[byte(i)] & (1 << (bit(i) as u8)) != 0
         }
     }
 
@@ -64,11 +61,9 @@ impl BooleanBitfield {
             self.vec.resize(byte(i) + 1, 0);
         }
         if to {
-            self.vec[byte(i)] =
-                self.vec[byte(i)] |  (1 << (bit(i) as u8))
+            self.vec[byte(i)] = self.vec[byte(i)] | (1 << (bit(i) as u8))
         } else {
-            self.vec[byte(i)] =
-                self.vec[byte(i)] & !(1 << (bit(i) as u8))
+            self.vec[byte(i)] = self.vec[byte(i)] & !(1 << (bit(i) as u8))
         }
     }
 
@@ -77,17 +72,23 @@ impl BooleanBitfield {
     ///
     /// Note: this is distinct from the length of the underlying
     /// vector.
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
     /// True if no bits have ever been set. A bit that is set and then
     /// unset will still count to the length of the bitfield.
     ///
     /// Note: this is distinct from the length of the underlying
     /// vector.
-    pub fn is_empty(&self) -> bool { self.len == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 
     /// The number of bytes required to represent the bitfield.
-    pub fn num_bytes(&self) -> usize { self.vec.len() }
+    pub fn num_bytes(&self) -> usize {
+        self.vec.len()
+    }
 
     /// Iterate through the underlying vector and count the number of
     /// true bits.
@@ -110,7 +111,7 @@ impl BooleanBitfield {
         for byte in (0..bytes.len()).rev() {
             for bit in (0..8).rev() {
                 if bytes[byte] & (1 << (bit as u8)) != 0 {
-                    return (byte * 8) + bit + 1
+                    return (byte * 8) + bit + 1;
                 }
             }
         }
@@ -141,15 +142,14 @@ impl<'a> From<&'a [u8]> for BooleanBitfield {
         vec.reverse();
         BooleanBitfield {
             vec,
-            len: BooleanBitfield::compute_length(input)
+            len: BooleanBitfield::compute_length(input),
         }
     }
 }
 
 impl PartialEq for BooleanBitfield {
     fn eq(&self, other: &BooleanBitfield) -> bool {
-        (self.vec == other.vec) &
-            (self.len == other.len)
+        (self.vec == other.vec) & (self.len == other.len)
     }
 }
 
@@ -160,28 +160,20 @@ impl ssz::Encodable for BooleanBitfield {
 }
 
 impl ssz::Decodable for BooleanBitfield {
-    fn ssz_decode(bytes: &[u8], index: usize)
-        -> Result<(Self, usize), ssz::DecodeError>
-    {
-        let len = ssz::decode::decode_length(
-            bytes,
-            index,
-            ssz::LENGTH_BYTES)?;
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), ssz::DecodeError> {
+        let len = ssz::decode::decode_length(bytes, index, ssz::LENGTH_BYTES)?;
         if (ssz::LENGTH_BYTES + len) > bytes.len() {
             return Err(ssz::DecodeError::TooShort);
         }
         if len == 0 {
-            Ok((BooleanBitfield::new(),
-                index + ssz::LENGTH_BYTES))
+            Ok((BooleanBitfield::new(), index + ssz::LENGTH_BYTES))
         } else {
-            let b = BooleanBitfield::
-                from(&bytes[(index + 4)..(index + len + 4)]);
+            let b = BooleanBitfield::from(&bytes[(index + 4)..(index + len + 4)]);
             let index = index + ssz::LENGTH_BYTES + len;
             Ok((b, index))
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
