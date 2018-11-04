@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate slog;
-extern crate slog_term;
 extern crate slog_async;
+extern crate slog_term;
 // extern crate ssz;
 extern crate clap;
 extern crate futures;
@@ -12,9 +12,9 @@ mod config;
 
 use std::path::PathBuf;
 
-use slog::Drain;
-use clap::{ Arg, App };
+use clap::{App, Arg};
 use config::LighthouseConfig;
+use slog::Drain;
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -26,17 +26,19 @@ fn main() {
         .version("0.0.1")
         .author("Sigma Prime <paul@sigmaprime.io>")
         .about("Eth 2.0 Client")
-        .arg(Arg::with_name("datadir")
-            .long("datadir")
-            .value_name("DIR")
-            .help("Data directory for keys and databases.")
-            .takes_value(true))
-        .arg(Arg::with_name("port")
-            .long("port")
-            .value_name("PORT")
-            .help("Network listen port for p2p connections.")
-            .takes_value(true))
-        .get_matches();
+        .arg(
+            Arg::with_name("datadir")
+                .long("datadir")
+                .value_name("DIR")
+                .help("Data directory for keys and databases.")
+                .takes_value(true),
+        ).arg(
+            Arg::with_name("port")
+                .long("port")
+                .value_name("PORT")
+                .help("Network listen port for p2p connections.")
+                .takes_value(true),
+        ).get_matches();
 
     let mut config = LighthouseConfig::default();
 
@@ -60,8 +62,10 @@ fn main() {
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.p2p_listen_port);
 
-    error!(log,
-           "Lighthouse under development and does not provide a user demo.");
+    error!(
+        log,
+        "Lighthouse under development and does not provide a user demo."
+    );
 
     info!(log, "Exiting.");
 }

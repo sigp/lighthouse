@@ -1,20 +1,14 @@
-use super::{
-    Hash256,
-    Address,
-};
-use super::bls::{
-    PublicKey,
-    Keypair
-};
+use super::bls::{Keypair, PublicKey};
+use super::{Address, Hash256};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ValidatorStatus {
-    PendingActivation   = 0,
-    Active              = 1,
-    PendingExit         = 2,
-    PendingWithdraw     = 3,
-    Withdrawn           = 5,
-    Penalized           = 127,
+    PendingActivation = 0,
+    Active = 1,
+    PendingExit = 2,
+    PendingWithdraw = 3,
+    Withdrawn = 5,
+    Penalized = 127,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,7 +43,6 @@ impl ValidatorRecord {
         (s, keypair)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

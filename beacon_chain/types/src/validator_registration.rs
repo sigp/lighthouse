@@ -1,14 +1,5 @@
-use bls::{
-    create_proof_of_possession,
-    Keypair,
-    PublicKey,
-    Signature,
-};
-use super::{
-    Address,
-    Hash256,
-};
-
+use super::{Address, Hash256};
+use bls::{create_proof_of_possession, Keypair, PublicKey, Signature};
 
 /// The information gathered from the PoW chain validator registration function.
 #[derive(Debug, Clone, PartialEq)]

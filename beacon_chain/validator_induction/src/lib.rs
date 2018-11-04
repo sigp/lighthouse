@@ -4,7 +4,4 @@ extern crate types;
 
 mod inductor;
 
-pub use inductor::{
-    ValidatorInductor,
-    ValidatorInductionError,
-};
+pub use inductor::{ValidatorInductionError, ValidatorInductor};

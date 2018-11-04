@@ -1,8 +1,8 @@
 use super::hashing::canonical_hash;
 
 const SEED_SIZE_BYTES: usize = 32;
-const RAND_BYTES: usize = 3;      // 24 / 8
-const RAND_MAX: u32 = 16_777_215;   // 2 ** (rand_bytes * 8) - 1
+const RAND_BYTES: usize = 3; // 24 / 8
+const RAND_MAX: u32 = 16_777_215; // 2 ** (rand_bytes * 8) - 1
 
 /// A pseudo-random number generator which given a seed
 /// uses successive blake2s hashing to generate "entropy".
@@ -24,7 +24,7 @@ impl ShuffleRng {
 
     /// "Regenerates" the seed by hashing it.
     fn rehash_seed(&mut self) {
-        self.seed  = canonical_hash(&self.seed);
+        self.seed = canonical_hash(&self.seed);
         self.idx = 0;
     }
 
@@ -35,10 +35,7 @@ impl ShuffleRng {
             self.rehash_seed();
             self.rand()
         } else {
-            int_from_byte_slice(
-                &self.seed,
-                self.idx - RAND_BYTES,
-            )
+            int_from_byte_slice(&self.seed, self.idx - RAND_BYTES)
         }
     }
 
@@ -61,13 +58,10 @@ impl ShuffleRng {
 /// interprets those bytes as a 24 bit big-endian integer.
 /// Returns that integer.
 fn int_from_byte_slice(source: &[u8], offset: usize) -> u32 {
-    (
-         u32::from(source[offset + 2])) |
-        (u32::from(source[offset + 1]) << 8) |
-        (u32::from(source[offset    ]) << 16
-    )
+    (u32::from(source[offset + 2]))
+        | (u32::from(source[offset + 1]) << 8)
+        | (u32::from(source[offset]) << 16)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -75,43 +69,31 @@ mod tests {
 
     #[test]
     fn test_shuffling_int_from_slice() {
-        let mut x = int_from_byte_slice(
-            &[0, 0, 1],
-            0);
+        let mut x = int_from_byte_slice(&[0, 0, 1], 0);
         assert_eq!((x as u32), 1);
 
-        x = int_from_byte_slice(
-            &[0, 1, 1],
-            0);
+        x = int_from_byte_slice(&[0, 1, 1], 0);
         assert_eq!(x, 257);
 
-        x = int_from_byte_slice(
-            &[1, 1, 1],
-            0);
+        x = int_from_byte_slice(&[1, 1, 1], 0);
         assert_eq!(x, 65793);
 
-        x = int_from_byte_slice(
-            &[255, 1, 1],
-            0);
+        x = int_from_byte_slice(&[255, 1, 1], 0);
         assert_eq!(x, 16711937);
 
-        x = int_from_byte_slice(
-            &[255, 255, 255],
-            0);
+        x = int_from_byte_slice(&[255, 255, 255], 0);
         assert_eq!(x, 16777215);
 
-        x = int_from_byte_slice(
-            &[0x8f, 0xbb, 0xc7],
-            0);
+        x = int_from_byte_slice(&[0x8f, 0xbb, 0xc7], 0);
         assert_eq!(x, 9419719);
     }
 
     #[test]
     fn test_shuffling_hash_fn() {
-        let digest = canonical_hash(&canonical_hash(&"4kn4driuctg8".as_bytes()));  // double-hash is intentional
+        let digest = canonical_hash(&canonical_hash(&"4kn4driuctg8".as_bytes())); // double-hash is intentional
         let expected = [
-            103, 21, 99, 143, 60, 75, 116, 81, 248, 175, 190, 114, 54, 65, 23, 8, 3, 116,
-            160, 178, 7, 75, 63, 47, 180, 239, 191, 247, 57, 194, 144, 88
+            103, 21, 99, 143, 60, 75, 116, 81, 248, 175, 190, 114, 54, 65, 23, 8, 3, 116, 160, 178,
+            7, 75, 63, 47, 180, 239, 191, 247, 57, 194, 144, 88,
         ];
         assert_eq!(digest.len(), expected.len());
         assert_eq!(digest, expected)
