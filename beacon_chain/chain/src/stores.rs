@@ -1,11 +1,5 @@
-use db::{
-    ClientDB,
-};
-use db::stores::{
-    BeaconBlockStore,
-    PoWChainStore,
-    ValidatorStore,
-};
+use db::stores::{BeaconBlockStore, PoWChainStore, ValidatorStore};
+use db::ClientDB;
 use std::sync::Arc;
 
 pub struct BeaconChainStore<T: ClientDB + Sized> {

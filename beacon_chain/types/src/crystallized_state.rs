@@ -1,8 +1,7 @@
-use super::validator_record::ValidatorRecord;
 use super::crosslink_record::CrosslinkRecord;
 use super::shard_and_committee::ShardAndCommittee;
+use super::validator_record::ValidatorRecord;
 use super::Hash256;
-
 
 #[derive(Debug, PartialEq)]
 pub struct CrystallizedState {
@@ -19,4 +18,11 @@ pub struct CrystallizedState {
     pub pre_fork_version: u32,
     pub post_fork_version: u32,
     pub fork_slot_number: u32,
+}
+
+impl CrystallizedState {
+    // TODO: implement this.
+    pub fn canonical_root(&self) -> Hash256 {
+        Hash256::zero()
+    }
 }
