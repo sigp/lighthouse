@@ -32,6 +32,7 @@ pub enum AttestationValidationError {
     NonZeroTrailingBits,
     BadAggregateSignature,
     DBError(String),
+    OutOfBoundsBitfieldIndex,
 }
 
 /// The context against which some attestation should be validated.
@@ -198,10 +199,6 @@ where
     }
 }
 
-fn bytes_for_bits(bits: usize) -> usize {
-    (bits.saturating_sub(1) / 8) + 1
-}
-
 impl From<ParentHashesError> for AttestationValidationError {
     fn from(e: ParentHashesError) -> Self {
         match e {
@@ -242,6 +239,8 @@ impl From<SignatureVerificationError> for AttestationValidationError {
                 AttestationValidationError::NoPublicKeyForValidator
             }
             SignatureVerificationError::DBError(s) => AttestationValidationError::DBError(s),
+            SignatureVerificationError::OutOfBoundsBitfieldIndex
+                => AttestationValidationError::OutOfBoundsBitfieldIndex,
         }
     }
 }
