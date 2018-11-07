@@ -95,7 +95,7 @@ pub fn generate_attestation(
          * and sign the aggregate sig.
          */
         if let Some(sk) = secret_key {
-            attester_bitfield.set_bit(i, true);
+            attester_bitfield.set(i, true).unwrap();
             let sig = Signature::new(&attestation_message, sk);
             aggregate_sig.add(&sig);
         }
