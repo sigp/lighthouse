@@ -24,7 +24,7 @@ impl BooleanBitfield {
     }
 
     /// Create a new bitfield using the supplied `bytes` as input
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    pub fn from(bytes: &[u8]) -> Self {
         Self {
             0: BitVec::from_bytes(bytes),
         }
@@ -82,7 +82,7 @@ impl ssz::Decodable for BooleanBitfield {
         if len == 0 {
             Ok((BooleanBitfield::new(), index + ssz::LENGTH_BYTES))
         } else {
-            let field = BooleanBitfield::from_bytes(&bytes[(index + 4)..(index + len + 4)]);
+            let field = BooleanBitfield::from(&bytes[(index + 4)..(index + len + 4)]);
             let index = index + ssz::LENGTH_BYTES + len;
             Ok((field, index))
         }
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_get_from_bitfield() {
-        let field = BooleanBitfield::from_bytes(INPUT);
+        let field = BooleanBitfield::from(INPUT);
         let unset = field.get(0).unwrap();
         assert!(!unset);
         let set = field.get(6).unwrap();
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_set_for_bitfield() {
-        let mut field = BooleanBitfield::from_bytes(INPUT);
+        let mut field = BooleanBitfield::from(INPUT);
         let previous = field.set(10, true).unwrap();
         assert!(!previous);
         let previous = field.get(10).unwrap();
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_highest_set_bit() {
-        let field = BooleanBitfield::from_bytes(INPUT);
+        let field = BooleanBitfield::from(INPUT);
         assert_eq!(field.highest_set_bit().unwrap(), 14);
 
         let field = BooleanBitfield::new();
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_len() {
-        let field = BooleanBitfield::from_bytes(INPUT);
+        let field = BooleanBitfield::from(INPUT);
         assert_eq!(field.len(), 16);
 
         let field = BooleanBitfield::new();
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_num_set_bits() {
-        let field = BooleanBitfield::from_bytes(INPUT);
+        let field = BooleanBitfield::from(INPUT);
         assert_eq!(field.num_set_bits(), 2);
 
         let field = BooleanBitfield::new();
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_to_bytes() {
-        let field = BooleanBitfield::from_bytes(INPUT);
+        let field = BooleanBitfield::from(INPUT);
         assert_eq!(field.to_bytes(), INPUT);
 
         let field = BooleanBitfield::new();
