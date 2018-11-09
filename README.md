@@ -121,7 +121,9 @@ experimental. As such all cryptography is assumed to be insecure.**
 
 This code-base is still very much under-development and does not provide any
 user-facing functionality. For developers and researchers, there are several
-tests and benchmarks which may be of interest. Few basic setups needed before starting like:
+tests and benchmarks which may be of interest.
+
+A few basic steps are needed to get set up:
 
    1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macos | Windows). For installation run the below command in your terminal
    ```
