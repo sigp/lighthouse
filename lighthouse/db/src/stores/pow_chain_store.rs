@@ -4,7 +4,6 @@ use super::{
     DBError,
 };
 use super::POW_CHAIN_DB_COLUMN as DB_COLUMN;
-extern crate rand;
 
 pub struct PoWChainStore<T>
     where T: ClientDB
@@ -34,6 +33,8 @@ impl<T: ClientDB> PoWChainStore<T> {
 
 #[cfg(test)]
 mod tests {
+    extern crate rand;
+    
     use super::*;
     use super::super::super::MemoryDB;
 
