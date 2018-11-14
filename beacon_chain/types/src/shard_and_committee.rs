@@ -1,7 +1,7 @@
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShardAndCommittee {
     pub shard: u16,
-    pub committee: Vec<usize>
+    pub committee: Vec<usize>,
 }
 
 impl ShardAndCommittee {

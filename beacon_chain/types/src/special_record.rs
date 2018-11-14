@@ -1,10 +1,4 @@
-use super::ssz::{
-    Encodable,
-    Decodable,
-    DecodeError,
-    SszStream,
-};
-
+use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 
 /// The value of the "type" field of SpecialRecord.
 ///
@@ -15,7 +9,6 @@ pub enum SpecialRecordKind {
     CasperSlashing = 1,
     RandaoChange = 2,
 }
-
 
 /// The structure used in the `BeaconBlock.specials` field.
 #[derive(Debug, PartialEq, Clone)]
@@ -51,13 +44,14 @@ impl SpecialRecord {
     /// Returns `None` if `self.kind` is an unknown value.
     pub fn resolve_kind(&self) -> Option<SpecialRecordKind> {
         match self.kind {
-            x if x == SpecialRecordKind::Logout as u8
-                => Some(SpecialRecordKind::Logout),
-            x if x == SpecialRecordKind::CasperSlashing as u8
-                => Some(SpecialRecordKind::CasperSlashing),
-            x if x == SpecialRecordKind::RandaoChange as u8
-                => Some(SpecialRecordKind::RandaoChange),
-            _ => None
+            x if x == SpecialRecordKind::Logout as u8 => Some(SpecialRecordKind::Logout),
+            x if x == SpecialRecordKind::CasperSlashing as u8 => {
+                Some(SpecialRecordKind::CasperSlashing)
+            }
+            x if x == SpecialRecordKind::RandaoChange as u8 => {
+                Some(SpecialRecordKind::RandaoChange)
+            }
+            _ => None,
         }
     }
 }
@@ -70,15 +64,12 @@ impl Encodable for SpecialRecord {
 }
 
 impl Decodable for SpecialRecord {
-    fn ssz_decode(bytes: &[u8], i: usize)
-        -> Result<(Self, usize), DecodeError>
-    {
+    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (kind, i) = u8::ssz_decode(bytes, i)?;
         let (data, i) = Decodable::ssz_decode(bytes, i)?;
-        Ok((SpecialRecord{kind, data}, i))
+        Ok((SpecialRecord { kind, data }, i))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -132,7 +123,10 @@ mod tests {
         let s = SpecialRecord::randao_change(&vec![]);
         assert_eq!(s.resolve_kind(), Some(SpecialRecordKind::RandaoChange));
 
-        let s = SpecialRecord { kind: 88, data: vec![] };
+        let s = SpecialRecord {
+            kind: 88,
+            data: vec![],
+        };
         assert_eq!(s.resolve_kind(), None);
     }
 }

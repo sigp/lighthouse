@@ -1,11 +1,5 @@
-use bls::{
-    verify_proof_of_possession,
-};
-use types::{
-    ValidatorRecord,
-    ValidatorStatus,
-    ValidatorRegistration,
-};
+use bls::verify_proof_of_possession;
+use types::{ValidatorRecord, ValidatorRegistration, ValidatorStatus};
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
@@ -25,9 +19,7 @@ pub enum ValidatorInductionError {
 }
 
 impl ValidatorInductor {
-    pub fn new(current_slot: u64, shard_count: u16, validators: Vec<ValidatorRecord>)
-        -> Self
-    {
+    pub fn new(current_slot: u64, shard_count: u16, validators: Vec<ValidatorRecord>) -> Self {
         Self {
             current_slot,
             shard_count,
@@ -40,29 +32,33 @@ impl ValidatorInductor {
     ///
     /// Returns an error if the registration is invalid, otherwise returns the index of the
     /// validator in `CrystallizedState.validators`.
-    pub fn induct(&mut self, rego: &ValidatorRegistration, status: ValidatorStatus)
-        -> Result<usize, ValidatorInductionError>
-    {
+    pub fn induct(
+        &mut self,
+        rego: &ValidatorRegistration,
+        status: ValidatorStatus,
+    ) -> Result<usize, ValidatorInductionError> {
         let v = self.process_registration(rego, status)?;
         Ok(self.add_validator(v))
     }
 
     /// Verify a `ValidatorRegistration` and return a `ValidatorRecord` if valid.
-    fn process_registration(&self, r: &ValidatorRegistration, status: ValidatorStatus)
-        -> Result<ValidatorRecord, ValidatorInductionError>
-    {
+    fn process_registration(
+        &self,
+        r: &ValidatorRegistration,
+        status: ValidatorStatus,
+    ) -> Result<ValidatorRecord, ValidatorInductionError> {
         /*
          * Ensure withdrawal shard is not too high.
          */
         if r.withdrawal_shard > self.shard_count {
-            return Err(ValidatorInductionError::InvalidShard)
+            return Err(ValidatorInductionError::InvalidShard);
         }
 
         /*
          * Prove validator has knowledge of their secret key.
          */
         if !verify_proof_of_possession(&r.proof_of_possession, &r.pubkey) {
-            return Err(ValidatorInductionError::InvaidProofOfPossession)
+            return Err(ValidatorInductionError::InvaidProofOfPossession);
         }
 
         Ok(ValidatorRecord {
@@ -79,13 +75,11 @@ impl ValidatorInductor {
 
     /// Returns the index of the first `ValidatorRecord` in the `CrystallizedState` where
     /// `validator.status == Withdrawn`. If no such record exists, `None` is returned.
-    fn first_withdrawn_validator(&mut self)
-        -> Option<usize>
-    {
+    fn first_withdrawn_validator(&mut self) -> Option<usize> {
         for i in self.empty_validator_start..self.validators.len() {
             if self.validators[i].status == ValidatorStatus::Withdrawn as u8 {
                 self.empty_validator_start = i + 1;
-                return Some(i)
+                return Some(i);
             }
         }
         None
@@ -94,9 +88,7 @@ impl ValidatorInductor {
     /// Adds a `ValidatorRecord` to the `CrystallizedState` by replacing first validator where
     /// `validator.status == Withdraw`. If no such withdrawn validator exists, adds the new
     /// validator to the end of the list.
-    fn add_validator(&mut self, v: ValidatorRecord)
-        -> usize
-    {
+    fn add_validator(&mut self, v: ValidatorRecord) -> usize {
         match self.first_withdrawn_validator() {
             Some(i) => {
                 self.validators[i] = v;
@@ -109,36 +101,25 @@ impl ValidatorInductor {
         }
     }
 
-    pub fn to_vec(self)
-        -> Vec<ValidatorRecord>
-    {
+    pub fn to_vec(self) -> Vec<ValidatorRecord> {
         self.validators
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use bls::{
-        Keypair,
-        Signature,
-    };
-    use types::{
-        Address,
-        Hash256,
-    };
+    use bls::{Keypair, Signature};
     use hashing::proof_of_possession_hash;
+    use types::{Address, Hash256};
 
-    fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord)
-        -> bool
-    {
-        (reg.pubkey == rec.pubkey) &
-        (reg.withdrawal_shard == rec.withdrawal_shard) &
-        (reg.withdrawal_address == rec.withdrawal_address) &
-        (reg.randao_commitment == rec.randao_commitment) &
-        (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
+    fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord) -> bool {
+        (reg.pubkey == rec.pubkey)
+            & (reg.withdrawal_shard == rec.withdrawal_shard)
+            & (reg.withdrawal_address == rec.withdrawal_address)
+            & (reg.randao_commitment == rec.randao_commitment)
+            & (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
     }
 
     /// Generate a proof of possession for some keypair.
@@ -291,7 +272,10 @@ mod tests {
         let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
 
-        assert_eq!(result, Err(ValidatorInductionError::InvaidProofOfPossession));
+        assert_eq!(
+            result,
+            Err(ValidatorInductionError::InvaidProofOfPossession)
+        );
         assert_eq!(validators.len(), 0);
     }
 }

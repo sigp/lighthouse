@@ -4,33 +4,25 @@ extern crate hashing;
 extern crate types;
 
 use active_validators::validator_is_active;
-use bytes::{
-    BytesMut,
-    BufMut,
-};
+use bytes::{BufMut, BytesMut};
 use hashing::canonical_hash;
 use std::cmp::max;
-use types::{
-    Hash256,
-    ValidatorRecord,
-    ValidatorStatus,
-};
+use types::{Hash256, ValidatorRecord, ValidatorStatus};
 
 pub enum UpdateValidatorSetError {
     ArithmeticOverflow,
 }
 
 const VALIDATOR_FLAG_ENTRY: u8 = 0;
-const VALIDATOR_FLAG_EXIT:  u8 = 1;
+const VALIDATOR_FLAG_EXIT: u8 = 1;
 
 pub fn update_validator_set(
     validators: &mut Vec<ValidatorRecord>,
     hash_chain: Hash256,
     present_slot: u64,
     deposit_size_gwei: u64,
-    max_validator_churn_quotient: u64)
-    -> Result<(), UpdateValidatorSetError>
-{
+    max_validator_churn_quotient: u64,
+) -> Result<(), UpdateValidatorSetError> {
     /*
      * Total balance of all active validators.
      *
@@ -40,7 +32,8 @@ pub fn update_validator_set(
         let mut bal: u64 = 0;
         for v in validators.iter() {
             if validator_is_active(&v) {
-                bal = bal.checked_add(v.balance)
+                bal = bal
+                    .checked_add(v.balance)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
             }
         }
@@ -51,9 +44,13 @@ pub fn update_validator_set(
      * Note: this is not the maximum allowable change, it can actually be higher.
      */
     let max_allowable_change = {
-        let double_deposit_size = deposit_size_gwei.checked_mul(2)
+        let double_deposit_size = deposit_size_gwei
+            .checked_mul(2)
             .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
-        max(double_deposit_size, total_balance / max_validator_churn_quotient)
+        max(
+            double_deposit_size,
+            total_balance / max_validator_churn_quotient,
+        )
     };
 
     let mut hasher = ValidatorChangeHashChain {
@@ -66,7 +63,8 @@ pub fn update_validator_set(
              * Validator is pending activiation.
              */
             x if x == ValidatorStatus::PendingActivation as u8 => {
-                let new_total_changed = total_changed.checked_add(deposit_size_gwei)
+                let new_total_changed = total_changed
+                    .checked_add(deposit_size_gwei)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
                 /*
                  * If entering this validator would not exceed the max balance delta,
@@ -85,7 +83,8 @@ pub fn update_validator_set(
              * Validator is pending exit.
              */
             x if x == ValidatorStatus::PendingExit as u8 => {
-                let new_total_changed = total_changed.checked_add(v.balance)
+                let new_total_changed = total_changed
+                    .checked_add(v.balance)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
                 /*
                  * If exiting this validator would not exceed the max balance delta,
@@ -101,7 +100,7 @@ pub fn update_validator_set(
                     break;
                 }
             }
-            _ => ()
+            _ => (),
         };
         if total_changed >= max_allowable_change {
             break;
@@ -115,17 +114,14 @@ pub struct ValidatorChangeHashChain {
 }
 
 impl ValidatorChangeHashChain {
-    pub fn extend(&mut self, index: usize, pubkey: &Vec<u8>, flag: u8)
-    {
+    pub fn extend(&mut self, index: usize, pubkey: &Vec<u8>, flag: u8) {
         let mut message = self.bytes.clone();
         message.append(&mut serialize_validator_change_record(index, pubkey, flag));
         self.bytes = canonical_hash(&message);
     }
 }
 
-fn serialize_validator_change_record(index: usize, pubkey: &Vec<u8>, flag: u8)
-    -> Vec<u8>
-{
+fn serialize_validator_change_record(index: usize, pubkey: &Vec<u8>, flag: u8) -> Vec<u8> {
     let mut buf = BytesMut::with_capacity(68);
     buf.put_u8(flag);
     let index_bytes = {
@@ -137,7 +133,6 @@ fn serialize_validator_change_record(index: usize, pubkey: &Vec<u8>, flag: u8)
     buf.put(pubkey);
     buf.take().to_vec()
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -16,10 +16,9 @@ const DEFAULT_LIGHTHOUSE_DIR: &str = ".lighthouse";
 
 impl LighthouseConfig {
     /// Build a new lighthouse configuration from defaults.
-    pub fn default() -> Self{
+    pub fn default() -> Self {
         let data_dir = {
-            let home = dirs::home_dir()
-                .expect("Unable to determine home dir.");
+            let home = dirs::home_dir().expect("Unable to determine home dir.");
             home.join(DEFAULT_LIGHTHOUSE_DIR)
         };
         fs::create_dir_all(&data_dir)

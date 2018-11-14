@@ -25,9 +25,8 @@ pub fn attestation_parent_hashes(
     block_slot: u64,
     attestation_slot: u64,
     current_hashes: &[Hash256],
-    oblique_hashes: &[Hash256])
-    -> Result<Vec<Hash256>, ParentHashesError>
-{
+    oblique_hashes: &[Hash256],
+) -> Result<Vec<Hash256>, ParentHashesError> {
     // This cast places a limit on cycle_length. If you change it, check math
     // for overflow.
     let cycle_length: u64 = u64::from(cycle_length);
@@ -65,19 +64,17 @@ pub fn attestation_parent_hashes(
      * Arithmetic is:
      * start + cycle_length - oblique_hashes.len()
      */
-    let end = start.checked_add(cycle_length)
+    let end = start
+        .checked_add(cycle_length)
         .and_then(|x| x.checked_sub(oblique_hashes.len() as u64))
         .ok_or(ParentHashesError::IntWrapping)?;
 
-
     let mut hashes = Vec::new();
-    hashes.extend_from_slice(
-        &current_hashes[(start as usize)..(end as usize)]);
+    hashes.extend_from_slice(&current_hashes[(start as usize)..(end as usize)]);
     hashes.extend_from_slice(oblique_hashes);
 
     Ok(hashes)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -106,7 +103,8 @@ mod tests {
             block_slot,
             attestation_slot,
             &current_hashes,
-            &oblique_hashes);
+            &oblique_hashes,
+        );
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result.len(), cycle_length as usize);
@@ -131,7 +129,8 @@ mod tests {
             block_slot,
             attestation_slot,
             &current_hashes,
-            &oblique_hashes);
+            &oblique_hashes,
+        );
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result.len(), cycle_length as usize);
@@ -156,7 +155,8 @@ mod tests {
             block_slot,
             attestation_slot,
             &current_hashes,
-            &oblique_hashes);
+            &oblique_hashes,
+        );
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result.len(), cycle_length as usize);
@@ -179,7 +179,8 @@ mod tests {
             block_slot,
             attestation_slot,
             &current_hashes,
-            &oblique_hashes);
+            &oblique_hashes,
+        );
         let result = result.unwrap();
         assert_eq!(result.len(), cycle_length as usize);
         let expected_result = get_range_of_hashes(7, 15);
@@ -201,7 +202,8 @@ mod tests {
             block_slot,
             attestation_slot,
             &current_hashes,
-            &oblique_hashes);
+            &oblique_hashes,
+        );
         assert!(result.is_err());
     }
 
@@ -220,7 +222,8 @@ mod tests {
             block_slot,
             attestation_slot,
             &current_hashes,
-            &oblique_hashes);
+            &oblique_hashes,
+        );
         assert!(result.is_err());
     }
 }

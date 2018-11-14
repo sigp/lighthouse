@@ -1,7 +1,6 @@
 /// A library for performing deterministic, pseudo-random shuffling on a vector.
 ///
 /// This library is designed to confirm to the Ethereum 2.0 specification.
-
 extern crate hashing;
 
 mod rng;
@@ -19,11 +18,7 @@ pub enum ShuffleErr {
 /// of the supplied `seed`.
 ///
 /// This is a Fisher-Yates-Durtstenfeld shuffle.
-pub fn shuffle<T>(
-    seed: &[u8],
-    mut list: Vec<T>)
-    -> Result<Vec<T>, ShuffleErr>
-{
+pub fn shuffle<T>(seed: &[u8], mut list: Vec<T>) -> Result<Vec<T>, ShuffleErr> {
     let mut rng = ShuffleRng::new(seed);
 
     if list.len() > rng.rand_max as usize {
@@ -42,16 +37,15 @@ pub fn shuffle<T>(
     Ok(list)
 }
 
-
 #[cfg(test)]
 mod tests {
     extern crate yaml_rust;
 
-    use super::*;
+    use self::yaml_rust::yaml;
     use super::hashing::canonical_hash;
+    use super::*;
     use std::fs::File;
     use std::io::prelude::*;
-    use self::yaml_rust::yaml;
 
     #[test]
     fn test_shuffling() {
