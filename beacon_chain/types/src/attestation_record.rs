@@ -1,15 +1,6 @@
-use super::{ Hash256, Bitfield };
-use super::bls::{
-    AggregateSignature,
-    BLS_AGG_SIG_BYTE_SIZE,
-};
-use super::ssz::{
-    Encodable,
-    Decodable,
-    DecodeError,
-    decode_ssz_list,
-    SszStream,
-};
+use super::bls::{AggregateSignature, BLS_AGG_SIG_BYTE_SIZE};
+use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use super::{Bitfield, Hash256};
 
 pub const MIN_SSZ_ATTESTION_RECORD_LENGTH: usize = {
     8 +             // slot
@@ -19,7 +10,7 @@ pub const MIN_SSZ_ATTESTION_RECORD_LENGTH: usize = {
     5 +             // attester_bitfield (assuming 1 byte of bitfield)
     8 +             // justified_slot
     32 +            // justified_block_hash
-    4 + BLS_AGG_SIG_BYTE_SIZE    // aggregate sig (two 256 bit points)
+    4 + BLS_AGG_SIG_BYTE_SIZE // aggregate sig (two 256 bit points)
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,9 +39,7 @@ impl Encodable for AttestationRecord {
 }
 
 impl Decodable for AttestationRecord {
-    fn ssz_decode(bytes: &[u8], i: usize)
-        -> Result<(Self, usize), DecodeError>
-    {
+    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (slot, i) = u64::ssz_decode(bytes, i)?;
         let (shard_id, i) = u16::ssz_decode(bytes, i)?;
         let (oblique_parent_hashes, i) = decode_ssz_list(bytes, i)?;
@@ -60,8 +49,8 @@ impl Decodable for AttestationRecord {
         let (justified_block_hash, i) = Hash256::ssz_decode(bytes, i)?;
         // Do aggregate sig decoding properly.
         let (agg_sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let aggregate_sig = AggregateSignature::from_bytes(&agg_sig_bytes)
-            .map_err(|_| DecodeError::TooShort)?;   // also could be TooLong
+        let aggregate_sig =
+            AggregateSignature::from_bytes(&agg_sig_bytes).map_err(|_| DecodeError::TooShort)?; // also could be TooLong
 
         let attestation_record = Self {
             slot,
@@ -92,11 +81,10 @@ impl AttestationRecord {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::ssz::SszStream;
+    use super::*;
 
     #[test]
     pub fn test_attestation_record_min_ssz_length() {
@@ -124,11 +112,13 @@ mod tests {
         let mut ssz_stream = SszStream::new();
         ssz_stream.append(&original);
 
-        let (decoded, _) = AttestationRecord::
-            ssz_decode(&ssz_stream.drain(), 0).unwrap();
+        let (decoded, _) = AttestationRecord::ssz_decode(&ssz_stream.drain(), 0).unwrap();
         assert_eq!(original.slot, decoded.slot);
         assert_eq!(original.shard_id, decoded.shard_id);
-        assert_eq!(original.oblique_parent_hashes, decoded.oblique_parent_hashes);
+        assert_eq!(
+            original.oblique_parent_hashes,
+            decoded.oblique_parent_hashes
+        );
         assert_eq!(original.shard_block_hash, decoded.shard_block_hash);
         assert_eq!(original.attester_bitfield, decoded.attester_bitfield);
         assert_eq!(original.justified_slot, decoded.justified_slot);
