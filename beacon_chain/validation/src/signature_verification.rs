@@ -128,7 +128,7 @@ mod tests {
         all_keypairs.append(&mut non_signing_keypairs.clone());
 
         let attestation_indices: Vec<usize> = (0..all_keypairs.len()).collect();
-        let mut bitfield = Bitfield::new();
+        let mut bitfield = Bitfield::from_elem(all_keypairs.len(), false);
         for i in 0..signing_keypairs.len() {
             bitfield.set(i, true).unwrap();
         }
