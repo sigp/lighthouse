@@ -103,7 +103,7 @@ mod tests {
             shard_id: 9,
             oblique_parent_hashes: vec![Hash256::from(&vec![14; 32][..])],
             shard_block_hash: Hash256::from(&vec![15; 32][..]),
-            attester_bitfield: Bitfield::from(&vec![17; 42][..]),
+            attester_bitfield: Bitfield::from_bytes(&vec![17; 42][..]),
             justified_slot: 19,
             justified_block_hash: Hash256::from(&vec![15; 32][..]),
             aggregate_sig: AggregateSignature::new(),
