@@ -63,7 +63,7 @@ pub fn generate_attestation(
     signing_keys: &[Option<SecretKey>],
     block_store: &BeaconBlockStore<MemoryDB>,
 ) -> AttestationRecord {
-    let mut attester_bitfield = Bitfield::new();
+    let mut attester_bitfield = Bitfield::from_elem(signing_keys.len(), false);
     let mut aggregate_sig = AggregateSignature::new();
 
     let parent_hashes_slice = {
