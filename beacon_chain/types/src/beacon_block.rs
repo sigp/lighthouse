@@ -1,12 +1,7 @@
-use super::Hash256;
 use super::attestation_record::AttestationRecord;
 use super::special_record::SpecialRecord;
-use super::ssz::{
-    Encodable,
-    Decodable,
-    DecodeError,
-    SszStream,
-};
+use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
+use super::Hash256;
 
 pub const MIN_SSZ_BLOCK_LENGTH: usize = {
     8 +                 // slot
@@ -16,7 +11,7 @@ pub const MIN_SSZ_BLOCK_LENGTH: usize = {
     32 +                // active_state_root
     32 +                // crystallized_state_root
     4 +                 // attestations (assuming empty)
-    4                   // specials (assuming empty)
+    4 // specials (assuming empty)
 };
 pub const MAX_SSZ_BLOCK_LENGTH: usize = MIN_SSZ_BLOCK_LENGTH + (1 << 24);
 
@@ -68,9 +63,7 @@ impl Encodable for BeaconBlock {
 }
 
 impl Decodable for BeaconBlock {
-    fn ssz_decode(bytes: &[u8], i: usize)
-        -> Result<(Self, usize), DecodeError>
-    {
+    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (slot, i) = u64::ssz_decode(bytes, i)?;
         let (randao_reveal, i) = Hash256::ssz_decode(bytes, i)?;
         let (pow_chain_reference, i) = Hash256::ssz_decode(bytes, i)?;
@@ -87,12 +80,11 @@ impl Decodable for BeaconBlock {
             active_state_root,
             crystallized_state_root,
             attestations,
-            specials
+            specials,
         };
         Ok((block, i))
     }
 }
-
 
 #[cfg(test)]
 mod tests {

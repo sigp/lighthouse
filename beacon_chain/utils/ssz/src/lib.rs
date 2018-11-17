@@ -13,27 +13,19 @@ extern crate ethereum_types;
 pub mod decode;
 pub mod encode;
 
-mod impl_encode;
 mod impl_decode;
+mod impl_encode;
 
-pub use decode::{
-    Decodable,
-    DecodeError,
-    decode_ssz,
-    decode_ssz_list,
-};
-pub use encode::{
-    Encodable,
-    SszStream,
-};
+pub use decode::{decode_ssz, decode_ssz_list, Decodable, DecodeError};
+pub use encode::{Encodable, SszStream};
 
 pub const LENGTH_BYTES: usize = 4;
-pub const MAX_LIST_SIZE : usize = 1 << (4 * 8);
-
+pub const MAX_LIST_SIZE: usize = 1 << (4 * 8);
 
 /// Convenience function to SSZ encode an object supporting ssz::Encode.
 pub fn ssz_encode<T>(val: &T) -> Vec<u8>
-    where T: Encodable
+where
+    T: Encodable,
 {
     let mut ssz_stream = SszStream::new();
     ssz_stream.append(val);

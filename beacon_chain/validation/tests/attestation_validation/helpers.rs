@@ -1,33 +1,12 @@
 use std::sync::Arc;
 
-use super::db::{
-    MemoryDB,
-};
-use super::db::stores::{
-    ValidatorStore,
-    BeaconBlockStore,
-};
-use super::types::{
-    AttestationRecord,
-    AttesterMap,
-    Bitfield,
-    BeaconBlock,
-    Hash256,
-};
-use super::validation::attestation_validation::{
-    AttestationValidationContext,
-};
-use super::bls::{
-    AggregateSignature,
-    Keypair,
-    SecretKey,
-    Signature,
-};
+use super::bls::{AggregateSignature, Keypair, SecretKey, Signature};
+use super::db::stores::{BeaconBlockStore, ValidatorStore};
+use super::db::MemoryDB;
+use super::hashing::canonical_hash;
 use super::ssz::SszStream;
-use super::hashing::{
-    canonical_hash,
-};
-
+use super::types::{AttestationRecord, AttesterMap, BeaconBlock, Bitfield, Hash256};
+use super::validation::attestation_validation::AttestationValidationContext;
 
 pub struct TestStore {
     pub db: Arc<MemoryDB>,
@@ -55,13 +34,13 @@ pub struct TestRig {
     pub attester_count: usize,
 }
 
-fn generate_message_hash(slot: u64,
-                         parent_hashes: &[Hash256],
-                         shard_id: u16,
-                         shard_block_hash: &Hash256,
-                         justified_slot: u64)
-    -> Vec<u8>
-{
+fn generate_message_hash(
+    slot: u64,
+    parent_hashes: &[Hash256],
+    shard_id: u16,
+    shard_block_hash: &Hash256,
+    justified_slot: u64,
+) -> Vec<u8> {
     let mut stream = SszStream::new();
     stream.append(&slot);
     stream.append_vec(&parent_hashes.to_vec());
@@ -72,18 +51,18 @@ fn generate_message_hash(slot: u64,
     canonical_hash(&bytes)
 }
 
-pub fn generate_attestation(shard_id: u16,
-                            shard_block_hash: &Hash256,
-                            block_slot: u64,
-                            attestation_slot: u64,
-                            justified_slot: u64,
-                            justified_block_hash: &Hash256,
-                            cycle_length: u8,
-                            parent_hashes: &[Hash256],
-                            signing_keys: &[Option<SecretKey>],
-                            block_store: &BeaconBlockStore<MemoryDB>)
-    -> AttestationRecord
-{
+pub fn generate_attestation(
+    shard_id: u16,
+    shard_block_hash: &Hash256,
+    block_slot: u64,
+    attestation_slot: u64,
+    justified_slot: u64,
+    justified_block_hash: &Hash256,
+    cycle_length: u8,
+    parent_hashes: &[Hash256],
+    signing_keys: &[Option<SecretKey>],
+    block_store: &BeaconBlockStore<MemoryDB>,
+) -> AttestationRecord {
     let mut attester_bitfield = Bitfield::new();
     let mut aggregate_sig = AggregateSignature::new();
 
@@ -107,7 +86,8 @@ pub fn generate_attestation(shard_id: u16,
         parent_hashes_slice,
         shard_id,
         shard_block_hash,
-        justified_slot);
+        justified_slot,
+    );
 
     for (i, secret_key) in signing_keys.iter().enumerate() {
         /*
@@ -143,7 +123,9 @@ pub fn create_block_at_slot(block_store: &BeaconBlockStore<MemoryDB>, hash: &Has
     let mut s = SszStream::new();
     s.append(&justified_block);
     let justified_block_ssz = s.drain();
-    block_store.put_serialized_block(&hash.to_vec(), &justified_block_ssz).unwrap();
+    block_store
+        .put_serialized_block(&hash.to_vec(), &justified_block_ssz)
+        .unwrap();
 }
 
 /// Inserts a justified_block_hash in a position that will be referenced by an attestation record.
@@ -151,16 +133,14 @@ pub fn insert_justified_block_hash(
     parent_hashes: &mut Vec<Hash256>,
     justified_block_hash: &Hash256,
     block_slot: u64,
-    attestation_slot: u64)
-{
-    let attestation_parent_hash_index = parent_hashes.len() - 1 -
-        (block_slot as usize - attestation_slot as usize);
+    attestation_slot: u64,
+) {
+    let attestation_parent_hash_index =
+        parent_hashes.len() - 1 - (block_slot as usize - attestation_slot as usize);
     parent_hashes[attestation_parent_hash_index] = justified_block_hash.clone();
 }
 
-pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
-    -> TestRig
-{
+pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize) -> TestRig {
     let stores = TestStore::new();
 
     let block_slot = 10000;
@@ -181,7 +161,8 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         &mut parent_hashes,
         &justified_block_hash,
         block_slot,
-        attestation_slot);
+        attestation_slot,
+    );
 
     let parent_hashes = Arc::new(parent_hashes);
 
@@ -195,11 +176,14 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
      * list of keypairs. Store it in the database.
      */
     for i in 0..attester_count {
-       let keypair = Keypair::random();
-       keypairs.push(keypair.clone());
-       stores.validator.put_public_key_by_index(i, &keypair.pk).unwrap();
-       signing_keys.push(Some(keypair.sk.clone()));
-       attesters.push(i);
+        let keypair = Keypair::random();
+        keypairs.push(keypair.clone());
+        stores
+            .validator
+            .put_public_key_by_index(i, &keypair.pk)
+            .unwrap();
+        signing_keys.push(Some(keypair.sk.clone()));
+        attesters.push(i);
     }
     attester_map.insert((attestation_slot, shard_id), attesters);
 
@@ -223,7 +207,8 @@ pub fn setup_attestation_validation_test(shard_id: u16, attester_count: usize)
         cycle_length,
         &parent_hashes.clone(),
         &signing_keys,
-        &stores.block);
+        &stores.block,
+    );
 
     TestRig {
         attestation,

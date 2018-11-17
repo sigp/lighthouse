@@ -1,8 +1,8 @@
 extern crate db;
 extern crate naive_fork_choice;
-extern crate state_transition;
 extern crate ssz;
 extern crate ssz_helpers;
+extern crate state_transition;
 extern crate types;
 extern crate validation;
 extern crate validator_induction;
@@ -12,8 +12,8 @@ mod block_context;
 mod block_processing;
 mod genesis;
 mod maps;
-mod transition;
 mod stores;
+mod transition;
 
 use db::ClientDB;
 use genesis::genesis_states;
