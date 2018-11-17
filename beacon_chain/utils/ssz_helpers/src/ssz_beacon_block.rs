@@ -1,12 +1,6 @@
-use super::ssz::decode::{
-    decode_length,
-    Decodable,
-};
 use super::hashing::canonical_hash;
-use super::types::beacon_block::{
-    MIN_SSZ_BLOCK_LENGTH,
-    MAX_SSZ_BLOCK_LENGTH,
-};
+use super::ssz::decode::{decode_length, Decodable};
+use super::types::beacon_block::{MAX_SSZ_BLOCK_LENGTH, MIN_SSZ_BLOCK_LENGTH};
 
 #[derive(Debug, PartialEq)]
 pub enum SszBeaconBlockError {
@@ -61,9 +55,7 @@ impl<'a> SszBeaconBlock<'a> {
     /// The returned `SszBeaconBlock` instance will contain a `len` field which can be used to determine
     /// how many bytes were read from the slice. In the case of multiple, sequentually serialized
     /// blocks `len` can be used to assume the location of the next serialized block.
-    pub fn from_slice(vec: &'a [u8])
-        -> Result<Self, SszBeaconBlockError>
-    {
+    pub fn from_slice(vec: &'a [u8]) -> Result<Self, SszBeaconBlockError> {
         let untrimmed_ssz = &vec[..];
 
         /*
@@ -83,22 +75,19 @@ impl<'a> SszBeaconBlock<'a> {
         /*
          * Determine how many bytes are used to store ancestor hashes.
          */
-        let ancestors_position =
-            SLOT_BYTES +
-            RANDAO_REVEAL_BYTES +
-            POW_CHAIN_REF_BYTES;
+        let ancestors_position = SLOT_BYTES + RANDAO_REVEAL_BYTES + POW_CHAIN_REF_BYTES;
         let ancestors_len = decode_length(untrimmed_ssz, ancestors_position, LENGTH_PREFIX_BYTES)
             .map_err(|_| SszBeaconBlockError::TooShort)?;
 
         /*
          * Determine how many bytes are used to store attestation records.
          */
-        let attestations_position =
-            ancestors_position + LENGTH_PREFIX_BYTES + ancestors_len +     // end of ancestor bytes
+        let attestations_position = ancestors_position + LENGTH_PREFIX_BYTES + ancestors_len +     // end of ancestor bytes
             ACTIVE_STATE_BYTES +
             CRYSTALLIZED_STATE_BYTES;
-        let attestations_len = decode_length(untrimmed_ssz, attestations_position, LENGTH_PREFIX_BYTES)
-            .map_err(|_| SszBeaconBlockError::TooShort)?;
+        let attestations_len =
+            decode_length(untrimmed_ssz, attestations_position, LENGTH_PREFIX_BYTES)
+                .map_err(|_| SszBeaconBlockError::TooShort)?;
 
         /*
          * Determine how many bytes are used to store specials.
@@ -116,7 +105,7 @@ impl<'a> SszBeaconBlock<'a> {
             return Err(SszBeaconBlockError::TooShort);
         }
 
-        Ok(Self{
+        Ok(Self {
             ssz: &untrimmed_ssz[0..block_ssz_len],
             block_ssz_len,
             ancestors_position,
@@ -128,8 +117,12 @@ impl<'a> SszBeaconBlock<'a> {
         })
     }
 
-    pub fn len(&self) -> usize { self.ssz.len() }
-    pub fn is_empty(&self) -> bool { self.ssz.is_empty() }
+    pub fn len(&self) -> usize {
+        self.ssz.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.ssz.is_empty()
+    }
 
     /// Returns this block as ssz.
     ///
@@ -177,9 +170,7 @@ impl<'a> SszBeaconBlock<'a> {
 
     /// Return the `pow_chain_reference` field.
     pub fn pow_chain_reference(&self) -> &[u8] {
-        let start =
-            SLOT_BYTES +
-            RANDAO_REVEAL_BYTES;
+        let start = SLOT_BYTES + RANDAO_REVEAL_BYTES;
         &self.ssz[start..start + POW_CHAIN_REF_BYTES]
     }
 
@@ -198,8 +189,7 @@ impl<'a> SszBeaconBlock<'a> {
     /// Return the `active_state_root` field.
     pub fn cry_state_root(&self) -> &[u8] {
         let start =
-            self.ancestors_position + LENGTH_PREFIX_BYTES + self.ancestors_len +
-            ACTIVE_STATE_BYTES;
+            self.ancestors_position + LENGTH_PREFIX_BYTES + self.ancestors_len + ACTIVE_STATE_BYTES;
         &self.ssz[start..(start + 32)]
     }
 
@@ -222,18 +212,13 @@ impl<'a> SszBeaconBlock<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::types::{
-        AttestationRecord,
-        BeaconBlock,
-        SpecialRecord,
-    };
+    use super::super::ssz::encode::encode_length;
     use super::super::ssz::SszStream;
     use super::super::types::Hash256;
-    use super::super::ssz::encode::encode_length;
+    use super::super::types::{AttestationRecord, BeaconBlock, SpecialRecord};
+    use super::*;
 
     fn get_block_ssz(b: &BeaconBlock) -> Vec<u8> {
         let mut ssz_stream = SszStream::new();
@@ -258,7 +243,6 @@ mod tests {
         let mut b = BeaconBlock::zero();
         b.attestations = vec![];
         let ssz = get_block_ssz(&b);
-
 
         assert!(SszBeaconBlock::from_slice(&ssz[..]).is_ok());
     }
@@ -309,8 +293,8 @@ mod tests {
         // will tell us if the hash changes, not that it matches some
         // canonical reference.
         let expected_hash = [
-            11, 181, 149, 114, 248, 15, 46, 0, 106, 135, 158, 31, 15, 194, 149, 176,
-            43, 110, 154, 26, 253, 67, 18, 139, 250, 84, 144, 219, 3, 208, 50, 145
+            11, 181, 149, 114, 248, 15, 46, 0, 106, 135, 158, 31, 15, 194, 149, 176, 43, 110, 154,
+            26, 253, 67, 18, 139, 250, 84, 144, 219, 3, 208, 50, 145,
         ];
         assert_eq!(hash, expected_hash);
 
@@ -376,7 +360,10 @@ mod tests {
         let serialized = get_block_ssz(&block);
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
 
-        assert_eq!(ssz_block.parent_hash().unwrap(), &Hash256::from("cats".as_bytes()).to_vec()[..]);
+        assert_eq!(
+            ssz_block.parent_hash().unwrap(),
+            &Hash256::from("cats".as_bytes()).to_vec()[..]
+        );
     }
 
     #[test]
@@ -459,7 +446,10 @@ mod tests {
         let serialized = get_block_ssz(&block);
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
 
-        assert_eq!(ssz_block.pow_chain_reference(), &reference_hash.to_vec()[..]);
+        assert_eq!(
+            ssz_block.pow_chain_reference(),
+            &reference_hash.to_vec()[..]
+        );
     }
 
     #[test]

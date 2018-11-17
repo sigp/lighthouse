@@ -1,28 +1,22 @@
-use std::time::{
-    Duration,
-    SystemTime,
-    SystemTimeError,
-};
+use std::time::{Duration, SystemTime, SystemTimeError};
 
-pub fn slot_now(genesis_seconds: u64, slot_duration_seconds: u64)
-    -> Result<Option<u64>, SystemTimeError>
-{
+pub fn slot_now(
+    genesis_seconds: u64,
+    slot_duration_seconds: u64,
+) -> Result<Option<u64>, SystemTimeError> {
     let sys_time = SystemTime::now();
     let duration_since_epoch = sys_time.duration_since(SystemTime::UNIX_EPOCH)?;
-    let duration_since_genesis = duration_since_epoch
-        .checked_sub(Duration::from_secs(genesis_seconds));
+    let duration_since_genesis =
+        duration_since_epoch.checked_sub(Duration::from_secs(genesis_seconds));
     match duration_since_genesis {
         None => Ok(None),
-        Some(d) => Ok(slot_from_duration(slot_duration_seconds, d))
+        Some(d) => Ok(slot_from_duration(slot_duration_seconds, d)),
     }
 }
 
-fn slot_from_duration(slot_duration_seconds: u64, duration: Duration)
-    -> Option<u64>
-{
+fn slot_from_duration(slot_duration_seconds: u64, duration: Duration) -> Option<u64> {
     duration.as_secs().checked_div(slot_duration_seconds)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -55,9 +49,18 @@ mod tests {
 
         assert_eq!(slot_from_duration(s_time, Duration::from_secs(0)), Some(0));
         assert_eq!(slot_from_duration(s_time, Duration::from_secs(10)), Some(0));
-        assert_eq!(slot_from_duration(s_time, Duration::from_secs(100)), Some(1));
-        assert_eq!(slot_from_duration(s_time, Duration::from_secs(101)), Some(1));
-        assert_eq!(slot_from_duration(s_time, Duration::from_secs(1000)), Some(10));
+        assert_eq!(
+            slot_from_duration(s_time, Duration::from_secs(100)),
+            Some(1)
+        );
+        assert_eq!(
+            slot_from_duration(s_time, Duration::from_secs(101)),
+            Some(1)
+        );
+        assert_eq!(
+            slot_from_duration(s_time, Duration::from_secs(1000)),
+            Some(10)
+        );
     }
 
     #[test]

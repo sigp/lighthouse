@@ -1,20 +1,10 @@
 use std::sync::Arc;
 
-use super::helpers::{
-    TestRig,
-    setup_attestation_validation_test,
-    create_block_at_slot,
-};
-use super::validation::attestation_validation::{
-    AttestationValidationError,
-};
+use super::bls::AggregateSignature;
+use super::helpers::{create_block_at_slot, setup_attestation_validation_test, TestRig};
 use super::types::AttesterMap;
-use super::bls::{
-    AggregateSignature,
-};
-use super::types::{
-    Hash256,
-};
+use super::types::Hash256;
+use super::validation::attestation_validation::AttestationValidationError;
 
 fn generic_rig() -> TestRig {
     let shard_id = 10;
@@ -80,21 +70,29 @@ fn test_attestation_validation_invalid_justified_slot_incorrect() {
     create_block_at_slot(
         &rig.stores.block,
         &rig.attestation.justified_block_hash,
-        rig.attestation.justified_slot);
+        rig.attestation.justified_slot,
+    );
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::BadAggregateSignature));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::BadAggregateSignature)
+    );
 
     rig.attestation.justified_slot = original + 1;
     // Ensures we don't get a bad justified block error instead.
     create_block_at_slot(
         &rig.stores.block,
         &rig.attestation.justified_block_hash,
-        rig.attestation.justified_slot);
+        rig.attestation.justified_slot,
+    );
     // Ensures we don't get an error that the last justified slot is ahead of the context justified
     // slot.
     rig.context.last_justified_slot = rig.attestation.justified_slot;
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::BadAggregateSignature));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::BadAggregateSignature)
+    );
 }
 
 #[test]
@@ -108,7 +106,10 @@ fn test_attestation_validation_invalid_too_many_oblique() {
     rig.attestation.oblique_parent_hashes = obliques;
 
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::TooManyObliqueHashes));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::TooManyObliqueHashes)
+    );
 }
 
 #[test]
@@ -132,8 +133,12 @@ fn test_attestation_validation_invalid_bad_bitfield_length() {
      * of the bitfield.
      */
     let one_byte_higher = rig.attester_count + 8;
-    rig.attestation.attester_bitfield.set_bit(one_byte_higher, true);
-    rig.attestation.attester_bitfield.set_bit(one_byte_higher, false);
+    rig.attestation
+        .attester_bitfield
+        .set_bit(one_byte_higher, true);
+    rig.attestation
+        .attester_bitfield
+        .set_bit(one_byte_higher, false);
 
     let result = rig.context.validate_attestation(&rig.attestation);
     assert_eq!(result, Err(AttestationValidationError::BadBitfieldLength));
@@ -144,10 +149,15 @@ fn test_attestation_validation_invalid_invalid_bitfield_end_bit() {
     let mut rig = generic_rig();
 
     let one_bit_high = rig.attester_count + 1;
-    rig.attestation.attester_bitfield.set_bit(one_bit_high, true);
+    rig.attestation
+        .attester_bitfield
+        .set_bit(one_bit_high, true);
 
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::InvalidBitfieldEndBits));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::InvalidBitfieldEndBits)
+    );
 }
 
 #[test]
@@ -164,11 +174,19 @@ fn test_attestation_validation_invalid_invalid_bitfield_end_bit_with_irreguar_bi
      * bit in a bitfield and the byte length of that bitfield
      */
     let one_bit_high = rig.attester_count + 1;
-    assert!(one_bit_high % 8 != 0, "the test is ineffective in this case.");
-    rig.attestation.attester_bitfield.set_bit(one_bit_high, true);
+    assert!(
+        one_bit_high % 8 != 0,
+        "the test is ineffective in this case."
+    );
+    rig.attestation
+        .attester_bitfield
+        .set_bit(one_bit_high, true);
 
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::InvalidBitfieldEndBits));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::InvalidBitfieldEndBits)
+    );
 }
 
 #[test]
@@ -178,7 +196,10 @@ fn test_attestation_validation_invalid_unknown_justified_block_hash() {
     rig.attestation.justified_block_hash = Hash256::from("unknown block hash".as_bytes());
 
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::InvalidJustifiedBlockHash));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::InvalidJustifiedBlockHash)
+    );
 }
 
 #[test]
@@ -191,9 +212,13 @@ fn test_attestation_validation_invalid_unknown_justified_block_hash_wrong_slot()
     create_block_at_slot(
         &rig.stores.block,
         &rig.attestation.justified_block_hash,
-        rig.attestation.justified_slot + 1);
+        rig.attestation.justified_slot + 1,
+    );
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::InvalidJustifiedBlockHash));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::InvalidJustifiedBlockHash)
+    );
 
     /*
      * justified_block_hash points to a block with a slot that is too low.
@@ -201,9 +226,13 @@ fn test_attestation_validation_invalid_unknown_justified_block_hash_wrong_slot()
     create_block_at_slot(
         &rig.stores.block,
         &rig.attestation.justified_block_hash,
-        rig.attestation.justified_slot - 1);
+        rig.attestation.justified_slot - 1,
+    );
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::InvalidJustifiedBlockHash));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::InvalidJustifiedBlockHash)
+    );
 }
 
 #[test]
@@ -213,5 +242,8 @@ fn test_attestation_validation_invalid_empty_signature() {
     rig.attestation.aggregate_sig = AggregateSignature::new();
 
     let result = rig.context.validate_attestation(&rig.attestation);
-    assert_eq!(result, Err(AttestationValidationError::BadAggregateSignature));
+    assert_eq!(
+        result,
+        Err(AttestationValidationError::BadAggregateSignature)
+    );
 }

@@ -1,6 +1,4 @@
-use super::{
-    LENGTH_BYTES
-};
+use super::LENGTH_BYTES;
 
 pub trait Encodable {
     fn ssz_append(&self, s: &mut SszStream);
@@ -13,20 +11,19 @@ pub trait Encodable {
 /// ssz encoded bytes.
 #[derive(Default)]
 pub struct SszStream {
-    buffer: Vec<u8>
+    buffer: Vec<u8>,
 }
 
 impl SszStream {
     /// Create a new, empty stream for writing ssz values.
     pub fn new() -> Self {
-        SszStream {
-            buffer: Vec::new()
-        }
+        SszStream { buffer: Vec::new() }
     }
 
     /// Append some ssz encodable value to the stream.
     pub fn append<E>(&mut self, value: &E) -> &mut Self
-        where E: Encodable
+    where
+        E: Encodable,
     {
         value.ssz_append(self);
         self
@@ -37,9 +34,8 @@ impl SszStream {
     /// The length of the supplied bytes will be concatenated
     /// to the stream before the supplied bytes.
     pub fn append_encoded_val(&mut self, vec: &[u8]) {
-        self.buffer.extend_from_slice(
-            &encode_length(vec.len(),
-            LENGTH_BYTES));
+        self.buffer
+            .extend_from_slice(&encode_length(vec.len(), LENGTH_BYTES));
         self.buffer.extend_from_slice(&vec);
     }
 
@@ -55,7 +51,8 @@ impl SszStream {
     /// The length of the list will be concatenated to the stream, then
     /// each item in the vector will be encoded and concatenated.
     pub fn append_vec<E>(&mut self, vec: &[E])
-        where E: Encodable
+    where
+        E: Encodable,
     {
         let mut list_stream = SszStream::new();
         for item in vec {
@@ -75,16 +72,15 @@ impl SszStream {
 /// The ssz size prefix is 4 bytes, which is treated as a continuious
 /// 32bit big-endian integer.
 pub fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
-    assert!(length_bytes > 0);  // For sanity
+    assert!(length_bytes > 0); // For sanity
     assert!((len as usize) < 2usize.pow(length_bytes as u32 * 8));
     let mut header: Vec<u8> = vec![0; length_bytes];
     for (i, header_byte) in header.iter_mut().enumerate() {
         let offset = (length_bytes - i - 1) * 8;
         *header_byte = ((len >> offset) & 0xff) as u8;
-    };
+    }
     header
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -98,24 +94,12 @@ mod tests {
 
     #[test]
     fn test_encode_length_4_bytes() {
+        assert_eq!(encode_length(0, LENGTH_BYTES), vec![0; 4]);
+        assert_eq!(encode_length(1, LENGTH_BYTES), vec![0, 0, 0, 1]);
+        assert_eq!(encode_length(255, LENGTH_BYTES), vec![0, 0, 0, 255]);
+        assert_eq!(encode_length(256, LENGTH_BYTES), vec![0, 0, 1, 0]);
         assert_eq!(
-            encode_length(0, LENGTH_BYTES),
-            vec![0; 4]
-        );
-        assert_eq!(
-            encode_length(1, LENGTH_BYTES),
-            vec![0, 0, 0, 1]
-        );
-        assert_eq!(
-            encode_length(255, LENGTH_BYTES),
-            vec![0, 0, 0, 255]
-        );
-        assert_eq!(
-            encode_length(256, LENGTH_BYTES),
-            vec![0, 0, 1, 0]
-        );
-        assert_eq!(
-            encode_length(4294967295, LENGTH_BYTES),  // 2^(3*8) - 1
+            encode_length(4294967295, LENGTH_BYTES), // 2^(3*8) - 1
             vec![255, 255, 255, 255]
         );
     }
@@ -123,7 +107,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_encode_length_4_bytes_panic() {
-        encode_length(4294967296, LENGTH_BYTES);  // 2^(3*8)
+        encode_length(4294967296, LENGTH_BYTES); // 2^(3*8)
     }
 
     #[test]

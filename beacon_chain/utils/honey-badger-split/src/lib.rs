@@ -2,27 +2,28 @@
 ///
 /// We have titled it the "honey badger split" because of its robustness. It don't care.
 
-
 /// Iterator for the honey_badger_split function
 pub struct Split<'a, T: 'a> {
     n: usize,
     current_pos: usize,
     list: &'a [T],
-    list_length: usize
+    list_length: usize,
 }
 
-impl<'a,T> Iterator for Split<'a, T> {
+impl<'a, T> Iterator for Split<'a, T> {
     type Item = &'a [T];
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.current_pos +=1;
+        self.current_pos += 1;
         if self.current_pos <= self.n {
-            match self.list.get(self.list_length*(self.current_pos-1)/self.n..self.list_length*self.current_pos/self.n) {
+            match self.list.get(
+                self.list_length * (self.current_pos - 1) / self.n
+                    ..self.list_length * self.current_pos / self.n,
+            ) {
                 Some(v) => Some(v),
-                None => unreachable!()
+                None => unreachable!(),
             }
-        }
-        else {
+        } else {
             None
         }
     }
@@ -37,7 +38,6 @@ pub trait SplitExt<T> {
 }
 
 impl<T> SplitExt<T> for [T] {
-
     fn honey_badger_split(&self, n: usize) -> Split<T> {
         Split {
             n,
