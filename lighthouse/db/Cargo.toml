@@ -11,4 +11,3 @@ rocksdb = "0.10.1"
 ssz = { path = "../../beacon_chain/utils/ssz" }
 ssz_helpers = { path = "../../beacon_chain/utils/ssz_helpers" }
 types = { path = "../../beacon_chain/types" }
-rand = "0.5.5"
