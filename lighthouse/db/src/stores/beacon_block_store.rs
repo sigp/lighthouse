@@ -97,6 +97,70 @@ mod tests {
     use std::thread;
 
     #[test]
+    fn test_put_serialized_block() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        store.put_serialized_block(hash, ssz);
+        assert_eq!(db.get(DB_COLUMN, hash).unwrap().unwrap(), ssz);
+    }
+
+    #[test]
+    fn test_get_serialized_block() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz);
+        assert_eq!(store.get_serialized_block(hash).unwrap().unwrap(), ssz);
+    }
+
+    #[test]
+    fn test_block_exists() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz);
+        assert!(store.block_exists(hash).unwrap());
+    }
+
+    #[test]
+    fn test_block_doesnt_exist() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz);
+        assert!(!store.block_exists(other_hash).unwrap());
+    }
+
+    #[test]
+    fn test_delete_block() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz);
+        assert!(db.exists(DB_COLUMN, hash).unwrap());
+
+        store.delete_block(hash);
+        assert!(!db.exists(DB_COLUMN, hash).unwrap());
+    }
+
+    #[test]
     fn test_block_store_on_memory_db() {
         let db = Arc::new(MemoryDB::open());
         let bs = Arc::new(BeaconBlockStore::new(db.clone()));
