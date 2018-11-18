@@ -83,6 +83,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_put_public_key_by_index() {
+        let db = Arc::new(MemoryDB::open());
+        let store = ValidatorStore::new(db.clone());
+
+        let index = 3;
+        let public_key = Keypair::random().pk;
+
+        store.put_public_key_by_index(index, &public_key).unwrap();
+        let public_key_at_index = db.get(
+            DB_COLUMN,
+            &store.get_db_key_for_index(&KeyPrefixes::PublicKey, index)[..]
+        ).unwrap().unwrap();
+
+        assert_eq!(public_key_at_index, public_key.as_bytes());
+    }
+
+    #[test]
+    fn test_get_public_key_by_index() {
+        let db = Arc::new(MemoryDB::open());
+        let store = ValidatorStore::new(db.clone());
+
+        let index = 4;
+        let public_key = Keypair::random().pk;
+
+        db.put(
+            DB_COLUMN,
+            &store.get_db_key_for_index(&KeyPrefixes::PublicKey, index)[..],
+            &public_key.as_bytes()[..]
+        ).unwrap();
+
+        let public_key_at_index = store.get_public_key_by_index(index).unwrap().unwrap();
+        assert_eq!(public_key_at_index, public_key);
+    }
+
+    #[test]
+    fn test_get_public_key_by_invalid_index() {
+        let db = Arc::new(MemoryDB::open());
+        let store = ValidatorStore::new(db.clone());
+
+        let public_key = Keypair::random().pk;
+
+        db.put(
+            DB_COLUMN,
+            &store.get_db_key_for_index(&KeyPrefixes::PublicKey, 3)[..],
+            &public_key.as_bytes()[..]
+        ).unwrap();
+
+        let public_key_at_index = store.get_public_key_by_index(4).unwrap();
+        assert_eq!(public_key_at_index, None);
+    }
+
+    #[test]
     fn test_validator_store_put_get() {
         let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db);
