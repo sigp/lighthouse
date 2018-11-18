@@ -26,7 +26,7 @@ impl<T: ClientDB> PoWChainStore<T> {
 #[cfg(test)]
 mod tests {
     extern crate rand;
-    
+
     use super::*;
     use super::super::super::MemoryDB;
 
@@ -36,7 +36,7 @@ mod tests {
         let store = PoWChainStore::new(db.clone());
 
         let hash: &[u8] = &[rand::random()];
-        store.put_block_hash(hash);
+        store.put_block_hash(hash).unwrap();
 
         assert!(db.exists(DB_COLUMN, hash).unwrap());
     }
@@ -47,7 +47,7 @@ mod tests {
         let store = PoWChainStore::new(db.clone());
 
         let hash: &[u8] = &[rand::random()];
-        db.put(DB_COLUMN, hash, &[0]);
+        db.put(DB_COLUMN, hash, &[0]).unwrap();
 
         assert!(store.block_hash_exists(hash).unwrap());
     }
@@ -59,7 +59,7 @@ mod tests {
 
         let hash: &[u8] = &[rand::random()];
         let other_hash: &[u8] = &[rand::random()];
-        db.put(DB_COLUMN, hash, &[0]);
+        db.put(DB_COLUMN, hash, &[0]).unwrap();
 
         assert!(!store.block_hash_exists(other_hash).unwrap());
     }

@@ -104,7 +104,7 @@ mod tests {
         let ssz = "some bytes".as_bytes();
         let hash = &Hash256::from("some hash".as_bytes()).to_vec();
 
-        store.put_serialized_block(hash, ssz);
+        store.put_serialized_block(hash, ssz).unwrap();
         assert_eq!(db.get(DB_COLUMN, hash).unwrap().unwrap(), ssz);
     }
 
@@ -116,7 +116,7 @@ mod tests {
         let ssz = "some bytes".as_bytes();
         let hash = &Hash256::from("some hash".as_bytes()).to_vec();
 
-        db.put(DB_COLUMN, hash, ssz);
+        db.put(DB_COLUMN, hash, ssz).unwrap();
         assert_eq!(store.get_serialized_block(hash).unwrap().unwrap(), ssz);
     }
 
@@ -128,7 +128,7 @@ mod tests {
         let ssz = "some bytes".as_bytes();
         let hash = &Hash256::from("some hash".as_bytes()).to_vec();
 
-        db.put(DB_COLUMN, hash, ssz);
+        db.put(DB_COLUMN, hash, ssz).unwrap();
         assert!(store.block_exists(hash).unwrap());
     }
 
@@ -141,7 +141,7 @@ mod tests {
         let hash = &Hash256::from("some hash".as_bytes()).to_vec();
         let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
 
-        db.put(DB_COLUMN, hash, ssz);
+        db.put(DB_COLUMN, hash, ssz).unwrap();
         assert!(!store.block_exists(other_hash).unwrap());
     }
 
@@ -153,10 +153,10 @@ mod tests {
         let ssz = "some bytes".as_bytes();
         let hash = &Hash256::from("some hash".as_bytes()).to_vec();
 
-        db.put(DB_COLUMN, hash, ssz);
+        db.put(DB_COLUMN, hash, ssz).unwrap();
         assert!(db.exists(DB_COLUMN, hash).unwrap());
 
-        store.delete_block(hash);
+        store.delete_block(hash).unwrap();
         assert!(!db.exists(DB_COLUMN, hash).unwrap());
     }
 
