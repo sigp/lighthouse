@@ -75,6 +75,11 @@ impl BooleanBitfield {
         self.0.len()
     }
 
+    /// Returns the number of bytes required to represent this bitfield.
+    pub fn num_bytes(&self) -> usize {
+        self.to_bytes().len()
+    }
+
     /// Returns the number of `1` bits in the bitfield
     pub fn num_set_bits(&self) -> usize {
         self.0.iter().filter(|&bit| bit).count()
@@ -203,6 +208,7 @@ mod tests {
 
         let out_of_bounds_index = field.len();
         assert!(field.set(out_of_bounds_index, true).is_none());
+        assert!(field.len() == out_of_bounds_index + 1);
         assert!(field.get(out_of_bounds_index).unwrap());
 
         for i in 0..100 {
@@ -212,5 +218,17 @@ mod tests {
                 assert!(field.set(i, true).is_none());
             }
         }
+    }
+
+    #[test]
+    fn test_num_bytes() {
+        let field = BooleanBitfield::from_bytes(INPUT);
+        assert_eq!(field.num_bytes(), 2);
+
+        let field = BooleanBitfield::from_elem(2, true);
+        assert_eq!(field.num_bytes(), 1);
+
+        let field = BooleanBitfield::from_elem(13, true);
+        assert_eq!(field.num_bytes(), 2);
     }
 }
