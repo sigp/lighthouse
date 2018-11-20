@@ -14,7 +14,6 @@ pub mod special_record;
 pub mod validator_record;
 pub mod validator_registration;
 
-use self::boolean_bitfield::BooleanBitfield;
 use self::ethereum_types::{
     H256,
     H160,
