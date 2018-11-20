@@ -14,11 +14,7 @@ pub mod special_record;
 pub mod validator_record;
 pub mod validator_registration;
 
-use self::ethereum_types::{
-    H256,
-    H160,
-    U256
-};
+use self::ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 
 pub use active_state::ActiveState;
