@@ -243,8 +243,9 @@ impl From<SignatureVerificationError> for AttestationValidationError {
                 AttestationValidationError::NoPublicKeyForValidator
             }
             SignatureVerificationError::DBError(s) => AttestationValidationError::DBError(s),
-            SignatureVerificationError::OutOfBoundsBitfieldIndex
-                => AttestationValidationError::OutOfBoundsBitfieldIndex,
+            SignatureVerificationError::OutOfBoundsBitfieldIndex => {
+                AttestationValidationError::OutOfBoundsBitfieldIndex
+            }
         }
     }
 }
