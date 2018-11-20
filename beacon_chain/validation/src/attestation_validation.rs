@@ -199,6 +199,10 @@ where
     }
 }
 
+fn bytes_for_bits(bits: usize) -> usize {
+    (bits.saturating_sub(1) / 8) + 1
+}
+
 impl From<ParentHashesError> for AttestationValidationError {
     fn from(e: ParentHashesError) -> Self {
         match e {
