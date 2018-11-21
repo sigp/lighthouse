@@ -98,7 +98,7 @@ mod tests {
 
         assert_eq!(public_key_at_index, public_key.as_bytes());
     }
-    
+
     #[test]
     fn test_get_public_key_by_index() {
         let db = Arc::new(MemoryDB::open());
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_public_key_by_invalid_index() {
+    fn test_get_public_key_by_unknown_index() {
         let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db.clone());
 
