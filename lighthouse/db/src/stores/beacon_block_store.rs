@@ -121,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_none_serialized_block() {
+    fn test_get_unknown_serialized_block() {
         let db = Arc::new(MemoryDB::open());
         let store = BeaconBlockStore::new(db.clone());
 
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn test_block_doesnt_exist() {
+    fn test_block_does_not_exist() {
         let db = Arc::new(MemoryDB::open());
         let store = BeaconBlockStore::new(db.clone());
 
