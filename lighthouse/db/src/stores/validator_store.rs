@@ -98,7 +98,7 @@ mod tests {
 
         assert_eq!(public_key_at_index, public_key.as_bytes());
     }
-
+    
     #[test]
     fn test_get_public_key_by_index() {
         let db = Arc::new(MemoryDB::open());
@@ -135,6 +135,20 @@ mod tests {
     }
 
     #[test]
+    fn test_get_invalid_public_key() {
+        let db = Arc::new(MemoryDB::open());
+        let store = ValidatorStore::new(db.clone());
+
+        let key = store.get_db_key_for_index(&KeyPrefixes::PublicKey, 42);
+        db.put(DB_COLUMN, &key[..], "cats".as_bytes()).unwrap();
+
+        assert_eq!(
+            store.get_public_key_by_index(42),
+            Err(ValidatorStoreError::DecodeError)
+        );
+    }
+
+    #[test]
     fn test_validator_store_put_get() {
         let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db);
@@ -167,20 +181,6 @@ mod tests {
                 .get_public_key_by_index(keys.len() + 1)
                 .unwrap()
                 .is_none()
-        );
-    }
-
-    #[test]
-    fn test_validator_store_bad_key() {
-        let db = Arc::new(MemoryDB::open());
-        let store = ValidatorStore::new(db.clone());
-
-        let key = store.get_db_key_for_index(&KeyPrefixes::PublicKey, 42);
-        db.put(DB_COLUMN, &key[..], "cats".as_bytes()).unwrap();
-
-        assert_eq!(
-            store.get_public_key_by_index(42),
-            Err(ValidatorStoreError::DecodeError)
         );
     }
 }
