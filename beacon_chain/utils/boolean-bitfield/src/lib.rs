@@ -11,7 +11,7 @@ use std::default;
 pub struct BooleanBitfield(BitVec);
 
 /// Error represents some reason a request against a bitfield was not satisfied
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// OutOfBounds refers to indexing into a bitfield where no bits exist; returns the illegal index and the current size of the bitfield, respectively
     OutOfBounds(usize, usize),
@@ -156,7 +156,7 @@ mod tests {
     use ssz::SszStream;
 
     #[test]
-    fn test_empty_bitfield() {
+    fn test_new_bitfield() {
         let mut field = BooleanBitfield::new();
         let original_len = field.len();
 
@@ -173,6 +173,31 @@ mod tests {
                 assert!(previous.is_none());
             }
         }
+    }
+
+    #[test]
+    fn test_empty_bitfield() {
+        let mut field = BooleanBitfield::from_elem(0, false);
+        let original_len = field.len();
+
+        assert_eq!(original_len, 0);
+
+        for i in 0..100 {
+            if i < original_len {
+                assert!(!field.get(i).unwrap());
+            } else {
+                assert!(field.get(i).is_err());
+            }
+            let previous = field.set(i, true);
+            if i < original_len {
+                assert!(!previous.unwrap());
+            } else {
+                assert!(previous.is_none());
+            }
+        }
+
+        assert_eq!(field.len(), 100);
+        assert_eq!(field.num_set_bits(), 100);
     }
 
     const INPUT: &[u8] = &[0b0000_0010, 0b0000_0010];
@@ -205,6 +230,9 @@ mod tests {
     fn test_highest_set_bit() {
         let field = BooleanBitfield::from_bytes(INPUT);
         assert_eq!(field.highest_set_bit().unwrap(), 14);
+
+        let field = BooleanBitfield::from_bytes(&[0b0000_0011]);
+        assert_eq!(field.highest_set_bit().unwrap(), 7);
 
         let field = BooleanBitfield::new();
         assert_eq!(field.highest_set_bit(), None);
@@ -253,6 +281,26 @@ mod tests {
                 assert!(field.set(i, true).is_none());
             }
         }
+    }
+
+    #[test]
+    fn test_grows_with_false() {
+        let input_all_set: &[u8] = &[0b1111_1111, 0b1111_1111];
+        let mut field = BooleanBitfield::from_bytes(input_all_set);
+
+        // Define `a` and `b`, where both are out of bounds and `b` is greater than `a`.
+        let a = field.len();
+        let b = a + 1;
+
+        // Ensure `a` is out-of-bounds for test integrity.
+        assert!(field.get(a).is_err());
+
+        // Set `b` to `true`. Also, for test integrity, ensure it was previously out-of-bounds.
+        assert!(field.set(b, true).is_none());
+
+        // Ensure that `a` wasn't also set to `true` during the grow.
+        assert_eq!(field.get(a), Ok(false));
+        assert_eq!(field.get(b), Ok(true));
     }
 
     #[test]
