@@ -5,3 +5,4 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 
 [dependencies]
 ssz = { path = "../ssz" }
+bit-vec = "0.5.0"

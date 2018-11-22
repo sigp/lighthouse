@@ -1,161 +1,124 @@
-/*
- * Implemenation of a bitfield as a vec. Only
- * supports bytes (Vec<u8>) as the underlying
- * storage.
- *
- * A future implementation should be more efficient,
- * this is just to get the job done for now.
- */
+extern crate bit_vec;
 extern crate ssz;
 
-use std::cmp::max;
+use bit_vec::BitVec;
 
-#[derive(Eq, Clone, Default, Debug)]
-pub struct BooleanBitfield {
-    len: usize,
-    vec: Vec<u8>,
+use std::default;
+
+/// A BooleanBitfield represents a set of booleans compactly stored as a vector of bits.
+/// The BooleanBitfield is given a fixed size during construction. Reads outside of the current size return an out-of-bounds error. Writes outside of the current size expand the size of the set.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BooleanBitfield(BitVec);
+
+/// Error represents some reason a request against a bitfield was not satisfied
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    /// OutOfBounds refers to indexing into a bitfield where no bits exist; returns the illegal index and the current size of the bitfield, respectively
+    OutOfBounds(usize, usize),
 }
 
 impl BooleanBitfield {
-    /// Create a new bitfield with a length of zero.
+    /// Create a new bitfield.
     pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Create a new bitfield with the given length `initial_len` and all values set to `bit`.
+    pub fn from_elem(inital_len: usize, bit: bool) -> Self {
         Self {
-            len: 0,
-            vec: vec![0],
+            0: BitVec::from_elem(inital_len, bit),
         }
     }
 
-    /// Create a new bitfield of a certain capacity
-    pub fn with_capacity(capacity: usize) -> Self {
-        let mut vec = Vec::with_capacity(capacity / 8 + 1);
-        vec.push(0);
-        Self { len: 0, vec }
+    /// Create a new bitfield using the supplied `bytes` as input
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Self {
+            0: BitVec::from_bytes(bytes),
+        }
     }
 
     /// Read the value of a bit.
     ///
-    /// Will return `true` if the bit has been set to `true`
-    /// without then being set to `False`.
-    pub fn get_bit(&self, i: usize) -> bool {
-        let bit = |i: usize| i % 8;
-        let byte = |i: usize| i / 8;
-
-        if byte(i) >= self.vec.len() {
-            false
-        } else {
-            self.vec[byte(i)] & (1 << (bit(i) as u8)) != 0
+    /// If the index is in bounds, then result is Ok(value) where value is `true` if the bit is 1 and `false` if the bit is 0.
+    /// If the index is out of bounds, we return an error to that extent.
+    pub fn get(&self, i: usize) -> Result<bool, Error> {
+        match self.0.get(i) {
+            Some(value) => Ok(value),
+            None => Err(Error::OutOfBounds(i, self.0.len())),
         }
     }
 
     /// Set the value of a bit.
     ///
-    /// If this bit is larger than the length of the underlying byte
-    /// array it will be extended.
-    pub fn set_bit(&mut self, i: usize, to: bool) {
-        let bit = |i: usize| i % 8;
-        let byte = |i: usize| i / 8;
-
-        self.len = max(self.len, i + 1);
-
-        if byte(i) >= self.vec.len() {
-            self.vec.resize(byte(i) + 1, 0);
-        }
-        if to {
-            self.vec[byte(i)] = self.vec[byte(i)] | (1 << (bit(i) as u8))
-        } else {
-            self.vec[byte(i)] = self.vec[byte(i)] & !(1 << (bit(i) as u8))
-        }
+    /// If the index is out of bounds, we expand the size of the underlying set to include the new index.
+    /// Returns the previous value if there was one.
+    pub fn set(&mut self, i: usize, value: bool) -> Option<bool> {
+        let previous = match self.get(i) {
+            Ok(previous) => Some(previous),
+            Err(Error::OutOfBounds(_, len)) => {
+                let new_len = i - len + 1;
+                self.0.grow(new_len, false);
+                None
+            }
+        };
+        self.0.set(i, value);
+        previous
     }
 
-    /// Return the "length" of this bitfield. Length is defined as
-    /// the highest bit that has been set.
-    ///
-    /// Note: this is distinct from the length of the underlying
-    /// vector.
+    /// Returns the index of the highest set bit. Some(n) if some bit is set, None otherwise.
+    pub fn highest_set_bit(&self) -> Option<usize> {
+        self.0.iter().rposition(|bit| bit)
+    }
+
+    /// Returns the number of bits in this bitfield.
     pub fn len(&self) -> usize {
-        self.len
+        self.0.len()
     }
 
-    /// True if no bits have ever been set. A bit that is set and then
-    /// unset will still count to the length of the bitfield.
-    ///
-    /// Note: this is distinct from the length of the underlying
-    /// vector.
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// The number of bytes required to represent the bitfield.
+    /// Returns the number of bytes required to represent this bitfield.
     pub fn num_bytes(&self) -> usize {
-        self.vec.len()
+        self.to_bytes().len()
     }
 
-    /// Iterate through the underlying vector and count the number of
-    /// true bits.
-    pub fn num_true_bits(&self) -> u64 {
-        let mut count: u64 = 0;
-        for byte in &self.vec {
-            for bit in 0..8 {
-                if byte & (1 << (bit as u8)) != 0 {
-                    count += 1;
-                }
-            }
-        }
-        count
+    /// Returns the number of `1` bits in the bitfield
+    pub fn num_set_bits(&self) -> usize {
+        self.0.iter().filter(|&bit| bit).count()
     }
 
-    /// Iterate through the underlying vector and find the highest
-    /// set bit. Useful for instantiating a new instance from
-    /// some set of bytes.
-    pub fn compute_length(bytes: &[u8]) -> usize {
-        for byte in (0..bytes.len()).rev() {
-            for bit in (0..8).rev() {
-                if bytes[byte] & (1 << (bit as u8)) != 0 {
-                    return (byte * 8) + bit + 1;
-                }
-            }
-        }
-        0
-    }
-
-    /// Get the byte at a position, assuming big-endian encoding.
-    pub fn get_byte(&self, n: usize) -> Option<&u8> {
-        self.vec.get(n)
-    }
-
-    /// Clone and return the underlying byte array (`Vec<u8>`).
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.vec.clone()
-    }
-
-    /// Clone and return the underlying byte array (`Vec<u8>`) in big-endinan format.
-    pub fn to_be_vec(&self) -> Vec<u8> {
-        let mut o = self.vec.clone();
-        o.reverse();
-        o
+    /// Returns a vector of bytes representing the bitfield
+    /// Note that this returns the bit layout of the underlying implementation in the `bit-vec` crate.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_bytes()
     }
 }
 
-impl<'a> From<&'a [u8]> for BooleanBitfield {
-    fn from(input: &[u8]) -> Self {
-        let mut vec = input.to_vec();
-        vec.reverse();
-        BooleanBitfield {
-            vec,
-            len: BooleanBitfield::compute_length(input),
-        }
+impl default::Default for BooleanBitfield {
+    /// default provides the "empty" bitfield
+    /// Note: the empty bitfield is set to the `0` byte.
+    fn default() -> Self {
+        Self::from_elem(8, false)
     }
 }
 
-impl PartialEq for BooleanBitfield {
-    fn eq(&self, other: &BooleanBitfield) -> bool {
-        (self.vec == other.vec) & (self.len == other.len)
+// borrowed from bit_vec crate
+fn reverse_bits(byte: u8) -> u8 {
+    let mut result = 0;
+    for i in 0..8 {
+        result = result | ((byte >> i) & 1) << (7 - i);
     }
+    result
 }
 
 impl ssz::Encodable for BooleanBitfield {
+    // ssz_append encodes Self according to the `ssz` spec.
+    // Note that we have to flip the endianness of the encoding with `reverse_bits` to account for an implementation detail of `bit-vec` crate.
     fn ssz_append(&self, s: &mut ssz::SszStream) {
-        s.append_vec(&self.to_vec());
+        let bytes: Vec<u8> = self
+            .to_bytes()
+            .iter()
+            .map(|&byte| reverse_bits(byte))
+            .collect();
+        s.append_vec(&bytes);
     }
 }
 
@@ -165,12 +128,24 @@ impl ssz::Decodable for BooleanBitfield {
         if (ssz::LENGTH_BYTES + len) > bytes.len() {
             return Err(ssz::DecodeError::TooShort);
         }
+
         if len == 0 {
             Ok((BooleanBitfield::new(), index + ssz::LENGTH_BYTES))
         } else {
-            let b = BooleanBitfield::from(&bytes[(index + 4)..(index + len + 4)]);
+            let bytes = &bytes[(index + 4)..(index + len + 4)];
+
+            let mut field = BooleanBitfield::from_elem(0, false);
+            for (byte_index, byte) in bytes.iter().enumerate() {
+                for i in 0..8 {
+                    let bit = byte & (1 << i);
+                    if bit != 0 {
+                        field.set(8 * byte_index + i, true);
+                    }
+                }
+            }
+
             let index = index + ssz::LENGTH_BYTES + len;
-            Ok((b, index))
+            Ok((field, index))
         }
     }
 }
@@ -178,149 +153,192 @@ impl ssz::Decodable for BooleanBitfield {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz::Decodable;
+    use ssz::SszStream;
 
     #[test]
-    fn test_new_from_slice() {
-        let s = [0];
-        let b = BooleanBitfield::from(&s[..]);
-        assert_eq!(b.len, 0);
+    fn test_new_bitfield() {
+        let mut field = BooleanBitfield::new();
+        let original_len = field.len();
 
-        let s = [255];
-        let b = BooleanBitfield::from(&s[..]);
-        assert_eq!(b.len, 8);
-
-        let s = [0, 1];
-        let b = BooleanBitfield::from(&s[..]);
-        assert_eq!(b.len, 9);
-
-        let s = [31];
-        let b = BooleanBitfield::from(&s[..]);
-        assert_eq!(b.len, 5);
-    }
-
-    #[test]
-    fn test_ssz_encoding() {
-        let mut b = BooleanBitfield::new();
-        b.set_bit(8, true);
-
-        let mut stream = ssz::SszStream::new();
-        stream.append(&b);
-
-        assert_eq!(stream.drain(), vec![0, 0, 0, 2, 0, 1]);
-    }
-
-    /*
-    #[test]
-    fn test_ssz_decoding() {
-        /*
-         * Correct input
-         */
-        let input = vec![0, 0, 0, 2, 0, 1];
-        let (b, i) = BooleanBitfield::ssz_decode(&input, 0).unwrap();
-        assert_eq!(i, 6);
-        assert_eq!(b.num_true_bits(), 1);
-        assert_eq!(b.get_bit(8), true);
-
-        /*
-         * Input too long
-         */
-        let mut input = vec![0, 0, 0, 2, 0, 1];
-        input.push(42);
-        let (b, i) = BooleanBitfield::ssz_decode(&input, 0).unwrap();
-        assert_eq!(i, 6);
-        assert_eq!(b.num_true_bits(), 1);
-        assert_eq!(b.get_bit(8), true);
-
-        /*
-         * Input too short
-         */
-        let input = vec![0, 0, 0, 2, 1];
-        let res = BooleanBitfield::ssz_decode(&input, 0);
-        assert_eq!(res, Err(ssz::DecodeError::TooShort));
-    }
-    */
-
-    #[test]
-    fn test_new_bitfield_len() {
-        let b = BooleanBitfield::new();
-        assert_eq!(b.len(), 0);
-        assert_eq!(b.to_be_vec(), vec![0]);
-
-        let b = BooleanBitfield::with_capacity(100);
-        assert_eq!(b.len(), 0);
-        assert_eq!(b.to_be_vec(), vec![0]);
-    }
-
-    #[test]
-    fn test_bitfield_set() {
-        let mut b = BooleanBitfield::new();
-        b.set_bit(0, false);
-        assert_eq!(b.to_be_vec(), [0]);
-
-        b = BooleanBitfield::new();
-        b.set_bit(7, true);
-        assert_eq!(b.to_be_vec(), [128]);
-        b.set_bit(7, false);
-        assert_eq!(b.to_be_vec(), [0]);
-        assert_eq!(b.len(), 8);
-
-        b = BooleanBitfield::new();
-        b.set_bit(7, true);
-        b.set_bit(0, true);
-        assert_eq!(b.to_be_vec(), [129]);
-        b.set_bit(7, false);
-        assert_eq!(b.to_be_vec(), [1]);
-        assert_eq!(b.len(), 8);
-
-        b = BooleanBitfield::new();
-        b.set_bit(8, true);
-        assert_eq!(b.to_be_vec(), [1, 0]);
-        assert_eq!(b.len(), 9);
-        b.set_bit(8, false);
-        assert_eq!(b.to_be_vec(), [0, 0]);
-        assert_eq!(b.len(), 9);
-
-        b = BooleanBitfield::new();
-        b.set_bit(15, true);
-        assert_eq!(b.to_be_vec(), [128, 0]);
-        b.set_bit(15, false);
-        assert_eq!(b.to_be_vec(), [0, 0]);
-        assert_eq!(b.len(), 16);
-
-        b = BooleanBitfield::new();
-        b.set_bit(8, true);
-        b.set_bit(15, true);
-        assert_eq!(b.to_be_vec(), [129, 0]);
-        b.set_bit(15, false);
-        assert_eq!(b.to_be_vec(), [1, 0]);
-        assert_eq!(b.len(), 16);
-    }
-
-    #[test]
-    fn test_bitfield_get() {
-        let test_nums = vec![0, 8, 15, 42, 1337];
-        for i in test_nums {
-            let mut b = BooleanBitfield::new();
-            assert_eq!(b.get_bit(i), false);
-            b.set_bit(i, true);
-            assert_eq!(b.get_bit(i), true);
-            b.set_bit(i, true);
+        for i in 0..100 {
+            if i < original_len {
+                assert!(!field.get(i).unwrap());
+            } else {
+                assert!(field.get(i).is_err());
+            }
+            let previous = field.set(i, true);
+            if i < original_len {
+                assert!(!previous.unwrap());
+            } else {
+                assert!(previous.is_none());
+            }
         }
     }
 
     #[test]
-    fn test_bitfield_num_true_bits() {
-        let mut b = BooleanBitfield::new();
-        assert_eq!(b.num_true_bits(), 0);
-        b.set_bit(15, true);
-        assert_eq!(b.num_true_bits(), 1);
-        b.set_bit(15, false);
-        assert_eq!(b.num_true_bits(), 0);
-        b.set_bit(0, true);
-        b.set_bit(7, true);
-        b.set_bit(8, true);
-        b.set_bit(1337, true);
-        assert_eq!(b.num_true_bits(), 4);
+    fn test_empty_bitfield() {
+        let mut field = BooleanBitfield::from_elem(0, false);
+        let original_len = field.len();
+
+        assert_eq!(original_len, 0);
+
+        for i in 0..100 {
+            if i < original_len {
+                assert!(!field.get(i).unwrap());
+            } else {
+                assert!(field.get(i).is_err());
+            }
+            let previous = field.set(i, true);
+            if i < original_len {
+                assert!(!previous.unwrap());
+            } else {
+                assert!(previous.is_none());
+            }
+        }
+
+        assert_eq!(field.len(), 100);
+        assert_eq!(field.num_set_bits(), 100);
+    }
+
+    const INPUT: &[u8] = &[0b0000_0010, 0b0000_0010];
+
+    #[test]
+    fn test_get_from_bitfield() {
+        let field = BooleanBitfield::from_bytes(INPUT);
+        let unset = field.get(0).unwrap();
+        assert!(!unset);
+        let set = field.get(6).unwrap();
+        assert!(set);
+        let set = field.get(14).unwrap();
+        assert!(set);
+    }
+
+    #[test]
+    fn test_set_for_bitfield() {
+        let mut field = BooleanBitfield::from_bytes(INPUT);
+        let previous = field.set(10, true).unwrap();
+        assert!(!previous);
+        let previous = field.get(10).unwrap();
+        assert!(previous);
+        let previous = field.set(6, false).unwrap();
+        assert!(previous);
+        let previous = field.get(6).unwrap();
+        assert!(!previous);
+    }
+
+    #[test]
+    fn test_highest_set_bit() {
+        let field = BooleanBitfield::from_bytes(INPUT);
+        assert_eq!(field.highest_set_bit().unwrap(), 14);
+
+        let field = BooleanBitfield::from_bytes(&[0b0000_0011]);
+        assert_eq!(field.highest_set_bit().unwrap(), 7);
+
+        let field = BooleanBitfield::new();
+        assert_eq!(field.highest_set_bit(), None);
+    }
+
+    #[test]
+    fn test_len() {
+        let field = BooleanBitfield::from_bytes(INPUT);
+        assert_eq!(field.len(), 16);
+
+        let field = BooleanBitfield::new();
+        assert_eq!(field.len(), 8);
+    }
+
+    #[test]
+    fn test_num_set_bits() {
+        let field = BooleanBitfield::from_bytes(INPUT);
+        assert_eq!(field.num_set_bits(), 2);
+
+        let field = BooleanBitfield::new();
+        assert_eq!(field.num_set_bits(), 0);
+    }
+
+    #[test]
+    fn test_to_bytes() {
+        let field = BooleanBitfield::from_bytes(INPUT);
+        assert_eq!(field.to_bytes(), INPUT);
+
+        let field = BooleanBitfield::new();
+        assert_eq!(field.to_bytes(), vec![0]);
+    }
+
+    #[test]
+    fn test_out_of_bounds() {
+        let mut field = BooleanBitfield::from_bytes(INPUT);
+
+        let out_of_bounds_index = field.len();
+        assert!(field.set(out_of_bounds_index, true).is_none());
+        assert!(field.len() == out_of_bounds_index + 1);
+        assert!(field.get(out_of_bounds_index).unwrap());
+
+        for i in 0..100 {
+            if i <= out_of_bounds_index {
+                assert!(field.set(i, true).is_some());
+            } else {
+                assert!(field.set(i, true).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn test_grows_with_false() {
+        let input_all_set: &[u8] = &[0b1111_1111, 0b1111_1111];
+        let mut field = BooleanBitfield::from_bytes(input_all_set);
+
+        // Define `a` and `b`, where both are out of bounds and `b` is greater than `a`.
+        let a = field.len();
+        let b = a + 1;
+
+        // Ensure `a` is out-of-bounds for test integrity.
+        assert!(field.get(a).is_err());
+
+        // Set `b` to `true`. Also, for test integrity, ensure it was previously out-of-bounds.
+        assert!(field.set(b, true).is_none());
+
+        // Ensure that `a` wasn't also set to `true` during the grow.
+        assert_eq!(field.get(a), Ok(false));
+        assert_eq!(field.get(b), Ok(true));
+    }
+
+    #[test]
+    fn test_num_bytes() {
+        let field = BooleanBitfield::from_bytes(INPUT);
+        assert_eq!(field.num_bytes(), 2);
+
+        let field = BooleanBitfield::from_elem(2, true);
+        assert_eq!(field.num_bytes(), 1);
+
+        let field = BooleanBitfield::from_elem(13, true);
+        assert_eq!(field.num_bytes(), 2);
+    }
+
+    #[test]
+    fn test_ssz_encode() {
+        let field = BooleanBitfield::from_elem(5, true);
+
+        let mut stream = SszStream::new();
+        stream.append(&field);
+        assert_eq!(stream.drain(), vec![0, 0, 0, 1, 31]);
+
+        let field = BooleanBitfield::from_elem(18, true);
+        let mut stream = SszStream::new();
+        stream.append(&field);
+        assert_eq!(stream.drain(), vec![0, 0, 0, 3, 255, 255, 3]);
+    }
+
+    #[test]
+    fn test_ssz_decode() {
+        let encoded = vec![0, 0, 0, 1, 31];
+        let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
+        let expected = BooleanBitfield::from_elem(5, true);
+        assert_eq!(field, expected);
+
+        let encoded = vec![0, 0, 0, 3, 255, 255, 3];
+        let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
+        let expected = BooleanBitfield::from_elem(18, true);
+        assert_eq!(field, expected);
     }
 }
