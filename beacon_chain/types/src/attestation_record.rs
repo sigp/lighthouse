@@ -31,7 +31,7 @@ impl Encodable for AttestationRecord {
         s.append(&self.shard_id);
         s.append_vec(&self.oblique_parent_hashes);
         s.append(&self.shard_block_hash);
-        s.append_vec(&self.attester_bitfield.to_be_vec());
+        s.append(&self.attester_bitfield);
         s.append(&self.justified_slot);
         s.append(&self.justified_block_hash);
         s.append_vec(&self.aggregate_sig.as_bytes());
@@ -103,7 +103,7 @@ mod tests {
             shard_id: 9,
             oblique_parent_hashes: vec![Hash256::from(&vec![14; 32][..])],
             shard_block_hash: Hash256::from(&vec![15; 32][..]),
-            attester_bitfield: Bitfield::from(&vec![17; 42][..]),
+            attester_bitfield: Bitfield::from_bytes(&vec![17; 42][..]),
             justified_slot: 19,
             justified_block_hash: Hash256::from(&vec![15; 32][..]),
             aggregate_sig: AggregateSignature::new(),

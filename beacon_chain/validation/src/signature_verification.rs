@@ -1,7 +1,7 @@
 use super::bls::{AggregatePublicKey, AggregateSignature};
 use super::db::stores::{ValidatorStore, ValidatorStoreError};
 use super::db::ClientDB;
-use super::types::Bitfield;
+use super::types::{Bitfield, BitfieldError};
 use std::collections::HashSet;
 
 #[derive(Debug, PartialEq)]
@@ -10,6 +10,13 @@ pub enum SignatureVerificationError {
     PublicKeyCorrupt,
     NoPublicKeyForValidator,
     DBError(String),
+    OutOfBoundsBitfieldIndex,
+}
+
+impl From<BitfieldError> for SignatureVerificationError {
+    fn from(_error: BitfieldError) -> Self {
+        SignatureVerificationError::OutOfBoundsBitfieldIndex
+    }
 }
 
 /// Verify an aggregate signature across the supplied message.
@@ -33,7 +40,7 @@ where
     let mut agg_pub_key = AggregatePublicKey::new();
 
     for i in 0..attestation_indices.len() {
-        let voted = bitfield.get_bit(i);
+        let voted = bitfield.get(i)?;
         if voted {
             /*
              * De-reference the attestation index into a canonical ValidatorRecord index.
@@ -121,9 +128,9 @@ mod tests {
         all_keypairs.append(&mut non_signing_keypairs.clone());
 
         let attestation_indices: Vec<usize> = (0..all_keypairs.len()).collect();
-        let mut bitfield = Bitfield::new();
+        let mut bitfield = Bitfield::from_elem(all_keypairs.len(), false);
         for i in 0..signing_keypairs.len() {
-            bitfield.set_bit(i, true);
+            bitfield.set(i, true).unwrap();
         }
 
         let db = Arc::new(MemoryDB::open());
@@ -159,7 +166,7 @@ mod tests {
          * Add another validator to the bitfield, run validation will all other
          * parameters the same and assert that it fails.
          */
-        bitfield.set_bit(signing_keypairs.len() + 1, true);
+        bitfield.set(signing_keypairs.len() + 1, true).unwrap();
         let voters = verify_aggregate_signature_for_indices(
             &message,
             &agg_sig,
