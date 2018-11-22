@@ -1,9 +1,0 @@
-[package]
-name = "block_production"
-version = "0.1.0"
-authors = ["Paul Hauner <paul@paulhauner.com>"]
-
-[dependencies]
-bls = { path = "../utils/bls" }
-db = { path = "../../lighthouse/db" }
-types = { path = "../types" }

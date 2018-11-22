@@ -97,7 +97,7 @@ where
                 .get(&block.crystallized_state_root)
                 .ok_or(BlockValidationContextError::UnknownCrystallizedState)?;
 
-            self.transition_states(act_state, cry_state, &block, &block_hash)?
+            self.transition_states(act_state, cry_state, &block)?
         };
 
         /*

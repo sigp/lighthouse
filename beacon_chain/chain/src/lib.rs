@@ -39,7 +39,7 @@ pub struct BeaconChain<T: ClientDB + Sized> {
     /// A vec of all block heads (tips of chains).
     pub head_block_hashes: Vec<Hash256>,
     /// The index of the canonical block in `head_block_hashes`.
-    pub canonical_head_block_hash: usize,
+    pub canonical_head_block_hash: Option<usize>,
     /// A map where the value is an active state the the key is its hash.
     pub active_states: HashMap<Hash256, ActiveState>,
     /// A map where the value is crystallized state the the key is its hash.
@@ -85,7 +85,7 @@ where
         Ok(Self {
             last_finalized_slot: 0,
             head_block_hashes,
-            canonical_head_block_hash,
+            canonical_head_block_hash: Some(canonical_head_block_hash),
             active_states,
             crystallized_states,
             attester_proposer_maps,
@@ -94,8 +94,11 @@ where
         })
     }
 
-    pub fn canonical_block_hash(&self) -> Hash256 {
-        self.head_block_hashes[self.canonical_head_block_hash]
+    pub fn canonical_block_hash(&self) -> Option<Hash256> {
+        match self.canonical_head_block_hash {
+            Some(i) => Some(self.head_block_hashes[i]),
+            None => None,
+        }
     }
 }
 
@@ -135,7 +138,7 @@ mod tests {
         let (act, cry) = genesis_states(&config).unwrap();
 
         assert_eq!(chain.last_finalized_slot, 0);
-        assert_eq!(chain.canonical_block_hash(), Hash256::zero());
+        assert_eq!(chain.canonical_block_hash().unwrap(), Hash256::zero());
 
         let stored_act = chain.active_states.get(&Hash256::zero()).unwrap();
         assert_eq!(act, *stored_act);

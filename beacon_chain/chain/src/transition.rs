@@ -1,7 +1,9 @@
 use super::BeaconChain;
 use db::ClientDB;
-use state_transition::{extend_active_state, StateTransitionError};
-use types::{ActiveState, BeaconBlock, CrystallizedState, Hash256};
+use state_transition::extend_active_state;
+use types::{ActiveState, BeaconBlock, CrystallizedState};
+
+pub use state_transition::StateTransitionError;
 
 impl<T> BeaconChain<T>
 where
@@ -12,7 +14,6 @@ where
         act_state: &ActiveState,
         cry_state: &CrystallizedState,
         block: &BeaconBlock,
-        block_hash: &Hash256,
     ) -> Result<(ActiveState, Option<CrystallizedState>), StateTransitionError> {
         let state_recalc_distance = block
             .slot
@@ -20,9 +21,19 @@ where
             .ok_or(StateTransitionError::BlockSlotBeforeRecalcSlot)?;
 
         if state_recalc_distance >= u64::from(self.config.cycle_length) {
-            panic!("Not implemented!")
+            panic!("Crystallized state transitions are not implemented!")
         } else {
-            let new_act_state = extend_active_state(act_state, block, block_hash)?;
+            let parent_hash = block
+                .parent_hash()
+                .ok_or(StateTransitionError::InvalidParentHashes)?;
+
+            let new_act_state = extend_active_state(
+                act_state,
+                &block.attestations,
+                &block.specials,
+                &parent_hash,
+                &block.randao_reveal,
+            )?;
             Ok((new_act_state, None))
         }
     }

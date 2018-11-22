@@ -1,7 +1,22 @@
-use types::{AttesterMap, ProposerMap, ShardAndCommittee};
+use super::BeaconChain;
+use db::ClientDB;
+use types::{ActiveState, AttesterMap, CrystallizedState, Hash256, ProposerMap, ShardAndCommittee};
 use validator_shuffling::block_proposer_for_slot;
 
 pub use validator_shuffling::BlockProposerError;
+
+impl<T> BeaconChain<T>
+where
+    T: ClientDB + Sized,
+{
+    pub fn active_state_from_root(&self, state_root: &Hash256) -> Option<&ActiveState> {
+        self.active_states.get(state_root)
+    }
+
+    pub fn crystallized_state_from_root(&self, state_root: &Hash256) -> Option<&CrystallizedState> {
+        self.crystallized_states.get(state_root)
+    }
+}
 
 /// Generate a map of `(slot, shard) |--> committee`.
 ///

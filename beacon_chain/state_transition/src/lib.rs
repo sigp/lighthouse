@@ -1,6 +1,6 @@
 extern crate types;
 
-use types::{ActiveState, BeaconBlock, Hash256};
+use types::{ActiveState, AttestationRecord, BeaconBlock, Hash256, SpecialRecord};
 
 #[derive(Debug, PartialEq)]
 pub enum StateTransitionError {
@@ -11,46 +11,45 @@ pub enum StateTransitionError {
 
 pub fn extend_active_state(
     act_state: &ActiveState,
-    block: &BeaconBlock,
-    block_hash: &Hash256,
+    new_pending_attestations: &[AttestationRecord],
+    new_pending_specials: &[SpecialRecord],
+    new_parent_block_hash: &Hash256,
+    new_randao_reveal: &Hash256,
 ) -> Result<ActiveState, StateTransitionError> {
     /*
      * Extend the pending attestations in the active state with the new attestations included
      * in the block.
-     *
-     * Using the concat method to avoid reallocations.
      */
-    let pending_attestations =
-        [&act_state.pending_attestations[..], &block.attestations[..]].concat();
+    let pending_attestations = [
+        &act_state.pending_attestations[..],
+        new_pending_attestations,
+    ]
+        .concat();
 
     /*
      * Extend the pending specials in the active state with the new specials included in the
      * block.
-     *
-     * Using the concat method to avoid reallocations.
      */
-    let pending_specials = [&act_state.pending_specials[..], &block.specials[..]].concat();
+    let pending_specials = [&act_state.pending_specials[..], new_pending_specials].concat();
 
     /*
      * Update the active state recent_block_hashes:
      *
      * - Drop the hash from the earliest position.
      * - Push the block_hash into the latest position.
-     *
-     * Using the concat method to avoid reallocations.
      */
     let (_first_hash, last_hashes) = act_state
         .recent_block_hashes
         .split_first()
         .ok_or(StateTransitionError::InvalidParentHashes)?;
-    let new_hash = &[block_hash.clone()];
+    let new_hash = &[new_parent_block_hash.clone()];
     let recent_block_hashes = [&last_hashes, &new_hash[..]].concat();
 
     /*
      * The new `randao_mix` is set to the XOR of the previous active state randao mix and the
      * randao reveal in this block.
      */
-    let randao_mix = act_state.randao_mix ^ block.randao_reveal;
+    let randao_mix = act_state.randao_mix ^ *new_randao_reveal;
 
     Ok(ActiveState {
         pending_attestations,
