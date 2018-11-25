@@ -140,7 +140,7 @@ A few basic steps are needed to get set up:
       - Updates can be performed using` rustup update` .
    5. Navigate to the working directory.
    6. Run the test by using command `cargo test --all` . By running, it will pass all the required test cases. If you are doing it for the first time, then you can grab a coffee meantime. Usually, it takes time to build, compile and pass all test cases. If there is no error then, it means everything is working properly and it's time to get hand's dirty. In case, if there is an error, then please raise the [issue](https://github.com/sigp/lighthouse/issues).  We will help you.
-   7. The alternative of the above step, You  can also run benchmarks by using `cargo bench --all`
+   7. As an alternative to, or instead of the above step, you may also run benchmarks by using the command `cargo bench --all`
 
 ##### Note:
 Lighthouse presently runs on Rust `stable`, however, benchmarks currently require the
