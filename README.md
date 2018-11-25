@@ -129,7 +129,7 @@ A few basic steps are needed to get set up:
    ```
         $ curl https://sh.rustup.rs -sSf | sh
 ```
-   2. To configure your current shell run
+   2. To configure your current shell run:
   
    ```
         $ source $HOME/.cargo/env
