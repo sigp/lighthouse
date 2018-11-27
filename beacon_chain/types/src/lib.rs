@@ -6,11 +6,14 @@ extern crate ssz;
 pub mod active_state;
 pub mod attestation_record;
 pub mod beacon_block;
+pub mod candidate_pow_receipt_root_record;
 pub mod chain_config;
 pub mod crosslink_record;
 pub mod crystallized_state;
 pub mod shard_and_committee;
+pub mod shard_reassignment_record;
 pub mod special_record;
+pub mod state;
 pub mod validator_record;
 pub mod validator_registration;
 
