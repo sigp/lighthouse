@@ -10,6 +10,7 @@ pub mod candidate_pow_receipt_root_record;
 pub mod chain_config;
 pub mod crosslink_record;
 pub mod crystallized_state;
+pub mod fork_data;
 pub mod shard_and_committee;
 pub mod shard_reassignment_record;
 pub mod special_record;

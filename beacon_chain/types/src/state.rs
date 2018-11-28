@@ -1,6 +1,7 @@
 use super::attestation_record::AttestationRecord;
 use super::candidate_pow_receipt_root_record::CandidatePoWReceiptRootRecord;
 use super::crosslink_record::CrosslinkRecord;
+use super::fork_data::ForkData;
 use super::shard_and_committee::ShardAndCommittee;
 use super::shard_reassignment_record::ShardReassignmentRecord;
 use super::validator_record::ValidatorRecord;
@@ -42,9 +43,7 @@ pub struct BeaconState {
     candidate_pow_receipt_roots: Vec<CandidatePoWReceiptRootRecord>,
     // Parameters relevant to hard forks / versioning.
     // Should be updated only by hard forks.
-    pre_fork_version: u64,
-    post_fork_version: u64,
-    fork_slot_number: u64,
+    fork_data: ForkData,
     // Attestations not yet processed
     pending_attestations: Vec<AttestationRecord>,
     // recent beacon block hashes needed to process attestations, older to newer
