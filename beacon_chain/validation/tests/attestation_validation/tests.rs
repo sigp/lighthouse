@@ -129,16 +129,12 @@ fn test_attestation_validation_invalid_bad_bitfield_length() {
     /*
      * Extend the bitfield by one byte
      *
-     * This is a little hacky and makes assumptions about the internals
-     * of the bitfield.
+     * We take advantage of the fact that setting a bit outside the current bounds will grow the bitvector.
      */
     let one_byte_higher = rig.attester_count + 8;
     rig.attestation
         .attester_bitfield
-        .set_bit(one_byte_higher, true);
-    rig.attestation
-        .attester_bitfield
-        .set_bit(one_byte_higher, false);
+        .set(one_byte_higher, false);
 
     let result = rig.context.validate_attestation(&rig.attestation);
     assert_eq!(result, Err(AttestationValidationError::BadBitfieldLength));
@@ -149,9 +145,7 @@ fn test_attestation_validation_invalid_invalid_bitfield_end_bit() {
     let mut rig = generic_rig();
 
     let one_bit_high = rig.attester_count + 1;
-    rig.attestation
-        .attester_bitfield
-        .set_bit(one_bit_high, true);
+    rig.attestation.attester_bitfield.set(one_bit_high, true);
 
     let result = rig.context.validate_attestation(&rig.attestation);
     assert_eq!(
@@ -178,9 +172,7 @@ fn test_attestation_validation_invalid_invalid_bitfield_end_bit_with_irreguar_bi
         one_bit_high % 8 != 0,
         "the test is ineffective in this case."
     );
-    rig.attestation
-        .attester_bitfield
-        .set_bit(one_bit_high, true);
+    rig.attestation.attester_bitfield.set(one_bit_high, true);
 
     let result = rig.context.validate_attestation(&rig.attestation);
     assert_eq!(

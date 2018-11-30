@@ -6,15 +6,17 @@ extern crate ssz;
 pub mod active_state;
 pub mod attestation_record;
 pub mod beacon_block;
+pub mod candidate_pow_receipt_root_record;
 pub mod chain_config;
 pub mod crosslink_record;
 pub mod crystallized_state;
 pub mod shard_and_committee;
+pub mod shard_reassignment_record;
 pub mod special_record;
+pub mod state;
 pub mod validator_record;
 pub mod validator_registration;
 
-use self::boolean_bitfield::BooleanBitfield;
 use self::ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 
@@ -32,7 +34,8 @@ pub use validator_registration::ValidatorRegistration;
 pub type Hash256 = H256;
 pub type Address = H160;
 pub type EthBalance = U256;
-pub type Bitfield = BooleanBitfield;
+pub type Bitfield = boolean_bitfield::BooleanBitfield;
+pub type BitfieldError = boolean_bitfield::Error;
 
 /// Maps a (slot, shard_id) to attestation_indices.
 pub type AttesterMap = HashMap<(u64, u16), Vec<usize>>;

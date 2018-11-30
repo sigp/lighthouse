@@ -32,6 +32,7 @@ pub enum AttestationValidationError {
     NonZeroTrailingBits,
     BadAggregateSignature,
     DBError(String),
+    OutOfBoundsBitfieldIndex,
 }
 
 /// The context against which some attestation should be validated.
@@ -242,6 +243,9 @@ impl From<SignatureVerificationError> for AttestationValidationError {
                 AttestationValidationError::NoPublicKeyForValidator
             }
             SignatureVerificationError::DBError(s) => AttestationValidationError::DBError(s),
+            SignatureVerificationError::OutOfBoundsBitfieldIndex => {
+                AttestationValidationError::OutOfBoundsBitfieldIndex
+            }
         }
     }
 }
