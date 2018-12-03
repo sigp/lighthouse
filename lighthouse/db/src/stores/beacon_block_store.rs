@@ -273,7 +273,7 @@ mod tests {
             let mut s = SszStream::new();
             s.append(&block);
             let ssz = s.drain();
-            bs.put_serialized_block(&hashes[i].to_vec(), &ssz).unwrap();
+            db.put(DB_COLUMN, &hashes[i].to_vec(), &ssz).unwrap();
         }
 
         let tuple = bs.block_at_slot(&hashes[4], 5).unwrap().unwrap();
