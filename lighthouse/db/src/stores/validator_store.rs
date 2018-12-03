@@ -83,6 +83,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_prefix_bytes() {
+        let db = Arc::new(MemoryDB::open());
+        let store = ValidatorStore::new(db.clone());
+
+        assert_eq!(store.prefix_bytes(&KeyPrefixes::PublicKey), b"pubkey".to_vec());
+    }
+
+    #[test]
+    fn test_get_db_key_for_index() {
+        let db = Arc::new(MemoryDB::open());
+        let store = ValidatorStore::new(db.clone());
+
+        let mut buf = BytesMut::with_capacity(6 + 8);
+        buf.put(b"pubkey".to_vec());
+        buf.put_u64_be(42);
+        assert_eq!(store.get_db_key_for_index(&KeyPrefixes::PublicKey, 42), buf.take().to_vec())
+    }
+
+    #[test]
     fn test_put_public_key_by_index() {
         let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db.clone());
