@@ -153,7 +153,7 @@ impl ssz::Decodable for BooleanBitfield {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz::SszStream;
+    use ssz::{ssz_encode, Decodable, SszStream};
 
     #[test]
     fn test_new_bitfield() {
@@ -340,5 +340,13 @@ mod tests {
         let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
         let expected = BooleanBitfield::from_elem(18, true);
         assert_eq!(field, expected);
+    }
+
+    #[test]
+    fn test_ssz_round_trip() {
+        let original = BooleanBitfield::from_bytes(&vec![18; 12][..]);
+        let ssz = ssz_encode(&original);
+        let (decoded, _) = BooleanBitfield::ssz_decode(&ssz, 0).unwrap();
+        assert_eq!(original, decoded);
     }
 }
