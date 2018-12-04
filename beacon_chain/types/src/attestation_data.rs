@@ -1,6 +1,17 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::Hash256;
 
+pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
+    8 +             // slot
+    8 +             // shard
+    32 +            // beacon_block_hash
+    32 +            // epoch_boundary_hash
+    32 +            // shard_block_hash
+    32 +            // latest_crosslink_hash
+    8 +             // justified_slot
+    32 // justified_block_hash
+};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttestationData {
     pub slot: u64,
@@ -11,6 +22,21 @@ pub struct AttestationData {
     pub latest_crosslink_hash: Hash256,
     pub justified_slot: u64,
     pub justified_block_hash: Hash256,
+}
+
+impl AttestationData {
+    pub fn zero() -> Self {
+        Self {
+            slot: 0,
+            shard: 0,
+            beacon_block_hash: Hash256::zero(),
+            epoch_boundary_hash: Hash256::zero(),
+            shard_block_hash: Hash256::zero(),
+            latest_crosslink_hash: Hash256::zero(),
+            justified_slot: 0,
+            justified_block_hash: Hash256::zero(),
+        }
+    }
 }
 
 impl Encodable for AttestationData {
