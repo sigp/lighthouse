@@ -1,7 +1,7 @@
 extern crate bytes;
 
 use self::bytes::{BufMut, BytesMut};
-use super::ethereum_types::H256;
+use super::ethereum_types::{Address, H256};
 use super::{Encodable, SszStream};
 
 /*
@@ -48,7 +48,15 @@ impl_encodable_for_uint!(usize, 64);
 
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
+        assert_eq!(32, self.len());
         s.append_encoded_raw(&self.to_vec());
+    }
+}
+
+impl Encodable for Address {
+    fn ssz_append(&self, s: &mut SszStream) {
+        assert_eq!(20, self.len());
+        s.append_encoded_raw(&self)
     }
 }
 
@@ -62,6 +70,14 @@ mod tests {
         let mut ssz = SszStream::new();
         ssz.append(&h);
         assert_eq!(ssz.drain(), vec![0; 32]);
+    }
+
+    #[test]
+    fn test_ssz_encode_adress() {
+        let h = Address::zero();
+        let mut ssz = SszStream::new();
+        ssz.append(&h);
+        assert_eq!(ssz.drain(), vec![0; 20]);
     }
 
     #[test]
