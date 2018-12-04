@@ -1,6 +1,8 @@
+use super::bls::BLS_AGG_SIG_BYTE_SIZE;
 use super::ssz::decode::decode_length;
 use super::ssz::LENGTH_BYTES;
-use super::types::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH as MIN_LENGTH;
+use super::types::attestation_data::SSZ_ATTESTION_DATA_LENGTH;
+use super::types::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH;
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationSplitError {
@@ -29,52 +31,89 @@ pub fn split_one_attestation(
     full_ssz: &[u8],
     index: usize,
 ) -> Result<(&[u8], usize), AttestationSplitError> {
-    if full_ssz.len() < MIN_LENGTH {
+    let length = determine_ssz_attestation_len(full_ssz, index)?;
+    let end = index + length;
+
+    // The check to ensure that the slice exists _should_ be redundant as it is already checked in
+    // `determine_ssz_attestation_len`, however it is checked here again for additional safety
+    // against panics.
+    match full_ssz.get(index..end) {
+        None => Err(AttestationSplitError::TooShort),
+        Some(slice) => Ok((slice, end)),
+    }
+}
+
+/// Given some SSZ, assume that a serialized `AttestationRecord` begins at the `index` position and
+/// attempt to find the length (in bytes) of that serialized `AttestationRecord`.
+///
+/// This function does not perform validation on the `AttestationRecord`. It is very likely that
+/// given some sufficiently long non-`AttestationRecord` bytes it will not raise an error.
+fn determine_ssz_attestation_len(
+    full_ssz: &[u8],
+    index: usize,
+) -> Result<usize, AttestationSplitError> {
+    if full_ssz.len() < MIN_SSZ_ATTESTION_RECORD_LENGTH {
         return Err(AttestationSplitError::TooShort);
     }
 
-    let hashes_len = decode_length(full_ssz, index + 10, LENGTH_BYTES)
+    let data_struct_end = index + SSZ_ATTESTION_DATA_LENGTH;
+
+    // Determine the end of the first bitfield.
+    let participation_bitfield_len = decode_length(full_ssz, data_struct_end, LENGTH_BYTES)
         .map_err(|_| AttestationSplitError::TooShort)?;
+    let participation_bitfield_end = data_struct_end + LENGTH_BYTES + participation_bitfield_len;
 
-    let bitfield_len = decode_length(full_ssz, index + hashes_len + 46, LENGTH_BYTES)
+    // Determine the end of the second bitfield.
+    let custody_bitfield_len = decode_length(full_ssz, participation_bitfield_end, LENGTH_BYTES)
         .map_err(|_| AttestationSplitError::TooShort)?;
+    let custody_bitfield_end = participation_bitfield_end + LENGTH_BYTES + custody_bitfield_len;
 
-    // Subtract one because the min length assumes 1 byte of bitfield
-    let len = MIN_LENGTH - 1 + hashes_len + bitfield_len;
+    // Determine the very end of the AttestationRecord.
+    let agg_sig_end = custody_bitfield_end + LENGTH_BYTES + BLS_AGG_SIG_BYTE_SIZE;
 
-    if full_ssz.len() < index + len {
-        return Err(AttestationSplitError::TooShort);
+    if agg_sig_end > full_ssz.len() {
+        Err(AttestationSplitError::TooShort)
+    } else {
+        Ok(agg_sig_end - index)
     }
-
-    Ok((&full_ssz[index..(index + len)], index + len))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::bls::AggregateSignature;
     use super::super::ssz::{Decodable, SszStream};
-    use super::super::types::{AttestationRecord, Bitfield, Hash256};
+    use super::super::types::{AttestationData, AttestationRecord, Bitfield, Hash256};
     use super::*;
 
     fn get_two_records() -> Vec<AttestationRecord> {
         let a = AttestationRecord {
-            slot: 7,
-            shard_id: 9,
-            oblique_parent_hashes: vec![Hash256::from(&vec![14; 32][..])],
-            shard_block_hash: Hash256::from(&vec![15; 32][..]),
-            attester_bitfield: Bitfield::from_bytes(&vec![17; 42][..]),
-            justified_slot: 19,
-            justified_block_hash: Hash256::from(&vec![15; 32][..]),
+            data: AttestationData {
+                slot: 7,
+                shard: 9,
+                beacon_block_hash: Hash256::from("a_beacon".as_bytes()),
+                epoch_boundary_hash: Hash256::from("a_epoch".as_bytes()),
+                shard_block_hash: Hash256::from("a_shard".as_bytes()),
+                latest_crosslink_hash: Hash256::from("a_xlink".as_bytes()),
+                justified_slot: 19,
+                justified_block_hash: Hash256::from("a_justified".as_bytes()),
+            },
+            participation_bitfield: Bitfield::from_bytes(&vec![17; 42][..]),
+            custody_bitfield: Bitfield::from_bytes(&vec![255; 12][..]),
             aggregate_sig: AggregateSignature::new(),
         };
         let b = AttestationRecord {
-            slot: 9,
-            shard_id: 7,
-            oblique_parent_hashes: vec![Hash256::from(&vec![15; 32][..])],
-            shard_block_hash: Hash256::from(&vec![14; 32][..]),
-            attester_bitfield: Bitfield::from_bytes(&vec![19; 42][..]),
-            justified_slot: 15,
-            justified_block_hash: Hash256::from(&vec![17; 32][..]),
+            data: AttestationData {
+                slot: 9,
+                shard: 7,
+                beacon_block_hash: Hash256::from("b_beacon".as_bytes()),
+                epoch_boundary_hash: Hash256::from("b_epoch".as_bytes()),
+                shard_block_hash: Hash256::from("b_shard".as_bytes()),
+                latest_crosslink_hash: Hash256::from("b_xlink".as_bytes()),
+                justified_slot: 15,
+                justified_block_hash: Hash256::from("b_justified".as_bytes()),
+            },
+            participation_bitfield: Bitfield::from_bytes(&vec![1; 42][..]),
+            custody_bitfield: Bitfield::from_bytes(&vec![11; 3][..]),
             aggregate_sig: AggregateSignature::new(),
         };
         vec![a, b]
