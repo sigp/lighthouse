@@ -1,4 +1,7 @@
 language: rust
+script:
+  - cargo build --verbose --all
+  - cargo test --verbose --all
 rust:
   - stable
   - beta
