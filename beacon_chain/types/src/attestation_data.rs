@@ -37,6 +37,12 @@ impl AttestationData {
             justified_block_hash: Hash256::zero(),
         }
     }
+
+    // TODO: Implement this as a merkle root, once tree_ssz is implemented.
+    // https://github.com/sigp/lighthouse/issues/92
+    pub fn canonical_root(&self) -> Hash256 {
+        Hash256::zero()
+    }
 }
 
 impl Encodable for AttestationData {

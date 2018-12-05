@@ -1,0 +1,12 @@
+[package]
+name = "attestation_validation"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+bls = { path = "../utils/bls" }
+db = { path = "../../lighthouse/db" }
+hashing = { path = "../utils/hashing" }
+ssz = { path = "../utils/ssz" }
+ssz_helpers = { path = "../utils/ssz_helpers" }
+types = { path = "../types" }
