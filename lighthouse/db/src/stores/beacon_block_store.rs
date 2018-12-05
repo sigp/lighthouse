@@ -97,6 +97,108 @@ mod tests {
     use std::thread;
 
     #[test]
+    fn test_put_serialized_block() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        store.put_serialized_block(hash, ssz).unwrap();
+        assert_eq!(db.get(DB_COLUMN, hash).unwrap().unwrap(), ssz);
+    }
+
+    #[test]
+    fn test_get_serialized_block() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz).unwrap();
+        assert_eq!(store.get_serialized_block(hash).unwrap().unwrap(), ssz);
+    }
+
+    #[test]
+    fn test_get_unknown_serialized_block() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, other_hash, ssz).unwrap();
+        assert_eq!(store.get_serialized_block(hash).unwrap(), None);
+    }
+
+    #[test]
+    fn test_block_exists() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz).unwrap();
+        assert!(store.block_exists(hash).unwrap());
+    }
+
+    #[test]
+    fn test_block_does_not_exist() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz).unwrap();
+        assert!(!store.block_exists(other_hash).unwrap());
+    }
+
+    #[test]
+    fn test_delete_block() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz).unwrap();
+        assert!(db.exists(DB_COLUMN, hash).unwrap());
+
+        store.delete_block(hash).unwrap();
+        assert!(!db.exists(DB_COLUMN, hash).unwrap());
+    }
+
+    #[test]
+    fn test_invalid_block_at_slot() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "definitly not a valid block".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz).unwrap();
+        assert_eq!(store.block_at_slot(hash, 42), Err(BeaconBlockAtSlotError::InvalidBeaconBlock));
+    }
+
+    #[test]
+    fn test_unknown_block_at_slot() {
+        let db = Arc::new(MemoryDB::open());
+        let store = BeaconBlockStore::new(db.clone());
+
+        let ssz = "some bytes".as_bytes();
+        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
+
+        db.put(DB_COLUMN, hash, ssz).unwrap();
+        assert_eq!(store.block_at_slot(other_hash, 42), Err(BeaconBlockAtSlotError::UnknownBeaconBlock));
+    }
+
+    #[test]
     fn test_block_store_on_memory_db() {
         let db = Arc::new(MemoryDB::open());
         let bs = Arc::new(BeaconBlockStore::new(db.clone()));
@@ -171,7 +273,7 @@ mod tests {
             let mut s = SszStream::new();
             s.append(&block);
             let ssz = s.drain();
-            bs.put_serialized_block(&hashes[i].to_vec(), &ssz).unwrap();
+            db.put(DB_COLUMN, &hashes[i].to_vec(), &ssz).unwrap();
         }
 
         let tuple = bs.block_at_slot(&hashes[4], 5).unwrap().unwrap();
