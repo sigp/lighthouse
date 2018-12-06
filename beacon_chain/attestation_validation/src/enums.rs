@@ -1,4 +1,5 @@
 /// Reasons why an `AttestationRecord` can be invalid.
+#[derive(PartialEq, Debug)]
 pub enum Invalid {
     AttestationTooRecent,
     AttestationTooOld,
@@ -14,6 +15,7 @@ pub enum Invalid {
 ///
 /// Distinct from the `Error` enum as an `Outcome` indicates that validation executed sucessfully
 /// and determined the validity `AttestationRecord`.
+#[derive(PartialEq, Debug)]
 pub enum Outcome {
     Valid,
     Invalid(Invalid),
@@ -23,6 +25,7 @@ pub enum Outcome {
 ///
 /// Distinct from the `Outcome` enum as `Errors` indicate that validation encountered an unexpected
 /// condition and was unable to perform its duty.
+#[derive(PartialEq, Debug)]
 pub enum Error {
     BlockHasNoParent,
     BadValidatorIndex,
