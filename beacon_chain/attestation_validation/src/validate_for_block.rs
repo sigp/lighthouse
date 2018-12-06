@@ -1,7 +1,7 @@
 use super::{Error, Invalid, Outcome};
 
 /// Check that an attestation is valid to be included in some block.
-pub fn validate_attestation_for_block<T>(
+pub fn validate_attestation_for_block(
     attestation_slot: u64,
     block_slot: u64,
     parent_block_slot: u64,
@@ -16,7 +16,9 @@ pub fn validate_attestation_for_block<T>(
      * block it is contained in.
      */
     verify_or!(
-        attestation_slot <= block_slot.saturating_sub(min_attestation_inclusion_delay),
+        // TODO: this differs from the spec as it does not handle underflows correctly.
+        // https://github.com/sigp/lighthouse/issues/95
+        attestation_slot < block_slot.saturating_sub(min_attestation_inclusion_delay - 1),
         reject!(Invalid::AttestationTooRecent)
     );
 
@@ -30,4 +32,117 @@ pub fn validate_attestation_for_block<T>(
     );
 
     accept!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inclusion_delay_minimal() {
+        let parent_block_slot = 99;
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = 100;
+        let attestation_slot = block_slot - min_attestation_inclusion_delay;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Valid));
+    }
+
+    #[test]
+    fn test_inclusion_delay_maximal() {
+        let parent_block_slot = 99;
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = 100;
+        let attestation_slot = block_slot - epoch_length;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Valid));
+    }
+
+    #[test]
+    fn test_inclusion_delay_insufficient() {
+        let parent_block_slot = 99;
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = 100;
+        let attestation_slot = block_slot - (min_attestation_inclusion_delay - 1);
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Invalid(Invalid::AttestationTooRecent)));
+    }
+
+    #[test]
+    fn test_inclusion_delay_first_possible_slot() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = min_attestation_inclusion_delay;
+        let attestation_slot = 0;
+        let parent_block_slot = block_slot - 1;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Valid));
+    }
+
+    #[test]
+    fn test_inclusion_delay_saturation_non_zero_slot() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = min_attestation_inclusion_delay - 1;
+        let parent_block_slot = block_slot - 1;
+        let attestation_slot = 0;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Invalid(Invalid::AttestationTooRecent)));
+    }
+
+    #[test]
+    fn test_inclusion_delay_saturation_zero_slot() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = min_attestation_inclusion_delay - 1;
+        let parent_block_slot = block_slot - 1;
+        let attestation_slot = 0;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Invalid(Invalid::AttestationTooRecent)));
+    }
 }
