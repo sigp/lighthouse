@@ -37,9 +37,106 @@ pub fn validate_attestation_for_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /*
+     * Invalid::AttestationTooOld tests.
+     */
 
     #[test]
-    fn test_inclusion_delay_minimal() {
+    fn test_inclusion_too_old_minimal() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = 100;
+        let parent_block_slot = block_slot - 1;
+        let attestation_slot = block_slot - min_attestation_inclusion_delay;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Valid));
+    }
+
+    #[test]
+    fn test_inclusion_too_old_maximal() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = 100;
+        let parent_block_slot = block_slot - 1;
+        let attestation_slot = block_slot - epoch_length + 1;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Valid));
+    }
+
+    #[test]
+    fn test_inclusion_too_old_saturating_non_zero_attestation_slot() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = epoch_length + 1;
+        let parent_block_slot = block_slot - 1;
+        let attestation_slot = block_slot - min_attestation_inclusion_delay;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Valid));
+    }
+
+    #[test]
+    fn test_inclusion_too_old_saturating_zero_attestation_slot() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = epoch_length + 1;
+        let parent_block_slot = block_slot - 1;
+        let attestation_slot = 0;
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Valid));
+    }
+
+    #[test]
+    fn test_inclusion_too_old() {
+        let min_attestation_inclusion_delay = 10;
+        let epoch_length = 20;
+        let block_slot = epoch_length * 2;
+        let parent_block_slot = block_slot - 1;
+        let attestation_slot = parent_block_slot - (epoch_length + 2);
+
+        let outcome = validate_attestation_for_block(
+            attestation_slot,
+            block_slot,
+            parent_block_slot,
+            min_attestation_inclusion_delay,
+            epoch_length,
+        );
+        assert_eq!(outcome, Ok(Outcome::Invalid(Invalid::AttestationTooOld)));
+    }
+
+    /*
+     * Invalid::AttestationTooRecent tests.
+     */
+
+    #[test]
+    fn test_inclusion_too_recent_minimal() {
         let parent_block_slot = 99;
         let min_attestation_inclusion_delay = 10;
         let epoch_length = 20;
@@ -57,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inclusion_delay_maximal() {
+    fn test_inclusion_too_recent_maximal() {
         let parent_block_slot = 99;
         let min_attestation_inclusion_delay = 10;
         let epoch_length = 20;
@@ -75,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inclusion_delay_insufficient() {
+    fn test_inclusion_too_recent_insufficient() {
         let parent_block_slot = 99;
         let min_attestation_inclusion_delay = 10;
         let epoch_length = 20;
@@ -93,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inclusion_delay_first_possible_slot() {
+    fn test_inclusion_too_recent_first_possible_slot() {
         let min_attestation_inclusion_delay = 10;
         let epoch_length = 20;
         let block_slot = min_attestation_inclusion_delay;
@@ -111,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inclusion_delay_saturation_non_zero_slot() {
+    fn test_inclusion_too_recent_saturation_non_zero_slot() {
         let min_attestation_inclusion_delay = 10;
         let epoch_length = 20;
         let block_slot = min_attestation_inclusion_delay - 1;
@@ -129,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inclusion_delay_saturation_zero_slot() {
+    fn test_inclusion_too_recent_saturation_zero_slot() {
         let min_attestation_inclusion_delay = 10;
         let epoch_length = 20;
         let block_slot = min_attestation_inclusion_delay - 1;
