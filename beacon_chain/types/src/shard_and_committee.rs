@@ -18,10 +18,6 @@ impl ShardAndCommittee {
 }
 
 impl TreeHash for ShardAndCommittee {
-    // python sample code:
-    //    def hash_shard_and_committee(val):
-    //        committee = merkle_hash([x.to_bytes(3, 'big') for x in val.committee])
-    //        return hash(val.shard_id.to_bytes(2, 'big') + committee)
     fn tree_hash(&self) -> Vec<u8> {
         let mut committee_ssz_items = Vec::new();
         for c in &self.committee {
