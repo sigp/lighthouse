@@ -2,43 +2,14 @@ const CHUNKSIZE: usize = 128;
 const HASHSIZE: usize = 32;
 
 pub trait TreeHash {
-    // Note: it would be nice to have a default trait implementation here
-    // i.e. szz_encode(self) - but rust complains it does not know
-    // the size of 'self'.  Not sure if there's a way around this.
-
     fn tree_hash(&self) -> Vec<u8>;
 }
 
-// python example:  Note - I'm seeing some inconsistencies
-// between this and the 'Tree Hash' section in the SSZ spec.
-// So, I imagine it will change.
-/* def merkle_hash(lst):
-    # Concatenate list into data
-    if len(lst[0]) != next_power_of_2(len(lst[0])):
-        lst = [extend_to_power_of_2(x) for x in lst]
-    data = b''.join(lst)
-    # Add padding
-    data += b'\x00' * (CHUNKSIZE - (len(data) % CHUNKSIZE or CHUNKSIZE))
-    assert len(data) % CHUNKSIZE == 0
-    # Store length (to compensate for non-bijectiveness of padding)
-    datalen = len(lst).to_bytes(32, 'big')
-    # Convert to chunks
-    chunkz = [data[i:i+CHUNKSIZE] for i in range(0, len(data), CHUNKSIZE)]
-    chunkz = [None] * next_power_of_2(len(chunkz)) + chunkz + [b'\x00' * CHUNKSIZE]
-    for i in range(len(chunkz)//2 - 1, 0, -1):
-        chunkz[i] = hash(chunkz[i*2] + chunkz[i*2+1])
-    return hash(chunkz[1] + datalen) */
-
-/**
- * Returns a 32 byte hash of 'list', a vector of byte vectors.
- * Note that this will consume 'list'.
- * */
+/// Returns a 32 byte hash of 'list' - a vector of byte vectors.
+/// Note that this will consume 'list'.
 pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     // flatten list
     let data = &mut list_to_blob(list);
-
-    // data should be divisible by CHUNKSIZE
-    assert_eq!(data.len() % CHUNKSIZE, 0);
 
     // get data_len as bytes. It will hashed will the merkle root
     let dlen = data.len() as u64;
@@ -46,27 +17,17 @@ pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     data_len_bytes.resize(32, 0);
 
     // merklize
-    //
-    // From the Spec:
-    // while len(chunkz) > 1:
-    //    if len(chunkz) % 2 == 1:
-    //        chunkz.append(b'\x00' * SSZ_CHUNK_SIZE)
-    //    chunkz = [hash(chunkz[i] + chunkz[i+1]) for i in range(0, len(chunkz), 2)]
     let mut mhash = hash_level(data, CHUNKSIZE);
     while mhash.len() > HASHSIZE {
         mhash = hash_level(&mut mhash, HASHSIZE);
     }
 
-    assert_eq!(mhash.len(), HASHSIZE);
-
     mhash.append(data_len_bytes);
     mhash.tree_hash()
 }
 
-/**
- * Takes a flat vector of bytes. It then hashes (chunk_size * 2) into
- * a byte vector of hashes, divisible by the 32 byte hashsize
- */
+/// Takes a flat vector of bytes. It then hashes 'chunk_size * 2' slices into
+/// a byte vector of hashes, divisible by HASHSIZE
 fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
     assert!(data.len() % chunk_size == 0);
 
@@ -119,9 +80,7 @@ fn list_to_blob(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     data
 }
 
-/**
- * Extends data length to a power of 2 by minimally right-zero-padding
- */
+/// Extends data length to a power of 2 by minimally right-zero-padding
 fn extend_to_power_of_2(data: &mut Vec<u8>) {
     let len = data.len();
     let new_len = len.next_power_of_two();
