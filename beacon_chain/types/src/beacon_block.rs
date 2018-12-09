@@ -15,7 +15,7 @@ pub const MIN_SSZ_BLOCK_LENGTH: usize = {
 };
 pub const MAX_SSZ_BLOCK_LENGTH: usize = MIN_SSZ_BLOCK_LENGTH + (1 << 24);
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct BeaconBlock {
     pub slot: u64,
     pub randao_reveal: Hash256,
