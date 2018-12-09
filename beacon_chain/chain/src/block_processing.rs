@@ -5,7 +5,6 @@ use db::{ClientDB, DBError};
 use naive_fork_choice::{naive_fork_choice, ForkChoiceError};
 use ssz_helpers::ssz_beacon_block::{SszBeaconBlock, SszBeaconBlockError};
 use types::Hash256;
-use validation::block_validation::SszBeaconBlockValidationError;
 
 pub enum BlockProcessingOutcome {
     BlockAlreadyKnown,
@@ -19,10 +18,11 @@ pub enum BlockProcessingError {
     ActiveStateRootInvalid,
     CrystallizedStateRootInvalid,
     NoHeadHashes,
+    UnknownParentHash,
     ForkChoiceFailed(ForkChoiceError),
     ContextGenerationFailed(BlockValidationContextError),
     DeserializationFailed(SszBeaconBlockError),
-    ValidationFailed(SszBeaconBlockValidationError),
+    ValidationFailed,
     StateTransitionFailed(StateTransitionError),
     DBError(String),
 }
@@ -55,9 +55,7 @@ where
          */
         let parent_hash = ssz_block
             .parent_hash()
-            .ok_or(BlockProcessingError::ValidationFailed(
-                SszBeaconBlockValidationError::UnknownParentHash,
-            ))?;
+            .ok_or(BlockProcessingError::UnknownParentHash)?;
 
         /*
          * Load the parent block from the database and create an SszBeaconBlock for reading it.
@@ -232,12 +230,6 @@ impl From<DBError> for BlockProcessingError {
 impl From<ForkChoiceError> for BlockProcessingError {
     fn from(e: ForkChoiceError) -> Self {
         BlockProcessingError::ForkChoiceFailed(e)
-    }
-}
-
-impl From<SszBeaconBlockValidationError> for BlockProcessingError {
-    fn from(e: SszBeaconBlockValidationError) -> Self {
-        BlockProcessingError::ValidationFailed(e)
     }
 }
 
