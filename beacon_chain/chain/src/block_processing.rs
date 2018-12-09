@@ -19,8 +19,8 @@ where
 {
     pub fn process_block(
         &mut self,
-        ssz: &[u8],
-        present_slot: u64,
+        _ssz: &[u8],
+        _present_slot: u64,
     ) -> Result<(BlockProcessingOutcome, Hash256), Error> {
         // TODO: block processing has been removed.
         // https://github.com/sigp/lighthouse/issues/98

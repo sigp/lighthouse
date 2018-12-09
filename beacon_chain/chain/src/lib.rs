@@ -14,7 +14,7 @@ mod stores;
 mod transition;
 
 use db::ClientDB;
-use genesis::genesis_states;
+use genesis::{genesis_states, Error as GenesisError};
 use maps::{generate_attester_and_proposer_maps, AttesterAndProposerMapError};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,6 +26,7 @@ pub enum BeaconChainError {
     InvalidGenesis,
     InsufficientValidators,
     UnableToGenerateMaps(AttesterAndProposerMapError),
+    GenesisError(GenesisError),
     DBError(String),
 }
 
@@ -101,42 +102,8 @@ impl From<AttesterAndProposerMapError> for BeaconChainError {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use db::stores::*;
-    use db::MemoryDB;
-    use std::sync::Arc;
-    use types::ValidatorRegistration;
-
-    #[test]
-    fn test_new_chain() {
-        let mut config = ChainConfig::standard();
-        config.cycle_length = 4;
-        config.shard_count = 4;
-        let db = Arc::new(MemoryDB::open());
-        let store = BeaconChainStore {
-            block: Arc::new(BeaconBlockStore::new(db.clone())),
-            pow_chain: Arc::new(PoWChainStore::new(db.clone())),
-            validator: Arc::new(ValidatorStore::new(db.clone())),
-        };
-
-        for _ in 0..config.cycle_length * 2 {
-            config
-                .initial_validators
-                .push(ValidatorRegistration::random())
-        }
-
-        let chain = BeaconChain::new(store, config.clone()).unwrap();
-        let (act, cry) = genesis_states(&config).unwrap();
-
-        assert_eq!(chain.last_finalized_slot, 0);
-        assert_eq!(chain.canonical_block_hash(), Hash256::zero());
-
-        let stored_act = chain.active_states.get(&Hash256::zero()).unwrap();
-        assert_eq!(act, *stored_act);
-
-        let stored_cry = chain.crystallized_states.get(&Hash256::zero()).unwrap();
-        assert_eq!(cry, *stored_cry);
+impl From<GenesisError> for BeaconChainError {
+    fn from(e: GenesisError) -> BeaconChainError {
+        BeaconChainError::GenesisError(e)
     }
 }
