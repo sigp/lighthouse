@@ -37,6 +37,7 @@ pub fn validate_attestation_for_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     /*
      * Invalid::AttestationTooOld tests.
      */
