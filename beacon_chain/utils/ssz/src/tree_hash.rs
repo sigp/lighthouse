@@ -61,8 +61,6 @@ fn list_to_blob(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
         0
     };
 
-    println!("data_len {}, extend_by {}", data_len, extend_by);
-
     // allocate buffer and append each list element (flatten the vec of vecs)
     data_len += extend_by;
     let mut data: Vec<u8> = Vec::with_capacity(data_len);
