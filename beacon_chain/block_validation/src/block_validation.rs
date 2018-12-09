@@ -179,24 +179,8 @@ where
         }
 
         /*
-         * Generate the context in which attestations will be validated.
+         * TODO: Validate the first attestation.
          */
-        let attestation_validation_context = Arc::new(AttestationValidationContext {
-            block_slot,
-            parent_block_slot,
-            cycle_length: self.cycle_length,
-            last_justified_slot: self.last_justified_slot,
-            recent_block_hashes: self.recent_block_hashes.clone(),
-            block_store: self.block_store.clone(),
-            validator_store: self.validator_store.clone(),
-            attester_map: self.attester_map.clone(),
-        });
-
-        /*
-         * Validate this first attestation.
-         */
-        let attestation_voters =
-            attestation_validation_context.validate_attestation(&first_attestation)?;
 
         /*
          * Attempt to read load the parent block proposer from the proposer map. Return with an

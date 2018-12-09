@@ -4,7 +4,6 @@ extern crate ssz;
 extern crate ssz_helpers;
 extern crate state_transition;
 extern crate types;
-extern crate validation;
 extern crate validator_induction;
 extern crate validator_shuffling;
 
