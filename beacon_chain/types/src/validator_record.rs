@@ -14,13 +14,13 @@ pub enum ValidatorStatus {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
-    pub withdrawal_shard: u16,
-    pub withdrawal_address: Address,
-    pub randao_commitment: Hash256,
-    pub randao_last_change: u64,
+    pub withdrawal_credentials: Hash32,
+    pub randao_commitment: Hash32,
+    pub randao_skips: u64,
     pub balance: u64,
-    pub status: u8,
-    pub exit_slot: u64,
+    pub status: u64,
+    pub latest_status_change_slot: u64,
+    pub exit_count: u64
 }
 
 impl ValidatorRecord {
