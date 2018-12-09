@@ -29,7 +29,7 @@ impl TreeHash for ShardAndCommittee {
         result.append(&mut self.shard.tree_hash());
         result.append(&mut merkle_hash(&mut committee_ssz_items));
 
-        result.tree_hash()
+        result.as_slice().tree_hash()
     }
 }
 
