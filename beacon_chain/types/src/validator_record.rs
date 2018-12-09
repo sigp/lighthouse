@@ -77,7 +77,7 @@ impl TreeHash for ValidatorRecord {
         balance.resize(16, 0);
         ssz.append(&mut balance);
 
-        ssz.tree_hash()
+        ssz.as_slice().tree_hash()
     }
 }
 

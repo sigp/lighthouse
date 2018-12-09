@@ -2,7 +2,7 @@ extern crate blake2_rfc;
 
 use self::blake2_rfc::blake2b::blake2b;
 use super::ethereum_types::{Address, H256};
-use super::{ssz_encode, TreeHash};
+use super::{merkle_hash, ssz_encode, TreeHash};
 use std::cmp::Ord;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -53,15 +53,13 @@ impl<T> TreeHash for Vec<T>
 where
     T: TreeHash,
 {
-    /// Appends the tree_hash for each value of 'self' into a byte array
-    /// and returns the hash of said byte array
+    /// Returns the merkle_hash of a list of tree_hash values created
+    /// from the given list.
+    /// Note: A byte vector, Vec<u8>, must be converted to a slice (as_slice())
+    ///       to be handled properly (i.e. hashed) as byte array.
     fn tree_hash(&self) -> Vec<u8> {
-        let mut result = Vec::new();
-        for x in self {
-            result.append(&mut x.tree_hash());
-        }
-
-        hash(&result)
+        let mut tree_hashes = self.iter().map(|x| x.tree_hash()).collect();
+        merkle_hash(&mut tree_hashes)
     }
 }
 
