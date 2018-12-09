@@ -23,14 +23,12 @@ pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     }
 
     mhash.append(data_len_bytes);
-    mhash.tree_hash()
+    mhash.as_slice().tree_hash()
 }
 
 /// Takes a flat vector of bytes. It then hashes 'chunk_size * 2' slices into
 /// a byte vector of hashes, divisible by HASHSIZE
 fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
-    assert!(data.len() % chunk_size == 0);
-
     let mut result: Vec<u8> = Vec::new();
     for two_chunks in data.chunks(chunk_size * 2) {
         if two_chunks.len() == chunk_size && data.len() > chunk_size {
@@ -38,7 +36,7 @@ fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
             // CHUNKSIZE vector
             let mut c = two_chunks.to_vec();
             c.append(&mut vec![0; CHUNKSIZE]);
-            result.append(&mut c.tree_hash());
+            result.append(&mut c.as_slice().tree_hash());
         } else {
             result.append(&mut two_chunks.tree_hash());
         }
@@ -48,13 +46,13 @@ fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
 }
 
 fn list_to_blob(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
-    let mut data_len = 0;
     if list[0].len().is_power_of_two() == false {
         for x in list.iter_mut() {
             extend_to_power_of_2(x);
-            data_len += x.len();
         }
     }
+
+    let mut data_len = list[0].len() * list.len();
 
     // do we need padding?
     let extend_by = if data_len % CHUNKSIZE > 0 {
@@ -62,6 +60,8 @@ fn list_to_blob(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     } else {
         0
     };
+
+    println!("data_len {}, extend_by {}", data_len, extend_by);
 
     // allocate buffer and append each list element (flatten the vec of vecs)
     data_len += extend_by;
@@ -92,13 +92,6 @@ fn extend_to_power_of_2(data: &mut Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_extend_to_power_of_2() {
-        let mut data = vec![1, 2, 3, 4, 5];
-        extend_to_power_of_2(&mut data);
-        assert_eq!(data, [1, 2, 3, 4, 5, 0, 0, 0]);
-    }
 
     #[test]
     fn test_merkle_hash() {
