@@ -1,5 +1,5 @@
 use super::bls::{Keypair, PublicKey};
-use super::{Address, Hash256};
+use super::{Hash256};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ValidatorStatus {
@@ -14,8 +14,8 @@ pub enum ValidatorStatus {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
-    pub withdrawal_credentials: Hash32,
-    pub randao_commitment: Hash32,
+    pub withdrawal_credentials: Hash256,
+    pub randao_commitment: Hash256,
     pub randao_skips: u64,
     pub balance: u64,
     pub status: u64,
@@ -32,13 +32,13 @@ impl ValidatorRecord {
         let keypair = Keypair::random();
         let s = Self {
             pubkey: keypair.pk.clone(),
-            withdrawal_shard: 0,
-            withdrawal_address: Address::zero(),
+            withdrawal_credentials: Hash256::zero(),
             randao_commitment: Hash256::zero(),
-            randao_last_change: 0,
+            randao_skips: 0,
             balance: 0,
             status: 0,
-            exit_slot: 0,
+            latest_status_change_slot: 0,
+            exit_count: 0
         };
         (s, keypair)
     }
