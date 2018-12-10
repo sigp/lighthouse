@@ -51,12 +51,12 @@ mod tests {
     #[test]
     fn test_validator_record_zero_rand_keypair() {
         let (v, _kp) = ValidatorRecord::zero_with_thread_rand_keypair();
-        assert_eq!(v.withdrawal_shard, 0);
-        assert!(v.withdrawal_address.is_zero());
+        assert!(v.withdrawal_credentials.is_zero());
         assert!(v.randao_commitment.is_zero());
-        assert_eq!(v.randao_last_change, 0);
+        assert_eq!(v.randao_skips, 0);
         assert_eq!(v.balance, 0);
         assert_eq!(v.status, 0);
-        assert_eq!(v.exit_slot, 0);
+        assert_eq!(v.latest_status_change_slot, 0);
+        assert_eq!(v.exit_count, 0);
     }
 }
