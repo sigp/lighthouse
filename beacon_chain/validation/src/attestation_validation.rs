@@ -85,9 +85,10 @@ where
          * The slot of this attestation must not be more than cycle_length + 1 distance
          * from the parent_slot of block that contained it.
          */
-        if a.slot < self
-            .parent_block_slot
-            .saturating_sub(u64::from(self.cycle_length).saturating_add(1))
+        if a.slot
+            < self
+                .parent_block_slot
+                .saturating_sub(u64::from(self.cycle_length).saturating_add(1))
         {
             return Err(AttestationValidationError::ParentSlotTooLow);
         }
