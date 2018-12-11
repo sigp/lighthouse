@@ -30,32 +30,32 @@ mod tests {
         let mut validators = vec![];
 
         let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::Active as u8;
+        v.status = ValidatorStatus::Active;
         assert!(validator_is_active(&v));
         validators.push(v);
 
         let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::PendingActivation as u8;
+        v.status = ValidatorStatus::PendingActivation;
         assert!(!validator_is_active(&v));
         validators.push(v);
 
         let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::PendingExit as u8;
+        v.status = ValidatorStatus::PendingExit;
         assert!(!validator_is_active(&v));
         validators.push(v);
 
         let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::PendingWithdraw as u8;
+        v.status = ValidatorStatus::PendingWithdraw;
         assert!(!validator_is_active(&v));
         validators.push(v);
 
         let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::Withdrawn as u8;
+        v.status = ValidatorStatus::Withdrawn;
         assert!(!validator_is_active(&v));
         validators.push(v);
 
         let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::Penalized as u8;
+        v.status = ValidatorStatus::Penalized;
         assert!(!validator_is_active(&v));
         validators.push(v);
 

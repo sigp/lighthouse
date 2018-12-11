@@ -1,5 +1,6 @@
 use super::bls::{Keypair, PublicKey};
 use super::{Address, Hash256};
+use std::convert;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ValidatorStatus {
@@ -11,6 +12,20 @@ pub enum ValidatorStatus {
     Penalized = 127,
 }
 
+impl convert::From<u8> for ValidatorStatus {
+    fn from(status: u8) -> Self {
+        match status {
+            0 => ValidatorStatus::PendingActivation,
+            1 => ValidatorStatus::Active,
+            2 => ValidatorStatus::PendingExit,
+            3 => ValidatorStatus::PendingWithdraw,
+            5 => ValidatorStatus::Withdrawn,
+            127 => ValidatorStatus::Penalized,
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
@@ -19,7 +34,7 @@ pub struct ValidatorRecord {
     pub randao_commitment: Hash256,
     pub randao_last_change: u64,
     pub balance: u64,
-    pub status: u8,
+    pub status: ValidatorStatus,
     pub exit_slot: u64,
 }
 
@@ -37,7 +52,7 @@ impl ValidatorRecord {
             randao_commitment: Hash256::zero(),
             randao_last_change: 0,
             balance: 0,
-            status: 0,
+            status: From::from(0),
             exit_slot: 0,
         };
         (s, keypair)
@@ -60,7 +75,7 @@ mod tests {
         assert!(v.randao_commitment.is_zero());
         assert_eq!(v.randao_last_change, 0);
         assert_eq!(v.balance, 0);
-        assert_eq!(v.status, 0);
+        assert_eq!(v.status, From::from(0));
         assert_eq!(v.exit_slot, 0);
     }
 }
