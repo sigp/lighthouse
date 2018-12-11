@@ -135,7 +135,7 @@ where
          * Allow extra set bits would permit mutliple different byte layouts (and therefore hashes) to
          * refer to the same AttesationRecord.
          */
-        if a.attester_bitfield.len() > attestation_indices.len() {
+        if a.attester_bitfield.num_set_bits() > attestation_indices.len() {
             return Err(AttestationValidationError::InvalidBitfieldEndBits);
         }
 
