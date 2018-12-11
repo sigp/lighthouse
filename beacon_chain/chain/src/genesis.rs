@@ -1,22 +1,24 @@
-use super::{ActiveState, BeaconChainError, ChainConfig, CrystallizedState};
-use types::{CrosslinkRecord, Hash256, ValidatorStatus};
+use super::{ActiveState, ChainConfig, CrystallizedState};
+use types::ValidatorStatus;
 use validator_induction::ValidatorInductor;
 use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
-pub const INITIAL_FORK_VERSION: u32 = 0;
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    ValidationAssignmentError(ValidatorAssignmentError),
+    NotImplemented,
+}
 
-impl From<ValidatorAssignmentError> for BeaconChainError {
-    fn from(_: ValidatorAssignmentError) -> BeaconChainError {
-        BeaconChainError::InvalidGenesis
+impl From<ValidatorAssignmentError> for Error {
+    fn from(e: ValidatorAssignmentError) -> Error {
+        Error::ValidationAssignmentError(e)
     }
 }
 
 /// Initialize a new ChainHead with genesis parameters.
 ///
 /// Used when syncing a chain from scratch.
-pub fn genesis_states(
-    config: &ChainConfig,
-) -> Result<(ActiveState, CrystallizedState), ValidatorAssignmentError> {
+pub fn genesis_states(config: &ChainConfig) -> Result<(ActiveState, CrystallizedState), Error> {
     /*
      * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
      *
@@ -35,63 +37,17 @@ pub fn genesis_states(
      *
      * Crystallizedstate stores two cycles, so we simply repeat the same assignment twice.
      */
-    let shard_and_committee_for_slots = {
+    let _shard_and_committee_for_slots = {
         let mut a = shard_and_committees_for_cycle(&vec![0; 32], &validators, 0, &config)?;
         let mut b = a.clone();
         a.append(&mut b);
         a
     };
 
-    /*
-     * Set all the crosslink records to reference zero hashes.
-     */
-    let crosslinks = {
-        let mut c = vec![];
-        for _ in 0..config.shard_count {
-            c.push(CrosslinkRecord {
-                recently_changed: false,
-                slot: 0,
-                hash: Hash256::zero(),
-            });
-        }
-        c
-    };
+    // TODO: implement genesis for `BeaconState`
+    // https://github.com/sigp/lighthouse/issues/99
 
-    /*
-     * Initialize a genesis `Crystallizedstate`
-     */
-    let crystallized_state = CrystallizedState {
-        validator_set_change_slot: 0,
-        validators: validators.to_vec(),
-        crosslinks,
-        last_state_recalculation_slot: 0,
-        last_finalized_slot: 0,
-        last_justified_slot: 0,
-        justified_streak: 0,
-        shard_and_committee_for_slots,
-        deposits_penalized_in_period: vec![],
-        validator_set_delta_hash_chain: Hash256::zero(),
-        pre_fork_version: INITIAL_FORK_VERSION,
-        post_fork_version: INITIAL_FORK_VERSION,
-        fork_slot_number: 0,
-    };
-
-    /*
-     * Set all recent block hashes to zero.
-     */
-    let recent_block_hashes = vec![Hash256::zero(); config.cycle_length as usize];
-
-    /*
-     * Create an active state.
-     */
-    let active_state = ActiveState {
-        pending_attestations: vec![],
-        pending_specials: vec![],
-        recent_block_hashes,
-        randao_mix: Hash256::zero(),
-    };
-
-    Ok((active_state, crystallized_state))
+    Err(Error::NotImplemented)
 }
 
 #[cfg(test)]
@@ -99,6 +55,10 @@ mod tests {
     extern crate bls;
     extern crate validator_induction;
 
+    // TODO: implement genesis for `BeaconState`
+    // https://github.com/sigp/lighthouse/issues/99
+    //
+    /*
     use self::bls::{create_proof_of_possession, Keypair};
     use super::*;
     use types::{Address, Hash256, ValidatorRegistration};
@@ -190,4 +150,5 @@ mod tests {
         );
         assert_eq!(cry.validators.len(), good_validator_count);
     }
+    */
 }
