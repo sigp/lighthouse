@@ -1,17 +1,11 @@
-extern crate blake2_rfc;
+extern crate tiny_keccak;
 
-use self::blake2_rfc::blake2b::blake2b;
+use tiny_keccak::Keccak;
 
 pub fn canonical_hash(input: &[u8]) -> Vec<u8> {
-    let result = blake2b(64, &[], input);
-    result.as_bytes()[0..32].to_vec()
-}
-
-pub fn proof_of_possession_hash(input: &[u8]) -> Vec<u8> {
-    let result = blake2b(64, &[], input);
-    let mut hash = result.as_bytes()[32..64].to_vec();
-    // TODO: this padding is not part of the spec, it is required otherwise Milagro will panic.
-    // We should either drop the padding or ensure the padding is in the spec.
-    hash.append(&mut vec![0; 18]);
-    hash
+    let mut keccak = Keccak::new_keccak256();
+    keccak.update(input);
+    let mut result = Vec::with_capacity(32);
+    keccak.finalize(result.as_mut_slice());
+    result
 }
