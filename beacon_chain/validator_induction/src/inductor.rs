@@ -68,7 +68,7 @@ impl ValidatorInductor {
             randao_commitment: r.randao_commitment,
             randao_last_change: self.current_slot,
             balance: DEPOSIT_GWEI,
-            status: status as u8,
+            status: status,
             exit_slot: 0,
         })
     }
@@ -77,7 +77,7 @@ impl ValidatorInductor {
     /// `validator.status == Withdrawn`. If no such record exists, `None` is returned.
     fn first_withdrawn_validator(&mut self) -> Option<usize> {
         for i in self.empty_validator_start..self.validators.len() {
-            if self.validators[i].status == ValidatorStatus::Withdrawn as u8 {
+            if self.validators[i].status == ValidatorStatus::Withdrawn {
                 self.empty_validator_start = i + 1;
                 return Some(i);
             }
@@ -166,8 +166,8 @@ mod tests {
         let _ = inductor.induct(&r, ValidatorStatus::Active);
         let validators = inductor.to_vec();
 
-        assert!(validators[0].status == ValidatorStatus::PendingActivation as u8);
-        assert!(validators[1].status == ValidatorStatus::Active as u8);
+        assert!(validators[0].status == ValidatorStatus::PendingActivation);
+        assert!(validators[1].status == ValidatorStatus::Active);
         assert_eq!(validators.len(), 2);
     }
 
@@ -176,7 +176,7 @@ mod tests {
         let mut validators = vec![];
         for _ in 0..5 {
             let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-            v.status = ValidatorStatus::Active as u8;
+            v.status = ValidatorStatus::Active;
             validators.push(v);
         }
 
@@ -195,11 +195,11 @@ mod tests {
     fn test_validator_inductor_valid_all_second_validator_withdrawn() {
         let mut validators = vec![];
         let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::Active as u8;
+        v.status = ValidatorStatus::Active;
         validators.push(v);
         for _ in 0..4 {
             let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-            v.status = ValidatorStatus::Withdrawn as u8;
+            v.status = ValidatorStatus::Withdrawn;
             validators.push(v);
         }
 
@@ -219,7 +219,7 @@ mod tests {
         let mut validators = vec![];
         for _ in 0..5 {
             let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-            v.status = ValidatorStatus::Withdrawn as u8;
+            v.status = ValidatorStatus::Withdrawn;
             validators.push(v);
         }
 
