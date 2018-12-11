@@ -2,6 +2,7 @@ use super::ValidatorRegistration;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChainConfig {
+    // Old, potentially outdated constants
     pub cycle_length: u8,
     pub deposit_size_gwei: u64,
     pub shard_count: u16,
@@ -10,6 +11,10 @@ pub struct ChainConfig {
     pub genesis_time: u64,
     pub slot_duration_millis: u64,
     pub initial_validators: Vec<ValidatorRegistration>,
+
+    // New constants
+    pub epoch_length: u64,
+    pub min_attestation_inclusion_delay: u64,
 }
 
 /*
@@ -28,6 +33,10 @@ impl ChainConfig {
             genesis_time: TEST_GENESIS_TIME,
             slot_duration_millis: 16 * 1000,
             initial_validators: vec![],
+
+            // New
+            epoch_length: 64,
+            min_attestation_inclusion_delay: 4,
         }
     }
 
@@ -54,6 +63,10 @@ impl ChainConfig {
             genesis_time: TEST_GENESIS_TIME, // arbitrary
             slot_duration_millis: 16 * 1000,
             initial_validators: vec![],
+
+            // New constants
+            epoch_length: 64,
+            min_attestation_inclusion_delay: 4,
         }
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "validation"
+name = "attestation_validation"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 
@@ -7,7 +7,6 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 bls = { path = "../utils/bls" }
 db = { path = "../../lighthouse/db" }
 hashing = { path = "../utils/hashing" }
-rayon = "1.0.2"
 ssz = { path = "../utils/ssz" }
 ssz_helpers = { path = "../utils/ssz_helpers" }
 types = { path = "../types" }
