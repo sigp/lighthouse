@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 
 [dependencies]
-blake2-rfc = "0.2.18"
+tiny-keccak = "1.4.2"
