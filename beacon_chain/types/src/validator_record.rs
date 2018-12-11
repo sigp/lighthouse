@@ -42,6 +42,10 @@ impl ValidatorRecord {
         };
         (s, keypair)
     }
+
+    pub fn status_is(&self, status: ValidatorStatus) -> bool {
+        self.status == status as u8
+    }
 }
 
 #[cfg(test)]
