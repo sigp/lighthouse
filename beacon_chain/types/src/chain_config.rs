@@ -1,4 +1,4 @@
-use super::ValidatorRegistration;
+use super::ValidatorRecord;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChainConfig {
@@ -9,7 +9,8 @@ pub struct ChainConfig {
     pub max_validator_churn_quotient: u64,
     pub genesis_time: u64,
     pub slot_duration_millis: u64,
-    pub initial_validators: Vec<ValidatorRegistration>,
+    // TODO: revisit this
+    pub initial_validators: Vec<ValidatorRecord>,
 }
 
 /*
