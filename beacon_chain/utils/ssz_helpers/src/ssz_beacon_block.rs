@@ -217,7 +217,7 @@ mod tests {
     use super::super::ssz::encode::encode_length;
     use super::super::ssz::SszStream;
     use super::super::types::Hash256;
-    use super::super::types::{AttestationRecord, BeaconBlock, SpecialRecord};
+    use super::super::types::{Attestation, BeaconBlock, SpecialRecord};
     use super::*;
 
     fn get_block_ssz(b: &BeaconBlock) -> Vec<u8> {
@@ -232,7 +232,7 @@ mod tests {
         ssz_stream.drain()
     }
 
-    fn get_attestation_record_ssz(ar: &AttestationRecord) -> Vec<u8> {
+    fn get_attestation_record_ssz(ar: &Attestation) -> Vec<u8> {
         let mut ssz_stream = SszStream::new();
         ssz_stream.append(ar);
         ssz_stream.drain()
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_ssz_block_single_attestation_record_one_byte_short() {
         let mut b = BeaconBlock::zero();
-        b.attestations = vec![AttestationRecord::zero()];
+        b.attestations = vec![Attestation::zero()];
         let ssz = get_block_ssz(&b);
 
         assert_eq!(
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_ssz_block_single_attestation_record_one_byte_long() {
         let mut b = BeaconBlock::zero();
-        b.attestations = vec![AttestationRecord::zero()];
+        b.attestations = vec![Attestation::zero()];
         let mut ssz = get_block_ssz(&b);
         let original_len = ssz.len();
         ssz.push(42);
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn test_ssz_block_single_attestation_record() {
         let mut b = BeaconBlock::zero();
-        b.attestations = vec![AttestationRecord::zero()];
+        b.attestations = vec![Attestation::zero()];
         let ssz = get_block_ssz(&b);
 
         assert!(SszBeaconBlock::from_slice(&ssz[..]).is_ok());
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn test_ssz_block_block_hash() {
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
         let serialized = get_block_ssz(&block);
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
         let hash = ssz_block.block_hash();
@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn test_ssz_block_slot() {
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
         block.slot = 42;
 
         let serialized = get_block_ssz(&block);
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn test_ssz_block_randao_reveal() {
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
         let reference_hash = Hash256::from([42_u8; 32]);
         block.randao_reveal = reference_hash.clone();
 
@@ -404,14 +404,14 @@ mod tests {
     #[test]
     fn test_ssz_block_attestations() {
         /*
-         * Single AttestationRecord
+         * Single Attestation
          */
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
 
         let serialized = get_block_ssz(&block);
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
-        let ssz_ar = get_attestation_record_ssz(&AttestationRecord::zero());
+        let ssz_ar = get_attestation_record_ssz(&Attestation::zero());
 
         let mut expected = encode_length(ssz_ar.len(), LENGTH_PREFIX_BYTES);
         expected.append(&mut ssz_ar.to_vec());
@@ -419,16 +419,16 @@ mod tests {
         assert_eq!(ssz_block.attestations(), &expected[..]);
 
         /*
-         * Multiple AttestationRecords
+         * Multiple Attestations
          */
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
+        block.attestations.push(Attestation::zero());
 
         let serialized = get_block_ssz(&block);
         let ssz_block = SszBeaconBlock::from_slice(&serialized).unwrap();
-        let mut ssz_ar = get_attestation_record_ssz(&AttestationRecord::zero());
-        ssz_ar.append(&mut get_attestation_record_ssz(&AttestationRecord::zero()));
+        let mut ssz_ar = get_attestation_record_ssz(&Attestation::zero());
+        ssz_ar.append(&mut get_attestation_record_ssz(&Attestation::zero()));
 
         let mut expected = encode_length(ssz_ar.len(), LENGTH_PREFIX_BYTES);
         expected.append(&mut ssz_ar.to_vec());
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn test_ssz_block_pow_chain_reference() {
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
         let reference_hash = Hash256::from([42_u8; 32]);
         block.pow_chain_reference = reference_hash.clone();
 
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn test_ssz_block_act_state_root() {
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
         let reference_hash = Hash256::from([42_u8; 32]);
         block.active_state_root = reference_hash.clone();
 
@@ -468,7 +468,7 @@ mod tests {
     #[test]
     fn test_ssz_block_cry_state_root() {
         let mut block = BeaconBlock::zero();
-        block.attestations.push(AttestationRecord::zero());
+        block.attestations.push(Attestation::zero());
         let reference_hash = Hash256::from([42_u8; 32]);
         block.crystallized_state_root = reference_hash.clone();
 

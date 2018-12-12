@@ -87,7 +87,7 @@ mod tests {
     extern crate types;
 
     use self::ssz::SszStream;
-    use self::types::attestation_record::AttestationRecord;
+    use self::types::attestation::Attestation;
     use self::types::beacon_block::BeaconBlock;
     use self::types::Hash256;
 
@@ -182,7 +182,10 @@ mod tests {
         let hash = &Hash256::from("some hash".as_bytes()).to_vec();
 
         db.put(DB_COLUMN, hash, ssz).unwrap();
-        assert_eq!(store.block_at_slot(hash, 42), Err(BeaconBlockAtSlotError::InvalidBeaconBlock));
+        assert_eq!(
+            store.block_at_slot(hash, 42),
+            Err(BeaconBlockAtSlotError::InvalidBeaconBlock)
+        );
     }
 
     #[test]
@@ -195,7 +198,10 @@ mod tests {
         let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
 
         db.put(DB_COLUMN, hash, ssz).unwrap();
-        assert_eq!(store.block_at_slot(other_hash, 42), Err(BeaconBlockAtSlotError::UnknownBeaconBlock));
+        assert_eq!(
+            store.block_at_slot(other_hash, 42),
+            Err(BeaconBlockAtSlotError::UnknownBeaconBlock)
+        );
     }
 
     #[test]
@@ -244,7 +250,7 @@ mod tests {
 
         let blocks = (0..5).into_iter().map(|_| {
             let mut block = BeaconBlock::zero();
-            let ar = AttestationRecord::zero();
+            let ar = Attestation::zero();
             block.attestations.push(ar);
             block
         });
