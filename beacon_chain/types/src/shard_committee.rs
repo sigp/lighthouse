@@ -1,10 +1,10 @@
 #[derive(Clone, Debug, PartialEq)]
-pub struct ShardAndCommittee {
+pub struct ShardCommittee {
     pub shard: u16,
     pub committee: Vec<usize>,
 }
 
-impl ShardAndCommittee {
+impl ShardCommittee {
     /// Returns a new instance where the `shard_id` is zero and the
     /// committee is an empty vector.
     pub fn zero() -> Self {
