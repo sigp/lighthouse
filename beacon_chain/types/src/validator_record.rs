@@ -1,16 +1,5 @@
 use super::bls::{Keypair, PublicKey};
-use super::ssz::TreeHash;
 use super::{Address, Hash256};
-
-pub const HASH_SSZ_VALIDATOR_RECORD_LENGTH: usize = {
-    32 +                // pubkey.to_bytes(32, 'big')
-    2 +                 // withdrawal_shard.to_bytes(2, 'big')
-    20 +                // withdrawal_address
-    32 +                // randao_commitment
-    16 +                // balance.to_bytes(16, 'big')
-    16 +                // start_dynasty.to_bytes(8, 'big')
-    8 // end_dynasty.to_bytes(8, 'big')
-};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ValidatorStatus {
@@ -55,32 +44,6 @@ impl ValidatorRecord {
     }
 }
 
-impl TreeHash for ValidatorRecord {
-    fn tree_hash(&self) -> Vec<u8> {
-        let mut ssz = Vec::with_capacity(HASH_SSZ_VALIDATOR_RECORD_LENGTH);
-
-        // From python sample: "val.pubkey.to_bytes(32, 'big')"
-        // TODO:
-        // Need to actually convert (szz) pubkey into a big-endian 32 byte
-        // array.
-        // Also, our ValidatorRecord seems to be missing the start_dynasty
-        // and end_dynasty fields
-        let pub_key_bytes = &mut self.pubkey.as_bytes();
-        pub_key_bytes.resize(32, 0);
-        ssz.append(pub_key_bytes);
-
-        ssz.append(&mut self.withdrawal_shard.tree_hash());
-        ssz.append(&mut self.withdrawal_address.tree_hash());
-        ssz.append(&mut self.randao_commitment.tree_hash());
-
-        let mut balance = self.balance.tree_hash();
-        balance.resize(16, 0);
-        ssz.append(&mut balance);
-
-        ssz.as_slice().tree_hash()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,14 +58,5 @@ mod tests {
         assert_eq!(v.balance, 0);
         assert_eq!(v.status, 0);
         assert_eq!(v.exit_slot, 0);
-    }
-
-    #[test]
-    fn test_validator_record_ree_hash() {
-        let (v, _kp) = ValidatorRecord::zero_with_thread_rand_keypair();
-        let h = v.tree_hash();
-
-        // TODO: should check a known hash result value
-        assert_eq!(h.len(), 32);
     }
 }
