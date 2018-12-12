@@ -1,4 +1,4 @@
-const CHUNKSIZE: usize = 128;
+const SSZ_CHUNK_SIZE: usize = 128;
 const HASHSIZE: usize = 32;
 
 pub trait TreeHash {
@@ -9,15 +9,15 @@ pub trait TreeHash {
 /// Note that this will consume 'list'.
 pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     // flatten list
-    let data = &mut list_to_blob(list);
+    let (chunk_size, mut data) = list_to_blob(list);
 
     // get data_len as bytes. It will hashed will the merkle root
-    let dlen = data.len() as u64;
+    let dlen = list.len() as u64;
     let data_len_bytes = &mut dlen.tree_hash();
     data_len_bytes.resize(32, 0);
 
     // merklize
-    let mut mhash = hash_level(data, CHUNKSIZE);
+    let mut mhash = hash_level(&mut data, chunk_size);
     while mhash.len() > HASHSIZE {
         mhash = hash_level(&mut mhash, HASHSIZE);
     }
@@ -33,9 +33,9 @@ fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
     for two_chunks in data.chunks(chunk_size * 2) {
         if two_chunks.len() == chunk_size && data.len() > chunk_size {
             // if there is only one chunk here, hash it with a zero-byte
-            // CHUNKSIZE vector
+            // SSZ_CHUNK_SIZE vector
             let mut c = two_chunks.to_vec();
-            c.append(&mut vec![0; CHUNKSIZE]);
+            c.append(&mut vec![0; SSZ_CHUNK_SIZE]);
             result.append(&mut c.as_slice().tree_hash());
         } else {
             result.append(&mut two_chunks.tree_hash());
@@ -45,46 +45,30 @@ fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
     result
 }
 
-fn list_to_blob(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
-    if list[0].len().is_power_of_two() == false {
-        for x in list.iter_mut() {
-            extend_to_power_of_2(x);
+fn list_to_blob(list: &mut Vec<Vec<u8>>) -> (usize, Vec<u8>) {
+    let chunk_size = if list.is_empty() {
+        SSZ_CHUNK_SIZE
+    } else if list[0].len() < SSZ_CHUNK_SIZE {
+        let items_per_chunk = SSZ_CHUNK_SIZE / list[0].len();
+        items_per_chunk * list[0].len()
+    } else {
+        list[0].len()
+    };
+
+    let mut data = Vec::new();
+    if list.is_empty() {
+        // handle and empty list
+        data.append(&mut vec![0; SSZ_CHUNK_SIZE]);
+    } else {
+        // just create a blob here; we'll divide into
+        // chunked slices when we merklize
+        data.reserve(list[0].len() * list.len());
+        for item in list.iter_mut() {
+            data.append(item);
         }
     }
 
-    let mut data_len = list[0].len() * list.len();
-
-    // do we need padding?
-    let extend_by = if data_len % CHUNKSIZE > 0 {
-        CHUNKSIZE - (data_len % CHUNKSIZE)
-    } else {
-        0
-    };
-
-    // allocate buffer and append each list element (flatten the vec of vecs)
-    data_len += extend_by;
-    let mut data: Vec<u8> = Vec::with_capacity(data_len);
-    for x in list.iter_mut() {
-        data.append(x);
-    }
-
-    // add padding
-    let mut i = 0;
-    while i < extend_by {
-        data.push(0);
-        i += 1;
-    }
-
-    data
-}
-
-/// Extends data length to a power of 2 by minimally right-zero-padding
-fn extend_to_power_of_2(data: &mut Vec<u8>) {
-    let len = data.len();
-    let new_len = len.next_power_of_two();
-    if new_len > len {
-        data.resize(new_len, 0);
-    }
+    (chunk_size, data)
 }
 
 #[cfg(test)]
@@ -103,5 +87,4 @@ mod tests {
         assert_eq!(HASHSIZE, result.len());
         println!("merkle_hash: {:?}", result);
     }
-
 }

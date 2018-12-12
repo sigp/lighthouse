@@ -6,4 +6,4 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 [dependencies]
 bytes = "0.4.9"
 ethereum-types = "0.4.0"
-blake2-rfc = "0.2.18"
+hashing = { path = "../hashing" }
