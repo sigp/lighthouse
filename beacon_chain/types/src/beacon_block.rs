@@ -1,4 +1,4 @@
-use super::attestation_record::AttestationRecord;
+use super::attestation::Attestation;
 use super::special_record::SpecialRecord;
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::Hash256;
@@ -23,7 +23,7 @@ pub struct BeaconBlock {
     pub ancestor_hashes: Vec<Hash256>,
     pub active_state_root: Hash256,
     pub crystallized_state_root: Hash256,
-    pub attestations: Vec<AttestationRecord>,
+    pub attestations: Vec<Attestation>,
     pub specials: Vec<SpecialRecord>,
 }
 

@@ -1,15 +1,15 @@
 use super::bls::BLS_AGG_SIG_BYTE_SIZE;
 use super::ssz::decode::decode_length;
 use super::ssz::LENGTH_BYTES;
+use super::types::attestation::MIN_SSZ_ATTESTION_RECORD_LENGTH;
 use super::types::attestation_data::SSZ_ATTESTION_DATA_LENGTH;
-use super::types::attestation_record::MIN_SSZ_ATTESTION_RECORD_LENGTH;
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationSplitError {
     TooShort,
 }
 
-/// Given some ssz slice, find the bounds of each serialized AttestationRecord and return a vec of
+/// Given some ssz slice, find the bounds of each serialized Attestation and return a vec of
 /// slices point to each.
 pub fn split_all_attestations<'a>(
     full_ssz: &'a [u8],
@@ -25,7 +25,7 @@ pub fn split_all_attestations<'a>(
     Ok(v)
 }
 
-/// Given some ssz slice, find the bounds of one serialized AttestationRecord
+/// Given some ssz slice, find the bounds of one serialized Attestation
 /// and return a slice pointing to that.
 pub fn split_one_attestation(
     full_ssz: &[u8],
@@ -43,11 +43,11 @@ pub fn split_one_attestation(
     }
 }
 
-/// Given some SSZ, assume that a serialized `AttestationRecord` begins at the `index` position and
-/// attempt to find the length (in bytes) of that serialized `AttestationRecord`.
+/// Given some SSZ, assume that a serialized `Attestation` begins at the `index` position and
+/// attempt to find the length (in bytes) of that serialized `Attestation`.
 ///
-/// This function does not perform validation on the `AttestationRecord`. It is very likely that
-/// given some sufficiently long non-`AttestationRecord` bytes it will not raise an error.
+/// This function does not perform validation on the `Attestation`. It is very likely that
+/// given some sufficiently long non-`Attestation` bytes it will not raise an error.
 fn determine_ssz_attestation_len(
     full_ssz: &[u8],
     index: usize,
@@ -68,7 +68,7 @@ fn determine_ssz_attestation_len(
         .map_err(|_| AttestationSplitError::TooShort)?;
     let custody_bitfield_end = participation_bitfield_end + LENGTH_BYTES + custody_bitfield_len;
 
-    // Determine the very end of the AttestationRecord.
+    // Determine the very end of the Attestation.
     let agg_sig_end = custody_bitfield_end + LENGTH_BYTES + BLS_AGG_SIG_BYTE_SIZE;
 
     if agg_sig_end > full_ssz.len() {
@@ -82,11 +82,11 @@ fn determine_ssz_attestation_len(
 mod tests {
     use super::super::bls::AggregateSignature;
     use super::super::ssz::{Decodable, SszStream};
-    use super::super::types::{AttestationData, AttestationRecord, Bitfield, Hash256};
+    use super::super::types::{Attestation, AttestationData, Bitfield, Hash256};
     use super::*;
 
-    fn get_two_records() -> Vec<AttestationRecord> {
-        let a = AttestationRecord {
+    fn get_two_records() -> Vec<Attestation> {
+        let a = Attestation {
             data: AttestationData {
                 slot: 7,
                 shard: 9,
@@ -101,7 +101,7 @@ mod tests {
             custody_bitfield: Bitfield::from_bytes(&vec![255; 12][..]),
             aggregate_sig: AggregateSignature::new(),
         };
-        let b = AttestationRecord {
+        let b = Attestation {
             data: AttestationData {
                 slot: 9,
                 shard: 7,
@@ -133,7 +133,7 @@ mod tests {
         let ssz = ssz_stream.drain();
         let (a_ssz, i) = split_one_attestation(&ssz, 0).unwrap();
         assert_eq!(i, ssz.len());
-        let (decoded_a, _) = AttestationRecord::ssz_decode(a_ssz, 0).unwrap();
+        let (decoded_a, _) = Attestation::ssz_decode(a_ssz, 0).unwrap();
         assert_eq!(a, decoded_a);
 
         /*
@@ -144,8 +144,8 @@ mod tests {
         ssz_stream.append(&b);
         let ssz = ssz_stream.drain();
         let ssz_vec = split_all_attestations(&ssz, 0).unwrap();
-        let (decoded_a, _) = AttestationRecord::ssz_decode(ssz_vec[0], 0).unwrap();
-        let (decoded_b, _) = AttestationRecord::ssz_decode(ssz_vec[1], 0).unwrap();
+        let (decoded_a, _) = Attestation::ssz_decode(ssz_vec[0], 0).unwrap();
+        let (decoded_b, _) = Attestation::ssz_decode(ssz_vec[1], 0).unwrap();
         assert_eq!(a, decoded_a);
         assert_eq!(b, decoded_b);
 
