@@ -1,5 +1,7 @@
-use super::{ActiveState, ChainConfig, CrystallizedState};
-use types::ValidatorStatus;
+use spec::ChainSpec;
+use types::{
+    BeaconState, CrosslinkRecord, ForkData, Hash256, ValidatorRegistration, ValidatorStatus,
+};
 use validator_induction::ValidatorInductor;
 use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
@@ -18,15 +20,20 @@ impl From<ValidatorAssignmentError> for Error {
 /// Initialize a new ChainHead with genesis parameters.
 ///
 /// Used when syncing a chain from scratch.
-pub fn genesis_states(config: &ChainConfig) -> Result<(ActiveState, CrystallizedState), Error> {
+pub fn genesis_states(
+    spec: &ChainSpec,
+    initial_validators: Vec<ValidatorRegistration>,
+    genesis_time: u64,
+    processed_pow_receipt_root: Hash256,
+) -> Result<BeaconState, Error> {
     /*
      * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
      *
      * Ignore any records which fail proof-of-possession or are invalid.
      */
     let validators = {
-        let mut inductor = ValidatorInductor::new(0, config.shard_count, vec![]);
-        for registration in &config.initial_validators {
+        let mut inductor = ValidatorInductor::new(0, spec.shard_count, vec![]);
+        for registration in &initial_validators {
             let _ = inductor.induct(&registration, ValidatorStatus::Active);
         }
         inductor.to_vec()
@@ -38,16 +45,63 @@ pub fn genesis_states(config: &ChainConfig) -> Result<(ActiveState, Crystallized
      * Crystallizedstate stores two cycles, so we simply repeat the same assignment twice.
      */
     let _shard_and_committee_for_slots = {
-        let mut a = shard_and_committees_for_cycle(&vec![0; 32], &validators, 0, &config)?;
+        let mut a = shard_and_committees_for_cycle(&vec![0; 32], &validators, 0, &spec)?;
         let mut b = a.clone();
         a.append(&mut b);
         a
     };
 
-    // TODO: implement genesis for `BeaconState`
-    // https://github.com/sigp/lighthouse/issues/99
+    let initial_crosslink = CrosslinkRecord {
+        slot: spec.initial_slot_number,
+        shard_block_root: spec.zero_hash,
+    };
 
-    Err(Error::NotImplemented)
+    Ok(BeaconState {
+        /*
+         * Misc
+         */
+        slot: spec.initial_slot_number,
+        genesis_time,
+        fork_data: ForkData {
+            pre_fork_version: spec.initial_fork_version,
+            post_fork_version: spec.initial_fork_version,
+            fork_slot: spec.initial_slot_number,
+        },
+        /*
+         * Validator registry
+         */
+        validator_registry: validators,
+        validator_registry_latest_change_slot: spec.initial_slot_number,
+        validator_registry_exit_count: 0,
+        validator_registry_delta_chain_tip: spec.zero_hash,
+        /*
+         * Randomness and committees
+         */
+        randao_mix: spec.zero_hash,
+        next_seed: spec.zero_hash,
+        shard_committees_at_slot: vec![],
+        persistent_committees: vec![],
+        persisten_committee_reassignments: vec![],
+        /*
+         * Finality
+         */
+        previous_justified_slot: spec.initial_slot_number,
+        justified_slot: spec.initial_slot_number,
+        justified_bitfield: 0,
+        finalized_slot: spec.initial_slot_number,
+        /*
+         * Recent state
+         */
+        latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
+        latest_block_roots: vec![spec.zero_hash; spec.epoch_length as usize],
+        latest_penalized_exit_balances: vec![],
+        latest_attestations: vec![],
+        /*
+         * PoW receipt root
+         */
+        processed_pow_receipt_root,
+        candidate_pow_receipt_roots: vec![],
+    })
 }
 
 #[cfg(test)]
