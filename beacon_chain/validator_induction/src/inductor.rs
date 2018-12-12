@@ -111,7 +111,7 @@ mod tests {
     use super::*;
 
     use bls::{Keypair, Signature};
-    use hashing::proof_of_possession_hash;
+    use hashing::canonical_hash;
     use types::{Address, Hash256};
 
     fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord) -> bool {
@@ -124,7 +124,7 @@ mod tests {
 
     /// Generate a proof of possession for some keypair.
     fn get_proof_of_possession(kp: &Keypair) -> Signature {
-        let pop_message = proof_of_possession_hash(&kp.pk.as_bytes());
+        let pop_message = canonical_hash(&kp.pk.as_bytes());
         Signature::new_hashed(&pop_message, &kp.sk)
     }
 
