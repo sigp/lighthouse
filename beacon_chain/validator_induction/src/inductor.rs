@@ -7,7 +7,7 @@ pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
 /// Inducts validators into a `CrystallizedState`.
 pub struct ValidatorInductor {
     pub current_slot: u64,
-    pub shard_count: u16,
+    pub shard_count: u64,
     validators: Vec<ValidatorRecord>,
     empty_validator_start: usize,
 }
