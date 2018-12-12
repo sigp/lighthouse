@@ -19,7 +19,7 @@ pub enum ValidatorInductionError {
 }
 
 impl ValidatorInductor {
-    pub fn new(current_slot: u64, shard_count: u16, validators: Vec<ValidatorRecord>) -> Self {
+    pub fn new(current_slot: u64, shard_count: u64, validators: Vec<ValidatorRecord>) -> Self {
         Self {
             current_slot,
             shard_count,
