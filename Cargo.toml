@@ -35,6 +35,7 @@ members = [
 	"beacon_chain/attestation_validation",
 	"beacon_chain/chain",
 	"beacon_chain/naive_fork_choice",
+	"beacon_chain/spec",
 	"beacon_chain/state-transition",
 	"beacon_chain/types",
 	"beacon_chain/utils/active-validators",
