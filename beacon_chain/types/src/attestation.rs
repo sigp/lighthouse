@@ -11,14 +11,14 @@ pub const MIN_SSZ_ATTESTION_RECORD_LENGTH: usize = {
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct AttestationRecord {
+pub struct Attestation {
     pub data: AttestationData,
     pub participation_bitfield: Bitfield,
     pub custody_bitfield: Bitfield,
     pub aggregate_sig: AggregateSignature,
 }
 
-impl Encodable for AttestationRecord {
+impl Encodable for Attestation {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.data);
         s.append(&self.participation_bitfield);
@@ -27,7 +27,7 @@ impl Encodable for AttestationRecord {
     }
 }
 
-impl Decodable for AttestationRecord {
+impl Decodable for Attestation {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (data, i) = AttestationData::ssz_decode(bytes, i)?;
         let (participation_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
@@ -46,7 +46,7 @@ impl Decodable for AttestationRecord {
     }
 }
 
-impl AttestationRecord {
+impl Attestation {
     pub fn zero() -> Self {
         Self {
             data: AttestationData::zero(),
@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     pub fn test_attestation_record_min_ssz_length() {
-        let ar = AttestationRecord::zero();
+        let ar = Attestation::zero();
         let ssz = ssz_encode(&ar);
 
         assert_eq!(ssz.len(), MIN_SSZ_ATTESTION_RECORD_LENGTH);
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     pub fn test_attestation_record_ssz_round_trip() {
-        let original = AttestationRecord {
+        let original = Attestation {
             data: AttestationData::zero(),
             participation_bitfield: Bitfield::from_bytes(&vec![17; 42][..]),
             custody_bitfield: Bitfield::from_bytes(&vec![18; 12][..]),
@@ -80,7 +80,7 @@ mod tests {
         };
 
         let ssz = ssz_encode(&original);
-        let (decoded, _) = AttestationRecord::ssz_decode(&ssz, 0).unwrap();
+        let (decoded, _) = Attestation::ssz_decode(&ssz, 0).unwrap();
 
         assert_eq!(original, decoded);
     }
