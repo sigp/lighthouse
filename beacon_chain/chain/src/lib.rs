@@ -1,5 +1,6 @@
 extern crate db;
 extern crate naive_fork_choice;
+extern crate spec;
 extern crate ssz;
 extern crate ssz_helpers;
 extern crate state_transition;
@@ -37,10 +38,8 @@ pub struct BeaconChain<T: ClientDB + Sized> {
     pub head_block_hashes: Vec<Hash256>,
     /// The index of the canonical block in `head_block_hashes`.
     pub canonical_head_block_hash: usize,
-    /// A map where the value is an active state the the key is its hash.
-    pub active_states: HashMap<Hash256, ActiveState>,
-    /// A map where the value is crystallized state the the key is its hash.
-    pub crystallized_states: HashMap<Hash256, CrystallizedState>,
+    /// An in-memory map of root hash to beacon state.
+    pub beacon_states: HashMap<Hash256, ActiveState>,
     /// A map of crystallized state to a proposer and attester map.
     pub attester_proposer_maps: HashMap<Hash256, (Arc<AttesterMap>, Arc<ProposerMap>)>,
     /// A collection of database stores used by the chain.

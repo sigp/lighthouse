@@ -7,6 +7,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 bls = { path = "../utils/bls" }
 db = { path = "../../lighthouse/db" }
 naive_fork_choice = { path = "../naive_fork_choice" }
+spec = { path = "../spec" }
 ssz = { path = "../utils/ssz" }
 ssz_helpers = { path = "../utils/ssz_helpers" }
 state-transition = { path = "../state-transition" }
