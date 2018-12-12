@@ -18,7 +18,6 @@ pub mod shard_and_committee;
 pub mod shard_reassignment_record;
 pub mod special_record;
 pub mod validator_record;
-pub mod validator_registration;
 
 use self::ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
@@ -36,7 +35,6 @@ pub use pending_attestation_record::PendingAttestationRecord;
 pub use shard_and_committee::ShardAndCommittee;
 pub use special_record::{SpecialRecord, SpecialRecordKind};
 pub use validator_record::{ValidatorRecord, ValidatorStatus};
-pub use validator_registration::ValidatorRegistration;
 
 pub type Hash256 = H256;
 pub type Address = H160;
