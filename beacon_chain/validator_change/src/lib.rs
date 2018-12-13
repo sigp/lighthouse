@@ -62,7 +62,7 @@ pub fn update_validator_set(
             /*
              * Validator is pending activiation.
              */
-            x if x == ValidatorStatus::PendingActivation => {
+            ValidatorStatus::PendingActivation => {
                 let new_total_changed = total_changed
                     .checked_add(deposit_size_gwei)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
@@ -82,7 +82,7 @@ pub fn update_validator_set(
             /*
              * Validator is pending exit.
              */
-            x if x == ValidatorStatus::PendingExit => {
+            ValidatorStatus::PendingExit => {
                 let new_total_changed = total_changed
                     .checked_add(v.balance)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
