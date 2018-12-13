@@ -4,6 +4,7 @@ mod foundation;
 
 use types::{Address, Hash256};
 
+#[derive(PartialEq, Debug)]
 pub struct ChainSpec {
     /*
      * Misc

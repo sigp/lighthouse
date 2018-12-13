@@ -9,7 +9,6 @@ extern crate validator_induction;
 extern crate validator_shuffling;
 
 mod block_processing;
-mod genesis;
 mod maps;
 mod stores;
 mod transition;

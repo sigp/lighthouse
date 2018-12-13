@@ -1,0 +1,11 @@
+[package]
+name = "genesis"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+
+[dependencies]
+bls = { path = "../utils/bls"  }
+spec = { path = "../spec"  }
+types = { path = "../types"  }
+validator_induction = { path = "../validator_induction"  }
+validator_shuffling = { path = "../validator_shuffling"  }
