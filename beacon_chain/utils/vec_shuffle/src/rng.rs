@@ -87,15 +87,4 @@ mod tests {
         x = int_from_byte_slice(&[0x8f, 0xbb, 0xc7], 0);
         assert_eq!(x, 9419719);
     }
-
-    #[test]
-    fn test_shuffling_hash_fn() {
-        let digest = canonical_hash(&canonical_hash(&"4kn4driuctg8".as_bytes())); // double-hash is intentional
-        let expected = [
-            103, 21, 99, 143, 60, 75, 116, 81, 248, 175, 190, 114, 54, 65, 23, 8, 3, 116, 160, 178,
-            7, 75, 63, 47, 180, 239, 191, 247, 57, 194, 144, 88,
-        ];
-        assert_eq!(digest.len(), expected.len());
-        assert_eq!(digest, expected)
-    }
 }
