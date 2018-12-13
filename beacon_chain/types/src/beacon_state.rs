@@ -7,7 +7,7 @@ use super::shard_reassignment_record::ShardReassignmentRecord;
 use super::validator_record::ValidatorRecord;
 use super::Hash256;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BeaconState {
     // Misc
     pub slot: u64,
