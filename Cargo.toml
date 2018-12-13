@@ -38,7 +38,6 @@ members = [
 	"beacon_chain/spec",
 	"beacon_chain/state-transition",
 	"beacon_chain/types",
-	"beacon_chain/utils/active-validators",
 	"beacon_chain/utils/bls",
 	"beacon_chain/utils/boolean-bitfield",
 	"beacon_chain/utils/hashing",
