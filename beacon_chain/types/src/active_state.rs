@@ -1,9 +1,9 @@
 use super::Hash256;
-use super::{AttestationRecord, SpecialRecord};
+use super::{Attestation, SpecialRecord};
 
 #[derive(Debug, PartialEq)]
 pub struct ActiveState {
-    pub pending_attestations: Vec<AttestationRecord>,
+    pub pending_attestations: Vec<Attestation>,
     pub pending_specials: Vec<SpecialRecord>,
     pub recent_block_hashes: Vec<Hash256>,
     pub randao_mix: Hash256,

@@ -5,7 +5,7 @@ extern crate ssz;
 
 pub mod active_state;
 pub mod attestation_data;
-pub mod attestation_record;
+pub mod attestation;
 pub mod beacon_block;
 pub mod beacon_state;
 pub mod candidate_pow_receipt_root_record;
@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 pub use active_state::ActiveState;
 pub use attestation_data::AttestationData;
-pub use attestation_record::AttestationRecord;
+pub use attestation::Attestation;
 pub use beacon_block::BeaconBlock;
 pub use beacon_state::BeaconState;
 pub use chain_config::ChainConfig;
