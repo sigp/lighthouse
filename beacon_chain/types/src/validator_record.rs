@@ -2,14 +2,14 @@ use super::bls::{Keypair, PublicKey};
 use super::{Address, Hash256};
 use std::convert;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorStatus {
-    PendingActivation = 0,
-    Active = 1,
-    PendingExit = 2,
-    PendingWithdraw = 3,
-    Withdrawn = 5,
-    Penalized = 127,
+    PendingActivation,
+    Active,
+    PendingExit,
+    PendingWithdraw,
+    Withdrawn,
+    Penalized,
 }
 
 impl convert::From<u8> for ValidatorStatus {
@@ -59,7 +59,7 @@ impl ValidatorRecord {
     }
 
     pub fn status_is(&self, status: ValidatorStatus) -> bool {
-        self.status == status as u8
+        self.status == status
     }
 }
 
