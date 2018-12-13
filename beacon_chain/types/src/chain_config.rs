@@ -10,6 +10,7 @@ pub struct ChainConfig {
     pub max_validator_churn_quotient: u64,
     pub genesis_time: u64,
     pub slot_duration_millis: u64,
+    // TODO: Come back to this
     pub initial_validators: Vec<ValidatorRecord>,
 
     // New constants
