@@ -3,5 +3,7 @@ extern crate types;
 extern crate validator_induction;
 extern crate validator_shuffling;
 
-pub mod beacon_state;
+mod beacon_state;
+
+pub use beacon_state::genesis_beacon_state;
 
