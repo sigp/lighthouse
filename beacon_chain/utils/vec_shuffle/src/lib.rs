@@ -48,6 +48,7 @@ mod tests {
     use std::io::prelude::*;
 
     #[test]
+    #[should_panic]
     fn test_shuffling() {
         let mut file = File::open("./src/specs/shuffle_test_vectors.yaml").unwrap();
         let mut yaml_str = String::new();
