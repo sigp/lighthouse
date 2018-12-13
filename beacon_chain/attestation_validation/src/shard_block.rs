@@ -19,7 +19,7 @@ where
     match state.latest_crosslinks.get(data.shard as usize) {
         None => reject!(Invalid::UnknownShard),
         Some(crosslink) => {
-            let local_shard_block_hash = crosslink.shard_block_hash;
+            let local_shard_block_hash = crosslink.shard_block_root;
             let shard_block_hash_is_permissable = {
                 (local_shard_block_hash == data.latest_crosslink_hash)
                     || (local_shard_block_hash == data.shard_block_hash)
