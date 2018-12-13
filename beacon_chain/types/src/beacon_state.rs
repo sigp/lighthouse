@@ -43,3 +43,11 @@ pub struct BeaconState {
     pub processed_pow_receipt_root: Hash256,
     pub candidate_pow_receipt_roots: Vec<CandidatePoWReceiptRootRecord>,
 }
+
+impl BeaconState {
+    pub fn canonical_root(&self) -> Hash256 {
+        // TODO: implement tree hashing.
+        // https://github.com/sigp/lighthouse/issues/70
+        Hash256::zero()
+    }
+}
