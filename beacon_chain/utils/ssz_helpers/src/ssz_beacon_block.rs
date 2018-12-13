@@ -296,8 +296,8 @@ mod tests {
         // canonical reference.
         // TODO: make sure this test conforms to canonical test vectors; it is not clear that it currently does so
         let expected_hash = [
-            3, 88, 224, 80, 236, 217, 64, 236, 127, 56, 76, 139, 97, 103, 110, 149, 236, 105, 197,
-            3, 21, 199, 0, 118, 72, 136, 20, 101, 192, 172, 220, 215,
+            132, 43, 230, 49, 234, 240, 253, 146, 85, 121, 104, 79, 35, 0, 126, 162, 132, 99, 145,
+            13, 30, 57, 118, 5, 175, 136, 174, 7, 52, 161, 87, 196,
         ];
         assert_eq!(hash, expected_hash);
 
