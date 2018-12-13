@@ -1,7 +1,5 @@
 use spec::ChainSpec;
-use types::{
-    BeaconState, CrosslinkRecord, ForkData, Hash256, ValidatorRegistration, ValidatorStatus,
-};
+use types::{BeaconState, CrosslinkRecord, ForkData, ValidatorStatus};
 use validator_induction::ValidatorInductor;
 use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
@@ -12,12 +10,7 @@ pub enum Error {
     NotImplemented,
 }
 
-pub fn genesis_beacon_state(
-    spec: &ChainSpec,
-    initial_validators: &[ValidatorRegistration],
-    genesis_time: u64,
-    processed_pow_receipt_root: &Hash256,
-) -> Result<BeaconState, Error> {
+pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
     /*
      * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
      *
@@ -25,7 +18,7 @@ pub fn genesis_beacon_state(
      */
     let validators = {
         let mut inductor = ValidatorInductor::new(0, spec.shard_count, vec![]);
-        for registration in initial_validators {
+        for registration in &spec.initial_validators {
             let _ = inductor.induct(&registration, ValidatorStatus::Active);
         }
         inductor.to_vec()
@@ -53,7 +46,7 @@ pub fn genesis_beacon_state(
          * Misc
          */
         slot: spec.initial_slot_number,
-        genesis_time,
+        genesis_time: spec.genesis_time,
         fork_data: ForkData {
             pre_fork_version: spec.initial_fork_version,
             post_fork_version: spec.initial_fork_version,
@@ -91,7 +84,7 @@ pub fn genesis_beacon_state(
         /*
          * PoW receipt root
          */
-        processed_pow_receipt_root: *processed_pow_receipt_root,
+        processed_pow_receipt_root: spec.processed_pow_receipt_root,
         candidate_pow_receipt_roots: vec![],
     })
 }
@@ -109,64 +102,34 @@ mod tests {
 
     use self::bls::{create_proof_of_possession, Keypair};
     use super::*;
-    use types::{Address, Hash256, ValidatorRegistration};
 
     // TODO: enhance these tests.
     // https://github.com/sigp/lighthouse/issues/117
 
-    fn random_registration() -> ValidatorRegistration {
-        let keypair = Keypair::random();
-        ValidatorRegistration {
-            pubkey: keypair.pk.clone(),
-            withdrawal_shard: 0,
-            withdrawal_address: Address::random(),
-            randao_commitment: Hash256::random(),
-            proof_of_possession: create_proof_of_possession(&keypair),
-        }
-    }
-
-    fn random_registrations(n: usize) -> Vec<ValidatorRegistration> {
-        let mut output = Vec::with_capacity(n);
-        for _ in 0..n {
-            output.push(random_registration())
-        }
-        output
-    }
-
     #[test]
     fn test_genesis() {
         let spec = ChainSpec::foundation();
-        let genesis_time = 42;
-        let initial_validators = random_registrations(4);
-        let processed_pow_receipt_root = Hash256::from("pow_root".as_bytes());
 
-        let state = genesis_beacon_state(
-            &spec,
-            &initial_validators,
-            genesis_time,
-            &processed_pow_receipt_root,
-        ).unwrap();
+        let state = genesis_beacon_state(&spec).unwrap();
 
-        assert_eq!(state.validator_registry.len(), 4);
+        assert_eq!(
+            state.validator_registry.len(),
+            spec.initial_validators.len()
+        );
     }
 
     #[test]
     fn test_genesis_bad_validator() {
-        let spec = ChainSpec::foundation();
-        let genesis_time = 42;
-        let mut initial_validators = random_registrations(5);
-        let processed_pow_receipt_root = Hash256::from("pow_root".as_bytes());
+        let mut spec = ChainSpec::foundation();
 
         let random_kp = Keypair::random();
-        initial_validators[4].proof_of_possession = create_proof_of_possession(&random_kp);
+        spec.initial_validators[4].proof_of_possession = create_proof_of_possession(&random_kp);
 
-        let state = genesis_beacon_state(
-            &spec,
-            &initial_validators,
-            genesis_time,
-            &processed_pow_receipt_root,
-        ).unwrap();
+        let state = genesis_beacon_state(&spec).unwrap();
 
-        assert_eq!(state.validator_registry.len(), 4);
+        assert_eq!(
+            state.validator_registry.len(),
+            spec.initial_validators.len() - 1
+        );
     }
 }
