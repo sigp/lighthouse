@@ -1,9 +1,7 @@
-extern crate active_validators;
 extern crate bytes;
 extern crate hashing;
 extern crate types;
 
-use active_validators::validator_is_active;
 use bytes::{BufMut, BytesMut};
 use hashing::canonical_hash;
 use std::cmp::max;
@@ -31,7 +29,7 @@ pub fn update_validator_set(
     let total_balance = {
         let mut bal: u64 = 0;
         for v in validators.iter() {
-            if validator_is_active(&v) {
+            if v.status_is(ValidatorStatus::Active) {
                 bal = bal
                     .checked_add(v.balance)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
