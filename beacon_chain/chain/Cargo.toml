@@ -11,6 +11,5 @@ ssz = { path = "../utils/ssz" }
 ssz_helpers = { path = "../utils/ssz_helpers" }
 state-transition = { path = "../state-transition" }
 types = { path = "../types" }
-validation = { path = "../validation" }
 validator_induction = { path = "../validator_induction" }
 validator_shuffling = { path = "../validator_shuffling" }
