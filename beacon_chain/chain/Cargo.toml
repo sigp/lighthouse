@@ -6,6 +6,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 [dependencies]
 bls = { path = "../utils/bls" }
 db = { path = "../../lighthouse/db" }
+genesis = { path = "../genesis" }
 naive_fork_choice = { path = "../naive_fork_choice" }
 spec = { path = "../spec" }
 ssz = { path = "../utils/ssz" }
