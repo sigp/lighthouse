@@ -19,7 +19,7 @@ where
             .checked_sub(cry_state.last_state_recalculation_slot)
             .ok_or(StateTransitionError::BlockSlotBeforeRecalcSlot)?;
 
-        if state_recalc_distance >= u64::from(self.config.cycle_length) {
+        if state_recalc_distance >= u64::from(self.spec.epoch_length) {
             panic!("Not implemented!")
         } else {
             let new_act_state = extend_active_state(act_state, block, block_hash)?;

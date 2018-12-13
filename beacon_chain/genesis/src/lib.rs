@@ -5,5 +5,5 @@ extern crate validator_shuffling;
 
 mod beacon_state;
 
-pub use beacon_state::genesis_beacon_state;
+pub use beacon_state::{genesis_beacon_state, Error as GenesisError};
 
