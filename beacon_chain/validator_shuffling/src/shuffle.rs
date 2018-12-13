@@ -96,8 +96,10 @@ fn generate_cycle(
                 .map(|(j, shard_indices)| ShardAndCommittee {
                     shard: ((shard_start + j) % shard_count) as u16,
                     committee: shard_indices.to_vec(),
-                }).collect()
-        }).collect();
+                })
+                .collect()
+        })
+        .collect();
     Ok(cycle)
 }
 
