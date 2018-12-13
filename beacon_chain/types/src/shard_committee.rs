@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn test_shard_and_committee_zero() {
-        let s = ShardAndCommittee::zero();
+        let s = ShardCommittee::zero();
         assert_eq!(s.shard, 0);
         assert_eq!(s.committee.len(), 0);
     }

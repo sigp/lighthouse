@@ -3,10 +3,10 @@ use std::cmp::min;
 use active_validators::active_validator_indices;
 use honey_badger_split::SplitExt;
 use spec::ChainSpec;
-use types::{ShardAndCommittee, ValidatorRecord};
+use types::{ShardCommittee, ValidatorRecord};
 use vec_shuffle::{shuffle, ShuffleErr};
 
-type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
+type DelegatedCycle = Vec<Vec<ShardCommittee>>;
 
 #[derive(Debug, PartialEq)]
 pub enum ValidatorAssignmentError {
@@ -85,7 +85,7 @@ fn generate_cycle(
             slot_indices
                 .honey_badger_split(committees_per_slot)
                 .enumerate()
-                .map(|(j, shard_indices)| ShardAndCommittee {
+                .map(|(j, shard_indices)| ShardCommittee {
                     shard: ((shard_start + j) % shard_count) as u16,
                     committee: shard_indices.to_vec(),
                 }).collect()
