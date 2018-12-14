@@ -31,7 +31,7 @@ pub struct ValidatorRecord {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub randao_commitment: Hash256,
-    pub randao_skips: u64,
+    pub randao_layers: u64,
     pub balance: u64,
     pub status: u64,
     pub latest_status_change_slot: u64,
@@ -49,7 +49,7 @@ impl ValidatorRecord {
             pubkey: keypair.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
             randao_commitment: Hash256::zero(),
-            randao_skips: 0,
+            randao_layers: 0,
             balance: 0,
             status: 0,
             latest_status_change_slot: 0,
@@ -72,7 +72,7 @@ mod tests {
         let (v, _kp) = ValidatorRecord::zero_with_thread_rand_keypair();
         assert!(v.withdrawal_credentials.is_zero());
         assert!(v.randao_commitment.is_zero());
-        assert_eq!(v.randao_skips, 0);
+        assert_eq!(v.randao_layers, 0);
         assert_eq!(v.balance, 0);
         assert_eq!(v.status, 0);
         assert_eq!(v.latest_status_change_slot, 0);
