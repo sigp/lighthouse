@@ -1,9 +1,7 @@
-extern crate active_validators;
 extern crate bytes;
 extern crate hashing;
 extern crate types;
 
-use active_validators::validator_is_active;
 use bytes::{BufMut, BytesMut};
 use hashing::canonical_hash;
 use std::cmp::max;
@@ -31,7 +29,7 @@ pub fn update_validator_set(
     let total_balance = {
         let mut bal: u64 = 0;
         for v in validators.iter() {
-            if validator_is_active(&v) {
+            if v.status_is(ValidatorStatus::Active) {
                 bal = bal
                     .checked_add(v.balance)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
@@ -62,7 +60,7 @@ pub fn update_validator_set(
             /*
              * Validator is pending activiation.
              */
-            x if x == ValidatorStatus::PendingActivation as u8 => {
+            ValidatorStatus::PendingActivation => {
                 let new_total_changed = total_changed
                     .checked_add(deposit_size_gwei)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
@@ -71,7 +69,7 @@ pub fn update_validator_set(
                  * activate the validator.
                  */
                 if new_total_changed <= max_allowable_change {
-                    v.status = ValidatorStatus::Active as u8;
+                    v.status = ValidatorStatus::Active;
                     hasher.extend(i, &v.pubkey.as_bytes(), VALIDATOR_FLAG_ENTRY);
                     total_changed = new_total_changed;
                 } else {
@@ -82,7 +80,7 @@ pub fn update_validator_set(
             /*
              * Validator is pending exit.
              */
-            x if x == ValidatorStatus::PendingExit as u8 => {
+            ValidatorStatus::PendingExit => {
                 let new_total_changed = total_changed
                     .checked_add(v.balance)
                     .ok_or(UpdateValidatorSetError::ArithmeticOverflow)?;
@@ -91,7 +89,7 @@ pub fn update_validator_set(
                  * exit the validator
                  */
                 if new_total_changed <= max_allowable_change {
-                    v.status = ValidatorStatus::PendingWithdraw as u8;
+                    v.status = ValidatorStatus::PendingWithdraw;
                     v.exit_slot = present_slot;
                     hasher.extend(i, &v.pubkey.as_bytes(), VALIDATOR_FLAG_EXIT);
                     total_changed = new_total_changed;
