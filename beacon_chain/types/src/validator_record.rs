@@ -1,14 +1,29 @@
 use super::bls::{Keypair, PublicKey};
 use super::{Hash256};
+use std::convert;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorStatus {
-    PendingActivation = 0,
-    Active = 1,
-    PendingExit = 2,
-    PendingWithdraw = 3,
-    Withdrawn = 5,
-    Penalized = 127,
+    PendingActivation,
+    Active,
+    PendingExit,
+    PendingWithdraw,
+    Withdrawn,
+    Penalized,
+}
+
+impl convert::From<u8> for ValidatorStatus {
+    fn from(status: u8) -> Self {
+        match status {
+            0 => ValidatorStatus::PendingActivation,
+            1 => ValidatorStatus::Active,
+            2 => ValidatorStatus::PendingExit,
+            3 => ValidatorStatus::PendingWithdraw,
+            5 => ValidatorStatus::Withdrawn,
+            127 => ValidatorStatus::Penalized,
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +56,10 @@ impl ValidatorRecord {
             exit_count: 0
         };
         (s, keypair)
+    }
+
+    pub fn status_is(&self, status: ValidatorStatus) -> bool {
+        self.status == status
     }
 }
 
