@@ -1,4 +1,5 @@
 use super::{Hash256};
+use super::deposit_data::DepositData;
 
 pub struct Deposit {
     pub merkle_branch: Vec<Hash256>,
