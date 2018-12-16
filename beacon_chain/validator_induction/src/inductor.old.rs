@@ -1,5 +1,5 @@
 use bls::verify_proof_of_possession;
-use types::{ValidatorRecord, DepositInput, ValidatorStatus, BeaconState};
+use types::{ValidatorRecord, ValidatorRegistration, ValidatorStatus};
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
@@ -8,7 +8,7 @@ pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
 pub struct ValidatorInductor {
     pub current_slot: u64,
     pub shard_count: u16,
-    beacon_state: BeaconState,
+    validators: Vec<ValidatorRecord>,
     empty_validator_start: usize,
 }
 
@@ -19,11 +19,11 @@ pub enum ValidatorInductionError {
 }
 
 impl ValidatorInductor {
-    pub fn new(current_slot: u64, shard_count: u16, beacon_state: BeaconState) -> Self {
+    pub fn new(current_slot: u64, shard_count: u16, validators: Vec<ValidatorRecord>) -> Self {
         Self {
             current_slot,
             shard_count,
-            beacon_state,
+            validators,
             empty_validator_start: 0,
         }
     }
@@ -34,53 +34,50 @@ impl ValidatorInductor {
     /// validator in `CrystallizedState.validators`.
     pub fn induct(
         &mut self,
-        deposit_input: &DepositInput,
+        rego: &ValidatorRegistration,
         status: ValidatorStatus,
     ) -> Result<usize, ValidatorInductionError> {
-        let v = self.process_deposit(deposit_input, status)?;
+        let v = self.process_registration(rego, status)?;
         Ok(self.add_validator(v))
     }
 
     /// Verify a `ValidatorRegistration` and return a `ValidatorRecord` if valid.
-    fn process_deposit(
+    fn process_registration(
         &self,
-        deposit_input: &DepositInput,
+        r: &ValidatorRegistration,
         status: ValidatorStatus,
     ) -> Result<ValidatorRecord, ValidatorInductionError> {
         /*
          * Ensure withdrawal shard is not too high.
          */
-        /* 
         if r.withdrawal_shard > self.shard_count {
             return Err(ValidatorInductionError::InvalidShard);
         }
-        */
 
         /*
          * Prove validator has knowledge of their secret key.
          */
-        if !verify_proof_of_possession(&deposit_input.proof_of_possession, &deposit_input.pubkey) {
+        if !verify_proof_of_possession(&r.proof_of_possession, &r.pubkey) {
             return Err(ValidatorInductionError::InvaidProofOfPossession);
         }
 
         Ok(ValidatorRecord {
-            pubkey: deposit_input.pubkey.clone(),
-            withdrawal_credentials: deposit_input.withdrawal_credentials,
-            randao_commitment: deposit_input.randao_commitment,
-            // TODO: revisit this
-            randao_layers: 0,
+            pubkey: r.pubkey.clone(),
+            withdrawal_shard: r.withdrawal_shard,
+            withdrawal_address: r.withdrawal_address,
+            randao_commitment: r.randao_commitment,
+            randao_last_change: self.current_slot,
             balance: DEPOSIT_GWEI,
             status: status,
-            latest_status_change_slot: self.beacon_state.validator_registry_latest_change_slot,
-            exit_count: self.beacon_state.validator_registry_exit_count
+            exit_slot: 0,
         })
     }
 
     /// Returns the index of the first `ValidatorRecord` in the `CrystallizedState` where
     /// `validator.status == Withdrawn`. If no such record exists, `None` is returned.
     fn first_withdrawn_validator(&mut self) -> Option<usize> {
-        for i in self.empty_validator_start..self.beacon_state.validator_registry.len() {
-            if self.beacon_state.validator_registry[i].status == ValidatorStatus::Withdrawn {
+        for i in self.empty_validator_start..self.validators.len() {
+            if self.validators[i].status == ValidatorStatus::Withdrawn {
                 self.empty_validator_start = i + 1;
                 return Some(i);
             }
@@ -94,18 +91,18 @@ impl ValidatorInductor {
     fn add_validator(&mut self, v: ValidatorRecord) -> usize {
         match self.first_withdrawn_validator() {
             Some(i) => {
-                self.beacon_state.validator_registry[i] = v;
+                self.validators[i] = v;
                 i
             }
             None => {
-                self.beacon_state.validator_registry.push(v);
-                self.beacon_state.validator_registry.len() - 1
+                self.validators.push(v);
+                self.validators.len() - 1
             }
         }
     }
 
     pub fn to_vec(self) -> Vec<ValidatorRecord> {
-        self.beacon_state.validator_registry
+        self.validators
     }
 }
 
@@ -115,9 +112,8 @@ mod tests {
 
     use bls::{Keypair, Signature};
     use hashing::proof_of_possession_hash;
-    use types::{Hash256};
+    use types::{Address, Hash256};
 
-    /*
     fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord) -> bool {
         (reg.pubkey == rec.pubkey)
             & (reg.withdrawal_shard == rec.withdrawal_shard)
@@ -125,7 +121,6 @@ mod tests {
             & (reg.randao_commitment == rec.randao_commitment)
             & (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
     }
-    */
 
     /// Generate a proof of possession for some keypair.
     fn get_proof_of_possession(kp: &Keypair) -> Signature {
@@ -133,33 +128,33 @@ mod tests {
         Signature::new_hashed(&pop_message, &kp.sk)
     }
 
-    /// Generate a basic working Deposit for use in tests.
-    fn get_deposit_input() -> DepositInput {
+    /// Generate a basic working ValidatorRegistration for use in tests.
+    fn get_registration() -> ValidatorRegistration {
         let kp = Keypair::random();
-        DepositInput {
+        ValidatorRegistration {
             pubkey: kp.pk.clone(),
-            withdrawal_credentials: Hash256::zero(),
+            withdrawal_shard: 0,
+            withdrawal_address: Address::zero(),
             randao_commitment: Hash256::zero(),
-            proof_of_possession: get_proof_of_possession(&kp)
+            proof_of_possession: get_proof_of_possession(&kp),
         }
     }
 
     #[test]
     fn test_validator_inductor_valid_empty_validators() {
-        let state = BeaconState::default();
+        let validators = vec![];
 
-        let d = get_deposit_input();
+        let r = get_registration();
 
-        let mut inductor = ValidatorInductor::new(0, 1024, state);
-        let result = inductor.induct(&d, ValidatorStatus::PendingActivation);
+        let mut inductor = ValidatorInductor::new(0, 1024, validators);
+        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 0);
-        //assert!(registration_equals_record(&r, &validators[0]));
+        assert!(registration_equals_record(&r, &validators[0]));
         assert_eq!(validators.len(), 1);
     }
 
-    /*
     #[test]
     fn test_validator_inductor_status() {
         let validators = vec![];
@@ -192,7 +187,7 @@ mod tests {
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 5);
-        //assert!(registration_equals_record(&r, &validators[5]));
+        assert!(registration_equals_record(&r, &validators[5]));
         assert_eq!(validators.len(), 6);
     }
 
@@ -215,7 +210,7 @@ mod tests {
         let validators = inductor.to_vec();
 
         assert_eq!(result.unwrap(), 1);
-        //assert!(registration_equals_record(&r, &validators[1]));
+        assert!(registration_equals_record(&r, &validators[1]));
         assert_eq!(validators.len(), 5);
     }
 
@@ -236,7 +231,7 @@ mod tests {
         let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 0);
-        //assert!(registration_equals_record(&r, &validators[0]));
+        assert!(registration_equals_record(&r, &validators[0]));
 
         /*
          * Ensure the second validator gets the 1'st slot
@@ -246,7 +241,7 @@ mod tests {
         let result = inductor.induct(&r_two, ValidatorStatus::PendingActivation);
         let validators = inductor.to_vec();
         assert_eq!(result.unwrap(), 1);
-        //assert!(registration_equals_record(&r_two, &validators[1]));
+        assert!(registration_equals_record(&r_two, &validators[1]));
         assert_eq!(validators.len(), 5);
     }
 
@@ -283,5 +278,4 @@ mod tests {
         );
         assert_eq!(validators.len(), 0);
     }
-    */
 }

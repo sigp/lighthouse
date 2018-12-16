@@ -7,7 +7,7 @@ use super::shard_reassignment_record::ShardReassignmentRecord;
 use super::validator_record::ValidatorRecord;
 use super::Hash256;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct BeaconState {
     pub validator_registry: Vec<ValidatorRecord>,
     pub validator_registry_latest_change_slot: u64,
