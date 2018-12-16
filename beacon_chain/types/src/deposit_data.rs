@@ -1,7 +1,7 @@
-use super::deposit_parameters::DepositParameters;
+use super::deposit_input::DepositInput;
 
 pub struct DepositData {
-    pub deposit_parameter: DepositInput,
+    pub deposit_input: DepositInput,
     pub value: u64,
     pub timestamp: u64
 }

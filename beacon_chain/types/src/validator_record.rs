@@ -33,7 +33,7 @@ pub struct ValidatorRecord {
     pub randao_commitment: Hash256,
     pub randao_layers: u64,
     pub balance: u64,
-    pub status: u64,
+    pub status: ValidatorStatus,
     pub latest_status_change_slot: u64,
     pub exit_count: u64
 }
@@ -51,7 +51,7 @@ impl ValidatorRecord {
             randao_commitment: Hash256::zero(),
             randao_layers: 0,
             balance: 0,
-            status: 0,
+            status: From::from(0),
             latest_status_change_slot: 0,
             exit_count: 0
         };
@@ -74,7 +74,7 @@ mod tests {
         assert!(v.randao_commitment.is_zero());
         assert_eq!(v.randao_layers, 0);
         assert_eq!(v.balance, 0);
-        assert_eq!(v.status, 0);
+        assert_eq!(v.status, From::from(0));
         assert_eq!(v.latest_status_change_slot, 0);
         assert_eq!(v.exit_count, 0);
     }
