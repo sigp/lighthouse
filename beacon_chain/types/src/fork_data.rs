@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ForkData {
     pub pre_fork_version: u64,
     pub post_fork_version: u64,
