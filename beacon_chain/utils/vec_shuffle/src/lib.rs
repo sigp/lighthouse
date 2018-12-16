@@ -47,6 +47,8 @@ mod tests {
     use std::fs::File;
     use std::io::prelude::*;
 
+    // TODO: update test vectors to use keccak instead of blake.
+    // https://github.com/sigp/lighthouse/issues/121
     #[test]
     #[should_panic]
     fn test_shuffling() {
