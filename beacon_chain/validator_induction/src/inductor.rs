@@ -67,12 +67,11 @@ impl ValidatorInductor {
             pubkey: deposit_input.pubkey.clone(),
             withdrawal_credentials: deposit_input.withdrawal_credentials,
             randao_commitment: deposit_input.randao_commitment,
-            // TODO: revisit this
             randao_layers: 0,
             balance: DEPOSIT_GWEI,
             status: status,
             latest_status_change_slot: self.beacon_state.validator_registry_latest_change_slot,
-            exit_count: self.beacon_state.validator_registry_exit_count
+            exit_count: 0
         })
     }
 
