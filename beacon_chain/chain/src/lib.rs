@@ -1,7 +1,6 @@
 extern crate db;
 extern crate naive_fork_choice;
 extern crate ssz;
-extern crate ssz_helpers;
 extern crate state_transition;
 extern crate types;
 extern crate validator_induction;
