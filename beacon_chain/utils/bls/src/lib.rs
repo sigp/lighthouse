@@ -8,19 +8,14 @@ pub use self::bls_aggregates::PublicKey;
 pub use self::bls_aggregates::SecretKey;
 pub use self::bls_aggregates::Signature;
 
-use std::iter;
-
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 97;
 
 use hashing::canonical_hash;
+use std::default::Default;
 
 fn extend_if_needed(hash: &mut Vec<u8>) {
     // NOTE: bls_aggregates crate demands 48 bytes, this may be removed as we get closer to production
-    let hash_len = hash.len();
-    if hash_len < 48 {
-        let missing_len = 48 - hash_len;
-        hash.extend(iter::repeat(0x00).take(missing_len));
-    }
+    hash.resize(48, Default::default())
 }
 
 /// For some signature and public key, ensure that the signature message was the public key and it
