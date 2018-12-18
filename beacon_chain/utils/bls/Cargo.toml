@@ -6,3 +6,4 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 [dependencies]
 bls-aggregates = { git = "https://github.com/sigp/signature-schemes" }
 hashing = { path = "../hashing" }
+ssz = { path = "../ssz" }
