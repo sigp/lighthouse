@@ -24,7 +24,7 @@ impl AggregateSignature {
     ///
     /// Only returns `true` if the set of keys in the `AggregatePublicKey` match the set of keys
     /// that signed the `AggregateSignature`.
-    pub fn verify(&mut self, msg: &[u8], avk: &AggregatePublicKey) -> bool {
+    pub fn verify(&self, msg: &[u8], avk: &AggregatePublicKey) -> bool {
         self.0.verify(msg, avk)
     }
 }
