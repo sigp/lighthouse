@@ -1,6 +1,6 @@
 use super::attestation_data::SSZ_ATTESTION_DATA_LENGTH;
 use super::bls::{AggregateSignature, BLS_AGG_SIG_BYTE_SIZE};
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream, LENGTH_BYTES};
+use super::ssz::{Decodable, DecodeError, Encodable, SszStream, LENGTH_BYTES};
 use super::{AttestationData, Bitfield};
 
 pub const MIN_SSZ_ATTESTION_RECORD_LENGTH: usize = {
@@ -23,7 +23,7 @@ impl Encodable for Attestation {
         s.append(&self.data);
         s.append(&self.participation_bitfield);
         s.append(&self.custody_bitfield);
-        s.append_vec(&self.aggregate_sig.as_bytes());
+        s.append(&self.aggregate_sig);
     }
 }
 
@@ -32,9 +32,7 @@ impl Decodable for Attestation {
         let (data, i) = AttestationData::ssz_decode(bytes, i)?;
         let (participation_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
         let (custody_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
-        let (agg_sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let aggregate_sig =
-            AggregateSignature::from_bytes(&agg_sig_bytes).map_err(|_| DecodeError::TooShort)?; // also could be TooLong
+        let (aggregate_sig, i) = AggregateSignature::ssz_decode(bytes, i)?;
 
         let attestation_record = Self {
             data,
