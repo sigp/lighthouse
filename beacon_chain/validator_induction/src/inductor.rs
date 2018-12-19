@@ -110,8 +110,8 @@ impl ValidatorInductor {
 mod tests {
     use super::*;
 
-    use bls::{Keypair, Signature};
-    use hashing::proof_of_possession_hash;
+    use bls::{create_proof_of_possession, Keypair, Signature};
+    use hashing::canonical_hash;
     use types::{Address, Hash256};
 
     fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord) -> bool {
@@ -122,12 +122,6 @@ mod tests {
             & (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
     }
 
-    /// Generate a proof of possession for some keypair.
-    fn get_proof_of_possession(kp: &Keypair) -> Signature {
-        let pop_message = proof_of_possession_hash(&kp.pk.as_bytes());
-        Signature::new_hashed(&pop_message, &kp.sk)
-    }
-
     /// Generate a basic working ValidatorRegistration for use in tests.
     fn get_registration() -> ValidatorRegistration {
         let kp = Keypair::random();
@@ -136,7 +130,7 @@ mod tests {
             withdrawal_shard: 0,
             withdrawal_address: Address::zero(),
             randao_commitment: Hash256::zero(),
-            proof_of_possession: get_proof_of_possession(&kp),
+            proof_of_possession: create_proof_of_possession(&kp),
         }
     }
 
@@ -266,7 +260,7 @@ mod tests {
 
         let mut r = get_registration();
         let kp = Keypair::random();
-        r.proof_of_possession = get_proof_of_possession(&kp);
+        r.proof_of_possession = create_proof_of_possession(&kp);
 
         let mut inductor = ValidatorInductor::new(0, 1024, validators);
         let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
