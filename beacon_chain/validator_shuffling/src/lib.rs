@@ -4,4 +4,4 @@ extern crate vec_shuffle;
 
 mod shuffle;
 
-pub use shuffle::{shard_and_committees_for_cycle, ValidatorAssignmentError};
+pub use crate::shuffle::{shard_and_committees_for_cycle, ValidatorAssignmentError};
