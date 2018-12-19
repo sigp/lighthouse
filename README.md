@@ -264,3 +264,9 @@ proof-of-concept implementation in Python is available at
 Presently, the specification focuses almost exclusively on the beacon chain,
 as it is the focus of current development efforts. Progress on shard chain
 specification will soon follow.
+
+# Donations
+
+If you support the cause, we could certainly use donations to help fund development:
+
+`0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b`
