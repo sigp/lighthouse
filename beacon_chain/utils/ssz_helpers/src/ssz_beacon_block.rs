@@ -220,6 +220,8 @@ mod tests {
     use super::super::types::{Attestation, BeaconBlock, SpecialRecord};
     use super::*;
 
+    use super::canonical_hash;
+
     fn get_block_ssz(b: &BeaconBlock) -> Vec<u8> {
         let mut ssz_stream = SszStream::new();
         ssz_stream.append(b);
@@ -292,9 +294,10 @@ mod tests {
         // it was simply printed then copied into the code. This test
         // will tell us if the hash changes, not that it matches some
         // canonical reference.
+        // TODO: make sure this test conforms to canonical test vectors; it is not clear that it currently does so
         let expected_hash = [
-            254, 192, 124, 164, 240, 137, 162, 126, 50, 255, 118, 88, 189, 151, 221, 4, 40, 121,
-            198, 33, 248, 221, 104, 255, 46, 234, 146, 161, 202, 140, 109, 175,
+            132, 43, 230, 49, 234, 240, 253, 146, 85, 121, 104, 79, 35, 0, 126, 162, 132, 99, 145,
+            13, 30, 57, 118, 5, 175, 136, 174, 7, 52, 161, 87, 196,
         ];
         assert_eq!(hash, expected_hash);
 
