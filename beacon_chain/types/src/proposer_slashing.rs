@@ -1,4 +1,4 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
 use super::ProposalSignedData;
 use bls::Signature;
 
