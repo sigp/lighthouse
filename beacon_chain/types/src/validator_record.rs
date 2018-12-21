@@ -32,7 +32,6 @@ pub struct ValidatorRecord {
     pub withdrawal_credentials: Hash256,
     pub randao_commitment: Hash256,
     pub randao_layers: u64,
-    pub balance: u64,
     pub status: ValidatorStatus,
     pub latest_status_change_slot: u64,
     pub exit_count: u64
@@ -50,7 +49,6 @@ impl ValidatorRecord {
             withdrawal_credentials: Hash256::zero(),
             randao_commitment: Hash256::zero(),
             randao_layers: 0,
-            balance: 0,
             status: From::from(0),
             latest_status_change_slot: 0,
             exit_count: 0

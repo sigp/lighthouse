@@ -1,111 +1,76 @@
-use bls::verify_proof_of_possession;
-use types::{ValidatorRecord, DepositInput, ValidatorStatus, BeaconState};
+use bls::{PublicKey, verify_proof_of_possession};
+use types::{BeaconState, Deposit, ValidatorRecord, ValidatorStatus};
+use spec::ChainSpec;
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
-
-/// Inducts validators into a `CrystallizedState`.
-pub struct ValidatorInductor {
-    pub current_slot: u64,
-    pub shard_count: u16,
-    beacon_state: BeaconState,
-    empty_validator_start: usize,
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {
     InvalidShard,
     InvaidProofOfPossession,
+    InvalidWithdrawalCredentials
 }
 
-impl ValidatorInductor {
-    pub fn new(current_slot: u64, shard_count: u16, beacon_state: BeaconState) -> Self {
-        Self {
-            current_slot,
-            shard_count,
-            beacon_state,
-            empty_validator_start: 0,
-        }
-    }
-
-    /// Attempt to induct a validator into the CrystallizedState.
-    ///
-    /// Returns an error if the registration is invalid, otherwise returns the index of the
-    /// validator in `CrystallizedState.validators`.
-    pub fn induct(
-        &mut self,
-        deposit_input: &DepositInput,
-        status: ValidatorStatus,
-    ) -> Result<usize, ValidatorInductionError> {
-        let v = self.process_deposit(deposit_input, status)?;
-        Ok(self.add_validator(v))
-    }
-
-    /// Verify a `ValidatorRegistration` and return a `ValidatorRecord` if valid.
-    fn process_deposit(
-        &self,
-        deposit_input: &DepositInput,
-        status: ValidatorStatus,
-    ) -> Result<ValidatorRecord, ValidatorInductionError> {
-        /*
-         * Ensure withdrawal shard is not too high.
-         */
-        /* 
-        if r.withdrawal_shard > self.shard_count {
-            return Err(ValidatorInductionError::InvalidShard);
-        }
-        */
-
-        /*
-         * Prove validator has knowledge of their secret key.
-         */
-        if !verify_proof_of_possession(&deposit_input.proof_of_possession, &deposit_input.pubkey) {
-            return Err(ValidatorInductionError::InvaidProofOfPossession);
-        }
-
-        Ok(ValidatorRecord {
-            pubkey: deposit_input.pubkey.clone(),
-            withdrawal_credentials: deposit_input.withdrawal_credentials,
-            randao_commitment: deposit_input.randao_commitment,
-            randao_layers: 0,
-            balance: DEPOSIT_GWEI,
-            status: status,
-            latest_status_change_slot: self.beacon_state.validator_registry_latest_change_slot,
-            exit_count: 0
-        })
-    }
-
-    /// Returns the index of the first `ValidatorRecord` in the `CrystallizedState` where
-    /// `validator.status == Withdrawn`. If no such record exists, `None` is returned.
-    fn first_withdrawn_validator(&mut self) -> Option<usize> {
-        for i in self.empty_validator_start..self.beacon_state.validator_registry.len() {
-            if self.beacon_state.validator_registry[i].status == ValidatorStatus::Withdrawn {
-                self.empty_validator_start = i + 1;
-                return Some(i);
+pub fn process_deposit(
+    state: &mut BeaconState,
+    deposit: &Deposit,
+    spec: &ChainSpec) 
+-> Result<usize, ValidatorInductionError> {
+    let deposit_input = &deposit.deposit_data.deposit_input;
+    let validator_index = state.validator_registry.iter()
+        .position(|validator| validator.pubkey == deposit_input.pubkey);
+    
+    match validator_index {
+        // replace withdrawn validator
+        Some(i) => {
+            if state.validator_registry[i].withdrawal_credentials == deposit_input.withdrawal_credentials {
+                state.validator_balances[i] += DEPOSIT_GWEI;
+                return Ok(i);
             }
-        }
-        None
-    }
-
-    /// Adds a `ValidatorRecord` to the `CrystallizedState` by replacing first validator where
-    /// `validator.status == Withdraw`. If no such withdrawn validator exists, adds the new
-    /// validator to the end of the list.
-    fn add_validator(&mut self, v: ValidatorRecord) -> usize {
-        match self.first_withdrawn_validator() {
-            Some(i) => {
-                self.beacon_state.validator_registry[i] = v;
-                i
-            }
-            None => {
-                self.beacon_state.validator_registry.push(v);
-                self.beacon_state.validator_registry.len() - 1
+            
+            Err(ValidatorInductionError::InvalidWithdrawalCredentials)
+        },
+        // no withdrawn validators; push a new one on
+        None => {        
+            let validator = ValidatorRecord {
+                pubkey: deposit_input.pubkey.clone(),
+                withdrawal_credentials: deposit_input.withdrawal_credentials,
+                randao_commitment: deposit_input.randao_commitment,
+                randao_layers: 0,
+                status: ValidatorStatus::PendingActivation,
+                latest_status_change_slot: state.validator_registry_latest_change_slot.clone(),
+                exit_count: 0
+            };
+            
+            match min_empty_validator_index(state, spec) {
+                Some(i) => {
+                    state.validator_registry[i] = validator;
+                    state.validator_balances[i] = DEPOSIT_GWEI;
+                    Ok(i)
+                },
+                None => {
+                    state.validator_registry.push(validator);
+                    state.validator_balances.push(DEPOSIT_GWEI);
+                    Ok(state.validator_registry.len() - 1)
+                }
             }
         }
     }
+}
 
-    pub fn to_vec(self) -> Vec<ValidatorRecord> {
-        self.beacon_state.validator_registry
+fn min_empty_validator_index(
+    state: &BeaconState,
+    spec: &ChainSpec
+) -> Option<usize> {    
+    for i in 0..state.validator_registry.len() {
+        if state.validator_balances[i] == 0 
+            && state.validator_registry[i].latest_status_change_slot 
+                + spec.zero_balance_validator_ttl <= state.slot {
+            return Some(i);
+        }
     }
+    None
 }
 
 #[cfg(test)]
@@ -114,17 +79,27 @@ mod tests {
 
     use bls::{Keypair, Signature};
     use hashing::proof_of_possession_hash;
-    use types::{Hash256};
-
-    /*
-    fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord) -> bool {
-        (reg.pubkey == rec.pubkey)
-            & (reg.withdrawal_shard == rec.withdrawal_shard)
-            & (reg.withdrawal_address == rec.withdrawal_address)
-            & (reg.randao_commitment == rec.randao_commitment)
-            & (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
+    use types::{Hash256, DepositData, DepositInput};
+    
+    fn get_deposit() -> Deposit {  
+        let kp = Keypair::random();
+        let deposit_input = DepositInput {
+            pubkey: kp.pk.clone(),
+            withdrawal_credentials: Hash256::zero(),
+            randao_commitment: Hash256::zero(),
+            proof_of_possession: get_proof_of_possession(&kp)
+        };
+        let deposit_data = DepositData {
+            deposit_input: deposit_input,
+            value: 0,
+            timestamp: 0
+        };
+        Deposit {
+            merkle_branch: Vec::new(),
+            merkle_tree_index: 0,
+            deposit_data: deposit_data
+        }
     }
-    */
 
     /// Generate a proof of possession for some keypair.
     fn get_proof_of_possession(kp: &Keypair) -> Signature {
@@ -132,30 +107,17 @@ mod tests {
         Signature::new_hashed(&pop_message, &kp.sk)
     }
 
-    /// Generate a basic working Deposit for use in tests.
-    fn get_deposit_input() -> DepositInput {
-        let kp = Keypair::random();
-        DepositInput {
-            pubkey: kp.pk.clone(),
-            withdrawal_credentials: Hash256::zero(),
-            randao_commitment: Hash256::zero(),
-            proof_of_possession: get_proof_of_possession(&kp)
-        }
-    }
-
     #[test]
     fn test_validator_inductor_valid_empty_validators() {
-        let state = BeaconState::default();
+        let mut state = BeaconState::default();
+        let deposit = get_deposit();
+        let spec = ChainSpec::foundation();
 
-        let d = get_deposit_input();
-
-        let mut inductor = ValidatorInductor::new(0, 1024, state);
-        let result = inductor.induct(&d, ValidatorStatus::PendingActivation);
-        let validators = inductor.to_vec();
+        let result = process_deposit(&mut state, &deposit, &spec);
 
         assert_eq!(result.unwrap(), 0);
         //assert!(registration_equals_record(&r, &validators[0]));
-        assert_eq!(validators.len(), 1);
+        //assert_eq!(validators.len(), 1);
     }
 
     /*

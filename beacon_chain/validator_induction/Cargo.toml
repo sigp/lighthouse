@@ -7,3 +7,4 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 bls = { path = "../utils/bls" }
 hashing = { path = "../utils/hashing" }
 types = { path = "../types" }
+spec = { path = "../spec" }
