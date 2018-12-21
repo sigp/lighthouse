@@ -9,7 +9,11 @@ use super::Hash256;
 
 #[derive(Debug, PartialEq, Default)]
 pub struct BeaconState {
+    pub slot: u64,    
+    pub genesis_time: u64,
+    pub fork_data: ForkData,
     pub validator_registry: Vec<ValidatorRecord>,
+    pub validator_balances: Vec<u64>,
     pub validator_registry_latest_change_slot: u64,
     pub validator_registry_exit_count: u64,
     pub validator_registry_delta_chain_tip: Hash256,
@@ -20,15 +24,13 @@ pub struct BeaconState {
     pub persistent_committee_reassignments: Vec<ShardReassignmentRecord>,
     pub previous_justified_slot: u64,
     pub justified_slot: u64,
-    pub justified_slot_bitfield: u64,
+    pub justification_bitfield: u64,
     pub finalized_slot: u64,
     pub latest_crosslinks: Vec<CrosslinkRecord>,
-    pub latest_state_recalculation_slot: u64,
-    pub latest_block_hashes: Vec<Hash256>,
+    pub latest_block_roots: Vec<Hash256>,
     pub latest_penalized_exit_balances: Vec<u64>,
     pub latest_attestations: Vec<PendingAttestationRecord>,
+    pub batched_block_roots: Vec<Hash256>,
     pub processed_pow_receipt_root: Hash256,
     pub candidate_pow_receipt_roots: Vec<CandidatePoWReceiptRootRecord>,
-    pub genesis_time: u64,
-    pub fork_data: ForkData,
 }
