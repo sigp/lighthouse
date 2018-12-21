@@ -1,4 +1,4 @@
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::ProposalSignedData;
 use bls::Signature;
 
@@ -23,11 +23,11 @@ impl Encodable for ProposerSlashing {
 
 impl Decodable for ProposerSlashing {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (proposer_index, i) = u32::ssz_decode(bytes, i)?;
-        let (proposal_data_1, i) = ProposalSignedData::ssz_decode(bytes, i)?;
-        let (proposal_signature_1, i) = Signature::ssz_decode(bytes, i)?;
-        let (proposal_data_2, i) = ProposalSignedData::ssz_decode(bytes, i)?;
-        let (proposal_signature_2, i) = Signature::ssz_decode(bytes, i)?;
+        let (proposer_index, i) = <_>::ssz_decode(bytes, i)?;
+        let (proposal_data_1, i) = <_>::ssz_decode(bytes, i)?;
+        let (proposal_signature_1, i) = <_>::ssz_decode(bytes, i)?;
+        let (proposal_data_2, i) = <_>::ssz_decode(bytes, i)?;
+        let (proposal_signature_2, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             ProposerSlashing {

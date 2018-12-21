@@ -16,8 +16,8 @@ impl Encodable for CasperSlashing {
 
 impl Decodable for CasperSlashing {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slashable_vote_data_1, i) = SlashableVoteData::ssz_decode(bytes, i)?;
-        let (slashable_vote_data_2, i) = SlashableVoteData::ssz_decode(bytes, i)?;
+        let (slashable_vote_data_1, i) = <_>::ssz_decode(bytes, i)?;
+        let (slashable_vote_data_2, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             CasperSlashing {
