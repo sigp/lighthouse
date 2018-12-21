@@ -16,8 +16,8 @@ pub mod encode;
 mod impl_decode;
 mod impl_encode;
 
-pub use decode::{decode_ssz, decode_ssz_list, Decodable, DecodeError};
-pub use encode::{Encodable, SszStream};
+pub use crate::decode::{decode_ssz, decode_ssz_list, Decodable, DecodeError};
+pub use crate::encode::{Encodable, SszStream};
 
 pub const LENGTH_BYTES: usize = 4;
 pub const MAX_LIST_SIZE: usize = 1 << (4 * 8);

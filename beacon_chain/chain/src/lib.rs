@@ -14,11 +14,11 @@ mod stores;
 mod transition;
 
 use db::ClientDB;
-use genesis::{genesis_states, Error as GenesisError};
-use maps::{generate_attester_and_proposer_maps, AttesterAndProposerMapError};
+use crate::genesis::{genesis_states, Error as GenesisError};
+use crate::maps::{generate_attester_and_proposer_maps, AttesterAndProposerMapError};
 use std::collections::HashMap;
 use std::sync::Arc;
-use stores::BeaconChainStore;
+use crate::stores::BeaconChainStore;
 use types::{ActiveState, AttesterMap, ChainConfig, CrystallizedState, Hash256, ProposerMap};
 
 #[derive(Debug, PartialEq)]
