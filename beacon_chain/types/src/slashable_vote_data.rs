@@ -23,8 +23,8 @@ impl Decodable for SlashableVoteData {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (aggregate_signature_poc_0_indices, i) = decode_ssz_list(bytes, i)?;
         let (aggregate_signature_poc_1_indices, i) = decode_ssz_list(bytes, i)?;
-        let (data, i) = AttestationData::ssz_decode(bytes, i)?;
-        let (aggregate_signature, i) = AggregateSignature::ssz_decode(bytes, i)?;
+        let (data, i) = <_>::ssz_decode(bytes, i)?;
+        let (aggregate_signature, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             SlashableVoteData {

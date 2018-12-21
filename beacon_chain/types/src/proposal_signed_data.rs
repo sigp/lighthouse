@@ -18,9 +18,9 @@ impl Encodable for ProposalSignedData {
 
 impl Decodable for ProposalSignedData {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = u64::ssz_decode(bytes, i)?;
-        let (shard, i) = u64::ssz_decode(bytes, i)?;
-        let (block_root, i) = Hash256::ssz_decode(bytes, i)?;
+        let (slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (shard, i) = <_>::ssz_decode(bytes, i)?;
+        let (block_root, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             ProposalSignedData {
