@@ -18,13 +18,19 @@ pub fn process_deposit(
     spec: &ChainSpec) 
 -> Result<usize, ValidatorInductionError> {
     let deposit_input = &deposit.deposit_data.deposit_input;
+    let deposit_data = &deposit.deposit_data;
+        
+    if !verify_proof_of_possession(&deposit_input.proof_of_possession, &deposit_input.pubkey) {
+        return Err(ValidatorInductionError::InvaidProofOfPossession);
+    }
+    
     let validator_index = state.validator_registry.iter()
         .position(|validator| validator.pubkey == deposit_input.pubkey);
     
     match validator_index {
         Some(i) => {
             if state.validator_registry[i].withdrawal_credentials == deposit_input.withdrawal_credentials {
-                state.validator_balances[i] += DEPOSIT_GWEI;
+                state.validator_balances[i] += deposit_data.value;
                 return Ok(i);
             }
             
@@ -44,12 +50,12 @@ pub fn process_deposit(
             match min_empty_validator_index(state, spec) {
                 Some(i) => {
                     state.validator_registry[i] = validator;
-                    state.validator_balances[i] = DEPOSIT_GWEI;
+                    state.validator_balances[i] = deposit_data.value;
                     Ok(i)
                 },
                 None => {
                     state.validator_registry.push(validator);
-                    state.validator_balances.push(DEPOSIT_GWEI);
+                    state.validator_balances.push(deposit_data.value);
                     Ok(state.validator_registry.len() - 1)
                 }
             }
@@ -89,7 +95,7 @@ mod tests {
         };
         let deposit_data = DepositData {
             deposit_input: deposit_input,
-            value: 0,
+            value: DEPOSIT_GWEI,
             timestamp: 0
         };
         Deposit {
@@ -127,20 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn test_process_deposit_empty_validators() {
-        let mut state = BeaconState::default();
-        let deposit = get_deposit();
-        let spec = ChainSpec::foundation();
-
-        let result = process_deposit(&mut state, &deposit, &spec);
-
-        assert_eq!(result.unwrap(), 0);
-        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
-        assert_eq!(state.validator_registry.len(), 1);
-        assert_eq!(state.validator_balances.len(), 1);
-    }
-
-    #[test]
     fn test_process_deposits_empty_validators() {
         let mut state = BeaconState::default();
         let spec = ChainSpec::foundation();
@@ -154,130 +146,48 @@ mod tests {
             assert_eq!(state.validator_balances.len(), i + 1);
         }
     }
-
-    /*
+    
     #[test]
-    fn test_validator_inductor_status() {
-        let validators = vec![];
-
-        let r = get_registration();
-
-        let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let _ = inductor.induct(&r, ValidatorStatus::PendingActivation);
-        let _ = inductor.induct(&r, ValidatorStatus::Active);
-        let validators = inductor.to_vec();
-
-        assert!(validators[0].status == ValidatorStatus::PendingActivation);
-        assert!(validators[1].status == ValidatorStatus::Active);
-        assert_eq!(validators.len(), 2);
-    }
-
-    #[test]
-    fn test_validator_inductor_valid_all_active_validators() {
-        let mut validators = vec![];
-        for _ in 0..5 {
-            let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-            v.status = ValidatorStatus::Active;
-            validators.push(v);
-        }
-
-        let r = get_registration();
-
-        let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
-        let validators = inductor.to_vec();
-
-        assert_eq!(result.unwrap(), 5);
-        //assert!(registration_equals_record(&r, &validators[5]));
-        assert_eq!(validators.len(), 6);
-    }
-
-    #[test]
-    fn test_validator_inductor_valid_all_second_validator_withdrawn() {
-        let mut validators = vec![];
-        let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-        v.status = ValidatorStatus::Active;
-        validators.push(v);
-        for _ in 0..4 {
-            let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-            v.status = ValidatorStatus::Withdrawn;
-            validators.push(v);
-        }
-
-        let r = get_registration();
-
-        let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
-        let validators = inductor.to_vec();
-
-        assert_eq!(result.unwrap(), 1);
-        //assert!(registration_equals_record(&r, &validators[1]));
-        assert_eq!(validators.len(), 5);
-    }
-
-    #[test]
-    fn test_validator_inductor_valid_all_withdrawn_validators() {
-        let mut validators = vec![];
-        for _ in 0..5 {
-            let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
-            v.status = ValidatorStatus::Withdrawn;
-            validators.push(v);
-        }
-
-        /*
-         * Ensure the first validator gets the 0'th slot
-         */
-        let r = get_registration();
-        let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
-        let validators = inductor.to_vec();
+    fn test_process_deposit_top_out() {    
+        let mut state = BeaconState::default();
+        let spec = ChainSpec::foundation();
+        
+        let deposit = get_deposit();
+        let (mut validator, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+        validator.pubkey = deposit.deposit_data.deposit_input.pubkey.clone();
+        validator.withdrawal_credentials = deposit.deposit_data.deposit_input.withdrawal_credentials;
+        validator.randao_commitment = deposit.deposit_data.deposit_input.randao_commitment;
+        
+        state.validator_registry.push(validator);
+        state.validator_balances.push(DEPOSIT_GWEI);
+        
+        let result = process_deposit(&mut state, &deposit, &spec);
+        
         assert_eq!(result.unwrap(), 0);
-        //assert!(registration_equals_record(&r, &validators[0]));
-
-        /*
-         * Ensure the second validator gets the 1'st slot
-         */
-        let r_two = get_registration();
-        let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r_two, ValidatorStatus::PendingActivation);
-        let validators = inductor.to_vec();
-        assert_eq!(result.unwrap(), 1);
-        //assert!(registration_equals_record(&r_two, &validators[1]));
-        assert_eq!(validators.len(), 5);
+        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
+        assert_eq!(state.validator_balances[0], DEPOSIT_GWEI * 2);
+        assert_eq!(state.validator_registry.len(), 1);
+        assert_eq!(state.validator_balances.len(), 1);
     }
-
+    
     #[test]
-    fn test_validator_inductor_shard_too_high() {
-        let validators = vec![];
-
-        let mut r = get_registration();
-        r.withdrawal_shard = 1025;
-
-        let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
-        let validators = inductor.to_vec();
-
-        assert_eq!(result, Err(ValidatorInductionError::InvalidShard));
-        assert_eq!(validators.len(), 0);
+    fn test_process_deposit_replace_validator() {
+        let mut state = BeaconState::default();
+        let spec = ChainSpec::foundation();
+            
+        let (mut validator, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+        state.validator_registry.push(validator);
+        state.validator_balances.push(0);
+        
+        let deposit = get_deposit();
+        state.slot = spec.zero_balance_validator_ttl;
+        
+        let result = process_deposit(&mut state, &deposit, &spec);
+        
+        assert_eq!(result.unwrap(), 0);
+        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
+        assert_eq!(state.validator_balances[0], DEPOSIT_GWEI);
+        assert_eq!(state.validator_registry.len(), 1);
+        assert_eq!(state.validator_balances.len(), 1);
     }
-
-    #[test]
-    fn test_validator_inductor_shard_proof_of_possession_failure() {
-        let validators = vec![];
-
-        let mut r = get_registration();
-        let kp = Keypair::random();
-        r.proof_of_possession = get_proof_of_possession(&kp);
-
-        let mut inductor = ValidatorInductor::new(0, 1024, validators);
-        let result = inductor.induct(&r, ValidatorStatus::PendingActivation);
-        let validators = inductor.to_vec();
-
-        assert_eq!(
-            result,
-            Err(ValidatorInductionError::InvaidProofOfPossession)
-        );
-        assert_eq!(validators.len(), 0);
-    }
-    */
 }
