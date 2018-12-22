@@ -22,7 +22,6 @@ pub fn process_deposit(
         .position(|validator| validator.pubkey == deposit_input.pubkey);
     
     match validator_index {
-        // replace withdrawn validator
         Some(i) => {
             if state.validator_registry[i].withdrawal_credentials == deposit_input.withdrawal_credentials {
                 state.validator_balances[i] += DEPOSIT_GWEI;
@@ -31,7 +30,6 @@ pub fn process_deposit(
             
             Err(ValidatorInductionError::InvalidWithdrawalCredentials)
         },
-        // no withdrawn validators; push a new one on
         None => {        
             let validator = ValidatorRecord {
                 pubkey: deposit_input.pubkey.clone(),
@@ -101,6 +99,13 @@ mod tests {
         }
     }
 
+    fn deposit_equals_record(dep: &Deposit, rec: &ValidatorRecord) -> bool {
+        (dep.deposit_data.deposit_input.pubkey == rec.pubkey)
+            & (dep.deposit_data.deposit_input.withdrawal_credentials == rec.withdrawal_credentials)
+            & (dep.deposit_data.deposit_input.randao_commitment == rec.randao_commitment)
+            //& (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
+    }
+
     /// Generate a proof of possession for some keypair.
     fn get_proof_of_possession(kp: &Keypair) -> Signature {
         let pop_message = proof_of_possession_hash(&kp.pk.as_bytes());
@@ -108,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validator_inductor_valid_empty_validators() {
+    fn test_process_deposit_valid_empty_validators() {
         let mut state = BeaconState::default();
         let deposit = get_deposit();
         let spec = ChainSpec::foundation();
@@ -116,8 +121,38 @@ mod tests {
         let result = process_deposit(&mut state, &deposit, &spec);
 
         assert_eq!(result.unwrap(), 0);
-        //assert!(registration_equals_record(&r, &validators[0]));
-        //assert_eq!(validators.len(), 1);
+        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
+        assert_eq!(state.validator_registry.len(), 1);
+        assert_eq!(state.validator_balances.len(), 1);
+    }
+
+    #[test]
+    fn test_process_deposit_empty_validators() {
+        let mut state = BeaconState::default();
+        let deposit = get_deposit();
+        let spec = ChainSpec::foundation();
+
+        let result = process_deposit(&mut state, &deposit, &spec);
+
+        assert_eq!(result.unwrap(), 0);
+        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
+        assert_eq!(state.validator_registry.len(), 1);
+        assert_eq!(state.validator_balances.len(), 1);
+    }
+
+    #[test]
+    fn test_process_deposits_empty_validators() {
+        let mut state = BeaconState::default();
+        let spec = ChainSpec::foundation();
+
+        for i in 0..5 {
+            let deposit = get_deposit();
+            let result = process_deposit(&mut state, &deposit, &spec);
+            assert_eq!(result.unwrap(), i);
+            assert!(deposit_equals_record(&deposit, &state.validator_registry[i]));
+            assert_eq!(state.validator_registry.len(), i + 1);
+            assert_eq!(state.validator_balances.len(), i + 1);
+        }
     }
 
     /*
