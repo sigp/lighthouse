@@ -1,6 +1,8 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::ProposalSignedData;
+use crate::random::TestRandom;
 use bls::Signature;
+use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct ProposerSlashing {
@@ -42,35 +44,32 @@ impl Decodable for ProposerSlashing {
     }
 }
 
+impl<T: RngCore> TestRandom<T> for ProposerSlashing {
+    fn random_for_test(rng: &mut T) -> Self {
+        Self {
+            proposer_index: <_>::random_for_test(rng),
+            proposal_data_1: <_>::random_for_test(rng),
+            proposal_signature_1: <_>::random_for_test(rng),
+            proposal_data_2: <_>::random_for_test(rng),
+            proposal_signature_2: <_>::random_for_test(rng),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::ssz::ssz_encode;
-    use super::super::Hash256;
     use super::*;
-    use bls::{Keypair, Signature};
+    use crate::random::TestRandom;
+    use rand::{prng::XorShiftRng, SeedableRng};
 
     #[test]
     pub fn test_ssz_round_trip() {
-        let keypair = Keypair::random();
-
-        let original = ProposerSlashing {
-            proposer_index: 42,
-            proposal_data_1: ProposalSignedData {
-                slot: 45,
-                shard: 110,
-                block_root: Hash256::from("cats".as_bytes()),
-            },
-            proposal_signature_1: Signature::new(&[42, 42], &keypair.sk),
-            proposal_data_2: ProposalSignedData {
-                slot: 1,
-                shard: 260,
-                block_root: Hash256::from("lol".as_bytes()),
-            },
-            proposal_signature_2: Signature::new(&[7, 8], &keypair.sk),
-        };
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = ProposerSlashing::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = ProposerSlashing::ssz_decode(&bytes, 0).unwrap();
+        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
     }

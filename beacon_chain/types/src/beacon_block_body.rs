@@ -1,5 +1,7 @@
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::{Attestation, CasperSlashing, Deposit, Exit, ProposerSlashing};
+use crate::random::TestRandom;
+use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct BeaconBlockBody {
@@ -22,11 +24,11 @@ impl Encodable for BeaconBlockBody {
 
 impl Decodable for BeaconBlockBody {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (proposer_slashings, i) = decode_ssz_list(bytes, i)?;
-        let (casper_slashings, i) = decode_ssz_list(bytes, i)?;
-        let (attestations, i) = decode_ssz_list(bytes, i)?;
-        let (deposits, i) = decode_ssz_list(bytes, i)?;
-        let (exits, i) = decode_ssz_list(bytes, i)?;
+        let (proposer_slashings, i) = <_>::ssz_decode(bytes, i)?;
+        let (casper_slashings, i) = <_>::ssz_decode(bytes, i)?;
+        let (attestations, i) = <_>::ssz_decode(bytes, i)?;
+        let (deposits, i) = <_>::ssz_decode(bytes, i)?;
+        let (exits, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
@@ -38,5 +40,36 @@ impl Decodable for BeaconBlockBody {
             },
             i,
         ))
+    }
+}
+
+impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
+    fn random_for_test(rng: &mut T) -> Self {
+        Self {
+            proposer_slashings: <_>::random_for_test(rng),
+            casper_slashings: <_>::random_for_test(rng),
+            attestations: <_>::random_for_test(rng),
+            deposits: <_>::random_for_test(rng),
+            exits: <_>::random_for_test(rng),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::ssz::ssz_encode;
+    use super::*;
+    use crate::random::TestRandom;
+    use rand::{prng::XorShiftRng, SeedableRng};
+
+    #[test]
+    pub fn test_ssz_round_trip() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = BeaconBlockBody::random_for_test(&mut rng);
+
+        let bytes = ssz_encode(&original);
+        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
+
+        assert_eq!(original, decoded);
     }
 }
