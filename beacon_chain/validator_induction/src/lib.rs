@@ -5,4 +5,4 @@ extern crate spec;
 
 mod inductor;
 
-pub use inductor::{ValidatorInductionError};
+pub use crate::inductor::{ValidatorInductionError};

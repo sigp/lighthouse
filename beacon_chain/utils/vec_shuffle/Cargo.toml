@@ -2,6 +2,7 @@
 name = "vec_shuffle"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
 
 [dependencies]
 hashing = { path = "../hashing" }
