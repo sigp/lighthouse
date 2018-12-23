@@ -1,5 +1,7 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::Hash256;
+use crate::random::TestRandom;
+use rand::RngCore;
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -83,27 +85,35 @@ impl Decodable for AttestationData {
     }
 }
 
+impl<T: RngCore> TestRandom<T> for AttestationData {
+    fn random_for_test(rng: &mut T) -> Self {
+        Self {
+            slot: <_>::random_for_test(rng),
+            shard: <_>::random_for_test(rng),
+            beacon_block_hash: <_>::random_for_test(rng),
+            epoch_boundary_hash: <_>::random_for_test(rng),
+            shard_block_hash: <_>::random_for_test(rng),
+            latest_crosslink_hash: <_>::random_for_test(rng),
+            justified_slot: <_>::random_for_test(rng),
+            justified_block_hash: <_>::random_for_test(rng),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
+    use crate::random::TestRandom;
+    use rand::{prng::XorShiftRng, SeedableRng};
 
     #[test]
-    pub fn test_attestation_record_ssz_round_trip() {
-        let original = AttestationData {
-            slot: 42,
-            shard: 16,
-            beacon_block_hash: Hash256::from("beacon".as_bytes()),
-            epoch_boundary_hash: Hash256::from("epoch".as_bytes()),
-            shard_block_hash: Hash256::from("shard".as_bytes()),
-            latest_crosslink_hash: Hash256::from("xlink".as_bytes()),
-            justified_slot: 8,
-            justified_block_hash: Hash256::from("justified".as_bytes()),
-        };
+    pub fn test_ssz_round_trip() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = AttestationData::random_for_test(&mut rng);
 
-        let ssz = ssz_encode(&original);
-
-        let (decoded, _) = AttestationData::ssz_decode(&ssz, 0).unwrap();
+        let bytes = ssz_encode(&original);
+        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
     }

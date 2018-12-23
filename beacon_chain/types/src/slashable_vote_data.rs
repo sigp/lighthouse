@@ -1,6 +1,8 @@
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::AttestationData;
+use crate::random::TestRandom;
 use bls::AggregateSignature;
+use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct SlashableVoteData {
@@ -21,8 +23,8 @@ impl Encodable for SlashableVoteData {
 
 impl Decodable for SlashableVoteData {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (aggregate_signature_poc_0_indices, i) = decode_ssz_list(bytes, i)?;
-        let (aggregate_signature_poc_1_indices, i) = decode_ssz_list(bytes, i)?;
+        let (aggregate_signature_poc_0_indices, i) = <_>::ssz_decode(bytes, i)?;
+        let (aggregate_signature_poc_1_indices, i) = <_>::ssz_decode(bytes, i)?;
         let (data, i) = <_>::ssz_decode(bytes, i)?;
         let (aggregate_signature, i) = <_>::ssz_decode(bytes, i)?;
 
@@ -38,32 +40,31 @@ impl Decodable for SlashableVoteData {
     }
 }
 
+impl<T: RngCore> TestRandom<T> for SlashableVoteData {
+    fn random_for_test(rng: &mut T) -> Self {
+        Self {
+            aggregate_signature_poc_0_indices: <_>::random_for_test(rng),
+            aggregate_signature_poc_1_indices: <_>::random_for_test(rng),
+            data: <_>::random_for_test(rng),
+            aggregate_signature: <_>::random_for_test(rng),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::ssz::ssz_encode;
-    use super::super::Hash256;
     use super::*;
+    use crate::random::TestRandom;
+    use rand::{prng::XorShiftRng, SeedableRng};
 
     #[test]
     pub fn test_ssz_round_trip() {
-        let original = SlashableVoteData {
-            aggregate_signature_poc_0_indices: vec![0, 1, 2],
-            aggregate_signature_poc_1_indices: vec![42, 42, 42],
-            data: AttestationData {
-                slot: 42,
-                shard: 16,
-                beacon_block_hash: Hash256::from("beacon".as_bytes()),
-                epoch_boundary_hash: Hash256::from("epoch".as_bytes()),
-                shard_block_hash: Hash256::from("shard".as_bytes()),
-                latest_crosslink_hash: Hash256::from("xlink".as_bytes()),
-                justified_slot: 8,
-                justified_block_hash: Hash256::from("justified".as_bytes()),
-            },
-            aggregate_signature: AggregateSignature::new(),
-        };
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = SlashableVoteData::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = SlashableVoteData::ssz_decode(&bytes, 0).unwrap();
+        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
     }

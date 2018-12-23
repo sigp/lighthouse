@@ -1,6 +1,8 @@
 use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
 use super::Hash256;
+use crate::random::TestRandom;
 use bls::{PublicKey, Signature};
+use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DepositInput {
@@ -39,25 +41,31 @@ impl Decodable for DepositInput {
     }
 }
 
+impl<T: RngCore> TestRandom<T> for DepositInput {
+    fn random_for_test(rng: &mut T) -> Self {
+        Self {
+            pubkey: <_>::random_for_test(rng),
+            withdrawal_credentials: <_>::random_for_test(rng),
+            randao_commitment: <_>::random_for_test(rng),
+            proof_of_possession: <_>::random_for_test(rng),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
-    use bls::{Keypair, Signature};
+    use crate::random::TestRandom;
+    use rand::{prng::XorShiftRng, SeedableRng};
 
     #[test]
     pub fn test_ssz_round_trip() {
-        let keypair = Keypair::random();
-
-        let original = DepositInput {
-            pubkey: keypair.pk,
-            withdrawal_credentials: Hash256::from("cats".as_bytes()),
-            randao_commitment: Hash256::from("dogs".as_bytes()),
-            proof_of_possession: Signature::new(&[42, 42], &keypair.sk),
-        };
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = DepositInput::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = DepositInput::ssz_decode(&bytes, 0).unwrap();
+        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
     }

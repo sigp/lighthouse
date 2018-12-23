@@ -1,5 +1,7 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::Hash256;
+use crate::random::TestRandom;
+use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct ProposalSignedData {
@@ -33,21 +35,30 @@ impl Decodable for ProposalSignedData {
     }
 }
 
+impl<T: RngCore> TestRandom<T> for ProposalSignedData {
+    fn random_for_test(rng: &mut T) -> Self {
+        Self {
+            slot: <_>::random_for_test(rng),
+            shard: <_>::random_for_test(rng),
+            block_root: <_>::random_for_test(rng),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
+    use crate::random::TestRandom;
+    use rand::{prng::XorShiftRng, SeedableRng};
 
     #[test]
     pub fn test_ssz_round_trip() {
-        let original = ProposalSignedData {
-            slot: 42,
-            shard: 120,
-            block_root: Hash256::from("cats".as_bytes()),
-        };
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = ProposalSignedData::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = ProposalSignedData::ssz_decode(&bytes, 0).unwrap();
+        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
     }
