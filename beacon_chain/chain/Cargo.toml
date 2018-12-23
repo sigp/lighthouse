@@ -8,7 +8,6 @@ bls = { path = "../utils/bls" }
 db = { path = "../../lighthouse/db" }
 naive_fork_choice = { path = "../naive_fork_choice" }
 ssz = { path = "../utils/ssz" }
-state-transition = { path = "../state-transition" }
 types = { path = "../types" }
 validator_induction = { path = "../validator_induction" }
 validator_shuffling = { path = "../validator_shuffling" }

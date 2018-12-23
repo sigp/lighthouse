@@ -36,7 +36,6 @@ members = [
 	"beacon_chain/chain",
 	"beacon_chain/naive_fork_choice",
 	"beacon_chain/spec",
-	"beacon_chain/state-transition",
 	"beacon_chain/types",
 	"beacon_chain/utils/bls",
 	"beacon_chain/utils/boolean-bitfield",
