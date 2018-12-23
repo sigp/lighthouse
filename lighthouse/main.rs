@@ -13,7 +13,7 @@ mod config;
 use std::path::PathBuf;
 
 use clap::{App, Arg};
-use config::LighthouseConfig;
+use crate::config::LighthouseConfig;
 use slog::Drain;
 
 fn main() {

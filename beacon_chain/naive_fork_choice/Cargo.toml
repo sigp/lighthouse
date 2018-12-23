@@ -2,6 +2,7 @@
 name = "naive_fork_choice"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
 
 [dependencies]
 db = { path = "../../lighthouse/db" }
