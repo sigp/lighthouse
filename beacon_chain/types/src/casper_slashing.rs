@@ -1,6 +1,6 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::SlashableVoteData;
-use crate::random::TestRandom;
+use crate::test_utils::TestRandom;
 use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone, Default)]
@@ -44,7 +44,7 @@ impl<T: RngCore> TestRandom<T> for CasperSlashing {
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
-    use crate::random::TestRandom;
+    use crate::test_utils::TestRandom;
     use rand::{prng::XorShiftRng, SeedableRng};
 
     #[test]

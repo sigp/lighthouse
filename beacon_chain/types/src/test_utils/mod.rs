@@ -1,5 +1,7 @@
 use rand::RngCore;
 
+pub use rand::{prng::XorShiftRng, SeedableRng};
+
 pub mod aggregate_signature;
 pub mod bitfield;
 pub mod hash256;

@@ -3,7 +3,7 @@ extern crate boolean_bitfield;
 extern crate ethereum_types;
 extern crate ssz;
 
-mod random;
+pub mod test_utils;
 
 pub mod active_state;
 pub mod attestation_data;
