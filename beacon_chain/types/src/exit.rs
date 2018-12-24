@@ -1,5 +1,5 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
-use crate::random::TestRandom;
+use crate::test_utils::TestRandom;
 use bls::Signature;
 use rand::RngCore;
 
@@ -49,7 +49,7 @@ impl<T: RngCore> TestRandom<T> for Exit {
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
-    use crate::random::TestRandom;
+    use crate::test_utils::TestRandom;
     use rand::{prng::XorShiftRng, SeedableRng};
 
     #[test]
