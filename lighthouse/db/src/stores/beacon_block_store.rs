@@ -1,9 +1,8 @@
-extern crate ssz_helpers;
-
-use self::ssz_helpers::ssz_beacon_block::SszBeaconBlock;
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
+use ssz::{Decodable, DecodeError};
 use std::sync::Arc;
+use types::Hash256;
 
 type BeaconBlockHash = Vec<u8>;
 type BeaconBlockSsz = Vec<u8>;
@@ -60,19 +59,27 @@ impl<T: ClientDB> BeaconBlockStore<T> {
         match self.get_serialized_block(head_hash)? {
             None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
             Some(ssz) => {
-                let block = SszBeaconBlock::from_slice(&ssz)
+                let (retrieved_slot, parent_hash) = slot_and_parent_from_block_ssz(&ssz, 0)
                     .map_err(|_| BeaconBlockAtSlotError::InvalidBeaconBlock)?;
-                match block.slot() {
+                match retrieved_slot {
                     s if s == slot => Ok(Some((head_hash.to_vec(), ssz.to_vec()))),
                     s if s < slot => Ok(None),
-                    _ => match block.parent_hash() {
-                        Some(parent_hash) => self.block_at_slot(parent_hash, slot),
-                        None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
-                    },
+                    _ => self.block_at_slot(&parent_hash, slot),
                 }
             }
         }
     }
+}
+
+/// Read `block.slot` and `block.parent_root` from a SSZ-encoded block bytes.
+///
+/// Assumes the block starts at byte `i`.
+fn slot_and_parent_from_block_ssz(ssz: &[u8], i: usize) -> Result<(u64, Hash256), DecodeError> {
+    // Assuming the slot is the first field on a block.
+    let (slot, i) = u64::ssz_decode(&ssz, i)?;
+    // Assuming the parent has is the second field on a block.
+    let (parent_root, _) = Hash256::ssz_decode(&ssz, i)?;
+    Ok((slot, parent_root))
 }
 
 impl From<DBError> for BeaconBlockAtSlotError {
@@ -83,18 +90,16 @@ impl From<DBError> for BeaconBlockAtSlotError {
 
 #[cfg(test)]
 mod tests {
-    extern crate ssz;
-    extern crate types;
-
-    use self::ssz::SszStream;
-    use self::types::attestation::Attestation;
-    use self::types::beacon_block::BeaconBlock;
-    use self::types::Hash256;
-
     use super::super::super::MemoryDB;
     use super::*;
+
     use std::sync::Arc;
     use std::thread;
+
+    use ssz::ssz_encode;
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use types::BeaconBlock;
+    use types::Hash256;
 
     #[test]
     fn test_put_serialized_block() {
@@ -247,60 +252,58 @@ mod tests {
     fn test_block_at_slot() {
         let db = Arc::new(MemoryDB::open());
         let bs = Arc::new(BeaconBlockStore::new(db.clone()));
+        let mut rng = XorShiftRng::from_seed([42; 16]);
 
-        let blocks = (0..5).into_iter().map(|_| {
-            let mut block = BeaconBlock::zero();
-            let ar = Attestation::zero();
-            block.attestations.push(ar);
-            block
-        });
-
+        // Specify test block parameters.
         let hashes = [
-            Hash256::from("zero".as_bytes()),
-            Hash256::from("one".as_bytes()),
-            Hash256::from("two".as_bytes()),
-            Hash256::from("three".as_bytes()),
-            Hash256::from("four".as_bytes()),
+            Hash256::from(&[0; 32][..]),
+            Hash256::from(&[1; 32][..]),
+            Hash256::from(&[2; 32][..]),
+            Hash256::from(&[3; 32][..]),
+            Hash256::from(&[4; 32][..]),
         ];
-
         let parent_hashes = [
-            Hash256::from("genesis".as_bytes()),
-            Hash256::from("zero".as_bytes()),
-            Hash256::from("one".as_bytes()),
-            Hash256::from("two".as_bytes()),
-            Hash256::from("three".as_bytes()),
+            Hash256::from(&[255; 32][..]), // Genesis block.
+            Hash256::from(&[0; 32][..]),
+            Hash256::from(&[1; 32][..]),
+            Hash256::from(&[2; 32][..]),
+            Hash256::from(&[3; 32][..]),
         ];
-
         let slots = [0, 1, 3, 4, 5];
 
-        for (i, mut block) in blocks.enumerate() {
-            block.ancestor_hashes.push(parent_hashes[i]);
+        // Generate a vec of random blocks and store them in the DB.
+        let block_count = 5;
+        let mut blocks: Vec<BeaconBlock> = Vec::with_capacity(5);
+        for i in 0..block_count {
+            let mut block = BeaconBlock::random_for_test(&mut rng);
+
+            block.parent_root = parent_hashes[i];
             block.slot = slots[i];
-            let mut s = SszStream::new();
-            s.append(&block);
-            let ssz = s.drain();
+
+            let ssz = ssz_encode(&block);
             db.put(DB_COLUMN, &hashes[i].to_vec(), &ssz).unwrap();
+
+            // Ensure the slot and parent_root decoding fn works correctly.
+            let (decoded_slot, decoded_parent_root) =
+                slot_and_parent_from_block_ssz(&ssz, 0).unwrap();
+            assert_eq!(decoded_slot, block.slot);
+            assert_eq!(decoded_parent_root, block.parent_root);
+
+            blocks.push(block);
         }
 
-        let tuple = bs.block_at_slot(&hashes[4], 5).unwrap().unwrap();
-        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot(), 5);
-        assert_eq!(tuple.0, hashes[4].to_vec());
-
-        let tuple = bs.block_at_slot(&hashes[4], 4).unwrap().unwrap();
-        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot(), 4);
-        assert_eq!(tuple.0, hashes[3].to_vec());
-
-        let tuple = bs.block_at_slot(&hashes[4], 3).unwrap().unwrap();
-        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot(), 3);
-        assert_eq!(tuple.0, hashes[2].to_vec());
-
-        let tuple = bs.block_at_slot(&hashes[4], 0).unwrap().unwrap();
-        let block = SszBeaconBlock::from_slice(&tuple.1).unwrap();
-        assert_eq!(block.slot(), 0);
-        assert_eq!(tuple.0, hashes[0].to_vec());
+        // Test that certain slots can be reached from certain hashes.
+        let test_cases = vec![(4, 4), (4, 3), (4, 2), (4, 1), (4, 0)];
+        for (hashes_index, slot_index) in test_cases {
+            let (matched_block_hash, matched_block_ssz) = bs
+                .block_at_slot(&hashes[hashes_index], slots[slot_index])
+                .unwrap()
+                .unwrap();
+            let (retrieved_slot, _) =
+                slot_and_parent_from_block_ssz(&matched_block_ssz, 0).unwrap();
+            assert_eq!(retrieved_slot, slots[slot_index]);
+            assert_eq!(matched_block_hash, hashes[slot_index].to_vec());
+        }
 
         let ssz = bs.block_at_slot(&hashes[4], 2).unwrap();
         assert_eq!(ssz, None);
