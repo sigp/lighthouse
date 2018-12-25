@@ -1,12 +1,17 @@
 extern crate bls_aggregates;
 extern crate hashing;
+extern crate ssz;
+
+mod aggregate_signature;
+mod signature;
+
+pub use aggregate_signature::AggregateSignature;
+pub use signature::Signature;
 
 pub use self::bls_aggregates::AggregatePublicKey;
-pub use self::bls_aggregates::AggregateSignature;
 pub use self::bls_aggregates::Keypair;
 pub use self::bls_aggregates::PublicKey;
 pub use self::bls_aggregates::SecretKey;
-pub use self::bls_aggregates::Signature;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 97;
 
