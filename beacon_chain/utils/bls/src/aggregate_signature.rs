@@ -29,13 +29,6 @@ impl AggregateSignature {
     }
 }
 
-impl Default for AggregateSignature {
-    /// A "default" signature is a signature across an empty message by a secret key of 48 zeros.
-    fn default() -> Self {
-        AggregateSignature::new()
-    }
-}
-
 impl Encodable for AggregateSignature {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append_vec(&self.0.as_bytes());
