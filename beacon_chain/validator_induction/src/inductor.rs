@@ -43,7 +43,7 @@ pub fn process_deposit(
                 randao_commitment: deposit_input.randao_commitment,
                 randao_layers: 0,
                 status: ValidatorStatus::PendingActivation,
-                latest_status_change_slot: state.validator_registry_latest_change_slot.clone(),
+                latest_status_change_slot: state.validator_registry_latest_change_slot,
                 exit_count: 0
             };
             
@@ -81,8 +81,8 @@ fn min_empty_validator_index(
 mod tests {
     use super::*;
 
-    use bls::{Keypair, Signature};
-    use hashing::proof_of_possession_hash;
+    use bls::{Keypair, Signature, create_proof_of_possession};
+    use hashing::canonical_hash;
     use types::{Hash256, DepositData, DepositInput};
     
     fn get_deposit() -> Deposit {  
@@ -91,7 +91,7 @@ mod tests {
             pubkey: kp.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
             randao_commitment: Hash256::zero(),
-            proof_of_possession: get_proof_of_possession(&kp)
+            proof_of_possession: create_proof_of_possession(&kp)
         };
         let deposit_data = DepositData {
             deposit_input: deposit_input,
@@ -110,12 +110,6 @@ mod tests {
             & (dep.deposit_data.deposit_input.withdrawal_credentials == rec.withdrawal_credentials)
             & (dep.deposit_data.deposit_input.randao_commitment == rec.randao_commitment)
             //& (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
-    }
-
-    /// Generate a proof of possession for some keypair.
-    fn get_proof_of_possession(kp: &Keypair) -> Signature {
-        let pop_message = proof_of_possession_hash(&kp.pk.as_bytes());
-        Signature::new_hashed(&pop_message, &kp.sk)
     }
 
     #[test]
