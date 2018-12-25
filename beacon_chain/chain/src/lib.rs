@@ -1,7 +1,6 @@
 extern crate db;
 extern crate naive_fork_choice;
 extern crate ssz;
-extern crate state_transition;
 extern crate types;
 extern crate validator_induction;
 extern crate validator_shuffling;
@@ -10,7 +9,6 @@ mod block_processing;
 mod genesis;
 mod maps;
 mod stores;
-mod transition;
 
 use db::ClientDB;
 use crate::genesis::{genesis_states, Error as GenesisError};
