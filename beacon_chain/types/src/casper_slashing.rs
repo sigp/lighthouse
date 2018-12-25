@@ -3,7 +3,7 @@ use super::SlashableVoteData;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CasperSlashing {
     pub slashable_vote_data_1: SlashableVoteData,
     pub slashable_vote_data_2: SlashableVoteData,

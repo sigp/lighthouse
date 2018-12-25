@@ -4,7 +4,7 @@ use crate::test_utils::TestRandom;
 use bls::Signature;
 use rand::RngCore;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ProposerSlashing {
     pub proposer_index: u32,
     pub proposal_data_1: ProposalSignedData,

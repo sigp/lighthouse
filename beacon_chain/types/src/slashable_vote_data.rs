@@ -4,7 +4,7 @@ use crate::test_utils::TestRandom;
 use bls::AggregateSignature;
 use rand::RngCore;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct SlashableVoteData {
     pub aggregate_signature_poc_0_indices: Vec<u32>,
     pub aggregate_signature_poc_1_indices: Vec<u32>,
