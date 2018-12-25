@@ -4,7 +4,7 @@ use crate::test_utils::TestRandom;
 use bls::Signature;
 use rand::RngCore;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BeaconBlock {
     pub slot: u64,
     pub parent_root: Hash256,
