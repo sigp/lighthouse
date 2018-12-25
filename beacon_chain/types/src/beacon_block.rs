@@ -1,7 +1,7 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::{BeaconBlockBody, Hash256};
 use crate::test_utils::TestRandom;
-use bls::AggregateSignature;
+use bls::Signature;
 use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone, Default)]
@@ -11,7 +11,7 @@ pub struct BeaconBlock {
     pub state_root: Hash256,
     pub randao_reveal: Hash256,
     pub candidate_pow_receipt_root: Hash256,
-    pub signature: AggregateSignature,
+    pub signature: Signature,
     pub body: BeaconBlockBody,
 }
 
