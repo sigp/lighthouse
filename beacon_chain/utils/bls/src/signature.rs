@@ -36,17 +36,6 @@ impl Signature {
     }
 }
 
-impl Default for Signature {
-    /// A "default" signature is a signature across an empty message by a secret key of 48 zeros.
-    fn default() -> Self {
-        let sk = match SecretKey::from_bytes(&[0; 48]) {
-            Ok(key) => key,
-            _ => unreachable!(), // Key is static, should not fail.
-        };
-        Signature(RawSignature::new(&[], &sk))
-    }
-}
-
 impl Encodable for Signature {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append_vec(&self.0.as_bytes());
