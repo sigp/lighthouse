@@ -3,8 +3,6 @@ extern crate naive_fork_choice;
 extern crate genesis;
 extern crate spec;
 extern crate ssz;
-extern crate ssz_helpers;
-extern crate state_transition;
 extern crate types;
 extern crate validator_induction;
 extern crate validator_shuffling;
@@ -12,15 +10,14 @@ extern crate validator_shuffling;
 mod block_processing;
 mod maps;
 mod stores;
-mod transition;
 
 use db::ClientDB;
+use crate::maps::{generate_attester_and_proposer_maps, AttesterAndProposerMapError};
+use crate::stores::BeaconChainStore;
 use genesis::{genesis_beacon_state, GenesisError};
-use maps::{generate_attester_and_proposer_maps, AttesterAndProposerMapError};
 use spec::ChainSpec;
 use std::collections::HashMap;
 use std::sync::Arc;
-use stores::BeaconChainStore;
 use types::{AttesterMap, BeaconState, Hash256, ProposerMap};
 
 #[derive(Debug, PartialEq)]

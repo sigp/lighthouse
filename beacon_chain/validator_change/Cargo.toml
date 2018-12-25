@@ -2,9 +2,9 @@
 name = "validator_change"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
 
 [dependencies]
-active-validators = { path = "../utils/active-validators" }
 bytes = "0.4.10"
 hashing = { path = "../utils/hashing" }
 types = { path = "../types" }
