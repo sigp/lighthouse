@@ -1,0 +1,81 @@
+use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use bls_aggregates::{PublicKey, SecretKey, Signature as RawSignature};
+
+/// A single BLS signature.
+///
+/// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
+/// serialization).
+#[derive(Debug, PartialEq, Clone)]
+pub struct Signature(RawSignature);
+
+impl Signature {
+    /// Instantiate a new Signature from a message and a SecretKey.
+    pub fn new(msg: &[u8], sk: &SecretKey) -> Self {
+        Signature(RawSignature::new(msg, sk))
+    }
+
+    /// Instantiate a new Signature from a message and a SecretKey, where the message has already
+    /// been hashed.
+    pub fn new_hashed(msg_hashed: &[u8], sk: &SecretKey) -> Self {
+        Signature(RawSignature::new_hashed(msg_hashed, sk))
+    }
+
+    /// Verify the Signature against a PublicKey.
+    pub fn verify(&self, msg: &[u8], pk: &PublicKey) -> bool {
+        self.0.verify(msg, pk)
+    }
+
+    /// Verify the Signature against a PublicKey, where the message has already been hashed.
+    pub fn verify_hashed(&self, msg_hash: &[u8], pk: &PublicKey) -> bool {
+        self.0.verify_hashed(msg_hash, pk)
+    }
+
+    /// Returns the underlying signature.
+    pub fn as_raw(&self) -> &RawSignature {
+        &self.0
+    }
+}
+
+impl Default for Signature {
+    /// A "default" signature is a signature across an empty message by a secret key of 48 zeros.
+    fn default() -> Self {
+        let sk = match SecretKey::from_bytes(&[0; 48]) {
+            Ok(key) => key,
+            _ => unreachable!(), // Key is static, should not fail.
+        };
+        Signature(RawSignature::new(&[], &sk))
+    }
+}
+
+impl Encodable for Signature {
+    fn ssz_append(&self, s: &mut SszStream) {
+        s.append_vec(&self.0.as_bytes());
+    }
+}
+
+impl Decodable for Signature {
+    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
+        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
+        let raw_sig = RawSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
+        Ok((Signature(raw_sig), i))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::ssz::ssz_encode;
+    use super::super::Keypair;
+    use super::*;
+
+    #[test]
+    pub fn test_ssz_round_trip() {
+        let keypair = Keypair::random();
+
+        let original = Signature::new(&[42, 42], &keypair.sk);
+
+        let bytes = ssz_encode(&original);
+        let (decoded, _) = Signature::ssz_decode(&bytes, 0).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+}

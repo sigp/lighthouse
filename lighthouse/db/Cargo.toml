@@ -2,6 +2,7 @@
 name = "db"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
 
 [dependencies]
 blake2-rfc = "0.2.18"
@@ -9,5 +10,4 @@ bls = { path = "../../beacon_chain/utils/bls" }
 bytes = "0.4.10"
 rocksdb = "0.10.1"
 ssz = { path = "../../beacon_chain/utils/ssz" }
-ssz_helpers = { path = "../../beacon_chain/utils/ssz_helpers" }
 types = { path = "../../beacon_chain/types" }
