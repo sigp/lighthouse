@@ -5,8 +5,8 @@ extern crate ssz;
 mod aggregate_signature;
 mod signature;
 
-pub use aggregate_signature::AggregateSignature;
-pub use signature::Signature;
+pub use crate::aggregate_signature::AggregateSignature;
+pub use crate::signature::Signature;
 
 pub use self::bls_aggregates::AggregatePublicKey;
 pub use self::bls_aggregates::Keypair;
