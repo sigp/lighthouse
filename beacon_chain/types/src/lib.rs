@@ -3,23 +3,34 @@ extern crate boolean_bitfield;
 extern crate ethereum_types;
 extern crate ssz;
 
+pub mod test_utils;
+
 pub mod active_state;
 pub mod attestation_data;
 pub mod attestation;
 pub mod beacon_block;
+pub mod beacon_block_body;
 pub mod beacon_state;
 pub mod candidate_pow_receipt_root_record;
+pub mod casper_slashing;
 pub mod chain_config;
 pub mod crosslink_record;
 pub mod crystallized_state;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_input;
+<<<<<<< HEAD
+=======
+pub mod exit;
+>>>>>>> master
 pub mod fork_data;
 pub mod pending_attestation_record;
+pub mod proposal_signed_data;
+pub mod proposer_slashing;
 pub mod shard_and_committee;
 pub mod shard_reassignment_record;
 pub mod special_record;
+pub mod slashable_vote_data;
 pub mod validator_record;
 
 use self::ethereum_types::{H160, H256, U256};
@@ -29,15 +40,24 @@ pub use crate::active_state::ActiveState;
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation::Attestation;
 pub use crate::beacon_block::BeaconBlock;
+pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_state::BeaconState;
+pub use crate::casper_slashing::CasperSlashing;
 pub use crate::chain_config::ChainConfig;
 pub use crate::crosslink_record::CrosslinkRecord;
 pub use crate::crystallized_state::CrystallizedState;
 pub use crate::deposit::Deposit;
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_input::DepositInput;
+<<<<<<< HEAD
+=======
+pub use crate::exit::Exit;
+>>>>>>> master
 pub use crate::fork_data::ForkData;
 pub use crate::pending_attestation_record::PendingAttestationRecord;
+pub use crate::proposal_signed_data::ProposalSignedData;
+pub use crate::proposer_slashing::ProposerSlashing;
+pub use crate::slashable_vote_data::SlashableVoteData;
 pub use crate::shard_and_committee::ShardAndCommittee;
 pub use crate::special_record::{SpecialRecord, SpecialRecordKind};
 pub use crate::validator_record::{ValidatorRecord, ValidatorStatus};

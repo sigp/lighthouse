@@ -12,7 +12,7 @@ use super::{Encodable, SszStream};
 macro_rules! impl_encodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Encodable for $type {
-            #[allow(cast_lossless)]
+            #[allow(clippy::cast_lossless)]
             fn ssz_append(&self, s: &mut SszStream) {
                 // Ensure bit size is valid
                 assert!(
