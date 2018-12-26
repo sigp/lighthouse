@@ -1,6 +1,5 @@
 use super::{ActiveState, ChainConfig, CrystallizedState};
 use types::ValidatorStatus;
-use validator_induction::ValidatorInductor;
 use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
 #[derive(Debug, PartialEq)]
@@ -24,6 +23,8 @@ pub fn genesis_states(config: &ChainConfig) -> Result<(ActiveState, Crystallized
      *
      * Ignore any records which fail proof-of-possession or are invalid.
      */
+    /*
+    TODO: refactor this
     let validators = {
         let mut inductor = ValidatorInductor::new(0, config.shard_count, vec![]);
         for registration in &config.initial_validators {
@@ -31,6 +32,8 @@ pub fn genesis_states(config: &ChainConfig) -> Result<(ActiveState, Crystallized
         }
         inductor.to_vec()
     };
+    */
+    let validators = vec![];
 
     /*
      * Assign the validators to shards, using all zeros as the seed.
