@@ -8,5 +8,5 @@ edition = "2018"
 bls = { path = "../utils/bls" }
 boolean-bitfield = { path = "../utils/boolean-bitfield" }
 ethereum-types = "0.4.0"
-rand = "0.3"
+rand = "0.5.5"
 ssz = { path = "../utils/ssz" }

@@ -2,7 +2,6 @@ extern crate bls;
 extern crate db;
 extern crate hashing;
 extern crate ssz;
-extern crate ssz_helpers;
 extern crate types;
 
 #[macro_use]
