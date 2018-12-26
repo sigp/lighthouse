@@ -19,10 +19,7 @@ pub mod crystallized_state;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_input;
-<<<<<<< HEAD
-=======
 pub mod exit;
->>>>>>> master
 pub mod fork_data;
 pub mod pending_attestation_record;
 pub mod proposal_signed_data;
@@ -49,10 +46,7 @@ pub use crate::crystallized_state::CrystallizedState;
 pub use crate::deposit::Deposit;
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_input::DepositInput;
-<<<<<<< HEAD
-=======
 pub use crate::exit::Exit;
->>>>>>> master
 pub use crate::fork_data::ForkData;
 pub use crate::pending_attestation_record::PendingAttestationRecord;
 pub use crate::proposal_signed_data::ProposalSignedData;
