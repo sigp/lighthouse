@@ -5,7 +5,7 @@ use bls::{create_proof_of_possession, Keypair, PublicKey, Signature};
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorRegistration {
     pub pubkey: PublicKey,
-    pub withdrawal_shard: u16,
+    pub withdrawal_shard: u64,
     pub withdrawal_address: Address,
     pub randao_commitment: Hash256,
     pub proof_of_possession: Signature,
