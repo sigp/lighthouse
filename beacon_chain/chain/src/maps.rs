@@ -1,8 +1,8 @@
-use types::{AttesterMap, ProposerMap, ShardAndCommittee};
+use types::{AttesterMap, ProposerMap, ShardCommittee};
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterAndProposerMapError {
-    NoShardAndCommitteeForSlot,
+    NoShardCommitteeForSlot,
     NoAvailableProposer,
 }
 
@@ -10,7 +10,7 @@ pub enum AttesterAndProposerMapError {
 ///
 /// The attester map is used to optimise the lookup of a committee.
 pub fn generate_attester_and_proposer_maps(
-    shard_and_committee_for_slots: &Vec<Vec<ShardAndCommittee>>,
+    shard_and_committee_for_slots: &Vec<Vec<ShardCommittee>>,
     start_slot: u64,
 ) -> Result<(AttesterMap, ProposerMap), AttesterAndProposerMapError> {
     let mut attester_map = AttesterMap::new();
@@ -22,7 +22,7 @@ pub fn generate_attester_and_proposer_maps(
         let slot_number = (i as u64).saturating_add(start_slot);
         let first_committee = &slot
             .get(0)
-            .ok_or(AttesterAndProposerMapError::NoShardAndCommitteeForSlot)?
+            .ok_or(AttesterAndProposerMapError::NoShardCommitteeForSlot)?
             .committee;
         let proposer_index = (slot_number as usize)
             .checked_rem(first_committee.len())
@@ -49,15 +49,15 @@ mod tests {
         slot_count: usize,
         sac_per_slot: usize,
         committee_size: usize,
-    ) -> Vec<Vec<ShardAndCommittee>> {
+    ) -> Vec<Vec<ShardCommittee>> {
         let mut shard = 0;
         let mut validator = 0;
         let mut cycle = vec![];
 
         for _ in 0..slot_count {
-            let mut slot: Vec<ShardAndCommittee> = vec![];
+            let mut slot: Vec<ShardCommittee> = vec![];
             for _ in 0..sac_per_slot {
-                let mut sac = ShardAndCommittee {
+                let mut sac = ShardCommittee {
                     shard: shard % shard_count,
                     committee: vec![],
                 };
@@ -79,7 +79,7 @@ mod tests {
         let result = generate_attester_and_proposer_maps(&sac, 0);
         assert_eq!(
             result,
-            Err(AttesterAndProposerMapError::NoShardAndCommitteeForSlot)
+            Err(AttesterAndProposerMapError::NoShardCommitteeForSlot)
         );
     }
 

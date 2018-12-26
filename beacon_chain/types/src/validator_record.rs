@@ -29,7 +29,7 @@ impl convert::From<u8> for ValidatorStatus {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
-    pub withdrawal_shard: u16,
+    pub withdrawal_shard: u64,
     pub withdrawal_address: Address,
     pub randao_commitment: Hash256,
     pub randao_last_change: u64,

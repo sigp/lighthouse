@@ -7,7 +7,9 @@ edition = "2018"
 [dependencies]
 bls = { path = "../utils/bls" }
 db = { path = "../../lighthouse/db" }
+genesis = { path = "../genesis" }
 naive_fork_choice = { path = "../naive_fork_choice" }
+spec = { path = "../spec" }
 ssz = { path = "../utils/ssz" }
 types = { path = "../types" }
 validator_induction = { path = "../validator_induction" }
