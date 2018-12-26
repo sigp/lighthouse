@@ -44,7 +44,10 @@ pub fn process_deposit(
                 randao_layers: 0,
                 status: ValidatorStatus::PendingActivation,
                 latest_status_change_slot: state.validator_registry_latest_change_slot,
-                exit_count: 0
+                exit_count: 0,
+                poc_commitment: deposit_input.poc_commitment,
+                last_poc_change_slot: 0,
+                second_last_poc_slot: 0
             };
             
             match min_empty_validator_index(state, spec) {
@@ -91,6 +94,7 @@ mod tests {
             pubkey: kp.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
             randao_commitment: Hash256::zero(),
+            poc_commitment: Hash256::zero(),
             proof_of_possession: create_proof_of_possession(&kp)
         };
         let deposit_data = DepositData {

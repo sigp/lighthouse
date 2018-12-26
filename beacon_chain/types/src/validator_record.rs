@@ -34,7 +34,10 @@ pub struct ValidatorRecord {
     pub randao_layers: u64,
     pub status: ValidatorStatus,
     pub latest_status_change_slot: u64,
-    pub exit_count: u64
+    pub exit_count: u64,
+    pub poc_commitment: Hash256,
+    pub last_poc_change_slot: u64,
+    pub second_last_poc_slot: u64
 }
 
 impl ValidatorRecord {
@@ -51,7 +54,10 @@ impl ValidatorRecord {
             randao_layers: 0,
             status: From::from(0),
             latest_status_change_slot: 0,
-            exit_count: 0
+            exit_count: 0,
+            poc_commitment: Hash256::zero(),
+            last_poc_change_slot: 0,
+            second_last_poc_slot: 0
         };
         (s, keypair)
     }
@@ -71,9 +77,11 @@ mod tests {
         assert!(v.withdrawal_credentials.is_zero());
         assert!(v.randao_commitment.is_zero());
         assert_eq!(v.randao_layers, 0);
-        assert_eq!(v.balance, 0);
         assert_eq!(v.status, From::from(0));
         assert_eq!(v.latest_status_change_slot, 0);
         assert_eq!(v.exit_count, 0);
+        assert!(v.poc_commitment.is_zero());
+        assert_eq!(v.last_poc_change_slot, 0);
+        assert_eq!(v.second_last_poc_slot, 0);
     }
 }
