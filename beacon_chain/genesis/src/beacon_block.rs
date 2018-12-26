@@ -1,5 +1,6 @@
-use bls::Signature;
+use bls::{Signature, BLS_AGG_SIG_BYTE_SIZE};
 use spec::ChainSpec;
+use ssz::{encode::encode_length, Decodable, LENGTH_BYTES};
 use types::{BeaconBlock, BeaconBlockBody};
 
 /// Generate a genesis BeaconBlock.
@@ -10,7 +11,7 @@ pub fn genesis_beacon_block(spec: &ChainSpec) -> BeaconBlock {
         state_root: spec.zero_hash,
         randao_reveal: spec.zero_hash,
         candidate_pow_receipt_root: spec.zero_hash,
-        signature: Signature::default(),
+        signature: genesis_signature(),
         body: BeaconBlockBody {
             proposer_slashings: vec![],
             casper_slashings: vec![],
@@ -19,6 +20,16 @@ pub fn genesis_beacon_block(spec: &ChainSpec) -> BeaconBlock {
             exits: vec![],
         },
     }
+}
+
+fn genesis_signature() -> Signature {
+    let mut bytes = encode_length(BLS_AGG_SIG_BYTE_SIZE, LENGTH_BYTES);
+    bytes.append(&mut vec![0; BLS_AGG_SIG_BYTE_SIZE]);
+    let (signature, _) = match Signature::ssz_decode(&bytes, 0) {
+        Ok(sig) => sig,
+        Err(_) => unreachable!(),
+    };
+    signature
 }
 
 #[cfg(test)]
