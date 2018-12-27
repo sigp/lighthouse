@@ -1,9 +1,11 @@
+extern crate bls;
 extern crate types;
 
 mod foundation;
 
-use types::{Address, Hash256};
+use types::{Address, Hash256, ValidatorRegistration};
 
+#[derive(PartialEq, Debug)]
 pub struct ChainSpec {
     /*
      * Misc
@@ -55,4 +57,10 @@ pub struct ChainSpec {
     pub max_attestations: u64,
     pub max_deposits: u64,
     pub max_exits: u64,
+    /*
+     * Intialization parameters
+     */
+    pub initial_validators: Vec<ValidatorRegistration>,
+    pub genesis_time: u64,
+    pub processed_pow_receipt_root: Hash256,
 }

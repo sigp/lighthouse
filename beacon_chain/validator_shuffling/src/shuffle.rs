@@ -1,10 +1,11 @@
 use std::cmp::min;
 
 use honey_badger_split::SplitExt;
-use types::{ChainConfig, ShardAndCommittee, ValidatorRecord, ValidatorStatus};
+use spec::ChainSpec;
+use types::{ShardCommittee, ValidatorRecord, ValidatorStatus};
 use vec_shuffle::{shuffle, ShuffleErr};
 
-type DelegatedCycle = Vec<Vec<ShardAndCommittee>>;
+type DelegatedCycle = Vec<Vec<ShardCommittee>>;
 
 #[derive(Debug, PartialEq)]
 pub enum ValidatorAssignmentError {
@@ -20,10 +21,10 @@ pub fn shard_and_committees_for_cycle(
     seed: &[u8],
     validators: &[ValidatorRecord],
     crosslinking_shard_start: u16,
-    config: &ChainConfig,
+    spec: &ChainSpec,
 ) -> Result<DelegatedCycle, ValidatorAssignmentError> {
     let shuffled_validator_indices = {
-        let mut validator_indices = validators
+        let validator_indices = validators
             .iter()
             .enumerate()
             .filter_map(|(i, validator)| {
@@ -36,15 +37,15 @@ pub fn shard_and_committees_for_cycle(
             .collect();
         shuffle(seed, validator_indices)?
     };
-    let shard_indices: Vec<usize> = (0_usize..config.shard_count as usize).into_iter().collect();
+    let shard_indices: Vec<usize> = (0_usize..spec.shard_count as usize).into_iter().collect();
     let crosslinking_shard_start = crosslinking_shard_start as usize;
-    let cycle_length = config.cycle_length as usize;
-    let min_committee_size = config.min_committee_size as usize;
+    let epoch_length = spec.epoch_length as usize;
+    let min_committee_size = spec.target_committee_size as usize;
     generate_cycle(
         &shuffled_validator_indices,
         &shard_indices,
         crosslinking_shard_start,
-        cycle_length,
+        epoch_length,
         min_committee_size,
     )
 }
@@ -54,29 +55,29 @@ fn generate_cycle(
     validator_indices: &[usize],
     shard_indices: &[usize],
     crosslinking_shard_start: usize,
-    cycle_length: usize,
+    epoch_length: usize,
     min_committee_size: usize,
 ) -> Result<DelegatedCycle, ValidatorAssignmentError> {
     let validator_count = validator_indices.len();
     let shard_count = shard_indices.len();
 
-    if shard_count / cycle_length == 0 {
+    if shard_count / epoch_length == 0 {
         return Err(ValidatorAssignmentError::TooFewShards);
     }
 
     let (committees_per_slot, slots_per_committee) = {
-        if validator_count >= cycle_length * min_committee_size {
+        if validator_count >= epoch_length * min_committee_size {
             let committees_per_slot = min(
-                validator_count / cycle_length / (min_committee_size * 2) + 1,
-                shard_count / cycle_length,
+                validator_count / epoch_length / (min_committee_size * 2) + 1,
+                shard_count / epoch_length,
             );
             let slots_per_committee = 1;
             (committees_per_slot, slots_per_committee)
         } else {
             let committees_per_slot = 1;
             let mut slots_per_committee = 1;
-            while (validator_count * slots_per_committee < cycle_length * min_committee_size)
-                & (slots_per_committee < cycle_length)
+            while (validator_count * slots_per_committee < epoch_length * min_committee_size)
+                & (slots_per_committee < epoch_length)
             {
                 slots_per_committee *= 2;
             }
@@ -85,7 +86,7 @@ fn generate_cycle(
     };
 
     let cycle = validator_indices
-        .honey_badger_split(cycle_length)
+        .honey_badger_split(epoch_length)
         .enumerate()
         .map(|(i, slot_indices)| {
             let shard_start =
@@ -93,7 +94,7 @@ fn generate_cycle(
             slot_indices
                 .honey_badger_split(committees_per_slot)
                 .enumerate()
-                .map(|(j, shard_indices)| ShardAndCommittee {
+                .map(|(j, shard_indices)| ShardCommittee {
                     shard: ((shard_start + j) % shard_count) as u16,
                     committee: shard_indices.to_vec(),
                 })
@@ -119,7 +120,7 @@ mod tests {
         validator_count: &usize,
         shard_count: &usize,
         crosslinking_shard_start: usize,
-        cycle_length: usize,
+        epoch_length: usize,
         min_committee_size: usize,
     ) -> (
         Vec<usize>,
@@ -132,7 +133,7 @@ mod tests {
             &validator_indices,
             &shard_indices,
             crosslinking_shard_start,
-            cycle_length,
+            epoch_length,
             min_committee_size,
         );
         (validator_indices, shard_indices, result)
@@ -194,13 +195,13 @@ mod tests {
         let validator_count: usize = 100;
         let shard_count: usize = 20;
         let crosslinking_shard_start: usize = 0;
-        let cycle_length: usize = 20;
+        let epoch_length: usize = 20;
         let min_committee_size: usize = 10;
         let (validators, shards, result) = generate_cycle_helper(
             &validator_count,
             &shard_count,
             crosslinking_shard_start,
-            cycle_length,
+            epoch_length,
             min_committee_size,
         );
         let cycle = result.unwrap();
@@ -253,13 +254,13 @@ mod tests {
         let validator_count: usize = 523;
         let shard_count: usize = 31;
         let crosslinking_shard_start: usize = 0;
-        let cycle_length: usize = 11;
+        let epoch_length: usize = 11;
         let min_committee_size: usize = 5;
         let (validators, shards, result) = generate_cycle_helper(
             &validator_count,
             &shard_count,
             crosslinking_shard_start,
-            cycle_length,
+            epoch_length,
             min_committee_size,
         );
         let cycle = result.unwrap();

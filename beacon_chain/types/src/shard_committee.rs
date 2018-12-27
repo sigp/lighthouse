@@ -1,10 +1,10 @@
 #[derive(Clone, Debug, PartialEq)]
-pub struct ShardAndCommittee {
+pub struct ShardCommittee {
     pub shard: u16,
     pub committee: Vec<usize>,
 }
 
-impl ShardAndCommittee {
+impl ShardCommittee {
     /// Returns a new instance where the `shard_id` is zero and the
     /// committee is an empty vector.
     pub fn zero() -> Self {
@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn test_shard_and_committee_zero() {
-        let s = ShardAndCommittee::zero();
+        let s = ShardCommittee::zero();
         assert_eq!(s.shard, 0);
         assert_eq!(s.committee.len(), 0);
     }

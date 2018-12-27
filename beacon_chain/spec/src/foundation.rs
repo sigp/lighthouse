@@ -1,9 +1,13 @@
 use super::ChainSpec;
+use bls::{create_proof_of_possession, Keypair, PublicKey, SecretKey};
 
-use types::{Address, Hash256};
+use types::{Address, Hash256, ValidatorRegistration};
 
 impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the specification from Ethereum Foundation.
+    ///
+    /// Of course, the actual foundation specs are unknown at this point so these are just a rough
+    /// estimate.
     pub fn foundation() -> Self {
         Self {
             /*
@@ -56,6 +60,59 @@ impl ChainSpec {
             max_attestations: 128,
             max_deposits: 16,
             max_exits: 16,
+            /*
+             * Intialization parameters
+             */
+            initial_validators: initial_validators_for_testing(),
+            genesis_time: 1544672897,
+            processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
         }
+    }
+}
+
+/// Generate a set of validator registrations to use with testing until the real chain starts.
+fn initial_validators_for_testing() -> Vec<ValidatorRegistration> {
+    // Some dummy private keys to start with.
+    let key_strings = vec![
+        "jzjxxgjajfjrmgodszzsgqccmhnyvetcuxobhtynojtpdtbj",
+        "gpeehcjudxdijzhjgirfuhahmnjutlchjmoffxmimbdejakd",
+        "ntrrdwwebodokuwaclhoqreqyodngoyhurvesghjfxeswoaj",
+        "cibmzkqrzdgdlrvqaxinwpvyhcgjkeysrsjkqtkcxvznsvth",
+        "erqrfuahdwprsstkawggounxmihzhrvbhchcyiwtaypqcedr",
+    ];
+
+    let mut initial_validators = Vec::with_capacity(key_strings.len());
+    for key_string in key_strings {
+        let keypair = {
+            let secret_key = match SecretKey::from_bytes(&key_string.as_bytes()) {
+                Ok(key) => key,
+                Err(_) => unreachable!(), // Keys are static and should not fail.
+            };
+            let public_key = PublicKey::from_secret_key(&secret_key);
+            Keypair {
+                sk: secret_key,
+                pk: public_key,
+            }
+        };
+        let validator_registration = ValidatorRegistration {
+            pubkey: keypair.pk.clone(),
+            withdrawal_shard: 0,
+            withdrawal_address: Address::random(),
+            randao_commitment: Hash256::random(),
+            proof_of_possession: create_proof_of_possession(&keypair),
+        };
+        initial_validators.push(validator_registration);
+    }
+
+    initial_validators
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_foundation_spec_can_be_constructed() {
+        let _ = ChainSpec::foundation();
     }
 }
