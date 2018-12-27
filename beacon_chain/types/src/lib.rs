@@ -24,7 +24,7 @@ pub mod fork_data;
 pub mod pending_attestation_record;
 pub mod proposal_signed_data;
 pub mod proposer_slashing;
-pub mod shard_and_committee;
+pub mod shard_committee;
 pub mod shard_reassignment_record;
 pub mod special_record;
 pub mod slashable_vote_data;
@@ -52,7 +52,7 @@ pub use crate::pending_attestation_record::PendingAttestationRecord;
 pub use crate::proposal_signed_data::ProposalSignedData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::slashable_vote_data::SlashableVoteData;
-pub use crate::shard_and_committee::ShardAndCommittee;
+pub use crate::shard_committee::ShardCommittee;
 pub use crate::special_record::{SpecialRecord, SpecialRecordKind};
 pub use crate::validator_record::{ValidatorRecord, ValidatorStatus};
 

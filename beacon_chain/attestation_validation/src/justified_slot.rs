@@ -12,8 +12,9 @@ use super::{Error, Invalid, Outcome};
 pub fn validate_attestation_justified_slot(
     data: &AttestationData,
     state: &BeaconState,
+    epoch_length: u64,
 ) -> Result<Outcome, Error> {
-    let permissable_justified_slot = if data.slot >= state.latest_state_recalculation_slot {
+    let permissable_justified_slot = if data.slot >= state.slot - (state.slot % epoch_length) {
         state.justified_slot
     } else {
         state.previous_justified_slot

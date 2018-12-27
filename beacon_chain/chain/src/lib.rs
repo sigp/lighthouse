@@ -1,22 +1,24 @@
 extern crate db;
 extern crate naive_fork_choice;
+extern crate genesis;
+extern crate spec;
 extern crate ssz;
 extern crate types;
 extern crate validator_induction;
 extern crate validator_shuffling;
 
 mod block_processing;
-mod genesis;
 mod maps;
 mod stores;
 
 use db::ClientDB;
-use crate::genesis::{genesis_states, Error as GenesisError};
 use crate::maps::{generate_attester_and_proposer_maps, AttesterAndProposerMapError};
+use crate::stores::BeaconChainStore;
+use genesis::{genesis_beacon_state, GenesisError};
+use spec::ChainSpec;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::stores::BeaconChainStore;
-use types::{ActiveState, AttesterMap, ChainConfig, CrystallizedState, Hash256, ProposerMap};
+use types::{AttesterMap, BeaconState, Hash256, ProposerMap};
 
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
@@ -34,43 +36,46 @@ pub struct BeaconChain<T: ClientDB + Sized> {
     pub head_block_hashes: Vec<Hash256>,
     /// The index of the canonical block in `head_block_hashes`.
     pub canonical_head_block_hash: usize,
-    /// A map where the value is an active state the the key is its hash.
-    pub active_states: HashMap<Hash256, ActiveState>,
-    /// A map where the value is crystallized state the the key is its hash.
-    pub crystallized_states: HashMap<Hash256, CrystallizedState>,
+    /// An in-memory map of root hash to beacon state.
+    pub beacon_states: HashMap<Hash256, BeaconState>,
     /// A map of crystallized state to a proposer and attester map.
     pub attester_proposer_maps: HashMap<Hash256, (Arc<AttesterMap>, Arc<ProposerMap>)>,
     /// A collection of database stores used by the chain.
     pub store: BeaconChainStore<T>,
     /// The chain configuration.
-    pub config: ChainConfig,
+    pub spec: ChainSpec,
 }
 
 impl<T> BeaconChain<T>
 where
     T: ClientDB + Sized,
 {
-    pub fn new(store: BeaconChainStore<T>, config: ChainConfig) -> Result<Self, BeaconChainError> {
-        if config.initial_validators.is_empty() {
+    pub fn new(store: BeaconChainStore<T>, spec: ChainSpec) -> Result<Self, BeaconChainError> {
+        if spec.initial_validators.is_empty() {
             return Err(BeaconChainError::InsufficientValidators);
         }
 
-        let (active_state, crystallized_state) = genesis_states(&config)?;
+        /*
+         * Generate and process the genesis state.
+         */
+        let genesis_state = genesis_beacon_state(&spec)?;
+        let mut beacon_states = HashMap::new();
+        beacon_states.insert(genesis_state.canonical_root(), genesis_state.clone());
 
+        // TODO: implement genesis block
+        // https://github.com/sigp/lighthouse/issues/105
         let canonical_latest_block_hash = Hash256::zero();
+
         let head_block_hashes = vec![canonical_latest_block_hash];
         let canonical_head_block_hash = 0;
-        let mut active_states = HashMap::new();
-        let mut crystallized_states = HashMap::new();
+
         let mut attester_proposer_maps = HashMap::new();
 
         let (attester_map, proposer_map) = generate_attester_and_proposer_maps(
-            &crystallized_state.shard_and_committee_for_slots,
+            &genesis_state.shard_committees_at_slots,
             0,
         )?;
 
-        active_states.insert(canonical_latest_block_hash, active_state);
-        crystallized_states.insert(canonical_latest_block_hash, crystallized_state);
         attester_proposer_maps.insert(
             canonical_latest_block_hash,
             (Arc::new(attester_map), Arc::new(proposer_map)),
@@ -80,11 +85,10 @@ where
             last_finalized_slot: 0,
             head_block_hashes,
             canonical_head_block_hash,
-            active_states,
-            crystallized_states,
+            beacon_states,
             attester_proposer_maps,
             store,
-            config,
+            spec,
         })
     }
 
