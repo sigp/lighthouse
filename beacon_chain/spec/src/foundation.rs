@@ -1,7 +1,7 @@
 use super::ChainSpec;
 use bls::{create_proof_of_possession, Keypair, PublicKey, SecretKey};
 
-use types::{Address, Hash256, ValidatorRegistration};
+use types::{Address, Hash256, ValidatorRecord};
 
 impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the specification from Ethereum Foundation.
@@ -64,14 +64,15 @@ impl ChainSpec {
              * Intialization parameters
              */
             initial_validators: initial_validators_for_testing(),
+            initial_balances: vec![0,0,0,0],
             genesis_time: 1544672897,
             processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
         }
     }
 }
 
-/// Generate a set of validator registrations to use with testing until the real chain starts.
-fn initial_validators_for_testing() -> Vec<ValidatorRegistration> {
+/// Generate a set of validator records to use with testing until the real chain starts.
+fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
     // Some dummy private keys to start with.
     let key_strings = vec![
         "jzjxxgjajfjrmgodszzsgqccmhnyvetcuxobhtynojtpdtbj",
@@ -94,14 +95,19 @@ fn initial_validators_for_testing() -> Vec<ValidatorRegistration> {
                 pk: public_key,
             }
         };
-        let validator_registration = ValidatorRegistration {
-            pubkey: keypair.pk.clone(),
-            withdrawal_shard: 0,
-            withdrawal_address: Address::random(),
-            randao_commitment: Hash256::random(),
-            proof_of_possession: create_proof_of_possession(&keypair),
+        let validator_record = ValidatorRecord {
+            pubkey: keypair.pk.clone(),    
+            withdrawal_credentials: Hash256::zero(),
+            randao_commitment: Hash256::zero(),
+            randao_layers: 0,
+            status: From::from(0),
+            latest_status_change_slot: 0,
+            exit_count: 0,
+            poc_commitment: Hash256::zero(),
+            last_poc_change_slot: 0,
+            second_last_poc_slot: 0
         };
-        initial_validators.push(validator_registration);
+        initial_validators.push(validator_record);
     }
 
     initial_validators
