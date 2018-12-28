@@ -4,6 +4,7 @@ use super::LENGTH_BYTES;
 pub enum DecodeError {
     TooShort,
     TooLong,
+    Invalid,
 }
 
 pub trait Decodable: Sized {
