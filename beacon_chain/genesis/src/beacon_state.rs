@@ -87,7 +87,6 @@ mod tests {
     extern crate bls;
     extern crate validator_induction;
 
-    use self::bls::{create_proof_of_possession, Keypair};
     use super::*;
 
     // TODO: enhance these tests.
