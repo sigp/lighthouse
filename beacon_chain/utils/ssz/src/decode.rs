@@ -4,6 +4,7 @@ use super::LENGTH_BYTES;
 pub enum DecodeError {
     TooShort,
     TooLong,
+    Invalid,
 }
 
 pub trait Decodable: Sized {
@@ -148,7 +149,8 @@ mod tests {
                 0, 0, 0, 16, 0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 10,
             ],
             0,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(decoded.0, v);
         assert_eq!(decoded.1, 20);
 
@@ -160,7 +162,8 @@ mod tests {
                 10, 0, 0, 0, 0, 0, 0, 0, 10,
             ],
             0,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(decoded.0, v);
         assert_eq!(decoded.1, 36);
 
@@ -172,7 +175,8 @@ mod tests {
                 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 15,
             ],
             10,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(decoded.0, v);
         assert_eq!(decoded.1, 46);
 

@@ -1,5 +1,5 @@
 use super::decode::decode_ssz_list;
-use super::ethereum_types::H256;
+use super::ethereum_types::{Address, H256};
 use super::{Decodable, DecodeError};
 
 macro_rules! impl_decodable_for_uint {
@@ -45,6 +45,16 @@ impl Decodable for H256 {
             Err(DecodeError::TooShort)
         } else {
             Ok((H256::from(&bytes[index..(index + 32)]), index + 32))
+        }
+    }
+}
+
+impl Decodable for Address {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+        if bytes.len() < 20 || bytes.len() - 20 < index {
+            Err(DecodeError::TooShort)
+        } else {
+            Ok((Address::from(&bytes[index..(index + 20)]), index + 20))
         }
     }
 }

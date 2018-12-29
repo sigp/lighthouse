@@ -1,4 +1,4 @@
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use bls::{PublicKey, Signature};
@@ -14,7 +14,7 @@ pub struct DepositInput {
 
 impl Encodable for DepositInput {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.pubkey.as_bytes());
+        s.append(&self.pubkey);
         s.append(&self.withdrawal_credentials);
         s.append(&self.randao_commitment);
         s.append(&self.proof_of_possession);
@@ -23,8 +23,7 @@ impl Encodable for DepositInput {
 
 impl Decodable for DepositInput {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (pubkey_bytes, i) = decode_ssz_list(bytes, i)?;
-        let pubkey = PublicKey::from_bytes(&pubkey_bytes).map_err(|_| DecodeError::TooShort)?;
+        let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_commitment, i) = <_>::ssz_decode(bytes, i)?;
         let (proof_of_possession, i) = <_>::ssz_decode(bytes, i)?;
