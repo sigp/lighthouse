@@ -4,6 +4,7 @@ extern crate types;
 
 use bytes::{BufMut, BytesMut};
 use hashing::canonical_hash;
+use ssz::ssz_encode;
 use std::cmp::max;
 use types::{Hash256, ValidatorRecord, ValidatorStatus};
 
@@ -70,7 +71,7 @@ pub fn update_validator_set(
                  */
                 if new_total_changed <= max_allowable_change {
                     v.status = ValidatorStatus::Active;
-                    hasher.extend(i, &v.pubkey.as_bytes(), VALIDATOR_FLAG_ENTRY);
+                    hasher.extend(i, &ssz_encode(&v.pubkey), VALIDATOR_FLAG_ENTRY);
                     total_changed = new_total_changed;
                 } else {
                     // Entering the validator would exceed the balance delta.
@@ -91,7 +92,7 @@ pub fn update_validator_set(
                 if new_total_changed <= max_allowable_change {
                     v.status = ValidatorStatus::PendingWithdraw;
                     v.exit_slot = present_slot;
-                    hasher.extend(i, &v.pubkey.as_bytes(), VALIDATOR_FLAG_EXIT);
+                    hasher.extend(i, &ssz_encode(&v.pubkey), VALIDATOR_FLAG_EXIT);
                     total_changed = new_total_changed;
                 } else {
                     // Exiting the validator would exceed the balance delta.

@@ -110,8 +110,8 @@ impl ValidatorInductor {
 mod tests {
     use super::*;
 
-    use bls::{create_proof_of_possession, Keypair, Signature};
-    use hashing::canonical_hash;
+    use bls::{create_proof_of_possession, Keypair};
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     use types::{Address, Hash256};
 
     fn registration_equals_record(reg: &ValidatorRegistration, rec: &ValidatorRecord) -> bool {
@@ -167,9 +167,10 @@ mod tests {
 
     #[test]
     fn test_validator_inductor_valid_all_active_validators() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut validators = vec![];
         for _ in 0..5 {
-            let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+            let mut v = ValidatorRecord::random_for_test(&mut rng);
             v.status = ValidatorStatus::Active;
             validators.push(v);
         }
@@ -187,12 +188,13 @@ mod tests {
 
     #[test]
     fn test_validator_inductor_valid_all_second_validator_withdrawn() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut validators = vec![];
-        let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+        let mut v = ValidatorRecord::random_for_test(&mut rng);
         v.status = ValidatorStatus::Active;
         validators.push(v);
         for _ in 0..4 {
-            let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+            let mut v = ValidatorRecord::random_for_test(&mut rng);
             v.status = ValidatorStatus::Withdrawn;
             validators.push(v);
         }
@@ -210,9 +212,10 @@ mod tests {
 
     #[test]
     fn test_validator_inductor_valid_all_withdrawn_validators() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut validators = vec![];
         for _ in 0..5 {
-            let (mut v, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+            let mut v = ValidatorRecord::random_for_test(&mut rng);
             v.status = ValidatorStatus::Withdrawn;
             validators.push(v);
         }
