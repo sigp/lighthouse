@@ -11,7 +11,7 @@ pub struct PublicKey(RawPublicKey);
 
 impl PublicKey {
     pub fn from_secret_key(secret_key: &SecretKey) -> Self {
-        PublicKey(RawPublicKey::from_secret_key(secret_key))
+        PublicKey(RawPublicKey::from_secret_key(secret_key.as_raw()))
     }
 
     /// Returns the underlying signature.

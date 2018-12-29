@@ -1,6 +1,6 @@
 use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
-use super::PublicKey;
-use bls_aggregates::{SecretKey, Signature as RawSignature};
+use super::{PublicKey, SecretKey};
+use bls_aggregates::Signature as RawSignature;
 
 /// A single BLS signature.
 ///
@@ -12,13 +12,13 @@ pub struct Signature(RawSignature);
 impl Signature {
     /// Instantiate a new Signature from a message and a SecretKey.
     pub fn new(msg: &[u8], sk: &SecretKey) -> Self {
-        Signature(RawSignature::new(msg, sk))
+        Signature(RawSignature::new(msg, sk.as_raw()))
     }
 
     /// Instantiate a new Signature from a message and a SecretKey, where the message has already
     /// been hashed.
     pub fn new_hashed(msg_hashed: &[u8], sk: &SecretKey) -> Self {
-        Signature(RawSignature::new_hashed(msg_hashed, sk))
+        Signature(RawSignature::new_hashed(msg_hashed, sk.as_raw()))
     }
 
     /// Verify the Signature against a PublicKey.
