@@ -95,7 +95,7 @@ fn generate_cycle(
                 .honey_badger_split(committees_per_slot)
                 .enumerate()
                 .map(|(j, shard_indices)| ShardCommittee {
-                    shard: ((shard_start + j) % shard_count) as u16,
+                    shard: ((shard_start + j) % shard_count) as u64,
                     committee: shard_indices.to_vec(),
                 })
                 .collect()

@@ -41,6 +41,12 @@ pub struct ValidatorRecord {
     pub exit_slot: u64,
 }
 
+impl ValidatorRecord {
+    pub fn status_is(&self, status: ValidatorStatus) -> bool {
+        self.status == status
+    }
+}
+
 impl Encodable for ValidatorStatus {
     fn ssz_append(&self, s: &mut SszStream) {
         let byte: u8 = match self {
