@@ -4,6 +4,7 @@ use self::bytes::{BufMut, BytesMut};
 use super::bls::PublicKey;
 use super::VALIDATOR_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
+use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
@@ -54,7 +55,7 @@ impl<T: ClientDB> ValidatorStore<T> {
         public_key: &PublicKey,
     ) -> Result<(), ValidatorStoreError> {
         let key = self.get_db_key_for_index(&KeyPrefixes::PublicKey, index);
-        let val = public_key.as_bytes();
+        let val = ssz_encode(public_key);
         self.db
             .put(DB_COLUMN, &key[..], &val[..])
             .map_err(ValidatorStoreError::from)
@@ -68,8 +69,8 @@ impl<T: ClientDB> ValidatorStore<T> {
         let val = self.db.get(DB_COLUMN, &key[..])?;
         match val {
             None => Ok(None),
-            Some(val) => match PublicKey::from_bytes(&val) {
-                Ok(key) => Ok(Some(key)),
+            Some(val) => match PublicKey::ssz_decode(&val, 0) {
+                Ok((key, _)) => Ok(Some(key)),
                 Err(_) => Err(ValidatorStoreError::DecodeError),
             },
         }
@@ -87,7 +88,10 @@ mod tests {
         let db = Arc::new(MemoryDB::open());
         let store = ValidatorStore::new(db.clone());
 
-        assert_eq!(store.prefix_bytes(&KeyPrefixes::PublicKey), b"pubkey".to_vec());
+        assert_eq!(
+            store.prefix_bytes(&KeyPrefixes::PublicKey),
+            b"pubkey".to_vec()
+        );
     }
 
     #[test]
@@ -98,7 +102,10 @@ mod tests {
         let mut buf = BytesMut::with_capacity(6 + 8);
         buf.put(b"pubkey".to_vec());
         buf.put_u64_be(42);
-        assert_eq!(store.get_db_key_for_index(&KeyPrefixes::PublicKey, 42), buf.take().to_vec())
+        assert_eq!(
+            store.get_db_key_for_index(&KeyPrefixes::PublicKey, 42),
+            buf.take().to_vec()
+        )
     }
 
     #[test]
@@ -110,12 +117,15 @@ mod tests {
         let public_key = Keypair::random().pk;
 
         store.put_public_key_by_index(index, &public_key).unwrap();
-        let public_key_at_index = db.get(
-            DB_COLUMN,
-            &store.get_db_key_for_index(&KeyPrefixes::PublicKey, index)[..]
-        ).unwrap().unwrap();
+        let public_key_at_index = db
+            .get(
+                DB_COLUMN,
+                &store.get_db_key_for_index(&KeyPrefixes::PublicKey, index)[..],
+            )
+            .unwrap()
+            .unwrap();
 
-        assert_eq!(public_key_at_index, public_key.as_bytes());
+        assert_eq!(public_key_at_index, ssz_encode(&public_key));
     }
 
     #[test]
@@ -129,8 +139,9 @@ mod tests {
         db.put(
             DB_COLUMN,
             &store.get_db_key_for_index(&KeyPrefixes::PublicKey, index)[..],
-            &public_key.as_bytes()[..]
-        ).unwrap();
+            &ssz_encode(&public_key)[..],
+        )
+        .unwrap();
 
         let public_key_at_index = store.get_public_key_by_index(index).unwrap().unwrap();
         assert_eq!(public_key_at_index, public_key);
@@ -146,8 +157,9 @@ mod tests {
         db.put(
             DB_COLUMN,
             &store.get_db_key_for_index(&KeyPrefixes::PublicKey, 3)[..],
-            &public_key.as_bytes()[..]
-        ).unwrap();
+            &ssz_encode(&public_key)[..],
+        )
+        .unwrap();
 
         let public_key_at_index = store.get_public_key_by_index(4).unwrap();
         assert_eq!(public_key_at_index, None);
@@ -195,11 +207,9 @@ mod tests {
         /*
          * Check that an index that wasn't stored returns None.
          */
-        assert!(
-            store
-                .get_public_key_by_index(keys.len() + 1)
-                .unwrap()
-                .is_none()
-        );
+        assert!(store
+            .get_public_key_by_index(keys.len() + 1)
+            .unwrap()
+            .is_none());
     }
 }

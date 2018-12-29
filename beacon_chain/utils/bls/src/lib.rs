@@ -3,16 +3,18 @@ extern crate hashing;
 extern crate ssz;
 
 mod aggregate_signature;
+mod keypair;
 mod public_key;
+mod secret_key;
 mod signature;
 
 pub use crate::aggregate_signature::AggregateSignature;
-pub use crate::signature::Signature;
+pub use crate::keypair::Keypair;
 pub use crate::public_key::PublicKey;
+pub use crate::secret_key::SecretKey;
+pub use crate::signature::Signature;
 
 pub use self::bls_aggregates::AggregatePublicKey;
-pub use self::bls_aggregates::Keypair;
-pub use self::bls_aggregates::SecretKey;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 97;
 
@@ -34,7 +36,7 @@ pub fn verify_proof_of_possession(sig: &Signature, pubkey: &PublicKey) -> bool {
 }
 
 pub fn create_proof_of_possession(keypair: &Keypair) -> Signature {
-    let mut hash = canonical_hash(&keypair.pk.as_bytes());
+    let mut hash = canonical_hash(&ssz_encode(&keypair.pk));
     extend_if_needed(&mut hash);
     Signature::new_hashed(&hash, &keypair.sk)
 }
