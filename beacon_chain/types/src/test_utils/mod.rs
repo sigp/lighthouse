@@ -2,6 +2,7 @@ use rand::RngCore;
 
 pub use rand::{prng::XorShiftRng, SeedableRng};
 
+pub mod address;
 pub mod aggregate_signature;
 pub mod bitfield;
 pub mod hash256;
@@ -24,6 +25,12 @@ impl<T: RngCore> TestRandom<T> for u64 {
 impl<T: RngCore> TestRandom<T> for u32 {
     fn random_for_test(rng: &mut T) -> Self {
         rng.next_u32()
+    }
+}
+
+impl<T: RngCore> TestRandom<T> for usize {
+    fn random_for_test(rng: &mut T) -> Self {
+        rng.next_u32() as usize
     }
 }
 

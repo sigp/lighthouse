@@ -63,7 +63,7 @@ pub type Bitfield = boolean_bitfield::BooleanBitfield;
 pub type BitfieldError = boolean_bitfield::Error;
 
 /// Maps a (slot, shard_id) to attestation_indices.
-pub type AttesterMap = HashMap<(u64, u16), Vec<usize>>;
+pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
 
 /// Maps a slot to a block proposer.
 pub type ProposerMap = HashMap<u64, usize>;

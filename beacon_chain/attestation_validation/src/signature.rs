@@ -27,7 +27,7 @@ where
                 .get_public_key_by_index(validator)?
                 .ok_or(Error::NoPublicKeyForValidator)?;
             // Aggregate the public key.
-            agg_pub_key.add(&pub_key);
+            agg_pub_key.add(&pub_key.as_raw());
         }
     }
 
@@ -129,7 +129,8 @@ mod tests {
             &agg_sig,
             &attestation_indices,
             &store,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(outcome, Outcome::Valid);
 
         /*
@@ -143,7 +144,8 @@ mod tests {
             &agg_sig,
             &attestation_indices,
             &store,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(outcome, Outcome::Invalid(Invalid::SignatureInvalid));
     }
 }

@@ -45,7 +45,7 @@ mod tests {
     use super::*;
 
     fn sac_generator(
-        shard_count: u16,
+        shard_count: u64,
         slot_count: usize,
         sac_per_slot: usize,
         committee_size: usize,
