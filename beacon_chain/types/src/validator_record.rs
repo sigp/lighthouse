@@ -1,4 +1,4 @@
-use super::bls::PublicKey;
+use super::bls::{Keypair, PublicKey};
 use super::{Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
@@ -41,6 +41,23 @@ pub struct ValidatorRecord {
     pub poc_commitment: Hash256,
     pub last_poc_change_slot: u64,
     pub second_last_poc_slot: u64
+}
+
+impl ValidatorRecord {
+    pub fn zero_with_rand_keypair() -> Self {    
+        Self {
+            pubkey: Keypair::random().pk,
+            withdrawal_credentials: Hash256::zero(),
+            randao_commitment: Hash256::zero(),
+            randao_layers: 0,
+            status: ValidatorStatus::from(0),
+            latest_status_change_slot: 0,
+            exit_count: 0,
+            poc_commitment: Hash256::zero(),
+            last_poc_change_slot: 0,
+            second_last_poc_slot: 0
+        }
+    }
 }
 
 impl ValidatorRecord {

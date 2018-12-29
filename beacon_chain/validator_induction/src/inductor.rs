@@ -1,4 +1,4 @@
-use bls::{PublicKey, verify_proof_of_possession};
+use bls::{verify_proof_of_possession};
 use types::{BeaconState, Deposit, ValidatorRecord, ValidatorStatus};
 use spec::ChainSpec;
 
@@ -84,44 +84,22 @@ fn min_empty_validator_index(
 mod tests {
     use super::*;
 
-    use bls::{Keypair, Signature, create_proof_of_possession};
-    use hashing::canonical_hash;
     use types::{Hash256, DepositData, DepositInput};
     
-    fn get_deposit() -> Deposit {  
-        let kp = Keypair::random();
-        let deposit_input = DepositInput {
-            pubkey: kp.pk.clone(),
-            withdrawal_credentials: Hash256::zero(),
-            randao_commitment: Hash256::zero(),
-            poc_commitment: Hash256::zero(),
-            proof_of_possession: create_proof_of_possession(&kp)
-        };
-        let deposit_data = DepositData {
-            deposit_input: deposit_input,
-            value: DEPOSIT_GWEI,
-            timestamp: 0
-        };
-        Deposit {
-            merkle_branch: Vec::new(),
-            merkle_tree_index: 0,
-            deposit_data: deposit_data
-        }
-    }
-
-    fn deposit_equals_record(dep: &Deposit, rec: &ValidatorRecord) -> bool {
-        (dep.deposit_data.deposit_input.pubkey == rec.pubkey)
-            & (dep.deposit_data.deposit_input.withdrawal_credentials == rec.withdrawal_credentials)
-            & (dep.deposit_data.deposit_input.randao_commitment == rec.randao_commitment)
-            //& (verify_proof_of_possession(&reg.proof_of_possession, &rec.pubkey))
+    fn deposit_equals_record(dep: &Deposit, val: &ValidatorRecord) -> bool {
+        (dep.deposit_data.deposit_input.pubkey == val.pubkey)
+            & (dep.deposit_data.deposit_input.withdrawal_credentials == val.withdrawal_credentials)
+            & (dep.deposit_data.deposit_input.randao_commitment == val.randao_commitment)
+            & (verify_proof_of_possession(&dep.deposit_data.deposit_input.proof_of_possession, &val.pubkey))
     }
 
     #[test]
     fn test_process_deposit_valid_empty_validators() {
         let mut state = BeaconState::default();
-        let deposit = get_deposit();
+        let mut deposit = Deposit::zero_with_rand_keypair();
         let spec = ChainSpec::foundation();
-
+        deposit.deposit_data.value = DEPOSIT_GWEI;
+        
         let result = process_deposit(&mut state, &deposit, &spec);
 
         assert_eq!(result.unwrap(), 0);
@@ -136,8 +114,9 @@ mod tests {
         let spec = ChainSpec::foundation();
 
         for i in 0..5 {
-            let deposit = get_deposit();
+            let mut deposit = Deposit::zero_with_rand_keypair();
             let result = process_deposit(&mut state, &deposit, &spec);
+            deposit.deposit_data.value = DEPOSIT_GWEI;
             assert_eq!(result.unwrap(), i);
             assert!(deposit_equals_record(&deposit, &state.validator_registry[i]));
             assert_eq!(state.validator_registry.len(), i + 1);
@@ -150,8 +129,9 @@ mod tests {
         let mut state = BeaconState::default();
         let spec = ChainSpec::foundation();
         
-        let deposit = get_deposit();
-        let (mut validator, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+        let mut deposit = Deposit::zero_with_rand_keypair();
+        let mut validator = ValidatorRecord::zero_with_rand_keypair();
+        deposit.deposit_data.value = DEPOSIT_GWEI;
         validator.pubkey = deposit.deposit_data.deposit_input.pubkey.clone();
         validator.withdrawal_credentials = deposit.deposit_data.deposit_input.withdrawal_credentials;
         validator.randao_commitment = deposit.deposit_data.deposit_input.randao_commitment;
@@ -173,11 +153,12 @@ mod tests {
         let mut state = BeaconState::default();
         let spec = ChainSpec::foundation();
             
-        let (mut validator, _) = ValidatorRecord::zero_with_thread_rand_keypair();
+        let validator = ValidatorRecord::zero_with_rand_keypair();
         state.validator_registry.push(validator);
         state.validator_balances.push(0);
         
-        let deposit = get_deposit();
+        let mut deposit = Deposit::zero_with_rand_keypair();
+        deposit.deposit_data.value = DEPOSIT_GWEI;
         state.slot = spec.zero_balance_validator_ttl;
         
         let result = process_deposit(&mut state, &deposit, &spec);
