@@ -2,9 +2,6 @@ use bls::{verify_proof_of_possession};
 use types::{BeaconState, Deposit, ValidatorRecord, ValidatorStatus};
 use spec::ChainSpec;
 
-/// The size of a validators deposit in GWei.
-pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {
     InvalidShard,
@@ -83,8 +80,11 @@ fn min_empty_validator_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use types::{Hash256, DepositData, DepositInput};
+    
+    use bls::{create_proof_of_possession, Keypair};
+    
+    /// The size of a validators deposit in GWei.
+    pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
     
     fn deposit_equals_record(dep: &Deposit, val: &ValidatorRecord) -> bool {
         (dep.deposit_data.deposit_input.pubkey == val.pubkey)
@@ -168,5 +168,20 @@ mod tests {
         assert_eq!(state.validator_balances[0], DEPOSIT_GWEI);
         assert_eq!(state.validator_registry.len(), 1);
         assert_eq!(state.validator_balances.len(), 1);
+    }
+    
+    #[test]
+    fn test_process_deposit_invalid_proof_of_possession() {    
+        let mut state = BeaconState::default();
+        let mut deposit = Deposit::zero_with_rand_keypair();
+        let spec = ChainSpec::foundation();
+        deposit.deposit_data.value = DEPOSIT_GWEI;
+        deposit.deposit_data.deposit_input.proof_of_possession = create_proof_of_possession(&Keypair::random());
+        
+        let result = process_deposit(&mut state, &deposit, &spec);
+
+        assert_eq!(result, Err(ValidatorInductionError::InvaidProofOfPossession));
+        assert_eq!(state.validator_registry.len(), 0);
+        assert_eq!(state.validator_balances.len(), 0);
     }
 }
