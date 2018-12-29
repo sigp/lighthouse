@@ -1,5 +1,5 @@
 use super::bls::PublicKey;
-use super::{Address, Hash256};
+use super::{Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
@@ -96,37 +96,43 @@ impl<T: RngCore> TestRandom<T> for ValidatorStatus {
 impl Encodable for ValidatorRecord {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.pubkey);
-        s.append(&self.withdrawal_shard);
-        s.append(&self.withdrawal_address);
+        s.append(&self.withdrawal_credentials);
         s.append(&self.randao_commitment);
-        s.append(&self.randao_last_change);
-        s.append(&self.balance);
+        s.append(&self.randao_layers);
         s.append(&self.status);
-        s.append(&self.exit_slot);
+        s.append(&self.latest_status_change_slot);
+        s.append(&self.exit_count);
+        s.append(&self.poc_commitment);
+        s.append(&self.last_poc_change_slot);
+        s.append(&self.second_last_poc_slot);
     }
 }
 
 impl Decodable for ValidatorRecord {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
-        let (withdrawal_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (withdrawal_address, i) = <_>::ssz_decode(bytes, i)?;
+        let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_commitment, i) = <_>::ssz_decode(bytes, i)?;
-        let (randao_last_change, i) = <_>::ssz_decode(bytes, i)?;
-        let (balance, i) = <_>::ssz_decode(bytes, i)?;
+        let (randao_layers, i) = <_>::ssz_decode(bytes, i)?;
         let (status, i) = <_>::ssz_decode(bytes, i)?;
-        let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_status_change_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
+        let (poc_commitment, i) = <_>::ssz_decode(bytes, i)?;
+        let (last_poc_change_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (second_last_poc_slot, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
                 pubkey,
-                withdrawal_shard,
-                withdrawal_address,
+                withdrawal_credentials,
                 randao_commitment,
-                randao_last_change,
-                balance,
+                randao_layers,
                 status,
-                exit_slot,
+                latest_status_change_slot,
+                exit_count,
+                poc_commitment,
+                last_poc_change_slot,
+                second_last_poc_slot
             },
             i,
         ))
@@ -137,13 +143,15 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             pubkey: <_>::random_for_test(rng),
-            withdrawal_shard: <_>::random_for_test(rng),
-            withdrawal_address: <_>::random_for_test(rng),
+            withdrawal_credentials: <_>::random_for_test(rng),
             randao_commitment: <_>::random_for_test(rng),
-            randao_last_change: <_>::random_for_test(rng),
-            balance: <_>::random_for_test(rng),
+            randao_layers: <_>::random_for_test(rng),
             status: <_>::random_for_test(rng),
-            exit_slot: <_>::random_for_test(rng),
+            latest_status_change_slot: <_>::random_for_test(rng),
+            exit_count: <_>::random_for_test(rng),
+            poc_commitment: <_>::random_for_test(rng),
+            last_poc_change_slot: <_>::random_for_test(rng),
+            second_last_poc_slot: <_>::random_for_test(rng),
         }
     }
 }
