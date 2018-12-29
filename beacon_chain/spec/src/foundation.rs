@@ -1,7 +1,10 @@
 use super::ChainSpec;
-use bls::{create_proof_of_possession, Keypair, PublicKey, SecretKey};
+use bls::{Keypair, PublicKey, SecretKey};
 
 use types::{Address, Hash256, ValidatorRecord};
+
+/// The size of a validators deposit in GWei.
+pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
 
 impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the specification from Ethereum Foundation.
@@ -64,7 +67,7 @@ impl ChainSpec {
              * Intialization parameters
              */
             initial_validators: initial_validators_for_testing(),
-            initial_balances: vec![0,0,0,0],
+            initial_balances: initial_balances_for_testing(),
             genesis_time: 1544672897,
             processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
         }
@@ -111,6 +114,10 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
     }
 
     initial_validators
+}
+
+fn initial_balances_for_testing() -> Vec<u64> {
+    vec![DEPOSIT_GWEI; 4]
 }
 
 #[cfg(test)]

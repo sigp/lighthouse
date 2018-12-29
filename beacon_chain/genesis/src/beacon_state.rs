@@ -103,21 +103,4 @@ mod tests {
             spec.initial_validators.len()
         );
     }
-
-    /*
-    #[test]
-    fn test_genesis_bad_validator() {
-        let mut spec = ChainSpec::foundation();
-
-        let random_kp = Keypair::random();
-        spec.initial_validators[4].proof_of_possession = create_proof_of_possession(&random_kp);
-
-        let state = genesis_beacon_state(&spec).unwrap();
-
-        assert_eq!(
-            state.validator_registry.len(),
-            spec.initial_validators.len() - 1
-        );
-    }
-    */
 }
