@@ -31,6 +31,9 @@ pub mod slashable_vote_data;
 pub mod validator_record;
 pub mod validator_registration;
 
+pub mod readers;
+
+
 use self::ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 

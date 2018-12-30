@@ -7,8 +7,9 @@ use super::shard_reassignment_record::ShardReassignmentRecord;
 use super::validator_record::ValidatorRecord;
 use super::Hash256;
 use crate::test_utils::TestRandom;
+use hashing::canonical_hash;
 use rand::RngCore;
-use ssz::{Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BeaconState {
@@ -51,7 +52,7 @@ impl BeaconState {
     pub fn canonical_root(&self) -> Hash256 {
         // TODO: implement tree hashing.
         // https://github.com/sigp/lighthouse/issues/70
-        Hash256::zero()
+        Hash256::from(&canonical_hash(&ssz_encode(self))[..])
     }
 }
 
