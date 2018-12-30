@@ -3,7 +3,7 @@ use db::ClientDB;
 use state_transition::{extend_active_state, StateTransitionError};
 use types::{ActiveState, BeaconBlock, CrystallizedState, Hash256};
 
-impl<T> BeaconChain<T>
+impl<T, U> BeaconChain<T, U>
 where
     T: ClientDB + Sized,
 {
