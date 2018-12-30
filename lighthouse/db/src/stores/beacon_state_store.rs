@@ -1,7 +1,8 @@
 use super::STATES_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
+use ssz::Decodable;
 use std::sync::Arc;
-use types::Hash256;
+use types::{readers::BeaconStateReader, BeaconState, Hash256};
 
 pub struct BeaconStateStore<T>
 where
@@ -29,5 +30,18 @@ impl<T: ClientDB> BeaconStateStore<T> {
 
     pub fn delete(&self, hash: &[u8]) -> Result<(), DBError> {
         self.db.delete(DB_COLUMN, hash)
+    }
+
+    /// Retuns a fully de-serialized `BeaconState` (or `None` if hash not known).
+    pub fn get_deserialized(&self, hash: &[u8]) -> Result<Option<impl BeaconStateReader>, DBError> {
+        match self.get(&hash)? {
+            None => Ok(None),
+            Some(ssz) => {
+                let (state, _) = BeaconState::ssz_decode(&ssz, 0).map_err(|_| DBError {
+                    message: "Bad State SSZ.".to_string(),
+                })?;
+                Ok(Some(state))
+            }
+        }
     }
 }
