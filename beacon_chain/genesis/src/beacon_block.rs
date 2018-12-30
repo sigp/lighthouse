@@ -1,14 +1,14 @@
 use bls::{Signature, BLS_AGG_SIG_BYTE_SIZE};
 use spec::ChainSpec;
 use ssz::{encode::encode_length, Decodable, LENGTH_BYTES};
-use types::{BeaconBlock, BeaconBlockBody};
+use types::{BeaconBlock, BeaconBlockBody, Hash256};
 
 /// Generate a genesis BeaconBlock.
-pub fn genesis_beacon_block(spec: &ChainSpec) -> BeaconBlock {
+pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
     BeaconBlock {
         slot: spec.initial_slot_number,
         parent_root: spec.zero_hash,
-        state_root: spec.zero_hash,
+        state_root: state_root,
         randao_reveal: spec.zero_hash,
         candidate_pow_receipt_root: spec.zero_hash,
         signature: genesis_signature(),
@@ -42,8 +42,9 @@ mod tests {
     #[test]
     fn test_genesis() {
         let spec = ChainSpec::foundation();
+        let state_root = Hash256::from("cats".as_bytes());
 
         // This only checks that the function runs without panic.
-        genesis_beacon_block(&spec);
+        genesis_beacon_block(state_root, &spec);
     }
 }

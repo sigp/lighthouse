@@ -34,7 +34,6 @@ name = "lighthouse"
 [workspace]
 members = [
 	"beacon_chain/attestation_validation",
-	"beacon_chain/chain",
 	"beacon_chain/genesis",
 	"beacon_chain/naive_fork_choice",
 	"beacon_chain/spec",
@@ -43,11 +42,12 @@ members = [
 	"beacon_chain/utils/boolean-bitfield",
 	"beacon_chain/utils/hashing",
 	"beacon_chain/utils/honey-badger-split",
-	"beacon_chain/utils/slot-clock",
+	"beacon_chain/utils/slot_clock",
 	"beacon_chain/utils/ssz",
 	"beacon_chain/utils/vec_shuffle",
 	"beacon_chain/validator_change",
 	"beacon_chain/validator_induction",
 	"beacon_chain/validator_shuffling",
+	"lighthouse/beacon_chain",
 	"lighthouse/db",
 ]

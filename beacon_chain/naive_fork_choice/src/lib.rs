@@ -28,7 +28,7 @@ where
      */
     for (index, block_hash) in head_block_hashes.iter().enumerate() {
         let ssz = block_store
-            .get_serialized_block(&block_hash.to_vec()[..])?
+            .get(&block_hash.to_vec()[..])?
             .ok_or(ForkChoiceError::MissingBlock)?;
         let (block, _) = BeaconBlock::ssz_decode(&ssz, 0)?;
         head_blocks.push((index, block));
