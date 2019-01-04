@@ -8,7 +8,7 @@ pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBloc
     BeaconBlock {
         slot: spec.initial_slot_number,
         parent_root: spec.zero_hash,
-        state_root: state_root,
+        state_root,
         randao_reveal: spec.zero_hash,
         candidate_pow_receipt_root: spec.zero_hash,
         signature: genesis_signature(),

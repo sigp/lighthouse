@@ -26,7 +26,7 @@ impl SystemTimeSlotClock {
         if slot_duration_seconds == 0 {
             Err(Error::SlotDurationIsZero)
         } else {
-            Ok(SystemTimeSlotClock {
+            Ok(Self {
                 genesis_seconds,
                 slot_duration_seconds,
             })

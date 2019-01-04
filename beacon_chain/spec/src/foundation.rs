@@ -64,7 +64,7 @@ impl ChainSpec {
              * Intialization parameters
              */
             initial_validators: initial_validators_for_testing(),
-            genesis_time: 1544672897,
+            genesis_time: 1_544_672_897,
             processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
         }
     }

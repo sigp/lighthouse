@@ -23,25 +23,31 @@ where
             .present_slot()?
             .ok_or(Error::PresentSlotIsNone)?;
         let parent_root = self.canonical_leaf_block;
-        let parent_block = self
+        let parent_block_reader = self
             .block_store
-            .get_deserialized(&parent_root)?
-            .ok_or(Error::DBError("Block not found.".to_string()))?;
-        let parent_state = self
+            .get_reader(&parent_root)?
+            .ok_or_else(|| Error::DBError("Block not found.".to_string()))?;
+        let parent_state_reader = self
             .state_store
-            .get_deserialized(&parent_block.state_root())?
-            .ok_or(Error::DBError("State not found.".to_string()))?;
+            .get_reader(&parent_block_reader.state_root())?
+            .ok_or_else(|| Error::DBError("State not found.".to_string()))?;
 
+        let parent_block = parent_block_reader
+            .into_beacon_block()
+            .ok_or_else(|| Error::DBError("Bad parent block SSZ.".to_string()))?;
         let mut block = BeaconBlock {
             slot: present_slot,
             parent_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
-            ..parent_block.to_beacon_block()
+            ..parent_block
         };
 
+        let parent_state = parent_state_reader
+            .into_beacon_state()
+            .ok_or_else(|| Error::DBError("Bad parent block SSZ.".to_string()))?;
         let state = BeaconState {
             slot: present_slot,
-            ..parent_state.to_beacon_state()
+            ..parent_state
         };
         let state_root = state.canonical_root();
 

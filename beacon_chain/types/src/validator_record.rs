@@ -5,7 +5,7 @@ use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 use std::convert;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ValidatorStatus {
     PendingActivation,
     Active,
@@ -87,7 +87,7 @@ impl<T: RngCore> TestRandom<T> for ValidatorStatus {
             ValidatorStatus::Withdrawn,
             ValidatorStatus::Penalized,
         ];
-        options[(rng.next_u32() as usize) % options.len()].clone()
+        options[(rng.next_u32() as usize) % options.len()]
     }
 }
 
