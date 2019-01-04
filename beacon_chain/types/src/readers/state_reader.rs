@@ -3,7 +3,7 @@ use crate::{BeaconState, Hash256};
 pub trait BeaconStateReader {
     fn slot(&self) -> u64;
     fn canonical_root(&self) -> Hash256;
-    fn to_beacon_state(self) -> BeaconState;
+    fn into_beacon_state(self) -> Option<BeaconState>;
 }
 
 impl BeaconStateReader for BeaconState {
@@ -15,7 +15,7 @@ impl BeaconStateReader for BeaconState {
         self.canonical_root()
     }
 
-    fn to_beacon_state(self) -> BeaconState {
-        self
+    fn into_beacon_state(self) -> Option<BeaconState> {
+        Some(self)
     }
 }

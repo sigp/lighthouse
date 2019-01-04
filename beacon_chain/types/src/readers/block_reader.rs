@@ -5,7 +5,7 @@ pub trait BeaconBlockReader {
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
     fn canonical_root(&self) -> Hash256;
-    fn to_beacon_block(self) -> BeaconBlock;
+    fn into_beacon_block(self) -> Option<BeaconBlock>;
 }
 
 impl BeaconBlockReader for BeaconBlock {
@@ -25,7 +25,7 @@ impl BeaconBlockReader for BeaconBlock {
         self.canonical_root()
     }
 
-    fn to_beacon_block(self) -> BeaconBlock {
-        self
+    fn into_beacon_block(self) -> Option<BeaconBlock> {
+        Some(self)
     }
 }

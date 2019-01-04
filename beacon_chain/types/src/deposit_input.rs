@@ -55,8 +55,7 @@ impl<T: RngCore> TestRandom<T> for DepositInput {
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
-    use crate::test_utils::TestRandom;
-    use rand::{prng::XorShiftRng, SeedableRng};
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
     #[test]
     pub fn test_ssz_round_trip() {
