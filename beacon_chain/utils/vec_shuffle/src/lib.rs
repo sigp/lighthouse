@@ -42,40 +42,40 @@ mod tests {
     extern crate yaml_rust;
 
     use self::yaml_rust::yaml;
-    use super::hashing::canonical_hash;
-    use super::*;
-    use std::fs::File;
-    use std::io::prelude::*;
 
-    // TODO: update test vectors to use keccak instead of blake.
-    // https://github.com/sigp/lighthouse/issues/121
+    use std::{fs::File, io::prelude::*, path::PathBuf};
+
+    use super::{hashing::canonical_hash, *};
+
     #[test]
-    #[should_panic]
     fn test_shuffling() {
-        let mut file = File::open("./src/specs/shuffle_test_vectors.yaml").unwrap();
+        let mut file = {
+            let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            file_path_buf.push("src/specs/shuffle_test_vectors.yaml");
+
+            File::open(file_path_buf).unwrap()
+        };
+
         let mut yaml_str = String::new();
 
         file.read_to_string(&mut yaml_str).unwrap();
 
         let docs = yaml::YamlLoader::load_from_str(&yaml_str).unwrap();
         let doc = &docs[0];
-        let test_cases = doc["test_cases"].as_vec();
+        let test_cases = doc["test_cases"].as_vec().unwrap();
 
-        for test_case in test_cases.unwrap() {
+        for test_case in test_cases {
             let input = test_case["input"].clone().into_vec().unwrap();
             let output = test_case["output"].clone().into_vec().unwrap();
             let seed_bytes = test_case["seed"].as_str().unwrap().as_bytes();
-            let mut seed;
 
-            if seed_bytes.len() > 0 {
-                seed = canonical_hash(seed_bytes);
+            let seed = if seed_bytes.len() > 0 {
+                canonical_hash(seed_bytes)
             } else {
-                seed = vec![];
-            }
+                vec![]
+            };
 
-            let mut s = shuffle(&seed, input).unwrap();
-
-            assert_eq!(s, output);
+            assert_eq!(shuffle(&seed, input).unwrap(), output);
         }
     }
 }
