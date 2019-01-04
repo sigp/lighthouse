@@ -55,7 +55,7 @@ where
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
         let mut leaf_blocks = HashSet::new();
-        leaf_blocks.insert(block_root.clone());
+        leaf_blocks.insert(block_root);
 
         Ok(Self {
             block_store,
