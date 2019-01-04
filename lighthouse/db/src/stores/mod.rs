@@ -1,5 +1,7 @@
 use super::{ClientDB, DBError};
 
+#[macro_use]
+mod macros;
 mod beacon_block_store;
 mod beacon_state_store;
 mod pow_chain_store;
@@ -17,4 +19,9 @@ pub const STATES_DB_COLUMN: &str = "states";
 pub const POW_CHAIN_DB_COLUMN: &str = "powchain";
 pub const VALIDATOR_DB_COLUMN: &str = "validator";
 
-pub const COLUMNS: [&str; 4] = [BLOCKS_DB_COLUMN, STATES_DB_COLUMN, POW_CHAIN_DB_COLUMN, VALIDATOR_DB_COLUMN];
+pub const COLUMNS: [&str; 4] = [
+    BLOCKS_DB_COLUMN,
+    STATES_DB_COLUMN,
+    POW_CHAIN_DB_COLUMN,
+    VALIDATOR_DB_COLUMN,
+];
