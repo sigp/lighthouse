@@ -1,14 +1,12 @@
 mod block_processing;
 mod block_production;
-mod maps;
-mod stores;
 
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
 };
 use genesis::{genesis_beacon_block, genesis_beacon_state, GenesisError};
-use slot_clock::{SlotClock, TestingSlotClockError};
+use slot_clock::SlotClock;
 use spec::ChainSpec;
 use ssz::ssz_encode;
 use std::collections::HashSet;
