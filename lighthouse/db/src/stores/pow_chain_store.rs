@@ -26,9 +26,9 @@ impl<T: ClientDB> PoWChainStore<T> {
 #[cfg(test)]
 mod tests {
     extern crate types;
-    
-    use super::*;
+
     use super::super::super::MemoryDB;
+    use super::*;
 
     use self::types::Hash256;
 
