@@ -17,6 +17,7 @@ pub fn process_deposit(
     let deposit_input = &deposit.deposit_data.deposit_input;
     let deposit_data = &deposit.deposit_data;
         
+    // TODO: Update the signature validation as defined in the spec once issues #91 and #70 are completed     
     if !verify_proof_of_possession(&deposit_input.proof_of_possession, &deposit_input.pubkey) {
         return Err(ValidatorInductionError::InvaidProofOfPossession);
     }
