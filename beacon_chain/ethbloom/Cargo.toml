@@ -11,7 +11,7 @@ repository = "https://github.com/paritytech/primitives"
 [dependencies]
 tiny-keccak = "1.4"
 crunchy = { version = "0.1.6", features = ["limit_256"] }
-fixed-hash = { version = "0.2", default_features = false }
+fixed-hash = { version = "=0.2.2", default_features = false }
 ethereum-types-serialize = { version = "0.2.1", path = "../serialize", optional = true }
 serde = { version = "1.0", optional = true }
 
