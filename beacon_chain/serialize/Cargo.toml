@@ -1,0 +1,10 @@
+[package]
+name = "ethereum-types-serialize"
+version = "0.2.1"
+authors = ["Parity Technologies <admin@parity.io>"]
+license = "MIT"
+homepage = "https://github.com/paritytech/primitives"
+description = "Ethereum types"
+
+[dependencies]
+serde = "1.0"
