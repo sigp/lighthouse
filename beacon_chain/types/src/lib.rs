@@ -5,7 +5,6 @@ extern crate ssz;
 
 pub mod test_utils;
 
-pub mod active_state;
 pub mod attestation_data;
 pub mod attestation;
 pub mod beacon_block;
@@ -14,7 +13,6 @@ pub mod beacon_state;
 pub mod candidate_pow_receipt_root_record;
 pub mod casper_slashing;
 pub mod crosslink_record;
-pub mod crystallized_state;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_input;
@@ -33,7 +31,6 @@ pub mod validator_registration;
 use self::ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 
-pub use crate::active_state::ActiveState;
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation::Attestation;
 pub use crate::beacon_block::BeaconBlock;
@@ -41,7 +38,6 @@ pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_state::BeaconState;
 pub use crate::casper_slashing::CasperSlashing;
 pub use crate::crosslink_record::CrosslinkRecord;
-pub use crate::crystallized_state::CrystallizedState;
 pub use crate::deposit::Deposit;
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_input::DepositInput;
