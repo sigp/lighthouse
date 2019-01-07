@@ -33,9 +33,10 @@ present-Ethereum functionality.
 
 ### Goals
 
-The purpose of this project is to further research and development towards a
-secure, efficient, and decentralized Ethereum protocol, facilitated by a new
-open-source Ethereum Serenity client.
+The purpose of this project is to work alongside the Ethereum community and
+implement a secure, open-source Ethereum Serenity client in Rust. With the
+focus on security, the goal for Lighthouse is to provide a trustworthy, well
+tested, secure client that is resilient to any errors.
 
 In addition to implementing a new client, the project seeks to maintain and
 improve the Ethereum protocol wherever possible.
