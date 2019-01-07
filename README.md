@@ -22,7 +22,7 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 ## Lighthouse Client
 
 Lighthouse is an open-source Ethereum Serenity client that is currently under
-development.  Designed as a Serenity-only client, Lighthouse will not
+development. Designed as a Serenity-only client, Lighthouse will not
 re-implement the existing proof-of-work protocol. Maintaining a forward-focus
 on Ethereum Serenity ensures that Lighthouse avoids reproducing the high-quality
 work already undertaken by existing projects. As such, Lighthouse will connect
@@ -76,12 +76,11 @@ by the team:
   is more resource intensive than proof-of-work. As such, clients need to
   ensure that bad blocks can be rejected as efficiently as possible. At
   present, blocks having 10 million ETH staked can be processed in 0.006
-  seconds, and invalid blocks are rejected even more quickly. See [issue
-  #103](https://github.com/ethereum/beacon_chain/issues/103) on
+  seconds, and invalid blocks are rejected even more quickly. See
+  [issue #103](https://github.com/ethereum/beacon_chain/issues/103) on
   [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain).
-.
 - **P2P networking**: Serenity will likely use the [libp2p
-  framework](https://libp2p.io/). Lighthouse aims to work alongside
+  framework](https://libp2p.io/). Lighthouse is working alongside
 [Parity](https://www.parity.io/) to ensure
 [libp2p-rust](https://github.com/libp2p/rust-libp2p) is fit-for-purpose.
 - **Validator duties** : The project involves development of "validator
@@ -96,9 +95,10 @@ implementation](https://github.com/sigp/lighthouse/tree/master/beacon_chain/util
 and this
 [research](https://github.com/sigp/serialization_sandbox/blob/report/report/serialization_report.md)
 on serialization formats for more information.
-- **Casper FFG fork-choice**: The [Casper
-  FFG](https://arxiv.org/abs/1710.09437) fork-choice rules allow the chain to
-select a canonical chain in the case of a fork.
+- **Fork-choice**: The current fork choice rule is
+[*LMD Ghost*](https://vitalik.ca/general/2018/12/05/cbc_casper.html#lmd-ghost),
+which effectively takes the latest messages and forms the canonical chain using
+the [GHOST](https://eprint.iacr.org/2013/881.pdf) mechanism.
 - **Efficient state transition logic**: State transition logic governs
   updates to the validator set as validators log in/out, penalizes/rewards
 validators, rotates validators across shards, and implements other core tasks.
@@ -108,32 +108,6 @@ validators, rotates validators across shards, and implements other core tasks.
 In addition to these components we are also working on database schemas, RPC
 frameworks, specification development, database optimizations (e.g.,
 bloom-filters), and tons of other interesting stuff (at least we think so).
-
-### Contributing
-
-**Lighthouse welcomes contributors with open-arms.**
-
-Layer-1 infrastructure is a critical component for the ecosystem and relies
-heavily on contributions from the community. Building Ethereum Serenity is a huge
-task and we refuse to conduct an inappropriate ICO or charge licensing fees.
-Instead, we fund development through grants and support from Sigma Prime.
-
-If you would like to learn more about Ethereum Serenity and/or
-[Rust](https://www.rust-lang.org/), we are more than happy to on-board you
-and assign you some tasks. We aim to be as accepting and understanding as
-possible; we are more than happy to up-skill contributors in exchange for their
-assistance with the project.
-
-Alternatively, if you are an ETH/Rust veteran, we'd love your input.  We're
-always looking for the best way to implement things and welcome all 
-respectful criticisms.
-
-If you'd like to contribute, try having a look through the [open
-issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
-first
-issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
-your support!
 
 ### Running
 
@@ -166,6 +140,33 @@ A few basic steps are needed to get set up:
 ##### Note:
 Lighthouse presently runs on Rust `stable`, however, benchmarks currently require the
 `nightly` version.
+
+
+### Contributing
+
+**Lighthouse welcomes contributors with open-arms.**
+
+Layer-1 infrastructure is a critical component for the ecosystem and relies
+heavily on contributions from the community. Building Ethereum Serenity is a huge
+task and we refuse to conduct an inappropriate ICO or charge licensing fees.
+Instead, we fund development through grants and support from Sigma Prime.
+
+If you would like to learn more about Ethereum Serenity and/or
+[Rust](https://www.rust-lang.org/), we are more than happy to on-board you
+and assign you some tasks. We aim to be as accepting and understanding as
+possible; we are more than happy to up-skill contributors in exchange for their
+assistance with the project.
+
+Alternatively, if you are an ETH/Rust veteran, we'd love your input.  We're
+always looking for the best way to implement things and welcome all
+respectful criticisms.
+
+If you'd like to contribute, try having a look through the [open
+issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
+first
+issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
+your support!
 
 ### Engineering Ethos
 
