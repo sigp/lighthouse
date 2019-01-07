@@ -7,18 +7,6 @@ Chain, maintained by Sigma Prime.
 
 The "Serenity" project is also known as "Ethereum 2.0" or "Shasper".
 
-## Introduction
-
-This readme is split into two major sections:
-
-- [Lighthouse Client](#lighthouse-client): information about this
-  implementation.
-- [What is Ethereum Serenity](#what-is-ethereum-serenity): an introduction to Ethereum Serenity.
-
-If you'd like some background on Sigma Prime, please see the [Lighthouse Update
-\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
-[company website](https://sigmaprime.io).
-
 ## Lighthouse Client
 
 Lighthouse is an open-source Ethereum Serenity client that is currently under
@@ -31,6 +19,15 @@ to existing clients, such as
 [Parity-Ethereum](https://github.com/paritytech/parity-ethereum), via RPC to enable
 present-Ethereum functionality.
 
+### Further Reading
+
+- [About Lighthouse](docs/lighthouse.md): Goals, Ideology and Ethos surrounding
+this implementation.
+- [What is Ethereum Serenity](docs/serenity.md): an introduction to Ethereum Serenity.
+
+If you'd like some background on Sigma Prime, please see the [Lighthouse Update
+\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
+[company website](https://sigmaprime.io).
 
 ### Components
 
@@ -86,10 +83,10 @@ bloom-filters), and tons of other interesting stuff (at least we think so).
 
 Here we provide an overview of the directory structure:
 
-- `/beacon_chain`: contains logic derived directly from the specification.
+- `beacon_chain/`: contains logic derived directly from the specification.
   E.g., shuffling algorithms, state transition logic and structs, block
 validation, BLS crypto, etc.
-- `/lighthouse`: contains logic specific to this client implementation. E.g.,
+- `lighthouse/'``: contains logic specific to this client implementation. E.g.,
   CLI parsing, RPC end-points, databases, etc.
 
 ### Running
