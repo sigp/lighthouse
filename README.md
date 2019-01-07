@@ -31,33 +31,6 @@ to existing clients, such as
 [Parity-Ethereum](https://github.com/paritytech/parity-ethereum), via RPC to enable
 present-Ethereum functionality.
 
-### Goals
-
-The purpose of this project is to work alongside the Ethereum community to
-implement a secure, trustworthy, open-source Ethereum Serenity client in Rust.
-
-* **Security**: Lighthouse's main goal is to implement everything with a
-security-first mindset. The goal is to ensure that all components of lighthouse
-are thoroughly tested, checked and secure.
-
-* **Trust** : As Ethereum Serenity is a Proof-of-Stake system, which
-involves the interaction of the Ethereum protocol and user funds. Thus, a goal
-of Lighthouse is to provide a client that is trustworthy.
-
-  All code can be tested and verified the goal of Lighthouse is to provide code
-that is trusted.
-
-* **Transparency**: Lighthouse aims at being as transparent as possible. This goal is for
-Lighthouse to embrace the open-source community and allow for all to understand
-the decisions, direction and changes in all aspects.
-
-* **Error Resilience**: As Lighthouse embraces the "never `panic`" mindset, the
-goal is to be resilient to errors that may occur. Providing a client that has
-tolerance against errors provides further properties for a secure, trustworthy
-client that Lighthouse aims to provide.
-
-In addition to implementing a new client, the project seeks to maintain and
-improve the Ethereum protocol wherever possible.
 
 ### Components
 
@@ -109,6 +82,16 @@ In addition to these components we are also working on database schemas, RPC
 frameworks, specification development, database optimizations (e.g.,
 bloom-filters), and tons of other interesting stuff (at least we think so).
 
+### Directory Structure
+
+Here we provide an overview of the directory structure:
+
+- `/beacon_chain`: contains logic derived directly from the specification.
+  E.g., shuffling algorithms, state transition logic and structs, block
+validation, BLS crypto, etc.
+- `/lighthouse`: contains logic specific to this client implementation. E.g.,
+  CLI parsing, RPC end-points, databases, etc.
+
 ### Running
 
 **NOTE: The cryptography libraries used in this implementation are
@@ -141,15 +124,9 @@ A few basic steps are needed to get set up:
 Lighthouse presently runs on Rust `stable`, however, benchmarks currently require the
 `nightly` version.
 
-
 ### Contributing
 
 **Lighthouse welcomes contributors with open-arms.**
-
-Layer-1 infrastructure is a critical component for the ecosystem and relies
-heavily on contributions from the community. Building Ethereum Serenity is a huge
-task and we refuse to conduct an inappropriate ICO or charge licensing fees.
-Instead, we fund development through grants and support from Sigma Prime.
 
 If you would like to learn more about Ethereum Serenity and/or
 [Rust](https://www.rust-lang.org/), we are more than happy to on-board you
@@ -161,6 +138,9 @@ Alternatively, if you are an ETH/Rust veteran, we'd love your input.  We're
 always looking for the best way to implement things and welcome all
 respectful criticisms.
 
+If you are looking to contribute, please head to our
+[onboarding documentation](https://github.com/sigp/lighthouse/blob/master/docs/onboarding.md).
+
 If you'd like to contribute, try having a look through the [open
 issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
 first
@@ -168,122 +148,10 @@ issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A
 tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
 your support!
 
-### Engineering Ethos
-
-Lighthouse aims to produce many small easily-tested components, each separated
-into individual crates wherever possible.
-
-Generally, tests can be kept in the same file, as is typical in Rust.
-Integration tests should be placed in the `tests` directory in the crate's
-root.  Particularity large (line-count) tests should be placed into a separate
-file.
-
-A function is not considered complete until a test exists for it. We produce
-tests to protect against regression (accidentally breaking things) and to
-provide examples that help readers of the code base understand how functions
-should (or should not) be used.
-
-Each pull request is to be reviewed by at least one "core developer" (i.e.,
-someone with write-access to the repository). This helps to ensure bugs are
-detected, consistency is maintained, and responsibility of errors is dispersed.
-
-Discussion must be respectful and intellectual. Have fun and make jokes, but
-always respect the limits of other people.
-
-### Directory Structure
-
-Here we provide an overview of the directory structure:
-
-- `/beacon_chain`: contains logic derived directly from the specification.
-  E.g., shuffling algorithms, state transition logic and structs, block
-validation, BLS crypto, etc.
-- `/lighthouse`: contains logic specific to this client implementation. E.g.,
-  CLI parsing, RPC end-points, databases, etc.
-
 ## Contact
 
 The best place for discussion is the [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 Ping @paulhauner or @AgeManning to get the quickest response.
-
-
-# What is Ethereum Serenity
-
-Ethereum Serenity refers to a new blockchain system currently under development by
-the Ethereum Foundation and the Ethereum community. The Serenity blockchain
-consists of 1,025 proof-of-stake blockchains. This includes the "beacon chain"
-and 1,024 "shard chains".
-
-Ethereum Serenity is also known as "Ethereum 2.0" and "Shasper". We prefer
-Serenity as it more accurately reflects the established Ethereum roadmap (plus
-we think it's a nice name).
-
-## Beacon Chain
-
-The concept of a beacon chain differs from existing blockchains, such as
-Bitcoin and Ethereum, in that it doesn't process transactions per se. Instead,
-it maintains a set of bonded (staked) validators and coordinates these to
-provide services to a static set of *sub-blockchains* (i.e. shards). Each of
-these shard blockchains processes normal transactions (e.g. "Transfer 5 ETH
-from A to B") in parallel whilst deferring consensus mechanisms to the beacon
-chain.
-
-Major services provided by the beacon chain to its shards include the following:
-
-- A source of entropy, likely using a [RANDAO + VDF
-  scheme](https://ethresear.ch/t/minimal-vdf-randomness-beacon/3566).
-- Validator management, including:
-    - Inducting and ejecting validators.
-    - Assigning randomly-shuffled subsets of validators to particular shards.
-    - Penalizing and rewarding validators.
-- Proof-of-stake consensus for shard chain blocks.
-
-## Shard Chains
-
-Shards are analogous to CPU cores - they're a resource where transactions can
-execute in series (one-after-another). Presently, Ethereum is single-core and
-can only _fully_ process one transaction at a time. Sharding allows processing
-of multiple transactions simultaneously, greatly increasing the per-second
-transaction capacity of Ethereum.
-
-Each shard uses a proof-of-stake consensus mechanism and shares its validators
-(stakers) with other shards. The beacon chain rotates validators
-pseudo-randomly between different shards.  Shards will likely be the basis of
-layer-2 transaction processing schemes, however, that is not in scope of this
-discussion.
-
-## The Proof-of-Work Chain
-
-The present-Ethereum proof-of-work (PoW) chain will host a smart contract that
-enables accounts to deposit 32 ETH, a BLS public key, and some [other
-parameters](https://github.com/ethereum/eth2.0-specs/blob/master/specs/casper_sharding_v2.1.md#pow-chain-changes),
-allowing them to become beacon chain validators. Each beacon chain will
-reference a PoW block hash allowing PoW clients to use the beacon chain as a
-source of [Casper FFG finality](https://arxiv.org/abs/1710.09437), if desired.
-
-It is a requirement that ETH can move freely between shard chains, as well as between
-Serenity and present-Ethereum blockchains. The exact mechanics of these transfers remain
-an active topic of research and their details are yet to be confirmed.
-
-## Ethereum Serenity Progress
-
-Ethereum Serenity is not fully specified and a working implementation does not yet
-exist. Some teams have demos available which indicate progress, but do not
-constitute a complete product.  We look forward to providing user functionality
-once we are ready to provide a minimum-viable user experience.
-
-The work-in-progress Serenity specification lives
-[here](https://github.com/ethereum/eth2.0-specs/blob/master/specs/casper_sharding_v2.1.md)
-in the [ethereum/eth2.0-specs](https://github.com/ethereum/eth2.0-specs)
-repository. The spec is still in a draft phase, however there are several teams
-basing their Serenity implementations upon it while the Ethereum Foundation research
-team continue to fill in the gaps. There is active discussion about the specification in the
-[ethereum/sharding](https://gitter.im/ethereum/sharding) gitter channel. A
-proof-of-concept implementation in Python is available at
-[ethereum/beacon_chain](https://github.com/ethereum/beacon_chain).
-
-Presently, the specification focuses almost exclusively on the beacon chain,
-as it is the focus of current development efforts. Progress on shard chain
-specification will soon follow.
 
 # Donations
 
