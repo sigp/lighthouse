@@ -15,6 +15,9 @@ documentation, writing extra tests or developing components, all help is
 appreciated and your contributions will help not only the community but all
 the contributors.
 
+We've bundled up our Goals, Ethos and Ideology into one document for you to
+read through, please read our [About Lighthouse](lighthouse.md) docs. :smile:
+
 Layer-1 infrastructure is a critical component for the ecosystem and relies
 heavily on contributions from the community. Building Ethereum Serenity is a
 huge task and we refuse to conduct an inappropriate ICO or charge licensing
@@ -23,6 +26,20 @@ Prime.
 
 If you have any additional questions, please feel free to jump on the
 [gitter](https://gitter.im/sigp/lighthouse) and have a chat with all of us.
+
+**Pre-reading Materials:**
+
+* [About Lighthouse](lighthouse.md)
+* [Ethereum Serenity](serenity.md)
+
+**Repository**
+
+If you'd like to contribute, try having a look through the [open
+issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
+first
+issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
+your support!
 
 ## Understanding Serenity
 
@@ -33,7 +50,7 @@ is for!* :smile:)
 
 Read through our [Understanding
 Serenity](https://github.com/sigp/lighthouse/blob/master/docs/serenity.md) docs
-to learn more! :smile:
+to learn more! :smile: (*unless you've already read it.*)
 
 The document explains the necessary fundamentals for understanding Ethereum,
 Proof-of-Stake and the Serenity we are working towards.
@@ -72,7 +89,7 @@ allows you to easily install versions of rust.
 $ curl https://sh.rustup.rs -sSf | sh
 ```
 
-**Windows (You need a bit more):**J
+**Windows (You need a bit more):**
 * Install the Visual Studio 2015 with C++ support
 * Install Rustup using: https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
 * You can then use the ``VS2015 x64 Native Tools Command Prompt`` and run:
