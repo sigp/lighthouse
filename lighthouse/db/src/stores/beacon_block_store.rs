@@ -52,23 +52,29 @@ impl<T: ClientDB> BeaconBlockStore<T> {
     /// slot number. If the slot is skipped, the function will return None.
     ///
     /// If a block is found, a tuple of (block_hash, serialized_block) is returned.
+    ///
+    /// Note: this function uses a loop instead of recursion as the compiler is over-strict when it
+    /// comes to recursion and the `impl Trait` pattern. See:
+    /// https://stackoverflow.com/questions/54032940/using-impl-trait-in-a-recursive-function
     pub fn block_at_slot(
         &self,
         head_hash: &Hash256,
         slot: u64,
-    ) -> Result<Option<(Hash256, BeaconBlock)>, BeaconBlockAtSlotError> {
-        match self.get_reader(head_hash)? {
-            None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
-            Some(block_reader) => match block_reader.slot() {
-                s if s == slot => {
-                    let block = block_reader
-                        .into_beacon_block()
-                        .ok_or(BeaconBlockAtSlotError::InvalidBeaconBlock)?;
-                    Ok(Some((*head_hash, block)))
+    ) -> Result<Option<(Hash256, impl BeaconBlockReader)>, BeaconBlockAtSlotError> {
+        let mut current_hash = *head_hash;
+
+        loop {
+            if let Some(block_reader) = self.get_reader(&current_hash)? {
+                if block_reader.slot() == slot {
+                    break Ok(Some((current_hash, block_reader)));
+                } else if block_reader.slot() < slot {
+                    break Ok(None);
+                } else {
+                    current_hash = block_reader.parent_root();
                 }
-                s if s < slot => Ok(None),
-                _ => self.block_at_slot(&block_reader.parent_root(), slot),
-            },
+            } else {
+                break Err(BeaconBlockAtSlotError::UnknownBeaconBlock);
+            }
         }
     }
 }
@@ -207,11 +213,12 @@ mod tests {
         // Test that certain slots can be reached from certain hashes.
         let test_cases = vec![(4, 4), (4, 3), (4, 2), (4, 1), (4, 0)];
         for (hashes_index, slot_index) in test_cases {
-            let (matched_block_hash, _) = bs
+            let (matched_block_hash, reader) = bs
                 .block_at_slot(&hashes[hashes_index], slots[slot_index])
                 .unwrap()
                 .unwrap();
             assert_eq!(matched_block_hash, hashes[slot_index]);
+            assert_eq!(reader.slot(), slots[slot_index]);
         }
 
         let ssz = bs.block_at_slot(&hashes[4], 2).unwrap();
