@@ -45,7 +45,6 @@ members = [
 	"beacon_chain/utils/slot_clock",
 	"beacon_chain/utils/ssz",
 	"beacon_chain/utils/vec_shuffle",
-	"beacon_chain/validator_change",
 	"beacon_chain/validator_induction",
 	"beacon_chain/validator_shuffling",
 	"lighthouse/beacon_chain",

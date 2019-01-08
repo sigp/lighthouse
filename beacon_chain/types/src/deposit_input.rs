@@ -9,6 +9,7 @@ pub struct DepositInput {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub randao_commitment: Hash256,
+    pub custody_commitment: Hash256,
     pub proof_of_possession: Signature,
 }
 
@@ -17,6 +18,7 @@ impl Encodable for DepositInput {
         s.append(&self.pubkey);
         s.append(&self.withdrawal_credentials);
         s.append(&self.randao_commitment);
+        s.append(&self.custody_commitment);
         s.append(&self.proof_of_possession);
     }
 }
@@ -26,6 +28,7 @@ impl Decodable for DepositInput {
         let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_commitment, i) = <_>::ssz_decode(bytes, i)?;
+        let (custody_commitment, i) = <_>::ssz_decode(bytes, i)?;
         let (proof_of_possession, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
@@ -33,6 +36,7 @@ impl Decodable for DepositInput {
                 pubkey,
                 withdrawal_credentials,
                 randao_commitment,
+                custody_commitment,
                 proof_of_possession,
             },
             i,
@@ -46,6 +50,7 @@ impl<T: RngCore> TestRandom<T> for DepositInput {
             pubkey: <_>::random_for_test(rng),
             withdrawal_credentials: <_>::random_for_test(rng),
             randao_commitment: <_>::random_for_test(rng),
+            custody_commitment: <_>::random_for_test(rng),
             proof_of_possession: <_>::random_for_test(rng),
         }
     }

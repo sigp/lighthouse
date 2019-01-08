@@ -1,7 +1,10 @@
 use super::ChainSpec;
-use bls::{create_proof_of_possession, Keypair, PublicKey, SecretKey};
+use bls::{Keypair, PublicKey, SecretKey};
 
-use types::{Address, Hash256, ValidatorRegistration};
+use types::{Address, Hash256, ValidatorRecord};
+
+/// The size of a validators deposit in GWei.
+pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
 
 impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the specification from Ethereum Foundation.
@@ -64,14 +67,15 @@ impl ChainSpec {
              * Intialization parameters
              */
             initial_validators: initial_validators_for_testing(),
+            initial_balances: initial_balances_for_testing(),
             genesis_time: 1_544_672_897,
             processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
         }
     }
 }
 
-/// Generate a set of validator registrations to use with testing until the real chain starts.
-fn initial_validators_for_testing() -> Vec<ValidatorRegistration> {
+/// Generate a set of validator records to use with testing until the real chain starts.
+fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
     // Some dummy private keys to start with.
     let key_strings = vec![
         "jzjxxgjajfjrmgodszzsgqccmhnyvetcuxobhtynojtpdtbj",
@@ -94,17 +98,26 @@ fn initial_validators_for_testing() -> Vec<ValidatorRegistration> {
                 pk: public_key,
             }
         };
-        let validator_registration = ValidatorRegistration {
+        let validator_record = ValidatorRecord {
             pubkey: keypair.pk.clone(),
-            withdrawal_shard: 0,
-            withdrawal_address: Address::random(),
-            randao_commitment: Hash256::random(),
-            proof_of_possession: create_proof_of_possession(&keypair),
+            withdrawal_credentials: Hash256::zero(),
+            randao_commitment: Hash256::zero(),
+            randao_layers: 0,
+            status: From::from(0),
+            latest_status_change_slot: 0,
+            exit_count: 0,
+            custody_commitment: Hash256::zero(),
+            latest_custody_reseed_slot: 0,
+            penultimate_custody_reseed_slot: 0,
         };
-        initial_validators.push(validator_registration);
+        initial_validators.push(validator_record);
     }
 
     initial_validators
+}
+
+fn initial_balances_for_testing() -> Vec<u64> {
+    vec![DEPOSIT_GWEI; 4]
 }
 
 #[cfg(test)]
