@@ -10,7 +10,7 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct BeaconState {
     // Misc
     pub slot: u64,
@@ -19,6 +19,7 @@ pub struct BeaconState {
 
     // Validator registry
     pub validator_registry: Vec<ValidatorRecord>,
+    pub validator_balances: Vec<u64>,
     pub validator_registry_latest_change_slot: u64,
     pub validator_registry_exit_count: u64,
     pub validator_registry_delta_chain_tip: Hash256,
@@ -61,6 +62,7 @@ impl Encodable for BeaconState {
         s.append(&self.genesis_time);
         s.append(&self.fork_data);
         s.append(&self.validator_registry);
+        s.append(&self.validator_balances);
         s.append(&self.validator_registry_latest_change_slot);
         s.append(&self.validator_registry_exit_count);
         s.append(&self.validator_registry_delta_chain_tip);
@@ -88,6 +90,7 @@ impl Decodable for BeaconState {
         let (genesis_time, i) = <_>::ssz_decode(bytes, i)?;
         let (fork_data, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry, i) = <_>::ssz_decode(bytes, i)?;
+        let (validator_balances, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry_latest_change_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry_exit_count, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry_delta_chain_tip, i) = <_>::ssz_decode(bytes, i)?;
@@ -113,6 +116,7 @@ impl Decodable for BeaconState {
                 genesis_time,
                 fork_data,
                 validator_registry,
+                validator_balances,
                 validator_registry_latest_change_slot,
                 validator_registry_exit_count,
                 validator_registry_delta_chain_tip,
@@ -144,6 +148,7 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             genesis_time: <_>::random_for_test(rng),
             fork_data: <_>::random_for_test(rng),
             validator_registry: <_>::random_for_test(rng),
+            validator_balances: <_>::random_for_test(rng),
             validator_registry_latest_change_slot: <_>::random_for_test(rng),
             validator_registry_exit_count: <_>::random_for_test(rng),
             validator_registry_delta_chain_tip: <_>::random_for_test(rng),

@@ -1,5 +1,5 @@
 use super::bls::PublicKey;
-use super::{Address, Hash256};
+use super::{Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
@@ -32,13 +32,15 @@ impl convert::From<u8> for ValidatorStatus {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
-    pub withdrawal_shard: u64,
-    pub withdrawal_address: Address,
+    pub withdrawal_credentials: Hash256,
     pub randao_commitment: Hash256,
-    pub randao_last_change: u64,
-    pub balance: u64,
+    pub randao_layers: u64,
     pub status: ValidatorStatus,
-    pub exit_slot: u64,
+    pub latest_status_change_slot: u64,
+    pub exit_count: u64,
+    pub custody_commitment: Hash256,
+    pub latest_custody_reseed_slot: u64,
+    pub penultimate_custody_reseed_slot: u64
 }
 
 impl ValidatorRecord {
@@ -94,37 +96,43 @@ impl<T: RngCore> TestRandom<T> for ValidatorStatus {
 impl Encodable for ValidatorRecord {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.pubkey);
-        s.append(&self.withdrawal_shard);
-        s.append(&self.withdrawal_address);
+        s.append(&self.withdrawal_credentials);
         s.append(&self.randao_commitment);
-        s.append(&self.randao_last_change);
-        s.append(&self.balance);
+        s.append(&self.randao_layers);
         s.append(&self.status);
-        s.append(&self.exit_slot);
+        s.append(&self.latest_status_change_slot);
+        s.append(&self.exit_count);
+        s.append(&self.custody_commitment);
+        s.append(&self.latest_custody_reseed_slot);
+        s.append(&self.penultimate_custody_reseed_slot);
     }
 }
 
 impl Decodable for ValidatorRecord {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
-        let (withdrawal_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (withdrawal_address, i) = <_>::ssz_decode(bytes, i)?;
+        let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_commitment, i) = <_>::ssz_decode(bytes, i)?;
-        let (randao_last_change, i) = <_>::ssz_decode(bytes, i)?;
-        let (balance, i) = <_>::ssz_decode(bytes, i)?;
+        let (randao_layers, i) = <_>::ssz_decode(bytes, i)?;
         let (status, i) = <_>::ssz_decode(bytes, i)?;
-        let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_status_change_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
+        let (custody_commitment, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (penultimate_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
                 pubkey,
-                withdrawal_shard,
-                withdrawal_address,
+                withdrawal_credentials,
                 randao_commitment,
-                randao_last_change,
-                balance,
+                randao_layers,
                 status,
-                exit_slot,
+                latest_status_change_slot,
+                exit_count,
+                custody_commitment,
+                latest_custody_reseed_slot,
+                penultimate_custody_reseed_slot
             },
             i,
         ))
@@ -135,13 +143,15 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             pubkey: <_>::random_for_test(rng),
-            withdrawal_shard: <_>::random_for_test(rng),
-            withdrawal_address: <_>::random_for_test(rng),
+            withdrawal_credentials: <_>::random_for_test(rng),
             randao_commitment: <_>::random_for_test(rng),
-            randao_last_change: <_>::random_for_test(rng),
-            balance: <_>::random_for_test(rng),
+            randao_layers: <_>::random_for_test(rng),
             status: <_>::random_for_test(rng),
-            exit_slot: <_>::random_for_test(rng),
+            latest_status_change_slot: <_>::random_for_test(rng),
+            exit_count: <_>::random_for_test(rng),
+            custody_commitment: <_>::random_for_test(rng),
+            latest_custody_reseed_slot: <_>::random_for_test(rng),
+            penultimate_custody_reseed_slot: <_>::random_for_test(rng),
         }
     }
 }

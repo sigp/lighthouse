@@ -8,3 +8,4 @@ edition = "2018"
 bls = { path = "../utils/bls" }
 hashing = { path = "../utils/hashing" }
 types = { path = "../types" }
+spec = { path = "../spec" }
