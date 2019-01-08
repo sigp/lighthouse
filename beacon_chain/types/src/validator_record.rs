@@ -1,4 +1,4 @@
-use super::bls::{Keypair, PublicKey};
+use super::bls::PublicKey;
 use super::{Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
@@ -38,9 +38,9 @@ pub struct ValidatorRecord {
     pub status: ValidatorStatus,
     pub latest_status_change_slot: u64,
     pub exit_count: u64,
-    pub poc_commitment: Hash256,
-    pub last_poc_change_slot: u64,
-    pub second_last_poc_slot: u64
+    pub custody_commitment: Hash256,
+    pub latest_custody_reseed_slot: u64,
+    pub penultimate_custody_reseed_slot: u64
 }
 
 impl ValidatorRecord {
@@ -102,9 +102,9 @@ impl Encodable for ValidatorRecord {
         s.append(&self.status);
         s.append(&self.latest_status_change_slot);
         s.append(&self.exit_count);
-        s.append(&self.poc_commitment);
-        s.append(&self.last_poc_change_slot);
-        s.append(&self.second_last_poc_slot);
+        s.append(&self.custody_commitment);
+        s.append(&self.latest_custody_reseed_slot);
+        s.append(&self.penultimate_custody_reseed_slot);
     }
 }
 
@@ -117,9 +117,9 @@ impl Decodable for ValidatorRecord {
         let (status, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_status_change_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
-        let (poc_commitment, i) = <_>::ssz_decode(bytes, i)?;
-        let (last_poc_change_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (second_last_poc_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (custody_commitment, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (penultimate_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
@@ -130,9 +130,9 @@ impl Decodable for ValidatorRecord {
                 status,
                 latest_status_change_slot,
                 exit_count,
-                poc_commitment,
-                last_poc_change_slot,
-                second_last_poc_slot
+                custody_commitment,
+                latest_custody_reseed_slot,
+                penultimate_custody_reseed_slot
             },
             i,
         ))
@@ -149,9 +149,9 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             status: <_>::random_for_test(rng),
             latest_status_change_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
-            poc_commitment: <_>::random_for_test(rng),
-            last_poc_change_slot: <_>::random_for_test(rng),
-            second_last_poc_slot: <_>::random_for_test(rng),
+            custody_commitment: <_>::random_for_test(rng),
+            latest_custody_reseed_slot: <_>::random_for_test(rng),
+            penultimate_custody_reseed_slot: <_>::random_for_test(rng),
         }
     }
 }

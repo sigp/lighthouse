@@ -43,9 +43,9 @@ pub fn process_deposit(
                 status: ValidatorStatus::PendingActivation,
                 latest_status_change_slot: state.validator_registry_latest_change_slot,
                 exit_count: 0,
-                poc_commitment: deposit_input.poc_commitment,
-                last_poc_change_slot: 0,
-                second_last_poc_slot: 0
+                custody_commitment: deposit_input.custody_commitment,
+                latest_custody_reseed_slot: 0,
+                penultimate_custody_reseed_slot: 0
             };
             
             match min_empty_validator_index(state, spec) {
