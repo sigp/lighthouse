@@ -5,25 +5,20 @@ use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 use std::convert;
 
+const STATUS_FLAG_INITIATED_EXIT: u8 = 1;
+const STATUS_FLAG_WITHDRAWABLE: u8 = 2;
+
 #[derive(Debug, PartialEq, Clone)]
-pub enum ValidatorStatus {
-    PendingActivation,
-    Active,
-    PendingExit,
-    PendingWithdraw,
-    Withdrawn,
-    Penalized,
+pub enum StatusFlags {
+    InitiatedExit,
+    Withdrawable,
 }
 
-impl convert::From<u8> for ValidatorStatus {
-    fn from(status: u8) -> Self {
-        match status {
-            0 => ValidatorStatus::PendingActivation,
-            1 => ValidatorStatus::Active,
-            2 => ValidatorStatus::PendingExit,
-            3 => ValidatorStatus::PendingWithdraw,
-            5 => ValidatorStatus::Withdrawn,
-            127 => ValidatorStatus::Penalized,
+impl convert::From<u8> for StatusFlags {
+    fn from(status_flag: u8) -> Self {
+        match status_flag {
+            STATUS_FLAG_INITIATED_EXIT => StatusFlags::InitiatedExit,
+            STATUS_FLAG_WITHDRAWABLE => StatusFlags::Withdrawable,
             _ => unreachable!(),
         }
     }
@@ -37,56 +32,35 @@ pub struct ValidatorRecord {
     pub randao_commitment: Hash256,
     pub randao_last_change: u64,
     pub balance: u64,
-    pub status: ValidatorStatus,
+    pub status_flags: StatusFlags,
     pub exit_slot: u64,
 }
 
-impl ValidatorRecord {
-    pub fn status_is(&self, status: ValidatorStatus) -> bool {
-        self.status == status
-    }
-}
-
-impl Encodable for ValidatorStatus {
+impl Encodable for StatusFlags {
     fn ssz_append(&self, s: &mut SszStream) {
         let byte: u8 = match self {
-            ValidatorStatus::PendingActivation => 0,
-            ValidatorStatus::Active => 1,
-            ValidatorStatus::PendingExit => 2,
-            ValidatorStatus::PendingWithdraw => 3,
-            ValidatorStatus::Withdrawn => 5,
-            ValidatorStatus::Penalized => 127,
+            StatusFlags::InitiatedExit => STATUS_FLAG_INITIATED_EXIT,
+            StatusFlags::Withdrawable => STATUS_FLAG_WITHDRAWABLE,
         };
         s.append(&byte);
     }
 }
 
-impl Decodable for ValidatorStatus {
+impl Decodable for StatusFlags {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (byte, i) = u8::ssz_decode(bytes, i)?;
         let status = match byte {
-            0 => ValidatorStatus::PendingActivation,
-            1 => ValidatorStatus::Active,
-            2 => ValidatorStatus::PendingExit,
-            3 => ValidatorStatus::PendingWithdraw,
-            5 => ValidatorStatus::Withdrawn,
-            127 => ValidatorStatus::Penalized,
+            1 => StatusFlags::InitiatedExit,
+            2 => StatusFlags::Withdrawable,
             _ => return Err(DecodeError::Invalid),
         };
         Ok((status, i))
     }
 }
 
-impl<T: RngCore> TestRandom<T> for ValidatorStatus {
+impl<T: RngCore> TestRandom<T> for StatusFlags {
     fn random_for_test(rng: &mut T) -> Self {
-        let options = vec![
-            ValidatorStatus::PendingActivation,
-            ValidatorStatus::Active,
-            ValidatorStatus::PendingExit,
-            ValidatorStatus::PendingWithdraw,
-            ValidatorStatus::Withdrawn,
-            ValidatorStatus::Penalized,
-        ];
+        let options = vec![StatusFlags::InitiatedExit, StatusFlags::Withdrawable];
         options[(rng.next_u32() as usize) % options.len()].clone()
     }
 }
@@ -99,7 +73,7 @@ impl Encodable for ValidatorRecord {
         s.append(&self.randao_commitment);
         s.append(&self.randao_last_change);
         s.append(&self.balance);
-        s.append(&self.status);
+        s.append(&self.status_flags);
         s.append(&self.exit_slot);
     }
 }
@@ -112,7 +86,7 @@ impl Decodable for ValidatorRecord {
         let (randao_commitment, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_last_change, i) = <_>::ssz_decode(bytes, i)?;
         let (balance, i) = <_>::ssz_decode(bytes, i)?;
-        let (status, i) = <_>::ssz_decode(bytes, i)?;
+        let (status_flags, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
@@ -123,7 +97,7 @@ impl Decodable for ValidatorRecord {
                 randao_commitment,
                 randao_last_change,
                 balance,
-                status,
+                status_flags,
                 exit_slot,
             },
             i,
@@ -140,7 +114,7 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             randao_commitment: <_>::random_for_test(rng),
             randao_last_change: <_>::random_for_test(rng),
             balance: <_>::random_for_test(rng),
-            status: <_>::random_for_test(rng),
+            status_flags: <_>::random_for_test(rng),
             exit_slot: <_>::random_for_test(rng),
         }
     }
@@ -167,7 +141,7 @@ mod tests {
     #[test]
     pub fn test_validator_status_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = ValidatorStatus::random_for_test(&mut rng);
+        let original = StatusFlags::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
