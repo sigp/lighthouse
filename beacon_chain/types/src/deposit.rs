@@ -1,8 +1,7 @@
 use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
-use super::{DepositData, DepositInput, Hash256};
+use super::{DepositData, Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
-use bls::{Keypair, create_proof_of_possession};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Deposit {

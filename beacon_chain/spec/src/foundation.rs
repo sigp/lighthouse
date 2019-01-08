@@ -106,9 +106,9 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
             status: From::from(0),
             latest_status_change_slot: 0,
             exit_count: 0,
-            poc_commitment: Hash256::zero(),
-            last_poc_change_slot: 0,
-            second_last_poc_slot: 0
+            custody_commitment: Hash256::zero(),
+            latest_custody_reseed_slot: 0,
+            penultimate_custody_reseed_slot: 0
         };
         initial_validators.push(validator_record);
     }
