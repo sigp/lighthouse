@@ -12,8 +12,6 @@ pub enum Error {
 pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
     /*
      * Assign the validators to shards, using all zeros as the seed.
-     *
-     * Crystallizedstate stores two cycles, so we simply repeat the same assignment twice.
      */
     let _shard_and_committee_for_slots = {
         let mut a = shard_and_committees_for_cycle(&[0; 32], &spec.initial_validators, 0, &spec)?;
