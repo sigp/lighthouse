@@ -81,11 +81,22 @@ fn min_empty_validator_index(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     
     use bls::{create_proof_of_possession, Keypair};
     
     /// The size of a validators deposit in GWei.
     pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
+    
+    fn get_deposit() -> Deposit {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut deposit = Deposit::random_for_test(&mut rng);
+        
+        let kp = Keypair::random();
+        deposit.deposit_data.deposit_input.pubkey = kp.pk.clone();
+        deposit.deposit_data.deposit_input.proof_of_possession = create_proof_of_possession(&kp);
+        deposit
+    }
     
     fn deposit_equals_record(dep: &Deposit, val: &ValidatorRecord) -> bool {
         (dep.deposit_data.deposit_input.pubkey == val.pubkey)
@@ -97,7 +108,7 @@ mod tests {
     #[test]
     fn test_process_deposit_valid_empty_validators() {
         let mut state = BeaconState::default();
-        let mut deposit = Deposit::zero_with_rand_keypair();
+        let mut deposit = get_deposit();
         let spec = ChainSpec::foundation();
         deposit.deposit_data.value = DEPOSIT_GWEI;
         
@@ -115,7 +126,7 @@ mod tests {
         let spec = ChainSpec::foundation();
 
         for i in 0..5 {
-            let mut deposit = Deposit::zero_with_rand_keypair();
+            let mut deposit = get_deposit();
             let result = process_deposit(&mut state, &deposit, &spec);
             deposit.deposit_data.value = DEPOSIT_GWEI;
             assert_eq!(result.unwrap(), i);
@@ -130,7 +141,7 @@ mod tests {
         let mut state = BeaconState::default();
         let spec = ChainSpec::foundation();
         
-        let mut deposit = Deposit::zero_with_rand_keypair();
+        let mut deposit = get_deposit();
         let mut validator = ValidatorRecord::zero_with_rand_keypair();
         deposit.deposit_data.value = DEPOSIT_GWEI;
         validator.pubkey = deposit.deposit_data.deposit_input.pubkey.clone();
@@ -158,7 +169,7 @@ mod tests {
         state.validator_registry.push(validator);
         state.validator_balances.push(0);
         
-        let mut deposit = Deposit::zero_with_rand_keypair();
+        let mut deposit = get_deposit();
         deposit.deposit_data.value = DEPOSIT_GWEI;
         state.slot = spec.zero_balance_validator_ttl;
         
@@ -174,7 +185,7 @@ mod tests {
     #[test]
     fn test_process_deposit_invalid_proof_of_possession() {    
         let mut state = BeaconState::default();
-        let mut deposit = Deposit::zero_with_rand_keypair();
+        let mut deposit = get_deposit();
         let spec = ChainSpec::foundation();
         deposit.deposit_data.value = DEPOSIT_GWEI;
         deposit.deposit_data.deposit_input.proof_of_possession = create_proof_of_possession(&Keypair::random());
