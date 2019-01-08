@@ -26,7 +26,6 @@ pub mod shard_reassignment_record;
 pub mod special_record;
 pub mod slashable_vote_data;
 pub mod validator_record;
-pub mod validator_registration;
 
 use self::ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
@@ -50,7 +49,6 @@ pub use crate::slashable_vote_data::SlashableVoteData;
 pub use crate::shard_committee::ShardCommittee;
 pub use crate::special_record::{SpecialRecord, SpecialRecordKind};
 pub use crate::validator_record::{ValidatorRecord, ValidatorStatus};
-pub use crate::validator_registration::ValidatorRegistration;
 
 pub type Hash256 = H256;
 pub type Address = H160;

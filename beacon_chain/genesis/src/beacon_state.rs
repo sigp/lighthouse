@@ -1,6 +1,5 @@
 use spec::ChainSpec;
-use types::{BeaconState, CrosslinkRecord, ForkData, ValidatorStatus};
-use validator_induction::ValidatorInductor;
+use types::{BeaconState, CrosslinkRecord, ForkData};
 use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
 #[derive(Debug, PartialEq)]
@@ -12,25 +11,10 @@ pub enum Error {
 
 pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
     /*
-     * Parse the ValidatorRegistrations into ValidatorRecords and induct them.
-     *
-     * Ignore any records which fail proof-of-possession or are invalid.
-     */
-    let validators = {
-        let mut inductor = ValidatorInductor::new(0, spec.shard_count, vec![]);
-        for registration in &spec.initial_validators {
-            let _ = inductor.induct(&registration, ValidatorStatus::Active);
-        }
-        inductor.to_vec()
-    };
-
-    /*
      * Assign the validators to shards, using all zeros as the seed.
-     *
-     * Crystallizedstate stores two cycles, so we simply repeat the same assignment twice.
      */
     let _shard_and_committee_for_slots = {
-        let mut a = shard_and_committees_for_cycle(&[0; 32], &validators, 0, &spec)?;
+        let mut a = shard_and_committees_for_cycle(&[0; 32], &spec.initial_validators, 0, &spec)?;
         let mut b = a.clone();
         a.append(&mut b);
         a
@@ -55,7 +39,8 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         /*
          * Validator registry
          */
-        validator_registry: validators,
+        validator_registry: spec.initial_validators.clone(),
+        validator_balances: spec.initial_balances.clone(),
         validator_registry_latest_change_slot: spec.initial_slot_number,
         validator_registry_exit_count: 0,
         validator_registry_delta_chain_tip: spec.zero_hash,
@@ -100,7 +85,6 @@ mod tests {
     extern crate bls;
     extern crate validator_induction;
 
-    use self::bls::{create_proof_of_possession, Keypair};
     use super::*;
 
     // TODO: enhance these tests.
@@ -115,21 +99,6 @@ mod tests {
         assert_eq!(
             state.validator_registry.len(),
             spec.initial_validators.len()
-        );
-    }
-
-    #[test]
-    fn test_genesis_bad_validator() {
-        let mut spec = ChainSpec::foundation();
-
-        let random_kp = Keypair::random();
-        spec.initial_validators[4].proof_of_possession = create_proof_of_possession(&random_kp);
-
-        let state = genesis_beacon_state(&spec).unwrap();
-
-        assert_eq!(
-            state.validator_registry.len(),
-            spec.initial_validators.len() - 1
         );
     }
 }
