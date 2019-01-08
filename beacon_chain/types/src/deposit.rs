@@ -11,29 +11,6 @@ pub struct Deposit {
     pub deposit_data: DepositData,
 }
 
-impl Deposit {
-    pub fn zero_with_rand_keypair() -> Self{
-        let kp = Keypair::random();
-        let deposit_input = DepositInput {
-            pubkey: kp.pk.clone(),
-            withdrawal_credentials: Hash256::zero(),
-            randao_commitment: Hash256::zero(),
-            poc_commitment: Hash256::zero(),
-            proof_of_possession: create_proof_of_possession(&kp)
-        };
-        let deposit_data = DepositData {
-            deposit_input: deposit_input,
-            value: 0,
-            timestamp: 0
-        };
-        Self {
-            merkle_branch: Vec::new(),
-            merkle_tree_index: 0,
-            deposit_data: deposit_data
-        }
-    }
-}
-
 impl Encodable for Deposit {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append_vec(&self.merkle_branch);
