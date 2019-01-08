@@ -101,6 +101,22 @@ mod tests {
     test_crud_for_store!(BeaconBlockStore, DB_COLUMN);
 
     #[test]
+    fn head_hash_slot_too_low() {
+        let db = Arc::new(MemoryDB::open());
+        let bs = Arc::new(BeaconBlockStore::new(db.clone()));
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+
+        let mut block = BeaconBlock::random_for_test(&mut rng);
+        block.slot = 10;
+
+        let block_root = block.canonical_root();
+        bs.put(&block_root, &ssz_encode(&block)).unwrap();
+
+        let result = bs.block_at_slot(&block_root, 11).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
     fn test_invalid_block_at_slot() {
         let db = Arc::new(MemoryDB::open());
         let store = BeaconBlockStore::new(db.clone());
