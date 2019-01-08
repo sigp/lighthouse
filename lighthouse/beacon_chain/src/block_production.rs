@@ -18,6 +18,11 @@ where
     Error: From<<U as SlotClock>::Error>,
 {
     pub fn produce_block(&mut self) -> Result<(BeaconBlock, BeaconState), Error> {
+        /*
+         * Important: this code is a big stub and only exists to ensure that tests pass.
+         *
+         * https://github.com/sigp/lighthouse/issues/107
+         */
         let present_slot = self
             .slot_clock
             .present_slot()?
