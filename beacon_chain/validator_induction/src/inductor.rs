@@ -98,6 +98,11 @@ mod tests {
         deposit
     }
     
+    fn get_validator() -> ValidatorRecord {    
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        ValidatorRecord::random_for_test(&mut rng)
+    }
+    
     fn deposit_equals_record(dep: &Deposit, val: &ValidatorRecord) -> bool {
         (dep.deposit_data.deposit_input.pubkey == val.pubkey)
             & (dep.deposit_data.deposit_input.withdrawal_credentials == val.withdrawal_credentials)
@@ -142,7 +147,8 @@ mod tests {
         let spec = ChainSpec::foundation();
         
         let mut deposit = get_deposit();
-        let mut validator = ValidatorRecord::zero_with_rand_keypair();
+        let mut validator = get_validator();
+        
         deposit.deposit_data.value = DEPOSIT_GWEI;
         validator.pubkey = deposit.deposit_data.deposit_input.pubkey.clone();
         validator.withdrawal_credentials = deposit.deposit_data.deposit_input.withdrawal_credentials;
@@ -165,7 +171,8 @@ mod tests {
         let mut state = BeaconState::default();
         let spec = ChainSpec::foundation();
             
-        let validator = ValidatorRecord::zero_with_rand_keypair();
+        let mut validator = get_validator();
+        validator.latest_status_change_slot = 0;
         state.validator_registry.push(validator);
         state.validator_balances.push(0);
         
