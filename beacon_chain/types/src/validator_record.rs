@@ -5,7 +5,7 @@ use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 use std::convert;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ValidatorStatus {
     PendingActivation,
     Active,
@@ -89,7 +89,7 @@ impl<T: RngCore> TestRandom<T> for ValidatorStatus {
             ValidatorStatus::Withdrawn,
             ValidatorStatus::Penalized,
         ];
-        options[(rng.next_u32() as usize) % options.len()].clone()
+        options[(rng.next_u32() as usize) % options.len()]
     }
 }
 
@@ -160,8 +160,7 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
-    use crate::test_utils::TestRandom;
-    use rand::{prng::XorShiftRng, SeedableRng};
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
     #[test]
     pub fn test_ssz_round_trip() {

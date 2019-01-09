@@ -1,7 +1,8 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use super::{BeaconBlockBody, Hash256};
 use crate::test_utils::TestRandom;
 use bls::Signature;
+use hashing::canonical_hash;
 use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -13,6 +14,14 @@ pub struct BeaconBlock {
     pub candidate_pow_receipt_root: Hash256,
     pub signature: Signature,
     pub body: BeaconBlockBody,
+}
+
+impl BeaconBlock {
+    pub fn canonical_root(&self) -> Hash256 {
+        // TODO: implement tree hashing.
+        // https://github.com/sigp/lighthouse/issues/70
+        Hash256::from(&canonical_hash(&ssz_encode(self))[..])
+    }
 }
 
 impl Encodable for BeaconBlock {
@@ -70,8 +79,7 @@ impl<T: RngCore> TestRandom<T> for BeaconBlock {
 mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
-    use crate::test_utils::TestRandom;
-    use rand::{prng::XorShiftRng, SeedableRng};
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
     #[test]
     pub fn test_ssz_round_trip() {

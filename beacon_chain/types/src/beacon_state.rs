@@ -7,8 +7,9 @@ use super::shard_reassignment_record::ShardReassignmentRecord;
 use super::validator_record::ValidatorRecord;
 use super::Hash256;
 use crate::test_utils::TestRandom;
+use hashing::canonical_hash;
 use rand::RngCore;
-use ssz::{Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct BeaconState {
@@ -52,7 +53,7 @@ impl BeaconState {
     pub fn canonical_root(&self) -> Hash256 {
         // TODO: implement tree hashing.
         // https://github.com/sigp/lighthouse/issues/70
-        Hash256::zero()
+        Hash256::from(&canonical_hash(&ssz_encode(self))[..])
     }
 }
 
@@ -168,5 +169,23 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             processed_pow_receipt_root: <_>::random_for_test(rng),
             candidate_pow_receipt_roots: <_>::random_for_test(rng),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::ssz::ssz_encode;
+    use super::*;
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+
+    #[test]
+    pub fn test_ssz_round_trip() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = BeaconState::random_for_test(&mut rng);
+
+        let bytes = ssz_encode(&original);
+        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
+
+        assert_eq!(original, decoded);
     }
 }

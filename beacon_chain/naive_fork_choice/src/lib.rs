@@ -15,8 +15,8 @@ pub enum ForkChoiceError {
 }
 
 pub fn naive_fork_choice<T>(
-    head_block_hashes: &Vec<Hash256>,
-    block_store: Arc<BeaconBlockStore<T>>,
+    head_block_hashes: &[Hash256],
+    block_store: &Arc<BeaconBlockStore<T>>,
 ) -> Result<Option<usize>, ForkChoiceError>
 where
     T: ClientDB + Sized,
@@ -28,7 +28,7 @@ where
      */
     for (index, block_hash) in head_block_hashes.iter().enumerate() {
         let ssz = block_store
-            .get_serialized_block(&block_hash.to_vec()[..])?
+            .get(&block_hash)?
             .ok_or(ForkChoiceError::MissingBlock)?;
         let (block, _) = BeaconBlock::ssz_decode(&ssz, 0)?;
         head_blocks.push((index, block));
