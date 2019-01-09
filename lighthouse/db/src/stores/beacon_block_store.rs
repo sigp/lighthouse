@@ -1,11 +1,8 @@
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
-use ssz::{Decodable, DecodeError};
+use ssz::Decodable;
 use std::sync::Arc;
-use types::Hash256;
-
-type BeaconBlockHash = Vec<u8>;
-type BeaconBlockSsz = Vec<u8>;
+use types::{readers::BeaconBlockReader, BeaconBlock, Hash256};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BeaconBlockAtSlotError {
@@ -21,25 +18,29 @@ where
     db: Arc<T>,
 }
 
+// Implements `put`, `get`, `exists` and `delete` for the store.
+impl_crud_for_store!(BeaconBlockStore, DB_COLUMN);
+
 impl<T: ClientDB> BeaconBlockStore<T> {
     pub fn new(db: Arc<T>) -> Self {
         Self { db }
     }
 
-    pub fn put_serialized_block(&self, hash: &[u8], ssz: &[u8]) -> Result<(), DBError> {
-        self.db.put(DB_COLUMN, hash, ssz)
-    }
-
-    pub fn get_serialized_block(&self, hash: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        self.db.get(DB_COLUMN, hash)
-    }
-
-    pub fn block_exists(&self, hash: &[u8]) -> Result<bool, DBError> {
-        self.db.exists(DB_COLUMN, hash)
-    }
-
-    pub fn delete_block(&self, hash: &[u8]) -> Result<(), DBError> {
-        self.db.delete(DB_COLUMN, hash)
+    /// Retuns an object implementing `BeaconBlockReader`, or `None` (if hash not known).
+    ///
+    /// Note: Presently, this function fully deserializes a `BeaconBlock` and returns that. In the
+    /// future, it would be ideal to return an object capable of reading directly from serialized
+    /// SSZ bytes.
+    pub fn get_reader(&self, hash: &Hash256) -> Result<Option<impl BeaconBlockReader>, DBError> {
+        match self.get(&hash)? {
+            None => Ok(None),
+            Some(ssz) => {
+                let (block, _) = BeaconBlock::ssz_decode(&ssz, 0).map_err(|_| DBError {
+                    message: "Bad BeaconBlock SSZ.".to_string(),
+                })?;
+                Ok(Some(block))
+            }
+        }
     }
 
     /// Retrieve the block at a slot given a "head_hash" and a slot.
@@ -51,35 +52,31 @@ impl<T: ClientDB> BeaconBlockStore<T> {
     /// slot number. If the slot is skipped, the function will return None.
     ///
     /// If a block is found, a tuple of (block_hash, serialized_block) is returned.
+    ///
+    /// Note: this function uses a loop instead of recursion as the compiler is over-strict when it
+    /// comes to recursion and the `impl Trait` pattern. See:
+    /// https://stackoverflow.com/questions/54032940/using-impl-trait-in-a-recursive-function
     pub fn block_at_slot(
         &self,
-        head_hash: &[u8],
+        head_hash: &Hash256,
         slot: u64,
-    ) -> Result<Option<(BeaconBlockHash, BeaconBlockSsz)>, BeaconBlockAtSlotError> {
-        match self.get_serialized_block(head_hash)? {
-            None => Err(BeaconBlockAtSlotError::UnknownBeaconBlock),
-            Some(ssz) => {
-                let (retrieved_slot, parent_hash) = slot_and_parent_from_block_ssz(&ssz, 0)
-                    .map_err(|_| BeaconBlockAtSlotError::InvalidBeaconBlock)?;
-                match retrieved_slot {
-                    s if s == slot => Ok(Some((head_hash.to_vec(), ssz.to_vec()))),
-                    s if s < slot => Ok(None),
-                    _ => self.block_at_slot(&parent_hash, slot),
+    ) -> Result<Option<(Hash256, impl BeaconBlockReader)>, BeaconBlockAtSlotError> {
+        let mut current_hash = *head_hash;
+
+        loop {
+            if let Some(block_reader) = self.get_reader(&current_hash)? {
+                if block_reader.slot() == slot {
+                    break Ok(Some((current_hash, block_reader)));
+                } else if block_reader.slot() < slot {
+                    break Ok(None);
+                } else {
+                    current_hash = block_reader.parent_root();
                 }
+            } else {
+                break Err(BeaconBlockAtSlotError::UnknownBeaconBlock);
             }
         }
     }
-}
-
-/// Read `block.slot` and `block.parent_root` from a SSZ-encoded block bytes.
-///
-/// Assumes the block starts at byte `i`.
-fn slot_and_parent_from_block_ssz(ssz: &[u8], i: usize) -> Result<(u64, Hash256), DecodeError> {
-    // Assuming the slot is the first field on a block.
-    let (slot, i) = u64::ssz_decode(&ssz, i)?;
-    // Assuming the parent has is the second field on a block.
-    let (parent_root, _) = Hash256::ssz_decode(&ssz, i)?;
-    Ok((slot, parent_root))
 }
 
 impl From<DBError> for BeaconBlockAtSlotError {
@@ -101,81 +98,22 @@ mod tests {
     use types::BeaconBlock;
     use types::Hash256;
 
-    #[test]
-    fn test_put_serialized_block() {
-        let db = Arc::new(MemoryDB::open());
-        let store = BeaconBlockStore::new(db.clone());
-
-        let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
-
-        store.put_serialized_block(hash, ssz).unwrap();
-        assert_eq!(db.get(DB_COLUMN, hash).unwrap().unwrap(), ssz);
-    }
+    test_crud_for_store!(BeaconBlockStore, DB_COLUMN);
 
     #[test]
-    fn test_get_serialized_block() {
+    fn head_hash_slot_too_low() {
         let db = Arc::new(MemoryDB::open());
-        let store = BeaconBlockStore::new(db.clone());
+        let bs = Arc::new(BeaconBlockStore::new(db.clone()));
+        let mut rng = XorShiftRng::from_seed([42; 16]);
 
-        let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let mut block = BeaconBlock::random_for_test(&mut rng);
+        block.slot = 10;
 
-        db.put(DB_COLUMN, hash, ssz).unwrap();
-        assert_eq!(store.get_serialized_block(hash).unwrap().unwrap(), ssz);
-    }
+        let block_root = block.canonical_root();
+        bs.put(&block_root, &ssz_encode(&block)).unwrap();
 
-    #[test]
-    fn test_get_unknown_serialized_block() {
-        let db = Arc::new(MemoryDB::open());
-        let store = BeaconBlockStore::new(db.clone());
-
-        let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
-        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
-
-        db.put(DB_COLUMN, other_hash, ssz).unwrap();
-        assert_eq!(store.get_serialized_block(hash).unwrap(), None);
-    }
-
-    #[test]
-    fn test_block_exists() {
-        let db = Arc::new(MemoryDB::open());
-        let store = BeaconBlockStore::new(db.clone());
-
-        let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
-
-        db.put(DB_COLUMN, hash, ssz).unwrap();
-        assert!(store.block_exists(hash).unwrap());
-    }
-
-    #[test]
-    fn test_block_does_not_exist() {
-        let db = Arc::new(MemoryDB::open());
-        let store = BeaconBlockStore::new(db.clone());
-
-        let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
-        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
-
-        db.put(DB_COLUMN, hash, ssz).unwrap();
-        assert!(!store.block_exists(other_hash).unwrap());
-    }
-
-    #[test]
-    fn test_delete_block() {
-        let db = Arc::new(MemoryDB::open());
-        let store = BeaconBlockStore::new(db.clone());
-
-        let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
-
-        db.put(DB_COLUMN, hash, ssz).unwrap();
-        assert!(db.exists(DB_COLUMN, hash).unwrap());
-
-        store.delete_block(hash).unwrap();
-        assert!(!db.exists(DB_COLUMN, hash).unwrap());
+        let result = bs.block_at_slot(&block_root, 11).unwrap();
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -184,12 +122,14 @@ mod tests {
         let store = BeaconBlockStore::new(db.clone());
 
         let ssz = "definitly not a valid block".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let hash = &Hash256::from("some hash".as_bytes());
 
         db.put(DB_COLUMN, hash, ssz).unwrap();
         assert_eq!(
             store.block_at_slot(hash, 42),
-            Err(BeaconBlockAtSlotError::InvalidBeaconBlock)
+            Err(BeaconBlockAtSlotError::DBError(
+                "Bad BeaconBlock SSZ.".into()
+            ))
         );
     }
 
@@ -199,8 +139,8 @@ mod tests {
         let store = BeaconBlockStore::new(db.clone());
 
         let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
-        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
+        let hash = &Hash256::from("some hash".as_bytes());
+        let other_hash = &Hash256::from("another hash".as_bytes());
 
         db.put(DB_COLUMN, hash, ssz).unwrap();
         assert_eq!(
@@ -228,7 +168,7 @@ mod tests {
                 for w in 0..wc {
                     let key = (t * w) as u8;
                     let val = 42;
-                    bs.put_serialized_block(&vec![key], &vec![val]).unwrap();
+                    bs.put(&[key][..].into(), &vec![val]).unwrap();
                 }
             });
             handles.push(handle);
@@ -241,8 +181,8 @@ mod tests {
         for t in 0..thread_count {
             for w in 0..write_count {
                 let key = (t * w) as u8;
-                assert!(bs.block_exists(&vec![key]).unwrap());
-                let val = bs.get_serialized_block(&vec![key]).unwrap().unwrap();
+                assert!(bs.exists(&[key][..].into()).unwrap());
+                let val = bs.get(&[key][..].into()).unwrap().unwrap();
                 assert_eq!(vec![42], val);
             }
         }
@@ -281,13 +221,7 @@ mod tests {
             block.slot = slots[i];
 
             let ssz = ssz_encode(&block);
-            db.put(DB_COLUMN, &hashes[i].to_vec(), &ssz).unwrap();
-
-            // Ensure the slot and parent_root decoding fn works correctly.
-            let (decoded_slot, decoded_parent_root) =
-                slot_and_parent_from_block_ssz(&ssz, 0).unwrap();
-            assert_eq!(decoded_slot, block.slot);
-            assert_eq!(decoded_parent_root, block.parent_root);
+            db.put(DB_COLUMN, &hashes[i], &ssz).unwrap();
 
             blocks.push(block);
         }
@@ -295,14 +229,12 @@ mod tests {
         // Test that certain slots can be reached from certain hashes.
         let test_cases = vec![(4, 4), (4, 3), (4, 2), (4, 1), (4, 0)];
         for (hashes_index, slot_index) in test_cases {
-            let (matched_block_hash, matched_block_ssz) = bs
+            let (matched_block_hash, reader) = bs
                 .block_at_slot(&hashes[hashes_index], slots[slot_index])
                 .unwrap()
                 .unwrap();
-            let (retrieved_slot, _) =
-                slot_and_parent_from_block_ssz(&matched_block_ssz, 0).unwrap();
-            assert_eq!(retrieved_slot, slots[slot_index]);
-            assert_eq!(matched_block_hash, hashes[slot_index].to_vec());
+            assert_eq!(matched_block_hash, hashes[slot_index]);
+            assert_eq!(reader.slot(), slots[slot_index]);
         }
 
         let ssz = bs.block_at_slot(&hashes[4], 2).unwrap();

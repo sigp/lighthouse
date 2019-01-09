@@ -68,7 +68,7 @@ impl ChainSpec {
              */
             initial_validators: initial_validators_for_testing(),
             initial_balances: initial_balances_for_testing(),
-            genesis_time: 1544672897,
+            genesis_time: 1_544_672_897,
             processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
         }
     }
@@ -108,7 +108,7 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
             exit_count: 0,
             custody_commitment: Hash256::zero(),
             latest_custody_reseed_slot: 0,
-            penultimate_custody_reseed_slot: 0
+            penultimate_custody_reseed_slot: 0,
         };
         initial_validators.push(validator_record);
     }
