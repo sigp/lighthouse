@@ -42,6 +42,12 @@ pub struct ValidatorRecord {
     pub penultimate_custody_reseed_slot: u64,
 }
 
+impl ValidatorRecord {
+    pub fn is_active_at(&self, slot: u64) -> bool {
+        self.activation_slot <= slot && slot < self.exit_slot
+    }
+}
+
 impl default::Default for ValidatorRecord {
     fn default() -> Self {
         Self {
@@ -199,5 +205,27 @@ mod tests {
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_validator_can_be_active() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut validator = ValidatorRecord::random_for_test(&mut rng);
+
+        let activation_slot = u64::random_for_test(&mut rng);
+        let exit_slot = activation_slot + 234;
+
+        validator.activation_slot = activation_slot;
+        validator.exit_slot = exit_slot;
+
+        for slot in (activation_slot - 100)..(exit_slot + 100) {
+            if slot < activation_slot {
+                assert!(!validator.is_active_at(slot));
+            } else if slot >= exit_slot {
+                assert!(!validator.is_active_at(slot));
+            } else {
+                assert!(validator.is_active_at(slot));
+            }
+        }
     }
 }
