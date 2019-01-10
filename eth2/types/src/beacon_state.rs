@@ -64,6 +64,21 @@ impl BeaconState {
         // https://github.com/sigp/lighthouse/issues/70
         Hash256::from(&canonical_hash(&ssz_encode(self))[..])
     }
+
+    /// Returns the `ShardCommittee` for the `slot`.
+    pub fn get_shard_committees_at_slot(
+        &self,
+        slot: u64,
+        epoch_length: u64,
+    ) -> Option<&Vec<ShardCommittee>> {
+        let earliest_slot_in_array = self.slot - (self.slot % epoch_length) - epoch_length;
+        if earliest_slot_in_array <= slot && slot < earliest_slot_in_array + epoch_length * 2 {
+            let index = (slot - earliest_slot_in_array) as usize;
+            self.shard_committees_at_slots.get(index)
+        } else {
+            None
+        }
+    }
 }
 
 impl Encodable for BeaconState {
