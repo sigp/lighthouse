@@ -1,5 +1,7 @@
 # Contributing to Lighthouse
 
+[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/sigp/lighthouse?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
 Lighthouse is an open-source Ethereum Serenity client built in
 [Rust](https://www.rust-lang.org/).
 
@@ -13,39 +15,31 @@ documentation, writing extra tests or developing components, all help is
 appreciated and your contributions will help not only the community but all
 the contributors.
 
+We've bundled up our Goals, Ethos and Ideology into one document for you to
+read through, please read our [About Lighthouse](lighthouse.md) docs. :smile:
+
+Layer-1 infrastructure is a critical component for the ecosystem and relies
+heavily on contributions from the community. Building Ethereum Serenity is a
+huge task and we refuse to conduct an inappropriate ICO or charge licensing
+fees.  Instead, we fund development through grants and support from Sigma
+Prime.
+
 If you have any additional questions, please feel free to jump on the
 [gitter](https://gitter.im/sigp/lighthouse) and have a chat with all of us.
 
-## Ideology
+**Pre-reading Materials:**
 
-### Never Panic
+* [About Lighthouse](lighthouse.md)
+* [Ethereum Serenity](serenity.md)
 
-Lighthouse will be the gateway interacting with the Proof-of-Stake system
-employed by Ethereum. This requires the validation and proposal of blocks
-and extremely timely responses. As part of this, Lighthouse aims to ensure
-the most uptime as possible, meaning minimising the amount of
-exceptions and gracefully handling any issues.
+**Repository**
 
-Rust's `panic` provides the ability to throw an exception and exit, this
-will terminate the running processes. Thus, Lighthouse aims to use `panic`
-as little as possible to minimise the possible termination cases.
-
-### Security First Mindset
-
-Lighthouse aims to provide a safe, secure Serenity client for the Ethereum
-ecosystem. At each step of development, the aim is to have a security-first
-mindset and always ensure you are following the safe, secure mindset. When
-contributing to any part of the Lighthouse client, through any development,
-always ensure you understand each aspect thoroughly and cover all potential
-security considerations of your code.
-
-### Functions aren't completed until they are tested
-
-As part of the Security First mindset, we want to aim to cover as many distinct
-cases. A function being developed is not considered "completed" until tests
-exist for that function. The tests not only help show the correctness of the
-function, but also provide a way for new developers to understand how the
-function is to be called and how it works.
+If you'd like to contribute, try having a look through the [open
+issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
+first
+issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
+your support!
 
 ## Understanding Serenity
 
@@ -54,59 +48,12 @@ Ethereum's Serenity is based on a Proof-of-Stake based sharded beacon chain.
 (*If you don't know what that is, don't `panic`, that's what this documentation
 is for!* :smile:)
 
-### Ethereum
+Read through our [Understanding
+Serenity](https://github.com/sigp/lighthouse/blob/master/docs/serenity.md) docs
+to learn more! :smile: (*unless you've already read it.*)
 
-Ethereum is an open blockchain protocol, allowing for the building and use of
-decentralized applications that run on blockchain technology. The blockchain can
-be seen as a decentralized, distributed ledger of transactions.
-
-General Ethereum Introduction:
-
-* [What is Ethereum](http://ethdocs.org/en/latest/introduction/what-is-ethereum.html)
-* [Ethereum Introduction](https://github.com/ethereum/wiki/wiki/Ethereum-introduction)
-
-
-### Proof-of-Work and the current state of Ethereum.
-
-Currently, Ethereum is based on the Proof-of-Work model, a Sybil resilient
-mechanism to allow nodes to propose blocks to the network. Although it provides
-properties that allow the blockchain to operate in an open, public
-(permissionless) network, it faces it's challenges and as a result impacts
-the operation of the blockchain.
-
-The main goals to advance Ethereum is to (1) increase the scalability and
-overall transaction processing power of the Ethereum world computer and (2)
-find a suitable replacement for Proof-of-Work that still provides the necessary
-properties that we need.
-
-* [Proof-of-Work in Cryptocurrencies: an accessible introduction](https://blog.sigmaprime.io/what-is-proof-of-work.html)
-
-### Serenity
-
-As part of the original Ethereum roadmap
-[\[1\]](https://blog.ethereum.org/2015/03/03/ethereum-launch-process/)
-[\[2\]](http://ethdocs.org/en/latest/introduction/the-homestead-release.html),
-the Proof-of-Stake integration falls under **Release Step 4:*Serenity***. With
-this, a number of changes are to be made to the current Ethereum protocol to
-incorporate some of the new Proof-of-Stake mechanisms as well as improve on
-some of the hindrances faced by the current Proof-of-Work chain.
-
-To now advance the current Ethereum, the decision is made to move to a sharded
-Beacon chain structure where multiple shard-chains will be operating and
-interacting with a central beacon chain.
-
-(Be mindful, the specifications change occasionally, so check these to keep up
-to date)
-
-* Current Specifications:
-  * [Danny Ryan's "State of the Spec"](https://notes.ethereum.org/s/BJEZWNoyE) (A nice summary of the current specifications)
-  * [Ethereum Serenity - Phase 0: Beacon Chain Spec](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md)
-  * [Ethereum Serenity - Phase 1: Sharded Data Chains](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/1_shard-data-chains.md)
-  * [Beacon Chain - Vitalik Buterin and Justin Drake explain](https://www.youtube.com/watch?v=GAywmwGToUI)
-* Understanding Sharding:
-  * [Prysmatic Labs: Sharding Explained](https://medium.com/prysmatic-labs/how-to-scale-ethereum-sharding-explained-ba2e283b7fce)
-* Other relevant resources
-  * [Proof of Stake - Casper FFG](https://www.youtube.com/watch?v=uQ3IqLDf-oo)
+The document explains the necessary fundamentals for understanding Ethereum,
+Proof-of-Stake and the Serenity we are working towards.
 
 ## Development Onboarding
 
@@ -143,7 +90,6 @@ $ curl https://sh.rustup.rs -sSf | sh
 ```
 
 **Windows (You need a bit more):**
-
 * Install the Visual Studio 2015 with C++ support
 * Install Rustup using: https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
 * You can then use the ``VS2015 x64 Native Tools Command Prompt`` and run:
@@ -160,7 +106,6 @@ handy for handling dependencies and helping to modularise your project better.
 
 *Note: If you've installed rust through rustup, you should have ``cargo``
 installed.*
-
 
 #### Rust Terminology
 
@@ -216,6 +161,8 @@ All discussion (whether in PRs or Issues or in the Gitter) should be respectful
 and intellectual. Have fun, but always respect the limits of other people.
 
 **Testing**
+
+*"A function is not considered complete until tests exist for it."*
 
 Generally, tests can be self-contained in the same file. Integration tests
 should be added into the ``tests/`` directory in the crate's **root**.
