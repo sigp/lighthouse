@@ -101,15 +101,7 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
         };
         let validator_record = ValidatorRecord {
             pubkey: keypair.pk.clone(),
-            withdrawal_credentials: Hash256::zero(),
-            randao_commitment: Hash256::zero(),
-            randao_layers: 0,
-            status: From::from(0),
-            latest_status_change_slot: 0,
-            exit_count: 0,
-            custody_commitment: Hash256::zero(),
-            latest_custody_reseed_slot: 0,
-            penultimate_custody_reseed_slot: 0,
+            ..std::default::Default::default()
         };
         initial_validators.push(validator_record);
     }
