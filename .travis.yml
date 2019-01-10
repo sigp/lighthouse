@@ -1,5 +1,7 @@
 language: rust
+cache: cargo
 script:
+  - cargo fmt --all -- --check
   - cargo build --verbose --all
   - cargo test --verbose --all
 rust:
@@ -10,3 +12,6 @@ matrix:
   allow_failures:
     - rust: nightly
   fast_finish: true
+install:
+  - (cargo install rustfmt || true)
+  - PATH=$PATH:/home/travis/.cargo/bin
