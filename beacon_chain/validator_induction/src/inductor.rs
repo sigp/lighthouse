@@ -1,6 +1,6 @@
 use bls::verify_proof_of_possession;
 use spec::ChainSpec;
-use types::{BeaconState, Deposit, ValidatorRecord, ValidatorStatus};
+use types::{BeaconState, Deposit, ValidatorRecord};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {
@@ -43,13 +43,10 @@ pub fn process_deposit(
                 pubkey: deposit_input.pubkey.clone(),
                 withdrawal_credentials: deposit_input.withdrawal_credentials,
                 randao_commitment: deposit_input.randao_commitment,
-                randao_layers: 0,
-                status: ValidatorStatus::PendingActivation,
-                latest_status_change_slot: state.validator_registry_latest_change_slot,
-                exit_count: 0,
                 custody_commitment: deposit_input.custody_commitment,
                 latest_custody_reseed_slot: 0,
                 penultimate_custody_reseed_slot: 0,
+                ..std::default::Default::default()
             };
 
             match min_empty_validator_index(state, spec) {
@@ -68,13 +65,11 @@ pub fn process_deposit(
     }
 }
 
-fn min_empty_validator_index(state: &BeaconState, spec: &ChainSpec) -> Option<usize> {
+// NOTE: this has been modified from the spec to get tests working
+// this function is no longer used in the latest spec so this is simply a transition step
+fn min_empty_validator_index(state: &BeaconState, _spec: &ChainSpec) -> Option<usize> {
     for i in 0..state.validator_registry.len() {
-        if state.validator_balances[i] == 0
-            && state.validator_registry[i].latest_status_change_slot
-                + spec.zero_balance_validator_ttl
-                <= state.slot
-        {
+        if state.validator_balances[i] == 0 {
             return Some(i);
         }
     }
@@ -187,8 +182,7 @@ mod tests {
         let mut state = BeaconState::default();
         let spec = ChainSpec::foundation();
 
-        let mut validator = get_validator();
-        validator.latest_status_change_slot = 0;
+        let validator = get_validator();
         state.validator_registry.push(validator);
         state.validator_balances.push(0);
 
