@@ -1,5 +1,5 @@
 use super::bls::PublicKey;
-use super::{Hash256};
+use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
@@ -40,7 +40,7 @@ pub struct ValidatorRecord {
     pub exit_count: u64,
     pub custody_commitment: Hash256,
     pub latest_custody_reseed_slot: u64,
-    pub penultimate_custody_reseed_slot: u64
+    pub penultimate_custody_reseed_slot: u64,
 }
 
 impl ValidatorRecord {
@@ -132,7 +132,7 @@ impl Decodable for ValidatorRecord {
                 exit_count,
                 custody_commitment,
                 latest_custody_reseed_slot,
-                penultimate_custody_reseed_slot
+                penultimate_custody_reseed_slot,
             },
             i,
         ))

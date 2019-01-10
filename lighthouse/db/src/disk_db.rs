@@ -44,7 +44,8 @@ impl DiskDB {
         let db = match columns {
             None => DB::open(&options, db_path),
             Some(columns) => DB::open_cf(&options, db_path, columns),
-        }.expect("Unable to open local database");;
+        }
+        .expect("Unable to open local database");;
 
         Self { db }
     }

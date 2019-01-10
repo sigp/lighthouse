@@ -1,5 +1,6 @@
 language: rust
 script:
+  - cargo fmt --all -- --check
   - cargo build --verbose --all
   - cargo test --verbose --all
 rust:
@@ -10,3 +11,5 @@ matrix:
   allow_failures:
     - rust: nightly
   fast_finish: true
+install:
+  - rustup component add rustfmt
