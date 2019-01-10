@@ -4,6 +4,7 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 use std::convert;
+use std::default;
 
 const STATUS_FLAG_INITIATED_EXIT: u8 = 1;
 const STATUS_FLAG_WITHDRAWABLE: u8 = 2;
@@ -39,6 +40,26 @@ pub struct ValidatorRecord {
     pub custody_commitment: Hash256,
     pub latest_custody_reseed_slot: u64,
     pub penultimate_custody_reseed_slot: u64,
+}
+
+impl default::Default for ValidatorRecord {
+    fn default() -> Self {
+        Self {
+            pubkey: PublicKey::default(),
+            withdrawal_credentials: Hash256::default(),
+            randao_commitment: Hash256::default(),
+            randao_layers: 0,
+            activation_slot: std::u64::MAX,
+            exit_slot: std::u64::MAX,
+            withdrawal_slot: std::u64::MAX,
+            penalized_slot: std::u64::MAX,
+            exit_count: 0,
+            status_flags: None,
+            custody_commitment: Hash256::default(),
+            latest_custody_reseed_slot: 0, // NOTE: is `GENESIS_SLOT`
+            penultimate_custody_reseed_slot: 0, // NOTE: is `GENESIS_SLOT`
+        }
+    }
 }
 
 impl Encodable for StatusFlags {
@@ -142,15 +163,12 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             withdrawal_credentials: <_>::random_for_test(rng),
             randao_commitment: <_>::random_for_test(rng),
             randao_layers: <_>::random_for_test(rng),
-            activation_slot: <_>::random_for_test(rng),
-            exit_slot: <_>::random_for_test(rng),
-            withdrawal_slot: <_>::random_for_test(rng),
-            penalized_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
             status_flags: Some(<_>::random_for_test(rng)),
             custody_commitment: <_>::random_for_test(rng),
             latest_custody_reseed_slot: <_>::random_for_test(rng),
             penultimate_custody_reseed_slot: <_>::random_for_test(rng),
+            ..Self::default()
         }
     }
 }
