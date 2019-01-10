@@ -79,6 +79,17 @@ impl BeaconState {
             None
         }
     }
+
+    /// Returns the beacon proposer index for the `slot`.
+    pub fn get_beacon_proposer_index(&self, slot: u64, epoch_length: u64) -> Option<usize> {
+        self.get_shard_committees_at_slot(slot, epoch_length)
+            .and_then(|shard_committees| shard_committees.get(0))
+            .and_then(|shard_committee| {
+                let first_committee = &shard_committee.committee;
+                let target_index = slot as usize % first_committee.len();
+                first_committee.get(target_index).cloned()
+            })
+    }
 }
 
 impl Encodable for BeaconState {
