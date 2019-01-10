@@ -1,19 +1,19 @@
-use bls::{verify_proof_of_possession};
-use types::{BeaconState, Deposit, ValidatorRecord, ValidatorStatus};
+use bls::verify_proof_of_possession;
 use spec::ChainSpec;
+use types::{BeaconState, Deposit, ValidatorRecord, ValidatorStatus};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {
     InvalidShard,
     InvaidProofOfPossession,
-    InvalidWithdrawalCredentials
+    InvalidWithdrawalCredentials,
 }
 
 pub fn process_deposit(
     state: &mut BeaconState,
     deposit: &Deposit,
-    spec: &ChainSpec)
--> Result<usize, ValidatorInductionError> {
+    spec: &ChainSpec,
+) -> Result<usize, ValidatorInductionError> {
     let deposit_input = &deposit.deposit_data.deposit_input;
     let deposit_data = &deposit.deposit_data;
 
@@ -22,18 +22,22 @@ pub fn process_deposit(
         return Err(ValidatorInductionError::InvaidProofOfPossession);
     }
 
-    let validator_index = state.validator_registry.iter()
+    let validator_index = state
+        .validator_registry
+        .iter()
         .position(|validator| validator.pubkey == deposit_input.pubkey);
 
     match validator_index {
         Some(i) => {
-            if state.validator_registry[i].withdrawal_credentials == deposit_input.withdrawal_credentials {
+            if state.validator_registry[i].withdrawal_credentials
+                == deposit_input.withdrawal_credentials
+            {
                 state.validator_balances[i] += deposit_data.value;
                 return Ok(i);
             }
 
             Err(ValidatorInductionError::InvalidWithdrawalCredentials)
-        },
+        }
         None => {
             let validator = ValidatorRecord {
                 pubkey: deposit_input.pubkey.clone(),
@@ -45,7 +49,7 @@ pub fn process_deposit(
                 exit_count: 0,
                 custody_commitment: deposit_input.custody_commitment,
                 latest_custody_reseed_slot: 0,
-                penultimate_custody_reseed_slot: 0
+                penultimate_custody_reseed_slot: 0,
             };
 
             match min_empty_validator_index(state, spec) {
@@ -53,7 +57,7 @@ pub fn process_deposit(
                     state.validator_registry[i] = validator;
                     state.validator_balances[i] = deposit_data.value;
                     Ok(i)
-                },
+                }
                 None => {
                     state.validator_registry.push(validator);
                     state.validator_balances.push(deposit_data.value);
@@ -64,14 +68,13 @@ pub fn process_deposit(
     }
 }
 
-fn min_empty_validator_index(
-    state: &BeaconState,
-    spec: &ChainSpec
-) -> Option<usize> {
+fn min_empty_validator_index(state: &BeaconState, spec: &ChainSpec) -> Option<usize> {
     for i in 0..state.validator_registry.len() {
         if state.validator_balances[i] == 0
             && state.validator_registry[i].latest_status_change_slot
-                + spec.zero_balance_validator_ttl <= state.slot {
+                + spec.zero_balance_validator_ttl
+                <= state.slot
+        {
             return Some(i);
         }
     }
@@ -107,7 +110,10 @@ mod tests {
         (dep.deposit_data.deposit_input.pubkey == val.pubkey)
             & (dep.deposit_data.deposit_input.withdrawal_credentials == val.withdrawal_credentials)
             & (dep.deposit_data.deposit_input.randao_commitment == val.randao_commitment)
-            & (verify_proof_of_possession(&dep.deposit_data.deposit_input.proof_of_possession, &val.pubkey))
+            & (verify_proof_of_possession(
+                &dep.deposit_data.deposit_input.proof_of_possession,
+                &val.pubkey,
+            ))
     }
 
     #[test]
@@ -120,7 +126,10 @@ mod tests {
         let result = process_deposit(&mut state, &deposit, &spec);
 
         assert_eq!(result.unwrap(), 0);
-        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
+        assert!(deposit_equals_record(
+            &deposit,
+            &state.validator_registry[0]
+        ));
         assert_eq!(state.validator_registry.len(), 1);
         assert_eq!(state.validator_balances.len(), 1);
     }
@@ -135,7 +144,10 @@ mod tests {
             let result = process_deposit(&mut state, &deposit, &spec);
             deposit.deposit_data.value = DEPOSIT_GWEI;
             assert_eq!(result.unwrap(), i);
-            assert!(deposit_equals_record(&deposit, &state.validator_registry[i]));
+            assert!(deposit_equals_record(
+                &deposit,
+                &state.validator_registry[i]
+            ));
             assert_eq!(state.validator_registry.len(), i + 1);
             assert_eq!(state.validator_balances.len(), i + 1);
         }
@@ -151,7 +163,8 @@ mod tests {
 
         deposit.deposit_data.value = DEPOSIT_GWEI;
         validator.pubkey = deposit.deposit_data.deposit_input.pubkey.clone();
-        validator.withdrawal_credentials = deposit.deposit_data.deposit_input.withdrawal_credentials;
+        validator.withdrawal_credentials =
+            deposit.deposit_data.deposit_input.withdrawal_credentials;
         validator.randao_commitment = deposit.deposit_data.deposit_input.randao_commitment;
 
         state.validator_registry.push(validator);
@@ -160,7 +173,10 @@ mod tests {
         let result = process_deposit(&mut state, &deposit, &spec);
 
         assert_eq!(result.unwrap(), 0);
-        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
+        assert!(deposit_equals_record(
+            &deposit,
+            &state.validator_registry[0]
+        ));
         assert_eq!(state.validator_balances[0], DEPOSIT_GWEI * 2);
         assert_eq!(state.validator_registry.len(), 1);
         assert_eq!(state.validator_balances.len(), 1);
@@ -183,7 +199,10 @@ mod tests {
         let result = process_deposit(&mut state, &deposit, &spec);
 
         assert_eq!(result.unwrap(), 0);
-        assert!(deposit_equals_record(&deposit, &state.validator_registry[0]));
+        assert!(deposit_equals_record(
+            &deposit,
+            &state.validator_registry[0]
+        ));
         assert_eq!(state.validator_balances[0], DEPOSIT_GWEI);
         assert_eq!(state.validator_registry.len(), 1);
         assert_eq!(state.validator_balances.len(), 1);
@@ -195,11 +214,15 @@ mod tests {
         let mut deposit = get_deposit();
         let spec = ChainSpec::foundation();
         deposit.deposit_data.value = DEPOSIT_GWEI;
-        deposit.deposit_data.deposit_input.proof_of_possession = create_proof_of_possession(&Keypair::random());
+        deposit.deposit_data.deposit_input.proof_of_possession =
+            create_proof_of_possession(&Keypair::random());
 
         let result = process_deposit(&mut state, &deposit, &spec);
 
-        assert_eq!(result, Err(ValidatorInductionError::InvaidProofOfPossession));
+        assert_eq!(
+            result,
+            Err(ValidatorInductionError::InvaidProofOfPossession)
+        );
         assert_eq!(state.validator_registry.len(), 0);
         assert_eq!(state.validator_balances.len(), 0);
     }
