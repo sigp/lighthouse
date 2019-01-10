@@ -26,6 +26,7 @@ pub mod shard_reassignment_record;
 pub mod slashable_vote_data;
 pub mod special_record;
 pub mod validator_record;
+pub mod validator_registry;
 
 pub mod readers;
 
