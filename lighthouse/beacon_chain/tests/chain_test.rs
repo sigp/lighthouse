@@ -1,4 +1,4 @@
-use chain::{BlockProcessingOutcome, BeaconChain};
+use chain::{BeaconChain, BlockProcessingOutcome};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
