@@ -35,7 +35,7 @@ pub struct ValidatorRecord {
     pub withdrawal_slot: u64,
     pub penalized_slot: u64,
     pub exit_count: u64,
-    pub status_flags: StatusFlags,
+    pub status_flags: Option<StatusFlags>,
     pub custody_commitment: Hash256,
     pub latest_custody_reseed_slot: u64,
     pub penultimate_custody_reseed_slot: u64,
@@ -81,7 +81,11 @@ impl Encodable for ValidatorRecord {
         s.append(&self.withdrawal_slot);
         s.append(&self.penalized_slot);
         s.append(&self.exit_count);
-        s.append(&self.status_flags);
+        if let Some(status_flags) = self.status_flags {
+            s.append(&status_flags);
+        } else {
+            s.append(&(0 as u8));
+        }
         s.append(&self.custody_commitment);
         s.append(&self.latest_custody_reseed_slot);
         s.append(&self.penultimate_custody_reseed_slot);
@@ -99,10 +103,16 @@ impl Decodable for ValidatorRecord {
         let (withdrawal_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (penalized_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
-        let (status_flags, i) = <_>::ssz_decode(bytes, i)?;
+        let (status_flags_byte, i): (u8, usize) = <_>::ssz_decode(bytes, i)?;
         let (custody_commitment, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (penultimate_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
+
+        let status_flags = if status_flags_byte == 0u8 {
+            None
+        } else {
+            Some(StatusFlags::from(status_flags_byte))
+        };
 
         Ok((
             Self {
@@ -137,7 +147,7 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             withdrawal_slot: <_>::random_for_test(rng),
             penalized_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
-            status_flags: <_>::random_for_test(rng),
+            status_flags: Some(<_>::random_for_test(rng)),
             custody_commitment: <_>::random_for_test(rng),
             latest_custody_reseed_slot: <_>::random_for_test(rng),
             penultimate_custody_reseed_slot: <_>::random_for_test(rng),
