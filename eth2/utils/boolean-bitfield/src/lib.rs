@@ -3,9 +3,6 @@ extern crate ssz;
 
 use bit_vec::BitVec;
 
-use std::cmp;
-use std::default;
-
 /// A BooleanBitfield represents a set of booleans compactly stored as a vector of bits.
 /// The BooleanBitfield is given a fixed size during construction. Reads outside of the current size return an out-of-bounds error. Writes outside of the current size expand the size of the set.
 #[derive(Debug, Clone)]
@@ -97,7 +94,7 @@ impl BooleanBitfield {
     }
 }
 
-impl default::Default for BooleanBitfield {
+impl Default for BooleanBitfield {
     /// default provides the "empty" bitfield
     /// Note: the empty bitfield is set to the `0` byte.
     fn default() -> Self {
@@ -105,7 +102,7 @@ impl default::Default for BooleanBitfield {
     }
 }
 
-impl cmp::PartialEq for BooleanBitfield {
+impl PartialEq for BooleanBitfield {
     /// Determines equality by comparing the `ssz` encoding of the two candidates.
     /// This method ensures that the presence of high-order (empty) bits in the highest byte do not exclude equality when they are in fact representing the same information.
     fn eq(&self, other: &Self) -> bool {

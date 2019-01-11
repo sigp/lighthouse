@@ -8,6 +8,12 @@ pub struct ShardCommittee {
     pub committee: Vec<usize>,
 }
 
+impl ShardCommittee {
+    pub fn len(&self) -> usize {
+        self.committee.len()
+    }
+}
+
 impl Encodable for ShardCommittee {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.shard);
