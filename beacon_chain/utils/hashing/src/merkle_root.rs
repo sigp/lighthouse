@@ -1,11 +1,12 @@
 use types::{Hash256}
 use hashing::canonical_hash;
+use std::iter::range_step;
 
 fn merkle_root(values: Vec<T>) -> Hash256 {
     let mut o = vec![0; values.len()];
     o.append(values);
 
-    for v in &values {
+    for v in range_step(values - 1, 0, -1) {
         canonical_hash(v.as_bytes());
     }
 }
