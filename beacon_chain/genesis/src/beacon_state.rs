@@ -48,7 +48,10 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
          * Randomness and committees
          */
         latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize],
-        latest_vdf_outputs: vec![spec.zero_hash; (spec.latest_randao_mixes_length / spec.epoch_length) as usize],
+        latest_vdf_outputs: vec![
+            spec.zero_hash;
+            (spec.latest_randao_mixes_length / spec.epoch_length) as usize
+        ],
         shard_committees_at_slots: vec![],
         /*
          * Custody challenges
