@@ -3,11 +3,20 @@ use super::{Attestation, CasperSlashing, Deposit, Exit, ProposerSlashing};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 
+// The following types are just dummy classes as they will not be defined until 
+// Phase 1 (Sharding phase)
+type CustodyReseed = usize;
+type CustodyChallenge = usize;
+type CustodyResponse = usize;
+
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct BeaconBlockBody {
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub casper_slashings: Vec<CasperSlashing>,
     pub attestations: Vec<Attestation>,
+    pub custody_reseeds: Vec<CustodyReseed>,
+    pub custody_challenges: Vec<CustodyChallenge>,
+    pub custody_responses: Vec<CustodyResponse>,
     pub deposits: Vec<Deposit>,
     pub exits: Vec<Exit>,
 }
@@ -17,6 +26,9 @@ impl Encodable for BeaconBlockBody {
         s.append_vec(&self.proposer_slashings);
         s.append_vec(&self.casper_slashings);
         s.append_vec(&self.attestations);
+        s.append_vec(&self.custody_reseeds);
+        s.append_vec(&self.custody_challenges);
+        s.append_vec(&self.custody_responses);
         s.append_vec(&self.deposits);
         s.append_vec(&self.exits);
     }
@@ -27,6 +39,9 @@ impl Decodable for BeaconBlockBody {
         let (proposer_slashings, i) = <_>::ssz_decode(bytes, i)?;
         let (casper_slashings, i) = <_>::ssz_decode(bytes, i)?;
         let (attestations, i) = <_>::ssz_decode(bytes, i)?;
+        let (custody_reseeds, i) = <_>::ssz_decode(bytes, i)?;
+        let (custody_challenges, i) = <_>::ssz_decode(bytes, i)?;
+        let (custody_responses, i) = <_>::ssz_decode(bytes, i)?;
         let (deposits, i) = <_>::ssz_decode(bytes, i)?;
         let (exits, i) = <_>::ssz_decode(bytes, i)?;
 
@@ -35,6 +50,9 @@ impl Decodable for BeaconBlockBody {
                 proposer_slashings,
                 casper_slashings,
                 attestations,
+                custody_reseeds,
+                custody_challenges,
+                custody_responses,
                 deposits,
                 exits,
             },
@@ -49,6 +67,9 @@ impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
             proposer_slashings: <_>::random_for_test(rng),
             casper_slashings: <_>::random_for_test(rng),
             attestations: <_>::random_for_test(rng),
+            custody_reseeds: <_>::random_for_test(rng),
+            custody_challenges: <_>::random_for_test(rng),
+            custody_responses: <_>::random_for_test(rng),
             deposits: <_>::random_for_test(rng),
             exits: <_>::random_for_test(rng),
         }
