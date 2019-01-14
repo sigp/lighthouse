@@ -1,36 +1,3 @@
-[package]
-name = "lighthouse"
-version = "0.0.1"
-authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
-
-[dependencies]
-blake2-rfc = "0.2.18"
-bls-aggregates = { git = "https://github.com/sigp/signature-schemes" }
-bytes = ""
-crypto-mac = "^0.6.2"
-clap = "2.32.0"
-db = { path = "lighthouse/db" }
-dirs = "1.0.3"
-futures = "0.1.23"
-rand = "0.3"
-rlp = { git = "https://github.com/paritytech/parity-common" }
-slog = "^2.2.3"
-slog-term = "^2.4.0"
-slog-async = "^2.3.0"
-tokio = "0.1"
-
-[dependencies.pairing]
-git = "https://github.com/mmaker/pairing"
-branch = "feature/hashing"
-
-[patch.crates-io]
-ring = { git = "https://github.com/paritytech/ring" }
-
-[[bin]]
-path = "lighthouse/main.rs"
-name = "lighthouse"
-
 [workspace]
 members = [
 	"beacon_chain/attestation_validation",
@@ -47,6 +14,8 @@ members = [
 	"beacon_chain/utils/vec_shuffle",
 	"beacon_chain/validator_induction",
 	"beacon_chain/validator_shuffling",
-	"lighthouse/beacon_chain",
-	"lighthouse/db",
+	"beacon_node",
+	"beacon_node/db",
+	"protos",
+	"validator_client",
 ]

@@ -1,20 +1,14 @@
-#[macro_use]
 extern crate slog;
-extern crate slog_async;
-extern crate slog_term;
-// extern crate ssz;
-extern crate clap;
-extern crate futures;
-
-extern crate db;
 
 mod config;
+mod rpc;
 
 use std::path::PathBuf;
 
-use clap::{App, Arg};
 use crate::config::LighthouseConfig;
-use slog::Drain;
+use crate::rpc::start_server;
+use clap::{App, Arg};
+use slog::{error, info, o, Drain};
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -32,13 +26,15 @@ fn main() {
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
                 .help("Network listen port for p2p connections.")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
 
     let mut config = LighthouseConfig::default();
 
@@ -62,10 +58,9 @@ fn main() {
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.p2p_listen_port);
 
-    error!(
-        log,
-        "Lighthouse under development and does not provide a user demo."
-    );
+    let _server = start_server(log.clone());
 
-    info!(log, "Exiting.");
+    loop {}
+
+    // info!(log, "Exiting.");
 }
