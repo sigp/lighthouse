@@ -47,11 +47,13 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         /*
          * Randomness and committees
          */
-        randao_mix: spec.zero_hash,
-        next_seed: spec.zero_hash,
+        latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize],
+        latest_vdf_outputs: vec![spec.zero_hash; (spec.latest_randao_mixes_length / spec.epoch_length) as usize],
         shard_committees_at_slots: vec![],
-        persistent_committees: vec![],
-        persistent_committee_reassignments: vec![],
+        /*
+         * Custody challenges
+         */
+        custody_challenges: vec![],
         /*
          * Finality
          */
@@ -66,6 +68,7 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         latest_block_roots: vec![spec.zero_hash; spec.epoch_length as usize],
         latest_penalized_exit_balances: vec![],
         latest_attestations: vec![],
+        batched_block_roots: vec![],
         /*
          * PoW receipt root
          */
