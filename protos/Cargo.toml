@@ -1,0 +1,13 @@
+[package]
+name = "protos"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+futures = "0.1.16"
+grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
+protobuf = "2.0.2"
+
+[build-dependencies]
+protoc-grpcio = "0.3.1"

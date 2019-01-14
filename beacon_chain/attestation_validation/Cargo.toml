@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../utils/bls" }
-db = { path = "../../lighthouse/db" }
+db = { path = "../../beacon_node/db" }
 hashing = { path = "../utils/hashing" }
 ssz = { path = "../utils/ssz" }
 types = { path = "../types" }

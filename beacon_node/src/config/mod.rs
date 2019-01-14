@@ -1,5 +1,3 @@
-extern crate dirs;
-
 use std::fs;
 use std::path::PathBuf;
 

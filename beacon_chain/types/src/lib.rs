@@ -63,3 +63,5 @@ pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
 
 /// Maps a slot to a block proposer.
 pub type ProposerMap = HashMap<u64, usize>;
+
+pub use bls::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};

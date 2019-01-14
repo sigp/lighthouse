@@ -1,0 +1,18 @@
+[package]
+name = "validator_client"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
+protobuf = "2.0.2"
+protos = { path = "../protos" }
+slot_clock = { path = "../beacon_chain/utils/slot_clock" }
+spec = { path = "../beacon_chain/spec" }
+tokio = "0.1.14"
+types = { path = "../beacon_chain/types" }
+slog = "^2.2.3"
+slog-term = "^2.4.0"
+slog-async = "^2.3.0"
+ssz = { path = "../beacon_chain/utils/ssz" }
