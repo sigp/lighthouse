@@ -62,6 +62,7 @@ pub struct ValidatorRecord {
 
 impl ValidatorRecord {
     /// This predicate indicates if the validator represented by this record is considered "active" at `slot`.
+    /// Spec: https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#is_active_validator
     pub fn is_active_at(&self, slot: u64) -> bool {
         self.activation_slot <= slot && slot < self.exit_slot
     }

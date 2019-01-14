@@ -11,3 +11,4 @@ ethereum-types = "0.4.0"
 hashing = { path = "../utils/hashing" }
 rand = "0.5.5"
 ssz = { path = "../utils/ssz" }
+byteorder = "1"

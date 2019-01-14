@@ -1,6 +1,6 @@
 use spec::ChainSpec;
-use types::{BeaconState, CrosslinkRecord, ForkData};
-use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
+use types::{BeaconState, CrosslinkRecord, ForkData, Hash256};
+use validator_shuffling::{get_shuffling, ValidatorAssignmentError};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -14,7 +14,7 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
      * Assign the validators to shards, using all zeros as the seed.
      */
     let _shard_and_committee_for_slots = {
-        let mut a = shard_and_committees_for_cycle(&[0; 32], &spec.initial_validators, 0, &spec)?;
+        let mut a = get_shuffling(Hash256::zero(), &spec.initial_validators, 0)?;
         let mut b = a.clone();
         a.append(&mut b);
         a

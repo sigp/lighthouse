@@ -28,8 +28,8 @@ impl<T: ClientDB> BeaconStateStore<T> {
         match self.get(&hash)? {
             None => Ok(None),
             Some(ssz) => {
-                let (state, _) = BeaconState::ssz_decode(&ssz, 0).map_err(|_| DBError {
-                    message: "Bad State SSZ.".to_string(),
+                let (state, _) = BeaconState::ssz_decode(&ssz, 0).map_err(|e| DBError {
+                    message: format!("Bad State SSZ ({:?})", e),
                 })?;
                 Ok(Some(state))
             }

@@ -9,3 +9,5 @@ honey-badger-split = { path = "../utils/honey-badger-split" }
 spec = { path = "../spec" }
 types = { path = "../types" }
 vec_shuffle = { path = "../utils/vec_shuffle" }
+byteorder = "1"
+ethereum-types = "0.4.0"

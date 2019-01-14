@@ -3,6 +3,7 @@
 use super::validator_record::*;
 
 /// Given an indexed sequence of `validators`, return the indices corresponding to validators that are active at `slot`.
+/// Spec: https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#get_active_validator_indices.
 pub fn get_active_validator_indices(validators: &[ValidatorRecord], slot: u64) -> Vec<usize> {
     validators
         .iter()
