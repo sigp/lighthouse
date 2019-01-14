@@ -3,7 +3,7 @@ use super::{Attestation, CasperSlashing, Deposit, Exit, ProposerSlashing};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 
-// The following types are just dummy classes as they will not be defined until 
+// The following types are just dummy classes as they will not be defined until
 // Phase 1 (Sharding phase)
 type CustodyReseed = usize;
 type CustodyChallenge = usize;
