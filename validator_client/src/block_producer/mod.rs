@@ -1,3 +1,5 @@
+mod grpc;
+mod test_node;
 mod traits;
 
 use self::traits::{BeaconNode, BeaconNodeError};
@@ -7,6 +9,8 @@ use spec::ChainSpec;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use types::BeaconBlock;
+
+type EpochMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -24,27 +28,28 @@ pub enum PollError {
     SlotUnknowable,
     EpochMapPoisoned,
     SlotClockPoisoned,
+    EpochLengthIsZero,
     BeaconNodeError(BeaconNodeError),
 }
 
 pub struct BlockProducer<T: SlotClock, U: BeaconNode> {
     pub last_processed_slot: u64,
-    _spec: Arc<ChainSpec>,
+    spec: Arc<ChainSpec>,
     epoch_map: Arc<RwLock<HashMap<u64, EpochDuties>>>,
     slot_clock: Arc<RwLock<T>>,
-    beacon_node: U,
+    beacon_node: Arc<U>,
 }
 
 impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
     pub fn new(
         spec: Arc<ChainSpec>,
-        epoch_map: Arc<RwLock<HashMap<u64, EpochDuties>>>,
+        epoch_map: Arc<RwLock<EpochMap>>,
         slot_clock: Arc<RwLock<T>>,
-        beacon_node: U,
+        beacon_node: Arc<U>,
     ) -> Self {
         Self {
             last_processed_slot: 0,
-            _spec: spec,
+            spec,
             epoch_map,
             slot_clock,
             beacon_node,
@@ -65,6 +70,9 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
             .map_err(|_| PollError::SlotClockError)?
             .ok_or(PollError::SlotUnknowable)?;
 
+        let epoch = slot.checked_div(self.spec.epoch_length)
+            .ok_or(PollError::EpochLengthIsZero)?;
+
         // If this is a new slot.
         if slot > self.last_processed_slot {
             let is_block_production_slot = {
@@ -72,9 +80,9 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
                     .epoch_map
                     .read()
                     .map_err(|_| PollError::EpochMapPoisoned)?;
-                match epoch_map.get(&slot) {
+                match epoch_map.get(&epoch) {
                     None => return Ok(PollOutcome::ProducerDutiesUnknown),
-                    Some(duties) => duties.is_block_production_slot(slot)
+                    Some(duties) => duties.is_block_production_slot(slot),
                 }
             };
 
@@ -123,5 +131,68 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
 impl From<BeaconNodeError> for PollError {
     fn from(e: BeaconNodeError) -> PollError {
         PollError::BeaconNodeError(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_node::TestBeaconNode;
+    use super::*;
+    use slot_clock::TestingSlotClock;
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+
+    // TODO: implement more thorough testing.
+    //
+    // These tests should serve as a good example for future tests.
+
+    #[test]
+    pub fn polling() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+
+        let spec = Arc::new(ChainSpec::foundation());
+        let epoch_map = Arc::new(RwLock::new(EpochMap::new()));
+        let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
+        let beacon_node = Arc::new(TestBeaconNode::default());
+
+        let mut block_producer = BlockProducer::new(
+            spec.clone(),
+            epoch_map.clone(),
+            slot_clock.clone(),
+            beacon_node.clone(),
+        );
+
+        // Configure responses from the BeaconNode.
+        beacon_node.set_next_produce_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));
+        beacon_node.set_next_publish_result(Ok(true));
+
+
+        // Setup some valid duties for the validator
+        let produce_slot = 100;
+        let duties = EpochDuties {
+            block_production_slot: Some(produce_slot),
+            ..std::default::Default::default()
+        };
+        let produce_epoch = produce_slot / spec.epoch_length;
+        epoch_map.write().unwrap().insert(produce_epoch, duties);
+
+        // One slot before production slot...
+        slot_clock.write().unwrap().set_slot(produce_slot - 1);
+        assert_eq!(block_producer.poll(), Ok(PollOutcome::BlockProductionNotRequired));
+
+        // On the produce slot...
+        slot_clock.write().unwrap().set_slot(produce_slot);
+        assert_eq!(block_producer.poll(), Ok(PollOutcome::BlockProduced));
+
+        // Trying the same produce slot again...
+        slot_clock.write().unwrap().set_slot(produce_slot);
+        assert_eq!(block_producer.poll(), Ok(PollOutcome::SlotAlreadyProcessed));
+
+        // One slot after the produce slot...
+        slot_clock.write().unwrap().set_slot(produce_slot + 1);
+        assert_eq!(block_producer.poll(), Ok(PollOutcome::BlockProductionNotRequired));
+
+        // In an epoch without known duties...
+        slot_clock.write().unwrap().set_slot((produce_epoch + 1) * spec.epoch_length);
+        assert_eq!(block_producer.poll(), Ok(PollOutcome::ProducerDutiesUnknown));
     }
 }

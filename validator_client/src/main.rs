@@ -23,7 +23,7 @@ fn main() {
     // gRPC
     let env = Arc::new(EnvBuilder::new().build());
     let ch = ChannelBuilder::new(env).connect("localhost:50051");
-    let client = BeaconBlockServiceClient::new(ch);
+    let client = Arc::new(BeaconBlockServiceClient::new(ch));
 
     // Logging
     let decorator = slog_term::TermDecorator::new().build();
@@ -83,6 +83,7 @@ fn main() {
     tokio::run(task);
 }
 
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub struct EpochDuties {
     block_production_slot: Option<u64>,
     shard: Option<u64>,
