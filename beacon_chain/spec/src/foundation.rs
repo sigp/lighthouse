@@ -24,6 +24,7 @@ impl ChainSpec {
             beacon_chain_shard_number: u64::max_value(),
             bls_withdrawal_prefix_byte: 0x00,
             max_casper_votes: 1_024,
+            latest_randao_mixes_length: 8_192,
             /*
              *  Deposit contract
              */
