@@ -2,7 +2,6 @@ use super::candidate_pow_receipt_root_record::CandidatePoWReceiptRootRecord;
 use super::crosslink_record::CrosslinkRecord;
 use super::fork_data::ForkData;
 use super::pending_attestation_record::PendingAttestationRecord;
-use super::shard_committee::ShardCommittee;
 use super::validator_record::ValidatorRecord;
 use super::Hash256;
 use crate::test_utils::TestRandom;
@@ -30,7 +29,12 @@ pub struct BeaconState {
     // Randomness and committees
     pub latest_randao_mixes: Vec<Hash256>,
     pub latest_vdf_outputs: Vec<Hash256>,
-    pub shard_committees_at_slots: Vec<Vec<ShardCommittee>>,
+    pub previous_epoch_start_shard: u64,
+    pub current_epoch_start_shard: u64,
+    pub previous_epoch_calculation_slot: u64,
+    pub current_epoch_calculation_slot: u64,
+    pub previous_epoch_randao_mix: Hash256,
+    pub current_epoch_randao_mix: Hash256,
 
     // Custody challenges
     pub custody_challenges: Vec<CustodyChallenge>,
@@ -73,7 +77,12 @@ impl Encodable for BeaconState {
         s.append(&self.validator_registry_delta_chain_tip);
         s.append(&self.latest_randao_mixes);
         s.append(&self.latest_vdf_outputs);
-        s.append(&self.shard_committees_at_slots);
+        s.append(&self.previous_epoch_start_shard);
+        s.append(&self.current_epoch_start_shard);
+        s.append(&self.previous_epoch_calculation_slot);
+        s.append(&self.current_epoch_calculation_slot);
+        s.append(&self.previous_epoch_randao_mix);
+        s.append(&self.current_epoch_randao_mix);
         s.append(&self.custody_challenges);
         s.append(&self.previous_justified_slot);
         s.append(&self.justified_slot);
@@ -101,7 +110,12 @@ impl Decodable for BeaconState {
         let (validator_registry_delta_chain_tip, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_randao_mixes, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_vdf_outputs, i) = <_>::ssz_decode(bytes, i)?;
-        let (shard_committees_at_slots, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_epoch_randao_mix, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_epoch_randao_mix, i) = <_>::ssz_decode(bytes, i)?;
         let (custody_challenges, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_justified_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (justified_slot, i) = <_>::ssz_decode(bytes, i)?;
@@ -127,7 +141,12 @@ impl Decodable for BeaconState {
                 validator_registry_delta_chain_tip,
                 latest_randao_mixes,
                 latest_vdf_outputs,
-                shard_committees_at_slots,
+                previous_epoch_start_shard,
+                current_epoch_start_shard,
+                previous_epoch_calculation_slot,
+                current_epoch_calculation_slot,
+                previous_epoch_randao_mix,
+                current_epoch_randao_mix,
                 custody_challenges,
                 previous_justified_slot,
                 justified_slot,
@@ -159,7 +178,12 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             validator_registry_delta_chain_tip: <_>::random_for_test(rng),
             latest_randao_mixes: <_>::random_for_test(rng),
             latest_vdf_outputs: <_>::random_for_test(rng),
-            shard_committees_at_slots: <_>::random_for_test(rng),
+            previous_epoch_start_shard: <_>::random_for_test(rng),
+            current_epoch_start_shard: <_>::random_for_test(rng),
+            previous_epoch_calculation_slot: <_>::random_for_test(rng),
+            current_epoch_calculation_slot: <_>::random_for_test(rng),
+            previous_epoch_randao_mix: <_>::random_for_test(rng),
+            current_epoch_randao_mix: <_>::random_for_test(rng),
             custody_challenges: <_>::random_for_test(rng),
             previous_justified_slot: <_>::random_for_test(rng),
             justified_slot: <_>::random_for_test(rng),
