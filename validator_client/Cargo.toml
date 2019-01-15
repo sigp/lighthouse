@@ -10,7 +10,6 @@ protobuf = "2.0.2"
 protos = { path = "../protos" }
 slot_clock = { path = "../beacon_chain/utils/slot_clock" }
 spec = { path = "../beacon_chain/spec" }
-tokio = "0.1.14"
 types = { path = "../beacon_chain/types" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"

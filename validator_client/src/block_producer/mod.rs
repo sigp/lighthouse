@@ -1,4 +1,5 @@
 mod grpc;
+mod service;
 mod test_node;
 mod traits;
 
@@ -10,20 +11,22 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use types::BeaconBlock;
 
+pub use self::service::BlockProducerService;
+
 type EpochMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
-    BlockProduced,
-    SlashableBlockNotProduced,
-    BlockProductionNotRequired,
-    ProducerDutiesUnknown,
-    SlotAlreadyProcessed,
-    BeaconNodeUnableToProduceBlock,
+    BlockProduced(u64),
+    SlashableBlockNotProduced(u64),
+    BlockProductionNotRequired(u64),
+    ProducerDutiesUnknown(u64),
+    SlotAlreadyProcessed(u64),
+    BeaconNodeUnableToProduceBlock(u64),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum PollError {
+pub enum Error {
     SlotClockError,
     SlotUnknowable,
     EpochMapPoisoned,
@@ -61,27 +64,25 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
     /// "Poll" to see if the validator is required to take any action.
     ///
     /// The slot clock will be read and any new actions undertaken.
-    pub fn poll(&mut self) -> Result<PollOutcome, PollError> {
+    pub fn poll(&mut self) -> Result<PollOutcome, Error> {
         let slot = self
             .slot_clock
             .read()
-            .map_err(|_| PollError::SlotClockPoisoned)?
+            .map_err(|_| Error::SlotClockPoisoned)?
             .present_slot()
-            .map_err(|_| PollError::SlotClockError)?
-            .ok_or(PollError::SlotUnknowable)?;
+            .map_err(|_| Error::SlotClockError)?
+            .ok_or(Error::SlotUnknowable)?;
 
-        let epoch = slot.checked_div(self.spec.epoch_length)
-            .ok_or(PollError::EpochLengthIsZero)?;
+        let epoch = slot
+            .checked_div(self.spec.epoch_length)
+            .ok_or(Error::EpochLengthIsZero)?;
 
         // If this is a new slot.
         if slot > self.last_processed_slot {
             let is_block_production_slot = {
-                let epoch_map = self
-                    .epoch_map
-                    .read()
-                    .map_err(|_| PollError::EpochMapPoisoned)?;
+                let epoch_map = self.epoch_map.read().map_err(|_| Error::EpochMapPoisoned)?;
                 match epoch_map.get(&epoch) {
-                    None => return Ok(PollOutcome::ProducerDutiesUnknown),
+                    None => return Ok(PollOutcome::ProducerDutiesUnknown(slot)),
                     Some(duties) => duties.is_block_production_slot(slot),
                 }
             };
@@ -91,24 +92,24 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
 
                 self.produce_block(slot)
             } else {
-                Ok(PollOutcome::BlockProductionNotRequired)
+                Ok(PollOutcome::BlockProductionNotRequired(slot))
             }
         } else {
-            Ok(PollOutcome::SlotAlreadyProcessed)
+            Ok(PollOutcome::SlotAlreadyProcessed(slot))
         }
     }
 
-    fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, PollError> {
+    fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, Error> {
         if let Some(block) = self.beacon_node.produce_beacon_block(slot)? {
             if self.safe_to_produce(&block) {
                 let block = self.sign_block(block);
                 self.beacon_node.publish_beacon_block(block)?;
-                Ok(PollOutcome::BlockProduced)
+                Ok(PollOutcome::BlockProduced(slot))
             } else {
-                Ok(PollOutcome::SlashableBlockNotProduced)
+                Ok(PollOutcome::SlashableBlockNotProduced(slot))
             }
         } else {
-            Ok(PollOutcome::BeaconNodeUnableToProduceBlock)
+            Ok(PollOutcome::BeaconNodeUnableToProduceBlock(slot))
         }
     }
 
@@ -128,9 +129,9 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
     }
 }
 
-impl From<BeaconNodeError> for PollError {
-    fn from(e: BeaconNodeError) -> PollError {
-        PollError::BeaconNodeError(e)
+impl From<BeaconNodeError> for Error {
+    fn from(e: BeaconNodeError) -> Error {
+        Error::BeaconNodeError(e)
     }
 }
 
@@ -165,7 +166,6 @@ mod tests {
         beacon_node.set_next_produce_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));
         beacon_node.set_next_publish_result(Ok(true));
 
-
         // Setup some valid duties for the validator
         let produce_slot = 100;
         let duties = EpochDuties {
@@ -177,22 +177,38 @@ mod tests {
 
         // One slot before production slot...
         slot_clock.write().unwrap().set_slot(produce_slot - 1);
-        assert_eq!(block_producer.poll(), Ok(PollOutcome::BlockProductionNotRequired));
+        assert_eq!(
+            block_producer.poll(),
+            Ok(PollOutcome::BlockProductionNotRequired(produce_slot - 1))
+        );
 
         // On the produce slot...
         slot_clock.write().unwrap().set_slot(produce_slot);
-        assert_eq!(block_producer.poll(), Ok(PollOutcome::BlockProduced));
+        assert_eq!(
+            block_producer.poll(),
+            Ok(PollOutcome::BlockProduced(produce_slot))
+        );
 
         // Trying the same produce slot again...
         slot_clock.write().unwrap().set_slot(produce_slot);
-        assert_eq!(block_producer.poll(), Ok(PollOutcome::SlotAlreadyProcessed));
+        assert_eq!(
+            block_producer.poll(),
+            Ok(PollOutcome::SlotAlreadyProcessed(produce_slot))
+        );
 
         // One slot after the produce slot...
         slot_clock.write().unwrap().set_slot(produce_slot + 1);
-        assert_eq!(block_producer.poll(), Ok(PollOutcome::BlockProductionNotRequired));
+        assert_eq!(
+            block_producer.poll(),
+            Ok(PollOutcome::BlockProductionNotRequired(produce_slot + 1))
+        );
 
         // In an epoch without known duties...
-        slot_clock.write().unwrap().set_slot((produce_epoch + 1) * spec.epoch_length);
-        assert_eq!(block_producer.poll(), Ok(PollOutcome::ProducerDutiesUnknown));
+        let slot = (produce_epoch + 1) * spec.epoch_length;
+        slot_clock.write().unwrap().set_slot(slot);
+        assert_eq!(
+            block_producer.poll(),
+            Ok(PollOutcome::ProducerDutiesUnknown(slot))
+        );
     }
 }
