@@ -1,5 +1,5 @@
 use super::ChainSpec;
-use bls::{Keypair, PublicKey, SecretKey};
+use bls::{Keypair, PublicKey, SecretKey, Signature};
 
 use types::{Address, Hash256, ValidatorRecord};
 
@@ -17,12 +17,11 @@ impl ChainSpec {
              * Misc
              */
             shard_count: 1_024,
-            target_committee_size: 256,
+            target_committee_size: 128,
             ejection_balance: 16,
             max_balance_churn_quotient: 32,
             gwei_per_eth: u64::pow(10, 9),
             beacon_chain_shard_number: u64::max_value(),
-            bls_withdrawal_prefix_byte: 0x00,
             max_casper_votes: 1_024,
             latest_block_roots_length: 8_192,
             latest_randao_mixes_length: 8_192,
@@ -38,35 +37,58 @@ impl ChainSpec {
             /*
              * Initial Values
              */
-            initial_fork_version: 0,
-            initial_slot_number: 0,
+            genesis_fork_version: 0,
+            genesis_slot_number: 0,
+            genesis_start_shard: 0,
+            far_future_slot: u64::max_value(),
             zero_hash: Hash256::zero(),
+            empty_signature: Signature::empty_sig(),
+            bls_withdrawal_prefix_byte: 0x00,
             /*
              * Time parameters
              */
             slot_duration: 6,
             min_attestation_inclusion_delay: 4,
             epoch_length: 64,
+            seed_lookahead: 64,
             min_validator_registry_change_interval: 256,
             pow_receipt_root_voting_period: 1_024,
-            shard_persistent_committee_change_period: u64::pow(2, 17),
-            collective_penalty_calculation_period: u64::pow(2, 20),
-            zero_balance_validator_ttl: u64::pow(2, 22),
+            min_validator_withdrawal_time: u64::pow(2, 14),
+            shard_persistent_committee_change_period: u64::pow(2, 17), // old
+            collective_penalty_calculation_period: u64::pow(2, 20),    // old
+            zero_balance_validator_ttl: u64::pow(2, 22),               // old
             /*
              * Reward and penalty quotients
              */
-            base_reward_quotient: 2_048,
+            base_reward_quotient: 1_024,
             whistleblower_reward_quotient: 512,
             includer_reward_quotient: 8,
-            inactivity_penalty_quotient: u64::pow(2, 34),
+            inactivity_penalty_quotient: u64::pow(2, 24),
+            /*
+             * Status flags
+             */
+            initiated_exit: 1,
+            withdrawable: 2,
             /*
              * Max operations per block
              */
             max_proposer_slashings: 16,
-            max_casper_slashings: 15,
+            max_casper_slashings: 16,
             max_attestations: 128,
             max_deposits: 16,
             max_exits: 16,
+            /*
+             * Validator registry delta flags
+             */
+            activation: 0,
+            exit: 1,
+            /*
+             * Signature domains
+             */
+            domain_deposit: 0,
+            domain_attestation: 1,
+            domain_proposal: 2,
+            domain_exit: 3,
             /*
              * Intialization parameters
              */
@@ -107,6 +129,10 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
             withdrawal_credentials: Hash256::zero(),
             randao_commitment: Hash256::zero(),
             randao_layers: 0,
+            activation_slot: u64::max_value(),
+            exit_slot: u64::max_value(),
+            withdrawal_slot: u64::max_value(),
+            penalized_slot: u64::max_value(),
             status: From::from(0),
             latest_status_change_slot: 0,
             exit_count: 0,

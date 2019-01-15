@@ -35,6 +35,10 @@ pub struct ValidatorRecord {
     pub withdrawal_credentials: Hash256,
     pub randao_commitment: Hash256,
     pub randao_layers: u64,
+    pub activation_slot: u64,
+    pub exit_slot: u64,
+    pub withdrawal_slot: u64,
+    pub penalized_slot: u64,
     pub status: ValidatorStatus,
     pub latest_status_change_slot: u64,
     pub exit_count: u64,
@@ -99,6 +103,10 @@ impl Encodable for ValidatorRecord {
         s.append(&self.withdrawal_credentials);
         s.append(&self.randao_commitment);
         s.append(&self.randao_layers);
+        s.append(&self.activation_slot);
+        s.append(&self.exit_slot);
+        s.append(&self.withdrawal_slot);
+        s.append(&self.penalized_slot);
         s.append(&self.status);
         s.append(&self.latest_status_change_slot);
         s.append(&self.exit_count);
@@ -114,6 +122,10 @@ impl Decodable for ValidatorRecord {
         let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_commitment, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_layers, i) = <_>::ssz_decode(bytes, i)?;
+        let (activation_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (withdrawal_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (penalized_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (status, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_status_change_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
@@ -127,6 +139,10 @@ impl Decodable for ValidatorRecord {
                 withdrawal_credentials,
                 randao_commitment,
                 randao_layers,
+                activation_slot,
+                exit_slot,
+                withdrawal_slot,
+                penalized_slot,
                 status,
                 latest_status_change_slot,
                 exit_count,
@@ -146,6 +162,10 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             withdrawal_credentials: <_>::random_for_test(rng),
             randao_commitment: <_>::random_for_test(rng),
             randao_layers: <_>::random_for_test(rng),
+            activation_slot: <_>::random_for_test(rng),
+            exit_slot: <_>::random_for_test(rng),
+            withdrawal_slot: <_>::random_for_test(rng),
+            penalized_slot: <_>::random_for_test(rng),
             status: <_>::random_for_test(rng),
             latest_status_change_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
