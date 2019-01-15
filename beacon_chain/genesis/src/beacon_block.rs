@@ -39,9 +39,6 @@ fn genesis_signature() -> Signature {
 mod tests {
     use super::*;
 
-    // TODO: enhance these tests.
-    // https://github.com/sigp/lighthouse/issues/117
-
     #[test]
     fn test_genesis() {
         let spec = ChainSpec::foundation();
@@ -51,7 +48,7 @@ mod tests {
         genesis_beacon_block(state_root, &spec);
     }
 
-    // Tests parent_root, randao_reveal, deposit_root are the zero hash after creation and slot == 0
+    // Tests items that are 0 or zero_hash
     #[test]
     fn test_zero_items() {
         let spec = ChainSpec::foundation();
@@ -61,13 +58,13 @@ mod tests {
 
         let genesis_block = genesis_beacon_block(state_root, &spec);
 
+        assert!(genesis_block.slot == 0);
         assert!(genesis_block.parent_root.is_zero());
         assert!(genesis_block.randao_reveal.is_zero());
-        assert!(genesis_block.slot == 0);
-        // assert!(genesis_block.depsoit_root.is_zero());
-
+        assert!(genesis_block.candidate_pow_receipt_root.is_zero()); // aka deposit_root
     }
 
+    // Tests the BeaconBlockBody inside BeaconBlock
     #[test]
     fn test_beacon_body() {
         let spec = ChainSpec::foundation();
@@ -77,12 +74,13 @@ mod tests {
 
         let genesis_block = genesis_beacon_block(state_root, &spec);
 
+        // Custody items are not being implemented until phase 1 so tests to be added later
+
         assert!(genesis_block.body.proposer_slashings.is_empty());
         assert!(genesis_block.body.casper_slashings.is_empty());
         assert!(genesis_block.body.attestations.is_empty());
         assert!(genesis_block.body.deposits.is_empty());
         assert!(genesis_block.body.exits.is_empty());
-        // Specs have changed to include 3 more variables in BeaconBody to be added later
     }
 
     #[test]
@@ -102,6 +100,6 @@ mod tests {
         assert!(raw_sig_bytes.len() == 97);
         for item in raw_sig_bytes.iter() {
             assert!(*item == 0);
-        }    
+        }
     }
 }
