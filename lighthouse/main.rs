@@ -12,8 +12,8 @@ mod config;
 
 use std::path::PathBuf;
 
-use clap::{App, Arg};
 use crate::config::LighthouseConfig;
+use clap::{App, Arg};
 use slog::Drain;
 
 fn main() {
@@ -32,13 +32,15 @@ fn main() {
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
                 .help("Network listen port for p2p connections.")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
 
     let mut config = LighthouseConfig::default();
 

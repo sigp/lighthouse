@@ -1,8 +1,8 @@
 extern crate bls;
 extern crate hashing;
-extern crate types;
 extern crate spec;
+extern crate types;
 
 mod inductor;
 
-pub use crate::inductor::{ValidatorInductionError, process_deposit};
+pub use crate::inductor::{process_deposit, ValidatorInductionError};
