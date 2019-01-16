@@ -2,6 +2,7 @@
 /// For now, we avoid defining a newtype and just have flat functions here.
 use super::validator_record::*;
 
+/// Given an indexed sequence of `validators`, return the indices corresponding to validators that are active at `slot`.
 pub fn get_active_validator_indices(validators: &[ValidatorRecord], slot: u64) -> Vec<usize> {
     validators
         .iter()

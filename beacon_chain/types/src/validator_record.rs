@@ -21,6 +21,7 @@ impl From<StatusFlagsDecodeError> for DecodeError {
     }
 }
 
+/// Handles the serialization logic for the `status_flags` field of the `ValidatorRecord`.
 fn status_flag_to_byte(flag: Option<StatusFlags>) -> u8 {
     if let Some(flag) = flag {
         match flag {
@@ -32,6 +33,7 @@ fn status_flag_to_byte(flag: Option<StatusFlags>) -> u8 {
     }
 }
 
+/// Handles the deserialization logic for the `status_flags` field of the `ValidatorRecord`.
 fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDecodeError> {
     match flag {
         0 => Ok(None),
@@ -59,12 +61,14 @@ pub struct ValidatorRecord {
 }
 
 impl ValidatorRecord {
+    /// This predicate indicates if the validator represented by this record is considered "active" at `slot`.
     pub fn is_active_at(&self, slot: u64) -> bool {
         self.activation_slot <= slot && slot < self.exit_slot
     }
 }
 
 impl Default for ValidatorRecord {
+    /// Yields a "default" `ValidatorRecord`. Primarily used for testing.
     fn default() -> Self {
         Self {
             pubkey: PublicKey::default(),
