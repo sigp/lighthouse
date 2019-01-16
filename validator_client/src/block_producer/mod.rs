@@ -4,16 +4,14 @@ mod test_node;
 mod traits;
 
 use self::traits::{BeaconNode, BeaconNodeError};
+use super::EpochDutiesMap;
 use crate::duties::EpochDuties;
 use slot_clock::SlotClock;
 use spec::ChainSpec;
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use types::BeaconBlock;
 
 pub use self::service::BlockProducerService;
-
-type EpochMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -38,7 +36,7 @@ pub enum Error {
 pub struct BlockProducer<T: SlotClock, U: BeaconNode> {
     pub last_processed_slot: u64,
     spec: Arc<ChainSpec>,
-    epoch_map: Arc<RwLock<HashMap<u64, EpochDuties>>>,
+    epoch_map: Arc<RwLock<EpochDutiesMap>>,
     slot_clock: Arc<RwLock<T>>,
     beacon_node: Arc<U>,
 }
@@ -46,7 +44,7 @@ pub struct BlockProducer<T: SlotClock, U: BeaconNode> {
 impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
     pub fn new(
         spec: Arc<ChainSpec>,
-        epoch_map: Arc<RwLock<EpochMap>>,
+        epoch_map: Arc<RwLock<EpochDutiesMap>>,
         slot_clock: Arc<RwLock<T>>,
         beacon_node: Arc<U>,
     ) -> Self {
@@ -151,7 +149,7 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
         let spec = Arc::new(ChainSpec::foundation());
-        let epoch_map = Arc::new(RwLock::new(EpochMap::new()));
+        let epoch_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
         let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
         let beacon_node = Arc::new(TestBeaconNode::default());
 

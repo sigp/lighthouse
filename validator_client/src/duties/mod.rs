@@ -9,10 +9,12 @@ mod service;
 mod test_node;
 mod traits;
 
+pub use self::service::DutiesManagerService;
+
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub struct EpochDuties {
     pub block_production_slot: Option<u64>,
-    pub shard: Option<u64>,
+    // Future shard info
 }
 
 impl EpochDuties {
@@ -24,7 +26,7 @@ impl EpochDuties {
     }
 }
 
-type EpochDutiesMap = HashMap<(PublicKey, u64), EpochDuties>;
+pub type EpochDutiesMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
@@ -73,7 +75,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
                 .map_err(|_| Error::EpochMapPoisoned)?;
 
             // If these duties were known, check to see if they're updates or identical.
-            let result = if let Some(known_duties) = map.get(&(self.pubkey.clone(), epoch)) {
+            let result = if let Some(known_duties) = map.get(&epoch) {
                 if *known_duties == duties {
                     Ok(PollOutcome::NoChange)
                 } else {
@@ -82,13 +84,12 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             } else {
                 Ok(PollOutcome::NewDuties)
             };
-            map.insert((self.pubkey.clone(), epoch), duties);
+            map.insert(epoch, duties);
             result
         } else {
             Ok(PollOutcome::UnknownValidatorOrEpoch)
         }
     }
-
 }
 
 impl From<BeaconNodeError> for Error {
@@ -101,8 +102,8 @@ impl From<BeaconNodeError> for Error {
 mod tests {
     use super::test_node::TestBeaconNode;
     use super::*;
-    use slot_clock::TestingSlotClock;
     use bls::Keypair;
+    use slot_clock::TestingSlotClock;
 
     // TODO: implement more thorough testing.
     //
@@ -125,9 +126,8 @@ mod tests {
         };
 
         // Configure response from the BeaconNode.
-        beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties{
+        beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties {
             block_production_slot: Some(10),
-            shard: Some(12),
         })));
 
         // Get the duties for the first time...
@@ -136,9 +136,8 @@ mod tests {
         assert_eq!(manager.poll(), Ok(PollOutcome::NoChange));
 
         // Return new duties.
-        beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties{
+        beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties {
             block_production_slot: Some(11),
-            shard: Some(12),
         })));
         assert_eq!(manager.poll(), Ok(PollOutcome::DutiesChanged));
 
