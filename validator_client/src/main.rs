@@ -1,14 +1,16 @@
+use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::block_producer::{BlockProducer, BlockProducerService};
 use crate::config::ClientConfig;
+use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services_grpc::BeaconBlockServiceClient;
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use spec::ChainSpec;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use std::thread;
 
 mod block_producer;
 mod config;
@@ -74,8 +76,7 @@ fn main() {
     // TODO: Permit loading a custom spec from file.
     let spec = Arc::new(ChainSpec::foundation());
 
-    // Global map of epoch -> validator duties.
-    let epoch_map = Arc::new(RwLock::new(HashMap::new()));
+    // Clock for determining the present slot.
     let slot_clock = {
         info!(log, "Genesis time"; "unix_epoch_seconds" => spec.genesis_time);
         let clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
@@ -83,17 +84,40 @@ fn main() {
         Arc::new(RwLock::new(clock))
     };
 
-    let block_producer =
-        BlockProducer::new(spec.clone(), epoch_map.clone(), slot_clock.clone(), client);
-
     let poll_interval_millis = spec.slot_duration * 1000 / 10; // 10% epoch time precision.
     info!(log, "Starting block producer service"; "polls_per_epoch" => spec.slot_duration * 1000 / poll_interval_millis);
 
-    let mut block_producer_service = BlockProducerService {
-        block_producer,
-        poll_interval_millis,
-        log: log.clone(),
-    };
+    /*
+     * Start threads.
+     */
+    let keypairs = vec![Keypair::random()];
+    let mut threads = vec![];
 
-    block_producer_service.run();
+    for keypair in keypairs {
+        let duties_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
+
+        let producer_thread = {
+            let spec = spec.clone();
+            let duties_map = duties_map.clone();
+            let slot_clock = slot_clock.clone();
+            let log = log.clone();
+            let client = client.clone();
+            thread::spawn(move || {
+                let block_producer = BlockProducer::new(spec, duties_map, slot_clock, client);
+                let mut block_producer_service = BlockProducerService {
+                    block_producer,
+                    poll_interval_millis,
+                    log,
+                };
+
+                block_producer_service.run();
+            })
+        };
+        threads.push(((), producer_thread));
+    }
+
+    for tuple in threads {
+        let (manager, producer) = tuple;
+        let _ = producer.join();
+    }
 }

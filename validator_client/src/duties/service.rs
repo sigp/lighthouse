@@ -1,16 +1,16 @@
-use super::traits::{BeaconNode, BeaconNodeError};
+use super::traits::BeaconNode;
 use super::{DutiesManager, PollOutcome};
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
 use std::time::Duration;
 
-pub struct DutiesService<T: SlotClock, U: BeaconNode> {
+pub struct DutiesManagerService<T: SlotClock, U: BeaconNode> {
     pub manager: DutiesManager<T, U>,
     pub poll_interval_millis: u64,
     pub log: Logger,
 }
 
-impl<T: SlotClock, U: BeaconNode> DutiesService<T, U> {
+impl<T: SlotClock, U: BeaconNode> DutiesManagerService<T, U> {
     pub fn run(&mut self) {
         loop {
             match self.manager.poll() {
