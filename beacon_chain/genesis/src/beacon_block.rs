@@ -23,11 +23,10 @@ pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBloc
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bls::{Signature};
+    use bls::Signature;
 
     #[test]
     fn test_genesis() {
