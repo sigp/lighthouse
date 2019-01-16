@@ -346,4 +346,85 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_get_shard_committees_at_slot() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut state = BeaconState::random_for_test(&mut rng);
+
+        let epoch_length = 64;
+
+        let mut committees_at_slots = vec![];
+        for _ in 0..epoch_length * 2 {
+            committees_at_slots.push(vec![ShardCommittee::random_for_test(&mut rng)]);
+        }
+
+        state.shard_committees_at_slots = committees_at_slots.clone();
+
+        let current_epoch_slots = state.get_current_epoch_boundaries(epoch_length);
+        let previous_epoch_slots = state.get_previous_epoch_boundaries(epoch_length);
+
+        let span = previous_epoch_slots.start - 10..current_epoch_slots.end + 10;
+        let earliest_slot_in_array = state.slot - (state.slot % epoch_length) - epoch_length;
+
+        for i in span {
+            if !range_contains(&previous_epoch_slots, i) && !range_contains(&current_epoch_slots, i)
+            {
+                assert!(state
+                    .get_shard_committees_at_slot(i, epoch_length)
+                    .is_none())
+            } else {
+                let index = (i - earliest_slot_in_array) as usize;
+                let expected_committee = committees_at_slots.get(index);
+                assert_eq!(
+                    expected_committee,
+                    state.get_shard_committees_at_slot(i, epoch_length)
+                )
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_beacon_proposer_index() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut state = BeaconState::random_for_test(&mut rng);
+
+        let epoch_length = 64;
+
+        let mut committees_at_slots = vec![];
+        for i in 0..epoch_length * 2 {
+            let mut shard_committee = ShardCommittee::random_for_test(&mut rng);
+            // ensure distinct indices, rather than just taking random values which may collide
+            // a collision here could *give* a false indication when testing below...
+            let indices = 3 * i..3 * i + 3;
+            shard_committee.committee = indices.into_iter().map(|i| i as usize).collect::<Vec<_>>();
+            committees_at_slots.push(vec![shard_committee]);
+        }
+
+        state.shard_committees_at_slots = committees_at_slots.clone();
+
+        let current_epoch_slots = state.get_current_epoch_boundaries(epoch_length);
+        let previous_epoch_slots = state.get_previous_epoch_boundaries(epoch_length);
+
+        let span = previous_epoch_slots.start - 10..current_epoch_slots.end + 10;
+        let earliest_slot_in_array = state.slot - (state.slot % epoch_length) - epoch_length;
+
+        for i in span {
+            if !range_contains(&previous_epoch_slots, i) && !range_contains(&current_epoch_slots, i)
+            {
+                assert!(state.get_beacon_proposer_index(i, epoch_length).is_none())
+            } else {
+                let index = (i - earliest_slot_in_array) as usize;
+                let expected_committees = committees_at_slots.get(index).unwrap();
+                let expected_committee = &expected_committees.get(0).unwrap().committee;
+                let expected_proposer = expected_committee
+                    .get(i as usize % expected_committee.len())
+                    .unwrap();
+                assert_eq!(
+                    *expected_proposer,
+                    state.get_beacon_proposer_index(i, epoch_length).unwrap()
+                )
+            }
+        }
+    }
 }
