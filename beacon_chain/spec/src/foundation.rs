@@ -101,7 +101,7 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
         };
         let validator_record = ValidatorRecord {
             pubkey: keypair.pk.clone(),
-            ..std::default::Default::default()
+            ..Default::default()
         };
         initial_validators.push(validator_record);
     }
