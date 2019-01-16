@@ -9,6 +9,8 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use hashing::canonical_hash;
 use rand::RngCore;
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use std::ops::Range;
 
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
@@ -91,6 +93,20 @@ impl BeaconState {
                 let target_index = slot as usize % first_committee.len();
                 first_committee.get(target_index).cloned()
             })
+    }
+
+    /// Returns the start slot and end slot of the current epoch containing `self.slot`.
+    fn get_current_epoch_boundaries(&self, epoch_length: u64) -> Range<u64> {
+        let slot_in_epoch = self.slot % epoch_length;
+        let start = self.slot - slot_in_epoch;
+        let end = self.slot + (epoch_length - slot_in_epoch);
+        start..end
+    }
+
+    /// Returns the start slot and end slot of the previous epoch with respect to `self.slot`.
+    fn get_previous_epoch_boundaries(&self, epoch_length: u64) -> Range<u64> {
+        let current_epoch = self.get_current_epoch_boundaries(epoch_length);
+        current_epoch.start - epoch_length..current_epoch.end - epoch_length
     }
 }
 
@@ -269,6 +285,7 @@ mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use std::ops::Range;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -291,5 +308,42 @@ mod tests {
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
         // https://github.com/sigp/lighthouse/issues/170
+    }
+
+    fn range_contains<T: PartialOrd>(range: &Range<T>, target: T) -> bool {
+        range.start <= target && target < range.end
+    }
+
+    #[test]
+    fn test_get_epoch_boundaries() {
+        let epoch_length = 64;
+        // focus on the third epoch, for example...
+        let slot = 3 + 2 * epoch_length;
+        let expected_current_range = 2 * epoch_length..3 * epoch_length;
+        let expected_previous_range = epoch_length..2 * epoch_length;
+
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut state = BeaconState::random_for_test(&mut rng);
+        state.slot = slot;
+        let current_result = state.get_current_epoch_boundaries(epoch_length);
+        let previous_result = state.get_previous_epoch_boundaries(epoch_length);
+        // test we get the expected range
+        assert_eq!(expected_current_range, current_result);
+        assert_eq!(expected_previous_range, previous_result);
+
+        // test slots around the range behave as expected
+        for i in 0..4 * epoch_length {
+            if i >= epoch_length && i < 2 * epoch_length {
+                assert!(range_contains(&previous_result, i));
+                assert!(!range_contains(&current_result, i));
+            } else if i >= 2 * epoch_length && i < 3 * epoch_length {
+                assert!(!range_contains(&previous_result, i));
+                assert!(range_contains(&current_result, i));
+            } else {
+                assert!(
+                    !range_contains(&previous_result, i) && !range_contains(&current_result, i)
+                );
+            }
+        }
     }
 }
