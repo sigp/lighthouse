@@ -3,8 +3,6 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
-use std::convert;
-use std::default;
 
 const STATUS_FLAG_INITIATED_EXIT: u8 = 1;
 const STATUS_FLAG_WITHDRAWABLE: u8 = 2;
@@ -15,7 +13,7 @@ pub enum StatusFlags {
     Withdrawable,
 }
 
-impl convert::From<u8> for StatusFlags {
+impl From<u8> for StatusFlags {
     fn from(status_flag: u8) -> Self {
         match status_flag {
             STATUS_FLAG_INITIATED_EXIT => StatusFlags::InitiatedExit,
@@ -48,7 +46,7 @@ impl ValidatorRecord {
     }
 }
 
-impl default::Default for ValidatorRecord {
+impl Default for ValidatorRecord {
     fn default() -> Self {
         Self {
             pubkey: PublicKey::default(),
