@@ -46,12 +46,9 @@ pub struct ChainSpec {
     pub min_attestation_inclusion_delay: u64,
     pub epoch_length: u64,
     pub seed_lookahead: u64,
-    pub min_validator_registry_change_interval: u64, // a.k.a. entry_exit_delay
-    pub pow_receipt_root_voting_period: u64,         // a.k. deposit_root_voting_period
+    pub entry_exit_delay: u64,
+    pub pow_receipt_root_voting_period: u64, // a.k.a. deposit_root_voting_period
     pub min_validator_withdrawal_time: u64,
-    pub shard_persistent_committee_change_period: u64, //old
-    pub collective_penalty_calculation_period: u64,    // old
-    pub zero_balance_validator_ttl: u64,               // old
     /*
      * Reward and penalty quotients
      */
@@ -60,11 +57,6 @@ pub struct ChainSpec {
     pub includer_reward_quotient: u64,
     pub inactivity_penalty_quotient: u64,
     /*
-     * Status flags
-     */
-    pub initiated_exit: u64,
-    pub withdrawable: u64,
-    /*
      * Max operations per block
      */
     pub max_proposer_slashings: u64,
@@ -72,18 +64,6 @@ pub struct ChainSpec {
     pub max_attestations: u64,
     pub max_deposits: u64,
     pub max_exits: u64,
-    /*
-     * Validator registry delta flags
-     */
-    pub activation: u64,
-    pub exit: u64,
-    /*
-     * Signature domains
-     */
-    pub domain_deposit: u64,
-    pub domain_attestation: u64,
-    pub domain_proposal: u64,
-    pub domain_exit: u64,
     /*
      * Intialization parameters
      */

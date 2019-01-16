@@ -51,12 +51,9 @@ impl ChainSpec {
             min_attestation_inclusion_delay: 4,
             epoch_length: 64,
             seed_lookahead: 64,
-            min_validator_registry_change_interval: 256,
+            entry_exit_delay: 256,
             pow_receipt_root_voting_period: 1_024,
             min_validator_withdrawal_time: u64::pow(2, 14),
-            shard_persistent_committee_change_period: u64::pow(2, 17), // old
-            collective_penalty_calculation_period: u64::pow(2, 20),    // old
-            zero_balance_validator_ttl: u64::pow(2, 22),               // old
             /*
              * Reward and penalty quotients
              */
@@ -65,11 +62,6 @@ impl ChainSpec {
             includer_reward_quotient: 8,
             inactivity_penalty_quotient: u64::pow(2, 24),
             /*
-             * Status flags
-             */
-            initiated_exit: 1,
-            withdrawable: 2,
-            /*
              * Max operations per block
              */
             max_proposer_slashings: 16,
@@ -77,18 +69,6 @@ impl ChainSpec {
             max_attestations: 128,
             max_deposits: 16,
             max_exits: 16,
-            /*
-             * Validator registry delta flags
-             */
-            activation: 0,
-            exit: 1,
-            /*
-             * Signature domains
-             */
-            domain_deposit: 0,
-            domain_attestation: 1,
-            domain_proposal: 2,
-            domain_exit: 3,
             /*
              * Intialization parameters
              */
@@ -133,9 +113,8 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
             exit_slot: u64::max_value(),
             withdrawal_slot: u64::max_value(),
             penalized_slot: u64::max_value(),
-            status: From::from(0),
-            latest_status_change_slot: 0,
             exit_count: 0,
+            status: From::from(0),
             custody_commitment: Hash256::zero(),
             latest_custody_reseed_slot: 0,
             penultimate_custody_reseed_slot: 0,
