@@ -39,9 +39,8 @@ pub struct ValidatorRecord {
     pub exit_slot: u64,
     pub withdrawal_slot: u64,
     pub penalized_slot: u64,
-    pub status: ValidatorStatus,
-    pub latest_status_change_slot: u64,
     pub exit_count: u64,
+    pub status: ValidatorStatus,
     pub custody_commitment: Hash256,
     pub latest_custody_reseed_slot: u64,
     pub penultimate_custody_reseed_slot: u64,
@@ -107,9 +106,8 @@ impl Encodable for ValidatorRecord {
         s.append(&self.exit_slot);
         s.append(&self.withdrawal_slot);
         s.append(&self.penalized_slot);
-        s.append(&self.status);
-        s.append(&self.latest_status_change_slot);
         s.append(&self.exit_count);
+        s.append(&self.status);
         s.append(&self.custody_commitment);
         s.append(&self.latest_custody_reseed_slot);
         s.append(&self.penultimate_custody_reseed_slot);
@@ -126,9 +124,8 @@ impl Decodable for ValidatorRecord {
         let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (penalized_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (status, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_status_change_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
+        let (status, i) = <_>::ssz_decode(bytes, i)?;
         let (custody_commitment, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (penultimate_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
@@ -143,9 +140,8 @@ impl Decodable for ValidatorRecord {
                 exit_slot,
                 withdrawal_slot,
                 penalized_slot,
-                status,
-                latest_status_change_slot,
                 exit_count,
+                status,
                 custody_commitment,
                 latest_custody_reseed_slot,
                 penultimate_custody_reseed_slot,
@@ -166,9 +162,8 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             exit_slot: <_>::random_for_test(rng),
             withdrawal_slot: <_>::random_for_test(rng),
             penalized_slot: <_>::random_for_test(rng),
-            status: <_>::random_for_test(rng),
-            latest_status_change_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
+            status: <_>::random_for_test(rng),
             custody_commitment: <_>::random_for_test(rng),
             latest_custody_reseed_slot: <_>::random_for_test(rng),
             penultimate_custody_reseed_slot: <_>::random_for_test(rng),
