@@ -4,7 +4,7 @@ mod test_node;
 mod traits;
 
 use self::traits::{BeaconNode, BeaconNodeError};
-use crate::EpochDuties;
+use crate::duties::EpochDuties;
 use slot_clock::SlotClock;
 use spec::ChainSpec;
 use std::collections::HashMap;
