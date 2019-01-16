@@ -13,13 +13,31 @@ pub enum StatusFlags {
     Withdrawable,
 }
 
-impl From<u8> for StatusFlags {
-    fn from(status_flag: u8) -> Self {
-        match status_flag {
-            STATUS_FLAG_INITIATED_EXIT => StatusFlags::InitiatedExit,
-            STATUS_FLAG_WITHDRAWABLE => StatusFlags::Withdrawable,
-            _ => unreachable!(),
+struct StatusFlagsDecodeError;
+
+impl From<StatusFlagsDecodeError> for DecodeError {
+    fn from(_: StatusFlagsDecodeError) -> DecodeError {
+        DecodeError::Invalid
+    }
+}
+
+fn status_flag_to_byte(flag: Option<StatusFlags>) -> u8 {
+    if let Some(flag) = flag {
+        match flag {
+            StatusFlags::InitiatedExit => STATUS_FLAG_INITIATED_EXIT,
+            StatusFlags::Withdrawable => STATUS_FLAG_WITHDRAWABLE,
         }
+    } else {
+        0
+    }
+}
+
+fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDecodeError> {
+    match flag {
+        0 => Ok(None),
+        1 => Ok(Some(StatusFlags::InitiatedExit)),
+        2 => Ok(Some(StatusFlags::Withdrawable)),
+        _ => Err(StatusFlagsDecodeError),
     }
 }
 
@@ -66,28 +84,6 @@ impl Default for ValidatorRecord {
     }
 }
 
-impl Encodable for StatusFlags {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let byte: u8 = match self {
-            StatusFlags::InitiatedExit => STATUS_FLAG_INITIATED_EXIT,
-            StatusFlags::Withdrawable => STATUS_FLAG_WITHDRAWABLE,
-        };
-        s.append(&byte);
-    }
-}
-
-impl Decodable for StatusFlags {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (byte, i) = u8::ssz_decode(bytes, i)?;
-        let status = match byte {
-            1 => StatusFlags::InitiatedExit,
-            2 => StatusFlags::Withdrawable,
-            _ => return Err(DecodeError::Invalid),
-        };
-        Ok((status, i))
-    }
-}
-
 impl<T: RngCore> TestRandom<T> for StatusFlags {
     fn random_for_test(rng: &mut T) -> Self {
         let options = vec![StatusFlags::InitiatedExit, StatusFlags::Withdrawable];
@@ -106,11 +102,7 @@ impl Encodable for ValidatorRecord {
         s.append(&self.withdrawal_slot);
         s.append(&self.penalized_slot);
         s.append(&self.exit_count);
-        if let Some(status_flags) = self.status_flags {
-            s.append(&status_flags);
-        } else {
-            s.append(&(0 as u8));
-        }
+        s.append(&status_flag_to_byte(self.status_flags));
         s.append(&self.custody_commitment);
         s.append(&self.latest_custody_reseed_slot);
         s.append(&self.penultimate_custody_reseed_slot);
@@ -133,11 +125,7 @@ impl Decodable for ValidatorRecord {
         let (latest_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (penultimate_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
 
-        let status_flags = if status_flags_byte == 0u8 {
-            None
-        } else {
-            Some(StatusFlags::from(status_flags_byte))
-        };
+        let status_flags = status_flag_from_byte(status_flags_byte)?;
 
         Ok((
             Self {
@@ -187,17 +175,6 @@ mod tests {
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = ValidatorRecord::random_for_test(&mut rng);
-
-        let bytes = ssz_encode(&original);
-        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
-
-        assert_eq!(original, decoded);
-    }
-
-    #[test]
-    pub fn test_validator_status_ssz_round_trip() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = StatusFlags::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
