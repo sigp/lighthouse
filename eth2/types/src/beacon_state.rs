@@ -66,6 +66,7 @@ impl BeaconState {
     }
 
     /// Returns the `ShardCommittee` for the `slot`.
+    /// If the state does not contain a `ShardCommittee` for the requested `slot`, then `None` is returned.
     pub fn get_shard_committees_at_slot(
         &self,
         slot: u64,
@@ -81,6 +82,7 @@ impl BeaconState {
     }
 
     /// Returns the beacon proposer index for the `slot`.
+    /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     pub fn get_beacon_proposer_index(&self, slot: u64, epoch_length: u64) -> Option<usize> {
         self.get_shard_committees_at_slot(slot, epoch_length)
             .and_then(|shard_committees| shard_committees.get(0))
