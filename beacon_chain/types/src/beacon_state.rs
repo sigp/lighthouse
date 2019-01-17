@@ -9,7 +9,7 @@ use hashing::canonical_hash;
 use rand::RngCore;
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 
-// Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummay class used.
+// Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
 
 #[derive(Debug, PartialEq, Clone, Default)]
