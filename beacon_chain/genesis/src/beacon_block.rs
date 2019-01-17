@@ -48,7 +48,6 @@ mod tests {
         genesis_beacon_block(state_root, &spec);
     }
 
-    // Tests items that are 0 or zero_hash
     #[test]
     fn test_zero_items() {
         let spec = ChainSpec::foundation();
@@ -63,7 +62,6 @@ mod tests {
         assert!(genesis_block.candidate_pow_receipt_root.is_zero()); // aka deposit_root
     }
 
-    // Tests the BeaconBlockBody inside BeaconBlock
     #[test]
     fn test_beacon_body() {
         let spec = ChainSpec::foundation();
