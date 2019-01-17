@@ -88,14 +88,11 @@ impl From<ValidatorAssignmentError> for Error {
 
 #[cfg(test)]
 mod tests {
-    extern crate bls;
-    extern crate validator_induction;
-
     use super::*;
     use types::Hash256;
 
     #[test]
-    fn test_gen_state() {
+    fn test_genesis_state() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
@@ -106,9 +103,8 @@ mod tests {
         );
     }
 
-    // Test Misc
     #[test]
-    fn test_gen_state_misc() {
+    fn test_genesis_state_misc() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
@@ -120,9 +116,8 @@ mod tests {
         assert_eq!(state.fork_data.fork_slot, 0);
     }
 
-    // Test validators
     #[test]
-    fn test_gen_state_validators() {
+    fn test_genesis_state_validators() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
@@ -134,9 +129,8 @@ mod tests {
         assert_eq!(state.validator_registry_delta_chain_tip, Hash256::zero());
     }
 
-    // Test randomness and committees
     #[test]
-    fn test_gen_state_randomness_committees() {
+    fn test_genesis_state_randomness_committees() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
@@ -161,13 +155,11 @@ mod tests {
     }
 
     // Custody not implemented until Phase 1
-    // This test will always pass until Phase 1
     #[test]
-    fn test_gen_state_custody() {}
+    fn test_genesis_state_custody() {}
 
-    // Test finality
     #[test]
-    fn test_gen_state_finanilty() {
+    fn test_genesis_state_finanilty() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
@@ -178,9 +170,8 @@ mod tests {
         assert_eq!(state.finalized_slot, 0);
     }
 
-    // Test recent state
     #[test]
-    fn test_gen_state_recent_state() {
+    fn test_genesis_state_recent_state() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
@@ -211,9 +202,8 @@ mod tests {
         assert!(state.batched_block_roots.is_empty());
     }
 
-    // Test PoW Receipts a.k.a. deposits
     #[test]
-    fn test_gen_state_deposit_root() {
+    fn test_genesis_state_deposit_root() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
