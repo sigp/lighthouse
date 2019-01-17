@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../utils/bls"  }
-bls-aggregates = { git = "https://github.com/sigp/signature-schemes" }
 spec = { path = "../spec"  }
 ssz = { path = "../utils/ssz" }
 types = { path = "../types"  }
