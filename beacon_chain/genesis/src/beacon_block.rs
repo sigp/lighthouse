@@ -53,7 +53,6 @@ mod tests {
     fn test_zero_items() {
         let spec = ChainSpec::foundation();
 
-        // Note: state_root will not be available without a state (test in beacon_state)
         let state_root = Hash256::zero();
 
         let genesis_block = genesis_beacon_block(state_root, &spec);
@@ -69,7 +68,6 @@ mod tests {
     fn test_beacon_body() {
         let spec = ChainSpec::foundation();
 
-        // Note: state_root will not be available without a state (test in beacon_state)
         let state_root = Hash256::zero();
 
         let genesis_block = genesis_beacon_block(state_root, &spec);
@@ -87,7 +85,6 @@ mod tests {
     fn test_signature() {
         let spec = ChainSpec::foundation();
 
-        // Note: state_root will not be available without a state (test in beacon_state)
         let state_root = Hash256::zero();
 
         let genesis_block = genesis_beacon_block(state_root, &spec);
@@ -97,7 +94,6 @@ mod tests {
         let raw_sig = genesis_block.signature.as_raw();
         let raw_sig_bytes = raw_sig.as_bytes();
 
-        assert!(raw_sig_bytes.len() == 97);
         for item in raw_sig_bytes.iter() {
             assert!(*item == 0);
         }
