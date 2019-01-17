@@ -42,7 +42,7 @@ impl ChainSpec {
             genesis_start_shard: 0,
             far_future_slot: u64::max_value(),
             zero_hash: Hash256::zero(),
-            empty_signature: Signature::empty_sig(),
+            empty_signature: Signature::empty_signature(),
             bls_withdrawal_prefix_byte: 0x00,
             /*
              * Time parameters

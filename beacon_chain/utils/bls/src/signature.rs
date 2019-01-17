@@ -37,7 +37,7 @@ impl Signature {
     }
 
     /// Returns a new empty signature.
-    pub fn empty_sig() -> Self {
+    pub fn empty_signature() -> Self {
         let empty: Vec<u8> = vec![0; 97];
         Signature(RawSignature::from_bytes(&empty).unwrap())
     }
@@ -76,8 +76,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_empty_sig() {
-        let sig = Signature::empty_sig();
+    pub fn test_empty_signature() {
+        let sig = Signature::empty_signature();
 
         let sig_as_bytes: Vec<u8> = sig.as_raw().as_bytes();
 

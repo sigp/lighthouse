@@ -84,6 +84,6 @@ mod tests {
         for item in raw_sig_bytes.iter() {
             assert!(*item == 0);
         }
-        assert_eq!(genesis_block.signature, Signature::empty_sig());
+        assert_eq!(genesis_block.signature, Signature::empty_signature());
     }
 }
