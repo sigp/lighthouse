@@ -68,8 +68,8 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
          * Recent state
          */
         latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
-        latest_block_roots: vec![spec.zero_hash; spec.epoch_length as usize],
-        latest_penalized_exit_balances: vec![],
+        latest_block_roots: vec![spec.zero_hash; spec.latest_block_roots_length as usize],
+        latest_penalized_exit_balances: vec![0; spec.latest_penalized_exit_length as usize],
         latest_attestations: vec![],
         batched_block_roots: vec![],
         /*
@@ -88,16 +88,11 @@ impl From<ValidatorAssignmentError> for Error {
 
 #[cfg(test)]
 mod tests {
-    extern crate bls;
-    extern crate validator_induction;
-
     use super::*;
-
-    // TODO: enhance these tests.
-    // https://github.com/sigp/lighthouse/issues/117
+    use types::Hash256;
 
     #[test]
-    fn test_genesis() {
+    fn test_genesis_state() {
         let spec = ChainSpec::foundation();
 
         let state = genesis_beacon_state(&spec).unwrap();
@@ -106,5 +101,117 @@ mod tests {
             state.validator_registry.len(),
             spec.initial_validators.len()
         );
+    }
+
+    #[test]
+    fn test_genesis_state_misc() {
+        let spec = ChainSpec::foundation();
+
+        let state = genesis_beacon_state(&spec).unwrap();
+
+        assert_eq!(state.slot, 0);
+        assert_eq!(state.genesis_time, spec.genesis_time);
+        assert_eq!(state.fork_data.pre_fork_version, 0);
+        assert_eq!(state.fork_data.post_fork_version, 0);
+        assert_eq!(state.fork_data.fork_slot, 0);
+    }
+
+    #[test]
+    fn test_genesis_state_validators() {
+        let spec = ChainSpec::foundation();
+
+        let state = genesis_beacon_state(&spec).unwrap();
+
+        assert_eq!(state.validator_registry, spec.initial_validators);
+        assert_eq!(state.validator_balances, spec.initial_balances);
+        assert!(state.validator_registry_latest_change_slot == 0);
+        assert!(state.validator_registry_exit_count == 0);
+        assert_eq!(state.validator_registry_delta_chain_tip, Hash256::zero());
+    }
+
+    #[test]
+    fn test_genesis_state_randomness_committees() {
+        let spec = ChainSpec::foundation();
+
+        let state = genesis_beacon_state(&spec).unwrap();
+
+        // Array of size 8,192 each being zero_hash
+        assert_eq!(state.latest_randao_mixes.len(), 8_192);
+        for item in state.latest_randao_mixes.iter() {
+            assert_eq!(*item, Hash256::zero());
+        }
+
+        // Array of size 8,192 each being a zero hash
+        assert_eq!(state.latest_vdf_outputs.len(), (8_192 / 64));
+        for item in state.latest_vdf_outputs.iter() {
+            assert_eq!(*item, Hash256::zero());
+        }
+
+        // TODO: Check shard and committee shuffling requires solving issue:
+        // https://github.com/sigp/lighthouse/issues/151
+
+        // initial_shuffling = get_shuffling(Hash256::zero(), &state.validator_registry, 0, 0)
+        // initial_shuffling = initial_shuffling.append(initial_shuffling.clone());
+    }
+
+    // Custody not implemented until Phase 1
+    #[test]
+    fn test_genesis_state_custody() {}
+
+    #[test]
+    fn test_genesis_state_finanilty() {
+        let spec = ChainSpec::foundation();
+
+        let state = genesis_beacon_state(&spec).unwrap();
+
+        assert_eq!(state.previous_justified_slot, 0);
+        assert_eq!(state.justified_slot, 0);
+        assert_eq!(state.justification_bitfield, 0);
+        assert_eq!(state.finalized_slot, 0);
+    }
+
+    #[test]
+    fn test_genesis_state_recent_state() {
+        let spec = ChainSpec::foundation();
+
+        let state = genesis_beacon_state(&spec).unwrap();
+
+        // Test latest_crosslinks
+        assert_eq!(state.latest_crosslinks.len(), 1_024);
+        for link in state.latest_crosslinks.iter() {
+            assert_eq!(link.slot, 0);
+            assert_eq!(link.shard_block_root, Hash256::zero());
+        }
+
+        // Test latest_block_roots
+        assert_eq!(state.latest_block_roots.len(), 8_192);
+        for block in state.latest_block_roots.iter() {
+            assert_eq!(*block, Hash256::zero());
+        }
+
+        // Test latest_penalized_exit_balances
+        assert_eq!(state.latest_penalized_exit_balances.len(), 8_192);
+        for item in state.latest_penalized_exit_balances.iter() {
+            assert!(*item == 0);
+        }
+
+        // Test latest_attestations
+        assert!(state.latest_attestations.is_empty());
+
+        // batched_block_roots
+        assert!(state.batched_block_roots.is_empty());
+    }
+
+    #[test]
+    fn test_genesis_state_deposit_root() {
+        let spec = ChainSpec::foundation();
+
+        let state = genesis_beacon_state(&spec).unwrap();
+
+        assert_eq!(
+            state.processed_pow_receipt_root,
+            spec.processed_pow_receipt_root
+        );
+        assert!(state.candidate_pow_receipt_roots.is_empty());
     }
 }
