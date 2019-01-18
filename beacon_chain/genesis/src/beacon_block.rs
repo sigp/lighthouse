@@ -39,9 +39,6 @@ fn genesis_signature() -> Signature {
 mod tests {
     use super::*;
 
-    // TODO: enhance these tests.
-    // https://github.com/sigp/lighthouse/issues/117
-
     #[test]
     fn test_genesis() {
         let spec = ChainSpec::foundation();
@@ -49,5 +46,54 @@ mod tests {
 
         // This only checks that the function runs without panic.
         genesis_beacon_block(state_root, &spec);
+    }
+
+    #[test]
+    fn test_zero_items() {
+        let spec = ChainSpec::foundation();
+
+        let state_root = Hash256::zero();
+
+        let genesis_block = genesis_beacon_block(state_root, &spec);
+
+        assert!(genesis_block.slot == 0);
+        assert!(genesis_block.parent_root.is_zero());
+        assert!(genesis_block.randao_reveal.is_zero());
+        assert!(genesis_block.candidate_pow_receipt_root.is_zero()); // aka deposit_root
+    }
+
+    #[test]
+    fn test_beacon_body() {
+        let spec = ChainSpec::foundation();
+
+        let state_root = Hash256::zero();
+
+        let genesis_block = genesis_beacon_block(state_root, &spec);
+
+        // Custody items are not being implemented until phase 1 so tests to be added later
+
+        assert!(genesis_block.body.proposer_slashings.is_empty());
+        assert!(genesis_block.body.casper_slashings.is_empty());
+        assert!(genesis_block.body.attestations.is_empty());
+        assert!(genesis_block.body.deposits.is_empty());
+        assert!(genesis_block.body.exits.is_empty());
+    }
+
+    #[test]
+    fn test_signature() {
+        let spec = ChainSpec::foundation();
+
+        let state_root = Hash256::zero();
+
+        let genesis_block = genesis_beacon_block(state_root, &spec);
+
+        // Signature should consist of [bytes48(0), bytes48(0)]
+        // Note this is implemented using Apache Milagro BLS which requires one extra byte -> 97bytes
+        let raw_sig = genesis_block.signature.as_raw();
+        let raw_sig_bytes = raw_sig.as_bytes();
+
+        for item in raw_sig_bytes.iter() {
+            assert!(*item == 0);
+        }
     }
 }
