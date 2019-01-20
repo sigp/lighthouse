@@ -1,6 +1,6 @@
 use bls::verify_proof_of_possession;
 use spec::ChainSpec;
-use types::{BeaconState, Deposit, ValidatorRecord, ValidatorStatus};
+use types::{BeaconState, Deposit, ValidatorRecord};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {
@@ -49,7 +49,7 @@ pub fn process_deposit(
                 withdrawal_slot: spec.far_future_slot,
                 penalized_slot: spec.far_future_slot,
                 exit_count: 0,
-                status: ValidatorStatus::PendingActivation,
+                status_flags: None,
                 custody_commitment: deposit_input.custody_commitment,
                 latest_custody_reseed_slot: 0,
                 penultimate_custody_reseed_slot: 0,

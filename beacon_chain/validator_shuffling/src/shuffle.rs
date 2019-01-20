@@ -2,7 +2,8 @@ use std::cmp::min;
 
 use honey_badger_split::SplitExt;
 use spec::ChainSpec;
-use types::{ShardCommittee, ValidatorRecord, ValidatorStatus};
+use types::validator_registry::get_active_validator_indices;
+use types::{ShardCommittee, ValidatorRecord};
 use vec_shuffle::{shuffle, ShuffleErr};
 
 type DelegatedCycle = Vec<Vec<ShardCommittee>>;
@@ -24,17 +25,7 @@ pub fn shard_and_committees_for_cycle(
     spec: &ChainSpec,
 ) -> Result<DelegatedCycle, ValidatorAssignmentError> {
     let shuffled_validator_indices = {
-        let validator_indices = validators
-            .iter()
-            .enumerate()
-            .filter_map(|(i, validator)| {
-                if validator.status_is(ValidatorStatus::Active) {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let validator_indices = get_active_validator_indices(validators, 0);
         shuffle(seed, validator_indices)?
     };
     let shard_indices: Vec<usize> = (0_usize..spec.shard_count as usize).into_iter().collect();
