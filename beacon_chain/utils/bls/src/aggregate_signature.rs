@@ -27,6 +27,14 @@ impl AggregateSignature {
     pub fn verify(&self, msg: &[u8], aggregate_public_key: &AggregatePublicKey) -> bool {
         self.0.verify(msg, aggregate_public_key)
     }
+
+    /// Verify the `AggregateSignature` for each message matches the `AggreagatePublicKey`
+    ///
+    /// Only returns `true` if each `AggregatePublicKey` matches the key used to sign its
+    /// respective message. Here the mappying of `AggregatePublicKey`s to `Messages` is 1:1.
+    pub fn verify_multiple(&self, msg: &[u8], aggregate_public_keys: &[AggregatePublicKey]) -> bool {
+        self.0.verify_multiple(msg, aggregate_public_keys)
+    }
 }
 
 impl Encodable for AggregateSignature {

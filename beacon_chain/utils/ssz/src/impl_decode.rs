@@ -68,6 +68,16 @@ where
     }
 }
 
+impl Decodable for bool {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+        if index >= bytes.len() {
+            Err(DecodeError::TooShort)
+        } else {
+            Ok((bytes[index] > 0, index + 1))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{decode_ssz, DecodeError};
@@ -202,6 +212,24 @@ mod tests {
         let ssz = vec![0, 0, 0, 0, 0, 0, 1];
         let result: Result<(usize, usize), DecodeError> = decode_ssz(&ssz, 0);
         assert_eq!(result, Err(DecodeError::TooShort));
+    }
+
+    #[test]
+    fn test_ssz_decode_bool() {
+        let ssz = vec![1];
+        let (result, index): (bool, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 1);
+        assert_eq!(result, true);
+
+        let ssz = vec![0];
+        let (result, index): (bool, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 1);
+        assert_eq!(result, false);
+
+        let ssz = vec![0, 1, 0];
+        let (result, index): (bool, usize) = decode_ssz(&ssz, 1).unwrap();
+        assert_eq!(index, 2);
+        assert_eq!(result, true);
     }
 
     #[test]

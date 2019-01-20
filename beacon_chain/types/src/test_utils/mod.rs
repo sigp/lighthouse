@@ -47,3 +47,10 @@ where
         ]
     }
 }
+
+impl<T: RngCore> TestRandom<T> for bool {
+    fn random_for_test(rng: &mut T) -> Self {
+        let num = rng.next_u32();
+        num % 2 == 1
+    }
+}

@@ -67,6 +67,16 @@ where
     }
 }
 
+impl Encodable for bool {
+    fn ssz_append(&self, s: &mut SszStream) {
+        if *self {
+            s.append_encoded_raw(&[1 as u8]);
+        } else {
+            s.append_encoded_raw(&[0 as u8]);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +207,27 @@ mod tests {
         let mut ssz = SszStream::new();
         ssz.append(&x);
         assert_eq!(ssz.drain(), vec![255, 255, 255, 255, 255, 255, 255, 255]);
+    }
+
+    #[test]
+    pub fn test_ssz_encode_bool() {
+        let b = false;
+        let mut ssz = SszStream::new();
+        ssz.append(&b);
+        assert_eq!(ssz.drain(), vec![0]);
+
+        let b = true;
+        let mut ssz = SszStream::new();
+        ssz.append(&b);
+        assert_eq!(ssz.drain(), vec![1]);
+
+        let b1 = true;
+        let b2 = false;
+        let b3 = true;
+        let mut ssz = SszStream::new();
+        ssz.append(&b1);
+        ssz.append(&b2);
+        ssz.append(&b3);
+        assert_eq!(ssz.drain(), vec![1, 0, 1]);
     }
 }
