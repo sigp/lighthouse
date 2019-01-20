@@ -1,6 +1,7 @@
 use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
 use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use std::default;
 
 /// A single BLS signature.
 ///
@@ -17,6 +18,13 @@ impl PublicKey {
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
+    }
+}
+
+impl default::Default for PublicKey {
+    fn default() -> Self {
+        let secret_key = SecretKey::random();
+        PublicKey::from_secret_key(&secret_key)
     }
 }
 

@@ -26,6 +26,7 @@ pub mod shard_reassignment_record;
 pub mod slashable_vote_data;
 pub mod special_record;
 pub mod validator_record;
+pub mod validator_registry;
 
 pub mod readers;
 
@@ -50,7 +51,7 @@ pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::shard_committee::ShardCommittee;
 pub use crate::slashable_vote_data::SlashableVoteData;
 pub use crate::special_record::{SpecialRecord, SpecialRecordKind};
-pub use crate::validator_record::{ValidatorRecord, ValidatorStatus};
+pub use crate::validator_record::{StatusFlags as ValidatorStatusFlags, ValidatorRecord};
 
 pub type Hash256 = H256;
 pub type Address = H160;
