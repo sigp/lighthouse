@@ -114,7 +114,7 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
             withdrawal_slot: u64::max_value(),
             penalized_slot: u64::max_value(),
             exit_count: 0,
-            status: From::from(0),
+            status_flags: None,
             custody_commitment: Hash256::zero(),
             latest_custody_reseed_slot: 0,
             penultimate_custody_reseed_slot: 0,
