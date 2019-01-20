@@ -1,0 +1,10 @@
+[package]
+name = "slashing"
+version = "0.1.0"
+authors = ["Kirk Baird <baird.k@outlook.com>"]
+edition = "2018"
+
+[dependencies]
+bls = { path = "../utils/bls" }
+types = { path = "../types" }
+spec = { path = "../spec" } 
