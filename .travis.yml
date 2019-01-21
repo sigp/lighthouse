@@ -1,4 +1,6 @@
 language: rust
+before_install:
+  - sudo apt-get install -y protobuf-compiler
 script:
   - cargo build --verbose --all
   - cargo test --verbose --all
