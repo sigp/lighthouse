@@ -1,13 +1,15 @@
+mod grpc;
+mod service;
+#[cfg(test)]
+mod test_node;
+mod traits;
+
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use spec::ChainSpec;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
-mod service;
-mod test_node;
-mod traits;
 
 pub use self::service::DutiesManagerService;
 

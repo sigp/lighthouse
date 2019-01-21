@@ -1,11 +1,11 @@
 mod grpc;
 mod service;
+#[cfg(test)]
 mod test_node;
 mod traits;
 
 use self::traits::{BeaconNode, BeaconNodeError};
 use super::EpochDutiesMap;
-use crate::duties::EpochDuties;
 use slot_clock::SlotClock;
 use spec::ChainSpec;
 use std::sync::{Arc, RwLock};
@@ -139,6 +139,7 @@ mod tests {
     use super::*;
     use slot_clock::TestingSlotClock;
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use crate::duties::EpochDuties;
 
     // TODO: implement more thorough testing.
     //

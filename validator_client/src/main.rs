@@ -96,6 +96,25 @@ fn main() {
     for keypair in keypairs {
         let duties_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
 
+        let duties_manager_thread = {
+            let spec = spec.clone();
+            let duties_map = duties_map.clone();
+            let slot_clock = slot_clock.clone();
+            let log = log.clone();
+            let beacon_node = client.clone();
+            let pubkey = keypair.pk.clone();
+            thread::spawn(move || {
+                let manager = DutiesManager { duties_map, pubkey, spec, slot_clock, beacon_node };
+                let mut duties_manager_service = DutiesManagerService {
+                    manager,
+                    poll_interval_millis,
+                    log,
+                };
+
+                duties_manager_service.run();
+            })
+        };
+
         let producer_thread = {
             let spec = spec.clone();
             let duties_map = duties_map.clone();
@@ -113,11 +132,13 @@ fn main() {
                 block_producer_service.run();
             })
         };
-        threads.push(((), producer_thread));
+
+        threads.push((duties_manager_thread, producer_thread));
     }
 
     for tuple in threads {
         let (manager, producer) = tuple;
         let _ = producer.join();
+        let _ = manager.join();
     }
 }
