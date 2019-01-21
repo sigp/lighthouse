@@ -1,11 +1,11 @@
 use super::traits::{BeaconNode, BeaconNodeError};
 use super::EpochDuties;
 use protos::services::ValidatorAssignmentRequest;
-use protos::services_grpc::BeaconBlockServiceClient;
+use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
 use types::PublicKey;
 
-impl BeaconNode for BeaconBlockServiceClient {
+impl BeaconNode for ValidatorServiceClient {
     fn request_shuffling(
         &self,
         epoch: u64,

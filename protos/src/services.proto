@@ -15,6 +15,9 @@ package ethereum.beacon.rpc.v1;
 service BeaconBlockService {
     rpc ProduceBeaconBlock(ProduceBeaconBlockRequest) returns (ProduceBeaconBlockResponse);
     rpc PublishBeaconBlock(PublishBeaconBlockRequest) returns (PublishBeaconBlockResponse);
+}
+
+service ValidatorService {
     rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
 }
 

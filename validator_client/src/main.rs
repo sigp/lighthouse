@@ -4,7 +4,7 @@ use crate::config::ClientConfig;
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
-use protos::services_grpc::BeaconBlockServiceClient;
+use protos::services_grpc::{BeaconBlockServiceClient, ValidatorServiceClient};
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use spec::ChainSpec;
@@ -66,10 +66,19 @@ fn main() {
           "data_dir" => &config.data_dir.to_str(),
           "server" => &config.server);
 
-    // gRPC
-    let env = Arc::new(EnvBuilder::new().build());
-    let ch = ChannelBuilder::new(env).connect(&config.server);
-    let client = Arc::new(BeaconBlockServiceClient::new(ch));
+    // Beacon node gRPC beacon block endpoints.
+    let beacon_block_grpc_client = {
+        let env = Arc::new(EnvBuilder::new().build());
+        let ch = ChannelBuilder::new(env).connect(&config.server);
+        Arc::new(BeaconBlockServiceClient::new(ch))
+    };
+
+    // Beacon node gRPC validator endpoints.
+    let validator_grpc_client = {
+        let env = Arc::new(EnvBuilder::new().build());
+        let ch = ChannelBuilder::new(env).connect(&config.server);
+        Arc::new(ValidatorServiceClient::new(ch))
+    };
 
     // Ethereum
     //
@@ -101,7 +110,7 @@ fn main() {
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
             let log = log.clone();
-            let beacon_node = client.clone();
+            let beacon_node = validator_grpc_client.clone();
             let pubkey = keypair.pk.clone();
             thread::spawn(move || {
                 let manager = DutiesManager {
@@ -126,7 +135,7 @@ fn main() {
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
             let log = log.clone();
-            let client = client.clone();
+            let client = beacon_block_grpc_client.clone();
             thread::spawn(move || {
                 let block_producer = BlockProducer::new(spec, duties_map, slot_clock, client);
                 let mut block_producer_service = BlockProducerService {
