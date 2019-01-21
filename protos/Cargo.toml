@@ -3,6 +3,7 @@ name = "protos"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
+description = "Google protobuf message and service definitions used in Lighthouse APIs."
 
 [dependencies]
 futures = "0.1.16"
