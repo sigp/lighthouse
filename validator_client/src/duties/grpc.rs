@@ -1,12 +1,16 @@
-use super::EpochDuties;
 use super::traits::{BeaconNode, BeaconNodeError};
+use super::EpochDuties;
 use protos::services::ValidatorAssignmentRequest;
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::ssz_encode;
-use types::{PublicKey};
+use types::PublicKey;
 
 impl BeaconNode for BeaconBlockServiceClient {
-    fn request_shuffling(&self, epoch: u64, public_key: &PublicKey) -> Result<Option<EpochDuties>, BeaconNodeError> {
+    fn request_shuffling(
+        &self,
+        epoch: u64,
+        public_key: &PublicKey,
+    ) -> Result<Option<EpochDuties>, BeaconNodeError> {
         let mut req = ValidatorAssignmentRequest::new();
         req.set_epoch(epoch);
         req.set_public_key(ssz_encode(public_key).to_vec());
@@ -24,7 +28,9 @@ impl BeaconNode for BeaconBlockServiceClient {
                 None
             };
 
-            let duties = EpochDuties { block_production_slot };
+            let duties = EpochDuties {
+                block_production_slot,
+            };
 
             Ok(Some(duties))
         } else {

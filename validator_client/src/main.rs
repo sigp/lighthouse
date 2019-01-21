@@ -104,7 +104,13 @@ fn main() {
             let beacon_node = client.clone();
             let pubkey = keypair.pk.clone();
             thread::spawn(move || {
-                let manager = DutiesManager { duties_map, pubkey, spec, slot_clock, beacon_node };
+                let manager = DutiesManager {
+                    duties_map,
+                    pubkey,
+                    spec,
+                    slot_clock,
+                    beacon_node,
+                };
                 let mut duties_manager_service = DutiesManagerService {
                     manager,
                     poll_interval_millis,

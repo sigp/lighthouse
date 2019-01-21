@@ -137,9 +137,9 @@ impl From<BeaconNodeError> for Error {
 mod tests {
     use super::test_node::TestBeaconNode;
     use super::*;
+    use crate::duties::EpochDuties;
     use slot_clock::TestingSlotClock;
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use crate::duties::EpochDuties;
 
     // TODO: implement more thorough testing.
     //

@@ -1,6 +1,6 @@
 use super::traits::{BeaconNode, BeaconNodeError};
-use types::BeaconBlock;
 use std::sync::RwLock;
+use types::BeaconBlock;
 
 type ProduceResult = Result<Option<BeaconBlock>, BeaconNodeError>;
 type PublishResult = Result<bool, BeaconNodeError>;
@@ -28,7 +28,7 @@ impl BeaconNode for TestBeaconNode {
         *self.produce_input.write().unwrap() = Some(slot);
         match *self.produce_result.read().unwrap() {
             Some(ref r) => r.clone(),
-            None => panic!("TestBeaconNode: produce_result == None")
+            None => panic!("TestBeaconNode: produce_result == None"),
         }
     }
 
@@ -36,7 +36,7 @@ impl BeaconNode for TestBeaconNode {
         *self.publish_input.write().unwrap() = Some(block);
         match *self.publish_result.read().unwrap() {
             Some(ref r) => r.clone(),
-            None => panic!("TestBeaconNode: publish_result == None")
+            None => panic!("TestBeaconNode: publish_result == None"),
         }
     }
 }

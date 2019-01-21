@@ -42,10 +42,10 @@ mod tests {
     use super::super::super::MemoryDB;
     use super::*;
 
-    use std::sync::Arc;
     use ssz::ssz_encode;
-    use types::Hash256;
+    use std::sync::Arc;
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use types::Hash256;
 
     test_crud_for_store!(BeaconStateStore, DB_COLUMN);
 
