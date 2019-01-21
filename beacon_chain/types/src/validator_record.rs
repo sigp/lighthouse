@@ -159,12 +159,15 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             withdrawal_credentials: <_>::random_for_test(rng),
             randao_commitment: <_>::random_for_test(rng),
             randao_layers: <_>::random_for_test(rng),
+            activation_slot: <_>::random_for_test(rng),
+            exit_slot: <_>::random_for_test(rng),
+            withdrawal_slot: <_>::random_for_test(rng),
+            penalized_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
             status_flags: Some(<_>::random_for_test(rng)),
             custody_commitment: <_>::random_for_test(rng),
             latest_custody_reseed_slot: <_>::random_for_test(rng),
             penultimate_custody_reseed_slot: <_>::random_for_test(rng),
-            ..Self::default()
         }
     }
 }
