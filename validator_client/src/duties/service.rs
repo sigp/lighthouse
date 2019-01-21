@@ -17,13 +17,17 @@ impl<T: SlotClock, U: BeaconNode> DutiesManagerService<T, U> {
                 Err(error) => {
                     error!(self.log, "Epoch duties poll error"; "error" => format!("{:?}", error))
                 }
-                Ok(PollOutcome::NoChange) => debug!(self.log, "No change in duties"),
-                Ok(PollOutcome::DutiesChanged) => {
-                    info!(self.log, "Duties changed (potential re-org)")
+                Ok(PollOutcome::NoChange(epoch, _)) => {
+                    debug!(self.log, "No change in duties"; "epoch" => epoch)
                 }
-                Ok(PollOutcome::NewDuties) => info!(self.log, "New duties obtained"),
-                Ok(PollOutcome::UnknownValidatorOrEpoch) => {
-                    error!(self.log, "Epoch or validator unknown")
+                Ok(PollOutcome::DutiesChanged(epoch, duties)) => {
+                    info!(self.log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+                }
+                Ok(PollOutcome::NewDuties(epoch, duties)) => {
+                    info!(self.log, "New duties obtained"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+                }
+                Ok(PollOutcome::UnknownValidatorOrEpoch(epoch)) => {
+                    error!(self.log, "Epoch or validator unknown"; "epoch" => epoch)
                 }
             };
 
