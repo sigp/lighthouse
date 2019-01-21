@@ -19,8 +19,8 @@ pub use self::bls_aggregates::AggregatePublicKey;
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 97;
 
 use hashing::canonical_hash;
-use std::default::Default;
 use ssz::ssz_encode;
+use std::default::Default;
 
 fn extend_if_needed(hash: &mut Vec<u8>) {
     // NOTE: bls_aggregates crate demands 48 bytes, this may be removed as we get closer to production

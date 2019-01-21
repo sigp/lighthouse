@@ -6,12 +6,13 @@ pub mod address;
 pub mod aggregate_signature;
 pub mod bitfield;
 pub mod hash256;
-pub mod signature;
-pub mod secret_key;
 pub mod public_key;
+pub mod secret_key;
+pub mod signature;
 
 pub trait TestRandom<T>
-where T: RngCore
+where
+    T: RngCore,
 {
     fn random_for_test(rng: &mut T) -> Self;
 }
@@ -35,7 +36,8 @@ impl<T: RngCore> TestRandom<T> for usize {
 }
 
 impl<T: RngCore, U> TestRandom<T> for Vec<U>
-where U: TestRandom<T>
+where
+    U: TestRandom<T>,
 {
     fn random_for_test(rng: &mut T) -> Self {
         vec![

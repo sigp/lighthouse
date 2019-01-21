@@ -16,7 +16,9 @@ impl<T: SlotClock, U: BeaconNode> BlockProducerService<T, U> {
                 Err(error) => {
                     error!(self.log, "Block producer poll error"; "error" => format!("{:?}", error))
                 }
-                Ok(BlockProducerPollOutcome::BlockProduced(slot)) => info!(self.log, "Produced block"; "slot" => slot),
+                Ok(BlockProducerPollOutcome::BlockProduced(slot)) => {
+                    info!(self.log, "Produced block"; "slot" => slot)
+                }
                 Ok(BlockProducerPollOutcome::SlashableBlockNotProduced(slot)) => {
                     warn!(self.log, "Slashable block was not signed"; "slot" => slot)
                 }
