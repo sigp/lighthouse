@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct PublicKey(RawPublicKey);
 
 impl PublicKey {
@@ -32,6 +32,12 @@ impl Decodable for PublicKey {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
         let raw_sig = RawPublicKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((PublicKey(raw_sig), i))
+    }
+}
+
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &PublicKey) -> bool {
+        ssz_encode(self) == ssz_encode(other)
     }
 }
 
