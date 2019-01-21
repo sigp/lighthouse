@@ -3,6 +3,7 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 
+// Note: this is refer to as DepositRootVote in specs
 #[derive(Debug, PartialEq, Clone)]
 pub struct CandidatePoWReceiptRootRecord {
     pub candidate_pow_receipt_root: Hash256,
