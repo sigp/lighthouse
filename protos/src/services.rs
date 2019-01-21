@@ -1013,6 +1013,604 @@ impl ::protobuf::reflect::ProtobufValue for PublishBeaconBlockResponse {
     }
 }
 
+#[derive(PartialEq,Clone,Default)]
+pub struct ValidatorAssignment {
+    // message oneof groups
+    pub block_production_slot_oneof: ::std::option::Option<ValidatorAssignment_oneof_block_production_slot_oneof>,
+    // special fields
+    unknown_fields: ::protobuf::UnknownFields,
+    cached_size: ::protobuf::CachedSize,
+}
+
+#[derive(Clone,PartialEq)]
+pub enum ValidatorAssignment_oneof_block_production_slot_oneof {
+    block_production_slot_none(bool),
+    block_production_slot(u64),
+}
+
+impl ValidatorAssignment {
+    pub fn new() -> ValidatorAssignment {
+        ::std::default::Default::default()
+    }
+
+    // bool block_production_slot_none = 1;
+
+    pub fn clear_block_production_slot_none(&mut self) {
+        self.block_production_slot_oneof = ::std::option::Option::None;
+    }
+
+    pub fn has_block_production_slot_none(&self) -> bool {
+        match self.block_production_slot_oneof {
+            ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot_none(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_block_production_slot_none(&mut self, v: bool) {
+        self.block_production_slot_oneof = ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot_none(v))
+    }
+
+    pub fn get_block_production_slot_none(&self) -> bool {
+        match self.block_production_slot_oneof {
+            ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot_none(v)) => v,
+            _ => false,
+        }
+    }
+
+    // uint64 block_production_slot = 2;
+
+    pub fn clear_block_production_slot(&mut self) {
+        self.block_production_slot_oneof = ::std::option::Option::None;
+    }
+
+    pub fn has_block_production_slot(&self) -> bool {
+        match self.block_production_slot_oneof {
+            ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_block_production_slot(&mut self, v: u64) {
+        self.block_production_slot_oneof = ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot(v))
+    }
+
+    pub fn get_block_production_slot(&self) -> u64 {
+        match self.block_production_slot_oneof {
+            ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot(v)) => v,
+            _ => 0,
+        }
+    }
+}
+
+impl ::protobuf::Message for ValidatorAssignment {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.block_production_slot_oneof = ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot_none(is.read_bool()?));
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.block_production_slot_oneof = ::std::option::Option::Some(ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot(is.read_uint64()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let ::std::option::Option::Some(ref v) = self.block_production_slot_oneof {
+            match v {
+                &ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot_none(v) => {
+                    my_size += 2;
+                },
+                &ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot(v) => {
+                    my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if let ::std::option::Option::Some(ref v) = self.block_production_slot_oneof {
+            match v {
+                &ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot_none(v) => {
+                    os.write_bool(1, v)?;
+                },
+                &ValidatorAssignment_oneof_block_production_slot_oneof::block_production_slot(v) => {
+                    os.write_uint64(2, v)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> ValidatorAssignment {
+        ValidatorAssignment::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_singular_bool_accessor::<_>(
+                    "block_production_slot_none",
+                    ValidatorAssignment::has_block_production_slot_none,
+                    ValidatorAssignment::get_block_production_slot_none,
+                ));
+                fields.push(::protobuf::reflect::accessor::make_singular_u64_accessor::<_>(
+                    "block_production_slot",
+                    ValidatorAssignment::has_block_production_slot,
+                    ValidatorAssignment::get_block_production_slot,
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<ValidatorAssignment>(
+                    "ValidatorAssignment",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static ValidatorAssignment {
+        static mut instance: ::protobuf::lazy::Lazy<ValidatorAssignment> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ValidatorAssignment,
+        };
+        unsafe {
+            instance.get(ValidatorAssignment::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for ValidatorAssignment {
+    fn clear(&mut self) {
+        self.clear_block_production_slot_none();
+        self.clear_block_production_slot();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for ValidatorAssignment {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for ValidatorAssignment {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct ValidatorAssignmentRequest {
+    // message fields
+    pub epoch: u64,
+    pub public_key: ::std::vec::Vec<u8>,
+    // special fields
+    unknown_fields: ::protobuf::UnknownFields,
+    cached_size: ::protobuf::CachedSize,
+}
+
+impl ValidatorAssignmentRequest {
+    pub fn new() -> ValidatorAssignmentRequest {
+        ::std::default::Default::default()
+    }
+
+    // uint64 epoch = 1;
+
+    pub fn clear_epoch(&mut self) {
+        self.epoch = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_epoch(&mut self, v: u64) {
+        self.epoch = v;
+    }
+
+    pub fn get_epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    // bytes public_key = 2;
+
+    pub fn clear_public_key(&mut self) {
+        self.public_key.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_public_key(&mut self, v: ::std::vec::Vec<u8>) {
+        self.public_key = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_public_key(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.public_key
+    }
+
+    // Take field
+    pub fn take_public_key(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.public_key, ::std::vec::Vec::new())
+    }
+
+    pub fn get_public_key(&self) -> &[u8] {
+        &self.public_key
+    }
+}
+
+impl ::protobuf::Message for ValidatorAssignmentRequest {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.epoch = tmp;
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.public_key)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if self.epoch != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.epoch, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if !self.public_key.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(2, &self.public_key);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if self.epoch != 0 {
+            os.write_uint64(1, self.epoch)?;
+        }
+        if !self.public_key.is_empty() {
+            os.write_bytes(2, &self.public_key)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> ValidatorAssignmentRequest {
+        ValidatorAssignmentRequest::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "epoch",
+                    |m: &ValidatorAssignmentRequest| { &m.epoch },
+                    |m: &mut ValidatorAssignmentRequest| { &mut m.epoch },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "public_key",
+                    |m: &ValidatorAssignmentRequest| { &m.public_key },
+                    |m: &mut ValidatorAssignmentRequest| { &mut m.public_key },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<ValidatorAssignmentRequest>(
+                    "ValidatorAssignmentRequest",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static ValidatorAssignmentRequest {
+        static mut instance: ::protobuf::lazy::Lazy<ValidatorAssignmentRequest> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ValidatorAssignmentRequest,
+        };
+        unsafe {
+            instance.get(ValidatorAssignmentRequest::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for ValidatorAssignmentRequest {
+    fn clear(&mut self) {
+        self.clear_epoch();
+        self.clear_public_key();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for ValidatorAssignmentRequest {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for ValidatorAssignmentRequest {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct ValidatorAssignmentResponse {
+    // message fields
+    pub validator_assignment: ::protobuf::SingularPtrField<ValidatorAssignment>,
+    // special fields
+    unknown_fields: ::protobuf::UnknownFields,
+    cached_size: ::protobuf::CachedSize,
+}
+
+impl ValidatorAssignmentResponse {
+    pub fn new() -> ValidatorAssignmentResponse {
+        ::std::default::Default::default()
+    }
+
+    // .ethereum.beacon.rpc.v1.ValidatorAssignment validator_assignment = 1;
+
+    pub fn clear_validator_assignment(&mut self) {
+        self.validator_assignment.clear();
+    }
+
+    pub fn has_validator_assignment(&self) -> bool {
+        self.validator_assignment.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_validator_assignment(&mut self, v: ValidatorAssignment) {
+        self.validator_assignment = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_validator_assignment(&mut self) -> &mut ValidatorAssignment {
+        if self.validator_assignment.is_none() {
+            self.validator_assignment.set_default();
+        }
+        self.validator_assignment.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_validator_assignment(&mut self) -> ValidatorAssignment {
+        self.validator_assignment.take().unwrap_or_else(|| ValidatorAssignment::new())
+    }
+
+    pub fn get_validator_assignment(&self) -> &ValidatorAssignment {
+        self.validator_assignment.as_ref().unwrap_or_else(|| ValidatorAssignment::default_instance())
+    }
+}
+
+impl ::protobuf::Message for ValidatorAssignmentResponse {
+    fn is_initialized(&self) -> bool {
+        for v in &self.validator_assignment {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.validator_assignment)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.validator_assignment.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.validator_assignment.as_ref() {
+            os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> ValidatorAssignmentResponse {
+        ValidatorAssignmentResponse::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<ValidatorAssignment>>(
+                    "validator_assignment",
+                    |m: &ValidatorAssignmentResponse| { &m.validator_assignment },
+                    |m: &mut ValidatorAssignmentResponse| { &mut m.validator_assignment },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<ValidatorAssignmentResponse>(
+                    "ValidatorAssignmentResponse",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static ValidatorAssignmentResponse {
+        static mut instance: ::protobuf::lazy::Lazy<ValidatorAssignmentResponse> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ValidatorAssignmentResponse,
+        };
+        unsafe {
+            instance.get(ValidatorAssignmentResponse::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for ValidatorAssignmentResponse {
+    fn clear(&mut self) {
+        self.clear_validator_assignment();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for ValidatorAssignmentResponse {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for ValidatorAssignmentResponse {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
 static file_descriptor_proto_data: &'static [u8] = b"\
     \n\x0eservices.proto\x12\x16ethereum.beacon.rpc.v1\"\x83\x01\n\x0bBeacon\
     Block\x12\x12\n\x04slot\x18\x01\x20\x01(\x04R\x04slot\x12\x1d\n\nblock_r\
@@ -1024,11 +1622,21 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \n\x19PublishBeaconBlockRequest\x129\n\x05block\x18\x01\x20\x01(\x0b2#.e\
     thereum.beacon.rpc.v1.BeaconBlockR\x05block\"H\n\x1aPublishBeaconBlockRe\
     sponse\x12\x18\n\x07success\x18\x01\x20\x01(\x08R\x07success\x12\x10\n\
-    \x03msg\x18\x02\x20\x01(\x0cR\x03msg2\x8e\x02\n\x12BeaconBlockService\
-    \x12{\n\x12ProduceBeaconBlock\x121.ethereum.beacon.rpc.v1.ProduceBeaconB\
-    lockRequest\x1a2.ethereum.beacon.rpc.v1.ProduceBeaconBlockResponse\x12{\
-    \n\x12PublishBeaconBlock\x121.ethereum.beacon.rpc.v1.PublishBeaconBlockR\
-    equest\x1a2.ethereum.beacon.rpc.v1.PublishBeaconBlockResponseb\x06proto3\
+    \x03msg\x18\x02\x20\x01(\x0cR\x03msg\"\xa9\x01\n\x13ValidatorAssignment\
+    \x12=\n\x1ablock_production_slot_none\x18\x01\x20\x01(\x08H\0R\x17blockP\
+    roductionSlotNone\x124\n\x15block_production_slot\x18\x02\x20\x01(\x04H\
+    \0R\x13blockProductionSlotB\x1d\n\x1bblock_production_slot_oneof\"Q\n\
+    \x1aValidatorAssignmentRequest\x12\x14\n\x05epoch\x18\x01\x20\x01(\x04R\
+    \x05epoch\x12\x1d\n\npublic_key\x18\x02\x20\x01(\x0cR\tpublicKey\"}\n\
+    \x1bValidatorAssignmentResponse\x12^\n\x14validator_assignment\x18\x01\
+    \x20\x01(\x0b2+.ethereum.beacon.rpc.v1.ValidatorAssignmentR\x13validator\
+    Assignment2\x8e\x03\n\x12BeaconBlockService\x12{\n\x12ProduceBeaconBlock\
+    \x121.ethereum.beacon.rpc.v1.ProduceBeaconBlockRequest\x1a2.ethereum.bea\
+    con.rpc.v1.ProduceBeaconBlockResponse\x12{\n\x12PublishBeaconBlock\x121.\
+    ethereum.beacon.rpc.v1.PublishBeaconBlockRequest\x1a2.ethereum.beacon.rp\
+    c.v1.PublishBeaconBlockResponse\x12~\n\x13ValidatorAssignment\x122.ether\
+    eum.beacon.rpc.v1.ValidatorAssignmentRequest\x1a3.ethereum.beacon.rpc.v1\
+    .ValidatorAssignmentResponseb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

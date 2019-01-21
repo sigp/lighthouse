@@ -32,6 +32,13 @@ const METHOD_BEACON_BLOCK_SERVICE_PUBLISH_BEACON_BLOCK: ::grpcio::Method<super::
     resp_mar: ::grpcio::Marshaller { ser: ::grpcio::pb_ser, de: ::grpcio::pb_de },
 };
 
+const METHOD_BEACON_BLOCK_SERVICE_VALIDATOR_ASSIGNMENT: ::grpcio::Method<super::services::ValidatorAssignmentRequest, super::services::ValidatorAssignmentResponse> = ::grpcio::Method {
+    ty: ::grpcio::MethodType::Unary,
+    name: "/ethereum.beacon.rpc.v1.BeaconBlockService/ValidatorAssignment",
+    req_mar: ::grpcio::Marshaller { ser: ::grpcio::pb_ser, de: ::grpcio::pb_de },
+    resp_mar: ::grpcio::Marshaller { ser: ::grpcio::pb_ser, de: ::grpcio::pb_de },
+};
+
 #[derive(Clone)]
 pub struct BeaconBlockServiceClient {
     client: ::grpcio::Client,
@@ -75,6 +82,22 @@ impl BeaconBlockServiceClient {
     pub fn publish_beacon_block_async(&self, req: &super::services::PublishBeaconBlockRequest) -> ::grpcio::Result<::grpcio::ClientUnaryReceiver<super::services::PublishBeaconBlockResponse>> {
         self.publish_beacon_block_async_opt(req, ::grpcio::CallOption::default())
     }
+
+    pub fn validator_assignment_opt(&self, req: &super::services::ValidatorAssignmentRequest, opt: ::grpcio::CallOption) -> ::grpcio::Result<super::services::ValidatorAssignmentResponse> {
+        self.client.unary_call(&METHOD_BEACON_BLOCK_SERVICE_VALIDATOR_ASSIGNMENT, req, opt)
+    }
+
+    pub fn validator_assignment(&self, req: &super::services::ValidatorAssignmentRequest) -> ::grpcio::Result<super::services::ValidatorAssignmentResponse> {
+        self.validator_assignment_opt(req, ::grpcio::CallOption::default())
+    }
+
+    pub fn validator_assignment_async_opt(&self, req: &super::services::ValidatorAssignmentRequest, opt: ::grpcio::CallOption) -> ::grpcio::Result<::grpcio::ClientUnaryReceiver<super::services::ValidatorAssignmentResponse>> {
+        self.client.unary_call_async(&METHOD_BEACON_BLOCK_SERVICE_VALIDATOR_ASSIGNMENT, req, opt)
+    }
+
+    pub fn validator_assignment_async(&self, req: &super::services::ValidatorAssignmentRequest) -> ::grpcio::Result<::grpcio::ClientUnaryReceiver<super::services::ValidatorAssignmentResponse>> {
+        self.validator_assignment_async_opt(req, ::grpcio::CallOption::default())
+    }
     pub fn spawn<F>(&self, f: F) where F: ::futures::Future<Item = (), Error = ()> + Send + 'static {
         self.client.spawn(f)
     }
@@ -83,6 +106,7 @@ impl BeaconBlockServiceClient {
 pub trait BeaconBlockService {
     fn produce_beacon_block(&mut self, ctx: ::grpcio::RpcContext, req: super::services::ProduceBeaconBlockRequest, sink: ::grpcio::UnarySink<super::services::ProduceBeaconBlockResponse>);
     fn publish_beacon_block(&mut self, ctx: ::grpcio::RpcContext, req: super::services::PublishBeaconBlockRequest, sink: ::grpcio::UnarySink<super::services::PublishBeaconBlockResponse>);
+    fn validator_assignment(&mut self, ctx: ::grpcio::RpcContext, req: super::services::ValidatorAssignmentRequest, sink: ::grpcio::UnarySink<super::services::ValidatorAssignmentResponse>);
 }
 
 pub fn create_beacon_block_service<S: BeaconBlockService + Send + Clone + 'static>(s: S) -> ::grpcio::Service {
@@ -94,6 +118,10 @@ pub fn create_beacon_block_service<S: BeaconBlockService + Send + Clone + 'stati
     let mut instance = s.clone();
     builder = builder.add_unary_handler(&METHOD_BEACON_BLOCK_SERVICE_PUBLISH_BEACON_BLOCK, move |ctx, req, resp| {
         instance.publish_beacon_block(ctx, req, resp)
+    });
+    let mut instance = s.clone();
+    builder = builder.add_unary_handler(&METHOD_BEACON_BLOCK_SERVICE_VALIDATOR_ASSIGNMENT, move |ctx, req, resp| {
+        instance.validator_assignment(ctx, req, resp)
     });
     builder.build()
 }
