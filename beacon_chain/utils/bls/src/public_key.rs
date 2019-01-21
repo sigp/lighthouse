@@ -1,5 +1,6 @@
 use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
+use hex::encode as hex_encode;
 use ssz::{decode_ssz_list, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use std::hash::{Hash, Hasher};
 
@@ -18,6 +19,15 @@ impl PublicKey {
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
+    }
+
+    /// Returns the last 6 bytes of the SSZ encoding of the public key, as a hex string.
+    ///
+    /// Useful for providing a short identifier to the user.
+    pub fn concatenated_hex_id(&self) -> String {
+        let bytes = ssz_encode(self);
+        let end_bytes = &bytes[bytes.len().saturating_sub(6)..bytes.len()];
+        hex_encode(end_bytes)
     }
 }
 
