@@ -33,7 +33,7 @@ pub type EpochDutiesMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
-    NoChange(u64, EpochDuties),
+    NoChange(u64),
     NewDuties(u64, EpochDuties),
     DutiesChanged(u64, EpochDuties),
     UnknownValidatorOrEpoch(u64),
@@ -80,7 +80,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             // If these duties were known, check to see if they're updates or identical.
             let result = if let Some(known_duties) = map.get(&epoch) {
                 if *known_duties == duties {
-                    Ok(PollOutcome::NoChange(epoch, duties))
+                    Ok(PollOutcome::NoChange(epoch))
                 } else {
                     Ok(PollOutcome::DutiesChanged(epoch, duties))
                 }
@@ -129,25 +129,27 @@ mod tests {
         };
 
         // Configure response from the BeaconNode.
-        beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties {
+        let duties = EpochDuties {
             validator_index: 0,
             block_production_slot: Some(10),
-        })));
+        };
+        beacon_node.set_next_shuffling_result(Ok(Some(duties)));
 
         // Get the duties for the first time...
-        assert_eq!(manager.poll(), Ok(PollOutcome::NewDuties));
+        assert_eq!(manager.poll(), Ok(PollOutcome::NewDuties(0, duties)));
         // Get the same duties again...
-        assert_eq!(manager.poll(), Ok(PollOutcome::NoChange));
+        assert_eq!(manager.poll(), Ok(PollOutcome::NoChange(0)));
 
         // Return new duties.
-        beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties {
+        let duties = EpochDuties {
             validator_index: 0,
             block_production_slot: Some(11),
-        })));
-        assert_eq!(manager.poll(), Ok(PollOutcome::DutiesChanged));
+        };
+        beacon_node.set_next_shuffling_result(Ok(Some(duties)));
+        assert_eq!(manager.poll(), Ok(PollOutcome::DutiesChanged(0, duties)));
 
         // Return no duties.
         beacon_node.set_next_shuffling_result(Ok(None));
-        assert_eq!(manager.poll(), Ok(PollOutcome::UnknownValidatorOrEpoch));
+        assert_eq!(manager.poll(), Ok(PollOutcome::UnknownValidatorOrEpoch(0)));
     }
 }

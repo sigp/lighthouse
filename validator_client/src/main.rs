@@ -103,6 +103,7 @@ fn main() {
     let mut threads = vec![];
 
     for keypair in keypairs {
+        info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
         let duties_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
 
         let duties_manager_thread = {
