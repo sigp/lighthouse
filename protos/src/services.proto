@@ -18,7 +18,9 @@ service BeaconBlockService {
 }
 
 service ValidatorService {
-    rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
+    // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
+	rpc ProposeBlockSlot(ProposeBlockSlotRequest) returns (ProposeBlockSlotResponse);
+	rpc ValidatorIndex(PublicKey) returns (IndexResponse);
 }
 
 message BeaconBlock {
@@ -49,6 +51,8 @@ message PublishBeaconBlockResponse {
     bytes msg = 2;
 }
 
+// A validators duties for some epoch.
+// TODO: add shard duties.
 message ValidatorAssignment {
 	oneof block_production_slot_oneof {
 		bool block_production_slot_none = 1;
@@ -58,9 +62,33 @@ message ValidatorAssignment {
 
 message ValidatorAssignmentRequest {
 	uint64 epoch = 1;
-	bytes public_key = 2;
+	bytes validator_index = 2;
 }
 
-message ValidatorAssignmentResponse {
-	ValidatorAssignment validator_assignment = 1;
+/*
+ * Propose slot
+ */
+
+message ProposeBlockSlotRequest {
+	uint64 epoch = 1;
+	uint64 validator_index = 2;
+}
+
+message ProposeBlockSlotResponse {
+	oneof slot_oneof {
+		bool none = 1;
+		uint64 slot = 2;
+	}
+}
+
+/*
+ * Validator Assignment
+ */
+
+message PublicKey {
+	bytes public_key = 1;
+}
+
+message IndexResponse {
+	uint64 index = 1;
 }

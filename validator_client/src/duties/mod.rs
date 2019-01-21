@@ -15,6 +15,7 @@ pub use self::service::DutiesManagerService;
 
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub struct EpochDuties {
+    pub validator_index: u64,
     pub block_production_slot: Option<u64>,
     // Future shard info
 }
@@ -32,10 +33,10 @@ pub type EpochDutiesMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
-    NoChange,
-    NewDuties,
-    DutiesChanged,
-    UnknownValidatorOrEpoch,
+    NoChange(u64, EpochDuties),
+    NewDuties(u64, EpochDuties),
+    DutiesChanged(u64, EpochDuties),
+    UnknownValidatorOrEpoch(u64),
 }
 
 #[derive(Debug, PartialEq)]
@@ -79,17 +80,17 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             // If these duties were known, check to see if they're updates or identical.
             let result = if let Some(known_duties) = map.get(&epoch) {
                 if *known_duties == duties {
-                    Ok(PollOutcome::NoChange)
+                    Ok(PollOutcome::NoChange(epoch, duties))
                 } else {
-                    Ok(PollOutcome::DutiesChanged)
+                    Ok(PollOutcome::DutiesChanged(epoch, duties))
                 }
             } else {
-                Ok(PollOutcome::NewDuties)
+                Ok(PollOutcome::NewDuties(epoch, duties))
             };
             map.insert(epoch, duties);
             result
         } else {
-            Ok(PollOutcome::UnknownValidatorOrEpoch)
+            Ok(PollOutcome::UnknownValidatorOrEpoch(epoch))
         }
     }
 }
@@ -129,6 +130,7 @@ mod tests {
 
         // Configure response from the BeaconNode.
         beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties {
+            validator_index: 0,
             block_production_slot: Some(10),
         })));
 
@@ -139,6 +141,7 @@ mod tests {
 
         // Return new duties.
         beacon_node.set_next_shuffling_result(Ok(Some(EpochDuties {
+            validator_index: 0,
             block_production_slot: Some(11),
         })));
         assert_eq!(manager.poll(), Ok(PollOutcome::DutiesChanged));
