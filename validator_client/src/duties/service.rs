@@ -17,7 +17,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManagerService<T, U> {
                 Err(error) => {
                     error!(self.log, "Epoch duties poll error"; "error" => format!("{:?}", error))
                 }
-                Ok(PollOutcome::NoChange(epoch, _)) => {
+                Ok(PollOutcome::NoChange(epoch)) => {
                     debug!(self.log, "No change in duties"; "epoch" => epoch)
                 }
                 Ok(PollOutcome::DutiesChanged(epoch, duties)) => {

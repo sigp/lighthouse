@@ -1,8 +1,6 @@
 use super::traits::{BeaconNode, BeaconNodeError};
 use super::EpochDuties;
-use protos::services::{
-    IndexResponse, ProposeBlockSlotRequest, ProposeBlockSlotResponse, PublicKey as IndexRequest,
-};
+use protos::services::{ProposeBlockSlotRequest, PublicKey as IndexRequest};
 use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
 use types::PublicKey;
