@@ -4,7 +4,6 @@ use bls::PublicKey;
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
     RemoteFailure(String),
-    DecodeFailure,
 }
 
 pub trait BeaconNode: Send + Sync {

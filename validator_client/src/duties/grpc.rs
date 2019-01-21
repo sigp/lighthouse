@@ -1,63 +1,34 @@
+use super::EpochDuties;
 use super::traits::{BeaconNode, BeaconNodeError};
-use protos::services::{
-    BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
-};
+use protos::services::ValidatorAssignmentRequest;
 use protos::services_grpc::BeaconBlockServiceClient;
-use ssz::{ssz_encode, Decodable};
-use types::{BeaconBlock, BeaconBlockBody, Hash256, Signature};
+use ssz::ssz_encode;
+use types::{PublicKey};
 
 impl BeaconNode for BeaconBlockServiceClient {
-    fn produce_beacon_block(&self, slot: u64) -> Result<Option<BeaconBlock>, BeaconNodeError> {
-        let mut req = ProduceBeaconBlockRequest::new();
-        req.set_slot(slot);
+    fn request_shuffling(&self, epoch: u64, public_key: &PublicKey) -> Result<Option<EpochDuties>, BeaconNodeError> {
+        let mut req = ValidatorAssignmentRequest::new();
+        req.set_epoch(epoch);
+        req.set_public_key(ssz_encode(public_key).to_vec());
 
         let reply = self
-            .produce_beacon_block(&req)
+            .validator_assignment(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
-        if reply.has_block() {
-            let block = reply.get_block();
+        if reply.has_validator_assignment() {
+            let assignment = reply.get_validator_assignment();
 
-            let (signature, _) = Signature::ssz_decode(block.get_signature(), 0)
-                .map_err(|_| BeaconNodeError::DecodeFailure)?;
+            let block_production_slot = if assignment.has_block_production_slot() {
+                Some(assignment.get_block_production_slot())
+            } else {
+                None
+            };
 
-            // TODO: this conversion is incomplete; fix it.
-            Ok(Some(BeaconBlock {
-                slot: block.get_slot(),
-                parent_root: Hash256::zero(),
-                state_root: Hash256::zero(),
-                randao_reveal: Hash256::from(block.get_randao_reveal()),
-                candidate_pow_receipt_root: Hash256::zero(),
-                signature,
-                body: BeaconBlockBody {
-                    proposer_slashings: vec![],
-                    casper_slashings: vec![],
-                    attestations: vec![],
-                    deposits: vec![],
-                    exits: vec![],
-                },
-            }))
+            let duties = EpochDuties { block_production_slot };
+
+            Ok(Some(duties))
         } else {
             Ok(None)
         }
-    }
-
-    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<bool, BeaconNodeError> {
-        let mut req = PublishBeaconBlockRequest::new();
-
-        // TODO: this conversion is incomplete; fix it.
-        let mut grpc_block = GrpcBeaconBlock::new();
-        grpc_block.set_slot(block.slot);
-        grpc_block.set_block_root(vec![0]);
-        grpc_block.set_randao_reveal(block.randao_reveal.to_vec());
-        grpc_block.set_signature(ssz_encode(&block.signature));
-
-        req.set_block(grpc_block);
-
-        let reply = self
-            .publish_beacon_block(&req)
-            .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
-
-        Ok(reply.get_success())
     }
 }
