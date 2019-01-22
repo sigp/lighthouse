@@ -2,6 +2,7 @@ use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
 use hex::encode as hex_encode;
 use ssz::{decode_ssz_list, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use std::default;
 use std::hash::{Hash, Hasher};
 
 /// A single BLS signature.
@@ -28,6 +29,13 @@ impl PublicKey {
         let bytes = ssz_encode(self);
         let end_bytes = &bytes[bytes.len().saturating_sub(6)..bytes.len()];
         hex_encode(end_bytes)
+    }
+}
+
+impl default::Default for PublicKey {
+    fn default() -> Self {
+        let secret_key = SecretKey::random();
+        PublicKey::from_secret_key(&secret_key)
     }
 }
 

@@ -3,6 +3,7 @@ extern crate types;
 
 mod foundation;
 
+use bls::Signature;
 use types::{Address, Hash256, ValidatorRecord};
 
 #[derive(PartialEq, Debug)]
@@ -16,8 +17,11 @@ pub struct ChainSpec {
     pub max_balance_churn_quotient: u64,
     pub gwei_per_eth: u64,
     pub beacon_chain_shard_number: u64,
-    pub bls_withdrawal_prefix_byte: u8,
     pub max_casper_votes: u64,
+    pub latest_block_roots_length: u64,
+    pub latest_randao_mixes_length: u64,
+    pub latest_penalized_exit_length: u64,
+    pub max_withdrawals_per_epoch: u64,
     /*
      *  Deposit contract
      */
@@ -28,20 +32,23 @@ pub struct ChainSpec {
     /*
      * Initial Values
      */
-    pub initial_fork_version: u64,
-    pub initial_slot_number: u64,
+    pub genesis_fork_version: u64,
+    pub genesis_slot_number: u64,
+    pub genesis_start_shard: u64,
+    pub far_future_slot: u64,
     pub zero_hash: Hash256,
+    pub empty_signature: Signature,
+    pub bls_withdrawal_prefix_byte: u8,
     /*
      * Time parameters
      */
     pub slot_duration: u64,
     pub min_attestation_inclusion_delay: u64,
     pub epoch_length: u64,
-    pub min_validator_registry_change_interval: u64,
-    pub pow_receipt_root_voting_period: u64,
-    pub shard_persistent_committee_change_period: u64,
-    pub collective_penalty_calculation_period: u64,
-    pub zero_balance_validator_ttl: u64,
+    pub seed_lookahead: u64,
+    pub entry_exit_delay: u64,
+    pub pow_receipt_root_voting_period: u64, // a.k.a. deposit_root_voting_period
+    pub min_validator_withdrawal_time: u64,
     /*
      * Reward and penalty quotients
      */

@@ -7,6 +7,7 @@ before_install:
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
 script:
+  - cargo fmt --all -- --check
   - cargo build --verbose --all
   - cargo test --verbose --all
 rust:
@@ -17,3 +18,5 @@ matrix:
   allow_failures:
     - rust: nightly
   fast_finish: true
+install:
+  - rustup component add rustfmt
