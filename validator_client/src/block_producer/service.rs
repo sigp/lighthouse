@@ -10,6 +10,9 @@ pub struct BlockProducerService<T: SlotClock, U: BeaconNode> {
 }
 
 impl<T: SlotClock, U: BeaconNode> BlockProducerService<T, U> {
+    /// Run a loop which polls the block producer each `poll_interval_millis` millseconds.
+    ///
+    /// Logs the results of the polls.
     pub fn run(&mut self) {
         loop {
             match self.block_producer.poll() {
