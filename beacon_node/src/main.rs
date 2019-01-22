@@ -1,20 +1,14 @@
-#[macro_use]
 extern crate slog;
-extern crate slog_async;
-extern crate slog_term;
-// extern crate ssz;
-extern crate clap;
-extern crate futures;
-
-extern crate db;
 
 mod config;
+mod rpc;
 
 use std::path::PathBuf;
 
 use crate::config::LighthouseConfig;
+use crate::rpc::start_server;
 use clap::{App, Arg};
-use slog::Drain;
+use slog::{error, info, o, Drain};
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -64,10 +58,9 @@ fn main() {
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.p2p_listen_port);
 
-    error!(
-        log,
-        "Lighthouse under development and does not provide a user demo."
-    );
+    let _server = start_server(log.clone());
 
-    info!(log, "Exiting.");
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
 }

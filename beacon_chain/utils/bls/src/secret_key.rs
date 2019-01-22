@@ -5,7 +5,7 @@ use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct SecretKey(RawSecretKey);
 
 impl SecretKey {
