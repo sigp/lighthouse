@@ -60,7 +60,7 @@ fn main() {
 
     let _server = start_server(log.clone());
 
-    loop {}
-
-    // info!(log, "Exiting.");
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
 }
