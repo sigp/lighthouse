@@ -5,16 +5,16 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-bls = { path = "../beacon_chain/utils/bls" }
+bls = { path = "../eth2/utils/bls" }
 clap = "2.32.0"
 dirs = "1.0.3"
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protobuf = "2.0.2"
 protos = { path = "../protos" }
-slot_clock = { path = "../beacon_chain/utils/slot_clock" }
-spec = { path = "../beacon_chain/spec" }
-types = { path = "../beacon_chain/types" }
+slot_clock = { path = "../eth2/utils/slot_clock" }
+spec = { path = "../eth2/spec" }
+types = { path = "../eth2/types" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
-ssz = { path = "../beacon_chain/utils/ssz" }
+ssz = { path = "../eth2/utils/ssz" }
