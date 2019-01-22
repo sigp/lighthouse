@@ -6,8 +6,8 @@ use types::{readers::BeaconBlockReader, BeaconBlock, Hash256};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BeaconBlockAtSlotError {
-    UnknownBeaconBlock,
-    InvalidBeaconBlock,
+    UnknownBeaconBlock(Hash256),
+    InvalidBeaconBlock(Hash256),
     DBError(String),
 }
 
@@ -73,7 +73,7 @@ impl<T: ClientDB> BeaconBlockStore<T> {
                     current_hash = block_reader.parent_root();
                 }
             } else {
-                break Err(BeaconBlockAtSlotError::UnknownBeaconBlock);
+                break Err(BeaconBlockAtSlotError::UnknownBeaconBlock(current_hash));
             }
         }
     }
@@ -145,7 +145,7 @@ mod tests {
         db.put(DB_COLUMN, hash, ssz).unwrap();
         assert_eq!(
             store.block_at_slot(other_hash, 42),
-            Err(BeaconBlockAtSlotError::UnknownBeaconBlock)
+            Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*other_hash))
         );
     }
 
@@ -243,7 +243,11 @@ mod tests {
         let ssz = bs.block_at_slot(&hashes[4], 6).unwrap();
         assert_eq!(ssz, None);
 
-        let ssz = bs.block_at_slot(&Hash256::from("unknown".as_bytes()), 2);
-        assert_eq!(ssz, Err(BeaconBlockAtSlotError::UnknownBeaconBlock));
+        let bad_hash = &Hash256::from("unknown".as_bytes());
+        let ssz = bs.block_at_slot(bad_hash, 2);
+        assert_eq!(
+            ssz,
+            Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*bad_hash))
+        );
     }
 }
