@@ -1,5 +1,8 @@
 mod block_processing;
 mod block_production;
+#[cfg(test)]
+mod chain_test;
+mod lmd_ghost;
 
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -9,11 +12,18 @@ use genesis::{genesis_beacon_block, genesis_beacon_state, GenesisError};
 use slot_clock::SlotClock;
 use spec::ChainSpec;
 use ssz::ssz_encode;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use types::Hash256;
 
-pub use crate::block_processing::Outcome as BlockProcessingOutcome;
+pub use self::block_processing::Outcome as BlockProcessingOutcome;
+
+#[derive(Debug, PartialEq)]
+pub struct CheckPoint {
+    block_root: Hash256,
+    state_root: Hash256,
+    slot: u64,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
@@ -29,6 +39,8 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
     pub leaf_blocks: HashSet<Hash256>,
     pub canonical_leaf_block: Hash256,
     pub spec: ChainSpec,
+    latest_attestation_targets: HashMap<usize, Hash256>,
+    finalized_checkpoint: CheckPoint,
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -57,6 +69,12 @@ where
         let mut leaf_blocks = HashSet::new();
         leaf_blocks.insert(block_root);
 
+        let finalized_checkpoint = CheckPoint {
+            block_root,
+            state_root,
+            slot: genesis_block.slot,
+        };
+
         Ok(Self {
             block_store,
             state_store,
@@ -64,6 +82,8 @@ where
             leaf_blocks,
             canonical_leaf_block: block_root,
             spec,
+            latest_attestation_targets: HashMap::new(),
+            finalized_checkpoint,
         })
     }
 }

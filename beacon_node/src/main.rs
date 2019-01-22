@@ -1,14 +1,23 @@
 extern crate slog;
 
+mod beacon_chain;
 mod config;
 mod rpc;
 
 use std::path::PathBuf;
 
+use self::beacon_chain::BeaconChain;
 use crate::config::LighthouseConfig;
 use crate::rpc::start_server;
 use clap::{App, Arg};
+use db::{
+    stores::{BeaconBlockStore, BeaconStateStore},
+    MemoryDB,
+};
 use slog::{error, info, o, Drain};
+use slot_clock::SystemTimeSlotClock;
+use spec::ChainSpec;
+use std::sync::Arc;
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -57,6 +66,23 @@ fn main() {
     info!(log, "";
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.p2p_listen_port);
+
+    // Specification (presently fixed to foundation).
+    let spec = ChainSpec::foundation();
+
+    // Database (presently in-memory)
+    let db = Arc::new(MemoryDB::open());
+    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
+    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
+
+    // Slot clock
+    let slot_clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
+        .expect("Unable to load SystemTimeSlotClock");
+
+    // Genesis chain
+    // TODO: persist chain to storage.
+    let _chain_result =
+        BeaconChain::genesis(state_store.clone(), block_store.clone(), slot_clock, spec);
 
     let _server = start_server(log.clone());
 
