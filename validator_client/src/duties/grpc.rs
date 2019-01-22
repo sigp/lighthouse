@@ -6,6 +6,12 @@ use ssz::ssz_encode;
 use types::PublicKey;
 
 impl BeaconNode for ValidatorServiceClient {
+    /// Request the shuffling from the Beacon Node (BN).
+    ///
+    /// As this function takes a `PublicKey`, it will first attempt to resolve the public key into
+    /// a validator index, then call the BN for production/attestation duties.
+    ///
+    /// Note: presently only block production information is returned.
     fn request_shuffling(
         &self,
         epoch: u64,

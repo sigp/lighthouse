@@ -15,11 +15,17 @@ pub use self::service::BlockProducerService;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
+    /// A new block was produced.
     BlockProduced(u64),
+    /// A block was not produced as it would have been slashable.
     SlashableBlockNotProduced(u64),
+    /// The validator duties did not require a block to be produced.
     BlockProductionNotRequired(u64),
+    /// The duties for the present epoch were not found.
     ProducerDutiesUnknown(u64),
+    /// The slot has already been processed, execution was skipped.
     SlotAlreadyProcessed(u64),
+    /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(u64),
 }
 
@@ -33,6 +39,12 @@ pub enum Error {
     BeaconNodeError(BeaconNodeError),
 }
 
+/// A polling state machine which performs block production duties, based upon some epoch duties
+/// (`EpochDutiesMap`) and a concept of time (`SlotClock`).
+///
+/// Ensures that messages are not slashable.
+///
+/// Relies upon an external service to keep the `EpochDutiesMap` updated.
 pub struct BlockProducer<T: SlotClock, U: BeaconNode> {
     pub last_processed_slot: u64,
     spec: Arc<ChainSpec>,
@@ -42,6 +54,7 @@ pub struct BlockProducer<T: SlotClock, U: BeaconNode> {
 }
 
 impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
+    /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
         epoch_map: Arc<RwLock<EpochDutiesMap>>,
@@ -97,6 +110,16 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
         }
     }
 
+    /// Produce a block at some slot.
+    ///
+    /// Assumes that a block is required at this slot (does not check the duties).
+    ///
+    /// Ensures the message is not slashable.
+    ///
+    /// !!! UNSAFE !!!
+    ///
+    /// The slash-protection code is not yet implemented. There is zero protection against
+    /// slashing.
     fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, Error> {
         if let Some(block) = self.beacon_node.produce_beacon_block(slot)? {
             if self.safe_to_produce(&block) {
@@ -111,19 +134,36 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
         }
     }
 
+    /// Consumes a block, returning that block signed by the validators private key.
+    ///
+    /// Important: this function will not check to ensure the block is not slashable. This must be
+    /// done upstream.
     fn sign_block(&mut self, block: BeaconBlock) -> BeaconBlock {
         // TODO: sign the block
+        // https://github.com/sigp/lighthouse/issues/160
         self.store_produce(&block);
         block
     }
 
+    /// Returns `true` if signing a block is safe (non-slashable).
+    ///
+    /// !!! UNSAFE !!!
+    ///
+    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
     fn safe_to_produce(&self, _block: &BeaconBlock) -> bool {
         // TODO: ensure the producer doesn't produce slashable blocks.
+        // https://github.com/sigp/lighthouse/issues/160
         true
     }
 
+    /// Record that a block was produced so that slashable votes may not be made in the future.
+    ///
+    /// !!! UNSAFE !!!
+    ///
+    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
     fn store_produce(&mut self, _block: &BeaconBlock) {
         // TODO: record this block production to prevent future slashings.
+        // https://github.com/sigp/lighthouse/issues/160
     }
 }
 
@@ -142,6 +182,7 @@ mod tests {
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
     // TODO: implement more thorough testing.
+    // https://github.com/sigp/lighthouse/issues/160
     //
     // These tests should serve as a good example for future tests.
 

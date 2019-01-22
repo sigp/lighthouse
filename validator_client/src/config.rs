@@ -11,7 +11,7 @@ pub struct ClientConfig {
 const DEFAULT_LIGHTHOUSE_DIR: &str = ".lighthouse-validators";
 
 impl ClientConfig {
-    /// Build a new lighthouse configuration from defaults.
+    /// Build a new configuration from defaults.
     pub fn default() -> Self {
         let data_dir = {
             let home = dirs::home_dir().expect("Unable to determine home dir.");

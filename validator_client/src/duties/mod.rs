@@ -13,6 +13,11 @@ use std::sync::{Arc, RwLock};
 
 pub use self::service::DutiesManagerService;
 
+/// The information required for a validator to propose and attest during some epoch.
+///
+/// Generally obtained from a Beacon Node, this information contains the validators canonical index
+/// (thier sequence in the global validator induction process) and the "shuffling" for that index
+/// for some epoch.
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub struct EpochDuties {
     pub validator_index: u64,
@@ -21,6 +26,8 @@ pub struct EpochDuties {
 }
 
 impl EpochDuties {
+    /// Returns `true` if the supplied `slot` is a slot in which the validator should produce a
+    /// block.
     pub fn is_block_production_slot(&self, slot: u64) -> bool {
         match self.block_production_slot {
             Some(s) if s == slot => true,
@@ -29,13 +36,20 @@ impl EpochDuties {
     }
 }
 
+/// Maps an `epoch` to some `EpochDuties` for a single validator.
 pub type EpochDutiesMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
+    /// The `EpochDuties` were not updated during this poll.
     NoChange(u64),
+    /// The `EpochDuties` for the `epoch` were previously unknown, but obtained in the poll.
     NewDuties(u64, EpochDuties),
+    /// New `EpochDuties` were obtained, different to those which were previously known. This is
+    /// likely to be the result of chain re-organisation.
     DutiesChanged(u64, EpochDuties),
+    /// The Beacon Node was unable to return the duties as the validator is unknown, or the
+    /// shuffling for the epoch is unknown.
     UnknownValidatorOrEpoch(u64),
 }
 
@@ -49,8 +63,13 @@ pub enum Error {
     BeaconNodeError(BeaconNodeError),
 }
 
+/// A polling state machine which ensures the latest `EpochDuties` are obtained from the Beacon
+/// Node.
+///
+/// There is a single `DutiesManager` per validator instance.
 pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
     pub duties_map: Arc<RwLock<EpochDutiesMap>>,
+    /// The validator's public key.
     pub pubkey: PublicKey,
     pub spec: Arc<ChainSpec>,
     pub slot_clock: Arc<RwLock<T>>,
@@ -58,6 +77,10 @@ pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
 }
 
 impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
+    /// Poll the Beacon Node for `EpochDuties`.
+    ///
+    /// The present `epoch` will be learned from the supplied `SlotClock`. In production this will
+    /// be a wall-clock (e.g., system time, remote server time, etc.).
     pub fn poll(&self) -> Result<PollOutcome, Error> {
         let slot = self
             .slot_clock
@@ -109,6 +132,7 @@ mod tests {
     use slot_clock::TestingSlotClock;
 
     // TODO: implement more thorough testing.
+    // https://github.com/sigp/lighthouse/issues/160
     //
     // These tests should serve as a good example for future tests.
 

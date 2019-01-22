@@ -83,6 +83,7 @@ fn main() {
     // Ethereum
     //
     // TODO: Permit loading a custom spec from file.
+    // https://github.com/sigp/lighthouse/issues/160
     let spec = Arc::new(ChainSpec::foundation());
 
     // Clock for determining the present slot.
@@ -99,13 +100,16 @@ fn main() {
     /*
      * Start threads.
      */
-    let keypairs = vec![Keypair::random()];
     let mut threads = vec![];
+    // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
+    // https://github.com/sigp/lighthouse/issues/160
+    let keypairs = vec![Keypair::random()];
 
     for keypair in keypairs {
         info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
         let duties_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
 
+        // Spawn a new thread to maintain the validator's `EpochDuties`.
         let duties_manager_thread = {
             let spec = spec.clone();
             let duties_map = duties_map.clone();
@@ -131,6 +135,7 @@ fn main() {
             })
         };
 
+        // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
             let duties_map = duties_map.clone();
@@ -152,6 +157,7 @@ fn main() {
         threads.push((duties_manager_thread, producer_thread));
     }
 
+    // Naively wait for all the threads to complete.
     for tuple in threads {
         let (manager, producer) = tuple;
         let _ = producer.join();

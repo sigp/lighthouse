@@ -7,6 +7,10 @@ use ssz::{ssz_encode, Decodable};
 use types::{BeaconBlock, BeaconBlockBody, Hash256, Signature};
 
 impl BeaconNode for BeaconBlockServiceClient {
+    /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
+    ///
+    /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
+    /// BN is unable to find a parent block.
     fn produce_beacon_block(&self, slot: u64) -> Result<Option<BeaconBlock>, BeaconNodeError> {
         let mut req = ProduceBeaconBlockRequest::new();
         req.set_slot(slot);
@@ -42,6 +46,10 @@ impl BeaconNode for BeaconBlockServiceClient {
         }
     }
 
+    /// Request a Beacon Node (BN) to publish a block.
+    ///
+    /// Generally, this will be called after a `produce_beacon_block` call with a block that has
+    /// been completed (signed) by the validator client.
     fn publish_beacon_block(&self, block: BeaconBlock) -> Result<bool, BeaconNodeError> {
         let mut req = PublishBeaconBlockRequest::new();
 

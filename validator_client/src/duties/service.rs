@@ -11,6 +11,9 @@ pub struct DutiesManagerService<T: SlotClock, U: BeaconNode> {
 }
 
 impl<T: SlotClock, U: BeaconNode> DutiesManagerService<T, U> {
+    /// Run a loop which polls the manager each `poll_interval_millis` milliseconds.
+    ///
+    /// Logs the results of the polls.
     pub fn run(&mut self) {
         loop {
             match self.manager.poll() {
