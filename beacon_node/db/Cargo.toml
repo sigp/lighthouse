@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 blake2-rfc = "0.2.18"
-bls = { path = "../../beacon_chain/utils/bls" }
+bls = { path = "../../eth2/utils/bls" }
 bytes = "0.4.10"
 rocksdb = "0.10.1"
-ssz = { path = "../../beacon_chain/utils/ssz" }
-types = { path = "../../beacon_chain/types" }
+ssz = { path = "../../eth2/utils/ssz" }
+types = { path = "../../eth2/types" }
