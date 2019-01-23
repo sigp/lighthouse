@@ -21,7 +21,7 @@ impl From<StatusFlagsDecodeError> for DecodeError {
     }
 }
 
-/// Handles the serialization logic for the `status_flags` field of the `ValidatorRecord`.
+/// Handles the serialization logic for the `status_flags` field of the `Validator`.
 fn status_flag_to_byte(flag: Option<StatusFlags>) -> u8 {
     if let Some(flag) = flag {
         match flag {
@@ -33,7 +33,7 @@ fn status_flag_to_byte(flag: Option<StatusFlags>) -> u8 {
     }
 }
 
-/// Handles the deserialization logic for the `status_flags` field of the `ValidatorRecord`.
+/// Handles the deserialization logic for the `status_flags` field of the `Validator`.
 fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDecodeError> {
     match flag {
         0 => Ok(None),
@@ -44,7 +44,7 @@ fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDec
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ValidatorRecord {
+pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub proposer_slots: u64,
@@ -54,20 +54,19 @@ pub struct ValidatorRecord {
     pub penalized_slot: u64,
     pub exit_count: u64,
     pub status_flags: Option<StatusFlags>,
-    pub custody_commitment: Hash256,
     pub latest_custody_reseed_slot: u64,
     pub penultimate_custody_reseed_slot: u64,
 }
 
-impl ValidatorRecord {
+impl Validator {
     /// This predicate indicates if the validator represented by this record is considered "active" at `slot`.
     pub fn is_active_at(&self, slot: u64) -> bool {
         self.activation_slot <= slot && slot < self.exit_slot
     }
 }
 
-impl Default for ValidatorRecord {
-    /// Yields a "default" `ValidatorRecord`. Primarily used for testing.
+impl Default for Validator {
+    /// Yields a "default" `Validator`. Primarily used for testing.
     fn default() -> Self {
         Self {
             pubkey: PublicKey::default(),
@@ -79,7 +78,6 @@ impl Default for ValidatorRecord {
             penalized_slot: std::u64::MAX,
             exit_count: 0,
             status_flags: None,
-            custody_commitment: Hash256::default(),
             latest_custody_reseed_slot: 0, // NOTE: is `GENESIS_SLOT`
             penultimate_custody_reseed_slot: 0, // NOTE: is `GENESIS_SLOT`
         }
@@ -93,7 +91,7 @@ impl<T: RngCore> TestRandom<T> for StatusFlags {
     }
 }
 
-impl Encodable for ValidatorRecord {
+impl Encodable for Validator {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.pubkey);
         s.append(&self.withdrawal_credentials);
@@ -104,13 +102,12 @@ impl Encodable for ValidatorRecord {
         s.append(&self.penalized_slot);
         s.append(&self.exit_count);
         s.append(&status_flag_to_byte(self.status_flags));
-        s.append(&self.custody_commitment);
         s.append(&self.latest_custody_reseed_slot);
         s.append(&self.penultimate_custody_reseed_slot);
     }
 }
 
-impl Decodable for ValidatorRecord {
+impl Decodable for Validator {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
@@ -121,7 +118,6 @@ impl Decodable for ValidatorRecord {
         let (penalized_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
         let (status_flags_byte, i): (u8, usize) = <_>::ssz_decode(bytes, i)?;
-        let (custody_commitment, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (penultimate_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
 
@@ -138,7 +134,6 @@ impl Decodable for ValidatorRecord {
                 penalized_slot,
                 exit_count,
                 status_flags,
-                custody_commitment,
                 latest_custody_reseed_slot,
                 penultimate_custody_reseed_slot,
             },
@@ -147,7 +142,7 @@ impl Decodable for ValidatorRecord {
     }
 }
 
-impl<T: RngCore> TestRandom<T> for ValidatorRecord {
+impl<T: RngCore> TestRandom<T> for Validator {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             pubkey: <_>::random_for_test(rng),
@@ -159,7 +154,6 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
             penalized_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
             status_flags: Some(<_>::random_for_test(rng)),
-            custody_commitment: <_>::random_for_test(rng),
             latest_custody_reseed_slot: <_>::random_for_test(rng),
             penultimate_custody_reseed_slot: <_>::random_for_test(rng),
         }
@@ -175,7 +169,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = ValidatorRecord::random_for_test(&mut rng);
+        let original = Validator::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -186,7 +180,7 @@ mod tests {
     #[test]
     fn test_validator_can_be_active() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let mut validator = ValidatorRecord::random_for_test(&mut rng);
+        let mut validator = Validator::random_for_test(&mut rng);
 
         let activation_slot = u64::random_for_test(&mut rng);
         let exit_slot = activation_slot + 234;

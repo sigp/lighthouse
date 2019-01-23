@@ -1,5 +1,5 @@
 use spec::ChainSpec;
-use types::{BeaconState, CrosslinkRecord, ForkData};
+use types::{BeaconState, Crosslink, Fork};
 use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
 #[derive(Debug, PartialEq)]
@@ -20,8 +20,8 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         a
     };
 
-    let initial_crosslink = CrosslinkRecord {
-        slot: spec.genesis_slot_number,
+    let initial_crosslink = Crosslink {
+        slot: spec.genesis_slot,
         shard_block_root: spec.zero_hash,
     };
 
@@ -29,19 +29,19 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         /*
          * Misc
          */
-        slot: spec.genesis_slot_number,
+        slot: spec.genesis_slot,
         genesis_time: spec.genesis_time,
-        fork_data: ForkData {
+        fork_data: Fork {
             pre_fork_version: spec.genesis_fork_version,
             post_fork_version: spec.genesis_fork_version,
-            fork_slot: spec.genesis_slot_number,
+            fork_slot: spec.genesis_slot,
         },
         /*
          * Validator registry
          */
         validator_registry: spec.initial_validators.clone(),
         validator_balances: spec.initial_balances.clone(),
-        validator_registry_latest_change_slot: spec.genesis_slot_number,
+        validator_registry_update_slot: spec.genesis_slot,
         validator_registry_exit_count: 0,
         validator_registry_delta_chain_tip: spec.zero_hash,
         /*
@@ -54,8 +54,8 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         ],
         previous_epoch_start_shard: spec.genesis_start_shard,
         current_epoch_start_shard: spec.genesis_start_shard,
-        previous_epoch_calculation_slot: spec.genesis_slot_number,
-        current_epoch_calculation_slot: spec.genesis_slot_number,
+        previous_epoch_calculation_slot: spec.genesis_slot,
+        current_epoch_calculation_slot: spec.genesis_slot,
         previous_epoch_randao_mix: spec.zero_hash,
         current_epoch_randao_mix: spec.zero_hash,
         /*
@@ -65,10 +65,10 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         /*
          * Finality
          */
-        previous_justified_slot: spec.genesis_slot_number,
-        justified_slot: spec.genesis_slot_number,
+        previous_justified_slot: spec.genesis_slot,
+        justified_slot: spec.genesis_slot,
         justification_bitfield: 0,
-        finalized_slot: spec.genesis_slot_number,
+        finalized_slot: spec.genesis_slot,
         /*
          * Recent state
          */
@@ -129,7 +129,7 @@ mod tests {
 
         assert_eq!(state.validator_registry, spec.initial_validators);
         assert_eq!(state.validator_balances, spec.initial_balances);
-        assert!(state.validator_registry_latest_change_slot == 0);
+        assert!(state.validator_registry_update_slot == 0);
         assert!(state.validator_registry_exit_count == 0);
         assert_eq!(state.validator_registry_delta_chain_tip, Hash256::zero());
     }

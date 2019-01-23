@@ -15,7 +15,7 @@ pub struct ValidatorRegistryDeltaBlock {
 }
 
 impl Default for ValidatorRegistryDeltaBlock {
-    /// Yields a "default" `ValidatorRecord`. Primarily used for testing.
+    /// Yields a "default" `Validator`. Primarily used for testing.
     fn default() -> Self {
         Self {
             latest_registry_delta_root: Hash256::zero(),

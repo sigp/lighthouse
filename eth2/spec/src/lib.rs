@@ -4,7 +4,7 @@ extern crate types;
 mod foundation;
 
 use bls::Signature;
-use types::{Address, Eth1Data, Hash256, ValidatorRecord};
+use types::{Address, Eth1Data, Hash256, Validator};
 
 #[derive(PartialEq, Debug)]
 pub struct ChainSpec {
@@ -32,7 +32,7 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_fork_version: u64,
-    pub genesis_slot_number: u64,
+    pub genesis_slot: u64,
     pub genesis_start_shard: u64,
     pub far_future_slot: u64,
     pub zero_hash: Hash256,
@@ -66,7 +66,7 @@ pub struct ChainSpec {
     /*
      * Intialization parameters
      */
-    pub initial_validators: Vec<ValidatorRecord>,
+    pub initial_validators: Vec<Validator>,
     pub initial_balances: Vec<u64>,
     pub genesis_time: u64,
     pub intial_eth1_data: Eth1Data,
