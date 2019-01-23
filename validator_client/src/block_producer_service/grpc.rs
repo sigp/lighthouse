@@ -1,12 +1,25 @@
-use super::traits::{BeaconNode, BeaconNodeError};
+use block_producer::{BeaconNode, BeaconNodeError};
 use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{ssz_encode, Decodable};
+use std::sync::Arc;
 use types::{BeaconBlock, BeaconBlockBody, Hash256, Signature};
 
-impl BeaconNode for BeaconBlockServiceClient {
+/// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
+/// implemented upon it.
+pub struct BeaconBlockGrpcClient {
+    client: Arc<BeaconBlockServiceClient>,
+}
+
+impl BeaconBlockGrpcClient {
+    pub fn new(client: Arc<BeaconBlockServiceClient>) -> Self {
+        Self { client }
+    }
+}
+
+impl BeaconNode for BeaconBlockGrpcClient {
     /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
     ///
     /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
@@ -16,6 +29,7 @@ impl BeaconNode for BeaconBlockServiceClient {
         req.set_slot(slot);
 
         let reply = self
+            .client
             .produce_beacon_block(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
@@ -69,6 +83,7 @@ impl BeaconNode for BeaconBlockServiceClient {
         req.set_block(grpc_block);
 
         let reply = self
+            .client
             .publish_beacon_block(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 

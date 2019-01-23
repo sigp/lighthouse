@@ -5,7 +5,7 @@ mod test_node;
 mod traits;
 
 use self::traits::{BeaconNode, BeaconNodeError};
-use super::block_producer::traits::{DutiesReader, DutiesReaderError};
+use block_producer::{DutiesReader, DutiesReaderError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use spec::ChainSpec;
