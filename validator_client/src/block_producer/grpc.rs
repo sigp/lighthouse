@@ -25,12 +25,15 @@ impl BeaconNode for BeaconBlockServiceClient {
             let (signature, _) = Signature::ssz_decode(block.get_signature(), 0)
                 .map_err(|_| BeaconNodeError::DecodeFailure)?;
 
+            let (randao_reveal, _) = Signature::ssz_decode(block.get_randao_reveal(), 0)
+                .map_err(|_| BeaconNodeError::DecodeFailure)?;
+
             // TODO: this conversion is incomplete; fix it.
             Ok(Some(BeaconBlock {
                 slot: block.get_slot(),
                 parent_root: Hash256::zero(),
                 state_root: Hash256::zero(),
-                randao_reveal: Hash256::from(block.get_randao_reveal()),
+                randao_reveal,
                 candidate_pow_receipt_root: Hash256::zero(),
                 signature,
                 body: BeaconBlockBody {
