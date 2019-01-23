@@ -4,39 +4,39 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 
 // Note: this is refer to as DepositRootVote in specs
-#[derive(Debug, PartialEq, Clone)]
-pub struct CandidatePoWReceiptRootRecord {
-    pub candidate_pow_receipt_root: Hash256,
-    pub votes: u64,
+#[derive(Debug, PartialEq, Clone, Default)]
+pub struct Eth1Data {
+    pub deposit_root: Hash256,
+    pub block_hash: Hash256,
 }
 
-impl Encodable for CandidatePoWReceiptRootRecord {
+impl Encodable for Eth1Data {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.candidate_pow_receipt_root);
-        s.append(&self.votes);
+        s.append(&self.deposit_root);
+        s.append(&self.block_hash);
     }
 }
 
-impl Decodable for CandidatePoWReceiptRootRecord {
+impl Decodable for Eth1Data {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (candidate_pow_receipt_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (votes, i) = <_>::ssz_decode(bytes, i)?;
+        let (deposit_root, i) = <_>::ssz_decode(bytes, i)?;
+        let (block_hash, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                candidate_pow_receipt_root,
-                votes,
+                deposit_root,
+                block_hash,
             },
             i,
         ))
     }
 }
 
-impl<T: RngCore> TestRandom<T> for CandidatePoWReceiptRootRecord {
+impl<T: RngCore> TestRandom<T> for Eth1Data {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            candidate_pow_receipt_root: <_>::random_for_test(rng),
-            votes: <_>::random_for_test(rng),
+            deposit_root: <_>::random_for_test(rng),
+            block_hash: <_>::random_for_test(rng),
         }
     }
 }
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = CandidatePoWReceiptRootRecord::random_for_test(&mut rng);
+        let original = Eth1Data::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();

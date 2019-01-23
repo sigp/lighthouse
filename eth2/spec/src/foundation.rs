@@ -1,7 +1,7 @@
 use super::ChainSpec;
 use bls::{Keypair, PublicKey, SecretKey, Signature};
 
-use types::{Address, Hash256, ValidatorRecord};
+use types::{Address, Eth1Data, Hash256, ValidatorRecord};
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
@@ -18,9 +18,8 @@ impl ChainSpec {
              */
             shard_count: 1_024,
             target_committee_size: 128,
-            ejection_balance: 16,
+            ejection_balance: 16 * u64::pow(10, 9),
             max_balance_churn_quotient: 32,
-            gwei_per_eth: u64::pow(10, 9),
             beacon_chain_shard_number: u64::max_value(),
             max_casper_votes: 1_024,
             latest_block_roots_length: 8_192,
@@ -32,8 +31,8 @@ impl ChainSpec {
              */
             deposit_contract_address: Address::from("TBD".as_bytes()),
             deposit_contract_tree_depth: 32,
-            min_deposit: 1,
-            max_deposit: 32,
+            min_deposit: 1 * u64::pow(10, 9),
+            max_deposit: 32 * u64::pow(10, 9),
             /*
              * Initial Values
              */
@@ -52,12 +51,12 @@ impl ChainSpec {
             epoch_length: 64,
             seed_lookahead: 64,
             entry_exit_delay: 256,
-            pow_receipt_root_voting_period: 1_024,
+            eth1_data_voting_period: 1_024,
             min_validator_withdrawal_time: u64::pow(2, 14),
             /*
              * Reward and penalty quotients
              */
-            base_reward_quotient: 1_024,
+            base_reward_quotient: 32,
             whistleblower_reward_quotient: 512,
             includer_reward_quotient: 8,
             inactivity_penalty_quotient: u64::pow(2, 24),
@@ -75,7 +74,10 @@ impl ChainSpec {
             initial_validators: initial_validators_for_testing(),
             initial_balances: initial_balances_for_testing(),
             genesis_time: 1_544_672_897,
-            processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
+            intial_eth1_data: Eth1Data {
+                deposit_root: Hash256::from("deposit_root".as_bytes()),
+                block_hash: Hash256::from("block_hash".as_bytes()),
+            },
         }
     }
 }

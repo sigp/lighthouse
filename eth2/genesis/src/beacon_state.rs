@@ -80,8 +80,8 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         /*
          * PoW receipt root
          */
-        processed_pow_receipt_root: spec.processed_pow_receipt_root,
-        candidate_pow_receipt_roots: vec![],
+        latest_eth1_data: spec.intial_eth1_data.clone(),
+        eth1_data_votes: vec![],
     })
 }
 
@@ -213,10 +213,7 @@ mod tests {
 
         let state = genesis_beacon_state(&spec).unwrap();
 
-        assert_eq!(
-            state.processed_pow_receipt_root,
-            spec.processed_pow_receipt_root
-        );
-        assert!(state.candidate_pow_receipt_roots.is_empty());
+        assert_eq!(&state.latest_eth1_data, &spec.intial_eth1_data);
+        assert!(state.eth1_data_votes.is_empty());
     }
 }

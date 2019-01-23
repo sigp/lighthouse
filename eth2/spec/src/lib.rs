@@ -4,7 +4,7 @@ extern crate types;
 mod foundation;
 
 use bls::Signature;
-use types::{Address, Hash256, ValidatorRecord};
+use types::{Address, Eth1Data, Hash256, ValidatorRecord};
 
 #[derive(PartialEq, Debug)]
 pub struct ChainSpec {
@@ -15,7 +15,6 @@ pub struct ChainSpec {
     pub target_committee_size: u64,
     pub ejection_balance: u64,
     pub max_balance_churn_quotient: u64,
-    pub gwei_per_eth: u64,
     pub beacon_chain_shard_number: u64,
     pub max_casper_votes: u64,
     pub latest_block_roots_length: u64,
@@ -47,7 +46,7 @@ pub struct ChainSpec {
     pub epoch_length: u64,
     pub seed_lookahead: u64,
     pub entry_exit_delay: u64,
-    pub pow_receipt_root_voting_period: u64, // a.k.a. deposit_root_voting_period
+    pub eth1_data_voting_period: u64,
     pub min_validator_withdrawal_time: u64,
     /*
      * Reward and penalty quotients
@@ -70,5 +69,5 @@ pub struct ChainSpec {
     pub initial_validators: Vec<ValidatorRecord>,
     pub initial_balances: Vec<u64>,
     pub genesis_time: u64,
-    pub processed_pow_receipt_root: Hash256,
+    pub intial_eth1_data: Eth1Data,
 }

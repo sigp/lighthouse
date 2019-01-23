@@ -1,5 +1,6 @@
-use super::candidate_pow_receipt_root_record::CandidatePoWReceiptRootRecord;
 use super::crosslink_record::CrosslinkRecord;
+use super::eth1_data::Eth1Data;
+use super::eth1_data_vote::Eth1DataVote;
 use super::fork_data::ForkData;
 use super::pending_attestation_record::PendingAttestationRecord;
 use super::validator_record::ValidatorRecord;
@@ -52,9 +53,9 @@ pub struct BeaconState {
     pub latest_attestations: Vec<PendingAttestationRecord>,
     pub batched_block_roots: Vec<Hash256>,
 
-    // PoW receipt root (a.k.a. deposit root)
-    pub processed_pow_receipt_root: Hash256,
-    pub candidate_pow_receipt_roots: Vec<CandidatePoWReceiptRootRecord>,
+    // Ethereum 1.0 chain data
+    pub latest_eth1_data: Eth1Data,
+    pub eth1_data_votes: Vec<Eth1DataVote>,
 }
 
 impl BeaconState {
@@ -93,8 +94,8 @@ impl Encodable for BeaconState {
         s.append(&self.latest_penalized_exit_balances);
         s.append(&self.latest_attestations);
         s.append(&self.batched_block_roots);
-        s.append(&self.processed_pow_receipt_root);
-        s.append(&self.candidate_pow_receipt_roots);
+        s.append(&self.latest_eth1_data);
+        s.append(&self.eth1_data_votes);
     }
 }
 
@@ -126,8 +127,8 @@ impl Decodable for BeaconState {
         let (latest_penalized_exit_balances, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_attestations, i) = <_>::ssz_decode(bytes, i)?;
         let (batched_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (processed_pow_receipt_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (candidate_pow_receipt_roots, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_eth1_data, i) = <_>::ssz_decode(bytes, i)?;
+        let (eth1_data_votes, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
@@ -157,8 +158,8 @@ impl Decodable for BeaconState {
                 latest_penalized_exit_balances,
                 latest_attestations,
                 batched_block_roots,
-                processed_pow_receipt_root,
-                candidate_pow_receipt_roots,
+                latest_eth1_data,
+                eth1_data_votes,
             },
             i,
         ))
@@ -194,8 +195,8 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             latest_penalized_exit_balances: <_>::random_for_test(rng),
             latest_attestations: <_>::random_for_test(rng),
             batched_block_roots: <_>::random_for_test(rng),
-            processed_pow_receipt_root: <_>::random_for_test(rng),
-            candidate_pow_receipt_roots: <_>::random_for_test(rng),
+            latest_eth1_data: <_>::random_for_test(rng),
+            eth1_data_votes: <_>::random_for_test(rng),
         }
     }
 }
