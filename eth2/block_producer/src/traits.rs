@@ -1,4 +1,4 @@
-use types::BeaconBlock;
+use types::{BeaconBlock, Signature};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
@@ -23,6 +23,11 @@ pub enum DutiesReaderError {
     Poisoned,
 }
 
+/// Provides methods for a validator to determine their responsibilities for some slot.
 pub trait DutiesReader: Send + Sync {
     fn is_block_production_slot(&self, epoch: u64, slot: u64) -> Result<bool, DutiesReaderError>;
+}
+
+pub trait Signer {
+    fn bls_sign(message: &[u8]) -> Option<Signature>;
 }

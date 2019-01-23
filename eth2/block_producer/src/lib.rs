@@ -7,7 +7,7 @@ use spec::ChainSpec;
 use std::sync::{Arc, RwLock};
 use types::BeaconBlock;
 
-pub use self::traits::{BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError};
+pub use self::traits::{BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, Signer};
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -41,21 +41,23 @@ pub enum Error {
 /// Ensures that messages are not slashable.
 ///
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
-pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader> {
+pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
     pub last_processed_slot: u64,
     spec: Arc<ChainSpec>,
     epoch_map: Arc<V>,
     slot_clock: Arc<RwLock<T>>,
     beacon_node: Arc<U>,
+    signer: Arc<W>,
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducer<T, U, V> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U, V, W> {
     /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
         epoch_map: Arc<V>,
         slot_clock: Arc<RwLock<T>>,
         beacon_node: Arc<U>,
+        signer: Arc<W>,
     ) -> Self {
         Self {
             last_processed_slot: 0,
@@ -63,11 +65,12 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducer<T, U, V> {
             epoch_map,
             slot_clock,
             beacon_node,
+            signer,
         }
     }
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducer<T, U, V> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U, V, W> {
     /// "Poll" to see if the validator is required to take any action.
     ///
     /// The slot clock will be read and any new actions undertaken.
@@ -176,7 +179,10 @@ mod tests {
     use super::*;
     use slot_clock::TestingSlotClock;
     use std::collections::HashMap;
-    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use types::{
+        test_utils::{SeedableRng, TestRandom, XorShiftRng},
+        Signature,
+    };
 
     // TODO: implement more thorough testing.
     // https://github.com/sigp/lighthouse/issues/160
@@ -199,6 +205,15 @@ mod tests {
         }
     }
 
+    struct TestSigner();
+
+    impl Signer for TestSigner {
+        fn bls_sign(_message: &[u8]) -> Option<Signature> {
+            let mut rng = XorShiftRng::from_seed([42; 16]);
+            Some(Signature::random_for_test(&mut rng))
+        }
+    }
+
     #[test]
     pub fn polling() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
@@ -206,6 +221,7 @@ mod tests {
         let spec = Arc::new(ChainSpec::foundation());
         let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
         let beacon_node = Arc::new(TestBeaconNode::default());
+        let signer = Arc::new(TestSigner());
 
         let mut epoch_map = EpochMap::new();
         let produce_slot = 100;
@@ -218,6 +234,7 @@ mod tests {
             epoch_map.clone(),
             slot_clock.clone(),
             beacon_node.clone(),
+            signer.clone(),
         );
 
         // Configure responses from the BeaconNode.
