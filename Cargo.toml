@@ -19,4 +19,5 @@ members = [
 	"beacon_node/beacon_chain",
 	"protos",
 	"validator_client",
+	"validator_client/block_proposer",
 ]
