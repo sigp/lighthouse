@@ -42,8 +42,7 @@ pub fn process_deposit(
             let validator = ValidatorRecord {
                 pubkey: deposit_input.pubkey.clone(),
                 withdrawal_credentials: deposit_input.withdrawal_credentials,
-                randao_commitment: deposit_input.randao_commitment,
-                randao_layers: 0,
+                proposer_slots: 0,
                 activation_slot: spec.far_future_slot,
                 exit_slot: spec.far_future_slot,
                 withdrawal_slot: spec.far_future_slot,
@@ -91,7 +90,6 @@ mod tests {
     fn deposit_equals_record(dep: &Deposit, val: &ValidatorRecord) -> bool {
         (dep.deposit_data.deposit_input.pubkey == val.pubkey)
             & (dep.deposit_data.deposit_input.withdrawal_credentials == val.withdrawal_credentials)
-            & (dep.deposit_data.deposit_input.randao_commitment == val.randao_commitment)
             & (verify_proof_of_possession(
                 &dep.deposit_data.deposit_input.proof_of_possession,
                 &val.pubkey,
@@ -147,7 +145,6 @@ mod tests {
         validator.pubkey = deposit.deposit_data.deposit_input.pubkey.clone();
         validator.withdrawal_credentials =
             deposit.deposit_data.deposit_input.withdrawal_credentials;
-        validator.randao_commitment = deposit.deposit_data.deposit_input.randao_commitment;
 
         state.validator_registry.push(validator);
         state.validator_balances.push(DEPOSIT_GWEI);

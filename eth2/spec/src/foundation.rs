@@ -109,8 +109,7 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
         let validator_record = ValidatorRecord {
             pubkey: keypair.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
-            randao_commitment: Hash256::zero(),
-            randao_layers: 0,
+            proposer_slots: 0,
             activation_slot: u64::max_value(),
             exit_slot: u64::max_value(),
             withdrawal_slot: u64::max_value(),

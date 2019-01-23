@@ -31,7 +31,7 @@ where
         None => reject!(Invalid::JustifiedBlockNotInChain),
         Some(local_justified_block_hash) => {
             verify_or!(
-                data.justified_block_hash == local_justified_block_hash,
+                data.justified_block_root == local_justified_block_hash,
                 reject!(Invalid::JustifiedBlockHashMismatch)
             );
         }

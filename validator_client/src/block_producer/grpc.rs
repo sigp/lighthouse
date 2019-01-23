@@ -25,12 +25,15 @@ impl BeaconNode for BeaconBlockServiceClient {
             let (signature, _) = Signature::ssz_decode(block.get_signature(), 0)
                 .map_err(|_| BeaconNodeError::DecodeFailure)?;
 
+            let (randao_reveal, _) = Signature::ssz_decode(block.get_randao_reveal(), 0)
+                .map_err(|_| BeaconNodeError::DecodeFailure)?;
+
             // TODO: this conversion is incomplete; fix it.
             Ok(Some(BeaconBlock {
                 slot: block.get_slot(),
                 parent_root: Hash256::zero(),
                 state_root: Hash256::zero(),
-                randao_reveal: Hash256::from(block.get_randao_reveal()),
+                randao_reveal,
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
@@ -63,7 +66,7 @@ impl BeaconNode for BeaconBlockServiceClient {
         let mut grpc_block = GrpcBeaconBlock::new();
         grpc_block.set_slot(block.slot);
         grpc_block.set_block_root(vec![0]);
-        grpc_block.set_randao_reveal(block.randao_reveal.to_vec());
+        grpc_block.set_randao_reveal(ssz_encode(&block.randao_reveal));
         grpc_block.set_signature(ssz_encode(&block.signature));
 
         req.set_block(grpc_block);
