@@ -1,15 +1,15 @@
-use super::traits::BeaconNode;
+use super::traits::{BeaconNode, DutiesReader};
 use super::{BlockProducer, PollOutcome as BlockProducerPollOutcome, SlotClock};
 use slog::{error, info, warn, Logger};
 use std::time::Duration;
 
-pub struct BlockProducerService<T: SlotClock, U: BeaconNode> {
-    pub block_producer: BlockProducer<T, U>,
+pub struct BlockProducerService<T: SlotClock, U: BeaconNode, V: DutiesReader> {
+    pub block_producer: BlockProducer<T, U, V>,
     pub poll_interval_millis: u64,
     pub log: Logger,
 }
 
-impl<T: SlotClock, U: BeaconNode> BlockProducerService<T, U> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducerService<T, U, V> {
     /// Run a loop which polls the block producer each `poll_interval_millis` millseconds.
     ///
     /// Logs the results of the polls.

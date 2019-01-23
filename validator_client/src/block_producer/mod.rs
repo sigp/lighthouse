@@ -2,10 +2,9 @@ mod grpc;
 mod service;
 #[cfg(test)]
 mod test_node;
-mod traits;
+pub mod traits;
 
-use self::traits::{BeaconNode, BeaconNodeError};
-use super::EpochDutiesMap;
+use self::traits::{BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError};
 use slot_clock::SlotClock;
 use spec::ChainSpec;
 use std::sync::{Arc, RwLock};
@@ -45,19 +44,19 @@ pub enum Error {
 /// Ensures that messages are not slashable.
 ///
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
-pub struct BlockProducer<T: SlotClock, U: BeaconNode> {
+pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader> {
     pub last_processed_slot: u64,
     spec: Arc<ChainSpec>,
-    epoch_map: Arc<RwLock<EpochDutiesMap>>,
+    epoch_map: Arc<V>,
     slot_clock: Arc<RwLock<T>>,
     beacon_node: Arc<U>,
 }
 
-impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducer<T, U, V> {
     /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
-        epoch_map: Arc<RwLock<EpochDutiesMap>>,
+        epoch_map: Arc<V>,
         slot_clock: Arc<RwLock<T>>,
         beacon_node: Arc<U>,
     ) -> Self {
@@ -71,7 +70,7 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
     }
 }
 
-impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducer<T, U, V> {
     /// "Poll" to see if the validator is required to take any action.
     ///
     /// The slot clock will be read and any new actions undertaken.
@@ -90,13 +89,14 @@ impl<T: SlotClock, U: BeaconNode> BlockProducer<T, U> {
 
         // If this is a new slot.
         if slot > self.last_processed_slot {
-            let is_block_production_slot = {
-                let epoch_map = self.epoch_map.read().map_err(|_| Error::EpochMapPoisoned)?;
-                match epoch_map.get(&epoch) {
-                    None => return Ok(PollOutcome::ProducerDutiesUnknown(slot)),
-                    Some(duties) => duties.is_block_production_slot(slot),
-                }
-            };
+            let is_block_production_slot =
+                match self.epoch_map.is_block_production_slot(epoch, slot) {
+                    Ok(result) => result,
+                    Err(DutiesReaderError::UnknownEpoch) => {
+                        return Ok(PollOutcome::ProducerDutiesUnknown(slot))
+                    }
+                    Err(DutiesReaderError::Poisoned) => return Err(Error::EpochMapPoisoned),
+                };
 
             if is_block_production_slot {
                 self.last_processed_slot = slot;
@@ -178,6 +178,7 @@ mod tests {
     use super::test_node::TestBeaconNode;
     use super::*;
     use crate::duties::EpochDuties;
+    use crate::duties::EpochDutiesMap;
     use slot_clock::TestingSlotClock;
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
@@ -191,7 +192,7 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
         let spec = Arc::new(ChainSpec::foundation());
-        let epoch_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
+        let epoch_map = Arc::new(EpochDutiesMap::new());
         let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
         let beacon_node = Arc::new(TestBeaconNode::default());
 
@@ -213,7 +214,7 @@ mod tests {
             ..std::default::Default::default()
         };
         let produce_epoch = produce_slot / spec.epoch_length;
-        epoch_map.write().unwrap().insert(produce_epoch, duties);
+        epoch_map.insert(produce_epoch, duties);
 
         // One slot before production slot...
         slot_clock.write().unwrap().set_slot(produce_slot - 1);

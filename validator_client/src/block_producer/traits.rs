@@ -17,3 +17,12 @@ pub trait BeaconNode: Send + Sync {
     /// Returns `true` if the publish was sucessful.
     fn publish_beacon_block(&self, block: BeaconBlock) -> Result<bool, BeaconNodeError>;
 }
+
+pub enum DutiesReaderError {
+    UnknownEpoch,
+    Poisoned,
+}
+
+pub trait DutiesReader: Send + Sync {
+    fn is_block_production_slot(&self, epoch: u64, slot: u64) -> Result<bool, DutiesReaderError>;
+}
