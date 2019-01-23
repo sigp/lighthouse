@@ -7,10 +7,10 @@ pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBloc
         slot: spec.genesis_slot_number,
         parent_root: spec.zero_hash,
         state_root,
-        randao_reveal: spec.zero_hash,
+        randao_reveal: spec.empty_signature.clone(),
         eth1_data: Eth1Data {
-            deposit_root: Hash256::zero(),
-            block_hash: Hash256::zero(),
+            deposit_root: spec.zero_hash,
+            block_hash: spec.zero_hash,
         },
         signature: spec.empty_signature.clone(),
         body: BeaconBlockBody {
@@ -50,7 +50,7 @@ mod tests {
 
         assert!(genesis_block.slot == 0);
         assert!(genesis_block.parent_root.is_zero());
-        assert!(genesis_block.randao_reveal.is_zero());
+        assert_eq!(genesis_block.randao_reveal, Signature::empty_signature());
         assert!(genesis_block.eth1_data.deposit_root.is_zero());
         assert!(genesis_block.eth1_data.block_hash.is_zero());
     }

@@ -47,8 +47,7 @@ fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDec
 pub struct ValidatorRecord {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
-    pub randao_commitment: Hash256,
-    pub randao_layers: u64,
+    pub proposer_slots: u64,
     pub activation_slot: u64,
     pub exit_slot: u64,
     pub withdrawal_slot: u64,
@@ -73,8 +72,7 @@ impl Default for ValidatorRecord {
         Self {
             pubkey: PublicKey::default(),
             withdrawal_credentials: Hash256::default(),
-            randao_commitment: Hash256::default(),
-            randao_layers: 0,
+            proposer_slots: 0,
             activation_slot: std::u64::MAX,
             exit_slot: std::u64::MAX,
             withdrawal_slot: std::u64::MAX,
@@ -99,8 +97,7 @@ impl Encodable for ValidatorRecord {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.pubkey);
         s.append(&self.withdrawal_credentials);
-        s.append(&self.randao_commitment);
-        s.append(&self.randao_layers);
+        s.append(&self.proposer_slots);
         s.append(&self.activation_slot);
         s.append(&self.exit_slot);
         s.append(&self.withdrawal_slot);
@@ -117,8 +114,7 @@ impl Decodable for ValidatorRecord {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
-        let (randao_commitment, i) = <_>::ssz_decode(bytes, i)?;
-        let (randao_layers, i) = <_>::ssz_decode(bytes, i)?;
+        let (proposer_slots, i) = <_>::ssz_decode(bytes, i)?;
         let (activation_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_slot, i) = <_>::ssz_decode(bytes, i)?;
@@ -135,8 +131,7 @@ impl Decodable for ValidatorRecord {
             Self {
                 pubkey,
                 withdrawal_credentials,
-                randao_commitment,
-                randao_layers,
+                proposer_slots,
                 activation_slot,
                 exit_slot,
                 withdrawal_slot,
@@ -157,8 +152,7 @@ impl<T: RngCore> TestRandom<T> for ValidatorRecord {
         Self {
             pubkey: <_>::random_for_test(rng),
             withdrawal_credentials: <_>::random_for_test(rng),
-            randao_commitment: <_>::random_for_test(rng),
-            randao_layers: <_>::random_for_test(rng),
+            proposer_slots: <_>::random_for_test(rng),
             activation_slot: <_>::random_for_test(rng),
             exit_slot: <_>::random_for_test(rng),
             withdrawal_slot: <_>::random_for_test(rng),
