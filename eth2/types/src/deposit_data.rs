@@ -5,30 +5,30 @@ use rand::RngCore;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DepositData {
-    pub deposit_input: DepositInput,
-    pub value: u64,
+    pub amount: u64,
     pub timestamp: u64,
+    pub deposit_input: DepositInput,
 }
 
 impl Encodable for DepositData {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.deposit_input);
-        s.append(&self.value);
+        s.append(&self.amount);
         s.append(&self.timestamp);
+        s.append(&self.deposit_input);
     }
 }
 
 impl Decodable for DepositData {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (deposit_input, i) = <_>::ssz_decode(bytes, i)?;
-        let (value, i) = <_>::ssz_decode(bytes, i)?;
+        let (amount, i) = <_>::ssz_decode(bytes, i)?;
         let (timestamp, i) = <_>::ssz_decode(bytes, i)?;
+        let (deposit_input, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                deposit_input,
-                value,
+                amount,
                 timestamp,
+                deposit_input,
             },
             i,
         ))
@@ -38,9 +38,9 @@ impl Decodable for DepositData {
 impl<T: RngCore> TestRandom<T> for DepositData {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            deposit_input: <_>::random_for_test(rng),
-            value: <_>::random_for_test(rng),
+            amount: <_>::random_for_test(rng),
             timestamp: <_>::random_for_test(rng),
+            deposit_input: <_>::random_for_test(rng),
         }
     }
 }

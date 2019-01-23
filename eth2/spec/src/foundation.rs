@@ -1,7 +1,7 @@
 use super::ChainSpec;
 use bls::{Keypair, PublicKey, SecretKey, Signature};
 
-use types::{Address, Eth1Data, Hash256, ValidatorRecord};
+use types::{Address, Eth1Data, Hash256, Validator};
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
@@ -37,7 +37,7 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: 0,
-            genesis_slot_number: 0,
+            genesis_slot: 0,
             genesis_start_shard: 0,
             far_future_slot: u64::max_value(),
             zero_hash: Hash256::zero(),
@@ -83,7 +83,7 @@ impl ChainSpec {
 }
 
 /// Generate a set of validator records to use with testing until the real chain starts.
-fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
+fn initial_validators_for_testing() -> Vec<Validator> {
     // Some dummy private keys to start with.
     let key_strings = vec![
         "jzjxxgjajfjrmgodszzsgqccmhnyvetcuxobhtynojtpdtbj",
@@ -106,7 +106,7 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
                 pk: public_key,
             }
         };
-        let validator_record = ValidatorRecord {
+        let validator = Validator {
             pubkey: keypair.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
             proposer_slots: 0,
@@ -116,11 +116,10 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
             penalized_slot: u64::max_value(),
             exit_count: 0,
             status_flags: None,
-            custody_commitment: Hash256::zero(),
             latest_custody_reseed_slot: 0,
             penultimate_custody_reseed_slot: 0,
         };
-        initial_validators.push(validator_record);
+        initial_validators.push(validator);
     }
 
     initial_validators

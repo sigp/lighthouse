@@ -4,7 +4,7 @@ use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256};
 /// Generate a genesis BeaconBlock.
 pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
     BeaconBlock {
-        slot: spec.genesis_slot_number,
+        slot: spec.genesis_slot,
         parent_root: spec.zero_hash,
         state_root,
         randao_reveal: spec.empty_signature.clone(),
