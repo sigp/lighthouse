@@ -1,8 +1,7 @@
 mod block_processing;
 mod block_production;
-#[cfg(test)]
-mod chain_test;
 mod lmd_ghost;
+mod state_transition;
 
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},

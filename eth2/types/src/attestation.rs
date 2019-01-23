@@ -7,32 +7,32 @@ use rand::RngCore;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attestation {
     pub data: AttestationData,
-    pub participation_bitfield: Bitfield,
+    pub aggregation_bitfield: Bitfield,
     pub custody_bitfield: Bitfield,
-    pub aggregate_sig: AggregateSignature,
+    pub aggregate_signature: AggregateSignature,
 }
 
 impl Encodable for Attestation {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.data);
-        s.append(&self.participation_bitfield);
+        s.append(&self.aggregation_bitfield);
         s.append(&self.custody_bitfield);
-        s.append(&self.aggregate_sig);
+        s.append(&self.aggregate_signature);
     }
 }
 
 impl Decodable for Attestation {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (data, i) = AttestationData::ssz_decode(bytes, i)?;
-        let (participation_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
+        let (aggregation_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
         let (custody_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
-        let (aggregate_sig, i) = AggregateSignature::ssz_decode(bytes, i)?;
+        let (aggregate_signature, i) = AggregateSignature::ssz_decode(bytes, i)?;
 
         let attestation_record = Self {
             data,
-            participation_bitfield,
+            aggregation_bitfield,
             custody_bitfield,
-            aggregate_sig,
+            aggregate_signature,
         };
         Ok((attestation_record, i))
     }
@@ -42,9 +42,9 @@ impl Attestation {
     pub fn zero() -> Self {
         Self {
             data: AttestationData::zero(),
-            participation_bitfield: Bitfield::new(),
+            aggregation_bitfield: Bitfield::new(),
             custody_bitfield: Bitfield::new(),
-            aggregate_sig: AggregateSignature::new(),
+            aggregate_signature: AggregateSignature::new(),
         }
     }
 }
@@ -53,9 +53,9 @@ impl<T: RngCore> TestRandom<T> for Attestation {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             data: <_>::random_for_test(rng),
-            participation_bitfield: <_>::random_for_test(rng),
+            aggregation_bitfield: <_>::random_for_test(rng),
             custody_bitfield: <_>::random_for_test(rng),
-            aggregate_sig: <_>::random_for_test(rng),
+            aggregate_signature: <_>::random_for_test(rng),
         }
     }
 }

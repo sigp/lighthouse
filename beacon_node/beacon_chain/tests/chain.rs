@@ -1,4 +1,5 @@
-use super::{BeaconChain, BlockProcessingOutcome};
+use beacon_chain::{BeaconChain, BlockProcessingOutcome};
+use bls::Signature;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
@@ -43,7 +44,7 @@ fn it_produces() {
 fn it_processes_a_block_it_produces() {
     let (_db, mut chain) = in_memory_test_chain(ChainSpec::foundation());
     let (block, _state) = chain.produce_block().unwrap();
-    let (outcome, new_block_hash) = chain.process_block(&block).unwrap();
+    let (outcome, new_block_hash) = chain.process_block(block).unwrap();
     assert_eq!(outcome, BlockProcessingOutcome::Processed);
     assert_eq!(chain.canonical_leaf_block, new_block_hash);
 }

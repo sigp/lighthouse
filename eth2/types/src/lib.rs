@@ -7,6 +7,7 @@ pub mod test_utils;
 
 pub mod attestation;
 pub mod attestation_data;
+pub mod attestation_data_and_custody_bit;
 pub mod beacon_block;
 pub mod beacon_block_body;
 pub mod beacon_state;
@@ -35,6 +36,7 @@ use std::collections::HashMap;
 
 pub use crate::attestation::Attestation;
 pub use crate::attestation_data::AttestationData;
+pub use crate::attestation_data_and_custody_bit::AttestationDataAndCustodyBit;
 pub use crate::beacon_block::BeaconBlock;
 pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_state::BeaconState;

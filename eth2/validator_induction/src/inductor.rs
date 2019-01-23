@@ -42,6 +42,7 @@ pub fn process_deposit(
             let validator = ValidatorRecord {
                 pubkey: deposit_input.pubkey.clone(),
                 withdrawal_credentials: deposit_input.withdrawal_credentials,
+                proposer_slots: 0,
                 randao_commitment: deposit_input.randao_commitment,
                 randao_layers: 0,
                 activation_slot: spec.far_future_slot,
