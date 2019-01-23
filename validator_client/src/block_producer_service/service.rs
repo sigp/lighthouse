@@ -1,6 +1,8 @@
-use super::traits::{BeaconNode, DutiesReader};
-use super::{BlockProducer, PollOutcome as BlockProducerPollOutcome, SlotClock};
+use block_producer::{
+    BeaconNode, BlockProducer, DutiesReader, PollOutcome as BlockProducerPollOutcome,
+};
 use slog::{error, info, warn, Logger};
+use slot_clock::SlotClock;
 use std::time::Duration;
 
 pub struct BlockProducerService<T: SlotClock, U: BeaconNode, V: DutiesReader> {

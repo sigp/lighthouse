@@ -1,6 +1,7 @@
+use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
-use crate::block_producer::{BlockProducer, BlockProducerService};
 use crate::config::ClientConfig;
+use block_producer::BlockProducer;
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -12,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-mod block_producer;
+mod block_producer_service;
 mod config;
 mod duties;
 
@@ -141,7 +142,7 @@ fn main() {
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
             let log = log.clone();
-            let client = beacon_block_grpc_client.clone();
+            let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
             thread::spawn(move || {
                 let block_producer = BlockProducer::new(spec, duties_map, slot_clock, client);
                 let mut block_producer_service = BlockProducerService {
