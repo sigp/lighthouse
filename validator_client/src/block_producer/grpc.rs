@@ -63,7 +63,7 @@ impl BeaconNode for BeaconBlockServiceClient {
         let mut grpc_block = GrpcBeaconBlock::new();
         grpc_block.set_slot(block.slot);
         grpc_block.set_block_root(vec![0]);
-        grpc_block.set_randao_reveal(block.randao_reveal.to_vec());
+        grpc_block.set_randao_reveal(ssz_encode(&block.randao_reveal));
         grpc_block.set_signature(ssz_encode(&block.signature));
 
         req.set_block(grpc_block);

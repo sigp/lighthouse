@@ -5,6 +5,7 @@ mod test_node;
 mod traits;
 
 use self::traits::{BeaconNode, BeaconNodeError};
+use super::block_producer::traits::{DutiesReader, DutiesReaderError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use spec::ChainSpec;
@@ -36,8 +37,52 @@ impl EpochDuties {
     }
 }
 
+pub enum EpochDutiesMapError {
+    Poisoned,
+}
+
 /// Maps an `epoch` to some `EpochDuties` for a single validator.
-pub type EpochDutiesMap = HashMap<u64, EpochDuties>;
+pub struct EpochDutiesMap {
+    pub map: RwLock<HashMap<u64, EpochDuties>>,
+}
+
+impl EpochDutiesMap {
+    pub fn new() -> Self {
+        Self {
+            map: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub fn get(&self, epoch: u64) -> Result<Option<EpochDuties>, EpochDutiesMapError> {
+        let map = self.map.read().map_err(|_| EpochDutiesMapError::Poisoned)?;
+        match map.get(&epoch) {
+            Some(duties) => Ok(Some(duties.clone())),
+            None => Ok(None),
+        }
+    }
+
+    pub fn insert(
+        &self,
+        epoch: u64,
+        epoch_duties: EpochDuties,
+    ) -> Result<Option<EpochDuties>, EpochDutiesMapError> {
+        let mut map = self
+            .map
+            .write()
+            .map_err(|_| EpochDutiesMapError::Poisoned)?;
+        Ok(map.insert(epoch, epoch_duties))
+    }
+}
+
+impl DutiesReader for EpochDutiesMap {
+    fn is_block_production_slot(&self, epoch: u64, slot: u64) -> Result<bool, DutiesReaderError> {
+        let map = self.map.read().map_err(|_| DutiesReaderError::Poisoned)?;
+        let duties = map
+            .get(&epoch)
+            .ok_or_else(|| DutiesReaderError::UnknownEpoch)?;
+        Ok(duties.is_block_production_slot(slot))
+    }
+}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
@@ -68,7 +113,7 @@ pub enum Error {
 ///
 /// There is a single `DutiesManager` per validator instance.
 pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
-    pub duties_map: Arc<RwLock<EpochDutiesMap>>,
+    pub duties_map: Arc<EpochDutiesMap>,
     /// The validator's public key.
     pub pubkey: PublicKey,
     pub spec: Arc<ChainSpec>,
@@ -95,14 +140,9 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             .ok_or(Error::EpochLengthIsZero)?;
 
         if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkey)? {
-            let mut map = self
-                .duties_map
-                .write()
-                .map_err(|_| Error::EpochMapPoisoned)?;
-
             // If these duties were known, check to see if they're updates or identical.
-            let result = if let Some(known_duties) = map.get(&epoch) {
-                if *known_duties == duties {
+            let result = if let Some(known_duties) = self.duties_map.get(epoch)? {
+                if known_duties == duties {
                     Ok(PollOutcome::NoChange(epoch))
                 } else {
                     Ok(PollOutcome::DutiesChanged(epoch, duties))
@@ -110,7 +150,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             } else {
                 Ok(PollOutcome::NewDuties(epoch, duties))
             };
-            map.insert(epoch, duties);
+            self.duties_map.insert(epoch, duties)?;
             result
         } else {
             Ok(PollOutcome::UnknownValidatorOrEpoch(epoch))
@@ -121,6 +161,14 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
 impl From<BeaconNodeError> for Error {
     fn from(e: BeaconNodeError) -> Error {
         Error::BeaconNodeError(e)
+    }
+}
+
+impl From<EpochDutiesMapError> for Error {
+    fn from(e: EpochDutiesMapError) -> Error {
+        match e {
+            EpochDutiesMapError::Poisoned => Error::EpochMapPoisoned,
+        }
     }
 }
 
@@ -139,7 +187,7 @@ mod tests {
     #[test]
     pub fn polling() {
         let spec = Arc::new(ChainSpec::foundation());
-        let duties_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
+        let duties_map = Arc::new(EpochDutiesMap::new());
         let keypair = Keypair::random();
         let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
         let beacon_node = Arc::new(TestBeaconNode::default());
