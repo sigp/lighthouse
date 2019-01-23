@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../eth2/utils/bls" }
+beacon_chain = { path = "beacon_chain" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protobuf = "2.0.2"
 protos = { path = "../protos" }

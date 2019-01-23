@@ -1,14 +1,13 @@
 extern crate slog;
 
-mod beacon_chain;
 mod config;
 mod rpc;
 
 use std::path::PathBuf;
 
-use self::beacon_chain::BeaconChain;
 use crate::config::LighthouseConfig;
 use crate::rpc::start_server;
+use beacon_chain::BeaconChain;
 use clap::{App, Arg};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},

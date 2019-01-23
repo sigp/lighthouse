@@ -16,6 +16,7 @@ members = [
 	"eth2/validator_shuffling",
 	"beacon_node",
 	"beacon_node/db",
+	"beacon_node/beacon_chain",
 	"protos",
 	"validator_client",
 ]

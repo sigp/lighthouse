@@ -10,7 +10,7 @@ pub struct BeaconBlock {
     pub slot: u64,
     pub parent_root: Hash256,
     pub state_root: Hash256,
-    pub randao_reveal: Hash256,
+    pub randao_reveal: Signature,
     pub candidate_pow_receipt_root: Hash256,
     pub signature: Signature,
     pub body: BeaconBlockBody,

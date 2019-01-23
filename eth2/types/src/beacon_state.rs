@@ -1,10 +1,10 @@
-use super::candidate_pow_receipt_root_record::CandidatePoWReceiptRootRecord;
-use super::crosslink_record::CrosslinkRecord;
-use super::fork_data::ForkData;
-use super::pending_attestation_record::PendingAttestationRecord;
-use super::validator_record::ValidatorRecord;
-use super::Hash256;
+use crate::candidate_pow_receipt_root_record::CandidatePoWReceiptRootRecord;
+use crate::crosslink_record::CrosslinkRecord;
+use crate::fork_data::ForkData;
+use crate::pending_attestation_record::PendingAttestationRecord;
 use crate::test_utils::TestRandom;
+use crate::validator_record::ValidatorRecord;
+use crate::Hash256;
 use hashing::canonical_hash;
 use rand::RngCore;
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
