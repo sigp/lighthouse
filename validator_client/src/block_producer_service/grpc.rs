@@ -5,7 +5,7 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconBlockBody, Hash256, Signature};
+use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, Signature};
 
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
@@ -48,7 +48,10 @@ impl BeaconNode for BeaconBlockGrpcClient {
                 parent_root: Hash256::zero(),
                 state_root: Hash256::zero(),
                 randao_reveal,
-                candidate_pow_receipt_root: Hash256::zero(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                },
                 signature,
                 body: BeaconBlockBody {
                     proposer_slashings: vec![],
