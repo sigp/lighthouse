@@ -3,7 +3,7 @@ use std::cmp::min;
 use honey_badger_split::SplitExt;
 use spec::ChainSpec;
 use types::validator_registry::get_active_validator_indices;
-use types::{ShardCommittee, ValidatorRecord};
+use types::{ShardCommittee, Validator};
 use vec_shuffle::{shuffle, ShuffleErr};
 
 type DelegatedCycle = Vec<Vec<ShardCommittee>>;
@@ -20,7 +20,7 @@ pub enum ValidatorAssignmentError {
 /// References get_new_shuffling (ethereum 2.1 specification)
 pub fn shard_and_committees_for_cycle(
     seed: &[u8],
-    validators: &[ValidatorRecord],
+    validators: &[Validator],
     crosslinking_shard_start: u16,
     spec: &ChainSpec,
 ) -> Result<DelegatedCycle, ValidatorAssignmentError> {

@@ -1,14 +1,17 @@
 use spec::ChainSpec;
-use types::{BeaconBlock, BeaconBlockBody, Hash256};
+use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256};
 
 /// Generate a genesis BeaconBlock.
 pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
     BeaconBlock {
-        slot: spec.genesis_slot_number,
+        slot: spec.genesis_slot,
         parent_root: spec.zero_hash,
         state_root,
-        randao_reveal: spec.zero_hash,
-        candidate_pow_receipt_root: spec.zero_hash,
+        randao_reveal: spec.empty_signature.clone(),
+        eth1_data: Eth1Data {
+            deposit_root: spec.zero_hash,
+            block_hash: spec.zero_hash,
+        },
         signature: spec.empty_signature.clone(),
         body: BeaconBlockBody {
             proposer_slashings: vec![],
@@ -47,8 +50,9 @@ mod tests {
 
         assert!(genesis_block.slot == 0);
         assert!(genesis_block.parent_root.is_zero());
-        assert!(genesis_block.randao_reveal.is_zero());
-        assert!(genesis_block.candidate_pow_receipt_root.is_zero()); // aka deposit_root
+        assert_eq!(genesis_block.randao_reveal, Signature::empty_signature());
+        assert!(genesis_block.eth1_data.deposit_root.is_zero());
+        assert!(genesis_block.eth1_data.block_hash.is_zero());
     }
 
     #[test]

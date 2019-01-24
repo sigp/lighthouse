@@ -1,7 +1,7 @@
 use super::ChainSpec;
 use bls::{Keypair, PublicKey, SecretKey, Signature};
 
-use types::{Address, Hash256, ValidatorRecord};
+use types::{Address, Eth1Data, Hash256, Validator};
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
@@ -18,9 +18,8 @@ impl ChainSpec {
              */
             shard_count: 1_024,
             target_committee_size: 128,
-            ejection_balance: 16,
+            ejection_balance: 16 * u64::pow(10, 9),
             max_balance_churn_quotient: 32,
-            gwei_per_eth: u64::pow(10, 9),
             beacon_chain_shard_number: u64::max_value(),
             max_casper_votes: 1_024,
             latest_block_roots_length: 8_192,
@@ -32,13 +31,13 @@ impl ChainSpec {
              */
             deposit_contract_address: Address::from("TBD".as_bytes()),
             deposit_contract_tree_depth: 32,
-            min_deposit: 1,
-            max_deposit: 32,
+            min_deposit: 1 * u64::pow(10, 9),
+            max_deposit: 32 * u64::pow(10, 9),
             /*
              * Initial Values
              */
             genesis_fork_version: 0,
-            genesis_slot_number: 0,
+            genesis_slot: 0,
             genesis_start_shard: 0,
             far_future_slot: u64::max_value(),
             zero_hash: Hash256::zero(),
@@ -52,12 +51,12 @@ impl ChainSpec {
             epoch_length: 64,
             seed_lookahead: 64,
             entry_exit_delay: 256,
-            pow_receipt_root_voting_period: 1_024,
+            eth1_data_voting_period: 1_024,
             min_validator_withdrawal_time: u64::pow(2, 14),
             /*
              * Reward and penalty quotients
              */
-            base_reward_quotient: 1_024,
+            base_reward_quotient: 32,
             whistleblower_reward_quotient: 512,
             includer_reward_quotient: 8,
             inactivity_penalty_quotient: u64::pow(2, 24),
@@ -75,13 +74,16 @@ impl ChainSpec {
             initial_validators: initial_validators_for_testing(),
             initial_balances: initial_balances_for_testing(),
             genesis_time: 1_544_672_897,
-            processed_pow_receipt_root: Hash256::from("pow_root".as_bytes()),
+            intial_eth1_data: Eth1Data {
+                deposit_root: Hash256::from("deposit_root".as_bytes()),
+                block_hash: Hash256::from("block_hash".as_bytes()),
+            },
         }
     }
 }
 
 /// Generate a set of validator records to use with testing until the real chain starts.
-fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
+fn initial_validators_for_testing() -> Vec<Validator> {
     // Some dummy private keys to start with.
     let key_strings = vec![
         "jzjxxgjajfjrmgodszzsgqccmhnyvetcuxobhtynojtpdtbj",
@@ -104,22 +106,20 @@ fn initial_validators_for_testing() -> Vec<ValidatorRecord> {
                 pk: public_key,
             }
         };
-        let validator_record = ValidatorRecord {
+        let validator = Validator {
             pubkey: keypair.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
-            randao_commitment: Hash256::zero(),
-            randao_layers: 0,
+            proposer_slots: 0,
             activation_slot: u64::max_value(),
             exit_slot: u64::max_value(),
             withdrawal_slot: u64::max_value(),
             penalized_slot: u64::max_value(),
             exit_count: 0,
             status_flags: None,
-            custody_commitment: Hash256::zero(),
             latest_custody_reseed_slot: 0,
             penultimate_custody_reseed_slot: 0,
         };
-        initial_validators.push(validator_record);
+        initial_validators.push(validator);
     }
 
     initial_validators

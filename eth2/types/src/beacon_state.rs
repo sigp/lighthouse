@@ -1,8 +1,9 @@
-use super::candidate_pow_receipt_root_record::CandidatePoWReceiptRootRecord;
-use super::crosslink_record::CrosslinkRecord;
-use super::fork_data::ForkData;
-use super::pending_attestation_record::PendingAttestationRecord;
-use super::validator_record::ValidatorRecord;
+use super::crosslink::Crosslink;
+use super::eth1_data::Eth1Data;
+use super::eth1_data_vote::Eth1DataVote;
+use super::fork::Fork;
+use super::pending_attestation::PendingAttestation;
+use super::validator::Validator;
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use hashing::canonical_hash;
@@ -17,12 +18,12 @@ pub struct BeaconState {
     // Misc
     pub slot: u64,
     pub genesis_time: u64,
-    pub fork_data: ForkData,
+    pub fork_data: Fork,
 
     // Validator registry
-    pub validator_registry: Vec<ValidatorRecord>,
+    pub validator_registry: Vec<Validator>,
     pub validator_balances: Vec<u64>,
-    pub validator_registry_latest_change_slot: u64,
+    pub validator_registry_update_slot: u64,
     pub validator_registry_exit_count: u64,
     pub validator_registry_delta_chain_tip: Hash256,
 
@@ -46,15 +47,15 @@ pub struct BeaconState {
     pub finalized_slot: u64,
 
     // Recent state
-    pub latest_crosslinks: Vec<CrosslinkRecord>,
+    pub latest_crosslinks: Vec<Crosslink>,
     pub latest_block_roots: Vec<Hash256>,
     pub latest_penalized_exit_balances: Vec<u64>,
-    pub latest_attestations: Vec<PendingAttestationRecord>,
+    pub latest_attestations: Vec<PendingAttestation>,
     pub batched_block_roots: Vec<Hash256>,
 
-    // PoW receipt root (a.k.a. deposit root)
-    pub processed_pow_receipt_root: Hash256,
-    pub candidate_pow_receipt_roots: Vec<CandidatePoWReceiptRootRecord>,
+    // Ethereum 1.0 chain data
+    pub latest_eth1_data: Eth1Data,
+    pub eth1_data_votes: Vec<Eth1DataVote>,
 }
 
 impl BeaconState {
@@ -72,7 +73,7 @@ impl Encodable for BeaconState {
         s.append(&self.fork_data);
         s.append(&self.validator_registry);
         s.append(&self.validator_balances);
-        s.append(&self.validator_registry_latest_change_slot);
+        s.append(&self.validator_registry_update_slot);
         s.append(&self.validator_registry_exit_count);
         s.append(&self.validator_registry_delta_chain_tip);
         s.append(&self.latest_randao_mixes);
@@ -93,8 +94,8 @@ impl Encodable for BeaconState {
         s.append(&self.latest_penalized_exit_balances);
         s.append(&self.latest_attestations);
         s.append(&self.batched_block_roots);
-        s.append(&self.processed_pow_receipt_root);
-        s.append(&self.candidate_pow_receipt_roots);
+        s.append(&self.latest_eth1_data);
+        s.append(&self.eth1_data_votes);
     }
 }
 
@@ -105,7 +106,7 @@ impl Decodable for BeaconState {
         let (fork_data, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_balances, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry_latest_change_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (validator_registry_update_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry_exit_count, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry_delta_chain_tip, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_randao_mixes, i) = <_>::ssz_decode(bytes, i)?;
@@ -126,8 +127,8 @@ impl Decodable for BeaconState {
         let (latest_penalized_exit_balances, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_attestations, i) = <_>::ssz_decode(bytes, i)?;
         let (batched_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (processed_pow_receipt_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (candidate_pow_receipt_roots, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_eth1_data, i) = <_>::ssz_decode(bytes, i)?;
+        let (eth1_data_votes, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
@@ -136,7 +137,7 @@ impl Decodable for BeaconState {
                 fork_data,
                 validator_registry,
                 validator_balances,
-                validator_registry_latest_change_slot,
+                validator_registry_update_slot,
                 validator_registry_exit_count,
                 validator_registry_delta_chain_tip,
                 latest_randao_mixes,
@@ -157,8 +158,8 @@ impl Decodable for BeaconState {
                 latest_penalized_exit_balances,
                 latest_attestations,
                 batched_block_roots,
-                processed_pow_receipt_root,
-                candidate_pow_receipt_roots,
+                latest_eth1_data,
+                eth1_data_votes,
             },
             i,
         ))
@@ -173,7 +174,7 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             fork_data: <_>::random_for_test(rng),
             validator_registry: <_>::random_for_test(rng),
             validator_balances: <_>::random_for_test(rng),
-            validator_registry_latest_change_slot: <_>::random_for_test(rng),
+            validator_registry_update_slot: <_>::random_for_test(rng),
             validator_registry_exit_count: <_>::random_for_test(rng),
             validator_registry_delta_chain_tip: <_>::random_for_test(rng),
             latest_randao_mixes: <_>::random_for_test(rng),
@@ -194,8 +195,8 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             latest_penalized_exit_balances: <_>::random_for_test(rng),
             latest_attestations: <_>::random_for_test(rng),
             batched_block_roots: <_>::random_for_test(rng),
-            processed_pow_receipt_root: <_>::random_for_test(rng),
-            candidate_pow_receipt_roots: <_>::random_for_test(rng),
+            latest_eth1_data: <_>::random_for_test(rng),
+            eth1_data_votes: <_>::random_for_test(rng),
         }
     }
 }
