@@ -1,6 +1,5 @@
 [workspace]
 members = [
-	"eth2/attestation_validation",
 	"eth2/block_producer",
 	"eth2/genesis",
 	"eth2/naive_fork_choice",
