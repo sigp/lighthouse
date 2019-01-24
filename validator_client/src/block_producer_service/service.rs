@@ -1,17 +1,17 @@
 use block_producer::{
-    BeaconNode, BlockProducer, DutiesReader, PollOutcome as BlockProducerPollOutcome,
+    BeaconNode, BlockProducer, DutiesReader, PollOutcome as BlockProducerPollOutcome, Signer,
 };
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::time::Duration;
 
-pub struct BlockProducerService<T: SlotClock, U: BeaconNode, V: DutiesReader> {
-    pub block_producer: BlockProducer<T, U, V>,
+pub struct BlockProducerService<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
+    pub block_producer: BlockProducer<T, U, V, W>,
     pub poll_interval_millis: u64,
     pub log: Logger,
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducerService<T, U, V> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducerService<T, U, V, W> {
     /// Run a loop which polls the block producer each `poll_interval_millis` millseconds.
     ///
     /// Logs the results of the polls.
@@ -38,6 +38,9 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader> BlockProducerService<T, U, V>
                 }
                 Ok(BlockProducerPollOutcome::BeaconNodeUnableToProduceBlock(slot)) => {
                     error!(self.log, "Beacon node unable to produce block"; "slot" => slot)
+                }
+                Ok(BlockProducerPollOutcome::SignerRejection(slot)) => {
+                    error!(self.log, "The cryptographic signer refused to sign the block"; "slot" => slot)
                 }
             };
 

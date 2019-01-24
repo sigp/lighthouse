@@ -1,4 +1,4 @@
-use super::traits::{BeaconNode, BeaconNodeError};
+use crate::traits::{BeaconNode, BeaconNodeError};
 use std::sync::RwLock;
 use types::BeaconBlock;
 

@@ -1,7 +1,7 @@
 use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::config::ClientConfig;
-use block_producer::BlockProducer;
+use block_producer::{test_utils::TestSigner, BlockProducer};
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -139,12 +139,14 @@ fn main() {
         // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
+            let signer = Arc::new(TestSigner::new(keypair.clone()));
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
             let log = log.clone();
             let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
             thread::spawn(move || {
-                let block_producer = BlockProducer::new(spec, duties_map, slot_clock, client);
+                let block_producer =
+                    BlockProducer::new(spec, duties_map, slot_clock, client, signer);
                 let mut block_producer_service = BlockProducerService {
                     block_producer,
                     poll_interval_millis,
