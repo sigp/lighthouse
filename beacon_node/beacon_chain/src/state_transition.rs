@@ -4,9 +4,8 @@ use boolean_bitfield::BooleanBitfield;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::ssz_encode;
 use types::{
-    readers::{BeaconBlockReader, BeaconStateReader},
-    AttestationData, AttestationDataAndCustodyBit, BeaconBlock, BeaconState, Exit, ForkData,
-    Hash256, PendingAttestationRecord, ProposalSignedData,
+    readers::BeaconBlockReader, AttestationData, AttestationDataAndCustodyBit, BeaconBlock,
+    BeaconState, Exit, Fork, Hash256, PendingAttestation, ProposalSignedData,
 };
 
 // TODO: define elsehwere.
@@ -283,7 +282,7 @@ where
                 attestation.data.shard_block_root == self.spec.zero_hash,
                 Error::BadAttestation
             );
-            let pending_attestation = PendingAttestationRecord {
+            let pending_attestation = PendingAttestation {
                 data: attestation.data.clone(),
                 aggregation_bitfield: attestation.aggregation_bitfield.clone(),
                 custody_bitfield: attestation.custody_bitfield.clone(),
@@ -426,7 +425,7 @@ fn hash<T>(_input: &T) -> Hash256 {
     Hash256::zero()
 }
 
-fn get_domain(_fork: &ForkData, _slot: u64, _domain_type: u64) -> u64 {
+fn get_domain(_fork: &Fork, _slot: u64, _domain_type: u64) -> u64 {
     // TODO: stubbed out.
     0
 }
