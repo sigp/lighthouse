@@ -4,14 +4,14 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PendingAttestationRecord {
+pub struct PendingAttestation {
     pub data: AttestationData,
     pub aggregation_bitfield: Bitfield,
     pub custody_bitfield: Bitfield,
     pub slot_included: u64,
 }
 
-impl Encodable for PendingAttestationRecord {
+impl Encodable for PendingAttestation {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.data);
         s.append(&self.aggregation_bitfield);
@@ -20,7 +20,7 @@ impl Encodable for PendingAttestationRecord {
     }
 }
 
-impl Decodable for PendingAttestationRecord {
+impl Decodable for PendingAttestation {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (data, i) = <_>::ssz_decode(bytes, i)?;
         let (aggregation_bitfield, i) = <_>::ssz_decode(bytes, i)?;
@@ -39,7 +39,7 @@ impl Decodable for PendingAttestationRecord {
     }
 }
 
-impl<T: RngCore> TestRandom<T> for PendingAttestationRecord {
+impl<T: RngCore> TestRandom<T> for PendingAttestation {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             data: <_>::random_for_test(rng),
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = PendingAttestationRecord::random_for_test(&mut rng);
+        let original = PendingAttestation::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();

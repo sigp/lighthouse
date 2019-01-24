@@ -1,5 +1,5 @@
 use super::ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
-use super::{BeaconBlockBody, Hash256};
+use super::{BeaconBlockBody, Eth1Data, Hash256};
 use crate::test_utils::TestRandom;
 use bls::Signature;
 use hashing::canonical_hash;
@@ -11,7 +11,7 @@ pub struct BeaconBlock {
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub randao_reveal: Signature,
-    pub candidate_pow_receipt_root: Hash256,
+    pub eth1_data: Eth1Data,
     pub signature: Signature,
     pub body: BeaconBlockBody,
 }
@@ -30,7 +30,7 @@ impl Encodable for BeaconBlock {
         s.append(&self.parent_root);
         s.append(&self.state_root);
         s.append(&self.randao_reveal);
-        s.append(&self.candidate_pow_receipt_root);
+        s.append(&self.eth1_data);
         s.append(&self.signature);
         s.append(&self.body);
     }
@@ -42,7 +42,7 @@ impl Decodable for BeaconBlock {
         let (parent_root, i) = <_>::ssz_decode(bytes, i)?;
         let (state_root, i) = <_>::ssz_decode(bytes, i)?;
         let (randao_reveal, i) = <_>::ssz_decode(bytes, i)?;
-        let (candidate_pow_receipt_root, i) = <_>::ssz_decode(bytes, i)?;
+        let (eth1_data, i) = <_>::ssz_decode(bytes, i)?;
         let (signature, i) = <_>::ssz_decode(bytes, i)?;
         let (body, i) = <_>::ssz_decode(bytes, i)?;
 
@@ -52,7 +52,7 @@ impl Decodable for BeaconBlock {
                 parent_root,
                 state_root,
                 randao_reveal,
-                candidate_pow_receipt_root,
+                eth1_data,
                 signature,
                 body,
             },
@@ -68,7 +68,7 @@ impl<T: RngCore> TestRandom<T> for BeaconBlock {
             parent_root: <_>::random_for_test(rng),
             state_root: <_>::random_for_test(rng),
             randao_reveal: <_>::random_for_test(rng),
-            candidate_pow_receipt_root: <_>::random_for_test(rng),
+            eth1_data: <_>::random_for_test(rng),
             signature: <_>::random_for_test(rng),
             body: <_>::random_for_test(rng),
         }

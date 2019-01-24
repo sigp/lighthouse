@@ -1,6 +1,6 @@
 use bls::verify_proof_of_possession;
 use spec::ChainSpec;
-use types::{BeaconState, Deposit, ValidatorRecord};
+use types::{BeaconState, Deposit, Validator};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {
@@ -32,33 +32,30 @@ pub fn process_deposit(
             if state.validator_registry[i].withdrawal_credentials
                 == deposit_input.withdrawal_credentials
             {
-                state.validator_balances[i] += deposit_data.value;
+                state.validator_balances[i] += deposit_data.amount;
                 return Ok(());
             }
 
             Err(ValidatorInductionError::InvalidWithdrawalCredentials)
         }
         None => {
-            let validator = ValidatorRecord {
+            let validator = Validator {
                 pubkey: deposit_input.pubkey.clone(),
                 withdrawal_credentials: deposit_input.withdrawal_credentials,
                 proposer_slots: 0,
-                randao_commitment: deposit_input.randao_commitment,
-                randao_layers: 0,
                 activation_slot: spec.far_future_slot,
                 exit_slot: spec.far_future_slot,
                 withdrawal_slot: spec.far_future_slot,
                 penalized_slot: spec.far_future_slot,
                 exit_count: 0,
                 status_flags: None,
-                custody_commitment: deposit_input.custody_commitment,
                 latest_custody_reseed_slot: 0,
                 penultimate_custody_reseed_slot: 0,
             };
 
             let _index = state.validator_registry.len();
             state.validator_registry.push(validator);
-            state.validator_balances.push(deposit_data.value);
+            state.validator_balances.push(deposit_data.amount);
             Ok(())
         }
     }
@@ -84,15 +81,14 @@ mod tests {
         deposit
     }
 
-    fn get_validator() -> ValidatorRecord {
+    fn get_validator() -> Validator {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        ValidatorRecord::random_for_test(&mut rng)
+        Validator::random_for_test(&mut rng)
     }
 
-    fn deposit_equals_record(dep: &Deposit, val: &ValidatorRecord) -> bool {
+    fn deposit_equals_record(dep: &Deposit, val: &Validator) -> bool {
         (dep.deposit_data.deposit_input.pubkey == val.pubkey)
             & (dep.deposit_data.deposit_input.withdrawal_credentials == val.withdrawal_credentials)
-            & (dep.deposit_data.deposit_input.randao_commitment == val.randao_commitment)
             & (verify_proof_of_possession(
                 &dep.deposit_data.deposit_input.proof_of_possession,
                 &val.pubkey,
@@ -104,7 +100,7 @@ mod tests {
         let mut state = BeaconState::default();
         let mut deposit = get_deposit();
         let spec = ChainSpec::foundation();
-        deposit.deposit_data.value = DEPOSIT_GWEI;
+        deposit.deposit_data.amount = DEPOSIT_GWEI;
 
         let result = process_deposit(&mut state, &deposit, &spec);
 
@@ -125,7 +121,7 @@ mod tests {
         for i in 0..5 {
             let mut deposit = get_deposit();
             let result = process_deposit(&mut state, &deposit, &spec);
-            deposit.deposit_data.value = DEPOSIT_GWEI;
+            deposit.deposit_data.amount = DEPOSIT_GWEI;
             assert_eq!(result.unwrap(), ());
             assert!(deposit_equals_record(
                 &deposit,
@@ -144,11 +140,10 @@ mod tests {
         let mut deposit = get_deposit();
         let mut validator = get_validator();
 
-        deposit.deposit_data.value = DEPOSIT_GWEI;
+        deposit.deposit_data.amount = DEPOSIT_GWEI;
         validator.pubkey = deposit.deposit_data.deposit_input.pubkey.clone();
         validator.withdrawal_credentials =
             deposit.deposit_data.deposit_input.withdrawal_credentials;
-        validator.randao_commitment = deposit.deposit_data.deposit_input.randao_commitment;
 
         state.validator_registry.push(validator);
         state.validator_balances.push(DEPOSIT_GWEI);
@@ -170,7 +165,7 @@ mod tests {
         let mut state = BeaconState::default();
         let mut deposit = get_deposit();
         let spec = ChainSpec::foundation();
-        deposit.deposit_data.value = DEPOSIT_GWEI;
+        deposit.deposit_data.amount = DEPOSIT_GWEI;
         deposit.deposit_data.deposit_input.proof_of_possession =
             create_proof_of_possession(&Keypair::random());
 

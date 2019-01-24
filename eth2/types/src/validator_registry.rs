@@ -1,9 +1,9 @@
-/// Contains logic to manipulate a `&[ValidatorRecord]`.
+/// Contains logic to manipulate a `&[Validator]`.
 /// For now, we avoid defining a newtype and just have flat functions here.
-use super::validator_record::*;
+use super::validator::*;
 
 /// Given an indexed sequence of `validators`, return the indices corresponding to validators that are active at `slot`.
-pub fn get_active_validator_indices(validators: &[ValidatorRecord], slot: u64) -> Vec<usize> {
+pub fn get_active_validator_indices(validators: &[Validator], slot: u64) -> Vec<usize> {
     validators
         .iter()
         .enumerate()
@@ -38,7 +38,7 @@ mod tests {
         let mut validators = vec![];
         let count_validators = 10;
         for _ in 0..count_validators {
-            validators.push(ValidatorRecord::default())
+            validators.push(Validator::default())
         }
 
         let some_slot = u64::random_for_test(&mut rng);
@@ -55,7 +55,7 @@ mod tests {
         let mut validators = (0..count_validators)
             .into_iter()
             .map(|_| {
-                let mut validator = ValidatorRecord::default();
+                let mut validator = Validator::default();
 
                 let activation_offset = u64::random_for_test(&mut rng);
                 let exit_offset = u64::random_for_test(&mut rng);
@@ -79,7 +79,7 @@ mod tests {
         );
     }
 
-    fn set_validators_to_default_entry_exit(validators: &mut [ValidatorRecord]) {
+    fn set_validators_to_default_entry_exit(validators: &mut [Validator]) {
         for validator in validators.iter_mut() {
             validator.activation_slot = std::u64::MAX;
             validator.exit_slot = std::u64::MAX;
@@ -87,7 +87,7 @@ mod tests {
     }
 
     // sets all `validators` to be active as of some slot prior to `slot`. returns the activation slot.
-    fn set_validators_to_activated(validators: &mut [ValidatorRecord], slot: u64) -> u64 {
+    fn set_validators_to_activated(validators: &mut [Validator], slot: u64) -> u64 {
         let activation_slot = slot - 10;
         for validator in validators.iter_mut() {
             validator.activation_slot = activation_slot;
@@ -96,11 +96,7 @@ mod tests {
     }
 
     // sets all `validators` to be exited as of some slot before `slot`.
-    fn set_validators_to_exited(
-        validators: &mut [ValidatorRecord],
-        slot: u64,
-        activation_slot: u64,
-    ) {
+    fn set_validators_to_exited(validators: &mut [Validator], slot: u64, activation_slot: u64) {
         assert!(activation_slot < slot);
         let mut exit_slot = activation_slot + 10;
         while exit_slot >= slot {
@@ -123,7 +119,7 @@ mod tests {
         let mut validators = (0..COUNT_VALIDATORS)
             .into_iter()
             .map(|_| {
-                let mut validator = ValidatorRecord::default();
+                let mut validator = Validator::default();
 
                 let activation_offset = u64::random_for_test(&mut rng);
                 let exit_offset = u64::random_for_test(&mut rng);
