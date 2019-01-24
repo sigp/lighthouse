@@ -4,7 +4,7 @@ use bls::Signature;
 use slot_clock::TestingSlotClockError;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
-    BeaconBlock, BeaconBlockBody, BeaconState, Hash256,
+    BeaconBlock, BeaconBlockBody, BeaconState, Eth1Data, Hash256,
 };
 
 #[derive(Debug, PartialEq)]
@@ -46,7 +46,11 @@ where
             parent_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
             randao_reveal: randao_reveal,
-            candidate_pow_receipt_root: Hash256::zero(), // TODO: replace w/ eth1 data.
+            eth1_data: Eth1Data {
+                // TODO: replace with real data
+                deposit_root: Hash256::zero(),
+                block_hash: Hash256::zero(),
+            },
             signature: self.spec.empty_signature.clone(), // To be completed by a validator.
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
