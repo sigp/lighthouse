@@ -1,4 +1,4 @@
-
+use hashing::canonical_hash;
 
 const SSZ_CHUNK_SIZE: usize = 128;
 const HASHSIZE: usize = 32;
@@ -14,9 +14,7 @@ pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     let (chunk_size, mut data) = list_to_blob(list);
 
     // get data_len as bytes. It will hashed will the merkle root
-    let dlen = list.len() as u64;
-    let data_len_bytes = &mut dlen.tree_hash();
-    data_len_bytes.resize(32, 0);
+    let datalen = list.len().to_le_bytes();
 
     // merklize
     let mut mhash = hash_level(&mut data, chunk_size);
@@ -24,8 +22,8 @@ pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
         mhash = hash_level(&mut mhash, HASHSIZE);
     }
 
-    mhash.append(data_len_bytes);
-    mhash.as_slice().tree_hash()
+    mhash.append(&mut datalen.to_vec());
+    hash(mhash.as_slice())
 }
 
 /// Takes a flat vector of bytes. It then hashes 'chunk_size * 2' slices into
@@ -38,9 +36,10 @@ fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
             // SSZ_CHUNK_SIZE vector
             let mut c = two_chunks.to_vec();
             c.append(&mut vec![0; SSZ_CHUNK_SIZE]);
-            result.append(&mut c.as_slice().tree_hash());
+            result.append(&mut hash(c.as_slice()));
         } else {
-            result.append(&mut two_chunks.tree_hash());
+            // Hash two chuncks together
+            result.append(&mut hash(two_chunks));
         }
     }
 
@@ -71,6 +70,10 @@ fn list_to_blob(list: &mut Vec<Vec<u8>>) -> (usize, Vec<u8>) {
     }
 
     (chunk_size, data)
+}
+
+pub fn hash(data: &[u8]) -> Vec<u8> {
+    canonical_hash(data)
 }
 
 #[cfg(test)]
