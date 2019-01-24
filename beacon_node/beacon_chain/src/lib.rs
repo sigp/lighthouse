@@ -1,8 +1,14 @@
+mod attestation_targets;
+mod block_graph;
 mod block_processing;
-mod block_production;
+pub mod block_production;
+mod canonical_head;
+mod info;
 mod lmd_ghost;
 mod state_transition;
 
+use self::attestation_targets::AttestationTargets;
+use self::block_graph::BlockGraph;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
@@ -12,17 +18,10 @@ use slot_clock::SlotClock;
 use spec::ChainSpec;
 use ssz::ssz_encode;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use types::Hash256;
+use std::sync::{Arc, RwLock};
+use types::{BeaconBlock, BeaconState, Hash256, PublicKey};
 
 pub use self::block_processing::Outcome as BlockProcessingOutcome;
-
-#[derive(Debug, PartialEq)]
-pub struct CheckPoint {
-    block_root: Hash256,
-    state_root: Hash256,
-    slot: u64,
-}
 
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
@@ -31,15 +30,51 @@ pub enum BeaconChainError {
     DBError(String),
 }
 
+pub struct CheckPoint {
+    beacon_block: BeaconBlock,
+    beacon_block_root: Hash256,
+    beacon_state: BeaconState,
+    beacon_state_root: Hash256,
+}
+
+impl CheckPoint {
+    pub fn new(
+        beacon_block: BeaconBlock,
+        beacon_block_root: Hash256,
+        beacon_state: BeaconState,
+        beacon_state_root: Hash256,
+    ) -> Self {
+        Self {
+            beacon_block,
+            beacon_block_root,
+            beacon_state,
+            beacon_state_root,
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        beacon_block: BeaconBlock,
+        beacon_block_root: Hash256,
+        beacon_state: BeaconState,
+        beacon_state_root: Hash256,
+    ) {
+        self.beacon_block = beacon_block;
+        self.beacon_block_root = beacon_block_root;
+        self.beacon_state = beacon_state;
+        self.beacon_state_root = beacon_state_root;
+    }
+}
+
 pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
-    pub leaf_blocks: HashSet<Hash256>,
-    pub canonical_leaf_block: Hash256,
+    pub block_graph: BlockGraph,
+    canonical_head: RwLock<CheckPoint>,
+    finalized_head: RwLock<CheckPoint>,
+    pub latest_attestation_targets: RwLock<AttestationTargets>,
     pub spec: ChainSpec,
-    latest_attestation_targets: HashMap<usize, Hash256>,
-    finalized_checkpoint: CheckPoint,
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -65,24 +100,33 @@ where
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
-        let mut leaf_blocks = HashSet::new();
-        leaf_blocks.insert(block_root);
+        let block_graph = BlockGraph::new();
+        block_graph.add_leaf(&Hash256::zero(), block_root.clone());
 
-        let finalized_checkpoint = CheckPoint {
-            block_root,
-            state_root,
-            slot: genesis_block.slot,
-        };
+        let finalized_head = RwLock::new(CheckPoint::new(
+            genesis_block.clone(),
+            block_root.clone(),
+            genesis_state.clone(),
+            state_root.clone(),
+        ));
+        let canonical_head = RwLock::new(CheckPoint::new(
+            genesis_block.clone(),
+            block_root.clone(),
+            genesis_state.clone(),
+            state_root.clone(),
+        ));
+
+        let latest_attestation_targets = RwLock::new(AttestationTargets::new());
 
         Ok(Self {
             block_store,
             state_store,
             slot_clock,
-            leaf_blocks,
-            canonical_leaf_block: block_root,
-            spec,
-            latest_attestation_targets: HashMap::new(),
-            finalized_checkpoint,
+            block_graph,
+            finalized_head,
+            canonical_head,
+            latest_attestation_targets,
+            spec: spec,
         })
     }
 }
