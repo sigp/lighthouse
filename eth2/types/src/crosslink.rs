@@ -3,40 +3,49 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 
-// Note: this is refer to as DepositRootVote in specs
-#[derive(Debug, PartialEq, Clone)]
-pub struct CandidatePoWReceiptRootRecord {
-    pub candidate_pow_receipt_root: Hash256,
-    pub votes: u64,
+#[derive(Clone, Debug, PartialEq)]
+pub struct Crosslink {
+    pub slot: u64,
+    pub shard_block_root: Hash256,
 }
 
-impl Encodable for CandidatePoWReceiptRootRecord {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.candidate_pow_receipt_root);
-        s.append(&self.votes);
+impl Crosslink {
+    /// Generates a new instance where `dynasty` and `hash` are both zero.
+    pub fn zero() -> Self {
+        Self {
+            slot: 0,
+            shard_block_root: Hash256::zero(),
+        }
     }
 }
 
-impl Decodable for CandidatePoWReceiptRootRecord {
+impl Encodable for Crosslink {
+    fn ssz_append(&self, s: &mut SszStream) {
+        s.append(&self.slot);
+        s.append(&self.shard_block_root);
+    }
+}
+
+impl Decodable for Crosslink {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (candidate_pow_receipt_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (votes, i) = <_>::ssz_decode(bytes, i)?;
+        let (slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (shard_block_root, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                candidate_pow_receipt_root,
-                votes,
+                slot,
+                shard_block_root,
             },
             i,
         ))
     }
 }
 
-impl<T: RngCore> TestRandom<T> for CandidatePoWReceiptRootRecord {
+impl<T: RngCore> TestRandom<T> for Crosslink {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            candidate_pow_receipt_root: <_>::random_for_test(rng),
-            votes: <_>::random_for_test(rng),
+            slot: <_>::random_for_test(rng),
+            shard_block_root: <_>::random_for_test(rng),
         }
     }
 }
@@ -50,7 +59,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = CandidatePoWReceiptRootRecord::random_for_test(&mut rng);
+        let original = Crosslink::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
