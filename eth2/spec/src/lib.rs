@@ -6,7 +6,7 @@ mod foundation;
 use bls::Signature;
 use types::{Address, Eth1Data, Hash256, Validator};
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Misc

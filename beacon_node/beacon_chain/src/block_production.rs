@@ -18,18 +18,22 @@ impl<T, U> BeaconChain<T, U>
 where
     T: ClientDB,
     U: SlotClock,
-    Error: From<<U as SlotClock>::Error>,
 {
     pub fn produce_block(
-        &mut self,
+        &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState), Error> {
+    ) -> Result<(BeaconBlock, BeaconState), Error>
+    where
+        Error: From<<U>::Error>,
+    {
+        // TODO: allow producing a block from a previous (or future?) slot.
         let present_slot = self
             .slot_clock
-            .present_slot()?
+            .present_slot()
+            .map_err(|e| e.into())?
             .ok_or(Error::PresentSlotIsNone)?;
 
-        let parent_root = self.canonical_leaf_block;
+        let parent_root = self.canonical_head().beacon_block_root;
         let parent_block_reader = self
             .block_store
             .get_reader(&parent_root)?
@@ -43,7 +47,7 @@ where
 
         let mut block = BeaconBlock {
             slot: present_slot,
-            parent_root,
+            parent_root: parent_root.clone(),
             state_root: Hash256::zero(), // Updated after the state is calculated.
             randao_reveal: randao_reveal,
             eth1_data: Eth1Data {

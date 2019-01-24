@@ -3,8 +3,9 @@ mod traits;
 
 use slot_clock::SlotClock;
 use spec::ChainSpec;
+use ssz::ssz_encode;
 use std::sync::{Arc, RwLock};
-use types::{BeaconBlock, Hash256, ProposalSignedData};
+use types::{BeaconBlock, Hash256, ProposalSignedData, PublicKey};
 
 pub use self::traits::{BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, Signer};
 
@@ -24,6 +25,8 @@ pub enum PollOutcome {
     BeaconNodeUnableToProduceBlock(u64),
     /// The signer failed to sign the message.
     SignerRejection(u64),
+    /// The public key for this validator is not an active validator.
+    ValidatorIsUnknown(u64),
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,6 +47,7 @@ pub enum Error {
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
 pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
     pub last_processed_slot: u64,
+    pubkey: PublicKey,
     spec: Arc<ChainSpec>,
     epoch_map: Arc<V>,
     slot_clock: Arc<RwLock<T>>,
@@ -55,6 +59,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
+        pubkey: PublicKey,
         epoch_map: Arc<V>,
         slot_clock: Arc<RwLock<T>>,
         beacon_node: Arc<U>,
@@ -62,6 +67,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ) -> Self {
         Self {
             last_processed_slot: 0,
+            pubkey,
             spec,
             epoch_map,
             slot_clock,
@@ -96,6 +102,9 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
                     Err(DutiesReaderError::UnknownEpoch) => {
                         return Ok(PollOutcome::ProducerDutiesUnknown(slot))
                     }
+                    Err(DutiesReaderError::UnknownValidator) => {
+                        return Ok(PollOutcome::ValidatorIsUnknown(slot))
+                    }
                     Err(DutiesReaderError::Poisoned) => return Err(Error::EpochMapPoisoned),
                 };
 
@@ -122,7 +131,20 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
     fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, Error> {
-        if let Some(block) = self.beacon_node.produce_beacon_block(slot)? {
+        let randao_reveal = {
+            let producer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
+            // TODO: add domain, etc to this message.
+            let message = ssz_encode(&producer_nonce);
+            match self.signer.bls_sign(&message) {
+                None => return Ok(PollOutcome::SignerRejection(slot)),
+                Some(signature) => signature,
+            }
+        };
+
+        if let Some(block) = self
+            .beacon_node
+            .produce_beacon_block(slot, &randao_reveal)?
+        {
             if self.safe_to_produce(&block) {
                 if let Some(block) = self.sign_block(block) {
                     self.beacon_node.publish_beacon_block(block)?;

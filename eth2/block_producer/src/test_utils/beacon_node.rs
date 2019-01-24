@@ -1,20 +1,30 @@
 use crate::traits::{BeaconNode, BeaconNodeError};
 use std::sync::RwLock;
-use types::BeaconBlock;
+use types::{BeaconBlock, PublicKey, Signature};
 
+type NonceResult = Result<u64, BeaconNodeError>;
 type ProduceResult = Result<Option<BeaconBlock>, BeaconNodeError>;
 type PublishResult = Result<bool, BeaconNodeError>;
 
 /// A test-only struct used to simulate a Beacon Node.
 #[derive(Default)]
 pub struct TestBeaconNode {
-    pub produce_input: RwLock<Option<u64>>,
+    pub nonce_input: RwLock<Option<PublicKey>>,
+    pub nonce_result: RwLock<Option<NonceResult>>,
+
+    pub produce_input: RwLock<Option<(u64, Signature)>>,
     pub produce_result: RwLock<Option<ProduceResult>>,
+
     pub publish_input: RwLock<Option<BeaconBlock>>,
     pub publish_result: RwLock<Option<PublishResult>>,
 }
 
 impl TestBeaconNode {
+    /// Set the result to be returned when `produce_beacon_block` is called.
+    pub fn set_next_nonce_result(&self, result: NonceResult) {
+        *self.nonce_result.write().unwrap() = Some(result);
+    }
+
     /// Set the result to be returned when `produce_beacon_block` is called.
     pub fn set_next_produce_result(&self, result: ProduceResult) {
         *self.produce_result.write().unwrap() = Some(result);
@@ -27,9 +37,17 @@ impl TestBeaconNode {
 }
 
 impl BeaconNode for TestBeaconNode {
+    fn proposer_nonce(&self, pubkey: &PublicKey) -> NonceResult {
+        *self.nonce_input.write().unwrap() = Some(pubkey.clone());
+        match *self.nonce_result.read().unwrap() {
+            Some(ref r) => r.clone(),
+            None => panic!("TestBeaconNode: nonce_result == None"),
+        }
+    }
+
     /// Returns the value specified by the `set_next_produce_result`.
-    fn produce_beacon_block(&self, slot: u64) -> ProduceResult {
-        *self.produce_input.write().unwrap() = Some(slot);
+    fn produce_beacon_block(&self, slot: u64, randao_reveal: &Signature) -> ProduceResult {
+        *self.produce_input.write().unwrap() = Some((slot, randao_reveal.clone()));
         match *self.produce_result.read().unwrap() {
             Some(ref r) => r.clone(),
             None => panic!("TestBeaconNode: produce_result == None"),

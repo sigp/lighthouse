@@ -4,13 +4,12 @@ use db::{
     ClientDB, DBError,
 };
 use slot_clock::TestingSlotClockError;
-use ssz::{ssz_encode, Encodable};
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
     validator_registry::get_active_validator_indices,
-    BeaconBlock, Hash256,
+    Hash256,
 };
 
 #[derive(Debug, PartialEq)]
@@ -53,7 +52,7 @@ where
 
         let mut attestation_targets = Vec::with_capacity(active_validator_indices.len());
         for i in active_validator_indices {
-            if let Some(target) = self.latest_attestation_targets.get(&i) {
+            if let Some(target) = self.get_latest_attestation_target(i as u64) {
                 attestation_targets.push(target);
             }
         }
@@ -62,8 +61,11 @@ where
         let mut head_vote_count = 0;
 
         loop {
-            let child_hashes_and_slots =
-                get_child_hashes_and_slots(&self.block_store, &head_hash, &self.leaf_blocks)?;
+            let child_hashes_and_slots = get_child_hashes_and_slots(
+                &self.block_store,
+                &head_hash,
+                &self.block_graph.leaves(),
+            )?;
 
             if child_hashes_and_slots.len() == 0 {
                 break;
@@ -90,7 +92,7 @@ where
 
 fn get_vote_count<T: ClientDB>(
     block_store: &Arc<BeaconBlockStore<T>>,
-    attestation_targets: &[&Hash256],
+    attestation_targets: &[Hash256],
     block_root: &Hash256,
     slot: u64,
 ) -> Result<u64, Error> {
@@ -99,7 +101,7 @@ fn get_vote_count<T: ClientDB>(
         let (root_at_slot, _) = block_store
             .block_at_slot(&block_root, slot)?
             .ok_or(Error::MissingBeaconBlock(*block_root))?;
-        if root_at_slot == *block_root {
+        if root_at_slot == *target {
             count += 1;
         }
     }

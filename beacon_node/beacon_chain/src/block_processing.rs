@@ -54,7 +54,7 @@ where
     U: SlotClock,
     Error: From<<U as SlotClock>::Error>,
 {
-    pub fn process_block<V>(&mut self, block: V) -> Result<Outcome, Error>
+    pub fn process_block<V>(&self, block: V) -> Result<Outcome, Error>
     where
         V: BeaconBlockReader + Encodable + Sized,
     {
@@ -103,14 +103,20 @@ where
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
-        // Update leaf blocks so the implementation can track the chain heads.
-        if self.leaf_blocks.contains(&block.parent_root()) {
-            self.leaf_blocks.remove(&block.parent_root());
+        self.block_graph
+            .add_leaf(&parent_block_root, block_root.clone());
+
+        // If the parent block was the parent_block, automatically update the canonical head.
+        //
+        // TODO: this is a first-in-best-dressed scenario that is not ideal -- find a solution.
+        if self.canonical_head().beacon_block_root == parent_block_root {
+            self.update_canonical_head(
+                block.clone(),
+                block_root.clone(),
+                state.clone(),
+                state_root.clone(),
+            );
         }
-        if self.canonical_leaf_block == block.parent_root() {
-            self.canonical_leaf_block = block_root;
-        }
-        self.leaf_blocks.insert(block_root);
 
         // The block was sucessfully processed.
         Ok(Outcome::Processed)
