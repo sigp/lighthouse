@@ -5,6 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
+block_producer = { path = "../../eth2/block_producer" }
 bls = { path = "../../eth2/utils/bls" }
 boolean-bitfield = { path = "../../eth2/utils/boolean-bitfield" }
 db = { path = "../db" }
