@@ -10,6 +10,7 @@ pub enum Error {
 }
 
 /// Determines the present slot based upon the present system time.
+#[derive(Clone)]
 pub struct SystemTimeSlotClock {
     genesis_seconds: u64,
     slot_duration_seconds: u64,
