@@ -1,11 +1,10 @@
-#[cfg(test)]
-mod test_node;
+pub mod test_utils;
 mod traits;
 
 use slot_clock::SlotClock;
 use spec::ChainSpec;
 use std::sync::{Arc, RwLock};
-use types::BeaconBlock;
+use types::{BeaconBlock, Hash256, ProposalSignedData};
 
 pub use self::traits::{BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, Signer};
 
@@ -23,6 +22,8 @@ pub enum PollOutcome {
     SlotAlreadyProcessed(u64),
     /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(u64),
+    /// The signer failed to sign the message.
+    SignerRejection(u64),
 }
 
 #[derive(Debug, PartialEq)]
@@ -123,9 +124,12 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, Error> {
         if let Some(block) = self.beacon_node.produce_beacon_block(slot)? {
             if self.safe_to_produce(&block) {
-                let block = self.sign_block(block);
-                self.beacon_node.publish_beacon_block(block)?;
-                Ok(PollOutcome::BlockProduced(slot))
+                if let Some(block) = self.sign_block(block) {
+                    self.beacon_node.publish_beacon_block(block)?;
+                    Ok(PollOutcome::BlockProduced(slot))
+                } else {
+                    Ok(PollOutcome::SignerRejection(slot))
+                }
             } else {
                 Ok(PollOutcome::SlashableBlockNotProduced(slot))
             }
@@ -138,11 +142,30 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ///
     /// Important: this function will not check to ensure the block is not slashable. This must be
     /// done upstream.
-    fn sign_block(&mut self, block: BeaconBlock) -> BeaconBlock {
-        // TODO: sign the block
-        // https://github.com/sigp/lighthouse/issues/160
+    fn sign_block(&mut self, mut block: BeaconBlock) -> Option<BeaconBlock> {
         self.store_produce(&block);
-        block
+
+        let proposal_root = {
+            let block_without_signature_root = {
+                let mut block_without_signature = block.clone();
+                block_without_signature.signature = self.spec.empty_signature.clone();
+                block_without_signature.canonical_root()
+            };
+            let proposal = ProposalSignedData {
+                slot: block.slot,
+                shard: self.spec.beacon_chain_shard_number,
+                block_root: block_without_signature_root,
+            };
+            hash_tree_root(&proposal)
+        };
+
+        match self.signer.bls_sign(&proposal_root[..]) {
+            None => None,
+            Some(signature) => {
+                block.signature = signature;
+                Some(block)
+            }
+        }
     }
 
     /// Returns `true` if signing a block is safe (non-slashable).
@@ -167,6 +190,11 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     }
 }
 
+fn hash_tree_root<T>(_input: &T) -> Hash256 {
+    // TODO: stubbed out.
+    Hash256::zero()
+}
+
 impl From<BeaconNodeError> for Error {
     fn from(e: BeaconNodeError) -> Error {
         Error::BeaconNodeError(e)
@@ -175,44 +203,18 @@ impl From<BeaconNodeError> for Error {
 
 #[cfg(test)]
 mod tests {
-    use super::test_node::TestBeaconNode;
+    use super::test_utils::{TestBeaconNode, TestEpochMap, TestSigner};
     use super::*;
     use slot_clock::TestingSlotClock;
-    use std::collections::HashMap;
     use types::{
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        Signature,
+        Keypair,
     };
 
     // TODO: implement more thorough testing.
     // https://github.com/sigp/lighthouse/issues/160
     //
     // These tests should serve as a good example for future tests.
-
-    type EpochMap = HashMap<u64, u64>;
-
-    impl DutiesReader for EpochMap {
-        fn is_block_production_slot(
-            &self,
-            epoch: u64,
-            slot: u64,
-        ) -> Result<bool, DutiesReaderError> {
-            match self.get(&epoch) {
-                Some(s) if *s == slot => Ok(true),
-                Some(s) if *s != slot => Ok(false),
-                _ => Err(DutiesReaderError::UnknownEpoch),
-            }
-        }
-    }
-
-    struct TestSigner();
-
-    impl Signer for TestSigner {
-        fn bls_sign(_message: &[u8]) -> Option<Signature> {
-            let mut rng = XorShiftRng::from_seed([42; 16]);
-            Some(Signature::random_for_test(&mut rng))
-        }
-    }
 
     #[test]
     pub fn polling() {
@@ -221,9 +223,9 @@ mod tests {
         let spec = Arc::new(ChainSpec::foundation());
         let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
         let beacon_node = Arc::new(TestBeaconNode::default());
-        let signer = Arc::new(TestSigner());
+        let signer = Arc::new(TestSigner::new(Keypair::random()));
 
-        let mut epoch_map = EpochMap::new();
+        let mut epoch_map = TestEpochMap::new();
         let produce_slot = 100;
         let produce_epoch = produce_slot / spec.epoch_length;
         epoch_map.insert(produce_epoch, produce_slot);

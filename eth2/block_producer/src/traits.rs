@@ -18,16 +18,18 @@ pub trait BeaconNode: Send + Sync {
     fn publish_beacon_block(&self, block: BeaconBlock) -> Result<bool, BeaconNodeError>;
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum DutiesReaderError {
     UnknownEpoch,
     Poisoned,
 }
 
-/// Provides methods for a validator to determine their responsibilities for some slot.
+/// Informs a validator of their duties (e.g., block production).
 pub trait DutiesReader: Send + Sync {
     fn is_block_production_slot(&self, epoch: u64, slot: u64) -> Result<bool, DutiesReaderError>;
 }
 
+/// Signs message using an internally-maintained private key.
 pub trait Signer {
-    fn bls_sign(message: &[u8]) -> Option<Signature>;
+    fn bls_sign(&self, message: &[u8]) -> Option<Signature>;
 }
