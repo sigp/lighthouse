@@ -31,7 +31,7 @@ impl Decodable for AttestationDataAndCustodyBit {
 }
 
 impl TreeHash for AttestationDataAndCustodyBit {
-    fn hash_tree_root(&self) {
+    fn hash_tree_root(&self) -> Vec<u8> {
         let result: Vec<u8> = vec![];
         result.append(&mut self.data.hash_tree_root());
         // TODO: add bool ssz
