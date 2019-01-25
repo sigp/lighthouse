@@ -26,6 +26,18 @@ impl<T: ClientDB> BeaconBlockStore<T> {
         Self { db }
     }
 
+    pub fn get_deserialized(&self, hash: &Hash256) -> Result<Option<BeaconBlock>, DBError> {
+        match self.get(&hash)? {
+            None => Ok(None),
+            Some(ssz) => {
+                let (block, _) = BeaconBlock::ssz_decode(&ssz, 0).map_err(|_| DBError {
+                    message: "Bad BeaconBlock SSZ.".to_string(),
+                })?;
+                Ok(Some(block))
+            }
+        }
+    }
+
     /// Retuns an object implementing `BeaconBlockReader`, or `None` (if hash not known).
     ///
     /// Note: Presently, this function fully deserializes a `BeaconBlock` and returns that. In the

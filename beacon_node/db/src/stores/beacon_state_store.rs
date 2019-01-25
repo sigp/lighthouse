@@ -19,6 +19,18 @@ impl<T: ClientDB> BeaconStateStore<T> {
         Self { db }
     }
 
+    pub fn get_deserialized(&self, hash: &Hash256) -> Result<Option<BeaconState>, DBError> {
+        match self.get(&hash)? {
+            None => Ok(None),
+            Some(ssz) => {
+                let (state, _) = BeaconState::ssz_decode(&ssz, 0).map_err(|_| DBError {
+                    message: "Bad State SSZ.".to_string(),
+                })?;
+                Ok(Some(state))
+            }
+        }
+    }
+
     /// Retuns an object implementing `BeaconStateReader`, or `None` (if hash not known).
     ///
     /// Note: Presently, this function fully deserializes a `BeaconState` and returns that. In the
