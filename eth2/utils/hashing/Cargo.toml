@@ -6,3 +6,4 @@ edition = "2018"
 
 [dependencies]
 tiny-keccak = "1.4.2"
+ssz = { path = "../ssz" }

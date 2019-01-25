@@ -22,12 +22,10 @@ where
     }
 
     pub fn proposer_slots(&self, validator_index: usize) -> Option<u64> {
-        if let Some(validator) = self
-            .canonical_head()
-            .beacon_state
-            .validator_registry
-            .get(validator_index)
-        {
+        let slot = self.present_slot()?;
+        let state = self.state(slot).ok()?;
+
+        if let Some(validator) = state.validator_registry.get(validator_index) {
             Some(validator.proposer_slots)
         } else {
             None
@@ -42,8 +40,8 @@ where
     }
 
     pub fn block_proposer(&self, slot: u64) -> Option<usize> {
-        //TODO: this is a stub; fix.
-        let validator_count = self.canonical_head().beacon_state.validator_registry.len();
-        Some((slot as usize) % validator_count)
+        let present_slot = self.present_slot()?;
+        let state = self.state(present_slot).ok()?;
+        state.get_beacon_proposer_index(slot, &self.spec)
     }
 }

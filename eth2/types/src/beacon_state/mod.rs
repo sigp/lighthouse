@@ -10,6 +10,10 @@ use hashing::canonical_hash;
 use rand::RngCore;
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 
+mod slot_advance;
+
+pub use self::slot_advance::Error as SlotProcessingError;
+
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
 
@@ -203,9 +207,9 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
 
 #[cfg(test)]
 mod tests {
-    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

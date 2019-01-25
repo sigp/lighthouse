@@ -1,6 +1,11 @@
 use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
 use std::sync::RwLockReadGuard;
-use types::{BeaconBlock, BeaconState, Hash256};
+use types::{beacon_state::SlotProcessingError, BeaconBlock, BeaconState, Hash256};
+
+pub enum Error {
+    PastSlot,
+    UnableToDetermineProducer,
+}
 
 impl<T, U> BeaconChain<T, U>
 where
@@ -30,5 +35,38 @@ where
         self.canonical_head
             .read()
             .expect("CRITICAL: CanonicalHead poisioned.")
+    }
+
+    pub fn state(&self, slot: u64) -> Result<BeaconState, Error> {
+        let mut state = self
+            .canonical_head
+            .read()
+            .expect("CRITICAL: CanonicalHead poisioned.")
+            .beacon_state
+            .clone();
+        let previous_block_root = self
+            .canonical_head
+            .read()
+            .expect("CRITICAL: CanonicalHead poisioned.")
+            .beacon_block_root
+            .clone();
+
+        match slot.checked_sub(state.slot) {
+            None => Err(Error::PastSlot),
+            Some(distance) => {
+                for _ in 0..distance {
+                    state.per_slot_processing(previous_block_root.clone(), &self.spec)?
+                }
+                Ok(state)
+            }
+        }
+    }
+}
+
+impl From<SlotProcessingError> for Error {
+    fn from(e: SlotProcessingError) -> Error {
+        match e {
+            SlotProcessingError::UnableToDetermineProducer => Error::UnableToDetermineProducer,
+        }
     }
 }
