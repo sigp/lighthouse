@@ -1,6 +1,6 @@
 use super::{PublicKey, SecretKey};
 use bls_aggregates::Signature as RawSignature;
-use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{decode_ssz_list, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A single BLS signature.
 ///
@@ -54,6 +54,12 @@ impl Decodable for Signature {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
         let raw_sig = RawSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((Signature(raw_sig), i))
+    }
+}
+
+impl TreeHash for Signature {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        hash(&self.0.as_bytes())
     }
 }
 

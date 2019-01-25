@@ -1,4 +1,4 @@
-use ssz::{Decodable, DecodeError, Encodable, SszStream};
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// The value of the "type" field of SpecialRecord.
 ///
@@ -68,6 +68,15 @@ impl Decodable for SpecialRecord {
         let (kind, i) = u8::ssz_decode(bytes, i)?;
         let (data, i) = Decodable::ssz_decode(bytes, i)?;
         Ok((SpecialRecord { kind, data }, i))
+    }
+}
+
+impl TreeHash for SpecialRecord {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+        result.append(&mut self.kind.hash_tree_root());
+        result.append(&mut self.data.as_slice().hash_tree_root());
+        hash(&result)
     }
 }
 

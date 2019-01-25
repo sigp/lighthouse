@@ -8,7 +8,7 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use hashing::canonical_hash;
 use rand::RngCore;
-use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 mod slot_advance;
 
@@ -170,6 +170,41 @@ impl Decodable for BeaconState {
     }
 }
 
+impl TreeHash for BeaconState {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+        result.append(&mut self.slot.hash_tree_root());
+        result.append(&mut self.genesis_time.hash_tree_root());
+        result.append(&mut self.fork_data.hash_tree_root());
+        result.append(&mut self.validator_registry.hash_tree_root());
+        result.append(&mut self.validator_balances.hash_tree_root());
+        result.append(&mut self.validator_registry_update_slot.hash_tree_root());
+        result.append(&mut self.validator_registry_exit_count.hash_tree_root());
+        result.append(&mut self.validator_registry_delta_chain_tip.hash_tree_root());
+        result.append(&mut self.latest_randao_mixes.hash_tree_root());
+        result.append(&mut self.latest_vdf_outputs.hash_tree_root());
+        result.append(&mut self.previous_epoch_start_shard.hash_tree_root());
+        result.append(&mut self.current_epoch_start_shard.hash_tree_root());
+        result.append(&mut self.previous_epoch_calculation_slot.hash_tree_root());
+        result.append(&mut self.current_epoch_calculation_slot.hash_tree_root());
+        result.append(&mut self.previous_epoch_randao_mix.hash_tree_root());
+        result.append(&mut self.current_epoch_randao_mix.hash_tree_root());
+        result.append(&mut self.custody_challenges.hash_tree_root());
+        result.append(&mut self.previous_justified_slot.hash_tree_root());
+        result.append(&mut self.justified_slot.hash_tree_root());
+        result.append(&mut self.justification_bitfield.hash_tree_root());
+        result.append(&mut self.finalized_slot.hash_tree_root());
+        result.append(&mut self.latest_crosslinks.hash_tree_root());
+        result.append(&mut self.latest_block_roots.hash_tree_root());
+        result.append(&mut self.latest_penalized_exit_balances.hash_tree_root());
+        result.append(&mut self.latest_attestations.hash_tree_root());
+        result.append(&mut self.batched_block_roots.hash_tree_root());
+        result.append(&mut self.latest_eth1_data.hash_tree_root());
+        result.append(&mut self.eth1_data_votes.hash_tree_root());
+        hash(&result)
+    }
+}
+
 impl<T: RngCore> TestRandom<T> for BeaconState {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
@@ -220,5 +255,17 @@ mod tests {
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    pub fn test_hash_tree_root() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = BeaconState::random_for_test(&mut rng);
+
+        let result = original.hash_tree_root();
+
+        assert_eq!(result.len(), 32);
+        // TODO: Add further tests
+        // https://github.com/sigp/lighthouse/issues/170
     }
 }
