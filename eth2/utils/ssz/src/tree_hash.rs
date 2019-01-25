@@ -11,39 +11,31 @@ pub trait TreeHash {
 /// Note that this will consume 'list'.
 pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     // flatten list
-    let (chunk_size, mut data) = list_to_blob(list);
+    let (chunk_size, mut chunkz) = list_to_blob(list);
 
     // get data_len as bytes. It will hashed will the merkle root
     let datalen = list.len().to_le_bytes();
 
-    // merklize
-    let mut mhash = hash_level(&mut data, chunk_size);
-    while mhash.len() > HASHSIZE {
-        mhash = hash_level(&mut mhash, HASHSIZE);
-    }
+    // Tree-hash
+    while chunkz.len() > HASHSIZE {
+        let mut new_chunkz: Vec<u8> = Vec::new();
 
-    mhash.append(&mut datalen.to_vec());
-    hash(&mhash)
-}
-
-/// Takes a flat vector of bytes. It then hashes 'chunk_size * 2' slices into
-/// a byte vector of hashes, divisible by HASHSIZE
-fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
-    let mut result: Vec<u8> = Vec::new();
-    for two_chunks in data.chunks(chunk_size * 2) {
-        if two_chunks.len() == chunk_size && data.len() > chunk_size {
-            // if there is only one chunk here, hash it with a zero-byte
-            // SSZ_CHUNK_SIZE vector
-            let mut c = two_chunks.to_vec();
-            c.append(&mut vec![0; SSZ_CHUNK_SIZE]);
-            result.append(&mut hash(&c));
-        } else {
-            // Hash two chuncks together
-            result.append(&mut hash(two_chunks));
+        for two_chunks in chunkz.chunks(chunk_size * 2) {
+            if two_chunks.len() == chunk_size {
+                // Odd number of chunks
+                let mut c = two_chunks.to_vec();
+                c.append(&mut vec![0; SSZ_CHUNK_SIZE]);
+                new_chunkz.append(&mut hash(&c));
+            } else {
+                // Hash two chuncks together
+                new_chunkz.append(&mut hash(two_chunks));
+            }
         }
+        chunkz = new_chunkz;
     }
 
-    result
+    chunkz.append(&mut datalen.to_vec());
+    hash(&chunkz)
 }
 
 fn list_to_blob(list: &mut Vec<Vec<u8>>) -> (usize, Vec<u8>) {
@@ -68,7 +60,6 @@ fn list_to_blob(list: &mut Vec<Vec<u8>>) -> (usize, Vec<u8>) {
             data.append(item);
         }
     }
-
     (chunk_size, data)
 }
 
