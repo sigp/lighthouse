@@ -1,7 +1,6 @@
-use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
 use std::collections::HashSet;
 use std::sync::{RwLock, RwLockReadGuard};
-use types::{BeaconBlock, BeaconState, Hash256};
+use types::Hash256;
 
 pub struct BlockGraph {
     pub leaves: RwLock<HashSet<Hash256>>,
