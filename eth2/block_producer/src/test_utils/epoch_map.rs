@@ -3,11 +3,11 @@ use std::collections::HashMap;
 
 pub struct TestEpochMap {
     epoch_length: u64,
-    map: HashMap<u64, u64>,
+    pub map: HashMap<u64, u64>,
 }
 
 impl TestEpochMap {
-    fn new(epoch_length: u64) -> Self {
+    pub fn new(epoch_length: u64) -> Self {
         Self {
             epoch_length,
             map: HashMap::new(),
