@@ -7,7 +7,9 @@ use ssz::ssz_encode;
 use std::sync::{Arc, RwLock};
 use types::{BeaconBlock, Hash256, ProposalSignedData, PublicKey};
 
-pub use self::traits::{BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, Signer};
+pub use self::traits::{
+    BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -46,11 +48,11 @@ pub enum Error {
 ///
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
 pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
-    pub last_processed_slot: u64,
+    pub last_processed_slot: Option<u64>,
     pubkey: PublicKey,
     spec: Arc<ChainSpec>,
     epoch_map: Arc<V>,
-    slot_clock: Arc<RwLock<T>>,
+    slot_clock: Arc<T>,
     beacon_node: Arc<U>,
     signer: Arc<W>,
 }
@@ -61,12 +63,12 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
         spec: Arc<ChainSpec>,
         pubkey: PublicKey,
         epoch_map: Arc<V>,
-        slot_clock: Arc<RwLock<T>>,
+        slot_clock: Arc<T>,
         beacon_node: Arc<U>,
         signer: Arc<W>,
     ) -> Self {
         Self {
-            last_processed_slot: 0,
+            last_processed_slot: None,
             pubkey,
             spec,
             epoch_map,
@@ -84,8 +86,6 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     pub fn poll(&mut self) -> Result<PollOutcome, Error> {
         let slot = self
             .slot_clock
-            .read()
-            .map_err(|_| Error::SlotClockPoisoned)?
             .present_slot()
             .map_err(|_| Error::SlotClockError)?
             .ok_or(Error::SlotUnknowable)?;
@@ -95,21 +95,20 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             .ok_or(Error::EpochLengthIsZero)?;
 
         // If this is a new slot.
-        if slot > self.last_processed_slot {
-            let is_block_production_slot =
-                match self.epoch_map.is_block_production_slot(epoch, slot) {
-                    Ok(result) => result,
-                    Err(DutiesReaderError::UnknownEpoch) => {
-                        return Ok(PollOutcome::ProducerDutiesUnknown(slot))
-                    }
-                    Err(DutiesReaderError::UnknownValidator) => {
-                        return Ok(PollOutcome::ValidatorIsUnknown(slot))
-                    }
-                    Err(DutiesReaderError::Poisoned) => return Err(Error::EpochMapPoisoned),
-                };
+        if !self.is_processed_slot(slot) {
+            let is_block_production_slot = match self.epoch_map.is_block_production_slot(slot) {
+                Ok(result) => result,
+                Err(DutiesReaderError::UnknownEpoch) => {
+                    return Ok(PollOutcome::ProducerDutiesUnknown(slot))
+                }
+                Err(DutiesReaderError::UnknownValidator) => {
+                    return Ok(PollOutcome::ValidatorIsUnknown(slot))
+                }
+                Err(DutiesReaderError::Poisoned) => return Err(Error::EpochMapPoisoned),
+            };
 
             if is_block_production_slot {
-                self.last_processed_slot = slot;
+                self.last_processed_slot = Some(slot);
 
                 self.produce_block(slot)
             } else {
@@ -117,6 +116,13 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             }
         } else {
             Ok(PollOutcome::SlotAlreadyProcessed(slot))
+        }
+    }
+
+    fn is_processed_slot(&self, slot: u64) -> bool {
+        match self.last_processed_slot {
+            Some(processed_slot) if processed_slot <= slot => true,
+            _ => false,
         }
     }
 

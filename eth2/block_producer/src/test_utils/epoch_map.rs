@@ -1,11 +1,24 @@
 use crate::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
 
-pub type TestEpochMap = HashMap<u64, u64>;
+pub struct TestEpochMap {
+    epoch_length: u64,
+    map: HashMap<u64, u64>,
+}
+
+impl TestEpochMap {
+    fn new(epoch_length: u64) -> Self {
+        Self {
+            epoch_length,
+            map: HashMap::new(),
+        }
+    }
+}
 
 impl DutiesReader for TestEpochMap {
-    fn is_block_production_slot(&self, epoch: u64, slot: u64) -> Result<bool, DutiesReaderError> {
-        match self.get(&epoch) {
+    fn is_block_production_slot(&self, slot: u64) -> Result<bool, DutiesReaderError> {
+        let epoch = slot / self.epoch_length;
+        match self.map.get(&epoch) {
             Some(s) if *s == slot => Ok(true),
             Some(s) if *s != slot => Ok(false),
             _ => Err(DutiesReaderError::UnknownEpoch),
