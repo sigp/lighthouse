@@ -1,4 +1,4 @@
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{decode_ssz_list, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::{AggregatePublicKey, Signature};
 use bls_aggregates::AggregateSignature as RawAggregateSignature;
 
@@ -41,6 +41,12 @@ impl Decodable for AggregateSignature {
         let raw_sig =
             RawAggregateSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((AggregateSignature(raw_sig), i))
+    }
+}
+
+impl TreeHash for AggregateSignature {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        hash(&self.0.as_bytes())
     }
 }
 

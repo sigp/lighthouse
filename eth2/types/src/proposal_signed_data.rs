@@ -1,4 +1,4 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
@@ -35,6 +35,16 @@ impl Decodable for ProposalSignedData {
     }
 }
 
+impl TreeHash for ProposalSignedData {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+        result.append(&mut self.slot.hash_tree_root());
+        result.append(&mut self.shard.hash_tree_root());
+        result.append(&mut self.block_root.hash_tree_root());
+        hash(&result)
+    }
+}
+
 impl<T: RngCore> TestRandom<T> for ProposalSignedData {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
@@ -60,5 +70,17 @@ mod tests {
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    pub fn test_hash_tree_root() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = ProposalSignedData::random_for_test(&mut rng);
+
+        let result = original.hash_tree_root();
+
+        assert_eq!(result.len(), 32);
+        // TODO: Add further tests
+        // https://github.com/sigp/lighthouse/issues/170
     }
 }
