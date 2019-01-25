@@ -21,8 +21,8 @@ where
         Some(crosslink) => {
             let local_shard_block_hash = crosslink.shard_block_root;
             let shard_block_hash_is_permissable = {
-                (local_shard_block_hash == data.latest_crosslink_hash)
-                    || (local_shard_block_hash == data.shard_block_hash)
+                (local_shard_block_hash == data.latest_crosslink_root)
+                    || (local_shard_block_hash == data.shard_block_root)
             };
             verify_or!(
                 shard_block_hash_is_permissable,

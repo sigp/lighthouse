@@ -1,56 +1,51 @@
 use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
-use super::DepositInput;
+use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct DepositData {
-    pub amount: u64,
-    pub timestamp: u64,
-    pub deposit_input: DepositInput,
+// Note: this is refer to as DepositRootVote in specs
+#[derive(Debug, PartialEq, Clone, Default)]
+pub struct Eth1Data {
+    pub deposit_root: Hash256,
+    pub block_hash: Hash256,
 }
 
-impl Encodable for DepositData {
+impl Encodable for Eth1Data {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.amount);
-        s.append(&self.timestamp);
-        s.append(&self.deposit_input);
+        s.append(&self.deposit_root);
+        s.append(&self.block_hash);
     }
 }
 
-impl Decodable for DepositData {
+impl Decodable for Eth1Data {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (amount, i) = <_>::ssz_decode(bytes, i)?;
-        let (timestamp, i) = <_>::ssz_decode(bytes, i)?;
-        let (deposit_input, i) = <_>::ssz_decode(bytes, i)?;
+        let (deposit_root, i) = <_>::ssz_decode(bytes, i)?;
+        let (block_hash, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                amount,
-                timestamp,
-                deposit_input,
+                deposit_root,
+                block_hash,
             },
             i,
         ))
     }
 }
 
-impl TreeHash for DepositData {
+impl TreeHash for Eth1Data {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.amount.hash_tree_root());
-        result.append(&mut self.timestamp.hash_tree_root());
-        result.append(&mut self.deposit_input.hash_tree_root());
+        result.append(&mut self.deposit_root.hash_tree_root());
+        result.append(&mut self.block_hash.hash_tree_root());
         hash(&result)
     }
 }
 
-impl<T: RngCore> TestRandom<T> for DepositData {
+impl<T: RngCore> TestRandom<T> for Eth1Data {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            amount: <_>::random_for_test(rng),
-            timestamp: <_>::random_for_test(rng),
-            deposit_input: <_>::random_for_test(rng),
+            deposit_root: <_>::random_for_test(rng),
+            block_hash: <_>::random_for_test(rng),
         }
     }
 }
@@ -64,7 +59,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = DepositData::random_for_test(&mut rng);
+        let original = Eth1Data::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -75,7 +70,7 @@ mod tests {
     #[test]
     pub fn test_hash_tree_root() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = DepositData::random_for_test(&mut rng);
+        let original = Eth1Data::random_for_test(&mut rng);
 
         let result = original.hash_tree_root();
 

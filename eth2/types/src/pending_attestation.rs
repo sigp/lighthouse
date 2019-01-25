@@ -1,36 +1,36 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::{AttestationData, Bitfield};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PendingAttestationRecord {
+pub struct PendingAttestation {
     pub data: AttestationData,
-    pub participation_bitfield: Bitfield,
+    pub aggregation_bitfield: Bitfield,
     pub custody_bitfield: Bitfield,
     pub slot_included: u64,
 }
 
-impl Encodable for PendingAttestationRecord {
+impl Encodable for PendingAttestation {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.data);
-        s.append(&self.participation_bitfield);
+        s.append(&self.aggregation_bitfield);
         s.append(&self.custody_bitfield);
         s.append(&self.slot_included);
     }
 }
 
-impl Decodable for PendingAttestationRecord {
+impl Decodable for PendingAttestation {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (data, i) = <_>::ssz_decode(bytes, i)?;
-        let (participation_bitfield, i) = <_>::ssz_decode(bytes, i)?;
+        let (aggregation_bitfield, i) = <_>::ssz_decode(bytes, i)?;
         let (custody_bitfield, i) = <_>::ssz_decode(bytes, i)?;
         let (slot_included, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
                 data,
-                participation_bitfield,
+                aggregation_bitfield,
                 custody_bitfield,
                 slot_included,
             },
@@ -39,11 +39,22 @@ impl Decodable for PendingAttestationRecord {
     }
 }
 
-impl<T: RngCore> TestRandom<T> for PendingAttestationRecord {
+impl TreeHash for PendingAttestation {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+        result.append(&mut self.data.hash_tree_root());
+        result.append(&mut self.aggregation_bitfield.hash_tree_root());
+        result.append(&mut self.custody_bitfield.hash_tree_root());
+        result.append(&mut self.custody_bitfield.hash_tree_root());
+        hash(&result)
+    }
+}
+
+impl<T: RngCore> TestRandom<T> for PendingAttestation {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             data: <_>::random_for_test(rng),
-            participation_bitfield: <_>::random_for_test(rng),
+            aggregation_bitfield: <_>::random_for_test(rng),
             custody_bitfield: <_>::random_for_test(rng),
             slot_included: <_>::random_for_test(rng),
         }
@@ -59,11 +70,23 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = PendingAttestationRecord::random_for_test(&mut rng);
+        let original = PendingAttestation::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    pub fn test_hash_tree_root() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = PendingAttestation::random_for_test(&mut rng);
+
+        let result = original.hash_tree_root();
+
+        assert_eq!(result.len(), 32);
+        // TODO: Add further tests
+        // https://github.com/sigp/lighthouse/issues/170
     }
 }
