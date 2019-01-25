@@ -23,7 +23,7 @@ pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     }
 
     mhash.append(&mut datalen.to_vec());
-    hash(mhash.as_slice())
+    hash(&mhash)
 }
 
 /// Takes a flat vector of bytes. It then hashes 'chunk_size * 2' slices into
@@ -36,7 +36,7 @@ fn hash_level(data: &mut Vec<u8>, chunk_size: usize) -> Vec<u8> {
             // SSZ_CHUNK_SIZE vector
             let mut c = two_chunks.to_vec();
             c.append(&mut vec![0; SSZ_CHUNK_SIZE]);
-            result.append(&mut hash(c.as_slice()));
+            result.append(&mut hash(&c));
         } else {
             // Hash two chuncks together
             result.append(&mut hash(two_chunks));
