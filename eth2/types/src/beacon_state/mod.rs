@@ -64,9 +64,7 @@ pub struct BeaconState {
 
 impl BeaconState {
     pub fn canonical_root(&self) -> Hash256 {
-        // TODO: implement tree hashing.
-        // https://github.com/sigp/lighthouse/issues/70
-        Hash256::from(&canonical_hash(&ssz_encode(self))[..])
+        Hash256::from(&self.hash_tree_root()[..])
     }
 }
 
