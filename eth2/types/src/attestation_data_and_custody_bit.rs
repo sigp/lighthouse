@@ -34,8 +34,7 @@ impl TreeHash for AttestationDataAndCustodyBit {
     fn hash_tree_root(&self) -> Vec<u8> {
         let result: Vec<u8> = vec![];
         result.append(&mut self.data.hash_tree_root());
-        // TODO: add bool ssz
-        // result.append(custody_bit.hash_tree_root());
+        result.append(custody_bit.hash_tree_root());
         ssz::hash(&result)
     }
 }
