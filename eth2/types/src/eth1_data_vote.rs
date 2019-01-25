@@ -1,10 +1,11 @@
 use super::Eth1Data;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 // Note: this is refer to as DepositRootVote in specs
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct Eth1DataVote {
     pub eth1_data: Eth1Data,
     pub vote_count: u64,

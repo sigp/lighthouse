@@ -1,6 +1,9 @@
 use super::{PublicKey, SecretKey};
 use bls_aggregates::Signature as RawSignature;
-use ssz::{decode_ssz_list, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use serde::ser::{Serialize, Serializer};
+use ssz::{
+    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
+};
 
 /// A single BLS signature.
 ///
@@ -60,6 +63,15 @@ impl Decodable for Signature {
 impl TreeHash for Signature {
     fn hash_tree_root(&self) -> Vec<u8> {
         hash(&self.0.as_bytes())
+    }
+}
+
+impl Serialize for Signature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz_encode(self))
     }
 }
 

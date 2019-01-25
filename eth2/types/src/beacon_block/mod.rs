@@ -2,11 +2,12 @@ use super::{BeaconBlockBody, Eth1Data, Hash256};
 use crate::test_utils::TestRandom;
 use bls::Signature;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 mod signing;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct BeaconBlock {
     pub slot: u64,
     pub parent_root: Hash256,

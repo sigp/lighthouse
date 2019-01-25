@@ -1,9 +1,10 @@
 use super::AttestationData;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct AttestationDataAndCustodyBit {
     pub data: AttestationData,
     pub custody_bit: bool,

@@ -1,6 +1,7 @@
 use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
 use hex::encode as hex_encode;
+use serde::ser::{Serialize, Serializer};
 use ssz::{
     decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
 };
@@ -52,6 +53,15 @@ impl Decodable for PublicKey {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
         let raw_sig = RawPublicKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((PublicKey(raw_sig), i))
+    }
+}
+
+impl Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz_encode(self))
     }
 }
 
