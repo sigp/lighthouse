@@ -33,7 +33,6 @@ pub enum Error {
     SlotClockError,
     SlotUnknowable,
     EpochMapPoisoned,
-    SlotClockPoisoned,
     EpochLengthIsZero,
     BeaconNodeError(BeaconNodeError),
 }

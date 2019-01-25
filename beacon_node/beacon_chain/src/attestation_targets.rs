@@ -1,7 +1,6 @@
-use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
+use crate::{BeaconChain, ClientDB, SlotClock};
 use std::collections::HashMap;
-use std::sync::RwLockReadGuard;
-use types::{BeaconBlock, BeaconState, Hash256};
+use types::Hash256;
 
 pub struct AttestationTargets {
     map: HashMap<u64, Hash256>,
