@@ -94,10 +94,10 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             let is_block_production_slot = match self.epoch_map.is_block_production_slot(slot) {
                 Ok(result) => result,
                 Err(DutiesReaderError::UnknownEpoch) => {
-                    return Ok(PollOutcome::ProducerDutiesUnknown(slot))
+                    return Ok(PollOutcome::ProducerDutiesUnknown(slot));
                 }
                 Err(DutiesReaderError::UnknownValidator) => {
-                    return Ok(PollOutcome::ValidatorIsUnknown(slot))
+                    return Ok(PollOutcome::ValidatorIsUnknown(slot));
                 }
                 Err(DutiesReaderError::EpochLengthIsZero) => return Err(Error::EpochLengthIsZero),
                 Err(DutiesReaderError::Poisoned) => return Err(Error::EpochMapPoisoned),
