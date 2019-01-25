@@ -12,6 +12,7 @@ db = { path = "../db" }
 failure = "0.1"
 failure_derive = "0.1"
 genesis = { path = "../../eth2/genesis" }
+hashing = { path = "../../eth2/utils/hashing" }
 serde_derive = "1.0"
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 ssz = { path = "../../eth2/utils/ssz" }
