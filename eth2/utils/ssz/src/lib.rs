@@ -12,12 +12,15 @@ extern crate ethereum_types;
 
 pub mod decode;
 pub mod encode;
+pub mod tree_hash;
 
 mod impl_decode;
 mod impl_encode;
+mod impl_tree_hash;
 
 pub use crate::decode::{decode_ssz, decode_ssz_list, Decodable, DecodeError};
 pub use crate::encode::{Encodable, SszStream};
+pub use crate::tree_hash::{merkle_hash, TreeHash};
 
 pub const LENGTH_BYTES: usize = 4;
 pub const MAX_LIST_SIZE: usize = 1 << (4 * 8);
