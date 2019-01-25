@@ -117,14 +117,10 @@ where
          * RANDAO
          */
 
-        println!("proposer pubkey: {:?}", &block_proposer.pubkey);
         ensure!(
             bls_verify(
                 &block_proposer.pubkey,
-                // TODO: https://github.com/ethereum/eth2.0-specs/pull/496
-                //
-                // &ssz_encode(&block_proposer.proposer_slots),
-                &ssz_encode(&block.slot),
+                &ssz_encode(&block_proposer.proposer_slots),
                 &block.randao_reveal,
                 get_domain(&state.fork_data, state.slot, DOMAIN_RANDAO)
             ),
