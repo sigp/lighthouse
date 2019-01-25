@@ -149,6 +149,12 @@ impl ssz::Decodable for BooleanBitfield {
     }
 }
 
+impl ssz::TreeHash for BooleanBitfield {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        self.to_bytes().hash_tree_root()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
