@@ -6,7 +6,10 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
+use serde_json::Result as SerdeResult;
 use slot_clock::TestingSlotClock;
+use std::fs::File;
+use std::io::prelude::*;
 use std::sync::Arc;
 use types::{ChainSpec, Keypair, Validator};
 
@@ -86,5 +89,11 @@ impl TestRig {
 
     pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {
         self.beacon_chain.chain_dump()
+    }
+
+    pub fn dump_to_file(&self, filename: String, chain_dump: &Vec<SlotDump>) {
+        let json = serde_json::to_string(chain_dump).unwrap();
+        let mut file = File::create(filename).unwrap();
+        file.write_all(json.as_bytes());
     }
 }

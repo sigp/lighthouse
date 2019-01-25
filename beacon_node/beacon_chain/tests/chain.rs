@@ -15,4 +15,6 @@ fn it_can_produce_blocks() {
     let dump = rig.chain_dump().expect("Chain dump failed.");
 
     assert_eq!(dump.len(), blocks + 1); // + 1 for genesis block.
+
+    rig.dump_to_file("/tmp/chaindump.json".to_string(), &dump);
 }
