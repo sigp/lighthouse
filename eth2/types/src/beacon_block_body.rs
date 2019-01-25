@@ -78,9 +78,9 @@ impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
 
 #[cfg(test)]
 mod tests {
-    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {
