@@ -1,4 +1,4 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
+use super::ssz::{Decodable, DecodeError, Encodable, hash, TreeHash, SszStream};
 use rand::RngCore;
 use crate::test_utils::TestRandom;
 use super::AttestationData;
@@ -30,6 +30,16 @@ impl Decodable for AttestationDataAndCustodyBit {
     }
 }
 
+impl TreeHash for AttestationDataAndCustodyBit {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        let result: Vec<u8> = vec![];
+        result.append(&mut self.data.hash_tree_root());
+        // TODO: add bool ssz
+        // result.append(custody_bit.hash_tree_root());
+        ssz::hash(&result)
+    }
+}
+
 impl<T: RngCore> TestRandom<T> for AttestationDataAndCustodyBit {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
@@ -56,5 +66,17 @@ mod test {
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    pub fn test_hash_tree_root() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = AttestationDataAndCustodyBit::random_for_test(&mut rng);
+
+        let result = original.hash_tree_root();
+
+        assert_eq!(result.len(), 32);
+        // TODO: Add further tests
+        // https://github.com/sigp/lighthouse/issues/170
     }
 }

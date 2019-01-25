@@ -1,7 +1,9 @@
 use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
 use hex::encode as hex_encode;
-use ssz::{decode_ssz_list, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{
+    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
+};
 use std::default;
 use std::hash::{Hash, Hasher};
 
@@ -50,6 +52,12 @@ impl Decodable for PublicKey {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
         let raw_sig = RawPublicKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((PublicKey(raw_sig), i))
+    }
+}
+
+impl TreeHash for PublicKey {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        hash(&self.0.as_bytes())
     }
 }
 
