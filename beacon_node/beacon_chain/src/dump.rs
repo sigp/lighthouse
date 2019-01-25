@@ -1,7 +1,8 @@
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
+use serde_derive::Serialize;
 use types::{BeaconBlock, BeaconState, Hash256};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SlotDump {
     pub beacon_block: BeaconBlock,
     pub beacon_block_root: Hash256,
