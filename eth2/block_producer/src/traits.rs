@@ -6,6 +6,12 @@ pub enum BeaconNodeError {
     DecodeFailure,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum PublishOutcome {
+    ValidBlock,
+    InvalidBlock(String),
+}
+
 /// Defines the methods required to produce and publish blocks on a Beacon Node.
 pub trait BeaconNode: Send + Sync {
     /// Requests the proposer nonce (presently named `proposer_slots`).
@@ -23,7 +29,7 @@ pub trait BeaconNode: Send + Sync {
     /// Request that the node publishes a block.
     ///
     /// Returns `true` if the publish was sucessful.
-    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<bool, BeaconNodeError>;
+    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<PublishOutcome, BeaconNodeError>;
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -35,7 +41,7 @@ pub enum DutiesReaderError {
 
 /// Informs a validator of their duties (e.g., block production).
 pub trait DutiesReader: Send + Sync {
-    fn is_block_production_slot(&self, epoch: u64, slot: u64) -> Result<bool, DutiesReaderError>;
+    fn is_block_production_slot(&self, slot: u64) -> Result<bool, DutiesReaderError>;
 }
 
 /// Signs message using an internally-maintained private key.

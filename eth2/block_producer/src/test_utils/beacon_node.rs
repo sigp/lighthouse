@@ -1,10 +1,10 @@
-use crate::traits::{BeaconNode, BeaconNodeError};
+use crate::traits::{BeaconNode, BeaconNodeError, PublishOutcome};
 use std::sync::RwLock;
 use types::{BeaconBlock, PublicKey, Signature};
 
 type NonceResult = Result<u64, BeaconNodeError>;
 type ProduceResult = Result<Option<BeaconBlock>, BeaconNodeError>;
-type PublishResult = Result<bool, BeaconNodeError>;
+type PublishResult = Result<PublishOutcome, BeaconNodeError>;
 
 /// A test-only struct used to simulate a Beacon Node.
 #[derive(Default)]
