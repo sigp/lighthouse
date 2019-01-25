@@ -12,4 +12,7 @@ fn it_can_produce_blocks() {
     for _ in 0..blocks {
         rig.produce_next_slot();
     }
+    let dump = rig.chain_dump().expect("Chain dump failed.");
+
+    assert_eq!(dump.len(), blocks + 1); // + 1 for genesis block.
 }
