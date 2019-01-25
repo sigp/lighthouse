@@ -101,7 +101,7 @@ where
             Err(error) => {
                 return Ok(Outcome::InvalidBlock(InvalidBlock::StateTransitionFailed(
                     error,
-                )))
+                )));
             }
         };
 
