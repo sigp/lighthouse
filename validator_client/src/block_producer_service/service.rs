@@ -42,6 +42,9 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducerServi
                 Ok(BlockProducerPollOutcome::SignerRejection(slot)) => {
                     error!(self.log, "The cryptographic signer refused to sign the block"; "slot" => slot)
                 }
+                Ok(BlockProducerPollOutcome::ValidatorIsUnknown(slot)) => {
+                    error!(self.log, "The Beacon Node does not recognise the validator"; "slot" => slot)
+                }
             };
 
             std::thread::sleep(Duration::from_millis(self.poll_interval_millis));

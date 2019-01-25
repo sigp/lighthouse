@@ -36,6 +36,7 @@ pub trait BeaconNode: Send + Sync {
 pub enum DutiesReaderError {
     UnknownValidator,
     UnknownEpoch,
+    EpochLengthIsZero,
     Poisoned,
 }
 

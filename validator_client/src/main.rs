@@ -10,7 +10,7 @@ use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use spec::ChainSpec;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 
 mod block_producer_service;
@@ -92,7 +92,7 @@ fn main() {
         info!(log, "Genesis time"; "unix_epoch_seconds" => spec.genesis_time);
         let clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
             .expect("Unable to instantiate SystemTimeSlotClock.");
-        Arc::new(RwLock::new(clock))
+        Arc::new(clock)
     };
 
     let poll_interval_millis = spec.slot_duration * 1000 / 10; // 10% epoch time precision.
@@ -108,7 +108,7 @@ fn main() {
 
     for keypair in keypairs {
         info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
-        let duties_map = Arc::new(EpochDutiesMap::new());
+        let duties_map = Arc::new(EpochDutiesMap::new(spec.epoch_length));
 
         // Spawn a new thread to maintain the validator's `EpochDuties`.
         let duties_manager_thread = {
@@ -139,6 +139,7 @@ fn main() {
         // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
+            let pubkey = keypair.pk.clone();
             let signer = Arc::new(TestSigner::new(keypair.clone()));
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
@@ -146,7 +147,7 @@ fn main() {
             let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
             thread::spawn(move || {
                 let block_producer =
-                    BlockProducer::new(spec, duties_map, slot_clock, client, signer);
+                    BlockProducer::new(spec, pubkey, duties_map, slot_clock, client, signer);
                 let mut block_producer_service = BlockProducerService {
                     block_producer,
                     poll_interval_millis,

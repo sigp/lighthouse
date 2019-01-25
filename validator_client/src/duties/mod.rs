@@ -1,88 +1,18 @@
+mod duties_map;
 mod grpc;
 mod service;
 #[cfg(test)]
 mod test_node;
 mod traits;
 
+pub use self::duties_map::EpochDutiesMap;
+use self::duties_map::{EpochDuties, EpochDutiesMapError};
+pub use self::service::DutiesManagerService;
 use self::traits::{BeaconNode, BeaconNodeError};
-use block_producer::{DutiesReader, DutiesReaderError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use spec::ChainSpec;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-
-pub use self::service::DutiesManagerService;
-
-/// The information required for a validator to propose and attest during some epoch.
-///
-/// Generally obtained from a Beacon Node, this information contains the validators canonical index
-/// (thier sequence in the global validator induction process) and the "shuffling" for that index
-/// for some epoch.
-#[derive(Debug, PartialEq, Clone, Copy, Default)]
-pub struct EpochDuties {
-    pub validator_index: u64,
-    pub block_production_slot: Option<u64>,
-    // Future shard info
-}
-
-impl EpochDuties {
-    /// Returns `true` if the supplied `slot` is a slot in which the validator should produce a
-    /// block.
-    pub fn is_block_production_slot(&self, slot: u64) -> bool {
-        match self.block_production_slot {
-            Some(s) if s == slot => true,
-            _ => false,
-        }
-    }
-}
-
-pub enum EpochDutiesMapError {
-    Poisoned,
-}
-
-/// Maps an `epoch` to some `EpochDuties` for a single validator.
-pub struct EpochDutiesMap {
-    pub map: RwLock<HashMap<u64, EpochDuties>>,
-}
-
-impl EpochDutiesMap {
-    pub fn new() -> Self {
-        Self {
-            map: RwLock::new(HashMap::new()),
-        }
-    }
-
-    pub fn get(&self, epoch: u64) -> Result<Option<EpochDuties>, EpochDutiesMapError> {
-        let map = self.map.read().map_err(|_| EpochDutiesMapError::Poisoned)?;
-        match map.get(&epoch) {
-            Some(duties) => Ok(Some(duties.clone())),
-            None => Ok(None),
-        }
-    }
-
-    pub fn insert(
-        &self,
-        epoch: u64,
-        epoch_duties: EpochDuties,
-    ) -> Result<Option<EpochDuties>, EpochDutiesMapError> {
-        let mut map = self
-            .map
-            .write()
-            .map_err(|_| EpochDutiesMapError::Poisoned)?;
-        Ok(map.insert(epoch, epoch_duties))
-    }
-}
-
-impl DutiesReader for EpochDutiesMap {
-    fn is_block_production_slot(&self, epoch: u64, slot: u64) -> Result<bool, DutiesReaderError> {
-        let map = self.map.read().map_err(|_| DutiesReaderError::Poisoned)?;
-        let duties = map
-            .get(&epoch)
-            .ok_or_else(|| DutiesReaderError::UnknownEpoch)?;
-        Ok(duties.is_block_production_slot(slot))
-    }
-}
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
@@ -117,7 +47,7 @@ pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
     /// The validator's public key.
     pub pubkey: PublicKey,
     pub spec: Arc<ChainSpec>,
-    pub slot_clock: Arc<RwLock<T>>,
+    pub slot_clock: Arc<T>,
     pub beacon_node: Arc<U>,
 }
 
@@ -129,8 +59,6 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
     pub fn poll(&self) -> Result<PollOutcome, Error> {
         let slot = self
             .slot_clock
-            .read()
-            .map_err(|_| Error::SlotClockPoisoned)?
             .present_slot()
             .map_err(|_| Error::SlotClockError)?
             .ok_or(Error::SlotUnknowable)?;
@@ -187,9 +115,9 @@ mod tests {
     #[test]
     pub fn polling() {
         let spec = Arc::new(ChainSpec::foundation());
-        let duties_map = Arc::new(EpochDutiesMap::new());
+        let duties_map = Arc::new(EpochDutiesMap::new(spec.epoch_length));
         let keypair = Keypair::random();
-        let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
+        let slot_clock = Arc::new(TestingSlotClock::new(0));
         let beacon_node = Arc::new(TestBeaconNode::default());
 
         let manager = DutiesManager {

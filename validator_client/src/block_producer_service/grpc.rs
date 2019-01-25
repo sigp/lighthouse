@@ -1,11 +1,11 @@
-use block_producer::{BeaconNode, BeaconNodeError};
+use block_producer::{BeaconNode, BeaconNodeError, PublishOutcome};
 use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, Signature};
+use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, PublicKey, Signature};
 
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
@@ -20,11 +20,21 @@ impl BeaconBlockGrpcClient {
 }
 
 impl BeaconNode for BeaconBlockGrpcClient {
+    fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconNodeError> {
+        // TODO: this might not be required.
+        //
+        // See: https://github.com/ethereum/eth2.0-specs/pull/496
+        panic!("Not implemented.")
+    }
     /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
     ///
     /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
     /// BN is unable to find a parent block.
-    fn produce_beacon_block(&self, slot: u64) -> Result<Option<BeaconBlock>, BeaconNodeError> {
+    fn produce_beacon_block(
+        &self,
+        slot: u64,
+        randao_reveal: &Signature,
+    ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
         let mut req = ProduceBeaconBlockRequest::new();
         req.set_slot(slot);
 
@@ -73,7 +83,7 @@ impl BeaconNode for BeaconBlockGrpcClient {
     ///
     /// Generally, this will be called after a `produce_beacon_block` call with a block that has
     /// been completed (signed) by the validator client.
-    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<bool, BeaconNodeError> {
+    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<PublishOutcome, BeaconNodeError> {
         let mut req = PublishBeaconBlockRequest::new();
 
         // TODO: this conversion is incomplete; fix it.
@@ -90,6 +100,11 @@ impl BeaconNode for BeaconBlockGrpcClient {
             .publish_beacon_block(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
-        Ok(reply.get_success())
+        if reply.get_success() {
+            Ok(PublishOutcome::ValidBlock)
+        } else {
+            // TODO: distinguish between different errors
+            Ok(PublishOutcome::InvalidBlock("Publish failed".to_string()))
+        }
     }
 }
