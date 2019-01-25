@@ -85,6 +85,5 @@ mod tests {
 
         //note: should test againt a known test hash value
         assert_eq!(HASHSIZE, result.len());
-        println!("merkle_hash: {:?}", result);
     }
 }
