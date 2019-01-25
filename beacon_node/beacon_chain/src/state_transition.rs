@@ -4,8 +4,9 @@ use boolean_bitfield::BooleanBitfield;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::ssz_encode;
 use types::{
-    readers::BeaconBlockReader, AttestationData, AttestationDataAndCustodyBit, BeaconBlock,
-    BeaconState, Exit, Fork, Hash256, PendingAttestation, ProposalSignedData,
+    beacon_state::SlotProcessingError, readers::BeaconBlockReader, AttestationData,
+    AttestationDataAndCustodyBit, BeaconBlock, BeaconState, Exit, Fork, Hash256,
+    PendingAttestation,
 };
 
 // TODO: define elsehwere.
@@ -59,13 +60,30 @@ where
 {
     pub fn state_transition(
         &self,
+        state: BeaconState,
+        block: &BeaconBlock,
+    ) -> Result<BeaconState, Error> {
+        self.internal_state_transition(state, block, true)
+    }
+
+    pub fn state_transition_without_verifying_block_signature(
+        &self,
+        state: BeaconState,
+        block: &BeaconBlock,
+    ) -> Result<BeaconState, Error> {
+        self.internal_state_transition(state, block, false)
+    }
+
+    fn internal_state_transition(
+        &self,
         mut state: BeaconState,
         block: &BeaconBlock,
+        verify_block_signature: bool,
     ) -> Result<BeaconState, Error> {
         ensure!(state.slot < block.slot, Error::StateAlreadyTransitioned);
 
         for _ in state.slot..block.slot {
-            self.per_slot_processing(&mut state, &block.parent_root)?;
+            state.per_slot_processing(block.parent_root.clone(), &self.spec)?;
         }
 
         /*
@@ -78,44 +96,35 @@ where
          * Proposer Signature
          */
 
-        let block_without_signature_root = {
-            let mut block_without_signature = block.clone();
-            block_without_signature.signature = self.spec.empty_signature.clone();
-            block_without_signature.canonical_root()
-        };
-
-        let proposal_root = {
-            let proposal = ProposalSignedData {
-                slot: state.slot,
-                shard: self.spec.beacon_chain_shard_number,
-                block_root: block_without_signature_root,
-            };
-            hash_tree_root(&proposal)
-        };
-
-        let block_proposer_index =
-            get_beacon_proposer_index(&state, block.slot, self.spec.epoch_length)
-                .ok_or(Error::NoBlockProducer)?;
+        let block_proposer_index = state
+            .get_beacon_proposer_index(block.slot, &self.spec)
+            .ok_or(Error::NoBlockProducer)?;
         let block_proposer = &state.validator_registry[block_proposer_index];
 
-        ensure!(
-            bls_verify(
-                &block_proposer.pubkey,
-                &proposal_root,
-                &block.signature,
-                get_domain(&state.fork_data, state.slot, DOMAIN_PROPOSAL)
-            ),
-            Error::BadBlockSignature
-        );
+        if verify_block_signature {
+            ensure!(
+                bls_verify(
+                    &block_proposer.pubkey,
+                    &block.proposal_root(&self.spec)[..],
+                    &block.signature,
+                    get_domain(&state.fork_data, state.slot, DOMAIN_PROPOSAL)
+                ),
+                Error::BadBlockSignature
+            );
+        }
 
         /*
          * RANDAO
          */
 
+        println!("proposer pubkey: {:?}", &block_proposer.pubkey);
         ensure!(
             bls_verify(
                 &block_proposer.pubkey,
-                &ssz_encode(&block_proposer.proposer_slots),
+                // TODO: https://github.com/ethereum/eth2.0-specs/pull/496
+                //
+                // &ssz_encode(&block_proposer.proposer_slots),
+                &ssz_encode(&block.slot),
                 &block.randao_reveal,
                 get_domain(&state.fork_data, state.slot, DOMAIN_RANDAO)
             ),
@@ -358,35 +367,6 @@ where
 
         Ok(state)
     }
-
-    fn per_slot_processing(
-        &self,
-        state: &mut BeaconState,
-        previous_block_root: &Hash256,
-    ) -> Result<(), Error> {
-        let epoch_length = self.spec.epoch_length;
-        let latest_randao_mixes_length = self.spec.latest_randao_mixes_length;
-        let latest_block_roots_length = self.spec.latest_block_roots_length;
-
-        // Misc counters.
-        state.slot += 1;
-        let block_proposer = get_beacon_proposer_index(&state, state.slot, epoch_length)
-            .ok_or(Error::NoBlockProducer)?;
-        state.validator_registry[block_proposer].proposer_slots += 1;
-        state.latest_randao_mixes[(state.slot % latest_randao_mixes_length) as usize] =
-            state.latest_randao_mixes[((state.slot - 1) % latest_randao_mixes_length) as usize];
-
-        // Block roots.
-        state.latest_block_roots
-            [((state.slot - 1) % self.spec.latest_block_roots_length) as usize] =
-            *previous_block_root;
-
-        if state.slot % latest_block_roots_length == 0 {
-            let root = merkle_root(&state.latest_block_roots[..]);
-            state.batched_block_roots.push(root);
-        }
-        Ok(())
-    }
 }
 
 fn initiate_validator_exit(_state: &BeaconState, _index: u32) {
@@ -450,20 +430,6 @@ fn hash_tree_root<T>(_input: &T) -> Hash256 {
     Hash256::zero()
 }
 
-fn merkle_root(_input: &[Hash256]) -> Hash256 {
-    // TODO: stubbed out.
-    Hash256::zero()
-}
-
-fn get_beacon_proposer_index(
-    _state: &BeaconState,
-    _slot: u64,
-    _epoch_length: u64,
-) -> Option<usize> {
-    // TODO: stubbed out.
-    Some(0)
-}
-
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
         Error::DBError(e.message)
@@ -479,5 +445,13 @@ impl From<TestingSlotClockError> for Error {
 impl From<SystemTimeSlotClockError> for Error {
     fn from(e: SystemTimeSlotClockError) -> Error {
         Error::SlotClockError(e)
+    }
+}
+
+impl From<SlotProcessingError> for Error {
+    fn from(e: SlotProcessingError) -> Error {
+        match e {
+            SlotProcessingError::UnableToDetermineProducer => Error::NoBlockProducer,
+        }
     }
 }

@@ -68,7 +68,8 @@ where
             },
         };
 
-        let state = self.state_transition(parent_state, &block)?;
+        let state =
+            self.state_transition_without_verifying_block_signature(parent_state, &block)?;
 
         let state_root = state.canonical_root();
 

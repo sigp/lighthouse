@@ -134,14 +134,23 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// slashing.
     fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, Error> {
         let randao_reveal = {
+            /*
+             * TODO:
+             * https://github.com/ethereum/eth2.0-specs/pull/496
+             *
             let producer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
             // TODO: add domain, etc to this message.
             let message = ssz_encode(&producer_nonce);
+            */
+            // TODO: add domain, etc to this message.
+            let message = ssz_encode(&slot);
+            println!("validator randao: {:?}", &message);
             match self.signer.bls_sign(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
                 Some(signature) => signature,
             }
         };
+        println!("validator pubkey: {:?}", &self.pubkey);
 
         if let Some(block) = self
             .beacon_node
@@ -169,21 +178,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn sign_block(&mut self, mut block: BeaconBlock) -> Option<BeaconBlock> {
         self.store_produce(&block);
 
-        let proposal_root = {
-            let block_without_signature_root = {
-                let mut block_without_signature = block.clone();
-                block_without_signature.signature = self.spec.empty_signature.clone();
-                block_without_signature.canonical_root()
-            };
-            let proposal = ProposalSignedData {
-                slot: block.slot,
-                shard: self.spec.beacon_chain_shard_number,
-                block_root: block_without_signature_root,
-            };
-            hash_tree_root(&proposal)
-        };
-
-        match self.signer.bls_sign(&proposal_root[..]) {
+        match self.signer.bls_sign(&block.proposal_root(&self.spec)[..]) {
             None => None,
             Some(signature) => {
                 block.signature = signature;
@@ -212,11 +207,6 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
         // TODO: record this block production to prevent future slashings.
         // https://github.com/sigp/lighthouse/issues/160
     }
-}
-
-fn hash_tree_root<T>(_input: &T) -> Hash256 {
-    // TODO: stubbed out.
-    Hash256::zero()
 }
 
 impl From<BeaconNodeError> for Error {
