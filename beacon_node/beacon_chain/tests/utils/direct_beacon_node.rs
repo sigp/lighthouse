@@ -1,22 +1,27 @@
+use beacon_chain::block_processing::{Error as ProcessingError, Outcome as ProcessingOutcome};
 use beacon_chain::{block_production::Error as BlockProductionError, BeaconChain};
-use block_producer::{BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError};
+use block_producer::{
+    BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError, PublishOutcome,
+};
 use db::ClientDB;
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use types::{BeaconBlock, PublicKey, Signature};
 
-pub struct DirectBeaconNode<'a, T: ClientDB, U: SlotClock> {
-    beacon_chain: &'a BeaconChain<T, U>,
+pub struct DirectBeaconNode<T: ClientDB, U: SlotClock> {
+    beacon_chain: Arc<BeaconChain<T, U>>,
 }
 
-impl<'a, T: ClientDB, U: SlotClock> DirectBeaconNode<'a, T, U> {
-    pub fn new(beacon_chain: &'a BeaconChain<T, U>) -> Self {
+impl<T: ClientDB, U: SlotClock> DirectBeaconNode<T, U> {
+    pub fn new(beacon_chain: Arc<BeaconChain<T, U>>) -> Self {
         Self { beacon_chain }
     }
 }
 
-impl<'a, T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<'a, T, U>
+impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U>
 where
     BlockProductionError: From<<U>::Error>,
+    ProcessingError: From<<U as SlotClock>::Error>,
 {
     fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconBlockNodeError> {
         let validator_index = self
@@ -51,8 +56,16 @@ where {
         }
     }
 
-    /// Returns the value specified by the `set_next_publish_result`.
-    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<bool, BeaconBlockNodeError> {
-        Err(BeaconBlockNodeError::DecodeFailure)
+    fn publish_beacon_block(
+        &self,
+        block: BeaconBlock,
+    ) -> Result<PublishOutcome, BeaconBlockNodeError> {
+        match self.beacon_chain.process_block(block) {
+            Ok(ProcessingOutcome::ValidBlock(_)) => Ok(PublishOutcome::ValidBlock),
+            Ok(ProcessingOutcome::InvalidBlock(reason)) => {
+                Ok(PublishOutcome::InvalidBlock(format!("{:?}", reason)))
+            }
+            Err(error) => Err(BeaconBlockNodeError::RemoteFailure(format!("{:?}", error))),
+        }
     }
 }

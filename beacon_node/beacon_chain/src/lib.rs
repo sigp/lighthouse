@@ -1,8 +1,9 @@
 mod attestation_targets;
 mod block_graph;
-mod block_processing;
+pub mod block_processing;
 pub mod block_production;
 mod canonical_head;
+mod finalized_head;
 mod info;
 mod lmd_ghost;
 mod state_transition;
@@ -17,9 +18,8 @@ use genesis::{genesis_beacon_block, genesis_beacon_state, GenesisError};
 use slot_clock::SlotClock;
 use spec::ChainSpec;
 use ssz::ssz_encode;
-use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use types::{BeaconBlock, BeaconState, Hash256, PublicKey};
+use types::{BeaconBlock, BeaconState, Hash256};
 
 pub use self::block_processing::Outcome as BlockProcessingOutcome;
 

@@ -8,14 +8,21 @@ use types::{
 };
 
 #[derive(Debug, PartialEq)]
-pub enum Outcome {
-    FutureSlot,
+pub enum ValidBlock {
     Processed,
-    NewCanonicalBlock,
-    NewReorgBlock,
-    NewForkBlock,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum InvalidBlock {
+    FutureSlot,
     StateTransitionFailed(TransitionError),
     StateRootMismatch,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Outcome {
+    ValidBlock(ValidBlock),
+    InvalidBlock(InvalidBlock),
 }
 
 #[derive(Debug, PartialEq)]
@@ -70,7 +77,7 @@ where
 
         // Block from future slots (i.e., greater than the present slot) should not be processed.
         if block.slot() > present_slot {
-            return Ok(Outcome::FutureSlot);
+            return Ok(Outcome::InvalidBlock(InvalidBlock::FutureSlot));
         }
 
         let parent_block_root = block.parent_root();
@@ -80,7 +87,8 @@ where
             .get_reader(&parent_block_root)?
             .ok_or(Error::MissingParentBlock(parent_block_root))?;
 
-        let parent_state_root = parent_block.parent_root();
+        let parent_state_root = parent_block.state_root();
+
         let parent_state = self
             .state_store
             .get_reader(&parent_state_root)?
@@ -90,13 +98,17 @@ where
 
         let state = match self.state_transition(parent_state, &block) {
             Ok(state) => state,
-            Err(error) => return Ok(Outcome::StateTransitionFailed(error)),
+            Err(error) => {
+                return Ok(Outcome::InvalidBlock(InvalidBlock::StateTransitionFailed(
+                    error,
+                )))
+            }
         };
 
         let state_root = state.canonical_root();
 
         if block.state_root != state_root {
-            return Ok(Outcome::StateRootMismatch);
+            return Ok(Outcome::InvalidBlock(InvalidBlock::StateRootMismatch));
         }
 
         // Store the block and state.
@@ -119,7 +131,7 @@ where
         }
 
         // The block was sucessfully processed.
-        Ok(Outcome::Processed)
+        Ok(Outcome::ValidBlock(ValidBlock::Processed))
     }
 }
 

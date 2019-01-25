@@ -11,75 +11,77 @@ use spec::ChainSpec;
 use std::sync::{Arc, RwLock};
 use types::{Keypair, Validator};
 
-pub struct TestRig<'a> {
+pub struct TestRig {
     db: Arc<MemoryDB>,
-    beacon_chain: BeaconChain<MemoryDB, TestingSlotClock>,
+    beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
     block_store: Arc<BeaconBlockStore<MemoryDB>>,
     state_store: Arc<BeaconStateStore<MemoryDB>>,
-    validators: Vec<TestValidator<'a>>,
+    validators: Vec<TestValidator>,
 }
 
-impl<'a> TestRig<'a> {
-    pub fn new(spec: ChainSpec) -> Self {
+impl TestRig {
+    pub fn new(mut spec: ChainSpec, validator_count: usize) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
         let slot_clock = TestingSlotClock::new(0);
 
-        let mut beacon_chain =
-            BeaconChain::genesis(state_store.clone(), block_store.clone(), slot_clock, spec)
-                .unwrap();
+        // Remove the validators present in the spec (if any).
+        spec.initial_validators = Vec::with_capacity(validator_count);
+        spec.initial_balances = Vec::with_capacity(validator_count);
 
-        /*
-        let validators = generate_validators(validator_count, &beacon_chain);
-        beacon_chain.spec = inject_validators_into_spec(beacon_chain.spec.clone(), &validators[..]);
-        */
+        // Insert `validator_count` new `Validator` records into the spec, retaining the keypairs
+        // for later user.
+        let mut keypairs = Vec::with_capacity(validator_count);
+        for _ in 0..validator_count {
+            let keypair = Keypair::random();
+
+            spec.initial_validators.push(Validator {
+                pubkey: keypair.pk.clone(),
+                ..std::default::Default::default()
+            });
+            spec.initial_balances.push(32_000_000_000); // 32 ETH
+
+            keypairs.push(keypair);
+        }
+
+        // Create the Beacon Chain
+        let beacon_chain = Arc::new(
+            BeaconChain::genesis(state_store.clone(), block_store.clone(), slot_clock, spec)
+                .unwrap(),
+        );
+
+        // Spawn the test validator instances.
+        let mut validators = Vec::with_capacity(validator_count);
+        for keypair in keypairs {
+            validators.push(TestValidator::new(keypair.clone(), beacon_chain.clone()));
+        }
 
         Self {
             db,
             beacon_chain,
             block_store,
             state_store,
-            validators: vec![],
+            validators,
         }
     }
 
-    pub fn generate_validators(&'a mut self, validator_count: usize) {
-        self.validators = Vec::with_capacity(validator_count);
-        for _ in 0..validator_count {
-            self.validators.push(TestValidator::new(&self.beacon_chain));
-        }
-        self.beacon_chain.spec =
-            inject_validators_into_spec(self.beacon_chain.spec.clone(), &self.validators[..]);
-    }
-
-    pub fn process_next_slot(&mut self) {
+    pub fn produce_next_slot(&mut self) {
         let slot = self
             .beacon_chain
             .present_slot()
             .expect("Unable to determine slot.")
             + 1;
+
         self.beacon_chain.slot_clock.set_slot(slot);
 
-        let block_proposer = self
+        let proposer = self
             .beacon_chain
             .block_proposer(slot)
             .expect("Unable to determine proposer.");
 
-        let validator = self
-            .validators
-            .get(block_proposer)
-            .expect("Block proposer unknown");
+        self.validators[proposer].set_slot(slot);
+        self.validators[proposer].produce_block().unwrap();
     }
-}
-
-fn inject_validators_into_spec(mut spec: ChainSpec, validators: &[TestValidator]) -> ChainSpec {
-    spec.initial_validators = Vec::with_capacity(validators.len());
-    spec.initial_balances = Vec::with_capacity(validators.len());
-    for validator in validators {
-        spec.initial_validators.push(validator.validator_record());
-        spec.initial_balances.push(32_000_000_000); // 32 ETH
-    }
-    spec
 }
