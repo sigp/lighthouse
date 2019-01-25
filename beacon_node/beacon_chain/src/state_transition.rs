@@ -3,7 +3,7 @@ use bls::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
 use boolean_bitfield::BooleanBitfield;
 use hashing::hash;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
-use ssz::ssz_encode;
+use ssz::{ssz_encode, TreeHash};
 use types::{
     beacon_state::SlotProcessingError, readers::BeaconBlockReader, AttestationData,
     AttestationDataAndCustodyBit, BeaconBlock, BeaconState, Exit, Fork, Hash256,
@@ -183,7 +183,7 @@ where
             ensure!(
                 bls_verify(
                     &proposer.pubkey,
-                    &hash_tree_root(&proposer_slashing.proposal_data_1),
+                    &proposer_slashing.proposal_data_1.hash_tree_root(),
                     &proposer_slashing.proposal_signature_1,
                     get_domain(
                         &state.fork_data,
@@ -196,7 +196,7 @@ where
             ensure!(
                 bls_verify(
                     &proposer.pubkey,
-                    &hash_tree_root(&proposer_slashing.proposal_data_2),
+                    &proposer_slashing.proposal_data_2.hash_tree_root(),
                     &proposer_slashing.proposal_signature_2,
                     get_domain(
                         &state.fork_data,
@@ -273,7 +273,7 @@ where
                     data: attestation.data.clone(),
                     custody_bit: false,
                 };
-                hash_tree_root(&attestation_data_and_custody_bit).to_vec()
+                &attestation_data_and_custody_bit.hash_tree_root()
             };
             // Signature verification.
             ensure!(
@@ -333,7 +333,7 @@ where
                     validator_index: exit.validator_index,
                     signature: self.spec.empty_signature.clone(),
                 };
-                hash_tree_root(&exit_struct)
+                exit_struct.hash_tree_root()
             };
             ensure!(
                 bls_verify(
@@ -416,11 +416,6 @@ fn bls_verify_aggregate(
 ) -> bool {
     // TODO: add domain
     signature.verify(message, pubkey)
-}
-
-fn hash_tree_root<T>(_input: &T) -> Hash256 {
-    // TODO: stubbed out.
-    Hash256::zero()
 }
 
 impl From<DBError> for Error {
