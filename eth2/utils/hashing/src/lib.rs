@@ -1,4 +1,3 @@
-use ssz::{ssz_encode, Encodable as SszEncodable};
 use tiny_keccak::Keccak;
 
 pub fn canonical_hash(input: &[u8]) -> Vec<u8> {
@@ -7,10 +6,6 @@ pub fn canonical_hash(input: &[u8]) -> Vec<u8> {
     let mut result = vec![0; 32];
     keccak.finalize(result.as_mut_slice());
     result
-}
-
-pub fn hash_tree_root<T: SszEncodable>(input: &T) -> Vec<u8> {
-    canonical_hash(&ssz_encode(input))
 }
 
 #[cfg(test)]

@@ -80,6 +80,14 @@ mod tests {
     }
 
     #[test]
+    fn test_ssz_encode_address() {
+        let h = Address::zero();
+        let mut ssz = SszStream::new();
+        ssz.append(&h);
+        assert_eq!(ssz.drain(), vec![0; 20]);
+    }
+
+    #[test]
     fn test_ssz_encode_u8() {
         let x: u8 = 0;
         let mut ssz = SszStream::new();

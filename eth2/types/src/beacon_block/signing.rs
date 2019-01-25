@@ -1,5 +1,5 @@
 use crate::{BeaconBlock, ChainSpec, Hash256, ProposalSignedData};
-use hashing::hash_tree_root;
+use ssz::TreeHash;
 
 impl BeaconBlock {
     pub fn proposal_root(&self, spec: &ChainSpec) -> Hash256 {
@@ -14,6 +14,6 @@ impl BeaconBlock {
             shard: spec.beacon_chain_shard_number,
             block_root: block_without_signature_root,
         };
-        Hash256::from_slice(&hash_tree_root(&proposal)[..])
+        Hash256::from_slice(&proposal.hash_tree_root()[..])
     }
 }

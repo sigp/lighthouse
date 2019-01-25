@@ -1,5 +1,5 @@
 use bls_aggregates::{DecodeError as BlsDecodeError, SecretKey as RawSecretKey};
-use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A single BLS signature.
 ///
@@ -37,6 +37,12 @@ impl Decodable for SecretKey {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
         let raw_sig = RawSecretKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((SecretKey(raw_sig), i))
+    }
+}
+
+impl TreeHash for SecretKey {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        self.0.as_bytes().clone()
     }
 }
 

@@ -2,7 +2,7 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use bls::PublicKey;
 use rand::RngCore;
-use ssz::{Decodable, DecodeError, Encodable, SszStream};
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 const STATUS_FLAG_INITIATED_EXIT: u8 = 1;
 const STATUS_FLAG_WITHDRAWABLE: u8 = 2;
@@ -142,6 +142,24 @@ impl Decodable for Validator {
     }
 }
 
+impl TreeHash for Validator {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+        result.append(&mut self.pubkey.hash_tree_root());
+        result.append(&mut self.withdrawal_credentials.hash_tree_root());
+        result.append(&mut self.proposer_slots.hash_tree_root());
+        result.append(&mut self.activation_slot.hash_tree_root());
+        result.append(&mut self.exit_slot.hash_tree_root());
+        result.append(&mut self.withdrawal_slot.hash_tree_root());
+        result.append(&mut self.penalized_slot.hash_tree_root());
+        result.append(&mut self.exit_count.hash_tree_root());
+        result.append(&mut (status_flag_to_byte(self.status_flags) as u64).hash_tree_root());
+        result.append(&mut self.latest_custody_reseed_slot.hash_tree_root());
+        result.append(&mut self.penultimate_custody_reseed_slot.hash_tree_root());
+        hash(&result)
+    }
+}
+
 impl<T: RngCore> TestRandom<T> for Validator {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
@@ -197,5 +215,17 @@ mod tests {
                 assert!(validator.is_active_at(slot));
             }
         }
+    }
+
+    #[test]
+    pub fn test_hash_tree_root() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let original = Validator::random_for_test(&mut rng);
+
+        let result = original.hash_tree_root();
+
+        assert_eq!(result.len(), 32);
+        // TODO: Add further tests
+        // https://github.com/sigp/lighthouse/issues/170
     }
 }
