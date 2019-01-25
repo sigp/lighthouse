@@ -32,7 +32,31 @@ where
     U: SlotClock,
     Error: From<<U as SlotClock>::Error>,
 {
-    pub fn slow_lmd_ghost(&mut self, start_hash: &Hash256) -> Result<Hash256, Error> {
+    pub fn fork_choice(&self) -> Result<(), Error> {
+        let present_head = &self.finalized_head().beacon_block_root;
+
+        let new_head = self.slow_lmd_ghost(&self.finalized_head().beacon_block_root)?;
+
+        if new_head != *present_head {
+            let block = self
+                .block_store
+                .get_deserialized(&new_head)?
+                .ok_or_else(|| Error::MissingBeaconBlock(new_head))?;
+            let block_root = block.canonical_root();
+
+            let state = self
+                .state_store
+                .get_deserialized(&block.state_root)?
+                .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+            let state_root = state.canonical_root();
+
+            self.update_canonical_head(block, block_root, state, state_root);
+        }
+
+        Ok(())
+    }
+
+    pub fn slow_lmd_ghost(&self, start_hash: &Hash256) -> Result<Hash256, Error> {
         let start = self
             .block_store
             .get_reader(&start_hash)?

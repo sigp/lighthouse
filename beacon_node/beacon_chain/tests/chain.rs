@@ -20,8 +20,9 @@ fn rig_can_generate_validators() {
     let validators = generate_validators(2, &chain);
     chain.spec = inject_validators_into_spec(chain.spec.clone(), &validators[..]);
     */
-    let mut rig = TestRig::new(ChainSpec::foundation());
-    rig.generate_validators(2);
+    let validator_count = 2;
+    let mut rig = TestRig::new(ChainSpec::foundation(), validator_count);
+    rig.produce_next_slot();
 }
 
 /*
