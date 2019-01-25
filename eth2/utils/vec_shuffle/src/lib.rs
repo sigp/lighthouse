@@ -45,7 +45,7 @@ mod tests {
 
     use std::{fs::File, io::prelude::*, path::PathBuf};
 
-    use super::{hashing::canonical_hash, *};
+    use super::{hashing::hash, *};
 
     #[test]
     fn test_shuffling() {
@@ -70,7 +70,7 @@ mod tests {
             let seed_bytes = test_case["seed"].as_str().unwrap().as_bytes();
 
             let seed = if seed_bytes.len() > 0 {
-                canonical_hash(seed_bytes)
+                hash(seed_bytes)
             } else {
                 vec![]
             };

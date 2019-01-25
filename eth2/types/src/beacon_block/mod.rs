@@ -1,9 +1,8 @@
 use super::{BeaconBlockBody, Eth1Data, Hash256};
 use crate::test_utils::TestRandom;
 use bls::Signature;
-use hashing::canonical_hash;
 use rand::RngCore;
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 mod signing;
 

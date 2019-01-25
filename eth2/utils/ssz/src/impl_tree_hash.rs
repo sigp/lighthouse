@@ -1,5 +1,6 @@
 use super::ethereum_types::{Address, H256};
-use super::{hash, merkle_hash, ssz_encode, TreeHash};
+use super::{merkle_hash, ssz_encode, TreeHash};
+use hashing::hash;
 
 impl TreeHash for u8 {
     fn hash_tree_root(&self) -> Vec<u8> {

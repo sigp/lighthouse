@@ -20,7 +20,9 @@ mod impl_tree_hash;
 
 pub use crate::decode::{decode_ssz, decode_ssz_list, Decodable, DecodeError};
 pub use crate::encode::{Encodable, SszStream};
-pub use crate::tree_hash::{hash, merkle_hash, TreeHash};
+pub use crate::tree_hash::{merkle_hash, TreeHash};
+
+pub use hashing::hash;
 
 pub const LENGTH_BYTES: usize = 4;
 pub const MAX_LIST_SIZE: usize = 1 << (4 * 8);

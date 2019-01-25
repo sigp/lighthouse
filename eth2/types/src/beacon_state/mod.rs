@@ -6,9 +6,8 @@ use super::pending_attestation::PendingAttestation;
 use super::validator::Validator;
 use super::Hash256;
 use crate::test_utils::TestRandom;
-use hashing::canonical_hash;
 use rand::RngCore;
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 mod slot_advance;
 

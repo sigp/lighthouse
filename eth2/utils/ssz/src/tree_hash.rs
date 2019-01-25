@@ -1,4 +1,4 @@
-use hashing::canonical_hash;
+use hashing::hash;
 
 const SSZ_CHUNK_SIZE: usize = 128;
 const HASHSIZE: usize = 32;
@@ -62,10 +62,6 @@ fn list_to_blob(list: &mut Vec<Vec<u8>>) -> (usize, Vec<u8>) {
         }
     }
     (chunk_size, data)
-}
-
-pub fn hash(data: &[u8]) -> Vec<u8> {
-    canonical_hash(data)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
 use bls::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
 use boolean_bitfield::BooleanBitfield;
+use hashing::hash;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::ssz_encode;
 use types::{
@@ -127,12 +128,13 @@ where
             Error::BadRandaoSignature
         );
 
+        // TODO: check this is correct.
         let new_mix = {
             let mut mix = state.latest_randao_mixes
                 [(state.slot % self.spec.latest_randao_mixes_length) as usize]
                 .to_vec();
             mix.append(&mut ssz_encode(&block.randao_reveal));
-            hash(&mix)
+            Hash256::from(&hash(&mix)[..])
         };
 
         state.latest_randao_mixes[(state.slot % self.spec.latest_randao_mixes_length) as usize] =
@@ -394,11 +396,6 @@ fn get_block_root(
 
 fn penalize_validator(_state: &BeaconState, _proposer_index: usize) {
     // TODO: stubbed out.
-}
-
-fn hash<T>(_input: &T) -> Hash256 {
-    // TODO: stubbed out.
-    Hash256::zero()
 }
 
 fn get_domain(_fork: &Fork, _slot: u64, _domain_type: u64) -> u64 {
