@@ -43,6 +43,12 @@ impl TreeHash for H256 {
     }
 }
 
+impl TreeHash for bool {
+    fn hash_tree_root(&self) -> Vec<u8> {
+        ssz_encode(self)
+    }
+}
+
 impl TreeHash for [u8] {
     fn hash_tree_root(&self) -> Vec<u8> {
         if self.len() > 32 {
