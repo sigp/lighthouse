@@ -1,6 +1,6 @@
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
 use super::{AggregatePublicKey, Signature};
 use bls_aggregates::AggregateSignature as RawAggregateSignature;
+use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
 
 /// A BLS aggregate signature.
 ///
@@ -46,8 +46,8 @@ impl Decodable for AggregateSignature {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::super::{Keypair, Signature};
+    use super::ssz::ssz_encode;
     use super::*;
 
     #[test]

@@ -430,19 +430,19 @@ fn get_domain(_fork: &Fork, _slot: u64, _domain_type: u64) -> u64 {
     0
 }
 
-fn bls_verify(_pubkey: &PublicKey, _message: &[u8], _signature: &Signature, _domain: u64) -> bool {
-    // TODO: stubbed out.
-    true
+fn bls_verify(pubkey: &PublicKey, message: &[u8], signature: &Signature, _domain: u64) -> bool {
+    // TODO: add domain
+    signature.verify(message, pubkey)
 }
 
 fn bls_verify_aggregate(
-    _pubkey: &AggregatePublicKey,
-    _message: &[u8],
-    _signature: &AggregateSignature,
+    pubkey: &AggregatePublicKey,
+    message: &[u8],
+    signature: &AggregateSignature,
     _domain: u64,
 ) -> bool {
-    // TODO: stubbed out.
-    true
+    // TODO: add domain
+    signature.verify(message, pubkey)
 }
 
 fn hash_tree_root<T>(_input: &T) -> Hash256 {

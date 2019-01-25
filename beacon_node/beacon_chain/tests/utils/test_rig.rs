@@ -1,15 +1,13 @@
-use super::{DirectBeaconNode, DirectDuties, TestValidator};
+use super::TestValidator;
 use beacon_chain::BeaconChain;
 #[cfg(test)]
-use block_producer::{test_utils::TestSigner, BlockProducer};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
 use slot_clock::TestingSlotClock;
-use spec::ChainSpec;
-use std::sync::{Arc, RwLock};
-use types::{Keypair, Validator};
+use std::sync::Arc;
+use types::{ChainSpec, Keypair, Validator};
 
 pub struct TestRig {
     db: Arc<MemoryDB>,

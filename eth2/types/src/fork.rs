@@ -1,6 +1,6 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Fork {
@@ -46,7 +46,7 @@ impl<T: RngCore> TestRandom<T> for Fork {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 

@@ -1,6 +1,6 @@
-use super::bls::PublicKey;
 use super::Hash256;
 use crate::test_utils::TestRandom;
+use bls::PublicKey;
 use rand::RngCore;
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
@@ -162,7 +162,7 @@ impl<T: RngCore> TestRandom<T> for Validator {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 

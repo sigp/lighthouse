@@ -1,7 +1,7 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::AttestationData;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AttestationDataAndCustodyBit {
@@ -39,7 +39,7 @@ impl<T: RngCore> TestRandom<T> for AttestationDataAndCustodyBit {
 
 #[cfg(test)]
 mod test {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 

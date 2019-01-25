@@ -1,8 +1,3 @@
-extern crate bls;
-extern crate boolean_bitfield;
-extern crate ethereum_types;
-extern crate ssz;
-
 pub mod test_utils;
 
 pub mod attestation;
@@ -26,6 +21,7 @@ pub mod proposer_slashing;
 pub mod shard_committee;
 pub mod shard_reassignment_record;
 pub mod slashable_vote_data;
+pub mod spec;
 pub mod special_record;
 pub mod validator;
 pub mod validator_registry;
@@ -33,7 +29,7 @@ pub mod validator_registry_delta_block;
 
 pub mod readers;
 
-use self::ethereum_types::{H160, H256, U256};
+use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 
 pub use crate::attestation::Attestation;
@@ -56,6 +52,7 @@ pub use crate::proposal_signed_data::ProposalSignedData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::shard_committee::ShardCommittee;
 pub use crate::slashable_vote_data::SlashableVoteData;
+pub use crate::spec::ChainSpec;
 pub use crate::special_record::{SpecialRecord, SpecialRecordKind};
 pub use crate::validator::{StatusFlags as ValidatorStatusFlags, Validator};
 pub use crate::validator_registry_delta_block::ValidatorRegistryDeltaBlock;

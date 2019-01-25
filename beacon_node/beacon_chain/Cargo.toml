@@ -14,6 +14,5 @@ failure_derive = "0.1"
 genesis = { path = "../../eth2/genesis" }
 serde_derive = "1.0"
 slot_clock = { path = "../../eth2/utils/slot_clock" }
-spec = { path = "../../eth2/spec" }
 ssz = { path = "../../eth2/utils/ssz" }
 types = { path = "../../eth2/types" }

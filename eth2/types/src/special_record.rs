@@ -1,4 +1,4 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
 /// The value of the "type" field of SpecialRecord.
 ///

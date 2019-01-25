@@ -6,6 +6,5 @@ edition = "2018"
 
 [dependencies]
 honey-badger-split = { path = "../utils/honey-badger-split" }
-spec = { path = "../spec" }
 types = { path = "../types" }
 vec_shuffle = { path = "../utils/vec_shuffle" }

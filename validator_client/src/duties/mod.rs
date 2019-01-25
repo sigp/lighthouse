@@ -11,8 +11,8 @@ pub use self::service::DutiesManagerService;
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
-use spec::ChainSpec;
 use std::sync::Arc;
+use types::ChainSpec;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
