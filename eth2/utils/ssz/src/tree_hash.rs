@@ -11,7 +11,7 @@ pub trait TreeHash {
 /// Note that this will consume 'list'.
 pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
     // flatten list
-    let (chunk_size, mut chunkz) = list_to_blob(list);
+    let (mut chunk_size, mut chunkz) = list_to_blob(list);
 
     // get data_len as bytes. It will hashed will the merkle root
     let datalen = list.len().to_le_bytes();
