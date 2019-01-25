@@ -2,9 +2,10 @@ use super::{AttestationData, Bitfield};
 use crate::test_utils::TestRandom;
 use bls::AggregateSignature;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Attestation {
     pub data: AttestationData,
     pub aggregation_bitfield: Bitfield,

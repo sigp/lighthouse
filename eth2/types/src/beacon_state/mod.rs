@@ -7,6 +7,7 @@ use super::validator::Validator;
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 mod slot_advance;
@@ -16,7 +17,7 @@ pub use self::slot_advance::Error as SlotProcessingError;
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct BeaconState {
     // Misc
     pub slot: u64,

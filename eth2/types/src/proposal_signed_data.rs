@@ -1,9 +1,10 @@
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct ProposalSignedData {
     pub slot: u64,
     pub shard: u64,

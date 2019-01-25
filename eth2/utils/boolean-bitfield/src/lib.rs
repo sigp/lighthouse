@@ -3,6 +3,7 @@ extern crate ssz;
 
 use bit_vec::BitVec;
 
+use serde::ser::{Serialize, Serializer};
 use std::cmp;
 use std::default;
 
@@ -146,6 +147,15 @@ impl ssz::Decodable for BooleanBitfield {
             let index = index + ssz::LENGTH_BYTES + len;
             Ok((field, index))
         }
+    }
+}
+
+impl Serialize for BooleanBitfield {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz::ssz_encode(self))
     }
 }
 

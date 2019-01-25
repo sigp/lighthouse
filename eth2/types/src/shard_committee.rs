@@ -1,8 +1,9 @@
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ShardCommittee {
     pub shard: u64,
     pub committee: Vec<usize>,

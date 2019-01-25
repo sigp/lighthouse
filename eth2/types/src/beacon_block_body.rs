@@ -1,6 +1,7 @@
 use super::{Attestation, CasperSlashing, Deposit, Exit, ProposerSlashing};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 // The following types are just dummy classes as they will not be defined until
@@ -9,7 +10,7 @@ type CustodyReseed = usize;
 type CustodyChallenge = usize;
 type CustodyResponse = usize;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct BeaconBlockBody {
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub casper_slashings: Vec<CasperSlashing>,

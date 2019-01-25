@@ -2,9 +2,10 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use bls::{PublicKey, Signature};
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct DepositInput {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,

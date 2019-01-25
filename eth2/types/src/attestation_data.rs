@@ -1,6 +1,7 @@
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
@@ -14,7 +15,7 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 // justified_block_root
 };
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct AttestationData {
     pub slot: u64,
     pub shard: u64,

@@ -1,6 +1,9 @@
 use super::{AggregatePublicKey, Signature};
 use bls_aggregates::AggregateSignature as RawAggregateSignature;
-use ssz::{decode_ssz_list, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use serde::ser::{Serialize, Serializer};
+use ssz::{
+    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
+};
 
 /// A BLS aggregate signature.
 ///
@@ -41,6 +44,15 @@ impl Decodable for AggregateSignature {
         let raw_sig =
             RawAggregateSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((AggregateSignature(raw_sig), i))
+    }
+}
+
+impl Serialize for AggregateSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz_encode(self))
     }
 }
 
