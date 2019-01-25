@@ -1,8 +1,3 @@
-extern crate spec;
-extern crate types;
-extern crate validator_induction;
-extern crate validator_shuffling;
-
 mod beacon_block;
 mod beacon_state;
 

@@ -16,10 +16,9 @@ use db::{
 };
 use genesis::{genesis_beacon_block, genesis_beacon_state, GenesisError};
 use slot_clock::SlotClock;
-use spec::ChainSpec;
 use ssz::ssz_encode;
 use std::sync::{Arc, RwLock};
-use types::{BeaconBlock, BeaconState, Hash256};
+use types::{BeaconBlock, BeaconState, ChainSpec, Hash256};
 
 pub use self::block_processing::Outcome as BlockProcessingOutcome;
 

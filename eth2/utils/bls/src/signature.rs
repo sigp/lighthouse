@@ -1,6 +1,6 @@
-use super::ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
 use super::{PublicKey, SecretKey};
 use bls_aggregates::Signature as RawSignature;
+use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream};
 
 /// A single BLS signature.
 ///
@@ -59,8 +59,8 @@ impl Decodable for Signature {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::super::Keypair;
+    use super::ssz::ssz_encode;
     use super::*;
 
     #[test]

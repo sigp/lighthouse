@@ -15,8 +15,8 @@ use db::{
 };
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
-use spec::ChainSpec;
 use std::sync::Arc;
+use types::ChainSpec;
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();

@@ -1,7 +1,7 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::Eth1Data;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
 // Note: this is refer to as DepositRootVote in specs
 #[derive(Debug, PartialEq, Clone, Default)]
@@ -43,7 +43,7 @@ impl<T: RngCore> TestRandom<T> for Eth1DataVote {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 

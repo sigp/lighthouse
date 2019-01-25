@@ -67,7 +67,7 @@ impl Hash for PublicKey {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
 
     #[test]

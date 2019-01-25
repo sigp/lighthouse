@@ -1,7 +1,7 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -102,7 +102,7 @@ impl<T: RngCore> TestRandom<T> for AttestationData {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 

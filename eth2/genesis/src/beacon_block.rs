@@ -1,5 +1,4 @@
-use spec::ChainSpec;
-use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256};
+use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256};
 
 /// Generate a genesis BeaconBlock.
 pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {

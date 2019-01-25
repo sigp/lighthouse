@@ -2,10 +2,9 @@ pub mod test_utils;
 mod traits;
 
 use slot_clock::SlotClock;
-use spec::ChainSpec;
 use ssz::ssz_encode;
 use std::sync::Arc;
-use types::{BeaconBlock, Hash256, ProposalSignedData, PublicKey};
+use types::{BeaconBlock, ChainSpec, Hash256, ProposalSignedData, PublicKey};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,

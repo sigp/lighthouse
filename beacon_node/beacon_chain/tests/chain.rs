@@ -7,9 +7,8 @@ use db::{
     MemoryDB,
 };
 use slot_clock::TestingSlotClock;
-use spec::ChainSpec;
 use std::sync::{Arc, RwLock};
-use types::{Keypair, Validator};
+use types::{ChainSpec, Keypair, Validator};
 
 mod utils;
 

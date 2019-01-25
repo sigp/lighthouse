@@ -1,9 +1,9 @@
-use super::ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use super::{BeaconBlockBody, Eth1Data, Hash256};
 use crate::test_utils::TestRandom;
 use bls::Signature;
 use hashing::canonical_hash;
 use rand::RngCore;
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BeaconBlock {
@@ -77,7 +77,7 @@ impl<T: RngCore> TestRandom<T> for BeaconBlock {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 

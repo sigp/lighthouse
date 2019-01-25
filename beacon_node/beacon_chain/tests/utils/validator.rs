@@ -4,9 +4,8 @@ use beacon_chain::BeaconChain;
 use block_producer::{test_utils::TestSigner, BlockProducer, Error as PollError};
 use db::MemoryDB;
 use slot_clock::TestingSlotClock;
-use spec::ChainSpec;
-use std::sync::{Arc, RwLock};
-use types::{Keypair, Validator};
+use std::sync::Arc;
+use types::{ChainSpec, Keypair};
 
 pub use block_producer::PollOutcome;
 

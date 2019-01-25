@@ -1,7 +1,7 @@
-use super::ssz::{Decodable, DecodeError, Encodable, SszStream};
 use super::{Attestation, CasperSlashing, Deposit, Exit, ProposerSlashing};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 
 // The following types are just dummy classes as they will not be defined until
 // Phase 1 (Sharding phase)
@@ -78,7 +78,7 @@ impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
+    use super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 

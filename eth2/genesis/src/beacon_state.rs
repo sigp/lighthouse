@@ -1,5 +1,4 @@
-use spec::ChainSpec;
-use types::{BeaconState, Crosslink, Fork};
+use types::{BeaconState, ChainSpec, Crosslink, Fork};
 use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
 
 #[derive(Debug, PartialEq)]
