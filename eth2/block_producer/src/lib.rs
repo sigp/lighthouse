@@ -134,23 +134,16 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// slashing.
     fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, Error> {
         let randao_reveal = {
-            /*
-             * TODO:
-             * https://github.com/ethereum/eth2.0-specs/pull/496
-             *
             let producer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
+
             // TODO: add domain, etc to this message.
             let message = ssz_encode(&producer_nonce);
-            */
-            // TODO: add domain, etc to this message.
-            let message = ssz_encode(&slot);
-            println!("validator randao: {:?}", &message);
+
             match self.signer.bls_sign(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
                 Some(signature) => signature,
             }
         };
-        println!("validator pubkey: {:?}", &self.pubkey);
 
         if let Some(block) = self
             .beacon_node
