@@ -1,4 +1,5 @@
 use super::TestValidator;
+pub use beacon_chain::dump::{Error as DumpError, SlotDump};
 use beacon_chain::BeaconChain;
 #[cfg(test)]
 use db::{
@@ -81,5 +82,9 @@ impl TestRig {
 
         self.validators[proposer].set_slot(slot);
         self.validators[proposer].produce_block().unwrap();
+    }
+
+    pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {
+        self.beacon_chain.chain_dump()
     }
 }
