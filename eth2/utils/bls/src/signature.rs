@@ -60,8 +60,8 @@ impl Decodable for Signature {
 #[cfg(test)]
 mod tests {
     use super::super::Keypair;
-    use super::ssz::ssz_encode;
     use super::*;
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

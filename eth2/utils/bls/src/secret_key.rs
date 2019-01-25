@@ -42,8 +42,8 @@ impl Decodable for SecretKey {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

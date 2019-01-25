@@ -67,8 +67,8 @@ impl Hash for PublicKey {
 
 #[cfg(test)]
 mod tests {
-    use super::ssz::ssz_encode;
     use super::*;
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {
