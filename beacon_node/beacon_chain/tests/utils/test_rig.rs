@@ -19,6 +19,7 @@ pub struct TestRig {
     block_store: Arc<BeaconBlockStore<MemoryDB>>,
     state_store: Arc<BeaconStateStore<MemoryDB>>,
     validators: Vec<TestValidator>,
+    pub spec: ChainSpec,
 }
 
 impl TestRig {
@@ -50,8 +51,13 @@ impl TestRig {
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
-            BeaconChain::genesis(state_store.clone(), block_store.clone(), slot_clock, spec)
-                .unwrap(),
+            BeaconChain::genesis(
+                state_store.clone(),
+                block_store.clone(),
+                slot_clock,
+                spec.clone(),
+            )
+            .unwrap(),
         );
 
         // Spawn the test validator instances.
@@ -66,6 +72,7 @@ impl TestRig {
             block_store,
             state_store,
             validators,
+            spec,
         }
     }
 
