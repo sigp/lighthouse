@@ -239,12 +239,13 @@ where
             }
             ensure!(
                 attestation.data.justified_block_root
-                    == *get_block_root(
-                        &state,
-                        attestation.data.justified_slot,
-                        self.spec.latest_block_roots_length
-                    )
-                    .ok_or(Error::NoBlockRoot)?,
+                    == *state
+                        .get_block_root(
+                            &state,
+                            attestation.data.justified_slot,
+                            self.spec.latest_block_roots_length
+                        )
+                        .ok_or(Error::NoBlockRoot)?,
                 Error::BadAttestation
             );
             ensure!(
@@ -376,22 +377,8 @@ fn get_attestation_participants(
     _attestation_data: &AttestationData,
     _aggregation_bitfield: &BooleanBitfield,
 ) -> Vec<usize> {
+    // TODO: stubbed out.
     vec![0, 1]
-}
-
-fn get_block_root(
-    state: &BeaconState,
-    slot: u64,
-    latest_block_roots_length: u64,
-) -> Option<&Hash256> {
-    // TODO: test
-    if state.slot <= slot + latest_block_roots_length && slot <= state.slot {
-        state
-            .latest_block_roots
-            .get((slot % latest_block_roots_length) as usize)
-    } else {
-        None
-    }
 }
 
 fn penalize_validator(_state: &BeaconState, _proposer_index: usize) {
