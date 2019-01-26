@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub struct PublicKey(RawPublicKey);
 
 impl PublicKey {
