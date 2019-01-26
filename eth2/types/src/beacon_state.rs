@@ -35,8 +35,8 @@ pub struct BeaconState {
     pub current_epoch_start_shard: u64,
     pub previous_epoch_calculation_slot: u64,
     pub current_epoch_calculation_slot: u64,
-    pub previous_epoch_randao_mix: Hash256,
-    pub current_epoch_randao_mix: Hash256,
+    pub previous_epoch_seed: Hash256,
+    pub current_epoch_seed: Hash256,
 
     // Custody challenges
     pub custody_challenges: Vec<CustodyChallenge>,
@@ -125,8 +125,8 @@ impl Encodable for BeaconState {
         s.append(&self.current_epoch_start_shard);
         s.append(&self.previous_epoch_calculation_slot);
         s.append(&self.current_epoch_calculation_slot);
-        s.append(&self.previous_epoch_randao_mix);
-        s.append(&self.current_epoch_randao_mix);
+        s.append(&self.previous_epoch_seed);
+        s.append(&self.current_epoch_seed);
         s.append(&self.custody_challenges);
         s.append(&self.previous_justified_slot);
         s.append(&self.justified_slot);
@@ -158,8 +158,8 @@ impl Decodable for BeaconState {
         let (current_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (current_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_epoch_randao_mix, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_epoch_randao_mix, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
         let (custody_challenges, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_justified_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (justified_slot, i) = <_>::ssz_decode(bytes, i)?;
@@ -189,8 +189,8 @@ impl Decodable for BeaconState {
                 current_epoch_start_shard,
                 previous_epoch_calculation_slot,
                 current_epoch_calculation_slot,
-                previous_epoch_randao_mix,
-                current_epoch_randao_mix,
+                previous_epoch_seed,
+                current_epoch_seed,
                 custody_challenges,
                 previous_justified_slot,
                 justified_slot,
@@ -226,8 +226,8 @@ impl TreeHash for BeaconState {
         result.append(&mut self.current_epoch_start_shard.hash_tree_root());
         result.append(&mut self.previous_epoch_calculation_slot.hash_tree_root());
         result.append(&mut self.current_epoch_calculation_slot.hash_tree_root());
-        result.append(&mut self.previous_epoch_randao_mix.hash_tree_root());
-        result.append(&mut self.current_epoch_randao_mix.hash_tree_root());
+        result.append(&mut self.previous_epoch_seed.hash_tree_root());
+        result.append(&mut self.current_epoch_seed.hash_tree_root());
         result.append(&mut self.custody_challenges.hash_tree_root());
         result.append(&mut self.previous_justified_slot.hash_tree_root());
         result.append(&mut self.justified_slot.hash_tree_root());
@@ -261,8 +261,8 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             current_epoch_start_shard: <_>::random_for_test(rng),
             previous_epoch_calculation_slot: <_>::random_for_test(rng),
             current_epoch_calculation_slot: <_>::random_for_test(rng),
-            previous_epoch_randao_mix: <_>::random_for_test(rng),
-            current_epoch_randao_mix: <_>::random_for_test(rng),
+            previous_epoch_seed: <_>::random_for_test(rng),
+            current_epoch_seed: <_>::random_for_test(rng),
             custody_challenges: <_>::random_for_test(rng),
             previous_justified_slot: <_>::random_for_test(rng),
             justified_slot: <_>::random_for_test(rng),
