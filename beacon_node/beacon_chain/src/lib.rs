@@ -4,6 +4,7 @@ pub mod block_processing;
 pub mod block_production;
 mod canonical_head;
 pub mod dump;
+pub mod epoch_processing;
 mod finalized_head;
 mod info;
 mod lmd_ghost;

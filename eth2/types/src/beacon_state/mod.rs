@@ -10,9 +10,12 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-mod slot_advance;
+mod epoch_processing;
+mod slot_processing;
+mod winning_root;
 
-pub use self::slot_advance::Error as SlotProcessingError;
+pub use self::epoch_processing::Error as EpochProcessingError;
+pub use self::slot_processing::Error as SlotProcessingError;
 
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
@@ -53,7 +56,7 @@ pub struct BeaconState {
     // Recent state
     pub latest_crosslinks: Vec<Crosslink>,
     pub latest_block_roots: Vec<Hash256>,
-    pub latest_penalized_exit_balances: Vec<u64>,
+    pub latest_penalized_balances: Vec<u64>,
     pub latest_attestations: Vec<PendingAttestation>,
     pub batched_block_roots: Vec<Hash256>,
 
@@ -93,7 +96,7 @@ impl Encodable for BeaconState {
         s.append(&self.finalized_slot);
         s.append(&self.latest_crosslinks);
         s.append(&self.latest_block_roots);
-        s.append(&self.latest_penalized_exit_balances);
+        s.append(&self.latest_penalized_balances);
         s.append(&self.latest_attestations);
         s.append(&self.batched_block_roots);
         s.append(&self.latest_eth1_data);
@@ -126,7 +129,7 @@ impl Decodable for BeaconState {
         let (finalized_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_crosslinks, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_penalized_exit_balances, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_penalized_balances, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_attestations, i) = <_>::ssz_decode(bytes, i)?;
         let (batched_block_roots, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_eth1_data, i) = <_>::ssz_decode(bytes, i)?;
@@ -157,7 +160,7 @@ impl Decodable for BeaconState {
                 finalized_slot,
                 latest_crosslinks,
                 latest_block_roots,
-                latest_penalized_exit_balances,
+                latest_penalized_balances,
                 latest_attestations,
                 batched_block_roots,
                 latest_eth1_data,
@@ -194,7 +197,7 @@ impl TreeHash for BeaconState {
         result.append(&mut self.finalized_slot.hash_tree_root());
         result.append(&mut self.latest_crosslinks.hash_tree_root());
         result.append(&mut self.latest_block_roots.hash_tree_root());
-        result.append(&mut self.latest_penalized_exit_balances.hash_tree_root());
+        result.append(&mut self.latest_penalized_balances.hash_tree_root());
         result.append(&mut self.latest_attestations.hash_tree_root());
         result.append(&mut self.batched_block_roots.hash_tree_root());
         result.append(&mut self.latest_eth1_data.hash_tree_root());
@@ -229,7 +232,7 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             finalized_slot: <_>::random_for_test(rng),
             latest_crosslinks: <_>::random_for_test(rng),
             latest_block_roots: <_>::random_for_test(rng),
-            latest_penalized_exit_balances: <_>::random_for_test(rng),
+            latest_penalized_balances: <_>::random_for_test(rng),
             latest_attestations: <_>::random_for_test(rng),
             batched_block_roots: <_>::random_for_test(rng),
             latest_eth1_data: <_>::random_for_test(rng),
