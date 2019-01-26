@@ -240,11 +240,7 @@ where
             ensure!(
                 attestation.data.justified_block_root
                     == *state
-                        .get_block_root(
-                            &state,
-                            attestation.data.justified_slot,
-                            self.spec.latest_block_roots_length
-                        )
+                        .get_block_root(attestation.data.justified_slot, &self.spec)
                         .ok_or(Error::NoBlockRoot)?,
                 Error::BadAttestation
             );
@@ -363,6 +359,10 @@ where
             block.body.custody_responses.is_empty(),
             Error::BadCustodyResponses
         );
+
+        if state.slot % self.spec.epoch_length == 0 {
+            state.per_epoch_processing(&self.spec);
+        }
 
         Ok(state)
     }

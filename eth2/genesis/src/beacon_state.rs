@@ -73,7 +73,7 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
          */
         latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
         latest_block_roots: vec![spec.zero_hash; spec.latest_block_roots_length as usize],
-        latest_penalized_exit_balances: vec![0; spec.latest_penalized_exit_length as usize],
+        latest_penalized_balances: vec![0; spec.latest_penalized_exit_length as usize],
         latest_attestations: vec![],
         batched_block_roots: vec![],
         /*
@@ -193,9 +193,9 @@ mod tests {
             assert_eq!(*block, Hash256::zero());
         }
 
-        // Test latest_penalized_exit_balances
-        assert_eq!(state.latest_penalized_exit_balances.len(), 8_192);
-        for item in state.latest_penalized_exit_balances.iter() {
+        // Test latest_penalized_balances
+        assert_eq!(state.latest_penalized_balances.len(), 8_192);
+        for item in state.latest_penalized_balances.iter() {
             assert!(*item == 0);
         }
 
