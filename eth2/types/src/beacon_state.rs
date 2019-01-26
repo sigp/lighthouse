@@ -5,11 +5,50 @@ use super::fork::Fork;
 use super::pending_attestation::PendingAttestation;
 use super::ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::validator::Validator;
+use super::validator_registry::get_active_validator_indices;
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use hashing::canonical_hash;
+use honey_badger_split::SplitExt;
 use rand::RngCore;
+use std::cmp;
 use std::ops::Range;
+
+// utility function pending this functionality being stabilized on the `Range` type.
+fn range_contains<T: PartialOrd>(range: &Range<T>, target: T) -> bool {
+    range.start <= target && target < range.end
+}
+
+// TODO this function is not implemented
+// NOTE: just splits the current active set, does not shuffle!
+fn get_shuffling(
+    _seed: Hash256,
+    validators: &[Validator],
+    slot: u64,
+    committees_per_slot: u64,
+    epoch_length: u64,
+) -> Vec<Vec<usize>> {
+    get_active_validator_indices(validators, slot)
+        .honey_badger_split((committees_per_slot * epoch_length) as usize)
+        .map(|chunk| chunk.to_vec())
+        .collect::<Vec<_>>()
+}
+
+/// this function computes how many committees should exist for every slot (within an epoch), given some number of validators active within that epoch.
+fn get_committee_count_per_slot(
+    active_validator_count: usize,
+    shard_count: u64,
+    epoch_length: u64,
+    target_committee_size: u64,
+) -> u64 {
+    cmp::max(
+        1,
+        cmp::min(
+            shard_count / epoch_length,
+            active_validator_count as u64 / epoch_length / target_committee_size,
+        ),
+    )
+}
 
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
@@ -59,6 +98,13 @@ pub struct BeaconState {
     pub eth1_data_votes: Vec<Eth1DataVote>,
 }
 
+pub enum Error {
+    InvalidSlot,
+    InsufficientNumberOfValidators,
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
 impl BeaconState {
     pub fn canonical_root(&self) -> Hash256 {
         // TODO: implement tree hashing.
@@ -66,31 +112,127 @@ impl BeaconState {
         Hash256::from(&canonical_hash(&ssz_encode(self))[..])
     }
 
-    /// Returns the `ShardCommittee` for the `slot`.
-    /// If the state does not contain a `ShardCommittee` for the requested `slot`, then `None` is returned.
-    pub fn get_shard_committees_at_slot(
+    fn get_previous_epoch_committee_count_per_slot(
+        &self,
+        shard_count: u64,
+        epoch_length: u64,
+        target_committee_size: u64,
+    ) -> u64 {
+        let previous_active_validators = get_active_validator_indices(
+            &self.validator_registry,
+            self.previous_epoch_calculation_slot,
+        );
+        get_committee_count_per_slot(
+            previous_active_validators.len(),
+            shard_count,
+            epoch_length,
+            target_committee_size,
+        )
+    }
+
+    fn get_current_epoch_committee_count_per_slot(
+        &self,
+        shard_count: u64,
+        epoch_length: u64,
+        target_committee_size: u64,
+    ) -> u64 {
+        let current_active_validators = get_active_validator_indices(
+            &self.validator_registry,
+            self.current_epoch_calculation_slot,
+        );
+        get_committee_count_per_slot(
+            current_active_validators.len(),
+            shard_count,
+            epoch_length,
+            target_committee_size,
+        )
+    }
+
+    /// Returns the collection of `(committee, shard)` tuples for the requested `slot`.
+    /// NOTE: a `committee` here is a finite sequence of validator indices and the `shard` is the shard number.
+    pub fn get_crosslink_committees_at_slot(
         &self,
         slot: u64,
         epoch_length: u64,
-    ) -> Option<&Vec<ShardCommittee>> {
-        let earliest_slot_in_array = self.slot - (self.slot % epoch_length) - epoch_length;
-        if earliest_slot_in_array <= slot && slot < earliest_slot_in_array + epoch_length * 2 {
-            let index = (slot - earliest_slot_in_array) as usize;
-            self.shard_committees_at_slots.get(index)
-        } else {
-            None
+        shard_count: u64,
+        target_committee_size: u64,
+    ) -> Result<Vec<(Vec<usize>, u64)>> {
+        let current_epoch_range = self.get_current_epoch_boundaries(epoch_length);
+        if !range_contains(&current_epoch_range, slot) {
+            return Err(Error::InvalidSlot);
         }
+
+        let state_epoch_slot = current_epoch_range.start;
+        let offset = slot % epoch_length;
+
+        let (committees_per_slot, shuffling, slot_start_shard) = if slot < state_epoch_slot {
+            let committees_per_slot = self.get_previous_epoch_committee_count_per_slot(
+                shard_count,
+                epoch_length,
+                target_committee_size,
+            );
+            let shuffling = get_shuffling(
+                self.previous_epoch_seed,
+                &self.validator_registry,
+                self.previous_epoch_calculation_slot,
+                committees_per_slot,
+                epoch_length,
+            );
+            let slot_start_shard =
+                (self.previous_epoch_start_shard + committees_per_slot * offset) % shard_count;
+            (committees_per_slot, shuffling, slot_start_shard)
+        } else {
+            let committees_per_slot = self.get_current_epoch_committee_count_per_slot(
+                shard_count,
+                epoch_length,
+                target_committee_size,
+            );
+            let shuffling = get_shuffling(
+                self.current_epoch_seed,
+                &self.validator_registry,
+                self.current_epoch_calculation_slot,
+                committees_per_slot,
+                epoch_length,
+            );
+            let slot_start_shard =
+                (self.current_epoch_start_shard + committees_per_slot * offset) % shard_count;
+            (committees_per_slot, shuffling, slot_start_shard)
+        };
+
+        let shard_range = slot_start_shard..;
+        Ok(shuffling
+            .into_iter()
+            .skip((committees_per_slot * offset) as usize)
+            .zip(shard_range.into_iter())
+            .take(committees_per_slot as usize)
+            .map(|(committees, shard_number)| (committees, shard_number % shard_count))
+            .collect::<Vec<_>>())
     }
 
     /// Returns the beacon proposer index for the `slot`.
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
-    pub fn get_beacon_proposer_index(&self, slot: u64, epoch_length: u64) -> Option<usize> {
-        self.get_shard_committees_at_slot(slot, epoch_length)
-            .and_then(|shard_committees| shard_committees.get(0))
-            .and_then(|shard_committee| {
-                let first_committee = &shard_committee.committee;
-                let target_index = slot as usize % first_committee.len();
-                first_committee.get(target_index).cloned()
+    pub fn get_beacon_proposer_index(
+        &self,
+        slot: u64,
+        epoch_length: u64,
+        shard_count: u64,
+        target_committee_size: u64,
+    ) -> Result<usize> {
+        let committees = self.get_crosslink_committees_at_slot(
+            slot,
+            epoch_length,
+            shard_count,
+            target_committee_size,
+        )?;
+        committees
+            .first()
+            .ok_or(Error::InsufficientNumberOfValidators)
+            .and_then(|(first_committee, _)| {
+                let index = (slot as usize)
+                    .checked_rem(first_committee.len())
+                    .ok_or(Error::InsufficientNumberOfValidators)?;
+                // NOTE: next index will not panic as we have already returned if this is the case
+                Ok(first_committee[index])
             })
     }
 
@@ -143,7 +285,7 @@ impl Encodable for BeaconState {
 }
 
 impl Decodable for BeaconState {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
+    fn ssz_decode(bytes: &[u8], i: usize) -> std::result::Result<(Self, usize), DecodeError> {
         let (slot, i) = <_>::ssz_decode(bytes, i)?;
         let (genesis_time, i) = <_>::ssz_decode(bytes, i)?;
         let (fork_data, i) = <_>::ssz_decode(bytes, i)?;
@@ -284,7 +426,6 @@ mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use std::ops::Range;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -307,10 +448,6 @@ mod tests {
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
         // https://github.com/sigp/lighthouse/issues/170
-    }
-
-    fn range_contains<T: PartialOrd>(range: &Range<T>, target: T) -> bool {
-        range.start <= target && target < range.end
     }
 
     #[test]

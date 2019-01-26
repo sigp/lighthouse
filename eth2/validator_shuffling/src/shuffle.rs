@@ -3,10 +3,10 @@ use std::cmp::min;
 use honey_badger_split::SplitExt;
 use spec::ChainSpec;
 use types::validator_registry::get_active_validator_indices;
-use types::{ShardCommittee, Validator};
+use types::Validator;
 use vec_shuffle::{shuffle, ShuffleErr};
 
-type DelegatedCycle = Vec<Vec<ShardCommittee>>;
+type DelegatedCycle = Vec<Vec<(Vec<usize>, u64)>>;
 
 #[derive(Debug, PartialEq)]
 pub enum ValidatorAssignmentError {
@@ -76,7 +76,7 @@ fn generate_cycle(
         }
     };
 
-    let cycle = validator_indices
+    let _cycle: DelegatedCycle = validator_indices
         .honey_badger_split(epoch_length)
         .enumerate()
         .map(|(i, slot_indices)| {
@@ -85,14 +85,11 @@ fn generate_cycle(
             slot_indices
                 .honey_badger_split(committees_per_slot)
                 .enumerate()
-                .map(|(j, shard_indices)| ShardCommittee {
-                    shard: ((shard_start + j) % shard_count) as u64,
-                    committee: shard_indices.to_vec(),
-                })
+                .map(|(j, shard_indices)| (vec![], 0))
                 .collect()
         })
         .collect();
-    Ok(cycle)
+    panic!("this function has been deprecated, do not use...");
 }
 
 impl From<ShuffleErr> for ValidatorAssignmentError {
