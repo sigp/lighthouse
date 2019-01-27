@@ -12,7 +12,7 @@ fn it_can_produce_blocks() {
     let blocks = rig.spec.epoch_length + 1;
 
     for _ in 0..blocks {
-        rig.produce_next_slot();
+        rig.advance_chain_with_block();
     }
     let dump = rig.chain_dump().expect("Chain dump failed.");
 
