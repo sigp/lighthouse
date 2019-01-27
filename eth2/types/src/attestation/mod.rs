@@ -5,6 +5,8 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
+mod signing;
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Attestation {
     pub data: AttestationData,

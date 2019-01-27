@@ -265,18 +265,11 @@ where
                         .as_raw(),
                 )
             }
-            let attestation_message = {
-                let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
-                    data: attestation.data.clone(),
-                    custody_bit: false,
-                };
-                &attestation_data_and_custody_bit.hash_tree_root()
-            };
             // Signature verification.
             ensure!(
                 bls_verify_aggregate(
                     &group_public_key,
-                    &attestation_message[..],
+                    &attestation.signable_message(),
                     &attestation.aggregate_signature,
                     get_domain(&state.fork_data, attestation.data.slot, DOMAIN_ATTESTATION)
                 ),
