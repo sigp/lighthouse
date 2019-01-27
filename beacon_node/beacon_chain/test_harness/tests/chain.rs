@@ -1,10 +1,10 @@
-use test_harness::TestRig;
+use test_harness::BeaconChainHarness;
 use types::ChainSpec;
 
 #[test]
 fn it_can_build_on_genesis_block() {
     let validator_count = 2;
-    let mut rig = TestRig::new(ChainSpec::foundation(), validator_count);
+    let mut rig = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
 
     rig.advance_chain_with_block();
 }
@@ -13,7 +13,7 @@ fn it_can_build_on_genesis_block() {
 #[ignore]
 fn it_can_produce_past_first_epoch_boundary() {
     let validator_count = 2;
-    let mut rig = TestRig::new(ChainSpec::foundation(), validator_count);
+    let mut rig = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
 
     let blocks = rig.spec.epoch_length + 1;
 
