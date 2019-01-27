@@ -15,18 +15,18 @@ pub enum ProduceError {
 }
 
 pub struct TestValidator {
-    block_producer: BlockProducer<
+    pub block_producer: BlockProducer<
         TestingSlotClock,
         BenchingBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
         TestSigner,
     >,
-    spec: Arc<ChainSpec>,
-    epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock>>,
-    keypair: Keypair,
-    beacon_node: Arc<BenchingBeaconNode<MemoryDB, TestingSlotClock>>,
-    slot_clock: Arc<TestingSlotClock>,
-    signer: Arc<TestSigner>,
+    pub spec: Arc<ChainSpec>,
+    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock>>,
+    pub keypair: Keypair,
+    pub beacon_node: Arc<BenchingBeaconNode<MemoryDB, TestingSlotClock>>,
+    pub slot_clock: Arc<TestingSlotClock>,
+    pub signer: Arc<TestSigner>,
 }
 
 impl TestValidator {
