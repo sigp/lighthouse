@@ -1,6 +1,7 @@
 use super::TestValidator;
 pub use beacon_chain::dump::{Error as DumpError, SlotDump};
 use beacon_chain::BeaconChain;
+use block_producer::BeaconNode;
 #[cfg(test)]
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -11,7 +12,7 @@ use slot_clock::TestingSlotClock;
 use std::fs::File;
 use std::io::prelude::*;
 use std::sync::Arc;
-use types::{ChainSpec, Keypair, Validator};
+use types::{BeaconBlock, ChainSpec, Keypair, Validator};
 
 pub struct TestRig {
     db: Arc<MemoryDB>,
@@ -76,7 +77,12 @@ impl TestRig {
         }
     }
 
-    pub fn produce_next_slot(&mut self) {
+    pub fn advance_chain_with_block(&mut self) {
+        let block = self.produce_next_slot();
+        self.beacon_chain.process_block(block).unwrap();
+    }
+
+    fn produce_next_slot(&mut self) -> BeaconBlock {
         let slot = self
             .beacon_chain
             .present_slot()
@@ -91,7 +97,7 @@ impl TestRig {
             .expect("Unable to determine proposer.");
 
         self.validators[proposer].set_slot(slot);
-        self.validators[proposer].produce_block().unwrap();
+        self.validators[proposer].produce_block().unwrap()
     }
 
     pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {
@@ -101,6 +107,7 @@ impl TestRig {
     pub fn dump_to_file(&self, filename: String, chain_dump: &Vec<SlotDump>) {
         let json = serde_json::to_string(chain_dump).unwrap();
         let mut file = File::create(filename).unwrap();
-        file.write_all(json.as_bytes());
+        file.write_all(json.as_bytes())
+            .expect("Failed writing dump to file.");
     }
 }

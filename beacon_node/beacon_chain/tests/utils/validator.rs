@@ -1,11 +1,11 @@
-use super::{DirectBeaconNode, DirectDuties};
+use super::{BenchingBeaconNode, DirectDuties};
 use beacon_chain::BeaconChain;
 #[cfg(test)]
 use block_producer::{test_utils::TestSigner, BlockProducer, Error as PollError};
 use db::MemoryDB;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
-use types::{ChainSpec, Keypair};
+use types::{BeaconBlock, ChainSpec, Keypair};
 
 pub use block_producer::PollOutcome;
 
@@ -18,14 +18,14 @@ pub enum ProduceError {
 pub struct TestValidator {
     block_producer: BlockProducer<
         TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock>,
+        BenchingBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
         TestSigner,
     >,
     spec: Arc<ChainSpec>,
     epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock>>,
     keypair: Keypair,
-    beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock>>,
+    beacon_node: Arc<BenchingBeaconNode<MemoryDB, TestingSlotClock>>,
     slot_clock: Arc<TestingSlotClock>,
     signer: Arc<TestSigner>,
 }
@@ -38,7 +38,7 @@ impl TestValidator {
         let spec = Arc::new(ChainSpec::foundation());
         let slot_clock = Arc::new(TestingSlotClock::new(0));
         let signer = Arc::new(TestSigner::new(keypair.clone()));
-        let beacon_node = Arc::new(DirectBeaconNode::new(beacon_chain.clone()));
+        let beacon_node = Arc::new(BenchingBeaconNode::new(beacon_chain.clone()));
         let epoch_map = Arc::new(DirectDuties::new(keypair.pk.clone(), beacon_chain.clone()));
 
         let block_producer = BlockProducer::new(
@@ -61,12 +61,18 @@ impl TestValidator {
         }
     }
 
-    pub fn produce_block(&mut self) -> Result<PollOutcome, ProduceError> {
+    pub fn produce_block(&mut self) -> Result<BeaconBlock, ProduceError> {
+        // Using `BenchingBeaconNode`, the validator will always return sucessufully if it tries to
+        // publish a block.
         match self.block_producer.poll() {
-            Ok(PollOutcome::BlockProduced(slot)) => Ok(PollOutcome::BlockProduced(slot)),
-            Ok(outcome) => Err(ProduceError::DidNotProduce(outcome)),
-            Err(error) => Err(ProduceError::PollError(error)),
-        }
+            Ok(PollOutcome::BlockProduced(_)) => {}
+            Ok(outcome) => return Err(ProduceError::DidNotProduce(outcome)),
+            Err(error) => return Err(ProduceError::PollError(error)),
+        };
+        Ok(self
+            .beacon_node
+            .last_published_block()
+            .expect("Unable to obtain produced block."))
     }
 
     pub fn set_slot(&mut self, slot: u64) {
