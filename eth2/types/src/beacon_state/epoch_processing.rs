@@ -1,7 +1,7 @@
 use super::winning_root::WinningRoot;
 use crate::{
-    validator::StatusFlags, validator_registry::get_active_validator_indices, Attestation,
-    AttestationData, BeaconState, Bitfield, ChainSpec, Crosslink, Hash256, PendingAttestation,
+    validator::StatusFlags, validator_registry::get_active_validator_indices, AttestationData,
+    BeaconState, Bitfield, ChainSpec, Crosslink, Hash256, PendingAttestation,
 };
 use integer_sqrt::IntegerSquareRoot;
 use std::collections::{HashMap, HashSet};
@@ -34,7 +34,7 @@ impl BeaconState {
             get_active_validator_indices(&self.validator_registry, self.slot);
         let total_balance: u64 = active_validator_indices
             .iter()
-            .fold(0, |acc, i| self.get_effective_balance(*i, spec));
+            .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec));
 
         let current_epoch_attestations: Vec<&PendingAttestation> = self
             .latest_attestations
@@ -240,25 +240,6 @@ impl BeaconState {
             .iter()
             .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec));
 
-        let all_crosslink_committees: Vec<CrosslinkCommittees> = {
-            // TODO: check staturating sub is correct
-            let start_slot = self.slot.saturating_sub(2 * spec.epoch_length);
-
-            // Sub is safe due to previous line.
-            //
-            // TODO: provide detailed reasoning.
-            let mut committees = Vec::with_capacity((self.slot - start_slot) as usize);
-            for slot in start_slot..self.slot {
-                match self.get_crosslink_committees_at_slot(slot) {
-                    Some(c) => committees.push(c),
-                    None => return Err(Error::UnableToGetCrosslinkCommittees),
-                }
-            }
-            committees
-        };
-
-        // TODO: I didn't include the `winning_balance` stuff.. Not sure why it's there.
-
         /*
          * Eth1 Data
          */
@@ -275,7 +256,8 @@ impl BeaconState {
          * Justification
          */
         self.previous_justified_slot = self.justified_slot;
-        self.justification_bitfield = (self.justification_bitfield * 2) % u64::pow(2, 64);
+        let (new_bitfield, _) = self.justification_bitfield.overflowing_mul(2);
+        self.justification_bitfield = new_bitfield;
 
         // If >= 2/3 of validators voted for the previous epoch boundary
         if (3 * previous_epoch_boundary_attesting_balance) >= (2 * total_balance) {
@@ -337,7 +319,7 @@ impl BeaconState {
                 if let Some(winning_root) = winning_root {
                     let total_committee_balance: u64 = crosslink_committee
                         .iter()
-                        .fold(0, |acc, i| self.get_effective_balance(*i, spec));
+                        .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec));
 
                     winning_root_for_shards.insert(shard, winning_root.clone());
 
@@ -546,7 +528,7 @@ impl BeaconState {
         };
 
         if should_update_validator_registy {
-            self.update_validator_registry(total_balance, spec);
+            self.update_validator_registry(spec);
 
             self.current_epoch_calculation_slot = self.slot;
             self.current_epoch_start_shard = (self.current_epoch_start_shard
@@ -596,7 +578,7 @@ impl BeaconState {
             get_active_validator_indices(&self.validator_registry, self.slot);
         let total_balance = active_validator_indices
             .iter()
-            .fold(0, |acc, i| self.get_effective_balance(*i, spec));
+            .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec));
 
         for index in 0..self.validator_balances.len() {
             let validator = &self.validator_registry[index];
@@ -609,7 +591,7 @@ impl BeaconState {
                 let total_at_start = self.latest_penalized_balances
                     [((e + 1) % spec.latest_penalized_exit_length) as usize];
                 let total_at_end = self.latest_penalized_balances[e as usize];
-                let total_penalities = total_at_end.saturating_sub(total_at_end);
+                let total_penalities = total_at_end.saturating_sub(total_at_start);
                 let penalty = self.get_effective_balance(index, spec)
                     * std::cmp::min(total_penalities * 3, total_balance)
                     / total_balance;
@@ -654,12 +636,12 @@ impl BeaconState {
         self.latest_randao_mixes[(slot & spec.latest_randao_mixes_length) as usize]
     }
 
-    fn update_validator_registry(&mut self, total_balance: u64, spec: &ChainSpec) {
+    fn update_validator_registry(&mut self, spec: &ChainSpec) {
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, self.slot);
         let total_balance = active_validator_indices
             .iter()
-            .fold(0, |acc, i| self.get_effective_balance(*i, spec));
+            .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec));
 
         let max_balance_churn = std::cmp::max(
             spec.max_deposit,
@@ -802,7 +784,7 @@ impl BeaconState {
         self.get_effective_balance(validator_index, spec) / base_reward_quotient / 5
     }
 
-    pub fn get_crosslink_committees_at_slot(&self, slot: u64) -> Option<CrosslinkCommittees> {
+    pub fn get_crosslink_committees_at_slot(&self, _slot: u64) -> Option<CrosslinkCommittees> {
         Some(vec![(vec![0], 0)])
     }
 
@@ -831,7 +813,3 @@ impl BeaconState {
 
 type CrosslinkCommittee = (Vec<usize>, usize);
 type CrosslinkCommittees = Vec<CrosslinkCommittee>;
-
-fn merkle_root(_input: &[Hash256]) -> Hash256 {
-    Hash256::zero()
-}
