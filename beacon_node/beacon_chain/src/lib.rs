@@ -32,10 +32,10 @@ pub enum BeaconChainError {
 }
 
 pub struct CheckPoint {
-    beacon_block: BeaconBlock,
-    beacon_block_root: Hash256,
-    beacon_state: BeaconState,
-    beacon_state_root: Hash256,
+    pub beacon_block: BeaconBlock,
+    pub beacon_block_root: Hash256,
+    pub beacon_state: BeaconState,
+    pub beacon_state_root: Hash256,
 }
 
 impl CheckPoint {
