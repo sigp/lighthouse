@@ -1,4 +1,4 @@
-use beacon_chain::block_processing::{Error as ProcessingError, Outcome as ProcessingOutcome};
+use beacon_chain::block_processing::Error as ProcessingError;
 use beacon_chain::{block_production::Error as BlockProductionError, BeaconChain};
 use block_producer::{
     BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError, PublishOutcome,
