@@ -1,17 +1,16 @@
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
-use bls::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
+use bls::{PublicKey, Signature};
 use boolean_bitfield::BooleanBitfield;
 use hashing::hash;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::{ssz_encode, TreeHash};
 use types::{
-    beacon_state::SlotProcessingError, readers::BeaconBlockReader, AttestationData,
-    AttestationDataAndCustodyBit, BeaconBlock, BeaconState, Exit, Fork, Hash256,
-    PendingAttestation,
+    beacon_state::{AttestationValidationError, SlotProcessingError},
+    readers::BeaconBlockReader,
+    AttestationData, BeaconBlock, BeaconState, Exit, Fork, Hash256, PendingAttestation,
 };
 
 // TODO: define elsehwere.
-const DOMAIN_ATTESTATION: u64 = 1;
 const DOMAIN_PROPOSAL: u64 = 2;
 const DOMAIN_EXIT: u64 = 3;
 const DOMAIN_RANDAO: u64 = 4;
@@ -43,7 +42,7 @@ pub enum Error {
     MaxProposerSlashingsExceeded,
     BadProposerSlashing,
     MaxAttestationsExceeded,
-    BadAttestation,
+    InvalidAttestation(AttestationValidationError),
     NoBlockRoot,
     MaxDepositsExceeded,
     MaxExitsExceeded,
@@ -218,67 +217,8 @@ where
         );
 
         for attestation in &block.body.attestations {
-            ensure!(
-                attestation.data.slot + self.spec.min_attestation_inclusion_delay <= state.slot,
-                Error::BadAttestation
-            );
-            ensure!(
-                attestation.data.slot + self.spec.epoch_length >= state.slot,
-                Error::BadAttestation
-            );
-            if state.justified_slot >= state.slot - (state.slot % self.spec.epoch_length) {
-                ensure!(
-                    attestation.data.justified_slot == state.justified_slot,
-                    Error::BadAttestation
-                );
-            } else {
-                ensure!(
-                    attestation.data.justified_slot == state.previous_justified_slot,
-                    Error::BadAttestation
-                );
-            }
-            ensure!(
-                attestation.data.justified_block_root
-                    == *state
-                        .get_block_root(attestation.data.justified_slot, &self.spec)
-                        .ok_or(Error::NoBlockRoot)?,
-                Error::BadAttestation
-            );
-            ensure!(
-                (attestation.data.latest_crosslink_root
-                    == state.latest_crosslinks[attestation.data.shard as usize].shard_block_root)
-                    || (attestation.data.shard_block_root
-                        == state.latest_crosslinks[attestation.data.shard as usize]
-                            .shard_block_root),
-                Error::BadAttestation
-            );
-            let participants = get_attestation_participants(
-                &state,
-                &attestation.data,
-                &attestation.aggregation_bitfield,
-            );
-            let mut group_public_key = AggregatePublicKey::new();
-            for participant in participants {
-                group_public_key.add(
-                    state.validator_registry[participant as usize]
-                        .pubkey
-                        .as_raw(),
-                )
-            }
-            // Signature verification.
-            ensure!(
-                bls_verify_aggregate(
-                    &group_public_key,
-                    &attestation.signable_message(),
-                    &attestation.aggregate_signature,
-                    get_domain(&state.fork_data, attestation.data.slot, DOMAIN_ATTESTATION)
-                ),
-                Error::BadProposerSlashing
-            );
-            ensure!(
-                attestation.data.shard_block_root == self.spec.zero_hash,
-                Error::BadAttestation
-            );
+            state.validate_attestation(attestation, &self.spec)?;
+
             let pending_attestation = PendingAttestation {
                 data: attestation.data.clone(),
                 aggregation_bitfield: attestation.aggregation_bitfield.clone(),
@@ -365,15 +305,6 @@ fn initiate_validator_exit(_state: &BeaconState, _index: u32) {
     // TODO: stubbed out.
 }
 
-fn get_attestation_participants(
-    _state: &BeaconState,
-    _attestation_data: &AttestationData,
-    _aggregation_bitfield: &BooleanBitfield,
-) -> Vec<usize> {
-    // TODO: stubbed out.
-    vec![0, 1]
-}
-
 fn penalize_validator(_state: &BeaconState, _proposer_index: usize) {
     // TODO: stubbed out.
 }
@@ -384,16 +315,6 @@ fn get_domain(_fork: &Fork, _slot: u64, _domain_type: u64) -> u64 {
 }
 
 fn bls_verify(pubkey: &PublicKey, message: &[u8], signature: &Signature, _domain: u64) -> bool {
-    // TODO: add domain
-    signature.verify(message, pubkey)
-}
-
-fn bls_verify_aggregate(
-    pubkey: &AggregatePublicKey,
-    message: &[u8],
-    signature: &AggregateSignature,
-    _domain: u64,
-) -> bool {
     // TODO: add domain
     signature.verify(message, pubkey)
 }
@@ -421,5 +342,11 @@ impl From<SlotProcessingError> for Error {
         match e {
             SlotProcessingError::UnableToDetermineProducer => Error::NoBlockProducer,
         }
+    }
+}
+
+impl From<AttestationValidationError> for Error {
+    fn from(e: AttestationValidationError) -> Error {
+        Error::InvalidAttestation(e)
     }
 }

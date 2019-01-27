@@ -40,3 +40,13 @@ pub fn create_proof_of_possession(keypair: &Keypair) -> Signature {
     extend_if_needed(&mut hash);
     Signature::new_hashed(&hash, &keypair.sk)
 }
+
+pub fn bls_verify_aggregate(
+    pubkey: &AggregatePublicKey,
+    message: &[u8],
+    signature: &AggregateSignature,
+    _domain: u64,
+) -> bool {
+    // TODO: add domain
+    signature.verify(message, pubkey)
+}
