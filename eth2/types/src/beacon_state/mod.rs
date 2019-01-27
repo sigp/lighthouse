@@ -10,10 +10,12 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
+mod attestation_validation;
 mod epoch_processing;
 mod slot_processing;
 mod winning_root;
 
+pub use self::attestation_validation::Error as AttestationValidationError;
 pub use self::epoch_processing::Error as EpochProcessingError;
 pub use self::slot_processing::Error as SlotProcessingError;
 
