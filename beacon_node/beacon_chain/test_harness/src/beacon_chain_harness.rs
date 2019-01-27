@@ -13,7 +13,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Keypair, Validator};
 
-pub struct TestRig {
+pub struct BeaconChainHarness {
     db: Arc<MemoryDB>,
     beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
     block_store: Arc<BeaconBlockStore<MemoryDB>>,
@@ -22,7 +22,7 @@ pub struct TestRig {
     pub spec: ChainSpec,
 }
 
-impl TestRig {
+impl BeaconChainHarness {
     pub fn new(mut spec: ChainSpec, validator_count: usize) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
