@@ -2,7 +2,6 @@ use super::TestValidator;
 pub use beacon_chain::dump::{Error as DumpError, SlotDump};
 use beacon_chain::BeaconChain;
 use block_producer::BeaconNode;
-#[cfg(test)]
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,

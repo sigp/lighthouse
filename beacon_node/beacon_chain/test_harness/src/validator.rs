@@ -1,6 +1,5 @@
 use super::{BenchingBeaconNode, DirectDuties};
 use beacon_chain::BeaconChain;
-#[cfg(test)]
 use block_producer::{test_utils::TestSigner, BlockProducer, Error as PollError};
 use db::MemoryDB;
 use slot_clock::TestingSlotClock;
