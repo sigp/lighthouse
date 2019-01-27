@@ -1,12 +1,10 @@
 use super::TestValidator;
 pub use beacon_chain::dump::{Error as DumpError, SlotDump};
 use beacon_chain::BeaconChain;
-use block_producer::BeaconNode;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
-use serde_json::Result as SerdeResult;
 use slot_clock::TestingSlotClock;
 use std::fs::File;
 use std::io::prelude::*;
@@ -14,11 +12,11 @@ use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Keypair, Validator};
 
 pub struct BeaconChainHarness {
-    db: Arc<MemoryDB>,
-    beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
-    block_store: Arc<BeaconBlockStore<MemoryDB>>,
-    state_store: Arc<BeaconStateStore<MemoryDB>>,
-    validators: Vec<TestValidator>,
+    pub db: Arc<MemoryDB>,
+    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
+    pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
+    pub state_store: Arc<BeaconStateStore<MemoryDB>>,
+    pub validators: Vec<TestValidator>,
     pub spec: ChainSpec,
 }
 
@@ -74,6 +72,10 @@ impl BeaconChainHarness {
             validators,
             spec,
         }
+    }
+
+    pub fn advance_chain_without_block(&mut self) -> BeaconBlock {
+        self.produce_next_slot()
     }
 
     pub fn advance_chain_with_block(&mut self) {
