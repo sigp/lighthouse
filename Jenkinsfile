@@ -1,10 +1,15 @@
 pipeline {
     agent { dockerfile true }
     stages {
-        stage('build') {
+        stage('Build') {
             steps {
                 sh 'cargo build'
             }
         }
+        stage('Test') {
+			steps {
+				sh 'cargo test --all'
+			}
+		}
     }
 }
