@@ -3,11 +3,6 @@ use types::{AttestationData, Hash256};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /*
-    DBError(String),
-    StateTransitionError(TransitionError),
-    PresentSlotIsNone,
-    */
     SlotTooOld,
     PresentSlotUnknown,
     StateError,

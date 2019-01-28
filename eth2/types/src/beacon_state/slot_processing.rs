@@ -38,6 +38,20 @@ impl BeaconState {
         let validator_count = self.validator_registry.len();
         Some((slot as usize) % validator_count)
     }
+
+    pub fn attestation_slot_and_shard_for_validator(
+        &self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> (u64, u64) {
+        // TODO: this is a stub; implement it properly.
+        let validator_index = validator_index as u64;
+
+        let slot = validator_index % spec.epoch_length;
+        let shard = validator_index % spec.shard_count;
+
+        (slot, shard)
+    }
 }
 
 fn merkle_root(_input: &[Hash256]) -> Hash256 {

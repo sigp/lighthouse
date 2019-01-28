@@ -1,11 +1,18 @@
-use super::{BenchingBeaconNode, DirectDuties};
+use attester::Attester;
 use beacon_chain::BeaconChain;
-use block_producer::{test_utils::TestSigner, BlockProducer, Error as PollError};
+use block_producer::{BlockProducer, Error as PollError};
 use db::MemoryDB;
+use signer::TestSigner;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Keypair};
 
+mod beacon_node;
+mod direct_duties;
+mod signer;
+
+pub use self::beacon_node::BenchingBeaconNode;
+pub use self::direct_duties::DirectDuties;
 pub use block_producer::PollOutcome;
 
 #[derive(Debug, PartialEq)]
@@ -16,6 +23,12 @@ pub enum ProduceError {
 
 pub struct TestValidator {
     pub block_producer: BlockProducer<
+        TestingSlotClock,
+        BenchingBeaconNode<MemoryDB, TestingSlotClock>,
+        DirectDuties<MemoryDB, TestingSlotClock>,
+        TestSigner,
+    >,
+    pub attester: Attester<
         TestingSlotClock,
         BenchingBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
@@ -49,8 +62,16 @@ impl TestValidator {
             signer.clone(),
         );
 
+        let attester = Attester::new(
+            epoch_map.clone(),
+            slot_clock.clone(),
+            beacon_node.clone(),
+            signer.clone(),
+        );
+
         Self {
             block_producer,
+            attester,
             spec,
             epoch_map,
             keypair,

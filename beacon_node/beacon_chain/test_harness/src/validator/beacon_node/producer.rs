@@ -1,36 +1,12 @@
+use super::BenchingBeaconNode;
 use beacon_chain::block_processing::Error as ProcessingError;
-use beacon_chain::{block_production::Error as BlockProductionError, BeaconChain};
+use beacon_chain::block_production::Error as BlockProductionError;
 use block_producer::{
     BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError, PublishOutcome,
 };
 use db::ClientDB;
 use slot_clock::SlotClock;
-use std::sync::{Arc, RwLock};
 use types::{BeaconBlock, PublicKey, Signature};
-
-pub struct BenchingBeaconNode<T: ClientDB, U: SlotClock> {
-    beacon_chain: Arc<BeaconChain<T, U>>,
-    published_blocks: RwLock<Vec<BeaconBlock>>,
-}
-
-impl<T: ClientDB, U: SlotClock> BenchingBeaconNode<T, U> {
-    pub fn new(beacon_chain: Arc<BeaconChain<T, U>>) -> Self {
-        Self {
-            beacon_chain,
-            published_blocks: RwLock::new(vec![]),
-        }
-    }
-
-    pub fn last_published_block(&self) -> Option<BeaconBlock> {
-        Some(
-            self.published_blocks
-                .read()
-                .expect("Unable to unlock `published_blocks` for reading.")
-                .last()?
-                .clone(),
-        )
-    }
-}
 
 impl<T: ClientDB, U: SlotClock> BeaconBlockNode for BenchingBeaconNode<T, U>
 where
@@ -56,8 +32,7 @@ where
         &self,
         slot: u64,
         randao_reveal: &Signature,
-    ) -> Result<Option<BeaconBlock>, BeaconBlockNodeError>
-where {
+    ) -> Result<Option<BeaconBlock>, BeaconBlockNodeError> {
         let (block, _state) = self
             .beacon_chain
             .produce_block(randao_reveal.clone())
@@ -81,10 +56,7 @@ where {
         &self,
         block: BeaconBlock,
     ) -> Result<PublishOutcome, BeaconBlockNodeError> {
-        self.published_blocks
-            .write()
-            .expect("Unable to unlock `published_blocks` for writing.")
-            .push(block);
+        self.published_blocks.write().push(block);
         Ok(PublishOutcome::ValidBlock)
     }
 }

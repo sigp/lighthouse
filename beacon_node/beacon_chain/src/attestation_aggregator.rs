@@ -9,12 +9,14 @@ pub struct AttestationAggregator {
     store: HashMap<Vec<u8>, Attestation>,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ProcessOutcome {
     AggregationNotRequired,
     Aggregated,
     NewAttestationCreated,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ProcessError {
     BadValidatorIndex,
     BadSignature,
