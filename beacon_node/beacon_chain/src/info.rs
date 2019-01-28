@@ -44,4 +44,12 @@ where
         let state = self.state(present_slot).ok()?;
         state.get_beacon_proposer_index(slot, &self.spec)
     }
+
+    pub fn justified_slot(&self) -> u64 {
+        self.justified_head
+            .read()
+            .expect("Justified head poisoned")
+            .beacon_block
+            .slot
+    }
 }
