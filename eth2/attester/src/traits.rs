@@ -47,5 +47,5 @@ pub trait DutiesReader: Send + Sync {
 
 /// Signs message using an internally-maintained private key.
 pub trait Signer {
-    fn bls_sign(&self, message: &[u8]) -> Option<Signature>;
+    fn sign_attestation_message(&self, message: &[u8]) -> Option<Signature>;
 }

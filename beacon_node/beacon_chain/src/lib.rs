@@ -1,4 +1,5 @@
-mod attestation_aggregation;
+mod attestation_aggregator;
+pub mod attestation_processing;
 mod attestation_production;
 mod attestation_targets;
 mod block_graph;
@@ -14,7 +15,7 @@ mod state_transition;
 
 use self::attestation_targets::AttestationTargets;
 use self::block_graph::BlockGraph;
-use attestation_aggregation::AttestationAggregator;
+use attestation_aggregator::AttestationAggregator;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,

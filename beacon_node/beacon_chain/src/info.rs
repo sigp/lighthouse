@@ -52,4 +52,11 @@ where
             .beacon_block
             .slot
     }
+
+    pub fn validator_attestion_slot_and_shard(&self, validator_index: usize) -> Option<(u64, u64)> {
+        let present_slot = self.present_slot()?;
+        let state = self.state(present_slot).ok()?;
+
+        Some(state.attestation_slot_and_shard_for_validator(validator_index, &self.spec))
+    }
 }

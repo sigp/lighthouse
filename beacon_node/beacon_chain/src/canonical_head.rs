@@ -2,6 +2,7 @@ use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
 use std::sync::RwLockReadGuard;
 use types::{beacon_state::SlotProcessingError, BeaconBlock, BeaconState, Hash256};
 
+#[derive(Debug, PartialEq)]
 pub enum Error {
     PastSlot,
     UnableToDetermineProducer,

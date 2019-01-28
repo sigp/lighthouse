@@ -4,7 +4,7 @@ mod traits;
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Hash256, ProposalSignedData, PublicKey};
+use types::{BeaconBlock, ChainSpec, PublicKey};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -139,7 +139,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             // TODO: add domain, etc to this message.
             let message = ssz_encode(&producer_nonce);
 
-            match self.signer.bls_sign(&message) {
+            match self.signer.sign_randao_reveal(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
                 Some(signature) => signature,
             }
@@ -171,7 +171,10 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn sign_block(&mut self, mut block: BeaconBlock) -> Option<BeaconBlock> {
         self.store_produce(&block);
 
-        match self.signer.bls_sign(&block.proposal_root(&self.spec)[..]) {
+        match self
+            .signer
+            .sign_block_proposal(&block.proposal_root(&self.spec)[..])
+        {
             None => None,
             Some(signature) => {
                 block.signature = signature;

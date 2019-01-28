@@ -1,4 +1,5 @@
-use crate::traits::Signer;
+use attester::Signer as AttesterSigner;
+use block_producer::Signer as BlockProposerSigner;
 use std::sync::RwLock;
 use types::{Keypair, Signature};
 
@@ -22,10 +23,24 @@ impl TestSigner {
     pub fn enable_signing(&self, enabled: bool) {
         *self.should_sign.write().unwrap() = enabled;
     }
+
+    fn bls_sign(&self, message: &[u8]) -> Option<Signature> {
+        Some(Signature::new(message, &self.keypair.sk))
+    }
 }
 
-impl Signer for TestSigner {
+impl BlockProposerSigner for TestSigner {
+    fn sign_block_proposal(&self, message: &[u8]) -> Option<Signature> {
+        self.bls_sign(message)
+    }
+
+    fn sign_randao_reveal(&self, message: &[u8]) -> Option<Signature> {
+        self.bls_sign(message)
+    }
+}
+
+impl AttesterSigner for TestSigner {
     fn sign_attestation_message(&self, message: &[u8]) -> Option<Signature> {
-        Some(Signature::new(message, &self.keypair.sk))
+        self.bls_sign(message)
     }
 }

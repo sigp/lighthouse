@@ -25,7 +25,11 @@ impl TestSigner {
 }
 
 impl Signer for TestSigner {
-    fn bls_sign(&self, message: &[u8]) -> Option<Signature> {
+    fn sign_block_proposal(&self, message: &[u8]) -> Option<Signature> {
+        Some(Signature::new(message, &self.keypair.sk))
+    }
+
+    fn sign_randao_reveal(&self, message: &[u8]) -> Option<Signature> {
         Some(Signature::new(message, &self.keypair.sk))
     }
 }

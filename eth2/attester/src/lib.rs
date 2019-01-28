@@ -131,7 +131,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
         self.store_produce(attestation_data);
 
         self.signer
-            .bls_sign(&attestation_data.signable_message(PHASE_0_CUSTODY_BIT)[..])
+            .sign_attestation_message(&attestation_data.signable_message(PHASE_0_CUSTODY_BIT)[..])
     }
 
     /// Returns `true` if signing some attestation_data is safe (non-slashable).
