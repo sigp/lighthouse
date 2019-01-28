@@ -19,11 +19,11 @@ where
         new_beacon_state: BeaconState,
         new_beacon_state_root: Hash256,
     ) {
-        let mut canonical_head = self
+        let mut head = self
             .canonical_head
             .write()
             .expect("CRITICAL: CanonicalHead poisioned.");
-        canonical_head.update(
+        head.update(
             new_beacon_block,
             new_beacon_block_root,
             new_beacon_state,
@@ -31,7 +31,7 @@ where
         );
     }
 
-    pub fn canonical_head(&self) -> RwLockReadGuard<CheckPoint> {
+    pub fn head(&self) -> RwLockReadGuard<CheckPoint> {
         self.canonical_head
             .read()
             .expect("CRITICAL: CanonicalHead poisioned.")

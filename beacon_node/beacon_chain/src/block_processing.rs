@@ -121,7 +121,7 @@ where
         // If the parent block was the parent_block, automatically update the canonical head.
         //
         // TODO: this is a first-in-best-dressed scenario that is not ideal -- find a solution.
-        if self.canonical_head().beacon_block_root == parent_block_root {
+        if self.head().beacon_block_root == parent_block_root {
             self.update_canonical_head(
                 block.clone(),
                 block_root.clone(),
