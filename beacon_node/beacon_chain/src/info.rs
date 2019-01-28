@@ -1,5 +1,11 @@
 use super::{BeaconChain, ClientDB, SlotClock};
-use types::PublicKey;
+use types::{beacon_state::Error as BeaconStateError, PublicKey};
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    SlotClockError,
+    BeaconStateError(BeaconStateError),
+}
 
 impl<T, U> BeaconChain<T, U>
 where
@@ -39,10 +45,14 @@ where
         }
     }
 
-    pub fn block_proposer(&self, slot: u64) -> Option<usize> {
-        let present_slot = self.present_slot()?;
-        let state = self.state(present_slot).ok()?;
-        state.get_beacon_proposer_index(slot, &self.spec)
+    pub fn block_proposer(&self, slot: u64) -> Result<usize, Error> {
+        // TODO: fix unwrap
+        let present_slot = self.present_slot().unwrap();
+        // TODO: fix unwrap
+        let state = self.state(present_slot).unwrap();
+        let index = state.get_beacon_proposer_index(slot, &self.spec)?;
+
+        Ok(index)
     }
 
     pub fn justified_slot(&self) -> u64 {
@@ -58,5 +68,11 @@ where
         let state = self.state(present_slot).ok()?;
 
         Some(state.attestation_slot_and_shard_for_validator(validator_index, &self.spec))
+    }
+}
+
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }

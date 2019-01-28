@@ -98,7 +98,7 @@ where
 
         let block_proposer_index = state
             .get_beacon_proposer_index(block.slot, &self.spec)
-            .ok_or(Error::NoBlockProducer)?;
+            .map_err(|_| Error::NoBlockProducer)?;
         let block_proposer = &state.validator_registry[block_proposer_index];
 
         if verify_block_signature {
@@ -294,7 +294,7 @@ where
         );
 
         if state.slot % self.spec.epoch_length == 0 {
-            state.per_epoch_processing(&self.spec);
+            state.per_epoch_processing(&self.spec).unwrap();
         }
 
         Ok(state)

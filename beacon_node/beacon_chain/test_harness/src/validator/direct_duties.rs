@@ -35,9 +35,9 @@ where
             .ok_or_else(|| ProducerDutiesReaderError::UnknownValidator)?;
 
         match self.beacon_chain.block_proposer(slot) {
-            Some(proposer) if proposer == validator_index => Ok(true),
-            Some(_) => Ok(false),
-            None => Err(ProducerDutiesReaderError::UnknownEpoch),
+            Ok(proposer) if proposer == validator_index => Ok(true),
+            Ok(_) => Ok(false),
+            Err(_) => Err(ProducerDutiesReaderError::UnknownEpoch),
         }
     }
 }
