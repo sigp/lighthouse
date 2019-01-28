@@ -45,6 +45,13 @@ where
             .into_beacon_state()
             .ok_or_else(|| Error::DBError("State invalid.".to_string()))?;
 
+        let attestations = self
+            .attestation_aggregator
+            .read()
+            .unwrap()
+            // TODO: advance the parent_state slot.
+            .get_attestations_for_state(&parent_state, &self.spec);
+
         let mut block = BeaconBlock {
             slot: present_slot,
             parent_root: parent_root.clone(),
@@ -59,7 +66,7 @@ where
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
                 casper_slashings: vec![],
-                attestations: vec![],
+                attestations: attestations,
                 custody_reseeds: vec![],
                 custody_challenges: vec![],
                 custody_responses: vec![],
@@ -70,7 +77,6 @@ where
 
         let state =
             self.state_transition_without_verifying_block_signature(parent_state, &block)?;
-
         let state_root = state.canonical_root();
 
         block.state_root = state_root;

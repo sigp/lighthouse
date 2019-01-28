@@ -26,9 +26,7 @@ where
         &self,
         free_attestation: FreeAttestation,
     ) -> Result<PublishOutcome, NodeError> {
-        match self.beacon_chain.process_free_attestation(free_attestation) {
-            Ok(_) => Ok(PublishOutcome::ValidAttestation),
-            Err(e) => Err(NodeError::RemoteFailure(format!("{:?}", e))),
-        }
+        self.published_attestations.write().push(free_attestation);
+        Ok(PublishOutcome::ValidAttestation)
     }
 }
