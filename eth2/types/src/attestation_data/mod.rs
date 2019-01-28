@@ -4,6 +4,8 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
+mod signing;
+
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
     8 +             // shard

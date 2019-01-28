@@ -21,6 +21,8 @@ macro_rules! ensure {
     };
 }
 
+const PHASE_0_CUSTODY_BIT: bool = false;
+
 // TODO: define elsehwere.
 const DOMAIN_ATTESTATION: u64 = 1;
 
@@ -76,7 +78,7 @@ impl BeaconState {
         ensure!(
             bls_verify_aggregate(
                 &group_public_key,
-                &attestation.signable_message(),
+                &attestation.signable_message(PHASE_0_CUSTODY_BIT),
                 &attestation.aggregate_signature,
                 get_domain(&self.fork_data, attestation.data.slot, DOMAIN_ATTESTATION)
             ),
