@@ -3,7 +3,7 @@ mod traits;
 
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{AttestationData, Signature};
+use types::{AttestationData, FreeAttestation, Signature};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -111,8 +111,14 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
             None => return Ok(PollOutcome::ValidatorIsUnknown(slot)),
         };
 
+        let free_attestation = FreeAttestation {
+            data: attestation_data,
+            signature,
+            validator_index,
+        };
+
         self.beacon_node
-            .publish_attestation_data(attestation_data, signature, validator_index)?;
+            .publish_attestation_data(free_attestation)?;
         Ok(PollOutcome::AttestationProduced(slot))
     }
 

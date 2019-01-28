@@ -4,7 +4,7 @@ use beacon_chain::block_processing::Error as ProcessingError;
 use beacon_chain::block_production::Error as BlockProductionError;
 use db::ClientDB;
 use slot_clock::SlotClock;
-use types::{AttestationData, Signature};
+use types::{AttestationData, FreeAttestation};
 
 impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for BenchingBeaconNode<T, U>
 where
@@ -24,15 +24,9 @@ where
 
     fn publish_attestation_data(
         &self,
-        attestation_data: AttestationData,
-        signature: Signature,
-        validator_index: u64,
+        free_attestation: FreeAttestation,
     ) -> Result<PublishOutcome, NodeError> {
-        match self.beacon_chain.process_free_attestation(
-            &attestation_data,
-            &signature,
-            validator_index,
-        ) {
+        match self.beacon_chain.process_free_attestation(free_attestation) {
             Ok(_) => Ok(PublishOutcome::ValidAttestation),
             Err(e) => Err(NodeError::RemoteFailure(format!("{:?}", e))),
         }

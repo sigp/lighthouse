@@ -1,7 +1,7 @@
 use super::{BeaconChain, ClientDB, SlotClock};
 pub use crate::attestation_aggregator::{ProcessError as AggregatorError, ProcessOutcome};
 use crate::canonical_head::Error as HeadError;
-use types::{AttestationData, Signature};
+use types::FreeAttestation;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -17,9 +17,7 @@ where
 {
     pub fn process_free_attestation(
         &self,
-        attestation_data: &AttestationData,
-        signature: &Signature,
-        validator_index: u64,
+        free_attestation: FreeAttestation,
     ) -> Result<ProcessOutcome, Error> {
         let present_slot = self
             .present_slot()
@@ -29,7 +27,7 @@ where
         self.attestation_aggregator
             .write()
             .expect("Aggregator unlock failed.")
-            .process_free_attestation(&state, attestation_data, signature, validator_index)
+            .process_free_attestation(&state, &free_attestation)
             .map_err(|e| e.into())
     }
 }

@@ -4,25 +4,25 @@ use types::ChainSpec;
 #[test]
 fn it_can_build_on_genesis_block() {
     let validator_count = 2;
-    let mut rig = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
+    let mut harness = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
 
-    rig.advance_chain_with_block();
+    harness.advance_chain_with_block();
 }
 
 #[test]
 #[ignore]
 fn it_can_produce_past_first_epoch_boundary() {
     let validator_count = 2;
-    let mut rig = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
+    let mut harness = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
 
-    let blocks = rig.spec.epoch_length + 1;
+    let blocks = harness.spec.epoch_length + 1;
 
     for _ in 0..blocks {
-        rig.advance_chain_with_block();
+        harness.advance_chain_with_block();
     }
-    let dump = rig.chain_dump().expect("Chain dump failed.");
+    let dump = harness.chain_dump().expect("Chain dump failed.");
 
     assert_eq!(dump.len() as u64, blocks + 1); // + 1 for genesis block.
 
-    rig.dump_to_file("/tmp/chaindump.json".to_string(), &dump);
+    harness.dump_to_file("/tmp/chaindump.json".to_string(), &dump);
 }

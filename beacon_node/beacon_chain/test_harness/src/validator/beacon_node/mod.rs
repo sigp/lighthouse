@@ -3,15 +3,10 @@ use db::ClientDB;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{AttestationData, BeaconBlock, Signature};
+use types::{BeaconBlock, FreeAttestation};
 
 mod attester;
 mod producer;
-
-/// An attestation that hasn't been aggregated into an `Attestation`.
-///
-/// (attestation_data, signature, validator_index)
-pub type FreeAttestation = (AttestationData, Signature, u64);
 
 pub struct BenchingBeaconNode<T: ClientDB, U: SlotClock> {
     beacon_chain: Arc<BeaconChain<T, U>>,
@@ -30,5 +25,9 @@ impl<T: ClientDB, U: SlotClock> BenchingBeaconNode<T, U> {
 
     pub fn last_published_block(&self) -> Option<BeaconBlock> {
         Some(self.published_blocks.read().last()?.clone())
+    }
+
+    pub fn last_published_free_attestation(&self) -> Option<FreeAttestation> {
+        Some(self.published_attestations.read().last()?.clone())
     }
 }
