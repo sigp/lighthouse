@@ -1,4 +1,4 @@
-use super::{AttestationData, Bitfield};
+use super::{AttestationData, Bitfield, Hash256};
 use crate::test_utils::TestRandom;
 use bls::AggregateSignature;
 use rand::RngCore;
@@ -13,6 +13,12 @@ pub struct Attestation {
     pub aggregation_bitfield: Bitfield,
     pub custody_bitfield: Bitfield,
     pub aggregate_signature: AggregateSignature,
+}
+
+impl Attestation {
+    pub fn canonical_root(&self) -> Hash256 {
+        Hash256::from(&self.hash_tree_root()[..])
+    }
 }
 
 impl Encodable for Attestation {
