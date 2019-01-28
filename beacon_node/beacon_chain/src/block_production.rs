@@ -33,7 +33,7 @@ where
             .map_err(|e| e.into())?
             .ok_or(Error::PresentSlotIsNone)?;
 
-        let parent_root = self.canonical_head().beacon_block_root;
+        let parent_root = self.head().beacon_block_root;
         let parent_block_reader = self
             .block_store
             .get_reader(&parent_root)?

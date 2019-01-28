@@ -25,10 +25,10 @@ where
         let mut dump = vec![];
 
         let mut last_slot = SlotDump {
-            beacon_block: self.canonical_head().beacon_block.clone(),
-            beacon_block_root: self.canonical_head().beacon_block_root,
-            beacon_state: self.canonical_head().beacon_state.clone(),
-            beacon_state_root: self.canonical_head().beacon_state_root,
+            beacon_block: self.head().beacon_block.clone(),
+            beacon_block_root: self.head().beacon_block_root,
+            beacon_state: self.head().beacon_state.clone(),
+            beacon_state_root: self.head().beacon_state_root,
         };
 
         dump.push(last_slot.clone());

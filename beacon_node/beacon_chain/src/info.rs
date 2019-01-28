@@ -8,7 +8,7 @@ where
 {
     pub fn validator_index(&self, pubkey: &PublicKey) -> Option<usize> {
         for (i, validator) in self
-            .canonical_head()
+            .head()
             .beacon_state
             .validator_registry
             .iter()
