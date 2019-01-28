@@ -3,8 +3,9 @@ use types::ChainSpec;
 
 #[test]
 fn it_can_build_on_genesis_block() {
-    let validator_count = 2;
-    let mut harness = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
+    let validator_count = 10;
+    let spec = ChainSpec::foundation();
+    let mut harness = BeaconChainHarness::new(spec, validator_count);
 
     harness.advance_chain_with_block();
 }

@@ -113,10 +113,7 @@ impl BeaconChainHarness {
     pub fn produce_block(&mut self) -> BeaconBlock {
         let present_slot = self.beacon_chain.present_slot().unwrap();
 
-        let proposer = self
-            .beacon_chain
-            .block_proposer(present_slot)
-            .expect("Unable to determine proposer.");
+        let proposer = self.beacon_chain.block_proposer(present_slot).unwrap();
 
         self.validators[proposer].produce_block().unwrap()
     }

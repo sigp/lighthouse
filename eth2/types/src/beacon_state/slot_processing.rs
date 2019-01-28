@@ -14,7 +14,7 @@ impl BeaconState {
 
         let block_proposer = self
             .get_beacon_proposer_index(self.slot, spec)
-            .ok_or_else(|| Error::UnableToDetermineProducer)?;
+            .map_err(|_| Error::UnableToDetermineProducer)?;
 
         self.validator_registry[block_proposer].proposer_slots += 1;
         self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length) as usize] =
@@ -29,14 +29,6 @@ impl BeaconState {
             self.batched_block_roots.push(root);
         }
         Ok(())
-    }
-
-    pub fn get_beacon_proposer_index(&self, slot: u64, spec: &ChainSpec) -> Option<usize> {
-        // TODO: this is a stub; implement it properly.
-        //
-        // https://github.com/sigp/lighthouse/pull/148/files
-        let validator_count = self.validator_registry.len();
-        Some((slot as usize) % validator_count)
     }
 
     pub fn attestation_slot_and_shard_for_validator(

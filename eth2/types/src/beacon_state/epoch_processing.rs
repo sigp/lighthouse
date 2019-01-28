@@ -7,6 +7,7 @@ use integer_sqrt::IntegerSquareRoot;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 
+#[derive(Debug, PartialEq)]
 pub enum Error {
     UnableToDetermineProducer,
     NoBlockRoots,
@@ -303,8 +304,8 @@ impl BeaconState {
 
         for slot in self.slot.saturating_sub(2 * spec.epoch_length)..self.slot {
             let crosslink_committees_at_slot = self
-                .get_crosslink_committees_at_slot(slot)
-                .ok_or_else(|| Error::UnableToGetCrosslinkCommittees)?;
+                .get_crosslink_committees_at_slot(slot, spec)
+                .map_err(|_| Error::UnableToGetCrosslinkCommittees)?;
 
             for (crosslink_committee, shard) in crosslink_committees_at_slot {
                 let shard = shard as u64;
@@ -454,7 +455,7 @@ impl BeaconState {
             };
             let proposer_index = self
                 .get_beacon_proposer_index(inclusion_slot, spec)
-                .ok_or_else(|| Error::UnableToDetermineProducer)?;
+                .map_err(|_| Error::UnableToDetermineProducer)?;
             let base_reward = self.base_reward(proposer_index, base_reward_quotient, spec);
             safe_add_assign!(
                 self.validator_balances[proposer_index],
@@ -467,8 +468,8 @@ impl BeaconState {
          */
         for slot in self.slot.saturating_sub(2 * spec.epoch_length)..self.slot {
             let crosslink_committees_at_slot = self
-                .get_crosslink_committees_at_slot(slot)
-                .ok_or_else(|| Error::UnableToGetCrosslinkCommittees)?;
+                .get_crosslink_committees_at_slot(slot, spec)
+                .map_err(|_| Error::UnableToGetCrosslinkCommittees)?;
 
             for (_crosslink_committee, shard) in crosslink_committees_at_slot {
                 let shard = shard as u64;
@@ -514,7 +515,7 @@ impl BeaconState {
          */
         self.previous_epoch_calculation_slot = self.current_epoch_calculation_slot;
         self.previous_epoch_start_shard = self.current_epoch_start_shard;
-        self.previous_epoch_randao_mix = self.current_epoch_randao_mix;
+        self.previous_epoch_seed = self.current_epoch_seed;
 
         let should_update_validator_registy = if self.finalized_slot
             > self.validator_registry_update_slot
@@ -534,7 +535,7 @@ impl BeaconState {
             self.current_epoch_start_shard = (self.current_epoch_start_shard
                 + self.get_current_epoch_committee_count_per_slot(spec) as u64 * spec.epoch_length)
                 % spec.shard_count;
-            self.current_epoch_randao_mix = self.get_randao_mix(
+            self.current_epoch_seed = self.get_randao_mix(
                 self.current_epoch_calculation_slot
                     .saturating_sub(spec.seed_lookahead),
                 spec,
@@ -544,7 +545,7 @@ impl BeaconState {
                 (self.slot - self.validator_registry_update_slot) / spec.epoch_length;
             if epochs_since_last_registry_change.is_power_of_two() {
                 self.current_epoch_calculation_slot = self.slot;
-                self.current_epoch_randao_mix = self.get_randao_mix(
+                self.current_epoch_seed = self.get_randao_mix(
                     self.current_epoch_calculation_slot
                         .saturating_sub(spec.seed_lookahead),
                     spec,
@@ -707,14 +708,6 @@ impl BeaconState {
 
     fn entry_exit_effect_slot(&self, slot: u64, spec: &ChainSpec) -> u64 {
         (slot - slot % spec.epoch_length) + spec.epoch_length + spec.entry_exit_delay
-    }
-
-    fn get_current_epoch_committee_count_per_slot(&self, spec: &ChainSpec) -> usize {
-        let current_active_validators = get_active_validator_indices(
-            &self.validator_registry,
-            self.current_epoch_calculation_slot,
-        );
-        self.get_committee_count_per_slot(current_active_validators.len(), spec)
     }
 
     fn process_ejections(&self) {
