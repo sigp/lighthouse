@@ -12,6 +12,7 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 mod attestation_validation;
 mod epoch_processing;
+mod shuffling;
 mod slot_processing;
 mod winning_root;
 

@@ -717,22 +717,6 @@ impl BeaconState {
         self.get_committee_count_per_slot(current_active_validators.len(), spec)
     }
 
-    fn get_committee_count_per_slot(
-        &self,
-        active_validator_count: usize,
-        spec: &ChainSpec,
-    ) -> usize {
-        std::cmp::max(
-            1,
-            std::cmp::min(
-                spec.shard_count as usize / spec.epoch_length as usize,
-                active_validator_count
-                    / spec.epoch_length as usize
-                    / spec.target_committee_size as usize,
-            ),
-        )
-    }
-
     fn process_ejections(&self) {
         //TODO: stubbed out.
     }
@@ -784,10 +768,6 @@ impl BeaconState {
         self.get_effective_balance(validator_index, spec) / base_reward_quotient / 5
     }
 
-    pub fn get_crosslink_committees_at_slot(&self, _slot: u64) -> Option<CrosslinkCommittees> {
-        Some(vec![(vec![0], 0)])
-    }
-
     pub fn get_effective_balance(&self, validator_index: usize, spec: &ChainSpec) -> u64 {
         std::cmp::min(self.validator_balances[validator_index], spec.max_deposit)
     }
@@ -810,6 +790,3 @@ impl BeaconState {
         vec![0, 1]
     }
 }
-
-type CrosslinkCommittee = (Vec<usize>, usize);
-type CrosslinkCommittees = Vec<CrosslinkCommittee>;
