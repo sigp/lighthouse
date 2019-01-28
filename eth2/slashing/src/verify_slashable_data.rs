@@ -1,7 +1,7 @@
 use bls::AggregatePublicKey;
 use types::{Fork, SlashableVoteData};
 
-pu fn get_fork_version(fork: Fork, slot: u64) -> u64 {
+pub fn get_fork_version(fork: Fork, slot: u64) -> u64 {
     if slot < fork.slot {
         fork.previous_version
     } else {
