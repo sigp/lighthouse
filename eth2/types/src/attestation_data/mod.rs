@@ -3,6 +3,7 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use std::hash::Hash;
 
 mod signing;
 
@@ -17,7 +18,7 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 // justified_block_root
 };
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash)]
 pub struct AttestationData {
     pub slot: u64,
     pub shard: u64,
@@ -28,6 +29,8 @@ pub struct AttestationData {
     pub justified_slot: u64,
     pub justified_block_root: Hash256,
 }
+
+impl Eq for AttestationData {}
 
 impl AttestationData {
     pub fn zero() -> Self {

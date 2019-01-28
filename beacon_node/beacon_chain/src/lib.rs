@@ -1,3 +1,4 @@
+mod attestation_aggregation;
 mod attestation_production;
 mod attestation_targets;
 mod block_graph;
@@ -13,6 +14,7 @@ mod state_transition;
 
 use self::attestation_targets::AttestationTargets;
 use self::block_graph::BlockGraph;
+use attestation_aggregation::AttestationAggregator;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
@@ -73,6 +75,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
     pub block_graph: BlockGraph,
+    pub attestation_aggregator: RwLock<AttestationAggregator>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     justified_head: RwLock<CheckPoint>,
@@ -124,6 +127,7 @@ where
             genesis_state.clone(),
             state_root.clone(),
         ));
+        let attestation_aggregator = RwLock::new(AttestationAggregator::new());
 
         let latest_attestation_targets = RwLock::new(AttestationTargets::new());
 
@@ -132,6 +136,7 @@ where
             state_store,
             slot_clock,
             block_graph,
+            attestation_aggregator,
             justified_head,
             finalized_head,
             canonical_head,
