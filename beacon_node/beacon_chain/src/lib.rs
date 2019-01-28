@@ -74,6 +74,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
     pub block_graph: BlockGraph,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
+    justified_head: RwLock<CheckPoint>,
     pub latest_attestation_targets: RwLock<AttestationTargets>,
     pub spec: ChainSpec,
 }
@@ -110,6 +111,12 @@ where
             genesis_state.clone(),
             state_root.clone(),
         ));
+        let justified_head = RwLock::new(CheckPoint::new(
+            genesis_block.clone(),
+            block_root.clone(),
+            genesis_state.clone(),
+            state_root.clone(),
+        ));
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root.clone(),
@@ -124,6 +131,7 @@ where
             state_store,
             slot_clock,
             block_graph,
+            justified_head,
             finalized_head,
             canonical_head,
             latest_attestation_targets,
