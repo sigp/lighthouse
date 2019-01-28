@@ -12,7 +12,7 @@ fn it_can_build_on_genesis_block() {
 #[test]
 #[ignore]
 fn it_can_produce_past_first_epoch_boundary() {
-    let validator_count = 2;
+    let validator_count = 100;
     let mut harness = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
 
     let blocks = harness.spec.epoch_length + 1;
