@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use types::{
-    AggregateSignature, Attestation, AttestationData, BeaconState, Bitfield, ChainSpec, Signature,
+    AggregateSignature, Attestation, AttestationData, BeaconState, Bitfield, ChainSpec,
+    FreeAttestation, Signature,
 };
 
 const PHASE_0_CUSTODY_BIT: bool = false;
@@ -32,27 +33,30 @@ impl AttestationAggregator {
     pub fn process_free_attestation(
         &mut self,
         state: &BeaconState,
-        attestation_data: &AttestationData,
-        signature: &Signature,
-        validator_index: u64,
+        free_attestation: &FreeAttestation,
     ) -> Result<ProcessOutcome, ProcessError> {
-        let validator_index = validator_index as usize;
+        let validator_index = free_attestation.validator_index as usize;
 
-        let signable_message = attestation_data.signable_message(PHASE_0_CUSTODY_BIT);
+        let signable_message = free_attestation.data.signable_message(PHASE_0_CUSTODY_BIT);
         let validator_pubkey = &state
             .validator_registry
             .get(validator_index)
             .ok_or_else(|| ProcessError::BadValidatorIndex)?
             .pubkey;
 
-        if !signature.verify(&signable_message, &validator_pubkey) {
+        if !free_attestation
+            .signature
+            .verify(&signable_message, &validator_pubkey)
+        {
             return Err(ProcessError::BadSignature);
         }
 
         if let Some(existing_attestation) = self.store.get(&signable_message) {
-            if let Some(updated_attestation) =
-                aggregate_attestation(existing_attestation, signature, validator_index)
-            {
+            if let Some(updated_attestation) = aggregate_attestation(
+                existing_attestation,
+                &free_attestation.signature,
+                validator_index,
+            ) {
                 self.store.insert(signable_message, updated_attestation);
                 Ok(ProcessOutcome::Aggregated)
             } else {
@@ -60,11 +64,11 @@ impl AttestationAggregator {
             }
         } else {
             let mut aggregate_signature = AggregateSignature::new();
-            aggregate_signature.add(signature);
+            aggregate_signature.add(&free_attestation.signature);
             let mut aggregation_bitfield = Bitfield::new();
             aggregation_bitfield.set(validator_index, true);
             let new_attestation = Attestation {
-                data: attestation_data.clone(),
+                data: free_attestation.data.clone(),
                 aggregation_bitfield,
                 custody_bitfield: Bitfield::new(),
                 aggregate_signature,
