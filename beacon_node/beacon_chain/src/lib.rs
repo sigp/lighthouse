@@ -1,3 +1,4 @@
+mod attestation_production;
 mod attestation_targets;
 mod block_graph;
 pub mod block_processing;
