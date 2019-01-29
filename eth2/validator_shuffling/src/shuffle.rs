@@ -80,12 +80,12 @@ fn generate_cycle(
         .honey_badger_split(epoch_length)
         .enumerate()
         .map(|(i, slot_indices)| {
-            let shard_start =
+            let _shard_start =
                 crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
             slot_indices
                 .honey_badger_split(committees_per_slot)
                 .enumerate()
-                .map(|(j, shard_indices)| (vec![], 0))
+                .map(|(_j, _shard_indices)| (vec![], 0))
                 .collect()
         })
         .collect();
