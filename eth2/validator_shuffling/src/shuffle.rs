@@ -132,12 +132,7 @@ mod tests {
         cycle.iter().enumerate().for_each(|(i, slot)| {
             println!("slot {:?}", &i);
             slot.iter().enumerate().for_each(|(i, sac)| {
-                println!(
-                    "#{:?}\tshard={}\tcommittee.len()={}",
-                    &i,
-                    &sac.shard,
-                    &sac.committee.len()
-                )
+                println!("#{:?}\tshard={:?}\tcommittee.len()={:?}", &i, &sac, &sac)
             })
         });
     }

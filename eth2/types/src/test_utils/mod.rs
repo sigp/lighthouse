@@ -47,3 +47,13 @@ where
         ]
     }
 }
+
+impl<T: RngCore, U, V> TestRandom<T> for (U, V)
+where
+    U: TestRandom<T>,
+    V: TestRandom<T>,
+{
+    fn random_for_test(rng: &mut T) -> Self {
+        (<U>::random_for_test(rng), <V>::random_for_test(rng))
+    }
+}
