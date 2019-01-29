@@ -6,7 +6,7 @@ use bls_aggregates::Signature as RawSignature;
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct Signature(RawSignature);
 
 impl Signature {
