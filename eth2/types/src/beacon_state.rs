@@ -24,18 +24,22 @@ fn range_contains<T: PartialOrd>(range: &Range<T>, target: T) -> bool {
 fn get_shuffling(
     _seed: Hash256,
     validators: &[Validator],
-    slot: u64,
+    epoch: u64,
     committees_per_slot: u64,
     epoch_length: u64,
 ) -> Vec<Vec<usize>> {
-    get_active_validator_indices(validators, slot)
+    get_active_validator_indices(validators, epoch)
         .honey_badger_split((committees_per_slot * epoch_length) as usize)
         .map(|chunk| chunk.to_vec())
         .collect::<Vec<_>>()
 }
 
+fn slot_to_epoch(slot: u64, epoch_length: u64) -> u64 {
+    slot / epoch_length
+}
+
 /// this function computes how many committees should exist for every slot (within an epoch), given some number of validators active within that epoch.
-fn get_committee_count_per_slot(
+fn get_epoch_committee_count(
     active_validator_count: usize,
     shard_count: u64,
     epoch_length: u64,
@@ -47,7 +51,7 @@ fn get_committee_count_per_slot(
             shard_count / epoch_length,
             active_validator_count as u64 / epoch_length / target_committee_size,
         ),
-    )
+    ) * epoch_length
 }
 
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
@@ -72,8 +76,8 @@ pub struct BeaconState {
     pub latest_vdf_outputs: Vec<Hash256>,
     pub previous_epoch_start_shard: u64,
     pub current_epoch_start_shard: u64,
-    pub previous_epoch_calculation_slot: u64,
-    pub current_epoch_calculation_slot: u64,
+    pub previous_calculation_epoch: u64,
+    pub current_calculation_epoch: u64,
     pub previous_epoch_seed: Hash256,
     pub current_epoch_seed: Hash256,
 
@@ -112,17 +116,19 @@ impl BeaconState {
         Hash256::from(&canonical_hash(&ssz_encode(self))[..])
     }
 
-    fn get_previous_epoch_committee_count_per_slot(
+    fn get_current_epoch(&self, epoch_length: u64) -> u64 {
+        slot_to_epoch(self.slot, epoch_length)
+    }
+
+    fn get_previous_epoch_committee_count(
         &self,
         shard_count: u64,
         epoch_length: u64,
         target_committee_size: u64,
     ) -> u64 {
-        let previous_active_validators = get_active_validator_indices(
-            &self.validator_registry,
-            self.previous_epoch_calculation_slot,
-        );
-        get_committee_count_per_slot(
+        let previous_active_validators =
+            get_active_validator_indices(&self.validator_registry, self.previous_calculation_epoch);
+        get_epoch_committee_count(
             previous_active_validators.len(),
             shard_count,
             epoch_length,
@@ -130,17 +136,15 @@ impl BeaconState {
         )
     }
 
-    fn get_current_epoch_committee_count_per_slot(
+    fn get_current_epoch_committee_count(
         &self,
         shard_count: u64,
         epoch_length: u64,
         target_committee_size: u64,
     ) -> u64 {
-        let current_active_validators = get_active_validator_indices(
-            &self.validator_registry,
-            self.current_epoch_calculation_slot,
-        );
-        get_committee_count_per_slot(
+        let current_active_validators =
+            get_active_validator_indices(&self.validator_registry, self.current_calculation_epoch);
+        get_epoch_committee_count(
             current_active_validators.len(),
             shard_count,
             epoch_length,
@@ -265,8 +269,8 @@ impl Encodable for BeaconState {
         s.append(&self.latest_vdf_outputs);
         s.append(&self.previous_epoch_start_shard);
         s.append(&self.current_epoch_start_shard);
-        s.append(&self.previous_epoch_calculation_slot);
-        s.append(&self.current_epoch_calculation_slot);
+        s.append(&self.previous_calculation_epoch);
+        s.append(&self.current_calculation_epoch);
         s.append(&self.previous_epoch_seed);
         s.append(&self.current_epoch_seed);
         s.append(&self.custody_challenges);
@@ -298,8 +302,8 @@ impl Decodable for BeaconState {
         let (latest_vdf_outputs, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
         let (current_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
         let (current_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
         let (custody_challenges, i) = <_>::ssz_decode(bytes, i)?;
@@ -329,8 +333,8 @@ impl Decodable for BeaconState {
                 latest_vdf_outputs,
                 previous_epoch_start_shard,
                 current_epoch_start_shard,
-                previous_epoch_calculation_slot,
-                current_epoch_calculation_slot,
+                previous_calculation_epoch,
+                current_calculation_epoch,
                 previous_epoch_seed,
                 current_epoch_seed,
                 custody_challenges,
@@ -366,8 +370,8 @@ impl TreeHash for BeaconState {
         result.append(&mut self.latest_vdf_outputs.hash_tree_root());
         result.append(&mut self.previous_epoch_start_shard.hash_tree_root());
         result.append(&mut self.current_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.previous_epoch_calculation_slot.hash_tree_root());
-        result.append(&mut self.current_epoch_calculation_slot.hash_tree_root());
+        result.append(&mut self.previous_calculation_epoch.hash_tree_root());
+        result.append(&mut self.current_calculation_epoch.hash_tree_root());
         result.append(&mut self.previous_epoch_seed.hash_tree_root());
         result.append(&mut self.current_epoch_seed.hash_tree_root());
         result.append(&mut self.custody_challenges.hash_tree_root());
@@ -401,8 +405,8 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             latest_vdf_outputs: <_>::random_for_test(rng),
             previous_epoch_start_shard: <_>::random_for_test(rng),
             current_epoch_start_shard: <_>::random_for_test(rng),
-            previous_epoch_calculation_slot: <_>::random_for_test(rng),
-            current_epoch_calculation_slot: <_>::random_for_test(rng),
+            previous_calculation_epoch: <_>::random_for_test(rng),
+            current_calculation_epoch: <_>::random_for_test(rng),
             previous_epoch_seed: <_>::random_for_test(rng),
             current_epoch_seed: <_>::random_for_test(rng),
             custody_challenges: <_>::random_for_test(rng),

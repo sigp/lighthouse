@@ -3,12 +3,12 @@
 use super::validator::*;
 
 /// Given an indexed sequence of `validators`, return the indices corresponding to validators that are active at `slot`.
-pub fn get_active_validator_indices(validators: &[Validator], slot: u64) -> Vec<usize> {
+pub fn get_active_validator_indices(validators: &[Validator], epoch: u64) -> Vec<usize> {
     validators
         .iter()
         .enumerate()
         .filter_map(|(index, validator)| {
-            if validator.is_active_at(slot) {
+            if validator.is_active_at(epoch) {
                 Some(index)
             } else {
                 None

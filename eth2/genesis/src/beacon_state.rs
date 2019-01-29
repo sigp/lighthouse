@@ -54,8 +54,10 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         ],
         previous_epoch_start_shard: spec.genesis_start_shard,
         current_epoch_start_shard: spec.genesis_start_shard,
-        previous_epoch_calculation_slot: spec.genesis_slot,
-        current_epoch_calculation_slot: spec.genesis_slot,
+        // TODO: fix to proper value
+        previous_calculation_epoch: spec.genesis_slot,
+        // TODO: fix to proper value
+        current_calculation_epoch: spec.genesis_slot,
         previous_epoch_seed: spec.zero_hash,
         current_epoch_seed: spec.zero_hash,
         /*

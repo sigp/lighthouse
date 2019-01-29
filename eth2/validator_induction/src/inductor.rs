@@ -43,8 +43,9 @@ pub fn process_deposit(
                 pubkey: deposit_input.pubkey.clone(),
                 withdrawal_credentials: deposit_input.withdrawal_credentials,
                 proposer_slots: 0,
-                activation_slot: spec.far_future_slot,
-                exit_slot: spec.far_future_slot,
+                // TODO: replace with `spec.far_future_epoch`
+                activation_epoch: spec.far_future_slot,
+                exit_epoch: spec.far_future_slot,
                 withdrawal_slot: spec.far_future_slot,
                 penalized_slot: spec.far_future_slot,
                 exit_count: 0,

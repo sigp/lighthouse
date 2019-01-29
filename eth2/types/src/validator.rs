@@ -48,8 +48,8 @@ pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub proposer_slots: u64,
-    pub activation_slot: u64,
-    pub exit_slot: u64,
+    pub activation_epoch: u64,
+    pub exit_epoch: u64,
     pub withdrawal_slot: u64,
     pub penalized_slot: u64,
     pub exit_count: u64,
@@ -59,9 +59,9 @@ pub struct Validator {
 }
 
 impl Validator {
-    /// This predicate indicates if the validator represented by this record is considered "active" at `slot`.
-    pub fn is_active_at(&self, slot: u64) -> bool {
-        self.activation_slot <= slot && slot < self.exit_slot
+    /// This predicate indicates if the validator represented by this record is considered "active" at `epoch`.
+    pub fn is_active_at(&self, epoch: u64) -> bool {
+        self.activation_epoch <= epoch && epoch < self.exit_epoch
     }
 }
 
@@ -72,8 +72,8 @@ impl Default for Validator {
             pubkey: PublicKey::default(),
             withdrawal_credentials: Hash256::default(),
             proposer_slots: 0,
-            activation_slot: std::u64::MAX,
-            exit_slot: std::u64::MAX,
+            activation_epoch: std::u64::MAX,
+            exit_epoch: std::u64::MAX,
             withdrawal_slot: std::u64::MAX,
             penalized_slot: std::u64::MAX,
             exit_count: 0,
@@ -96,8 +96,8 @@ impl Encodable for Validator {
         s.append(&self.pubkey);
         s.append(&self.withdrawal_credentials);
         s.append(&self.proposer_slots);
-        s.append(&self.activation_slot);
-        s.append(&self.exit_slot);
+        s.append(&self.activation_epoch);
+        s.append(&self.exit_epoch);
         s.append(&self.withdrawal_slot);
         s.append(&self.penalized_slot);
         s.append(&self.exit_count);
@@ -112,8 +112,8 @@ impl Decodable for Validator {
         let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
         let (proposer_slots, i) = <_>::ssz_decode(bytes, i)?;
-        let (activation_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (activation_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (exit_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (penalized_slot, i) = <_>::ssz_decode(bytes, i)?;
         let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
@@ -128,8 +128,8 @@ impl Decodable for Validator {
                 pubkey,
                 withdrawal_credentials,
                 proposer_slots,
-                activation_slot,
-                exit_slot,
+                activation_epoch,
+                exit_epoch,
                 withdrawal_slot,
                 penalized_slot,
                 exit_count,
@@ -148,8 +148,8 @@ impl TreeHash for Validator {
         result.append(&mut self.pubkey.hash_tree_root());
         result.append(&mut self.withdrawal_credentials.hash_tree_root());
         result.append(&mut self.proposer_slots.hash_tree_root());
-        result.append(&mut self.activation_slot.hash_tree_root());
-        result.append(&mut self.exit_slot.hash_tree_root());
+        result.append(&mut self.activation_epoch.hash_tree_root());
+        result.append(&mut self.exit_epoch.hash_tree_root());
         result.append(&mut self.withdrawal_slot.hash_tree_root());
         result.append(&mut self.penalized_slot.hash_tree_root());
         result.append(&mut self.exit_count.hash_tree_root());
@@ -166,8 +166,8 @@ impl<T: RngCore> TestRandom<T> for Validator {
             pubkey: <_>::random_for_test(rng),
             withdrawal_credentials: <_>::random_for_test(rng),
             proposer_slots: <_>::random_for_test(rng),
-            activation_slot: <_>::random_for_test(rng),
-            exit_slot: <_>::random_for_test(rng),
+            activation_epoch: <_>::random_for_test(rng),
+            exit_epoch: <_>::random_for_test(rng),
             withdrawal_slot: <_>::random_for_test(rng),
             penalized_slot: <_>::random_for_test(rng),
             exit_count: <_>::random_for_test(rng),
@@ -200,19 +200,19 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut validator = Validator::random_for_test(&mut rng);
 
-        let activation_slot = u64::random_for_test(&mut rng);
-        let exit_slot = activation_slot + 234;
+        let activation_epoch = u64::random_for_test(&mut rng) + 200;
+        let exit_epoch = activation_epoch + 234;
 
-        validator.activation_slot = activation_slot;
-        validator.exit_slot = exit_slot;
+        validator.activation_epoch = activation_epoch;
+        validator.exit_epoch = exit_epoch;
 
-        for slot in (activation_slot - 100)..(exit_slot + 100) {
-            if slot < activation_slot {
-                assert!(!validator.is_active_at(slot));
-            } else if slot >= exit_slot {
-                assert!(!validator.is_active_at(slot));
+        for epoch in (activation_epoch - 100)..(exit_epoch + 100) {
+            if epoch < activation_epoch {
+                assert!(!validator.is_active_at(epoch));
+            } else if epoch >= exit_epoch {
+                assert!(!validator.is_active_at(epoch));
             } else {
-                assert!(validator.is_active_at(slot));
+                assert!(validator.is_active_at(epoch));
             }
         }
     }
