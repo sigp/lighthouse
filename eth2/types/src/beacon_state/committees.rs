@@ -23,6 +23,10 @@ impl BeaconState {
         self.slot / spec.epoch_length
     }
 
+    pub fn previous_epoch(&self, spec: &ChainSpec) -> u64 {
+        self.current_epoch(spec).saturating_sub(1)
+    }
+
     /// Returns the number of committees per slot.
     ///
     /// Note: this is _not_ the committee size.
@@ -142,7 +146,9 @@ impl BeaconState {
     }
 }
 
+/*
 /// Utility function pending this functionality being stabilized on the `Range` type.
 fn range_contains<T: PartialOrd>(range: &Range<T>, target: T) -> bool {
     range.start <= target && target < range.end
 }
+*/
