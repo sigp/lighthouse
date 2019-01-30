@@ -141,7 +141,7 @@ mod tests {
         let mut flattened = vec![];
         for slot in cycle.iter() {
             for sac in slot.iter() {
-                for validator in sac.committee.iter() {
+                for validator in sac.0.iter() {
                     flattened.push(*validator);
                 }
             }
@@ -153,7 +153,7 @@ mod tests {
         let mut flattened = vec![];
         for slot in cycle.iter() {
             for sac in slot.iter() {
-                flattened.push(sac.shard as usize);
+                flattened.push(sac.1 as usize);
             }
         }
         flattened.dedup();
@@ -165,7 +165,7 @@ mod tests {
         for slot in cycle.iter() {
             let mut shards: Vec<usize> = vec![];
             for sac in slot.iter() {
-                shards.push(sac.shard as usize);
+                shards.push(sac.1 as usize);
             }
             shards_in_slots.push(shards);
         }
