@@ -76,16 +76,21 @@ fn generate_cycle(
         }
     };
 
-    let cycle: DelegatedCycle = validator_indices
+    let cycle = validator_indices
         .honey_badger_split(epoch_length)
         .enumerate()
         .map(|(i, slot_indices)| {
-            let _shard_start =
+            let shard_start =
                 crosslinking_shard_start + i * committees_per_slot / slots_per_committee;
             slot_indices
                 .honey_badger_split(committees_per_slot)
                 .enumerate()
-                .map(|(_j, _shard_indices)| (vec![], 0))
+                .map(|(j, shard_indices)| {
+                    (
+                        shard_indices.to_vec(),
+                        ((shard_start + j) % shard_count) as u64,
+                    )
+                })
                 .collect()
         })
         .collect();
