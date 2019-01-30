@@ -36,19 +36,9 @@ impl BeaconState {
                 if committee.iter().find(|i| **i == validator_index).is_some() {
                     result = Some(Ok((slot, shard)));
                 }
-
             }
         }
         result.unwrap()
-        /*
-        // TODO: this is a stub; implement it properly.
-        let validator_index = validator_index as u64;
-
-        let slot = validator_index % spec.epoch_length;
-        let shard = validator_index % spec.shard_count;
-
-        (slot, shard)
-        */
     }
 }
 

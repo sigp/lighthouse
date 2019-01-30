@@ -54,10 +54,18 @@ impl BeaconState {
             total_balance
         );
 
+        debug!(
+            "latest_attestations = {:?}",
+            self.latest_attestations
+                .iter()
+                .map(|a| a.data.slot)
+                .collect::<Vec<u64>>()
+        );
+
         let current_epoch_attestations: Vec<&PendingAttestation> = self
             .latest_attestations
             .iter()
-            .filter(|a| (self.slot - spec.epoch_length <= a.data.slot) && (a.data.slot < self.slot))
+            .filter(|a| a.data.slot / spec.epoch_length == self.current_epoch(spec))
             .collect();
 
         /*
@@ -103,8 +111,7 @@ impl BeaconState {
             .iter()
             .filter(|a| {
                 //TODO: ensure these saturating subs are correct.
-                (self.slot.saturating_sub(2 * spec.epoch_length) <= a.data.slot)
-                    && (a.data.slot < self.slot.saturating_sub(spec.epoch_length))
+                a.data.slot / spec.epoch_length == self.current_epoch(spec).saturating_sub(1)
             })
             .collect();
 
@@ -182,6 +189,11 @@ impl BeaconState {
             self.get_attestation_participants_union(&previous_epoch_head_attestations[..], spec)?;
         let previous_epoch_head_attesting_balance =
             self.get_effective_balances(&previous_epoch_head_attester_indices[..], spec);
+
+        debug!(
+            "previous_epoch_head_attester_balance of {} wei.",
+            previous_epoch_head_attesting_balance
+        );
 
         /*
          * Eth1 Data
@@ -295,7 +307,8 @@ impl BeaconState {
         /*
          * Justification and finalization
          */
-        let epochs_since_finality = (self.slot - self.finalized_slot) / spec.epoch_length;
+        let epochs_since_finality =
+            self.slot.saturating_sub(self.finalized_slot) / spec.epoch_length;
 
         // TODO: fix this extra map
         let previous_epoch_justified_attester_indices_hashset: HashSet<usize> =
@@ -306,6 +319,8 @@ impl BeaconState {
             HashSet::from_iter(previous_epoch_head_attester_indices.iter().map(|i| *i));
         let previous_epoch_attester_indices_hashset: HashSet<usize> =
             HashSet::from_iter(previous_epoch_attester_indices.iter().map(|i| *i));
+
+        debug!("{} epochs since finality.", epochs_since_finality);
 
         if epochs_since_finality <= 4 {
             for index in 0..self.validator_balances.len() {
@@ -341,7 +356,7 @@ impl BeaconState {
 
             for index in previous_epoch_attester_indices {
                 let base_reward = self.base_reward(index, base_reward_quotient, spec);
-                let inclusion_distance = self.inclusion_distance(index, spec)?;
+                let inclusion_distance = self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
 
                 safe_add_assign!(
                     self.validator_balances[index],
@@ -372,7 +387,7 @@ impl BeaconState {
 
             for index in previous_epoch_attester_indices {
                 let base_reward = self.base_reward(index, base_reward_quotient, spec);
-                let inclusion_distance = self.inclusion_distance(index, spec)?;
+                let inclusion_distance = self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
 
                 safe_sub_assign!(
                     self.validator_balances[index],
@@ -388,7 +403,7 @@ impl BeaconState {
          * Attestation inclusion
          */
         for index in previous_epoch_attester_indices_hashset {
-            let inclusion_slot = self.inclusion_slot(index, spec)?;
+            let inclusion_slot = self.inclusion_slot(&previous_epoch_attestations[..], index, spec)?;
             let proposer_index = self
                 .get_beacon_proposer_index(inclusion_slot, spec)
                 .map_err(|_| Error::UnableToDetermineProducer)?;
@@ -499,7 +514,7 @@ impl BeaconState {
         self.latest_attestations = self
             .latest_attestations
             .iter()
-            .filter(|a| a.data.slot < self.slot - spec.epoch_length)
+            .filter(|a| a.data.slot / spec.epoch_length >= self.current_epoch(spec))
             .cloned()
             .collect();
 
@@ -656,10 +671,11 @@ impl BeaconState {
 
     fn inclusion_distance(
         &self,
+        attestations: &[&PendingAttestation],
         validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<u64, InclusionError> {
-        let attestation = self.earliest_included_attestation(validator_index, spec)?;
+        let attestation = self.earliest_included_attestation(attestations, validator_index, spec)?;
         Ok(attestation
             .slot_included
             .saturating_sub(attestation.data.slot))
@@ -667,21 +683,23 @@ impl BeaconState {
 
     fn inclusion_slot(
         &self,
+        attestations: &[&PendingAttestation],
         validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<u64, InclusionError> {
-        let attestation = self.earliest_included_attestation(validator_index, spec)?;
+        let attestation = self.earliest_included_attestation(attestations, validator_index, spec)?;
         Ok(attestation.slot_included)
     }
 
     fn earliest_included_attestation(
         &self,
+        attestations: &[&PendingAttestation],
         validator_index: usize,
         spec: &ChainSpec,
-    ) -> Result<&PendingAttestation, InclusionError> {
+    ) -> Result<PendingAttestation, InclusionError> {
         let mut included_attestations = vec![];
 
-        for a in &self.latest_attestations {
+        for (i, a) in attestations.iter().enumerate() {
             let participants =
                 self.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
             if participants
@@ -689,29 +707,15 @@ impl BeaconState {
                 .find(|i| **i == validator_index)
                 .is_some()
             {
-                included_attestations.push(a);
+                included_attestations.push(i);
             }
         }
 
-        Ok(included_attestations
+        let earliest_attestation_index = included_attestations
             .iter()
-            .min_by_key(|a| a.slot_included)
-            .and_then(|x| Some(*x))
-            .ok_or_else(|| InclusionError::NoIncludedAttestations)?)
-        /*
-        self.latest_attestations
-            .iter()
-            .try_for_each(|a| {
-                self.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)
-            })?
-            .filter(|participants| {
-                participants
-                    .iter()
-                    .find(|i| **i == validator_index)
-                    .is_some()
-            })
-            .min_by_key(|a| a.slot_included)
-        */
+            .min_by_key(|i| attestations[**i].slot_included)
+            .ok_or_else(|| InclusionError::NoIncludedAttestations)?;
+        Ok(attestations[*earliest_attestation_index].clone())
     }
 
     fn base_reward(

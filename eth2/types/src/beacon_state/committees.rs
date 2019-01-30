@@ -1,15 +1,28 @@
 use crate::{validator_registry::get_active_validator_indices, BeaconState, ChainSpec};
+use log::debug;
 use std::ops::Range;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    InvalidSlot(u64, Range<u64>),
+    InvalidEpoch(u64, Range<u64>),
     InsufficientNumberOfValidators,
+}
+
+macro_rules! ensure {
+    ($condition: expr, $result: expr) => {
+        if !$condition {
+            return Err($result);
+        }
+    };
 }
 
 type Result<T> = std::result::Result<T, Error>;
 
 impl BeaconState {
+    pub fn current_epoch(&self, spec: &ChainSpec) -> u64 {
+        self.slot / spec.epoch_length
+    }
+
     /// Returns the number of committees per slot.
     ///
     /// Note: this is _not_ the committee size.
@@ -69,7 +82,7 @@ impl BeaconState {
         let previous_epoch_range = self.get_current_epoch_boundaries(spec.epoch_length);
         let current_epoch_range = self.get_current_epoch_boundaries(spec.epoch_length);
         if !range_contains(&current_epoch_range, slot) {
-            return Err(Error::InvalidSlot(slot, current_epoch_range));
+            return Err(Error::InvalidEpoch(slot, current_epoch_range));
         }
         */
         let epoch = slot / spec.epoch_length;
@@ -81,9 +94,17 @@ impl BeaconState {
         };
         let next_epoch = current_epoch + 1;
 
-        if !((previous_epoch <= epoch) & (epoch < next_epoch)) {
-            return Err(Error::InvalidSlot(slot, previous_epoch..current_epoch));
-        }
+        /*
+        debug!(
+            "state.slot: {}, slot: {}, current_epoch: {}, previous_epoch: {}, next_epoch: {}",
+            self.slot, slot, current_epoch, previous_epoch, next_epoch
+        );
+        */
+
+        ensure!(
+            (previous_epoch <= epoch) & (epoch < next_epoch),
+            Error::InvalidEpoch(slot, previous_epoch..current_epoch)
+        );
 
         let offset = slot % spec.epoch_length;
 
