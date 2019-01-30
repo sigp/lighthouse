@@ -33,6 +33,7 @@ pub struct ChainSpec {
      */
     pub genesis_fork_version: u64,
     pub genesis_slot: u64,
+    pub genesis_epoch: u64,
     pub genesis_start_shard: u64,
     pub far_future_slot: u64,
     pub zero_hash: Hash256,

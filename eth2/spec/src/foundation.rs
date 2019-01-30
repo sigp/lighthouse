@@ -38,6 +38,8 @@ impl ChainSpec {
              */
             genesis_fork_version: 0,
             genesis_slot: 0,
+            // TODO set to appropriate value
+            genesis_epoch: 0,
             genesis_start_shard: 0,
             far_future_slot: u64::max_value(),
             zero_hash: Hash256::zero(),

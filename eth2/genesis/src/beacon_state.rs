@@ -32,9 +32,9 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         slot: spec.genesis_slot,
         genesis_time: spec.genesis_time,
         fork_data: Fork {
-            pre_fork_version: spec.genesis_fork_version,
-            post_fork_version: spec.genesis_fork_version,
-            fork_slot: spec.genesis_slot,
+            previous_version: spec.genesis_fork_version,
+            current_version: spec.genesis_fork_version,
+            epoch: spec.genesis_epoch,
         },
         /*
          * Validator registry
@@ -116,9 +116,9 @@ mod tests {
 
         assert_eq!(state.slot, 0);
         assert_eq!(state.genesis_time, spec.genesis_time);
-        assert_eq!(state.fork_data.pre_fork_version, 0);
-        assert_eq!(state.fork_data.post_fork_version, 0);
-        assert_eq!(state.fork_data.fork_slot, 0);
+        assert_eq!(state.fork_data.previous_version, 0);
+        assert_eq!(state.fork_data.current_version, 0);
+        assert_eq!(state.fork_data.epoch, 0);
     }
 
     #[test]
