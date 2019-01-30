@@ -9,6 +9,17 @@ pub struct Fork {
     pub epoch: u64,
 }
 
+impl Fork {
+    /// Returns the fork version for the given `epoch`.
+    pub fn get_version_for(&self, epoch: u64) -> u64 {
+        if epoch < self.epoch {
+            self.previous_version
+        } else {
+            self.current_version
+        }
+    }
+}
+
 impl Encodable for Fork {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.previous_version);
