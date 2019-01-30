@@ -1,20 +1,14 @@
-use crate::{BeaconState, ChainSpec, Hash256};
-
-pub enum Error {
-    UnableToDetermineProducer,
-}
+use crate::{beacon_state::CommitteesError, BeaconState, ChainSpec, Hash256};
 
 impl BeaconState {
     pub fn per_slot_processing(
         &mut self,
         previous_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Result<(), Error> {
+    ) -> Result<(), CommitteesError> {
         self.slot += 1;
 
-        let block_proposer = self
-            .get_beacon_proposer_index(self.slot, spec)
-            .map_err(|_| Error::UnableToDetermineProducer)?;
+        let block_proposer = self.get_beacon_proposer_index(self.slot, spec)?;
 
         self.validator_registry[block_proposer].proposer_slots += 1;
         self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length) as usize] =
@@ -35,7 +29,18 @@ impl BeaconState {
         &self,
         validator_index: usize,
         spec: &ChainSpec,
-    ) -> (u64, u64) {
+    ) -> Result<(u64, u64), CommitteesError> {
+        let mut result = None;
+        for slot in self.get_current_epoch_boundaries(spec.epoch_length) {
+            for (committee, shard) in self.get_crosslink_committees_at_slot(slot, spec)? {
+                if committee.iter().find(|i| **i == validator_index).is_some() {
+                    result = Some(Ok((slot, shard)));
+                }
+
+            }
+        }
+        result.unwrap()
+        /*
         // TODO: this is a stub; implement it properly.
         let validator_index = validator_index as u64;
 
@@ -43,6 +48,7 @@ impl BeaconState {
         let shard = validator_index % spec.shard_count;
 
         (slot, shard)
+        */
     }
 }
 

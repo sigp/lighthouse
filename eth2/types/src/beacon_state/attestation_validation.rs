@@ -1,4 +1,7 @@
-use crate::{AggregatePublicKey, Attestation, BeaconState, ChainSpec, Fork};
+use crate::{
+    beacon_state::AttestationParticipantsError, AggregatePublicKey, Attestation, BeaconState,
+    ChainSpec, Fork,
+};
 use bls::bls_verify_aggregate;
 
 #[derive(Debug, PartialEq)]
@@ -11,6 +14,7 @@ pub enum Error {
     BadSignature,
     ShardBlockRootNotZero,
     NoBlockRoot,
+    AttestationParticipantsError(AttestationParticipantsError),
 }
 
 macro_rules! ensure {
@@ -32,6 +36,25 @@ impl BeaconState {
         attestation: &Attestation,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
+        self.validate_attestation_signature_optional(attestation, spec, true)
+    }
+
+    pub fn validate_attestation_without_signature(
+        &self,
+        attestation: &Attestation,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        self.validate_attestation_signature_optional(attestation, spec, false)
+    }
+
+    fn validate_attestation_signature_optional(
+        &self,
+        attestation: &Attestation,
+        spec: &ChainSpec,
+        verify_signature: bool,
+    ) -> Result<(), Error> {
+        // TODO: IMPORTANT: enable signature verification
+        let verify_signature = false;
         ensure!(
             attestation.data.slot + spec.min_attestation_inclusion_delay <= self.slot,
             Error::IncludedTooEarly
@@ -65,25 +88,30 @@ impl BeaconState {
                     == self.latest_crosslinks[attestation.data.shard as usize].shard_block_root),
             Error::BadLatestCrosslinkRoot
         );
-        let participants =
-            self.get_attestation_participants(&attestation.data, &attestation.aggregation_bitfield);
-        let mut group_public_key = AggregatePublicKey::new();
-        for participant in participants {
-            group_public_key.add(
-                self.validator_registry[participant as usize]
-                    .pubkey
-                    .as_raw(),
-            )
+        if verify_signature {
+            let participants = self.get_attestation_participants(
+                &attestation.data,
+                &attestation.aggregation_bitfield,
+                spec,
+            )?;
+            let mut group_public_key = AggregatePublicKey::new();
+            for participant in participants {
+                group_public_key.add(
+                    self.validator_registry[participant as usize]
+                        .pubkey
+                        .as_raw(),
+                )
+            }
+            ensure!(
+                bls_verify_aggregate(
+                    &group_public_key,
+                    &attestation.signable_message(PHASE_0_CUSTODY_BIT),
+                    &attestation.aggregate_signature,
+                    get_domain(&self.fork_data, attestation.data.slot, DOMAIN_ATTESTATION)
+                ),
+                Error::BadSignature
+            );
         }
-        ensure!(
-            bls_verify_aggregate(
-                &group_public_key,
-                &attestation.signable_message(PHASE_0_CUSTODY_BIT),
-                &attestation.aggregate_signature,
-                get_domain(&self.fork_data, attestation.data.slot, DOMAIN_ATTESTATION)
-            ),
-            Error::BadSignature
-        );
         ensure!(
             attestation.data.shard_block_root == spec.zero_hash,
             Error::ShardBlockRootNotZero
@@ -95,4 +123,10 @@ impl BeaconState {
 pub fn get_domain(_fork: &Fork, _slot: u64, _domain_type: u64) -> u64 {
     // TODO: stubbed out.
     0
+}
+
+impl From<AttestationParticipantsError> for Error {
+    fn from(e: AttestationParticipantsError) -> Error {
+        Error::AttestationParticipantsError(e)
+    }
 }

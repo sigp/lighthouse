@@ -1,10 +1,10 @@
 use super::{BeaconChain, ClientDB, SlotClock};
-use types::{beacon_state::Error as BeaconStateError, PublicKey};
+use types::{beacon_state::CommitteesError, PublicKey};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SlotClockError,
-    BeaconStateError(BeaconStateError),
+    CommitteesError(CommitteesError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -45,7 +45,7 @@ where
         }
     }
 
-    pub fn block_proposer(&self, slot: u64) -> Result<usize, Error> {
+    pub fn block_proposer(&self, slot: u64) -> Result<usize, CommitteesError> {
         // TODO: fix unwrap
         let present_slot = self.present_slot().unwrap();
         // TODO: fix unwrap
@@ -67,12 +67,14 @@ where
         let present_slot = self.present_slot()?;
         let state = self.state(present_slot).ok()?;
 
-        Some(state.attestation_slot_and_shard_for_validator(validator_index, &self.spec))
+        state
+            .attestation_slot_and_shard_for_validator(validator_index, &self.spec)
+            .ok()
     }
 }
 
-impl From<BeaconStateError> for Error {
-    fn from(e: BeaconStateError) -> Error {
-        Error::BeaconStateError(e)
+impl From<CommitteesError> for Error {
+    fn from(e: CommitteesError) -> Error {
+        Error::CommitteesError(e)
     }
 }

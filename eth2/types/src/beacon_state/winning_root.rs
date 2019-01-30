@@ -1,11 +1,12 @@
-use crate::{BeaconState, ChainSpec, Hash256, PendingAttestation};
+use crate::{
+    beacon_state::AttestationParticipantsError, BeaconState, ChainSpec, Hash256, PendingAttestation,
+};
 use std::collections::HashMap;
 
+#[derive(Debug, PartialEq)]
 pub enum Error {
-    UnableToDetermineProducer,
-    NoBlockRoots,
-    UnableToGetCrosslinkCommittees,
-    BaseRewardQuotientIsZero,
+    NoWinningRoot,
+    AttestationParticipantsError(AttestationParticipantsError),
 }
 
 #[derive(Clone)]
@@ -23,7 +24,7 @@ impl BeaconState {
         current_epoch_attestations: &[&PendingAttestation],
         previous_epoch_attestations: &[&PendingAttestation],
         spec: &ChainSpec,
-    ) -> Option<WinningRoot> {
+    ) -> Result<WinningRoot, Error> {
         let mut attestations = current_epoch_attestations.to_vec();
         attestations.append(&mut previous_epoch_attestations.to_vec());
 
@@ -42,14 +43,23 @@ impl BeaconState {
                 continue;
             }
 
-            let attesting_validator_indices = attestations.iter().fold(vec![], |mut acc, a| {
-                if (a.data.shard == shard) && (a.data.shard_block_root == *shard_block_root) {
-                    acc.append(
-                        &mut self.get_attestation_participants(&a.data, &a.aggregation_bitfield),
-                    );
-                }
-                acc
-            });
+            // TODO: `cargo fmt` makes this rather ugly; tidy up.
+            let attesting_validator_indices = attestations.iter().try_fold::<_, _, Result<
+                _,
+                AttestationParticipantsError,
+            >>(
+                vec![],
+                |mut acc, a| {
+                    if (a.data.shard == shard) && (a.data.shard_block_root == *shard_block_root) {
+                        acc.append(&mut self.get_attestation_participants(
+                            &a.data,
+                            &a.aggregation_bitfield,
+                            spec,
+                        )?);
+                    }
+                    Ok(acc)
+                },
+            )?;
 
             let total_balance: u64 = attesting_validator_indices
                 .iter()
@@ -73,7 +83,7 @@ impl BeaconState {
             candidates.insert(*shard_block_root, candidate_root);
         }
 
-        let winner = candidates
+        Ok(candidates
             .iter()
             .filter_map(|(_hash, candidate)| {
                 if candidate.total_attesting_balance == highest_seen_balance {
@@ -82,11 +92,15 @@ impl BeaconState {
                     None
                 }
             })
-            .min_by_key(|candidate| candidate.shard_block_root);
+            .min_by_key(|candidate| candidate.shard_block_root)
+            .ok_or_else(|| Error::NoWinningRoot)?
+            // TODO: avoid clone.
+            .clone())
+    }
+}
 
-        match winner {
-            Some(winner) => Some(winner.clone()),
-            None => None,
-        }
+impl From<AttestationParticipantsError> for Error {
+    fn from (e: AttestationParticipantsError) -> Error {
+        Error::AttestationParticipantsError(e)
     }
 }

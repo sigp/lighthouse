@@ -1,5 +1,6 @@
 use super::state_transition::Error as TransitionError;
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
+use log::debug;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::{ssz_encode, Encodable};
 use types::{
@@ -65,6 +66,8 @@ where
     where
         V: BeaconBlockReader + Encodable + Sized,
     {
+        debug!("Processing block with slot {}...", block.slot());
+
         let block = block
             .into_beacon_block()
             .ok_or(Error::UnableToDecodeBlock)?;

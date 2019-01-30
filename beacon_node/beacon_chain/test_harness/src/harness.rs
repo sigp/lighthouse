@@ -5,6 +5,8 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
+use log::debug;
+use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
 use std::fs::File;
 use std::io::prelude::*;
@@ -26,26 +28,40 @@ impl BeaconChainHarness {
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
-        let slot_clock = TestingSlotClock::new(0);
+        let slot_clock = TestingSlotClock::new(spec.genesis_slot);
 
         // Remove the validators present in the spec (if any).
         spec.initial_validators = Vec::with_capacity(validator_count);
         spec.initial_balances = Vec::with_capacity(validator_count);
 
-        // Insert `validator_count` new `Validator` records into the spec, retaining the keypairs
-        // for later user.
-        let mut keypairs = Vec::with_capacity(validator_count);
-        for _ in 0..validator_count {
-            let keypair = Keypair::random();
+        debug!("Generating validator keypairs...");
 
-            spec.initial_validators.push(Validator {
+        let keypairs: Vec<Keypair> = (0..validator_count)
+            .collect::<Vec<usize>>()
+            .par_iter()
+            .map(|_| Keypair::random())
+            .collect();
+
+        debug!("Creating validator records...");
+
+        spec.initial_validators = keypairs
+            .par_iter()
+            .map(|keypair| Validator {
                 pubkey: keypair.pk.clone(),
+                activation_slot: 0,
                 ..std::default::Default::default()
-            });
-            spec.initial_balances.push(32_000_000_000); // 32 ETH
+            })
+            .collect();
 
-            keypairs.push(keypair);
-        }
+        debug!("Setting validator balances...");
+
+        spec.initial_balances = spec
+            .initial_validators
+            .par_iter()
+            .map(|_| 32_000_000_000) // 32 ETH
+            .collect();
+
+        debug!("Creating the BeaconChain...");
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
@@ -58,11 +74,15 @@ impl BeaconChainHarness {
             .unwrap(),
         );
 
+        debug!("Creating validator producer and attester instances...");
+
         // Spawn the test validator instances.
-        let mut validators = Vec::with_capacity(validator_count);
-        for keypair in keypairs {
-            validators.push(TestValidator::new(keypair.clone(), beacon_chain.clone()));
-        }
+        let validators: Vec<TestValidator> = keypairs
+            .par_iter()
+            .map(|keypair| TestValidator::new(keypair.clone(), beacon_chain.clone(), &spec))
+            .collect();
+
+        debug!("Created {} TestValidators", validators.len());
 
         Self {
             db,
@@ -83,6 +103,9 @@ impl BeaconChainHarness {
             .present_slot()
             .expect("Unable to determine slot.")
             + 1;
+
+        debug!("Incrementing BeaconChain slot to {}.", slot);
+
         self.beacon_chain.slot_clock.set_slot(slot);
     }
 
@@ -93,16 +116,24 @@ impl BeaconChainHarness {
     pub fn gather_free_attesations(&mut self) -> Vec<FreeAttestation> {
         let present_slot = self.beacon_chain.present_slot().unwrap();
 
-        let mut free_attestations = vec![];
-        for validator in &mut self.validators {
-            // Advance the validator slot.
-            validator.set_slot(present_slot);
+        let free_attestations: Vec<FreeAttestation> = self
+            .validators
+            .par_iter_mut()
+            .filter_map(|validator| {
+                // Advance the validator slot.
+                validator.set_slot(present_slot);
 
-            // Prompt the validator to produce an attestation (if required).
-            if let Ok(free_attestation) = validator.produce_free_attestation() {
-                free_attestations.push(free_attestation);
-            }
-        }
+                // Prompt the validator to produce an attestation (if required).
+                validator.produce_free_attestation().ok()
+            })
+            .collect();
+
+        debug!(
+            "Gathered {} FreeAttestations for slot {}.",
+            free_attestations.len(),
+            present_slot
+        );
+
         free_attestations
     }
 
@@ -114,6 +145,11 @@ impl BeaconChainHarness {
         let present_slot = self.beacon_chain.present_slot().unwrap();
 
         let proposer = self.beacon_chain.block_proposer(present_slot).unwrap();
+
+        debug!(
+            "Producing block from validator #{} for slot {}.",
+            proposer, present_slot
+        );
 
         self.validators[proposer].produce_block().unwrap()
     }
@@ -131,7 +167,9 @@ impl BeaconChainHarness {
                 .unwrap();
         }
         let block = self.produce_block();
+        debug!("Submitting block for processing...");
         self.beacon_chain.process_block(block).unwrap();
+        debug!("...block processed by BeaconChain.");
     }
 
     pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {
