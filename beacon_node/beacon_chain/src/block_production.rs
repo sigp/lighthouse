@@ -1,6 +1,7 @@
 use super::state_transition::Error as TransitionError;
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
 use bls::Signature;
+use log::debug;
 use slot_clock::TestingSlotClockError;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
@@ -33,6 +34,8 @@ where
             .map_err(|e| e.into())?
             .ok_or(Error::PresentSlotIsNone)?;
 
+        debug!("Producing block for slot {}...", present_slot);
+
         let parent_root = self.head().beacon_block_root;
         let parent_block_reader = self
             .block_store
@@ -45,12 +48,16 @@ where
             .into_beacon_state()
             .ok_or_else(|| Error::DBError("State invalid.".to_string()))?;
 
+        debug!("Finding attesatations for block...");
+
         let attestations = self
             .attestation_aggregator
             .read()
             .unwrap()
             // TODO: advance the parent_state slot.
             .get_attestations_for_state(&parent_state, &self.spec);
+
+        debug!("Found {} attestation(s).", attestations.len());
 
         let mut block = BeaconBlock {
             slot: present_slot,
@@ -80,6 +87,8 @@ where
         let state_root = state.canonical_root();
 
         block.state_root = state_root;
+
+        debug!("Block produced.");
 
         Ok((block, state))
     }

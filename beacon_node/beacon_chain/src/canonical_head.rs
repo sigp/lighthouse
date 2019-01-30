@@ -1,11 +1,11 @@
 use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
 use std::sync::RwLockReadGuard;
-use types::{beacon_state::SlotProcessingError, BeaconBlock, BeaconState, Hash256};
+use types::{beacon_state::CommitteesError, BeaconBlock, BeaconState, Hash256};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     PastSlot,
-    UnableToDetermineProducer,
+    CommitteesError(CommitteesError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -64,10 +64,8 @@ where
     }
 }
 
-impl From<SlotProcessingError> for Error {
-    fn from(e: SlotProcessingError) -> Error {
-        match e {
-            SlotProcessingError::UnableToDetermineProducer => Error::UnableToDetermineProducer,
-        }
+impl From<CommitteesError> for Error {
+    fn from(e: CommitteesError) -> Error {
+        Error::CommitteesError(e)
     }
 }

@@ -1,13 +1,13 @@
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
 use bls::{PublicKey, Signature};
-use boolean_bitfield::BooleanBitfield;
 use hashing::hash;
+use log::debug;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::{ssz_encode, TreeHash};
 use types::{
-    beacon_state::{AttestationValidationError, SlotProcessingError},
+    beacon_state::{AttestationValidationError, CommitteesError, EpochProcessingError},
     readers::BeaconBlockReader,
-    AttestationData, BeaconBlock, BeaconState, Exit, Fork, Hash256, PendingAttestation,
+    BeaconBlock, BeaconState, Exit, Fork, Hash256, PendingAttestation,
 };
 
 // TODO: define elsehwere.
@@ -51,6 +51,8 @@ pub enum Error {
     BadCustodyChallenges,
     BadCustodyResponses,
     SlotClockError(SystemTimeSlotClockError),
+    CommitteesError(CommitteesError),
+    EpochProcessingError(EpochProcessingError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -81,6 +83,11 @@ where
         verify_block_signature: bool,
     ) -> Result<BeaconState, Error> {
         ensure!(state.slot < block.slot, Error::StateAlreadyTransitioned);
+
+        debug!(
+            "Starting state transition from slot {} to {}...",
+            state.slot, block.slot
+        );
 
         for _ in state.slot..block.slot {
             state.per_slot_processing(block.parent_root.clone(), &self.spec)?;
@@ -113,6 +120,8 @@ where
             );
         }
 
+        debug!("Block signature is valid.");
+
         /*
          * RANDAO
          */
@@ -126,6 +135,8 @@ where
             ),
             Error::BadRandaoSignature
         );
+
+        debug!("RANDAO signature is valid.");
 
         // TODO: check this is correct.
         let new_mix = {
@@ -228,6 +239,11 @@ where
             state.latest_attestations.push(pending_attestation);
         }
 
+        debug!(
+            "{} attestations verified & processed.",
+            block.body.attestations.len()
+        );
+
         /*
          * Deposits
          */
@@ -294,8 +310,10 @@ where
         );
 
         if state.slot % self.spec.epoch_length == 0 {
-            state.per_epoch_processing(&self.spec).unwrap();
+            state.per_epoch_processing(&self.spec)?;
         }
+
+        debug!("State transition complete.");
 
         Ok(state)
     }
@@ -337,16 +355,20 @@ impl From<SystemTimeSlotClockError> for Error {
     }
 }
 
-impl From<SlotProcessingError> for Error {
-    fn from(e: SlotProcessingError) -> Error {
-        match e {
-            SlotProcessingError::UnableToDetermineProducer => Error::NoBlockProducer,
-        }
-    }
-}
-
 impl From<AttestationValidationError> for Error {
     fn from(e: AttestationValidationError) -> Error {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl From<CommitteesError> for Error {
+    fn from(e: CommitteesError) -> Error {
+        Error::CommitteesError(e)
+    }
+}
+
+impl From<EpochProcessingError> for Error {
+    fn from(e: EpochProcessingError) -> Error {
+        Error::EpochProcessingError(e)
     }
 }

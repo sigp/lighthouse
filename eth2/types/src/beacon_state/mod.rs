@@ -10,21 +10,18 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
+mod attestation_participants;
 mod attestation_validation;
+mod committees;
 mod epoch_processing;
 mod shuffling;
 mod slot_processing;
 mod winning_root;
 
+pub use self::attestation_participants::Error as AttestationParticipantsError;
 pub use self::attestation_validation::Error as AttestationValidationError;
+pub use self::committees::Error as CommitteesError;
 pub use self::epoch_processing::Error as EpochProcessingError;
-pub use self::slot_processing::Error as SlotProcessingError;
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    InvalidSlot,
-    InsufficientNumberOfValidators,
-}
 
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;

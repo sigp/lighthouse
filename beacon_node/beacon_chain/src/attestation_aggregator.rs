@@ -96,7 +96,9 @@ impl AttestationAggregator {
         self.store
             .values()
             .filter_map(|attestation| {
-                if state.validate_attestation(attestation, spec).is_ok()
+                if state
+                    .validate_attestation_without_signature(attestation, spec)
+                    .is_ok()
                     && !known_attestation_data.contains(&attestation.data)
                 {
                     Some(attestation.clone())
