@@ -76,7 +76,7 @@ fn generate_cycle(
         }
     };
 
-    let _cycle: DelegatedCycle = validator_indices
+    let cycle: DelegatedCycle = validator_indices
         .honey_badger_split(epoch_length)
         .enumerate()
         .map(|(i, slot_indices)| {
@@ -89,7 +89,7 @@ fn generate_cycle(
                 .collect()
         })
         .collect();
-    panic!("this function has been deprecated, do not use...");
+    Ok(cycle)
 }
 
 impl From<ShuffleErr> for ValidatorAssignmentError {
