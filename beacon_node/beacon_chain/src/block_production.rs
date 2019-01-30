@@ -4,6 +4,7 @@ use bls::Signature;
 use log::debug;
 use slot_clock::TestingSlotClockError;
 use types::{
+    beacon_state::CommitteesError,
     readers::{BeaconBlockReader, BeaconStateReader},
     BeaconBlock, BeaconBlockBody, BeaconState, Eth1Data, Hash256,
 };
@@ -13,6 +14,7 @@ pub enum Error {
     DBError(String),
     StateTransitionError(TransitionError),
     PresentSlotIsNone,
+    CommitteesError(CommitteesError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -50,12 +52,14 @@ where
 
         debug!("Finding attesatations for block...");
 
-        let attestations = self
-            .attestation_aggregator
-            .read()
-            .unwrap()
-            // TODO: advance the parent_state slot.
-            .get_attestations_for_state(&parent_state, &self.spec);
+        let attestations = {
+            let mut next_state = parent_state.clone();
+            next_state.per_slot_processing(Hash256::zero(), &self.spec)?;
+            self.attestation_aggregator
+                .read()
+                .unwrap()
+                .get_attestations_for_state(&next_state, &self.spec)
+        };
 
         debug!("Found {} attestation(s).", attestations.len());
 
@@ -109,5 +113,11 @@ impl From<TransitionError> for Error {
 impl From<TestingSlotClockError> for Error {
     fn from(_: TestingSlotClockError) -> Error {
         unreachable!(); // Testing clock never throws an error.
+    }
+}
+
+impl From<CommitteesError> for Error {
+    fn from(e: CommitteesError) -> Error {
+        Error::CommitteesError(e)
     }
 }
