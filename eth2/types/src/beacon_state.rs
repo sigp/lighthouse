@@ -19,11 +19,10 @@ fn get_shuffling(
     _seed: Hash256,
     validators: &[Validator],
     epoch: u64,
-    committees_per_slot: u64,
-    epoch_length: u64,
+    committees_per_epoch: u64,
 ) -> Vec<Vec<usize>> {
     get_active_validator_indices(validators, epoch)
-        .honey_badger_split((committees_per_slot * epoch_length) as usize)
+        .honey_badger_split(committees_per_epoch as usize)
         .map(|chunk| chunk.to_vec())
         .collect::<Vec<_>>()
 }
@@ -100,7 +99,7 @@ pub struct BeaconState {
     pub eth1_data_votes: Vec<Eth1DataVote>,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Error {
     InvalidSlot,
     InsufficientNumberOfValidators,
@@ -170,7 +169,7 @@ impl BeaconState {
         };
         let next_epoch = current_epoch + 1;
 
-        if epoch < previous_epoch && epoch >= next_epoch {
+        if epoch < previous_epoch || epoch >= next_epoch {
             return Err(Error::InvalidSlot);
         }
 
@@ -213,7 +212,6 @@ impl BeaconState {
             &self.validator_registry,
             shuffling_epoch,
             committees_per_epoch,
-            epoch_length,
         );
         let offset = slot % epoch_length;
         let committees_per_slot = committees_per_epoch / epoch_length;
@@ -230,7 +228,8 @@ impl BeaconState {
     }
 
     /// Returns the beacon proposer index for the `slot`.
-    /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
+    /// If the slot is outside the bounds of what can currently be calculated from the state, an `Err` is returned.
+    /// If the requested slot does not have a proposer, `None` is returned.
     pub fn get_beacon_proposer_index(
         &self,
         slot: u64,
@@ -238,7 +237,7 @@ impl BeaconState {
         shard_count: u64,
         target_committee_size: u64,
         genesis_epoch: u64,
-    ) -> Result<usize> {
+    ) -> Result<Option<usize>> {
         let committees = self.get_crosslink_committees_at_slot(
             slot,
             epoch_length,
@@ -246,14 +245,16 @@ impl BeaconState {
             target_committee_size,
             genesis_epoch,
         )?;
-        committees
-            .first()
-            .ok_or(Error::InsufficientNumberOfValidators)
-            .and_then(|(first_committee, _)| {
-                // invariant: if there is a committee in committees, then first_committee will be non-empty.
-                let index = slot as usize % first_committee.len();
-                Ok(first_committee[index])
-            })
+
+        // NOTE: invariant that `get_crosslink_committees_at_slot` will always return at least one element.
+        let first_committee = &committees.first().unwrap().0;
+
+        let result = if let Some(index) = (slot as usize).checked_rem(first_committee.len()) {
+            Some(first_committee[index])
+        } else {
+            None
+        };
+        Ok(result)
     }
 }
 
@@ -432,26 +433,6 @@ mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use std::ops::Range;
-
-    // utility function pending this functionality being stabilized on the `Range` type.
-    fn range_contains<T: PartialOrd>(range: &Range<T>, target: T) -> bool {
-        range.start <= target && target < range.end
-    }
-
-    /// Returns the start slot and end slot of the current epoch containing `self.slot`.
-    fn get_current_epoch_boundaries(slot: u64, epoch_length: u64) -> Range<u64> {
-        let slot_in_epoch = slot % epoch_length;
-        let start = slot - slot_in_epoch;
-        let end = slot + (epoch_length - slot_in_epoch);
-        start..end
-    }
-
-    /// Returns the start slot and end slot of the previous epoch with respect to `self.slot`.
-    fn get_previous_epoch_boundaries(slot: u64, epoch_length: u64) -> Range<u64> {
-        let current_epoch = get_current_epoch_boundaries(slot, epoch_length);
-        current_epoch.start - epoch_length..current_epoch.end - epoch_length
-    }
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -477,71 +458,154 @@ mod tests {
     }
 
     #[test]
-    fn test_get_epoch_boundaries() {
-        let epoch_length = 64;
-        // focus on the third epoch, for example...
-        let slot = 3 + 2 * epoch_length;
-        let expected_current_range = 2 * epoch_length..3 * epoch_length;
-        let expected_previous_range = epoch_length..2 * epoch_length;
-
+    fn test_get_crosslink_committees_at_slot() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut state = BeaconState::random_for_test(&mut rng);
-        state.slot = slot;
-        let current_result = state.get_current_epoch_boundaries(epoch_length);
-        let previous_result = state.get_previous_epoch_boundaries(epoch_length);
-        // test we get the expected range
-        assert_eq!(expected_current_range, current_result);
-        assert_eq!(expected_previous_range, previous_result);
 
-        // test slots around the range behave as expected
-        for i in 0..4 * epoch_length {
-            if i >= epoch_length && i < 2 * epoch_length {
-                assert!(range_contains(&previous_result, i));
-                assert!(!range_contains(&current_result, i));
-            } else if i >= 2 * epoch_length && i < 3 * epoch_length {
-                assert!(!range_contains(&previous_result, i));
-                assert!(range_contains(&current_result, i));
-            } else {
-                assert!(
-                    !range_contains(&previous_result, i) && !range_contains(&current_result, i)
-                );
+        // TODO test at {1, high} validator count
+
+        let epoch_length = 64;
+        let shard_count = 1024;
+        let target_committee_size = 128;
+        let genesis_epoch = 0;
+
+        let current_epoch = state.get_current_epoch(epoch_length);
+        let current_epoch_start_slot = current_epoch * epoch_length;
+        let current_epoch_end_slot = current_epoch_start_slot + epoch_length;
+
+        // TODO test at the first, second epoch...
+        let previous_epoch = current_epoch.checked_sub(1).unwrap_or(0);
+        let previous_epoch_start_slot = previous_epoch * epoch_length;
+
+        let slot_before_previous_epoch = previous_epoch_start_slot.checked_sub(10).unwrap_or(0);
+        let slot_after_current_epoch = current_epoch_start_slot
+            .checked_add(epoch_length + 10)
+            .unwrap_or(std::u64::MAX);
+
+        let activation_epoch = current_epoch.checked_sub(100).unwrap_or(0);
+        for validator in &mut state.validator_registry {
+            validator.activation_epoch = activation_epoch;
+        }
+
+        for slot in slot_before_previous_epoch..previous_epoch_start_slot {
+            let result = state.get_crosslink_committees_at_slot(
+                slot,
+                epoch_length,
+                shard_count,
+                target_committee_size,
+                genesis_epoch,
+            );
+            match result {
+                Ok(_) => panic!("should not return crosslink committee for early slot"),
+                Err(e) => assert_eq!(
+                    e,
+                    Error::InvalidSlot,
+                    "returned wrong error for early slot to crosslink committee helper"
+                ),
             }
         }
-    }
 
-    #[test]
-    fn test_get_shard_committees_at_slot() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let mut state = BeaconState::random_for_test(&mut rng);
-
-        let epoch_length = 64;
-
-        let mut committees_at_slots = vec![];
-        for _ in 0..epoch_length * 2 {
-            committees_at_slots.push(vec![ShardCommittee::random_for_test(&mut rng)]);
+        for slot in current_epoch_end_slot..slot_after_current_epoch {
+            let result = state.get_crosslink_committees_at_slot(
+                slot,
+                epoch_length,
+                shard_count,
+                target_committee_size,
+                genesis_epoch,
+            );
+            match result {
+                Ok(_) => panic!("should not return crosslink committee for future slot"),
+                Err(e) => assert_eq!(
+                    e,
+                    Error::InvalidSlot,
+                    "returned wrong error for future slot to crosslink committee helper"
+                ),
+            }
         }
 
-        state.shard_committees_at_slots = committees_at_slots.clone();
+        for slot in previous_epoch_start_slot..current_epoch_start_slot {
+            let result = state.get_crosslink_committees_at_slot(
+                slot,
+                epoch_length,
+                shard_count,
+                target_committee_size,
+                genesis_epoch,
+            );
+            match result {
+                Ok(committees) => {
+                    let committees_per_epoch = state.get_previous_epoch_committee_count(
+                        shard_count,
+                        epoch_length,
+                        target_committee_size,
+                    );
+                    let seed = state.previous_epoch_seed;
+                    let shuffling_epoch = state.previous_calculation_epoch;
+                    let shuffling_start_shard = state.previous_epoch_start_shard;
 
-        let current_epoch_slots = state.get_current_epoch_boundaries(epoch_length);
-        let previous_epoch_slots = state.get_previous_epoch_boundaries(epoch_length);
+                    let shuffling = get_shuffling(
+                        seed,
+                        &state.validator_registry,
+                        shuffling_epoch,
+                        committees_per_epoch,
+                    );
+                    let offset = slot % epoch_length;
+                    let committees_per_slot = committees_per_epoch / epoch_length;
+                    let slot_start_shard =
+                        (shuffling_start_shard + committees_per_slot * offset) % shard_count;
 
-        let span = previous_epoch_slots.start - 10..current_epoch_slots.end + 10;
-        let earliest_slot_in_array = state.slot - (state.slot % epoch_length) - epoch_length;
+                    let mut expected_committees = vec![];
+                    for i in 0..committees_per_slot {
+                        let indices = &shuffling[(committees_per_slot * offset + i) as usize];
+                        let shard = (slot_start_shard + i) % shard_count;
+                        let committee = (indices.to_vec(), shard);
+                        expected_committees.push(committee);
+                    }
+                    assert_eq!(expected_committees, committees);
+                }
+                Err(_) => panic!("should return crosslink committee for previous epoch"),
+            }
+        }
 
-        for i in span {
-            if !range_contains(&previous_epoch_slots, i) && !range_contains(&current_epoch_slots, i)
-            {
-                assert!(state
-                    .get_shard_committees_at_slot(i, epoch_length)
-                    .is_none())
-            } else {
-                let index = (i - earliest_slot_in_array) as usize;
-                let expected_committee = committees_at_slots.get(index);
-                assert_eq!(
-                    expected_committee,
-                    state.get_shard_committees_at_slot(i, epoch_length)
-                )
+        for slot in current_epoch_start_slot..current_epoch_end_slot {
+            let result = state.get_crosslink_committees_at_slot(
+                slot,
+                epoch_length,
+                shard_count,
+                target_committee_size,
+                genesis_epoch,
+            );
+            match result {
+                Ok(committees) => {
+                    let committees_per_epoch = state.get_current_epoch_committee_count(
+                        shard_count,
+                        epoch_length,
+                        target_committee_size,
+                    );
+                    let seed = state.current_epoch_seed;
+                    let shuffling_epoch = state.current_calculation_epoch;
+                    let shuffling_start_shard = state.current_epoch_start_shard;
+
+                    let shuffling = get_shuffling(
+                        seed,
+                        &state.validator_registry,
+                        shuffling_epoch,
+                        committees_per_epoch,
+                    );
+                    let offset = slot % epoch_length;
+                    let committees_per_slot = committees_per_epoch / epoch_length;
+                    let slot_start_shard =
+                        (shuffling_start_shard + committees_per_slot * offset) % shard_count;
+
+                    let mut expected_committees = vec![];
+                    for i in 0..committees_per_slot {
+                        let indices = &shuffling[(committees_per_slot * offset + i) as usize];
+                        let shard = (slot_start_shard + i) % shard_count;
+                        let committee = (indices.to_vec(), shard);
+                        expected_committees.push(committee);
+                    }
+                    assert_eq!(expected_committees, committees);
+                }
+                Err(_) => panic!("should return crosslink committee for current epoch"),
             }
         }
     }
@@ -554,52 +618,103 @@ mod tests {
         let epoch_length = 64;
         let shard_count = 1024;
         let target_committee_size = 128;
+        let genesis_epoch = 0;
 
-        let mut committees_at_slots = vec![];
-        for i in 0..epoch_length * 2 {
-            let mut crosslink_committee: CrosslinkCommittee = <_>::random_for_test(&mut rng);
-            // ensure distinct indices, rather than just taking random values which may collide
-            // a collision here could *give* a false indication when testing below...
-            let indices = 3 * i..3 * i + 3;
-            crosslink_committee.0 = indices.into_iter().map(|i| i as usize).collect::<Vec<_>>();
-            committees_at_slots.push(vec![crosslink_committee]);
+        // TODO test near epochs 0, 1, ...
+        state.slot = cmp::min(
+            cmp::max(state.slot, state.slot + 10 * epoch_length),
+            std::u64::MAX - 10 * epoch_length,
+        );
+
+        // TODO test large and small (0, 1, ...) numbers of validators
+
+        let current_epoch = state.get_current_epoch(epoch_length);
+        let current_epoch_start_slot = current_epoch * epoch_length;
+        let current_epoch_end_slot = current_epoch_start_slot + epoch_length;
+        let previous_epoch = current_epoch.checked_sub(1).unwrap_or(0);
+        let previous_epoch_start_slot = previous_epoch * epoch_length;
+
+        let activation_epoch = current_epoch.checked_sub(100).unwrap_or(0);
+        for validator in &mut state.validator_registry {
+            validator.activation_epoch = activation_epoch;
         }
 
-        let current_epoch_slots = state.get_current_epoch_boundaries(epoch_length);
-        let previous_epoch_slots = state.get_previous_epoch_boundaries(epoch_length);
+        let some_slot_before_previous_epoch =
+            previous_epoch_start_slot.checked_sub(10).unwrap_or(0);
+        let some_slot_after_current_epoch = current_epoch_end_slot
+            .checked_add(10)
+            .unwrap_or(std::u64::MAX);
 
-        let span = previous_epoch_slots.start - 10..current_epoch_slots.end + 10;
-        let earliest_slot_in_array = state.slot - (state.slot % epoch_length) - epoch_length;
-
-        for i in span {
-            if !range_contains(&previous_epoch_slots, i) && !range_contains(&current_epoch_slots, i)
-            {
-                match state.get_beacon_proposer_index(
-                    i,
-                    epoch_length,
-                    shard_count,
-                    target_committee_size,
-                ) {
-                    Ok(_) => assert!(
-                        false,
-                        "state should not return a beacon proposer for this slot"
-                    ),
-                    Err(e) => assert!(
-                        e == Error::InvalidSlot,
-                        "incorrect error was returned for this condition"
-                    ),
+        for slot in some_slot_before_previous_epoch..previous_epoch_start_slot {
+            match state.get_beacon_proposer_index(
+                slot,
+                epoch_length,
+                shard_count,
+                target_committee_size,
+                genesis_epoch,
+            ) {
+                Ok(_) => {
+                    panic!("should not return beacon proposer index for slot before previous epoch")
                 }
-            } else {
-                let index = (i - earliest_slot_in_array) as usize;
-                let expected_committees = committees_at_slots.get(index).unwrap();
-                let expected_committee = &expected_committees.get(0).unwrap().committee;
-                let expected_proposer = expected_committee
-                    .get(i as usize % expected_committee.len())
-                    .unwrap();
-                assert_eq!(
-                    *expected_proposer,
-                    state.get_beacon_proposer_index(i, epoch_length).unwrap()
-                )
+                Err(e) => assert_eq!(
+                    e,
+                    Error::InvalidSlot,
+                    "should return invalid slot for slot before previous epoch"
+                ),
+            }
+        }
+
+        for slot in current_epoch_end_slot..some_slot_after_current_epoch {
+            match state.get_beacon_proposer_index(
+                some_slot_after_current_epoch,
+                epoch_length,
+                shard_count,
+                target_committee_size,
+                genesis_epoch,
+            ) {
+                Ok(_) => {
+                    panic!("should not return beacon proposer index for slot before previous epoch")
+                }
+                Err(e) => assert_eq!(
+                    e,
+                    Error::InvalidSlot,
+                    "should return invalid slot for slot after current epoch"
+                ),
+            }
+        }
+
+        for slot in previous_epoch_start_slot..current_epoch_end_slot {
+            match state.get_beacon_proposer_index(
+                slot,
+                epoch_length,
+                shard_count,
+                target_committee_size,
+                genesis_epoch,
+            ) {
+                Ok(some_index) => {
+                    let committees = state
+                        .get_crosslink_committees_at_slot(
+                            slot,
+                            epoch_length,
+                            shard_count,
+                            target_committee_size,
+                            genesis_epoch,
+                        )
+                        .unwrap_or_else(|_| panic!("error getting crosslink committees"));
+                    let first_committee = &committees.first().unwrap().0;
+                    match first_committee.len() {
+                        0 => assert_eq!(some_index, None),
+                        length => {
+                            let committee_index = slot as usize % length;
+                            let expected_index = &first_committee[committee_index];
+                            match some_index {
+                                None => panic!("beacon proposer index should not be `None` if the first committee is non-empty"),
+                                Some(index) => assert_eq!(*expected_index, index),
+                            }
+                        }
+                    }
+                }
+                Err(_) => panic!("should not return error for valid slot"),
             }
         }
     }
