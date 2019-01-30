@@ -27,8 +27,8 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
         let validators = vec![];
-        let some_slot = u64::random_for_test(&mut rng);
-        let indices = get_active_validator_indices(&validators, some_slot);
+        let some_epoch = u64::random_for_test(&mut rng);
+        let indices = get_active_validator_indices(&validators, some_epoch);
         assert_eq!(indices, vec![]);
     }
 
@@ -41,8 +41,8 @@ mod tests {
             validators.push(Validator::default())
         }
 
-        let some_slot = u64::random_for_test(&mut rng);
-        let indices = get_active_validator_indices(&validators, some_slot);
+        let some_epoch = u64::random_for_test(&mut rng);
+        let indices = get_active_validator_indices(&validators, some_epoch);
         assert_eq!(indices, vec![]);
     }
 
@@ -50,7 +50,7 @@ mod tests {
     fn can_get_all_active_validator_indices() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let count_validators = 10;
-        let some_slot = u64::random_for_test(&mut rng);
+        let some_epoch = u64::random_for_test(&mut rng);
 
         let mut validators = (0..count_validators)
             .into_iter()
@@ -60,8 +60,8 @@ mod tests {
                 let activation_offset = u64::random_for_test(&mut rng);
                 let exit_offset = u64::random_for_test(&mut rng);
 
-                validator.activation_slot = some_slot.checked_sub(activation_offset).unwrap_or(0);
-                validator.exit_slot = some_slot.checked_add(exit_offset).unwrap_or(std::u64::MAX);
+                validator.activation_epoch = some_epoch.checked_sub(activation_offset).unwrap_or(0);
+                validator.exit_epoch = some_epoch.checked_add(exit_offset).unwrap_or(std::u64::MAX);
 
                 validator
             })
@@ -69,10 +69,10 @@ mod tests {
 
         // test boundary condition by ensuring that at least one validator in the list just activated
         if let Some(validator) = validators.get_mut(0) {
-            validator.activation_slot = some_slot;
+            validator.activation_epoch = some_epoch;
         }
 
-        let indices = get_active_validator_indices(&validators, some_slot);
+        let indices = get_active_validator_indices(&validators, some_epoch);
         assert_eq!(
             indices,
             (0..count_validators).into_iter().collect::<Vec<_>>()
@@ -81,31 +81,31 @@ mod tests {
 
     fn set_validators_to_default_entry_exit(validators: &mut [Validator]) {
         for validator in validators.iter_mut() {
-            validator.activation_slot = std::u64::MAX;
-            validator.exit_slot = std::u64::MAX;
+            validator.activation_epoch = std::u64::MAX;
+            validator.exit_epoch = std::u64::MAX;
         }
     }
 
     // sets all `validators` to be active as of some slot prior to `slot`. returns the activation slot.
     fn set_validators_to_activated(validators: &mut [Validator], slot: u64) -> u64 {
-        let activation_slot = slot - 10;
+        let activation_epoch = slot - 10;
         for validator in validators.iter_mut() {
-            validator.activation_slot = activation_slot;
+            validator.activation_epoch = activation_epoch;
         }
-        activation_slot
+        activation_epoch
     }
 
     // sets all `validators` to be exited as of some slot before `slot`.
-    fn set_validators_to_exited(validators: &mut [Validator], slot: u64, activation_slot: u64) {
-        assert!(activation_slot < slot);
-        let mut exit_slot = activation_slot + 10;
-        while exit_slot >= slot {
-            exit_slot -= 1;
+    fn set_validators_to_exited(validators: &mut [Validator], slot: u64, activation_epoch: u64) {
+        assert!(activation_epoch < slot);
+        let mut exit_epoch = activation_epoch + 10;
+        while exit_epoch >= slot {
+            exit_epoch -= 1;
         }
-        assert!(activation_slot < exit_slot && exit_slot < slot);
+        assert!(activation_epoch < exit_epoch && exit_epoch < slot);
 
         for validator in validators.iter_mut() {
-            validator.exit_slot = exit_slot;
+            validator.exit_epoch = exit_epoch;
         }
     }
 
@@ -114,7 +114,7 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         const COUNT_PARTITIONS: usize = 3;
         const COUNT_VALIDATORS: usize = 3 * COUNT_PARTITIONS;
-        let some_slot: u64 = u64::random_for_test(&mut rng);
+        let some_epoch: u64 = u64::random_for_test(&mut rng);
 
         let mut validators = (0..COUNT_VALIDATORS)
             .into_iter()
@@ -124,8 +124,8 @@ mod tests {
                 let activation_offset = u64::random_for_test(&mut rng);
                 let exit_offset = u64::random_for_test(&mut rng);
 
-                validator.activation_slot = some_slot.checked_sub(activation_offset).unwrap_or(0);
-                validator.exit_slot = some_slot.checked_add(exit_offset).unwrap_or(std::u64::MAX);
+                validator.activation_epoch = some_epoch.checked_sub(activation_offset).unwrap_or(0);
+                validator.exit_epoch = some_epoch.checked_add(exit_offset).unwrap_or(std::u64::MAX);
 
                 validator
             })
@@ -140,19 +140,19 @@ mod tests {
                 }
                 1 => {
                     // 2. activated, but not exited
-                    set_validators_to_activated(chunk, some_slot);
+                    set_validators_to_activated(chunk, some_epoch);
                     // test boundary condition by ensuring that at least one validator in the list just activated
                     if let Some(validator) = chunk.get_mut(0) {
-                        validator.activation_slot = some_slot;
+                        validator.activation_epoch = some_epoch;
                     }
                 }
                 2 => {
                     // 3. exited
-                    let activation_slot = set_validators_to_activated(chunk, some_slot);
-                    set_validators_to_exited(chunk, some_slot, activation_slot);
+                    let activation_epoch = set_validators_to_activated(chunk, some_epoch);
+                    set_validators_to_exited(chunk, some_epoch, activation_epoch);
                     // test boundary condition by ensuring that at least one validator in the list just exited
                     if let Some(validator) = chunk.get_mut(0) {
-                        validator.exit_slot = some_slot;
+                        validator.exit_epoch = some_epoch;
                     }
                 }
                 _ => unreachable!(
@@ -161,7 +161,7 @@ mod tests {
             }
         }
 
-        let indices = get_active_validator_indices(&validators, some_slot);
+        let indices = get_active_validator_indices(&validators, some_epoch);
         assert_eq!(indices, vec![3, 4, 5]);
     }
 }
