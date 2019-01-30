@@ -75,6 +75,8 @@ impl BeaconState {
         for (i, validator_index) in crosslink_committee.iter().enumerate() {
             if aggregation_bitfield.get(i).unwrap() {
                 participants.push(*validator_index);
+            } else {
+                debug!("get_attestation_participants: validator missing.");
             }
         }
         Ok(participants)

@@ -54,14 +54,6 @@ impl BeaconState {
             total_balance
         );
 
-        debug!(
-            "latest_attestations = {:?}",
-            self.latest_attestations
-                .iter()
-                .map(|a| a.data.slot)
-                .collect::<Vec<u64>>()
-        );
-
         let current_epoch_attestations: Vec<&PendingAttestation> = self
             .latest_attestations
             .iter()
@@ -111,9 +103,11 @@ impl BeaconState {
             .iter()
             .filter(|a| {
                 //TODO: ensure these saturating subs are correct.
-                a.data.slot / spec.epoch_length == self.current_epoch(spec).saturating_sub(1)
+                a.data.slot / spec.epoch_length == self.previous_epoch(spec)
             })
             .collect();
+
+        debug!("previous epoch attestations: {}", previous_epoch_attestations.len());
 
         let previous_epoch_attester_indices =
             self.get_attestation_participants_union(&previous_epoch_attestations[..], spec)?;
@@ -320,6 +314,8 @@ impl BeaconState {
         let previous_epoch_attester_indices_hashset: HashSet<usize> =
             HashSet::from_iter(previous_epoch_attester_indices.iter().map(|i| *i));
 
+        debug!("previous epoch justified attesters: {}, previous epoch boundary attesters: {}, previous epoch head attesters: {}, previous epoch attesters: {}", previous_epoch_justified_attester_indices.len(), previous_epoch_boundary_attester_indices.len(), previous_epoch_head_attestations.len(), previous_epoch_attester_indices.len());
+
         debug!("{} epochs since finality.", epochs_since_finality);
 
         if epochs_since_finality <= 4 {
@@ -356,7 +352,8 @@ impl BeaconState {
 
             for index in previous_epoch_attester_indices {
                 let base_reward = self.base_reward(index, base_reward_quotient, spec);
-                let inclusion_distance = self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
+                let inclusion_distance =
+                    self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
 
                 safe_add_assign!(
                     self.validator_balances[index],
@@ -387,7 +384,8 @@ impl BeaconState {
 
             for index in previous_epoch_attester_indices {
                 let base_reward = self.base_reward(index, base_reward_quotient, spec);
-                let inclusion_distance = self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
+                let inclusion_distance =
+                    self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
 
                 safe_sub_assign!(
                     self.validator_balances[index],
@@ -403,7 +401,8 @@ impl BeaconState {
          * Attestation inclusion
          */
         for index in previous_epoch_attester_indices_hashset {
-            let inclusion_slot = self.inclusion_slot(&previous_epoch_attestations[..], index, spec)?;
+            let inclusion_slot =
+                self.inclusion_slot(&previous_epoch_attestations[..], index, spec)?;
             let proposer_index = self
                 .get_beacon_proposer_index(inclusion_slot, spec)
                 .map_err(|_| Error::UnableToDetermineProducer)?;
@@ -675,7 +674,8 @@ impl BeaconState {
         validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<u64, InclusionError> {
-        let attestation = self.earliest_included_attestation(attestations, validator_index, spec)?;
+        let attestation =
+            self.earliest_included_attestation(attestations, validator_index, spec)?;
         Ok(attestation
             .slot_included
             .saturating_sub(attestation.data.slot))
@@ -687,7 +687,8 @@ impl BeaconState {
         validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<u64, InclusionError> {
-        let attestation = self.earliest_included_attestation(attestations, validator_index, spec)?;
+        let attestation =
+            self.earliest_included_attestation(attestations, validator_index, spec)?;
         Ok(attestation.slot_included)
     }
 
