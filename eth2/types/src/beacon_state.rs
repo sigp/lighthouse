@@ -9,6 +9,7 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use hashing::canonical_hash;
 use rand::RngCore;
+use std::cmp;
 
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
@@ -58,11 +59,36 @@ pub struct BeaconState {
     pub eth1_data_votes: Vec<Eth1DataVote>,
 }
 
+type Result<T> = std::result::Result<T, Error>;
+
+enum Error {
+    InvalidSlot,
+    UnavailableData,
+}
+
 impl BeaconState {
     pub fn canonical_root(&self) -> Hash256 {
         // TODO: implement tree hashing.
         // https://github.com/sigp/lighthouse/issues/70
         Hash256::from(&canonical_hash(&ssz_encode(self))[..])
+    }
+
+    /// Returns the block root at a recent `slot`.
+    /// If the `slot` is in the future or far enough in the past that the state has dropped it, then we return an `Err`.
+    fn get_block_root(&self, slot: u64, latest_block_roots_length: usize) -> Result<Hash256> {
+        if slot as usize + latest_block_roots_length > self.slot as usize {
+            return Err(Error::UnavailableData);
+        }
+        if slot >= self.slot {
+            return Err(Error::InvalidSlot);
+        }
+
+        Ok(self.latest_block_roots[slot as usize % latest_block_roots_length])
+    }
+
+    /// Returns the effective balance ("balance at stake") for a validator with the given `index`.
+    fn get_effective_balance(&self, index: usize, max_deposit_amount: u64) -> u64 {
+        cmp::min(self.validator_balances[index], max_deposit_amount)
     }
 }
 
@@ -100,7 +126,7 @@ impl Encodable for BeaconState {
 }
 
 impl Decodable for BeaconState {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
+    fn ssz_decode(bytes: &[u8], i: usize) -> std::result::Result<(Self, usize), DecodeError> {
         let (slot, i) = <_>::ssz_decode(bytes, i)?;
         let (genesis_time, i) = <_>::ssz_decode(bytes, i)?;
         let (fork_data, i) = <_>::ssz_decode(bytes, i)?;
