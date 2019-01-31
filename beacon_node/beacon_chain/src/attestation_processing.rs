@@ -27,7 +27,7 @@ where
         self.attestation_aggregator
             .write()
             .expect("Aggregator unlock failed.")
-            .process_free_attestation(&state, &free_attestation)
+            .process_free_attestation(&state, &free_attestation, &self.spec)
             .map_err(|e| e.into())
     }
 }

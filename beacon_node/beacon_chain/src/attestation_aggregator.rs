@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use types::{
-    AggregateSignature, Attestation, AttestationData, BeaconState, Bitfield, ChainSpec,
-    FreeAttestation, Signature,
+    beacon_state::CommitteesError, AggregateSignature, Attestation, AttestationData, BeaconState,
+    Bitfield, ChainSpec, FreeAttestation, Signature,
 };
 
 const PHASE_0_CUSTODY_BIT: bool = false;
@@ -21,6 +21,9 @@ pub enum ProcessOutcome {
 pub enum ProcessError {
     BadValidatorIndex,
     BadSignature,
+    BadSlot,
+    BadShard,
+    CommitteesError(CommitteesError),
 }
 
 impl AttestationAggregator {
@@ -34,13 +37,25 @@ impl AttestationAggregator {
         &mut self,
         state: &BeaconState,
         free_attestation: &FreeAttestation,
+        spec: &ChainSpec,
     ) -> Result<ProcessOutcome, ProcessError> {
-        let validator_index = free_attestation.validator_index as usize;
+        // let validator_index = free_attestation.validator_index as usize;
+        let (slot, shard, committee_index) = state.attestation_slot_and_shard_for_validator(
+            free_attestation.validator_index as usize,
+            spec,
+        )?;
+
+        if free_attestation.data.slot != slot {
+            return Err(ProcessError::BadSlot);
+        }
+        if free_attestation.data.shard != shard {
+            return Err(ProcessError::BadShard);
+        }
 
         let signable_message = free_attestation.data.signable_message(PHASE_0_CUSTODY_BIT);
         let validator_pubkey = &state
             .validator_registry
-            .get(validator_index)
+            .get(free_attestation.validator_index as usize)
             .ok_or_else(|| ProcessError::BadValidatorIndex)?
             .pubkey;
 
@@ -55,7 +70,7 @@ impl AttestationAggregator {
             if let Some(updated_attestation) = aggregate_attestation(
                 existing_attestation,
                 &free_attestation.signature,
-                validator_index,
+                committee_index as usize,
             ) {
                 self.store.insert(signable_message, updated_attestation);
                 Ok(ProcessOutcome::Aggregated)
@@ -66,7 +81,7 @@ impl AttestationAggregator {
             let mut aggregate_signature = AggregateSignature::new();
             aggregate_signature.add(&free_attestation.signature);
             let mut aggregation_bitfield = Bitfield::new();
-            aggregation_bitfield.set(validator_index, true);
+            aggregation_bitfield.set(committee_index as usize, true);
             let new_attestation = Attestation {
                 data: free_attestation.data.clone(),
                 aggregation_bitfield,
@@ -113,18 +128,18 @@ impl AttestationAggregator {
 fn aggregate_attestation(
     existing_attestation: &Attestation,
     signature: &Signature,
-    validator_index: usize,
+    committee_index: usize,
 ) -> Option<Attestation> {
     let already_signed = existing_attestation
         .aggregation_bitfield
-        .get(validator_index)
+        .get(committee_index)
         .unwrap_or(false);
 
     if already_signed {
         None
     } else {
         let mut aggregation_bitfield = existing_attestation.aggregation_bitfield.clone();
-        aggregation_bitfield.set(validator_index, true);
+        aggregation_bitfield.set(committee_index, true);
         let mut aggregate_signature = existing_attestation.aggregate_signature.clone();
         aggregate_signature.add(&signature);
 
@@ -133,5 +148,11 @@ fn aggregate_attestation(
             aggregate_signature,
             ..existing_attestation.clone()
         })
+    }
+}
+
+impl From<CommitteesError> for ProcessError {
+    fn from(e: CommitteesError) -> ProcessError {
+        ProcessError::CommitteesError(e)
     }
 }
