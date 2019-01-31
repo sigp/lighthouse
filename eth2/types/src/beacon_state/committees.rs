@@ -27,6 +27,14 @@ impl BeaconState {
         self.current_epoch(spec).saturating_sub(1)
     }
 
+    pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> u64 {
+        self.current_epoch(spec) * spec.epoch_length
+    }
+
+    pub fn previous_epoch_start_slot(&self, spec: &ChainSpec) -> u64 {
+        self.previous_epoch(spec) * spec.epoch_length
+    }
+
     /// Returns the number of committees per slot.
     ///
     /// Note: this is _not_ the committee size.
