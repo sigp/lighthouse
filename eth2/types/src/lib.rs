@@ -15,6 +15,7 @@ pub mod crosslink;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_input;
+pub mod domain;
 pub mod eth1_data;
 pub mod eth1_data_vote;
 pub mod exit;
