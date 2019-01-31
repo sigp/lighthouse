@@ -8,8 +8,10 @@ use db::{
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
+use std::iter::FromIterator;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Validator};
 
@@ -121,15 +123,34 @@ impl BeaconChainHarness {
     pub fn gather_free_attesations(&mut self) -> Vec<FreeAttestation> {
         let present_slot = self.beacon_chain.present_slot().unwrap();
 
+        let attesting_validators = self
+            .beacon_chain
+            .state(present_slot)
+            .unwrap()
+            .get_crosslink_committees_at_slot(present_slot, &self.spec)
+            .unwrap()
+            .iter()
+            .fold(vec![], |mut acc, (committee, _slot)| {
+                acc.append(&mut committee.clone());
+                acc
+            });
+        let attesting_validators: HashSet<usize> =
+            HashSet::from_iter(attesting_validators.iter().cloned());
+
         let free_attestations: Vec<FreeAttestation> = self
             .validators
             .par_iter_mut()
-            .filter_map(|validator| {
-                // Advance the validator slot.
-                validator.set_slot(present_slot);
+            .enumerate()
+            .filter_map(|(i, validator)| {
+                if attesting_validators.contains(&i) {
+                    // Advance the validator slot.
+                    validator.set_slot(present_slot);
 
-                // Prompt the validator to produce an attestation (if required).
-                validator.produce_free_attestation().ok()
+                    // Prompt the validator to produce an attestation (if required).
+                    validator.produce_free_attestation().ok()
+                } else {
+                    None
+                }
             })
             .collect();
 
