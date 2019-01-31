@@ -97,7 +97,9 @@ impl BeaconChainHarness {
     /// Move the `slot_clock` for the `BeaconChain` forward one slot.
     ///
     /// This is the equivalent of advancing a system clock forward one `SLOT_DURATION`.
-    pub fn increment_beacon_chain_slot(&mut self) {
+    ///
+    /// Returns the new slot.
+    pub fn increment_beacon_chain_slot(&mut self) -> u64 {
         let slot = self
             .beacon_chain
             .present_slot()
@@ -107,6 +109,7 @@ impl BeaconChainHarness {
         debug!("Incrementing BeaconChain slot to {}.", slot);
 
         self.beacon_chain.slot_clock.set_slot(slot);
+        slot
     }
 
     /// Gather the `FreeAttestation`s from the valiators.
@@ -151,6 +154,8 @@ impl BeaconChainHarness {
             proposer, present_slot
         );
 
+        // Ensure the validators slot clock is accurate.
+        self.validators[proposer].set_slot(present_slot);
         self.validators[proposer].produce_block().unwrap()
     }
 
@@ -160,16 +165,20 @@ impl BeaconChainHarness {
     /// validators.
     pub fn advance_chain_with_block(&mut self) {
         self.increment_beacon_chain_slot();
-        let free_attestations = self.gather_free_attesations();
-        for free_attestation in free_attestations {
-            self.beacon_chain
-                .process_free_attestation(free_attestation.clone())
-                .unwrap();
-        }
+
+        // Produce a new block.
         let block = self.produce_block();
         debug!("Submitting block for processing...");
         self.beacon_chain.process_block(block).unwrap();
         debug!("...block processed by BeaconChain.");
+
+        // Produce new attestations.
+        let free_attestations = self.gather_free_attesations();
+        for free_attestation in free_attestations {
+            self.beacon_chain
+                .process_free_attestation(free_attestation)
+                .unwrap();
+        }
     }
 
     pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {
