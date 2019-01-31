@@ -93,4 +93,18 @@ mod tests {
         // TODO: Add further tests
         // https://github.com/sigp/lighthouse/issues/170
     }
+
+    #[test]
+    fn test_fork_version() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let fork = Fork::random_for_test(&mut rng);
+
+        let previous = fork.previous_version;
+        let current = fork.current_version;
+        let epoch = fork.epoch;
+
+        assert_eq!(previous, fork.get_version_for(epoch - 1));
+        assert_eq!(current, fork.get_version_for(epoch));
+        assert_eq!(current, fork.get_version_for(epoch + 1));
+    }
 }
