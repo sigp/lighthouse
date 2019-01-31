@@ -82,13 +82,6 @@ impl BeaconState {
         slot: u64,
         spec: &ChainSpec,
     ) -> Result<Vec<(Vec<usize>, u64)>> {
-        /*
-        let previous_epoch_range = self.get_current_epoch_boundaries(spec.epoch_length);
-        let current_epoch_range = self.get_current_epoch_boundaries(spec.epoch_length);
-        if !range_contains(&current_epoch_range, slot) {
-            return Err(Error::InvalidEpoch(slot, current_epoch_range));
-        }
-        */
         let epoch = slot / spec.epoch_length;
         let current_epoch = self.slot / spec.epoch_length;
         let previous_epoch = if current_epoch == spec.genesis_slot {
@@ -97,13 +90,6 @@ impl BeaconState {
             current_epoch.saturating_sub(1)
         };
         let next_epoch = current_epoch + 1;
-
-        /*
-        debug!(
-            "state.slot: {}, slot: {}, current_epoch: {}, previous_epoch: {}, next_epoch: {}",
-            self.slot, slot, current_epoch, previous_epoch, next_epoch
-        );
-        */
 
         ensure!(
             (previous_epoch <= epoch) & (epoch < next_epoch),

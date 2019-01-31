@@ -67,9 +67,10 @@ where
         let present_slot = self.present_slot()?;
         let state = self.state(present_slot).ok()?;
 
-        state
+        let (slot, shard, _committee) = state
             .attestation_slot_and_shard_for_validator(validator_index, &self.spec)
-            .ok()
+            .ok()?;
+        Some((slot, shard))
     }
 }
 

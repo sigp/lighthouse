@@ -29,12 +29,12 @@ impl BeaconState {
         &self,
         validator_index: usize,
         spec: &ChainSpec,
-    ) -> Result<(u64, u64), CommitteesError> {
+    ) -> Result<(u64, u64, u64), CommitteesError> {
         let mut result = None;
         for slot in self.get_current_epoch_boundaries(spec.epoch_length) {
             for (committee, shard) in self.get_crosslink_committees_at_slot(slot, spec)? {
-                if committee.iter().find(|i| **i == validator_index).is_some() {
-                    result = Some(Ok((slot, shard)));
+                if let Some(committee_index) = committee.iter().find(|i| **i == validator_index) {
+                    result = Some(Ok((slot, shard, *committee_index as u64)));
                 }
             }
         }

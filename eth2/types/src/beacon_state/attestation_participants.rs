@@ -1,6 +1,8 @@
 use crate::{
-    beacon_state::CommitteesError, PendingAttestation, AttestationData, BeaconState, Bitfield, ChainSpec,
+    beacon_state::CommitteesError, AttestationData, BeaconState, Bitfield, ChainSpec,
+    PendingAttestation,
 };
+use log::debug;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -74,9 +76,16 @@ impl BeaconState {
         let mut participants = vec![];
         for (i, validator_index) in crosslink_committee.iter().enumerate() {
             if aggregation_bitfield.get(i).unwrap() {
+                debug!(
+                    "committee index {} found in attestation on slot {}",
+                    i, attestation_data.slot
+                );
                 participants.push(*validator_index);
             } else {
-                debug!("get_attestation_participants: validator missing.");
+                debug!(
+                    "committee index {} not found in attestation on slot {}",
+                    i, attestation_data.slot
+                );
             }
         }
         Ok(participants)
