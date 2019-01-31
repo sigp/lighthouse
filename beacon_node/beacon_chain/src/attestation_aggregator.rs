@@ -39,7 +39,6 @@ impl AttestationAggregator {
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
     ) -> Result<ProcessOutcome, ProcessError> {
-        // let validator_index = free_attestation.validator_index as usize;
         let (slot, shard, committee_index) = state.attestation_slot_and_shard_for_validator(
             free_attestation.validator_index as usize,
             spec,
