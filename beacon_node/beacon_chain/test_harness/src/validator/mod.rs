@@ -52,9 +52,8 @@ impl TestValidator {
     pub fn new(
         keypair: Keypair,
         beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
-        spec: &ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Self {
-        let spec = Arc::new(spec.clone());
         let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot));
         let signer = Arc::new(TestSigner::new(keypair.clone()));
         let beacon_node = Arc::new(BenchingBeaconNode::new(beacon_chain.clone()));
