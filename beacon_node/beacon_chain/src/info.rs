@@ -56,11 +56,18 @@ where
     }
 
     pub fn justified_slot(&self) -> u64 {
+        // TODO: fix unwrap
+        let present_slot = self.present_slot().unwrap();
+        // TODO: fix unwrap
+        let state = self.state(present_slot).unwrap();
+        state.justified_slot
+        /*
         self.justified_head
             .read()
             .expect("Justified head poisoned")
             .beacon_block
             .slot
+            */
     }
 
     pub fn validator_attestion_slot_and_shard(&self, validator_index: usize) -> Option<(u64, u64)> {
