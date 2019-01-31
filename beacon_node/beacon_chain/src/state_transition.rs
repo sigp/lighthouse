@@ -120,8 +120,6 @@ where
             );
         }
 
-        debug!("Block signature is valid.");
-
         /*
          * RANDAO
          */
@@ -135,8 +133,6 @@ where
             ),
             Error::BadRandaoSignature
         );
-
-        debug!("RANDAO signature is valid.");
 
         // TODO: check this is correct.
         let new_mix = {
