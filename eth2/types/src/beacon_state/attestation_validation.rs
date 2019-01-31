@@ -53,8 +53,6 @@ impl BeaconState {
         spec: &ChainSpec,
         verify_signature: bool,
     ) -> Result<(), Error> {
-        // TODO: IMPORTANT: enable signature verification
-        let verify_signature = false;
         ensure!(
             attestation.data.slot + spec.min_attestation_inclusion_delay <= self.slot,
             Error::IncludedTooEarly
