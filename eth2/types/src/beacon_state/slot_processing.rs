@@ -16,6 +16,10 @@ impl BeaconState {
         previous_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
+        if (self.slot + 1) % spec.epoch_length == 0 {
+            self.per_epoch_processing(spec)?;
+        }
+
         self.slot += 1;
 
         let block_proposer = self.get_beacon_proposer_index(self.slot, spec)?;
@@ -31,10 +35,6 @@ impl BeaconState {
         if self.slot % spec.latest_block_roots_length == 0 {
             let root = merkle_root(&self.latest_block_roots[..]);
             self.batched_block_roots.push(root);
-        }
-
-        if self.slot % spec.epoch_length == 0 {
-            self.per_epoch_processing(spec)?;
         }
         Ok(())
     }
