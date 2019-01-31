@@ -19,7 +19,7 @@ pub struct BeaconChainHarness {
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<TestValidator>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl BeaconChainHarness {
@@ -74,12 +74,14 @@ impl BeaconChainHarness {
             .unwrap(),
         );
 
+        let spec = Arc::new(spec);
+
         debug!("Creating validator producer and attester instances...");
 
         // Spawn the test validator instances.
         let validators: Vec<TestValidator> = keypairs
-            .par_iter()
-            .map(|keypair| TestValidator::new(keypair.clone(), beacon_chain.clone(), &spec))
+            .iter()
+            .map(|keypair| TestValidator::new(keypair.clone(), beacon_chain.clone(), spec.clone()))
             .collect();
 
         debug!("Created {} TestValidators", validators.len());
