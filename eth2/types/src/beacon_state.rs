@@ -61,9 +61,9 @@ pub struct BeaconState {
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug, PartialEq)]
 enum Error {
     InvalidSlot,
-    UnavailableData,
 }
 
 impl BeaconState {
@@ -76,10 +76,7 @@ impl BeaconState {
     /// Returns the block root at a recent `slot`.
     /// If the `slot` is in the future or far enough in the past that the state has dropped it, then we return an `Err`.
     fn get_block_root(&self, slot: u64, latest_block_roots_length: usize) -> Result<Hash256> {
-        if slot as usize + latest_block_roots_length > self.slot as usize {
-            return Err(Error::UnavailableData);
-        }
-        if slot >= self.slot {
+        if self.slot as usize > slot as usize + latest_block_roots_length || slot >= self.slot {
             return Err(Error::InvalidSlot);
         }
 
@@ -267,6 +264,7 @@ mod tests {
     use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ethereum_types::U256;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -289,5 +287,44 @@ mod tests {
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
         // https://github.com/sigp/lighthouse/issues/170
+    }
+
+    #[test]
+    fn test_get_block_root() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut state = BeaconState::random_for_test(&mut rng);
+
+        let latest_block_roots_length: usize = 128;
+        let block_roots = (0..latest_block_roots_length)
+            .into_iter()
+            .map(|i| {
+                let as_u256: U256 = i.into();
+                let as_h256: Hash256 = as_u256.into();
+                as_h256
+            })
+            .collect::<Vec<_>>();
+        state.latest_block_roots = block_roots.clone();
+
+        let start = state.slot - latest_block_roots_length as u64 - 10;
+        let end = state.slot + 10;
+
+        for slot in start..end {
+            let diff = state.slot.checked_sub(slot).unwrap_or(0);
+            if diff as usize <= latest_block_roots_length && diff > 0 {
+                match state.get_block_root(slot, latest_block_roots_length) {
+                    Ok(root) => {
+                        let expected_root_index = slot as usize % latest_block_roots_length;
+                        let expected_root = block_roots[expected_root_index];
+                        assert_eq!(expected_root, root);
+                    }
+                    Err(_) => panic!("should not return error for valid slot"),
+                }
+            } else {
+                match state.get_block_root(slot, latest_block_roots_length) {
+                    Ok(_) => panic!("should not return block root for past or future slot"),
+                    Err(e) => assert_eq!(e, Error::InvalidSlot),
+                }
+            }
+        }
     }
 }
