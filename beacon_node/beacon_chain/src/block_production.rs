@@ -4,7 +4,7 @@ use bls::Signature;
 use log::debug;
 use slot_clock::TestingSlotClockError;
 use types::{
-    beacon_state::CommitteesError,
+    beacon_state::SlotProcessingError,
     readers::{BeaconBlockReader, BeaconStateReader},
     BeaconBlock, BeaconBlockBody, BeaconState, Eth1Data, Hash256,
 };
@@ -14,7 +14,7 @@ pub enum Error {
     DBError(String),
     StateTransitionError(TransitionError),
     PresentSlotIsNone,
-    CommitteesError(CommitteesError),
+    SlotProcessingError(SlotProcessingError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -116,8 +116,8 @@ impl From<TestingSlotClockError> for Error {
     }
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<SlotProcessingError> for Error {
+    fn from(e: SlotProcessingError) -> Error {
+        Error::SlotProcessingError(e)
     }
 }

@@ -22,6 +22,7 @@ pub use self::attestation_participants::Error as AttestationParticipantsError;
 pub use self::attestation_validation::Error as AttestationValidationError;
 pub use self::committees::Error as CommitteesError;
 pub use self::epoch_processing::Error as EpochProcessingError;
+pub use self::slot_processing::Error as SlotProcessingError;
 
 // Custody will not be added to the specs until Phase 1 (Sharding Phase) so dummy class used.
 type CustodyChallenge = usize;
