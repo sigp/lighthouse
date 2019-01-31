@@ -38,54 +38,21 @@ impl BeaconState {
         let crosslink_committees =
             self.get_crosslink_committees_at_slot(attestation_data.slot, spec)?;
 
-        /*
-        let mut shard_present = false;
-        for (_committee, shard) in &crosslink_committees {
-            println!("want shard: {}, got shard: {}", shard, attestation_data.shard);
-            if *shard == attestation_data.shard {
-                shard_present = true;
-            }
-        }
-        if !shard_present {
-            return Err(Error::NoCommitteeForShard);
-        }
-        */
-
-        let crosslink_committee: Vec<usize> = crosslink_committees
+        let committee_index: usize = crosslink_committees
             .iter()
-            .filter_map(|(committee, shard)| {
-                if *shard == attestation_data.shard {
-                    Some(committee.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<Vec<usize>>>()
-            .first()
-            .ok_or_else(|| Error::NoCommitteeForShard)?
-            .clone();
+            .position(|(_committee, shard)| *shard == attestation_data.shard)
+            .ok_or_else(|| Error::NoCommitteeForShard)?;
+        let (crosslink_committee, _shard) = &crosslink_committees[committee_index];
 
         /*
-         * TODO: check for this condition.
+         * TODO: that bitfield length is valid.
          *
-        if aggregation_bitfield.len() != (crosslink_committee.len() + 7) / 8 {
-            return Err(Error::BadBitfieldLength);
-        }
-        */
+         */
 
         let mut participants = vec![];
         for (i, validator_index) in crosslink_committee.iter().enumerate() {
             if aggregation_bitfield.get(i).unwrap() {
-                debug!(
-                    "committee index {} found in attestation on slot {}",
-                    i, attestation_data.slot
-                );
                 participants.push(*validator_index);
-            } else {
-                debug!(
-                    "committee index {} not found in attestation on slot {}",
-                    i, attestation_data.slot
-                );
             }
         }
         Ok(participants)
