@@ -1,11 +1,11 @@
 use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
 use std::sync::RwLockReadGuard;
-use types::{beacon_state::CommitteesError, BeaconBlock, BeaconState, Hash256};
+use types::{beacon_state::SlotProcessingError, BeaconBlock, BeaconState, Hash256};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     PastSlot,
-    CommitteesError(CommitteesError),
+    SlotProcessingError(SlotProcessingError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -64,8 +64,8 @@ where
     }
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<SlotProcessingError> for Error {
+    fn from(e: SlotProcessingError) -> Error {
+        Error::SlotProcessingError(e)
     }
 }

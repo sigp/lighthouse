@@ -1,11 +1,21 @@
-use crate::{beacon_state::CommitteesError, BeaconState, ChainSpec, Hash256};
+use crate::{
+    beacon_state::{CommitteesError, EpochProcessingError},
+    BeaconState, ChainSpec, Hash256,
+};
+use log::debug;
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    CommitteesError(CommitteesError),
+    EpochProcessingError(EpochProcessingError),
+}
 
 impl BeaconState {
     pub fn per_slot_processing(
         &mut self,
         previous_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Result<(), CommitteesError> {
+    ) -> Result<(), Error> {
         self.slot += 1;
 
         let block_proposer = self.get_beacon_proposer_index(self.slot, spec)?;
@@ -21,6 +31,10 @@ impl BeaconState {
         if self.slot % spec.latest_block_roots_length == 0 {
             let root = merkle_root(&self.latest_block_roots[..]);
             self.batched_block_roots.push(root);
+        }
+
+        if self.slot % spec.epoch_length == 0 {
+            self.per_epoch_processing(spec)?;
         }
         Ok(())
     }
@@ -44,4 +58,16 @@ impl BeaconState {
 
 fn merkle_root(_input: &[Hash256]) -> Hash256 {
     Hash256::zero()
+}
+
+impl From<CommitteesError> for Error {
+    fn from(e: CommitteesError) -> Error {
+        Error::CommitteesError(e)
+    }
+}
+
+impl From<EpochProcessingError> for Error {
+    fn from(e: EpochProcessingError) -> Error {
+        Error::EpochProcessingError(e)
+    }
 }

@@ -5,7 +5,7 @@ use log::debug;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::{ssz_encode, TreeHash};
 use types::{
-    beacon_state::{AttestationValidationError, CommitteesError, EpochProcessingError},
+    beacon_state::{AttestationValidationError, CommitteesError, SlotProcessingError},
     readers::BeaconBlockReader,
     BeaconBlock, BeaconState, Exit, Fork, Hash256, PendingAttestation,
 };
@@ -52,7 +52,7 @@ pub enum Error {
     BadCustodyResponses,
     SlotClockError(SystemTimeSlotClockError),
     CommitteesError(CommitteesError),
-    EpochProcessingError(EpochProcessingError),
+    SlotProcessingError(SlotProcessingError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -309,10 +309,6 @@ where
             Error::BadCustodyResponses
         );
 
-        if state.slot % self.spec.epoch_length == 0 {
-            state.per_epoch_processing(&self.spec)?;
-        }
-
         debug!("State transition complete.");
 
         Ok(state)
@@ -367,8 +363,8 @@ impl From<CommitteesError> for Error {
     }
 }
 
-impl From<EpochProcessingError> for Error {
-    fn from(e: EpochProcessingError) -> Error {
-        Error::EpochProcessingError(e)
+impl From<SlotProcessingError> for Error {
+    fn from(e: SlotProcessingError) -> Error {
+        Error::SlotProcessingError(e)
     }
 }
