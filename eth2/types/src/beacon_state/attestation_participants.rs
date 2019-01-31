@@ -18,14 +18,19 @@ impl BeaconState {
         attestations: &[&PendingAttestation],
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
-        attestations.iter().try_fold(vec![], |mut acc, a| {
-            acc.append(&mut self.get_attestation_participants(
-                &a.data,
-                &a.aggregation_bitfield,
-                spec,
-            )?);
-            Ok(acc)
-        })
+        let mut all_participants = attestations
+            .iter()
+            .try_fold::<_, _, Result<Vec<usize>, Error>>(vec![], |mut acc, a| {
+                acc.append(&mut self.get_attestation_participants(
+                    &a.data,
+                    &a.aggregation_bitfield,
+                    spec,
+                )?);
+                Ok(acc)
+            })?;
+        all_participants.sort_unstable();
+        all_participants.dedup();
+        Ok(all_participants)
     }
 
     // TODO: analyse for efficiency improvments. This implementation is naive.
