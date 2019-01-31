@@ -40,7 +40,10 @@ macro_rules! safe_sub_assign {
 
 impl BeaconState {
     pub fn per_epoch_processing(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        debug!("Starting per-epoch processing...");
+        debug!(
+            "Starting per-epoch processing on epoch {}...",
+            self.current_epoch(spec)
+        );
         /*
          * All Validators
          */
@@ -59,6 +62,11 @@ impl BeaconState {
             .iter()
             .filter(|a| a.data.slot / spec.epoch_length == self.current_epoch(spec))
             .collect();
+
+        debug!(
+            "Current epoch attestations: {}",
+            current_epoch_attestations.len()
+        );
 
         /*
          * Validators attesting during the current epoch.
@@ -90,6 +98,11 @@ impl BeaconState {
         let current_epoch_boundary_attesting_balance =
             self.get_effective_balances(&current_epoch_boundary_attester_indices[..], spec);
 
+        debug!(
+            "Current epoch boundary attesters: {}",
+            current_epoch_boundary_attester_indices.len()
+        );
+
         /*
          * Validators attesting during the previous epoch
          */
@@ -106,7 +119,10 @@ impl BeaconState {
             })
             .collect();
 
-        debug!("previous epoch attestations: {}", previous_epoch_attestations.len());
+        debug!(
+            "previous epoch attestations: {}",
+            previous_epoch_attestations.len()
+        );
 
         let previous_epoch_attester_indices =
             self.get_attestation_participants_union(&previous_epoch_attestations[..], spec)?;
@@ -209,6 +225,7 @@ impl BeaconState {
             // TODO: check saturating_sub is correct.
             self.justification_bitfield |= 2;
             self.justified_slot = self.slot.saturating_sub(2 * spec.epoch_length);
+            debug!(">= 2/3 voted for previous epoch boundary");
         }
 
         // If >= 2/3 of validators voted for the current epoch boundary
@@ -216,6 +233,7 @@ impl BeaconState {
             // TODO: check saturating_sub is correct.
             self.justification_bitfield |= 1;
             self.justified_slot = self.slot.saturating_sub(1 * spec.epoch_length);
+            debug!(">= 2/3 voted for current epoch boundary");
         }
 
         if (self.previous_justified_slot == self.slot.saturating_sub(2 * spec.epoch_length))
@@ -310,7 +328,7 @@ impl BeaconState {
         let previous_epoch_attester_indices_hashset: HashSet<usize> =
             HashSet::from_iter(previous_epoch_attester_indices.iter().map(|i| *i));
 
-        debug!("previous epoch justified attesters: {}, previous epoch boundary attesters: {}, previous epoch head attesters: {}, previous epoch attesters: {}", previous_epoch_justified_attester_indices.len(), previous_epoch_boundary_attester_indices.len(), previous_epoch_head_attestations.len(), previous_epoch_attester_indices.len());
+        debug!("previous epoch justified attesters: {}, previous epoch boundary attesters: {}, previous epoch head attesters: {}, previous epoch attesters: {}", previous_epoch_justified_attester_indices.len(), previous_epoch_boundary_attester_indices.len(), previous_epoch_head_attester_indices.len(), previous_epoch_attester_indices.len());
 
         debug!("{} epochs since finality.", epochs_since_finality);
 
@@ -396,7 +414,7 @@ impl BeaconState {
         /*
          * Attestation inclusion
          */
-        for index in previous_epoch_attester_indices_hashset {
+        for &index in &previous_epoch_attester_indices_hashset {
             let inclusion_slot =
                 self.inclusion_slot(&previous_epoch_attestations[..], index, spec)?;
             let proposer_index = self
@@ -409,7 +427,10 @@ impl BeaconState {
             );
         }
 
-        debug!("Processed validator attestation inclusdion rewards.");
+        debug!(
+            "Previous epoch attesters: {}.",
+            previous_epoch_attester_indices_hashset.len()
+        );
 
         /*
          * Crosslinks
@@ -512,6 +533,8 @@ impl BeaconState {
             .filter(|a| a.data.slot / spec.epoch_length >= self.current_epoch(spec))
             .cloned()
             .collect();
+
+        debug!("Epoch transition complete.");
 
         Ok(())
     }
