@@ -30,8 +30,9 @@ where
             .ok_or_else(|| Error::SlotTooOld)?;
 
         let head_slot = self.head().beacon_block.slot;
+        let previous_epoch_start_slot = head_slot - (head_slot % self.spec.epoch_length);
         let epoch_boundary_root = *state
-            .get_block_root(head_slot % self.spec.epoch_length, &self.spec)
+            .get_block_root(previous_epoch_start_slot, &self.spec)
             .ok_or_else(|| Error::SlotTooOld)?;
 
         Ok(AttestationData {

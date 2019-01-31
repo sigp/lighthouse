@@ -71,8 +71,7 @@ impl BeaconState {
             current_epoch_attestations
                 .iter()
                 .filter(|a| {
-                    // TODO: ensure this saturating sub is correct.
-                    match self.get_block_root(self.slot.saturating_sub(spec.epoch_length), spec) {
+                    match self.get_block_root(self.current_epoch_start_slot(spec), spec) {
                         Some(block_root) => {
                             (a.data.epoch_boundary_root == *block_root)
                                 && (a.data.justified_slot == self.justified_slot)
@@ -142,9 +141,7 @@ impl BeaconState {
             previous_epoch_justified_attestations
                 .iter()
                 .filter(|a| {
-                    // TODO: ensure this saturating sub is correct.
-                    match self.get_block_root(self.slot.saturating_sub(2 * spec.epoch_length), spec)
-                    {
+                    match self.get_block_root(self.previous_epoch_start_slot(spec), spec) {
                         Some(block_root) => a.data.epoch_boundary_root == *block_root,
                         // Protected by a check that latest_block_roots isn't empty.
                         //
@@ -167,8 +164,7 @@ impl BeaconState {
             previous_epoch_attestations
                 .iter()
                 .filter(|a| {
-                    match self.get_block_root(self.slot.saturating_sub(2 * spec.epoch_length), spec)
-                    {
+                    match self.get_block_root(a.data.slot, spec) {
                         Some(block_root) => a.data.beacon_block_root == *block_root,
                         // Protected by a check that latest_block_roots isn't empty.
                         //
