@@ -327,4 +327,26 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_get_effective_balance() {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut state = BeaconState::random_for_test(&mut rng);
+
+        let max_deposit_amount = 32;
+
+        assert!(state.validator_registry.len() >= 2);
+
+        state.validator_balances[0] = 32;
+        state.validator_balances[1] = 128;
+
+        assert_eq!(
+            max_deposit_amount,
+            state.get_effective_balance(0, max_deposit_amount)
+        );
+        assert_eq!(
+            max_deposit_amount,
+            state.get_effective_balance(1, max_deposit_amount)
+        );
+    }
 }
