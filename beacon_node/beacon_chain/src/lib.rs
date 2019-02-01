@@ -15,7 +15,6 @@ mod state;
 
 use self::attestation_targets::AttestationTargets;
 use self::block_graph::BlockGraph;
-use self::checkpoint::CheckPoint;
 use attestation_aggregator::AttestationAggregator;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -29,6 +28,7 @@ use std::sync::Arc;
 use types::{BeaconState, ChainSpec, Hash256};
 
 pub use self::block_processing::Outcome as BlockProcessingOutcome;
+pub use self::checkpoint::CheckPoint;
 
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {

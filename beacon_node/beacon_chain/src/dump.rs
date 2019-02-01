@@ -1,18 +1,11 @@
-use super::{BeaconChain, ClientDB, DBError, SlotClock};
-use serde_derive::Serialize;
-use types::{BeaconBlock, BeaconState, Hash256};
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SlotDump {
-    pub beacon_block: BeaconBlock,
-    pub beacon_block_root: Hash256,
-    pub beacon_state: BeaconState,
-    pub beacon_state_root: Hash256,
-}
+use super::{BeaconChain, CheckPoint, ClientDB, DBError, SlotClock};
+use types::Hash256;
 
 #[derive(Debug, Clone)]
 pub enum Error {
+    /// There was an error reading from the database. This is an internal error.
     DBError(String),
+    /// There is a missing (or invalid) block in the database. This is an internal error.
     MissingBlock(Hash256),
 }
 
@@ -21,10 +14,14 @@ where
     T: ClientDB,
     U: SlotClock,
 {
-    pub fn chain_dump(&self) -> Result<Vec<SlotDump>, Error> {
+    /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
+    ///
+    /// This could be a very expensive operation and should only be done in testing/analysis
+    /// activities.
+    pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, Error> {
         let mut dump = vec![];
 
-        let mut last_slot = SlotDump {
+        let mut last_slot = CheckPoint {
             beacon_block: self.head().beacon_block.clone(),
             beacon_block_root: self.head().beacon_block_root,
             beacon_state: self.head().beacon_state.clone(),
@@ -37,8 +34,7 @@ where
             let beacon_block_root = last_slot.beacon_block.parent_root;
 
             if beacon_block_root == self.spec.zero_hash {
-                // Genesis has been reached.
-                break;
+                break; // Genesis has been reached.
             }
 
             let beacon_block = self
@@ -51,7 +47,7 @@ where
                 .get_deserialized(&beacon_state_root)?
                 .ok_or_else(|| Error::MissingBlock(beacon_state_root))?;
 
-            let slot = SlotDump {
+            let slot = CheckPoint {
                 beacon_block,
                 beacon_block_root,
                 beacon_state,

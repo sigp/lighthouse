@@ -1,6 +1,6 @@
 use super::TestValidator;
-pub use beacon_chain::dump::{Error as DumpError, SlotDump};
 use beacon_chain::BeaconChain;
+pub use beacon_chain::{dump::Error as DumpError, CheckPoint};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
@@ -208,11 +208,11 @@ impl BeaconChainHarness {
         debug!("Free attestations processed.");
     }
 
-    pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {
+    pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, DumpError> {
         self.beacon_chain.chain_dump()
     }
 
-    pub fn dump_to_file(&self, filename: String, chain_dump: &Vec<SlotDump>) {
+    pub fn dump_to_file(&self, filename: String, chain_dump: &Vec<CheckPoint>) {
         let json = serde_json::to_string(chain_dump).unwrap();
         let mut file = File::create(filename).unwrap();
         file.write_all(json.as_bytes())
