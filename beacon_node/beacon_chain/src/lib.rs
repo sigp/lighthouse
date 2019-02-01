@@ -10,7 +10,7 @@ pub mod dump;
 mod finalized_head;
 mod info;
 mod lmd_ghost;
-mod state_transition;
+// mod state_transition;
 
 use self::attestation_targets::AttestationTargets;
 use self::block_graph::BlockGraph;
@@ -20,9 +20,10 @@ use db::{
     ClientDB, DBError,
 };
 use genesis::{genesis_beacon_block, genesis_beacon_state, GenesisError};
+use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use types::{BeaconBlock, BeaconState, ChainSpec, Hash256};
 
 pub use self::block_processing::Outcome as BlockProcessingOutcome;
@@ -79,6 +80,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     justified_head: RwLock<CheckPoint>,
+    pub state: RwLock<BeaconState>,
     pub latest_attestation_targets: RwLock<AttestationTargets>,
     pub spec: ChainSpec,
 }
@@ -137,6 +139,7 @@ where
             slot_clock,
             block_graph,
             attestation_aggregator,
+            state: RwLock::new(genesis_state.clone()),
             justified_head,
             finalized_head,
             canonical_head,

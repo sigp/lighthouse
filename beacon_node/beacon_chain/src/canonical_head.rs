@@ -1,5 +1,5 @@
 use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
-use std::sync::RwLockReadGuard;
+use parking_lot::RwLockReadGuard;
 use types::{beacon_state::SlotProcessingError, BeaconBlock, BeaconState, Hash256};
 
 #[derive(Debug, PartialEq)]
@@ -20,10 +20,7 @@ where
         new_beacon_state: BeaconState,
         new_beacon_state_root: Hash256,
     ) {
-        let mut head = self
-            .canonical_head
-            .write()
-            .expect("CRITICAL: CanonicalHead poisioned.");
+        let mut head = self.canonical_head.write();
         head.update(
             new_beacon_block,
             new_beacon_block_root,
@@ -33,34 +30,18 @@ where
     }
 
     pub fn head(&self) -> RwLockReadGuard<CheckPoint> {
-        self.canonical_head
-            .read()
-            .expect("CRITICAL: CanonicalHead poisioned.")
+        self.canonical_head.read()
     }
 
-    pub fn state(&self, slot: u64) -> Result<BeaconState, Error> {
-        let mut state = self
-            .canonical_head
-            .read()
-            .expect("CRITICAL: CanonicalHead poisioned.")
-            .beacon_state
-            .clone();
-        let previous_block_root = self
-            .canonical_head
-            .read()
-            .expect("CRITICAL: CanonicalHead poisioned.")
-            .beacon_block_root
-            .clone();
-
-        match slot.checked_sub(state.slot) {
-            None => Err(Error::PastSlot),
-            Some(distance) => {
-                for _ in 0..distance {
-                    state.per_slot_processing(previous_block_root.clone(), &self.spec)?
-                }
-                Ok(state)
-            }
+    pub fn advance_state(&self, slot: u64) -> Result<(), SlotProcessingError> {
+        let state_slot = self.state.read().slot;
+        let head_block_root = self.head().beacon_block_root;
+        for _ in state_slot..slot {
+            self.state
+                .write()
+                .per_slot_processing(head_block_root.clone(), &self.spec)?;
         }
+        Ok(())
     }
 }
 

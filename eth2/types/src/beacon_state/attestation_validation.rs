@@ -61,7 +61,7 @@ impl BeaconState {
             attestation.data.slot + spec.epoch_length >= self.slot,
             Error::IncludedTooLate
         );
-        if self.justified_slot >= self.slot - (self.slot % spec.epoch_length) {
+        if attestation.data.slot >= self.current_epoch_start_slot(spec) {
             ensure!(
                 attestation.data.justified_slot == self.justified_slot,
                 Error::WrongJustifiedSlot

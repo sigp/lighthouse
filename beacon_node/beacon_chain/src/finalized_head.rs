@@ -1,5 +1,5 @@
 use crate::{BeaconChain, CheckPoint, ClientDB, SlotClock};
-use std::sync::RwLockReadGuard;
+use parking_lot::RwLockReadGuard;
 use types::{BeaconBlock, BeaconState, Hash256};
 
 impl<T, U> BeaconChain<T, U>
@@ -14,10 +14,7 @@ where
         new_beacon_state: BeaconState,
         new_beacon_state_root: Hash256,
     ) {
-        let mut finalized_head = self
-            .finalized_head
-            .write()
-            .expect("CRITICAL: finalized_head poisioned.");
+        let mut finalized_head = self.finalized_head.write();
         finalized_head.update(
             new_beacon_block,
             new_beacon_block_root,
@@ -27,8 +24,6 @@ where
     }
 
     pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint> {
-        self.finalized_head
-            .read()
-            .expect("CRITICAL: finalized_head poisioned.")
+        self.finalized_head.read()
     }
 }

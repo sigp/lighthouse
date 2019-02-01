@@ -7,6 +7,7 @@ use crate::{
 };
 use integer_sqrt::IntegerSquareRoot;
 use log::debug;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 
@@ -59,7 +60,7 @@ impl BeaconState {
 
         let current_epoch_attestations: Vec<&PendingAttestation> = self
             .latest_attestations
-            .iter()
+            .par_iter()
             .filter(|a| a.data.slot / spec.epoch_length == self.current_epoch(spec))
             .collect();
 
@@ -77,7 +78,7 @@ impl BeaconState {
 
         let current_epoch_boundary_attestations: Vec<&PendingAttestation> =
             current_epoch_attestations
-                .iter()
+                .par_iter()
                 .filter(|a| {
                     match self.get_block_root(self.current_epoch_start_slot(spec), spec) {
                         Some(block_root) => {
@@ -112,7 +113,7 @@ impl BeaconState {
          */
         let previous_epoch_attestations: Vec<&PendingAttestation> = self
             .latest_attestations
-            .iter()
+            .par_iter()
             .filter(|a| {
                 //TODO: ensure these saturating subs are correct.
                 a.data.slot / spec.epoch_length == self.previous_epoch(spec)

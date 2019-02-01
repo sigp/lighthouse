@@ -1,9 +1,9 @@
-use super::state_transition::Error as TransitionError;
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
 use log::debug;
 use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use ssz::{ssz_encode, Encodable};
 use types::{
+    beacon_state::{BlockProcessingError, SlotProcessingError},
     readers::{BeaconBlockReader, BeaconStateReader},
     Hash256,
 };
@@ -16,7 +16,6 @@ pub enum ValidBlock {
 #[derive(Debug, PartialEq)]
 pub enum InvalidBlock {
     FutureSlot,
-    StateTransitionFailed(TransitionError),
     StateRootMismatch,
 }
 
@@ -29,31 +28,16 @@ pub enum Outcome {
 #[derive(Debug, PartialEq)]
 pub enum Error {
     DBError(String),
-    SlotClockError(SystemTimeSlotClockError),
-
-    NotImplemented,
-    PresentSlotIsNone,
     UnableToDecodeBlock,
+    PresentSlotIsNone,
+    SlotClockError(SystemTimeSlotClockError),
     MissingParentState(Hash256),
     InvalidParentState(Hash256),
     MissingBeaconBlock(Hash256),
     InvalidBeaconBlock(Hash256),
     MissingParentBlock(Hash256),
-    NoBlockProducer,
-    StateSlotMismatch,
-    BadBlockSignature,
-    BadRandaoSignature,
-    MaxProposerSlashingsExceeded,
-    BadProposerSlashing,
-    MaxAttestationsExceeded,
-    BadAttestation,
-    NoBlockRoot,
-    MaxDepositsExceeded,
-    MaxExitsExceeded,
-    BadExit,
-    BadCustodyReseeds,
-    BadCustodyChallenges,
-    BadCustodyResponses,
+    SlotProcessingError(SlotProcessingError),
+    PerBlockProcessingError(BlockProcessingError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -99,14 +83,13 @@ where
             .into_beacon_state()
             .ok_or(Error::InvalidParentState(parent_state_root))?;
 
-        let state = match self.state_transition(parent_state, &block) {
-            Ok(state) => state,
-            Err(error) => {
-                return Ok(Outcome::InvalidBlock(InvalidBlock::StateTransitionFailed(
-                    error,
-                )));
-            }
-        };
+        let mut state = parent_state;
+
+        for _ in state.slot..present_slot {
+            state.per_slot_processing(parent_block_root.clone(), &self.spec)?;
+        }
+
+        state.per_block_processing(&block, &self.spec)?;
 
         let state_root = state.canonical_root();
 
@@ -131,6 +114,7 @@ where
                 state.clone(),
                 state_root.clone(),
             );
+            *self.state.write() = state.clone();
         }
 
         // The block was sucessfully processed.
@@ -141,6 +125,18 @@ where
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
         Error::DBError(e.message)
+    }
+}
+
+impl From<SlotProcessingError> for Error {
+    fn from(e: SlotProcessingError) -> Error {
+        Error::SlotProcessingError(e)
+    }
+}
+
+impl From<BlockProcessingError> for Error {
+    fn from(e: BlockProcessingError) -> Error {
+        Error::PerBlockProcessingError(e)
     }
 }
 

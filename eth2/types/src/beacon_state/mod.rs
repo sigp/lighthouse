@@ -12,6 +12,7 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 mod attestation_participants;
 mod attestation_validation;
+mod block_processing;
 mod committees;
 mod epoch_processing;
 mod shuffling;
@@ -20,6 +21,7 @@ mod winning_root;
 
 pub use self::attestation_participants::Error as AttestationParticipantsError;
 pub use self::attestation_validation::Error as AttestationValidationError;
+pub use self::block_processing::Error as BlockProcessingError;
 pub use self::committees::Error as CommitteesError;
 pub use self::epoch_processing::Error as EpochProcessingError;
 pub use self::slot_processing::Error as SlotProcessingError;
