@@ -10,7 +10,7 @@ pub mod dump;
 mod finalized_head;
 mod info;
 mod lmd_ghost;
-// mod state_transition;
+mod state;
 
 use self::attestation_targets::AttestationTargets;
 use self::block_graph::BlockGraph;
