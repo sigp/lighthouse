@@ -56,6 +56,7 @@ where
     T: ClientDB,
     U: SlotClock,
 {
+    /// Instantiate a new Beacon Chain, from genesis.
     pub fn genesis(
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,

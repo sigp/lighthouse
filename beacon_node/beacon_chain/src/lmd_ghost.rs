@@ -13,11 +13,6 @@ use types::{
 };
 
 #[derive(Debug, PartialEq)]
-pub enum Outcome {
-    Something,
-}
-
-#[derive(Debug, PartialEq)]
 pub enum Error {
     DBError(String),
     MissingBeaconState(Hash256),
@@ -32,6 +27,7 @@ where
     U: SlotClock,
     Error: From<<U as SlotClock>::Error>,
 {
+    /// Run the fork-choice rule on the current chain, updating the canonical head, if required.
     pub fn fork_choice(&self) -> Result<(), Error> {
         let present_head = &self.finalized_head().beacon_block_root;
 
@@ -56,6 +52,7 @@ where
         Ok(())
     }
 
+    /// A very inefficient implementation of LMD ghost.
     pub fn slow_lmd_ghost(&self, start_hash: &Hash256) -> Result<Hash256, Error> {
         let start = self
             .block_store
@@ -114,6 +111,9 @@ where
     }
 }
 
+/// Get the total number of votes for some given block root.
+///
+/// The vote count is incrememented each time an attestation target votes for a block root.
 fn get_vote_count<T: ClientDB>(
     block_store: &Arc<BeaconBlockStore<T>>,
     attestation_targets: &[Hash256],
