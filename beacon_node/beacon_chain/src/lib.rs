@@ -6,6 +6,7 @@ mod block_graph;
 pub mod block_processing;
 pub mod block_production;
 mod canonical_head;
+mod checkpoint;
 pub mod dump;
 mod finalized_head;
 mod info;
@@ -14,6 +15,7 @@ mod state;
 
 use self::attestation_targets::AttestationTargets;
 use self::block_graph::BlockGraph;
+use self::checkpoint::CheckPoint;
 use attestation_aggregator::AttestationAggregator;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -24,7 +26,7 @@ use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconState, ChainSpec, Hash256};
+use types::{BeaconState, ChainSpec, Hash256};
 
 pub use self::block_processing::Outcome as BlockProcessingOutcome;
 
@@ -33,42 +35,6 @@ pub enum BeaconChainError {
     InsufficientValidators,
     GenesisError(GenesisError),
     DBError(String),
-}
-
-pub struct CheckPoint {
-    pub beacon_block: BeaconBlock,
-    pub beacon_block_root: Hash256,
-    pub beacon_state: BeaconState,
-    pub beacon_state_root: Hash256,
-}
-
-impl CheckPoint {
-    pub fn new(
-        beacon_block: BeaconBlock,
-        beacon_block_root: Hash256,
-        beacon_state: BeaconState,
-        beacon_state_root: Hash256,
-    ) -> Self {
-        Self {
-            beacon_block,
-            beacon_block_root,
-            beacon_state,
-            beacon_state_root,
-        }
-    }
-
-    pub fn update(
-        &mut self,
-        beacon_block: BeaconBlock,
-        beacon_block_root: Hash256,
-        beacon_state: BeaconState,
-        beacon_state_root: Hash256,
-    ) {
-        self.beacon_block = beacon_block;
-        self.beacon_block_root = beacon_block_root;
-        self.beacon_state = beacon_state;
-        self.beacon_state_root = beacon_state_root;
-    }
 }
 
 pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {

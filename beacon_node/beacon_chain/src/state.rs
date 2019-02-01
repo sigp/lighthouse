@@ -12,6 +12,10 @@ where
     ///
     /// The `previous_block_root` will be set to the root of the current head block (as determined
     /// by the fork-choice rule).
+    ///
+    /// It is important to note that this is _not_ the state corresponding to the canonical head
+    /// block, instead it is that state which may or may not have had additional per slot/epoch
+    /// processing applied to it.
     pub fn advance_state(&self, slot: u64) -> Result<(), SlotProcessingError> {
         let state_slot = self.state.read().slot;
         let head_block_root = self.head().beacon_block_root;
