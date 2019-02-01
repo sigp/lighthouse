@@ -7,6 +7,7 @@ where
     T: ClientDB,
     U: SlotClock,
 {
+    /// Update the justified head to some new values.
     pub fn update_finalized_head(
         &self,
         new_beacon_block: BeaconBlock,
@@ -23,6 +24,8 @@ where
         );
     }
 
+    /// Returns a read-lock guarded `CheckPoint` struct for reading the justified head (as chosen,
+    /// indirectly,  by the fork-choice rule).
     pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint> {
         self.finalized_head.read()
     }
