@@ -2,7 +2,6 @@ use attester::{Attester, Error as AttestationPollError};
 use beacon_chain::BeaconChain;
 use block_producer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
-use log::trace;
 use signer::TestSigner;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;

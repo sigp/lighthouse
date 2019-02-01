@@ -1,5 +1,4 @@
 use super::BenchingBeaconNode;
-use beacon_chain::block_processing::Error as ProcessingError;
 use beacon_chain::block_production::Error as BlockProductionError;
 use block_producer::{
     BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError, PublishOutcome,
@@ -11,7 +10,6 @@ use types::{BeaconBlock, PublicKey, Signature};
 impl<T: ClientDB, U: SlotClock> BeaconBlockNode for BenchingBeaconNode<T, U>
 where
     BlockProductionError: From<<U>::Error>,
-    ProcessingError: From<<U as SlotClock>::Error>,
 {
     /// Requests the `proposer_nonce` from the `BeaconChain`.
     fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconBlockNodeError> {
