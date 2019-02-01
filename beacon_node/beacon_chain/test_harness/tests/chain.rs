@@ -24,7 +24,7 @@ fn it_can_build_on_genesis_block() {
 fn it_can_produce_past_first_epoch_boundary() {
     Builder::from_env(Env::default().default_filter_or("debug")).init();
 
-    let validator_count = 128 * 1024;
+    let validator_count = 100;
 
     debug!("Starting harness build...");
 
