@@ -30,8 +30,9 @@ pub fn merkle_hash(list: &mut Vec<Vec<u8>>) -> Vec<u8> {
                 // Hash two chuncks together
                 new_chunkz.append(&mut hash(two_chunks));
             }
-            chunk_size = HASHSIZE;
         }
+
+        chunk_size = HASHSIZE;
         chunkz = new_chunkz;
     }
 
