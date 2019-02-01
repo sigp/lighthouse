@@ -12,7 +12,6 @@ grpcio = { version = "0.4", default-features = false, features = ["protobuf-code
 protobuf = "2.0.2"
 protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
-spec = { path = "../eth2/spec" }
 types = { path = "../eth2/types" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"

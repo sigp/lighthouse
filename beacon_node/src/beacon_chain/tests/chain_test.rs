@@ -4,8 +4,8 @@ use db::{
     MemoryDB,
 };
 use slot_clock::TestingSlotClock;
-use spec::ChainSpec;
 use std::sync::Arc;
+use types::ChainSpec;
 
 fn in_memory_test_stores() -> (
     Arc<MemoryDB>,
