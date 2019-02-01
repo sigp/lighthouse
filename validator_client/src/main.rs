@@ -7,10 +7,10 @@ use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services_grpc::{BeaconBlockServiceClient, ValidatorServiceClient};
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
-use spec::ChainSpec;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::thread;
+use types::ChainSpec;
 
 mod block_producer;
 mod config;

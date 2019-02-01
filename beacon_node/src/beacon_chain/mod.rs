@@ -7,11 +7,10 @@ use db::{
 };
 use genesis::{genesis_beacon_block, genesis_beacon_state, GenesisError};
 use slot_clock::SlotClock;
-use spec::ChainSpec;
 use ssz::ssz_encode;
 use std::collections::HashSet;
 use std::sync::Arc;
-use types::Hash256;
+use types::{ChainSpec, Hash256};
 
 pub use crate::block_processing::Outcome as BlockProcessingOutcome;
 
