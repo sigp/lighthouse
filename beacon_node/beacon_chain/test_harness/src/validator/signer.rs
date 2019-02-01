@@ -3,7 +3,7 @@ use block_producer::Signer as BlockProposerSigner;
 use std::sync::RwLock;
 use types::{Keypair, Signature};
 
-/// A test-only struct used to simulate a Beacon Node.
+/// A test-only struct used to perform signing for a proposer or attester.
 pub struct TestSigner {
     keypair: Keypair,
     should_sign: RwLock<bool>,
@@ -24,6 +24,7 @@ impl TestSigner {
         *self.should_sign.write().unwrap() = enabled;
     }
 
+    /// Sign some message.
     fn bls_sign(&self, message: &[u8]) -> Option<Signature> {
         Some(Signature::new(message, &self.keypair.sk))
     }

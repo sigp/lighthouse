@@ -15,6 +15,12 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Validator};
 
+/// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
+/// to it. Each validator is provided a borrow to the beacon chain, where it may read
+/// information and submit blocks/attesations for processing.
+///
+/// This test harness is useful for testing validator and internal state transition logic. It
+/// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
     pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
@@ -25,6 +31,10 @@ pub struct BeaconChainHarness {
 }
 
 impl BeaconChainHarness {
+    /// Create a new harness with:
+    ///
+    /// - A keypair, `BlockProducer` and `Attester` for each validator.
+    /// - A new BeaconChain struct where the given validators are in the genesis.
     pub fn new(mut spec: ChainSpec, validator_count: usize) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
@@ -208,10 +218,12 @@ impl BeaconChainHarness {
         debug!("Free attestations processed.");
     }
 
+    /// Dump all blocks and states from the canonical beacon chain.
     pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, DumpError> {
         self.beacon_chain.chain_dump()
     }
 
+    /// Write the output of `chain_dump` to a JSON file.
     pub fn dump_to_file(&self, filename: String, chain_dump: &Vec<CheckPoint>) {
         let json = serde_json::to_string(chain_dump).unwrap();
         let mut file = File::create(filename).unwrap();

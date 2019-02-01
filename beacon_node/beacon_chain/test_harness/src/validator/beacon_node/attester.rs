@@ -1,10 +1,10 @@
-use super::BenchingBeaconNode;
+use super::DirectBeaconNode;
 use attester::{BeaconNode as AttesterBeaconNode, BeaconNodeError as NodeError, PublishOutcome};
 use db::ClientDB;
 use slot_clock::SlotClock;
 use types::{AttestationData, FreeAttestation};
 
-impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for BenchingBeaconNode<T, U> {
+impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for DirectBeaconNode<T, U> {
     fn produce_attestation_data(
         &self,
         _slot: u64,

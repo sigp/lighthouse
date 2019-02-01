@@ -10,7 +10,7 @@ mod beacon_node;
 mod direct_duties;
 mod signer;
 
-pub use self::beacon_node::BenchingBeaconNode;
+pub use self::beacon_node::DirectBeaconNode;
 pub use self::direct_duties::DirectDuties;
 pub use attester::PollOutcome as AttestationPollOutcome;
 pub use block_producer::PollOutcome as BlockPollOutcome;
@@ -27,28 +27,37 @@ pub enum AttestationProduceError {
     PollError(AttestationPollError),
 }
 
+/// A `BlockProducer` and `Attester` which sign using a common keypair.
+///
+/// The test validator connects directly to a borrowed `BeaconChain` struct. It is useful for
+/// testing that the core proposer and attester logic is functioning. Also for supporting beacon
+/// chain tests.
 pub struct TestValidator {
     pub block_producer: BlockProducer<
         TestingSlotClock,
-        BenchingBeaconNode<MemoryDB, TestingSlotClock>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
         TestSigner,
     >,
     pub attester: Attester<
         TestingSlotClock,
-        BenchingBeaconNode<MemoryDB, TestingSlotClock>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
         TestSigner,
     >,
     pub spec: Arc<ChainSpec>,
     pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock>>,
     pub keypair: Keypair,
-    pub beacon_node: Arc<BenchingBeaconNode<MemoryDB, TestingSlotClock>>,
+    pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock>>,
     pub slot_clock: Arc<TestingSlotClock>,
     pub signer: Arc<TestSigner>,
 }
 
 impl TestValidator {
+    /// Create a new TestValidator that signs with the given keypair, operates per the given spec and connects to the
+    /// supplied beacon node.
+    ///
+    /// A `BlockProducer` and `Attester` is created..
     pub fn new(
         keypair: Keypair,
         beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
@@ -56,7 +65,7 @@ impl TestValidator {
     ) -> Self {
         let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot));
         let signer = Arc::new(TestSigner::new(keypair.clone()));
-        let beacon_node = Arc::new(BenchingBeaconNode::new(beacon_chain.clone()));
+        let beacon_node = Arc::new(DirectBeaconNode::new(beacon_chain.clone()));
         let epoch_map = Arc::new(DirectDuties::new(keypair.pk.clone(), beacon_chain.clone()));
 
         let block_producer = BlockProducer::new(
@@ -87,8 +96,11 @@ impl TestValidator {
         }
     }
 
+    /// Run the `poll` function on the `BlockProducer` and produce a block.
+    ///
+    /// An error is returned if the producer refuses to produce.
     pub fn produce_block(&mut self) -> Result<BeaconBlock, BlockProduceError> {
-        // Using `BenchingBeaconNode`, the validator will always return sucessufully if it tries to
+        // Using `DirectBeaconNode`, the validator will always return sucessufully if it tries to
         // publish a block.
         match self.block_producer.poll() {
             Ok(BlockPollOutcome::BlockProduced(_)) => {}
@@ -101,6 +113,9 @@ impl TestValidator {
             .expect("Unable to obtain produced block."))
     }
 
+    /// Run the `poll` function on the `Attester` and produce a `FreeAttestation`.
+    ///
+    /// An error is returned if the attester refuses to attest.
     pub fn produce_free_attestation(&mut self) -> Result<FreeAttestation, AttestationProduceError> {
         match self.attester.poll() {
             Ok(AttestationPollOutcome::AttestationProduced(_)) => {}
@@ -113,6 +128,9 @@ impl TestValidator {
             .expect("Unable to obtain produced attestation."))
     }
 
+    /// Set the validators slot clock to the specified slot.
+    ///
+    /// The validators slot clock will always read this value until it is set to something else.
     pub fn set_slot(&mut self, slot: u64) {
         self.slot_clock.set_slot(slot)
     }
