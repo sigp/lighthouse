@@ -29,7 +29,6 @@ pub enum Outcome {
 pub enum Error {
     DBError(String),
     UnableToDecodeBlock,
-    PresentSlotIsNone,
     SlotClockError(SystemTimeSlotClockError),
     MissingParentState(Hash256),
     InvalidParentState(Hash256),
@@ -57,25 +56,19 @@ where
             .ok_or(Error::UnableToDecodeBlock)?;
         let block_root = block.canonical_root();
 
-        let present_slot = self
-            .slot_clock
-            .present_slot()?
-            .ok_or(Error::PresentSlotIsNone)?;
+        let present_slot = self.present_slot();
 
-        // Block from future slots (i.e., greater than the present slot) should not be processed.
         if block.slot() > present_slot {
             return Ok(Outcome::InvalidBlock(InvalidBlock::FutureSlot));
         }
 
         let parent_block_root = block.parent_root();
-
         let parent_block = self
             .block_store
             .get_reader(&parent_block_root)?
             .ok_or(Error::MissingParentBlock(parent_block_root))?;
 
         let parent_state_root = parent_block.state_root();
-
         let parent_state = self
             .state_store
             .get_reader(&parent_state_root)?
