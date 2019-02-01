@@ -4,7 +4,6 @@ use types::{beacon_state::SlotProcessingError, BeaconBlock, BeaconState, Hash256
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    PastSlot,
     SlotProcessingError(SlotProcessingError),
 }
 
@@ -31,17 +30,6 @@ where
 
     pub fn head(&self) -> RwLockReadGuard<CheckPoint> {
         self.canonical_head.read()
-    }
-
-    pub fn advance_state(&self, slot: u64) -> Result<(), SlotProcessingError> {
-        let state_slot = self.state.read().slot;
-        let head_block_root = self.head().beacon_block_root;
-        for _ in state_slot..slot {
-            self.state
-                .write()
-                .per_slot_processing(head_block_root.clone(), &self.spec)?;
-        }
-        Ok(())
     }
 }
 
