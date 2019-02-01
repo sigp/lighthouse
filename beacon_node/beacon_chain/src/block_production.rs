@@ -1,20 +1,16 @@
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
 use bls::Signature;
 use log::debug;
-use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use types::{
     beacon_state::{BlockProcessingError, SlotProcessingError},
-    readers::{BeaconBlockReader, BeaconStateReader},
     BeaconBlock, BeaconBlockBody, BeaconState, Eth1Data, Hash256,
 };
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     DBError(String),
-    PresentSlotIsNone,
     SlotProcessingError(SlotProcessingError),
     PerBlockProcessingError(BlockProcessingError),
-    SlotClockError(SystemTimeSlotClockError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -22,13 +18,14 @@ where
     T: ClientDB,
     U: SlotClock,
 {
+    /// Produce a new block at the present slot.
+    ///
+    /// The produced block will not be inheriently valid, it must be signed by a block producer.
+    /// Block signing is out of the scope of this function and should be done by a separate program.
     pub fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState), Error>
-    where
-        Error: From<<U>::Error>,
-    {
+    ) -> Result<(BeaconBlock, BeaconState), Error> {
         debug!("Starting block production...");
 
         let mut state = self.state.read().clone();
@@ -101,17 +98,5 @@ impl From<SlotProcessingError> for Error {
 impl From<BlockProcessingError> for Error {
     fn from(e: BlockProcessingError) -> Error {
         Error::PerBlockProcessingError(e)
-    }
-}
-
-impl From<TestingSlotClockError> for Error {
-    fn from(_: TestingSlotClockError) -> Error {
-        unreachable!(); // Testing clock never throws an error.
-    }
-}
-
-impl From<SystemTimeSlotClockError> for Error {
-    fn from(e: SystemTimeSlotClockError) -> Error {
-        Error::SlotClockError(e)
     }
 }

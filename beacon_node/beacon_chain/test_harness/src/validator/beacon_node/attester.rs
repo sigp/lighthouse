@@ -1,14 +1,10 @@
 use super::BenchingBeaconNode;
 use attester::{BeaconNode as AttesterBeaconNode, BeaconNodeError as NodeError, PublishOutcome};
-use beacon_chain::block_production::Error as BlockProductionError;
 use db::ClientDB;
 use slot_clock::SlotClock;
 use types::{AttestationData, FreeAttestation};
 
-impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for BenchingBeaconNode<T, U>
-where
-    BlockProductionError: From<<U>::Error>,
-{
+impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for BenchingBeaconNode<T, U> {
     fn produce_attestation_data(
         &self,
         _slot: u64,
