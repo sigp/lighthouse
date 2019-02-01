@@ -67,10 +67,12 @@ impl AttestationAggregator {
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
     ) -> Result<ProcessOutcome, Error> {
-        let (slot, shard, committee_index) = state.attestation_slot_and_shard_for_validator(
-            free_attestation.validator_index as usize,
-            spec,
-        )?;
+        let (slot, shard, committee_index) = state
+            .attestation_slot_and_shard_for_validator(
+                free_attestation.validator_index as usize,
+                spec,
+            )?
+            .ok_or_else(|| Error::BadValidatorIndex)?;
 
         if free_attestation.data.slot != slot {
             return Err(Error::BadSlot);

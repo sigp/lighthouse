@@ -53,9 +53,12 @@ impl<T: ClientDB, U: SlotClock> AttesterDutiesReader for DirectDuties<T, U> {
                 .beacon_chain
                 .validator_attestion_slot_and_shard(validator_index as usize)
             {
-                Some((attest_slot, attest_shard)) if attest_slot == slot => Ok(Some(attest_shard)),
-                Some(_) => Ok(None),
-                None => Err(AttesterDutiesReaderError::UnknownEpoch),
+                Ok(Some((attest_slot, attest_shard))) if attest_slot == slot => {
+                    Ok(Some(attest_shard))
+                }
+                Ok(Some(_)) => Ok(None),
+                Ok(None) => Err(AttesterDutiesReaderError::UnknownEpoch),
+                Err(_) => panic!("Error when getting validator attestation shard."),
             }
         } else {
             Err(AttesterDutiesReaderError::UnknownValidator)
