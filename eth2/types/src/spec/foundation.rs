@@ -1,7 +1,7 @@
 use super::ChainSpec;
 use bls::{Keypair, PublicKey, SecretKey, Signature};
 
-use types::{Address, Eth1Data, Hash256, Validator};
+use crate::{Address, Eth1Data, Hash256, Validator};
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
