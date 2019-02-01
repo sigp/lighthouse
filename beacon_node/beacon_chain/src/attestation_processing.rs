@@ -1,13 +1,11 @@
 use super::{BeaconChain, ClientDB, SlotClock};
 pub use crate::attestation_aggregator::{Error as AggregatorError, ProcessOutcome};
-use crate::canonical_head::Error as HeadError;
 use types::FreeAttestation;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    PresentSlotUnknown,
+    /// The free attestation was not processed succesfully.
     AggregatorError(AggregatorError),
-    HeadError(HeadError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -15,6 +13,10 @@ where
     T: ClientDB,
     U: SlotClock,
 {
+    /// Validate a `FreeAttestation` and either:
+    ///
+    /// - Create a new `Attestation`.
+    /// - Aggregate it to an existing `Attestation`.
     pub fn process_free_attestation(
         &self,
         free_attestation: FreeAttestation,
@@ -29,11 +31,5 @@ where
 impl From<AggregatorError> for Error {
     fn from(e: AggregatorError) -> Error {
         Error::AggregatorError(e)
-    }
-}
-
-impl From<HeadError> for Error {
-    fn from(e: HeadError) -> Error {
-        Error::HeadError(e)
     }
 }
