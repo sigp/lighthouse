@@ -9,7 +9,7 @@ mod canonical_head;
 mod checkpoint;
 pub mod dump;
 mod finalized_head;
-mod info;
+mod getters;
 mod lmd_ghost;
 mod state;
 
