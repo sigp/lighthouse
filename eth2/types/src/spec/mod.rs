@@ -1,10 +1,7 @@
-extern crate bls;
-extern crate types;
-
 mod foundation;
 
+use crate::{Address, Eth1Data, Hash256, Validator};
 use bls::Signature;
-use types::{Address, Eth1Data, Hash256, Validator};
 
 #[derive(PartialEq, Debug)]
 pub struct ChainSpec {

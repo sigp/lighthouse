@@ -7,9 +7,8 @@ mod traits;
 use self::traits::{BeaconNode, BeaconNodeError};
 use super::EpochDutiesMap;
 use slot_clock::SlotClock;
-use spec::ChainSpec;
 use std::sync::{Arc, RwLock};
-use types::BeaconBlock;
+use types::{BeaconBlock, ChainSpec};
 
 pub use self::service::BlockProducerService;
 
