@@ -1,7 +1,7 @@
 use attester::{
     DutiesReader as AttesterDutiesReader, DutiesReaderError as AttesterDutiesReaderError,
 };
-use beacon_chain::{block_production::Error as BlockProductionError, BeaconChain};
+use beacon_chain::BeaconChain;
 use block_producer::{
     DutiesReader as ProducerDutiesReader, DutiesReaderError as ProducerDutiesReaderError,
 };
@@ -24,10 +24,7 @@ impl<T: ClientDB, U: SlotClock> DirectDuties<T, U> {
     }
 }
 
-impl<T: ClientDB, U: SlotClock> ProducerDutiesReader for DirectDuties<T, U>
-where
-    BlockProductionError: From<<U>::Error>,
-{
+impl<T: ClientDB, U: SlotClock> ProducerDutiesReader for DirectDuties<T, U> {
     fn is_block_production_slot(&self, slot: u64) -> Result<bool, ProducerDutiesReaderError> {
         let validator_index = self
             .beacon_chain
@@ -42,10 +39,7 @@ where
     }
 }
 
-impl<T: ClientDB, U: SlotClock> AttesterDutiesReader for DirectDuties<T, U>
-where
-    BlockProductionError: From<<U>::Error>,
-{
+impl<T: ClientDB, U: SlotClock> AttesterDutiesReader for DirectDuties<T, U> {
     fn validator_index(&self) -> Option<u64> {
         match self.beacon_chain.validator_index(&self.pubkey) {
             Some(index) => Some(index as u64),
