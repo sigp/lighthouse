@@ -104,11 +104,7 @@ impl BeaconChainHarness {
     ///
     /// Returns the new slot.
     pub fn increment_beacon_chain_slot(&mut self) -> u64 {
-        let slot = self
-            .beacon_chain
-            .present_slot()
-            .expect("Unable to determine slot.")
-            + 1;
+        let slot = self.beacon_chain.present_slot() + 1;
 
         debug!("Incrementing BeaconChain slot to {}.", slot);
 
@@ -122,7 +118,7 @@ impl BeaconChainHarness {
     /// Note: validators will only produce attestations _once per slot_. So, if you call this twice
     /// you'll only get attestations on the first run.
     pub fn gather_free_attesations(&mut self) -> Vec<FreeAttestation> {
-        let present_slot = self.beacon_chain.present_slot().unwrap();
+        let present_slot = self.beacon_chain.present_slot();
 
         let attesting_validators = self
             .beacon_chain
@@ -169,7 +165,7 @@ impl BeaconChainHarness {
     /// Note: the validator will only produce it _once per slot_. So, if you call this twice you'll
     /// only get a block once.
     pub fn produce_block(&mut self) -> BeaconBlock {
-        let present_slot = self.beacon_chain.present_slot().unwrap();
+        let present_slot = self.beacon_chain.present_slot();
 
         let proposer = self.beacon_chain.block_proposer(present_slot).unwrap();
 
@@ -210,13 +206,6 @@ impl BeaconChainHarness {
         });
 
         debug!("Free attestations processed.");
-        /*
-        for free_attestation in free_attestations {
-            self.beacon_chain
-                .process_free_attestation(free_attestation)
-                .unwrap();
-        }
-        */
     }
 
     pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {

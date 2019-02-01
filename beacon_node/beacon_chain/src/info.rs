@@ -35,11 +35,15 @@ where
         }
     }
 
-    pub fn present_slot(&self) -> Option<u64> {
+    pub fn read_slot_clock(&self) -> Option<u64> {
         match self.slot_clock.present_slot() {
             Ok(some_slot) => some_slot,
             _ => None,
         }
+    }
+
+    pub fn present_slot(&self) -> u64 {
+        self.state.read().slot
     }
 
     pub fn block_proposer(&self, slot: u64) -> Result<usize, CommitteesError> {
