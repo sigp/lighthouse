@@ -1,4 +1,4 @@
-use super::BenchingBeaconNode;
+use super::DirectBeaconNode;
 use block_producer::{
     BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError, PublishOutcome,
 };
@@ -6,7 +6,7 @@ use db::ClientDB;
 use slot_clock::SlotClock;
 use types::{BeaconBlock, PublicKey, Signature};
 
-impl<T: ClientDB, U: SlotClock> BeaconBlockNode for BenchingBeaconNode<T, U> {
+impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U> {
     /// Requests the `proposer_nonce` from the `BeaconChain`.
     fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconBlockNodeError> {
         let validator_index = self

@@ -10,6 +10,8 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::PublicKey;
 
+/// Connects directly to a borrowed `BeaconChain` and reads attester/proposer duties directly from
+/// it.
 pub struct DirectDuties<T: ClientDB, U: SlotClock> {
     beacon_chain: Arc<BeaconChain<T, U>>,
     pubkey: PublicKey,
