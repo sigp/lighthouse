@@ -7,9 +7,9 @@ mod traits;
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
-use spec::ChainSpec;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use types::ChainSpec;
 
 pub use self::service::DutiesManagerService;
 

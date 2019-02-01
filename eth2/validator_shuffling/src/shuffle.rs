@@ -1,8 +1,7 @@
 use std::cmp::min;
 
 use honey_badger_split::SplitExt;
-use spec::ChainSpec;
-use types::validator_registry::get_active_validator_indices;
+use types::{validator_registry::get_active_validator_indices, ChainSpec};
 use types::{ShardCommittee, Validator};
 use vec_shuffle::{shuffle, ShuffleErr};
 
