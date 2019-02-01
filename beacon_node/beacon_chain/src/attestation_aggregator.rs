@@ -6,63 +6,91 @@ use types::{
 
 const PHASE_0_CUSTODY_BIT: bool = false;
 
+/// Provides the functionality to:
+///
+///  - Recieve a `FreeAttestation` and aggregate it into an `Attestation` (or create a new if it
+///  doesn't exist).
+///  - Store all aggregated or created `Attestation`s.
+///  - Produce a list of attestations that would be valid for inclusion in some `BeaconState` (and
+///  therefore valid for inclusion in a `BeaconBlock`.
+///
+///  Note: `Attestations` are stored in memory and never deleted. This is not scalable and must be
+///  rectified in a future revision.
 pub struct AttestationAggregator {
     store: HashMap<Vec<u8>, Attestation>,
 }
 
+/// The outcome of sucessfully processing a `FreeAttestation`.
 #[derive(Debug, PartialEq)]
 pub enum ProcessOutcome {
-    AggregationNotRequired,
+    /// The free attestation was added to an existing attestation.
     Aggregated,
+    /// The free attestation has already been aggregated to an existing attestation.
+    AggregationNotRequired,
+    /// The free attestation was transformed into a new attestation.
     NewAttestationCreated,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ProcessError {
+pub enum Error {
+    /// The supplied `validator_index` is not in the committee for the given `shard` and `slot`.
     BadValidatorIndex,
+    /// The given `signature` did not match the `pubkey` in the given
+    /// `state.validator_registry`.
     BadSignature,
+    /// The given `slot` does not match the validators committee assignment.
     BadSlot,
+    /// The given `shard` does not match the validators committee assignment.
     BadShard,
+    /// There was an error finding the committee for the given `validator_index`.
     CommitteesError(CommitteesError),
 }
 
 impl AttestationAggregator {
+    /// Instantiates a new AttestationAggregator with an empty database.
     pub fn new() -> Self {
         Self {
             store: HashMap::new(),
         }
     }
 
+    /// Accepts some `FreeAttestation`, validates it and either aggregates it upon some existing
+    /// `Attestation` or produces a new `Attestation`.
+    ///
+    /// The "validation" provided is not complete, instead the following points are checked:
+    ///  - The given `validator_index` is in the committee for the given `shard` for the given
+    ///  `slot`.
+    ///  - The signature is verified against that of the validator at `validator_index`.
     pub fn process_free_attestation(
         &mut self,
         state: &BeaconState,
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
-    ) -> Result<ProcessOutcome, ProcessError> {
+    ) -> Result<ProcessOutcome, Error> {
         let (slot, shard, committee_index) = state.attestation_slot_and_shard_for_validator(
             free_attestation.validator_index as usize,
             spec,
         )?;
 
         if free_attestation.data.slot != slot {
-            return Err(ProcessError::BadSlot);
+            return Err(Error::BadSlot);
         }
         if free_attestation.data.shard != shard {
-            return Err(ProcessError::BadShard);
+            return Err(Error::BadShard);
         }
 
         let signable_message = free_attestation.data.signable_message(PHASE_0_CUSTODY_BIT);
         let validator_pubkey = &state
             .validator_registry
             .get(free_attestation.validator_index as usize)
-            .ok_or_else(|| ProcessError::BadValidatorIndex)?
+            .ok_or_else(|| Error::BadValidatorIndex)?
             .pubkey;
 
         if !free_attestation
             .signature
             .verify(&signable_message, &validator_pubkey)
         {
-            return Err(ProcessError::BadSignature);
+            return Err(Error::BadSignature);
         }
 
         if let Some(existing_attestation) = self.store.get(&signable_message) {
@@ -94,8 +122,8 @@ impl AttestationAggregator {
 
     /// Returns all known attestations which are:
     ///
-    /// a) valid for the given state
-    /// b) not already in `state.latest_attestations`.
+    /// - Valid for the given state
+    /// - Not already in `state.latest_attestations`.
     pub fn get_attestations_for_state(
         &self,
         state: &BeaconState,
@@ -124,6 +152,10 @@ impl AttestationAggregator {
     }
 }
 
+/// Produces a new `Attestation` where:
+///
+/// - `signature` is added to `Attestation.aggregate_signature`
+/// - Attestation.aggregation_bitfield[committee_index]` is set to true.
 fn aggregate_attestation(
     existing_attestation: &Attestation,
     signature: &Signature,
@@ -150,8 +182,8 @@ fn aggregate_attestation(
     }
 }
 
-impl From<CommitteesError> for ProcessError {
-    fn from(e: CommitteesError) -> ProcessError {
-        ProcessError::CommitteesError(e)
+impl From<CommitteesError> for Error {
+    fn from(e: CommitteesError) -> Error {
+        Error::CommitteesError(e)
     }
 }

@@ -1,5 +1,5 @@
 use super::{BeaconChain, ClientDB, SlotClock};
-pub use crate::attestation_aggregator::{ProcessError as AggregatorError, ProcessOutcome};
+pub use crate::attestation_aggregator::{Error as AggregatorError, ProcessOutcome};
 use crate::canonical_head::Error as HeadError;
 use types::FreeAttestation;
 
