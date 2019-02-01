@@ -100,7 +100,7 @@ impl BeaconState {
 }
 
 impl From<AttestationParticipantsError> for Error {
-    fn from (e: AttestationParticipantsError) -> Error {
+    fn from(e: AttestationParticipantsError) -> Error {
         Error::AttestationParticipantsError(e)
     }
 }
