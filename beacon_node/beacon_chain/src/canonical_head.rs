@@ -12,6 +12,7 @@ where
     T: ClientDB,
     U: SlotClock,
 {
+    /// Update the canonical head to some new values.
     pub fn update_canonical_head(
         &self,
         new_beacon_block: BeaconBlock,
@@ -28,6 +29,12 @@ where
         );
     }
 
+    /// Returns a read-lock guarded `CheckPoint` struct for reading the head (as chosen by the
+    /// fork-choice rule).
+    ///
+    /// It is important to note that the `beacon_state` returned may not match the present slot. It
+    /// is the state as it was when the head block was recieved, which could be some slots prior to
+    /// now.
     pub fn head(&self) -> RwLockReadGuard<CheckPoint> {
         self.canonical_head.read()
     }
