@@ -113,6 +113,7 @@ impl BeaconChainHarness {
         debug!("Incrementing BeaconChain slot to {}.", slot);
 
         self.beacon_chain.slot_clock.set_slot(slot);
+        self.beacon_chain.advance_state(slot).unwrap();
         slot
     }
 
@@ -125,8 +126,8 @@ impl BeaconChainHarness {
 
         let attesting_validators = self
             .beacon_chain
-            .state(present_slot)
-            .unwrap()
+            .state
+            .read()
             .get_crosslink_committees_at_slot(present_slot, &self.spec)
             .unwrap()
             .iter()
@@ -195,13 +196,27 @@ impl BeaconChainHarness {
         self.beacon_chain.process_block(block).unwrap();
         debug!("...block processed by BeaconChain.");
 
+        debug!("Producing free attestations...");
+
         // Produce new attestations.
         let free_attestations = self.gather_free_attesations();
+
+        debug!("Processing free attestations...");
+
+        free_attestations.par_iter().for_each(|free_attestation| {
+            self.beacon_chain
+                .process_free_attestation(free_attestation.clone())
+                .unwrap();
+        });
+
+        debug!("Free attestations processed.");
+        /*
         for free_attestation in free_attestations {
             self.beacon_chain
                 .process_free_attestation(free_attestation)
                 .unwrap();
         }
+        */
     }
 
     pub fn chain_dump(&self) -> Result<Vec<SlotDump>, DumpError> {

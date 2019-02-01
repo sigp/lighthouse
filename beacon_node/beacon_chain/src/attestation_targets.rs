@@ -28,18 +28,12 @@ where
     U: SlotClock,
 {
     pub fn insert_latest_attestation_target(&self, validator_index: u64, block_root: Hash256) {
-        let mut targets = self
-            .latest_attestation_targets
-            .write()
-            .expect("CRITICAL: CanonicalHead poisioned.");
+        let mut targets = self.latest_attestation_targets.write();
         targets.insert(validator_index, block_root);
     }
 
     pub fn get_latest_attestation_target(&self, validator_index: u64) -> Option<Hash256> {
-        let targets = self
-            .latest_attestation_targets
-            .read()
-            .expect("CRITICAL: CanonicalHead poisioned.");
+        let targets = self.latest_attestation_targets.read();
 
         match targets.get(validator_index) {
             Some(hash) => Some(hash.clone()),

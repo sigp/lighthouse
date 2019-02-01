@@ -13,30 +13,27 @@ where
     T: ClientDB,
     U: SlotClock,
 {
-    pub fn produce_attestation_data(
-        &self,
-        slot: u64,
-        shard: u64,
-    ) -> Result<AttestationData, Error> {
-        let present_slot = self
-            .present_slot()
-            .ok_or_else(|| Error::PresentSlotUnknown)?;
-        let state = self.state(present_slot).map_err(|_| Error::StateError)?;
-
+    pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         let justified_slot = self.justified_slot();
-
-        let justified_block_root = *state
+        let justified_block_root = self
+            .state
+            .read()
             .get_block_root(justified_slot, &self.spec)
-            .ok_or_else(|| Error::SlotTooOld)?;
+            .ok_or_else(|| Error::SlotTooOld)?
+            .clone();
 
-        let head_slot = self.head().beacon_block.slot;
-        let previous_epoch_start_slot = head_slot - (head_slot % self.spec.epoch_length);
-        let epoch_boundary_root = *state
-            .get_block_root(previous_epoch_start_slot, &self.spec)
-            .ok_or_else(|| Error::SlotTooOld)?;
+        let epoch_boundary_root = self
+            .state
+            .read()
+            .get_block_root(
+                self.state.read().current_epoch_start_slot(&self.spec),
+                &self.spec,
+            )
+            .ok_or_else(|| Error::SlotTooOld)?
+            .clone();
 
         Ok(AttestationData {
-            slot,
+            slot: self.state.read().slot,
             shard,
             beacon_block_root: self.head().beacon_block_root.clone(),
             epoch_boundary_root,

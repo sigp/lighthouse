@@ -1,10 +1,9 @@
-use super::state_transition::Error as TransitionError;
 use super::{BeaconChain, ClientDB, DBError, SlotClock};
 use bls::Signature;
 use log::debug;
-use slot_clock::TestingSlotClockError;
+use slot_clock::{SystemTimeSlotClockError, TestingSlotClockError};
 use types::{
-    beacon_state::SlotProcessingError,
+    beacon_state::{BlockProcessingError, SlotProcessingError},
     readers::{BeaconBlockReader, BeaconStateReader},
     BeaconBlock, BeaconBlockBody, BeaconState, Eth1Data, Hash256,
 };
@@ -12,9 +11,10 @@ use types::{
 #[derive(Debug, PartialEq)]
 pub enum Error {
     DBError(String),
-    StateTransitionError(TransitionError),
     PresentSlotIsNone,
     SlotProcessingError(SlotProcessingError),
+    PerBlockProcessingError(BlockProcessingError),
+    SlotClockError(SystemTimeSlotClockError),
 }
 
 impl<T, U> BeaconChain<T, U>
@@ -29,43 +29,31 @@ where
     where
         Error: From<<U>::Error>,
     {
-        // TODO: allow producing a block from a previous (or future?) slot.
-        let present_slot = self
-            .slot_clock
-            .present_slot()
-            .map_err(|e| e.into())?
-            .ok_or(Error::PresentSlotIsNone)?;
+        debug!("Starting block production...");
 
-        debug!("Producing block for slot {}...", present_slot);
+        let mut state = self.state.read().clone();
 
-        let parent_root = self.head().beacon_block_root;
-        let parent_block_reader = self
-            .block_store
-            .get_reader(&parent_root)?
-            .ok_or_else(|| Error::DBError("Block not found.".to_string()))?;
-        let parent_state = self
-            .state_store
-            .get_reader(&parent_block_reader.state_root())?
-            .ok_or_else(|| Error::DBError("State not found.".to_string()))?
-            .into_beacon_state()
-            .ok_or_else(|| Error::DBError("State invalid.".to_string()))?;
+        debug!("Finding attesatations for new block...");
 
-        debug!("Finding attesatations for block...");
+        let attestations = self
+            .attestation_aggregator
+            .read()
+            .get_attestations_for_state(&state, &self.spec);
 
-        let attestations = {
-            let mut next_state = parent_state.clone();
-            next_state.per_slot_processing(Hash256::zero(), &self.spec)?;
-            self.attestation_aggregator
-                .read()
-                .unwrap()
-                .get_attestations_for_state(&next_state, &self.spec)
-        };
+        debug!(
+            "Inserting {} attestation(s) into new block.",
+            attestations.len()
+        );
 
-        debug!("Found {} attestation(s).", attestations.len());
+        let parent_root = state
+            .get_block_root(state.slot.saturating_sub(1), &self.spec)
+            // TODO: fix unwrap
+            .unwrap()
+            .clone();
 
         let mut block = BeaconBlock {
-            slot: present_slot,
-            parent_root: parent_root.clone(),
+            slot: state.slot,
+            parent_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
             randao_reveal: randao_reveal,
             eth1_data: Eth1Data {
@@ -86,8 +74,8 @@ where
             },
         };
 
-        let state =
-            self.state_transition_without_verifying_block_signature(parent_state, &block)?;
+        state.per_block_processing_without_verifying_block_signature(&block, &self.spec)?;
+
         let state_root = state.canonical_root();
 
         block.state_root = state_root;
@@ -104,9 +92,15 @@ impl From<DBError> for Error {
     }
 }
 
-impl From<TransitionError> for Error {
-    fn from(e: TransitionError) -> Error {
-        Error::StateTransitionError(e)
+impl From<SlotProcessingError> for Error {
+    fn from(e: SlotProcessingError) -> Error {
+        Error::SlotProcessingError(e)
+    }
+}
+
+impl From<BlockProcessingError> for Error {
+    fn from(e: BlockProcessingError) -> Error {
+        Error::PerBlockProcessingError(e)
     }
 }
 
@@ -116,8 +110,8 @@ impl From<TestingSlotClockError> for Error {
     }
 }
 
-impl From<SlotProcessingError> for Error {
-    fn from(e: SlotProcessingError) -> Error {
-        Error::SlotProcessingError(e)
+impl From<SystemTimeSlotClockError> for Error {
+    fn from(e: SystemTimeSlotClockError) -> Error {
+        Error::SlotClockError(e)
     }
 }

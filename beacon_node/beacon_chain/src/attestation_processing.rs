@@ -19,15 +19,9 @@ where
         &self,
         free_attestation: FreeAttestation,
     ) -> Result<ProcessOutcome, Error> {
-        let present_slot = self
-            .present_slot()
-            .ok_or_else(|| Error::PresentSlotUnknown)?;
-        let state = self.state(present_slot)?;
-
         self.attestation_aggregator
             .write()
-            .expect("Aggregator unlock failed.")
-            .process_free_attestation(&state, &free_attestation, &self.spec)
+            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)
             .map_err(|e| e.into())
     }
 }
