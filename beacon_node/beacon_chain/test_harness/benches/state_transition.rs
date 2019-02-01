@@ -1,11 +1,11 @@
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use env_logger::{Builder, Env};
+// use env_logger::{Builder, Env};
 use test_harness::BeaconChainHarness;
 use types::{ChainSpec, Hash256};
 
 fn mid_epoch_state_transition(c: &mut Criterion) {
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
+    // Builder::from_env(Env::default().default_filter_or("debug")).init();
 
     let validator_count = 1000;
     let mut rig = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
@@ -56,25 +56,13 @@ fn epoch_boundary_state_transition(c: &mut Criterion) {
                 ))
             })
         })
-        .sample_size(5),
+        .sample_size(5), // sample size is low because function is sloooow.
     );
-
-    /*
-    c.bench_function("mid-epoch state transition 10k validators", move |b| {
-        let state = state.clone();
-        b.iter(|| {
-            let mut state = state.clone();
-            black_box(black_box(
-                state.per_slot_processing(Hash256::zero(), &rig.spec),
-            ))
-        })
-    });
-    */
 }
 
 criterion_group!(
     benches,
-    // mid_epoch_state_transition,
+    mid_epoch_state_transition,
     epoch_boundary_state_transition
 );
 criterion_main!(benches);
