@@ -20,19 +20,18 @@ pub struct AttestationAggregator {
     store: HashMap<Vec<u8>, Attestation>,
 }
 
-/// The outcome of sucessfully processing a `FreeAttestation`.
-#[derive(Debug, PartialEq)]
-pub enum ProcessOutcome {
+pub struct Outcome {
+    pub valid: bool,
+    pub message: Message,
+}
+
+pub enum Message {
     /// The free attestation was added to an existing attestation.
     Aggregated,
     /// The free attestation has already been aggregated to an existing attestation.
     AggregationNotRequired,
     /// The free attestation was transformed into a new attestation.
     NewAttestationCreated,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
     /// The supplied `validator_index` is not in the committee for the given `shard` and `slot`.
     BadValidatorIndex,
     /// The given `signature` did not match the `pubkey` in the given
@@ -42,8 +41,20 @@ pub enum Error {
     BadSlot,
     /// The given `shard` does not match the validators committee assignment.
     BadShard,
-    /// There was an error finding the committee for the given `validator_index`.
-    CommitteesError(CommitteesError),
+}
+
+macro_rules! some_or_invalid {
+    ($expression: expr, $error: expr) => {
+        match $expression {
+            Some(x) => x,
+            None => {
+                return Ok(Outcome {
+                    valid: false,
+                    message: $error,
+                });
+            }
+        }
+    };
 }
 
 impl AttestationAggregator {
@@ -66,33 +77,45 @@ impl AttestationAggregator {
         state: &BeaconState,
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
-    ) -> Result<ProcessOutcome, Error> {
-        let (slot, shard, committee_index) = state
-            .attestation_slot_and_shard_for_validator(
+    ) -> Result<Outcome, CommitteesError> {
+        let (slot, shard, committee_index) = some_or_invalid!(
+            state.attestation_slot_and_shard_for_validator(
                 free_attestation.validator_index as usize,
                 spec,
-            )?
-            .ok_or_else(|| Error::BadValidatorIndex)?;
+            )?,
+            Message::BadValidatorIndex
+        );
 
         if free_attestation.data.slot != slot {
-            return Err(Error::BadSlot);
+            return Ok(Outcome {
+                valid: false,
+                message: Message::BadSlot,
+            });
         }
         if free_attestation.data.shard != shard {
-            return Err(Error::BadShard);
+            return Ok(Outcome {
+                valid: false,
+                message: Message::BadShard,
+            });
         }
 
         let signable_message = free_attestation.data.signable_message(PHASE_0_CUSTODY_BIT);
-        let validator_pubkey = &state
-            .validator_registry
-            .get(free_attestation.validator_index as usize)
-            .ok_or_else(|| Error::BadValidatorIndex)?
-            .pubkey;
+
+        let validator_record = some_or_invalid!(
+            state
+                .validator_registry
+                .get(free_attestation.validator_index as usize),
+            Message::BadValidatorIndex
+        );
 
         if !free_attestation
             .signature
-            .verify(&signable_message, &validator_pubkey)
+            .verify(&signable_message, &validator_record.pubkey)
         {
-            return Err(Error::BadSignature);
+            return Ok(Outcome {
+                valid: false,
+                message: Message::BadSignature,
+            });
         }
 
         if let Some(existing_attestation) = self.store.get(&signable_message) {
@@ -102,9 +125,15 @@ impl AttestationAggregator {
                 committee_index as usize,
             ) {
                 self.store.insert(signable_message, updated_attestation);
-                Ok(ProcessOutcome::Aggregated)
+                Ok(Outcome {
+                    valid: true,
+                    message: Message::Aggregated,
+                })
             } else {
-                Ok(ProcessOutcome::AggregationNotRequired)
+                Ok(Outcome {
+                    valid: true,
+                    message: Message::AggregationNotRequired,
+                })
             }
         } else {
             let mut aggregate_signature = AggregateSignature::new();
@@ -118,7 +147,10 @@ impl AttestationAggregator {
                 aggregate_signature,
             };
             self.store.insert(signable_message, new_attestation);
-            Ok(ProcessOutcome::NewAttestationCreated)
+            Ok(Outcome {
+                valid: true,
+                message: Message::NewAttestationCreated,
+            })
         }
     }
 
@@ -181,11 +213,5 @@ fn aggregate_attestation(
             aggregate_signature,
             ..existing_attestation.clone()
         })
-    }
-}
-
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
     }
 }

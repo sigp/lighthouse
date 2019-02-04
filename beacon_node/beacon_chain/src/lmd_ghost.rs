@@ -1,9 +1,9 @@
-use super::{BeaconChain, SlotClock};
+use crate::BeaconChain;
 use db::{
     stores::{BeaconBlockAtSlotError, BeaconBlockStore},
     ClientDB, DBError,
 };
-use slot_clock::TestingSlotClockError;
+use slot_clock::{SlotClock, TestingSlotClockError};
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
