@@ -415,7 +415,7 @@ where
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    pub fn process_block<V>(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
+    pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot());
 
         let block_root = block.canonical_root();

@@ -1,6 +1,6 @@
 use super::TestValidator;
 use beacon_chain::BeaconChain;
-pub use beacon_chain::{dump::Error as DumpError, CheckPoint};
+pub use beacon_chain::{CheckPoint, Error as BeaconChainError};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
@@ -219,7 +219,7 @@ impl BeaconChainHarness {
     }
 
     /// Dump all blocks and states from the canonical beacon chain.
-    pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, DumpError> {
+    pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, BeaconChainError> {
         self.beacon_chain.chain_dump()
     }
 
