@@ -1,6 +1,5 @@
 use super::Hash256;
-use crate::test_utils::TestRandom;
-use bls::PublicKey;
+use crate::{test_utils::TestRandom, PublicKey};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
