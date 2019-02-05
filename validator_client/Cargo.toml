@@ -5,6 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
+block_producer = { path = "../eth2/block_producer" }
 bls = { path = "../eth2/utils/bls" }
 clap = "2.32.0"
 dirs = "1.0.3"

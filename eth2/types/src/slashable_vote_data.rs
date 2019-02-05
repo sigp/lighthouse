@@ -1,10 +1,11 @@
-use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::AttestationData;
 use crate::test_utils::TestRandom;
 use bls::AggregateSignature;
 use rand::RngCore;
+use serde_derive::Serialize;
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct SlashableVoteData {
     pub custody_bit_0_indices: Vec<u32>,
     pub custody_bit_1_indices: Vec<u32>,
@@ -64,9 +65,9 @@ impl<T: RngCore> TestRandom<T> for SlashableVoteData {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

@@ -1,9 +1,10 @@
-use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct ProposalSignedData {
     pub slot: u64,
     pub shard: u64,
@@ -57,9 +58,9 @@ impl<T: RngCore> TestRandom<T> for ProposalSignedData {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

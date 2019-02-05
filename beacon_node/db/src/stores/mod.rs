@@ -12,8 +12,6 @@ pub use self::beacon_state_store::BeaconStateStore;
 pub use self::pow_chain_store::PoWChainStore;
 pub use self::validator_store::{ValidatorStore, ValidatorStoreError};
 
-use super::bls;
-
 pub const BLOCKS_DB_COLUMN: &str = "blocks";
 pub const STATES_DB_COLUMN: &str = "states";
 pub const POW_CHAIN_DB_COLUMN: &str = "powchain";

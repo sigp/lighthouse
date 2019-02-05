@@ -1,12 +1,8 @@
-extern crate bls;
-extern crate boolean_bitfield;
-extern crate ethereum_types;
-extern crate ssz;
-
 pub mod test_utils;
 
 pub mod attestation;
 pub mod attestation_data;
+pub mod attestation_data_and_custody_bit;
 pub mod beacon_block;
 pub mod beacon_block_body;
 pub mod beacon_state;
@@ -19,6 +15,7 @@ pub mod eth1_data;
 pub mod eth1_data_vote;
 pub mod exit;
 pub mod fork;
+pub mod free_attestation;
 pub mod pending_attestation;
 pub mod proposal_signed_data;
 pub mod proposer_slashing;
@@ -33,11 +30,12 @@ pub mod validator_registry_delta_block;
 
 pub mod readers;
 
-use self::ethereum_types::{H160, H256, U256};
+use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 
 pub use crate::attestation::Attestation;
 pub use crate::attestation_data::AttestationData;
+pub use crate::attestation_data_and_custody_bit::AttestationDataAndCustodyBit;
 pub use crate::beacon_block::BeaconBlock;
 pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_state::BeaconState;
@@ -50,6 +48,7 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth1_data_vote::Eth1DataVote;
 pub use crate::exit::Exit;
 pub use crate::fork::Fork;
+pub use crate::free_attestation::FreeAttestation;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposal_signed_data::ProposalSignedData;
 pub use crate::proposer_slashing::ProposerSlashing;
@@ -72,4 +71,4 @@ pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
 /// Maps a slot to a block proposer.
 pub type ProposerMap = HashMap<u64, usize>;
 
-pub use bls::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
+pub use bls::{AggregatePublicKey, AggregateSignature, Keypair, PublicKey, Signature};

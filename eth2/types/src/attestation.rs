@@ -1,15 +1,26 @@
-use super::bls::AggregateSignature;
-use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
-use super::{AttestationData, Bitfield};
+use super::{AttestationData, Bitfield, Hash256};
 use crate::test_utils::TestRandom;
+use bls::AggregateSignature;
 use rand::RngCore;
+use serde_derive::Serialize;
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Attestation {
     pub data: AttestationData,
     pub aggregation_bitfield: Bitfield,
     pub custody_bitfield: Bitfield,
     pub aggregate_signature: AggregateSignature,
+}
+
+impl Attestation {
+    pub fn canonical_root(&self) -> Hash256 {
+        Hash256::from(&self.hash_tree_root()[..])
+    }
+
+    pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
+        self.data.signable_message(custody_bit)
+    }
 }
 
 impl Encodable for Attestation {
@@ -73,9 +84,9 @@ impl<T: RngCore> TestRandom<T> for Attestation {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

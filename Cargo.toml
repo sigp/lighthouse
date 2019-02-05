@@ -1,6 +1,7 @@
 [workspace]
 members = [
-	"eth2/attestation_validation",
+	"eth2/attester",
+	"eth2/block_producer",
 	"eth2/genesis",
 	"eth2/naive_fork_choice",
 	"eth2/types",
@@ -12,9 +13,10 @@ members = [
 	"eth2/utils/ssz",
 	"eth2/utils/vec_shuffle",
 	"eth2/validator_induction",
-	"eth2/validator_shuffling",
 	"beacon_node",
 	"beacon_node/db",
+	"beacon_node/beacon_chain",
+	"beacon_node/beacon_chain/test_harness",
 	"protos",
 	"validator_client",
 ]

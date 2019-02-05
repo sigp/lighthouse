@@ -1,6 +1,9 @@
-use super::ssz::{decode_ssz_list, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::{AggregatePublicKey, Signature};
 use bls_aggregates::AggregateSignature as RawAggregateSignature;
+use serde::ser::{Serialize, Serializer};
+use ssz::{
+    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
+};
 
 /// A BLS aggregate signature.
 ///
@@ -44,6 +47,15 @@ impl Decodable for AggregateSignature {
     }
 }
 
+impl Serialize for AggregateSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz_encode(self))
+    }
+}
+
 impl TreeHash for AggregateSignature {
     fn hash_tree_root(&self) -> Vec<u8> {
         hash(&self.0.as_bytes())
@@ -52,9 +64,9 @@ impl TreeHash for AggregateSignature {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::super::{Keypair, Signature};
     use super::*;
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {
