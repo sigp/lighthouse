@@ -43,10 +43,8 @@ impl AttestationData {
         }
     }
 
-    // TODO: Implement this as a merkle root, once tree_ssz is implemented.
-    // https://github.com/sigp/lighthouse/issues/92
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::zero()
+        Hash256::from(&self.hash_tree_root()[..])
     }
 
     pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
