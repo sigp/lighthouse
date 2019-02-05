@@ -1,12 +1,12 @@
-mod duties_map;
+mod epoch_duties;
 mod grpc;
 mod service;
 #[cfg(test)]
 mod test_node;
 mod traits;
 
-pub use self::duties_map::EpochDutiesMap;
-use self::duties_map::{EpochDuties, EpochDutiesMapError};
+pub use self::epoch_duties::EpochDutiesMap;
+use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
 pub use self::service::DutiesManagerService;
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
