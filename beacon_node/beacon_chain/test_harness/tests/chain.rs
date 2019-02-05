@@ -4,6 +4,7 @@ use test_harness::BeaconChainHarness;
 use types::ChainSpec;
 
 #[test]
+#[ignore]
 fn it_can_build_on_genesis_block() {
     let mut spec = ChainSpec::foundation();
     spec.genesis_slot = spec.epoch_length * 8;
