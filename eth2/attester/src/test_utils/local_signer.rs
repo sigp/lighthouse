@@ -3,13 +3,13 @@ use std::sync::RwLock;
 use types::{Keypair, Signature};
 
 /// A test-only struct used to simulate a Beacon Node.
-pub struct TestSigner {
+pub struct LocalSigner {
     keypair: Keypair,
     should_sign: RwLock<bool>,
 }
 
-impl TestSigner {
-    /// Produce a new TestSigner with signing enabled by default.
+impl LocalSigner {
+    /// Produce a new LocalSigner with signing enabled by default.
     pub fn new(keypair: Keypair) -> Self {
         Self {
             keypair,
@@ -24,7 +24,7 @@ impl TestSigner {
     }
 }
 
-impl Signer for TestSigner {
+impl Signer for LocalSigner {
     fn sign_attestation_message(&self, message: &[u8]) -> Option<Signature> {
         Some(Signature::new(message, &self.keypair.sk))
     }

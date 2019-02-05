@@ -7,7 +7,7 @@ type PublishResult = Result<PublishOutcome, BeaconNodeError>;
 
 /// A test-only struct used to simulate a Beacon Node.
 #[derive(Default)]
-pub struct TestBeaconNode {
+pub struct SimulatedBeaconNode {
     pub produce_input: RwLock<Option<(u64, u64)>>,
     pub produce_result: RwLock<Option<ProduceResult>>,
 
@@ -15,7 +15,7 @@ pub struct TestBeaconNode {
     pub publish_result: RwLock<Option<PublishResult>>,
 }
 
-impl TestBeaconNode {
+impl SimulatedBeaconNode {
     pub fn set_next_produce_result(&self, result: ProduceResult) {
         *self.produce_result.write().unwrap() = Some(result);
     }
@@ -25,7 +25,7 @@ impl TestBeaconNode {
     }
 }
 
-impl BeaconNode for TestBeaconNode {
+impl BeaconNode for SimulatedBeaconNode {
     fn produce_attestation_data(&self, slot: u64, shard: u64) -> ProduceResult {
         *self.produce_input.write().unwrap() = Some((slot, shard));
         match *self.produce_result.read().unwrap() {
