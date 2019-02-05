@@ -1,13 +1,13 @@
-use super::bls::PublicKey;
 use super::Hash256;
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, PublicKey};
 use rand::RngCore;
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 const STATUS_FLAG_INITIATED_EXIT: u8 = 1;
 const STATUS_FLAG_WITHDRAWABLE: u8 = 2;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize)]
 pub enum StatusFlags {
     InitiatedExit,
     Withdrawable,
@@ -43,7 +43,7 @@ fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDec
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
@@ -180,9 +180,9 @@ impl<T: RngCore> TestRandom<T> for Validator {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

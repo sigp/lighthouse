@@ -1,7 +1,8 @@
-use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::{Attestation, CasperSlashing, Deposit, Exit, ProposerSlashing};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 // The following types are just dummy classes as they will not be defined until
 // Phase 1 (Sharding phase)
@@ -9,7 +10,7 @@ type CustodyReseed = usize;
 type CustodyChallenge = usize;
 type CustodyResponse = usize;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct BeaconBlockBody {
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub casper_slashings: Vec<CasperSlashing>,
@@ -93,9 +94,9 @@ impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

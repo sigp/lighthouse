@@ -1,6 +1,5 @@
 use bls::verify_proof_of_possession;
-use spec::ChainSpec;
-use types::{BeaconState, Deposit, Validator};
+use types::{BeaconState, ChainSpec, Deposit, Validator};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {

@@ -1,5 +1,4 @@
-use spec::ChainSpec;
-use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256};
+use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256};
 
 /// Generate a genesis BeaconBlock.
 pub fn genesis_beacon_block(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
@@ -32,12 +31,13 @@ mod tests {
     use bls::Signature;
 
     #[test]
-    fn test_genesis() {
+    fn test_state_root() {
         let spec = ChainSpec::foundation();
         let state_root = Hash256::from("cats".as_bytes());
 
-        // This only checks that the function runs without panic.
-        genesis_beacon_block(state_root, &spec);
+        let block = genesis_beacon_block(state_root, &spec);
+
+        assert_eq!(block.state_root, state_root);
     }
 
     #[test]

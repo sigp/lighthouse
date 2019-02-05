@@ -6,8 +6,8 @@ use types::{readers::BeaconBlockReader, BeaconBlock, Hash256};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BeaconBlockAtSlotError {
-    UnknownBeaconBlock,
-    InvalidBeaconBlock,
+    UnknownBeaconBlock(Hash256),
+    InvalidBeaconBlock(Hash256),
     DBError(String),
 }
 
@@ -24,6 +24,18 @@ impl_crud_for_store!(BeaconBlockStore, DB_COLUMN);
 impl<T: ClientDB> BeaconBlockStore<T> {
     pub fn new(db: Arc<T>) -> Self {
         Self { db }
+    }
+
+    pub fn get_deserialized(&self, hash: &Hash256) -> Result<Option<BeaconBlock>, DBError> {
+        match self.get(&hash)? {
+            None => Ok(None),
+            Some(ssz) => {
+                let (block, _) = BeaconBlock::ssz_decode(&ssz, 0).map_err(|_| DBError {
+                    message: "Bad BeaconBlock SSZ.".to_string(),
+                })?;
+                Ok(Some(block))
+            }
+        }
     }
 
     /// Retuns an object implementing `BeaconBlockReader`, or `None` (if hash not known).
@@ -73,7 +85,7 @@ impl<T: ClientDB> BeaconBlockStore<T> {
                     current_hash = block_reader.parent_root();
                 }
             } else {
-                break Err(BeaconBlockAtSlotError::UnknownBeaconBlock);
+                break Err(BeaconBlockAtSlotError::UnknownBeaconBlock(current_hash));
             }
         }
     }
@@ -145,7 +157,7 @@ mod tests {
         db.put(DB_COLUMN, hash, ssz).unwrap();
         assert_eq!(
             store.block_at_slot(other_hash, 42),
-            Err(BeaconBlockAtSlotError::UnknownBeaconBlock)
+            Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*other_hash))
         );
     }
 
@@ -243,7 +255,11 @@ mod tests {
         let ssz = bs.block_at_slot(&hashes[4], 6).unwrap();
         assert_eq!(ssz, None);
 
-        let ssz = bs.block_at_slot(&Hash256::from("unknown".as_bytes()), 2);
-        assert_eq!(ssz, Err(BeaconBlockAtSlotError::UnknownBeaconBlock));
+        let bad_hash = &Hash256::from("unknown".as_bytes());
+        let ssz = bs.block_at_slot(bad_hash, 2);
+        assert_eq!(
+            ssz,
+            Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*bad_hash))
+        );
     }
 }

@@ -1,4 +1,4 @@
-use super::hashing::canonical_hash;
+use super::hashing::hash;
 
 const SEED_SIZE_BYTES: usize = 32;
 const RAND_BYTES: usize = 3; // 24 / 8
@@ -16,7 +16,7 @@ impl ShuffleRng {
     /// Create a new instance given some "seed" bytes.
     pub fn new(initial_seed: &[u8]) -> Self {
         Self {
-            seed: canonical_hash(initial_seed),
+            seed: hash(initial_seed),
             idx: 0,
             rand_max: RAND_MAX,
         }
@@ -24,7 +24,7 @@ impl ShuffleRng {
 
     /// "Regenerates" the seed by hashing it.
     fn rehash_seed(&mut self) {
-        self.seed = canonical_hash(&self.seed);
+        self.seed = hash(&self.seed);
         self.idx = 0;
     }
 

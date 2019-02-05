@@ -1,31 +1,12 @@
-use spec::ChainSpec;
-use types::{BeaconState, Crosslink, Fork};
-use validator_shuffling::{shard_and_committees_for_cycle, ValidatorAssignmentError};
+use types::{BeaconState, ChainSpec, Crosslink, Fork};
 
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    NoValidators,
-    ValidationAssignmentError(ValidatorAssignmentError),
-    NotImplemented,
-}
-
-pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
-    /*
-     * Assign the validators to shards, using all zeros as the seed.
-     */
-    let _shard_and_committee_for_slots = {
-        let mut a = shard_and_committees_for_cycle(&[0; 32], &spec.initial_validators, 0, &spec)?;
-        let mut b = a.clone();
-        a.append(&mut b);
-        a
-    };
-
+pub fn genesis_beacon_state(spec: &ChainSpec) -> BeaconState {
     let initial_crosslink = Crosslink {
         slot: spec.genesis_slot,
         shard_block_root: spec.zero_hash,
     };
 
-    Ok(BeaconState {
+    BeaconState {
         /*
          * Misc
          */
@@ -56,8 +37,8 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
         current_epoch_start_shard: spec.genesis_start_shard,
         previous_epoch_calculation_slot: spec.genesis_slot,
         current_epoch_calculation_slot: spec.genesis_slot,
-        previous_epoch_randao_mix: spec.zero_hash,
-        current_epoch_randao_mix: spec.zero_hash,
+        previous_epoch_seed: spec.zero_hash,
+        current_epoch_seed: spec.zero_hash,
         /*
          * Custody challenges
          */
@@ -74,7 +55,7 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
          */
         latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
         latest_block_roots: vec![spec.zero_hash; spec.latest_block_roots_length as usize],
-        latest_penalized_exit_balances: vec![0; spec.latest_penalized_exit_length as usize],
+        latest_penalized_balances: vec![0; spec.latest_penalized_exit_length as usize],
         latest_attestations: vec![],
         batched_block_roots: vec![],
         /*
@@ -82,12 +63,6 @@ pub fn genesis_beacon_state(spec: &ChainSpec) -> Result<BeaconState, Error> {
          */
         latest_eth1_data: spec.intial_eth1_data.clone(),
         eth1_data_votes: vec![],
-    })
-}
-
-impl From<ValidatorAssignmentError> for Error {
-    fn from(e: ValidatorAssignmentError) -> Error {
-        Error::ValidationAssignmentError(e)
     }
 }
 
@@ -100,7 +75,7 @@ mod tests {
     fn test_genesis_state() {
         let spec = ChainSpec::foundation();
 
-        let state = genesis_beacon_state(&spec).unwrap();
+        let state = genesis_beacon_state(&spec);
 
         assert_eq!(
             state.validator_registry.len(),
@@ -112,7 +87,7 @@ mod tests {
     fn test_genesis_state_misc() {
         let spec = ChainSpec::foundation();
 
-        let state = genesis_beacon_state(&spec).unwrap();
+        let state = genesis_beacon_state(&spec);
 
         assert_eq!(state.slot, 0);
         assert_eq!(state.genesis_time, spec.genesis_time);
@@ -125,7 +100,7 @@ mod tests {
     fn test_genesis_state_validators() {
         let spec = ChainSpec::foundation();
 
-        let state = genesis_beacon_state(&spec).unwrap();
+        let state = genesis_beacon_state(&spec);
 
         assert_eq!(state.validator_registry, spec.initial_validators);
         assert_eq!(state.validator_balances, spec.initial_balances);
@@ -138,7 +113,7 @@ mod tests {
     fn test_genesis_state_randomness_committees() {
         let spec = ChainSpec::foundation();
 
-        let state = genesis_beacon_state(&spec).unwrap();
+        let state = genesis_beacon_state(&spec);
 
         // Array of size 8,192 each being zero_hash
         assert_eq!(state.latest_randao_mixes.len(), 8_192);
@@ -167,7 +142,7 @@ mod tests {
     fn test_genesis_state_finanilty() {
         let spec = ChainSpec::foundation();
 
-        let state = genesis_beacon_state(&spec).unwrap();
+        let state = genesis_beacon_state(&spec);
 
         assert_eq!(state.previous_justified_slot, 0);
         assert_eq!(state.justified_slot, 0);
@@ -179,7 +154,7 @@ mod tests {
     fn test_genesis_state_recent_state() {
         let spec = ChainSpec::foundation();
 
-        let state = genesis_beacon_state(&spec).unwrap();
+        let state = genesis_beacon_state(&spec);
 
         // Test latest_crosslinks
         assert_eq!(state.latest_crosslinks.len(), 1_024);
@@ -194,9 +169,9 @@ mod tests {
             assert_eq!(*block, Hash256::zero());
         }
 
-        // Test latest_penalized_exit_balances
-        assert_eq!(state.latest_penalized_exit_balances.len(), 8_192);
-        for item in state.latest_penalized_exit_balances.iter() {
+        // Test latest_penalized_balances
+        assert_eq!(state.latest_penalized_balances.len(), 8_192);
+        for item in state.latest_penalized_balances.iter() {
             assert!(*item == 0);
         }
 
@@ -211,7 +186,7 @@ mod tests {
     fn test_genesis_state_deposit_root() {
         let spec = ChainSpec::foundation();
 
-        let state = genesis_beacon_state(&spec).unwrap();
+        let state = genesis_beacon_state(&spec);
 
         assert_eq!(&state.latest_eth1_data, &spec.intial_eth1_data);
         assert!(state.eth1_data_votes.is_empty());

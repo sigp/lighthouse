@@ -1,9 +1,9 @@
 extern crate bytes;
 
 use self::bytes::{BufMut, BytesMut};
-use super::bls::PublicKey;
 use super::VALIDATOR_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
+use bls::PublicKey;
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
 
@@ -80,8 +80,8 @@ impl<T: ClientDB> ValidatorStore<T> {
 #[cfg(test)]
 mod tests {
     use super::super::super::MemoryDB;
-    use super::super::bls::Keypair;
     use super::*;
+    use bls::Keypair;
 
     #[test]
     fn test_prefix_bytes() {

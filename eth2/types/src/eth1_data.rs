@@ -1,10 +1,11 @@
-use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::Hash256;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 // Note: this is refer to as DepositRootVote in specs
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct Eth1Data {
     pub deposit_root: Hash256,
     pub block_hash: Hash256,
@@ -52,9 +53,9 @@ impl<T: RngCore> TestRandom<T> for Eth1Data {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {
