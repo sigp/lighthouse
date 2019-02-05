@@ -22,6 +22,7 @@ pub mod proposer_slashing;
 pub mod shard_committee;
 pub mod shard_reassignment_record;
 pub mod slashable_vote_data;
+pub mod slot_epoch;
 pub mod spec;
 pub mod special_record;
 pub mod validator;
