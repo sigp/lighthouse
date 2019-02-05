@@ -1,7 +1,7 @@
 use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::config::ClientConfig;
-use block_producer::{test_utils::TestSigner, BlockProducer};
+use block_producer::{test_utils::LocalSigner, BlockProducer};
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -140,7 +140,7 @@ fn main() {
         let producer_thread = {
             let spec = spec.clone();
             let pubkey = keypair.pk.clone();
-            let signer = Arc::new(TestSigner::new(keypair.clone()));
+            let signer = Arc::new(LocalSigner::new(keypair.clone()));
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
             let log = log.clone();
