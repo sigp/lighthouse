@@ -1,11 +1,8 @@
-use super::Hash256;
+use super::{AttestationDataAndCustodyBit, Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
-use std::hash::Hash;
-
-mod signing;
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -50,6 +47,14 @@ impl AttestationData {
     // https://github.com/sigp/lighthouse/issues/92
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::zero()
+    }
+
+    pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
+        let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
+            data: self.clone(),
+            custody_bit,
+        };
+        attestation_data_and_custody_bit.hash_tree_root()
     }
 }
 
