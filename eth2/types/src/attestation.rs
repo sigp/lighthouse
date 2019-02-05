@@ -5,8 +5,6 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-mod signing;
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Attestation {
     pub data: AttestationData,
@@ -18,6 +16,10 @@ pub struct Attestation {
 impl Attestation {
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from(&self.hash_tree_root()[..])
+    }
+
+    pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
+        self.data.signable_message(custody_bit)
     }
 }
 
