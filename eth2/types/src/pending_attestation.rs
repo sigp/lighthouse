@@ -1,5 +1,5 @@
-use super::{AttestationData, Bitfield};
 use crate::test_utils::TestRandom;
+use crate::{AttestationData, Bitfield, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -9,7 +9,7 @@ pub struct PendingAttestation {
     pub data: AttestationData,
     pub aggregation_bitfield: Bitfield,
     pub custody_bitfield: Bitfield,
-    pub slot_included: u64,
+    pub slot_included: Slot,
 }
 
 impl Encodable for PendingAttestation {

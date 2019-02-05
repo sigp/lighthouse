@@ -1,4 +1,4 @@
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -7,7 +7,7 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 pub struct Fork {
     pub pre_fork_version: u64,
     pub post_fork_version: u64,
-    pub fork_slot: u64,
+    pub fork_slot: Slot,
 }
 
 impl Encodable for Fork {
