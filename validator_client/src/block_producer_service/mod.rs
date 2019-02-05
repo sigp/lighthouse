@@ -1,5 +1,5 @@
-mod grpc;
-mod service;
+mod beacon_block_grpc_client;
+mod block_producer_service;
 
-pub use self::grpc::BeaconBlockGrpcClient;
-pub use self::service::BlockProducerService;
+pub use self::beacon_block_grpc_client::BeaconBlockGrpcClient;
+pub use self::block_producer_service::BlockProducerService;
