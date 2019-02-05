@@ -2,7 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::{
     validator::StatusFlags, validator_registry::get_active_validator_indices, AggregatePublicKey,
     Attestation, AttestationData, BeaconBlock, Bitfield, ChainSpec, Crosslink, Eth1Data,
-    Eth1DataVote, Exit, Fork, Hash256, PendingAttestation, PublicKey, Signature, Validator,
+    Eth1DataVote, Exit, Fork, Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::bls_verify_aggregate;
 use honey_badger_split::SplitExt;
@@ -151,14 +151,14 @@ type CustodyChallenge = usize;
 #[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct BeaconState {
     // Misc
-    pub slot: u64,
+    pub slot: Slot,
     pub genesis_time: u64,
     pub fork_data: Fork,
 
     // Validator registry
     pub validator_registry: Vec<Validator>,
     pub validator_balances: Vec<u64>,
-    pub validator_registry_update_slot: u64,
+    pub validator_registry_update_slot: Slot,
     pub validator_registry_exit_count: u64,
     pub validator_registry_delta_chain_tip: Hash256,
 
@@ -167,8 +167,8 @@ pub struct BeaconState {
     pub latest_vdf_outputs: Vec<Hash256>,
     pub previous_epoch_start_shard: u64,
     pub current_epoch_start_shard: u64,
-    pub previous_epoch_calculation_slot: u64,
-    pub current_epoch_calculation_slot: u64,
+    pub previous_epoch_calculation_slot: Slot,
+    pub current_epoch_calculation_slot: Slot,
     pub previous_epoch_seed: Hash256,
     pub current_epoch_seed: Hash256,
 
@@ -176,10 +176,10 @@ pub struct BeaconState {
     pub custody_challenges: Vec<CustodyChallenge>,
 
     // Finality
-    pub previous_justified_slot: u64,
-    pub justified_slot: u64,
+    pub previous_justified_slot: Slot,
+    pub justified_slot: Slot,
     pub justification_bitfield: u64,
-    pub finalized_slot: u64,
+    pub finalized_slot: Slot,
 
     // Recent state
     pub latest_crosslinks: Vec<Crosslink>,

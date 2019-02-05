@@ -55,6 +55,7 @@ pub use crate::proposal_signed_data::ProposalSignedData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::shard_committee::ShardCommittee;
 pub use crate::slashable_vote_data::SlashableVoteData;
+pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::spec::ChainSpec;
 pub use crate::special_record::{SpecialRecord, SpecialRecordKind};
 pub use crate::validator::{StatusFlags as ValidatorStatusFlags, Validator};
