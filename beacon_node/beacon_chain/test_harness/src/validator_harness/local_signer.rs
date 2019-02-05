@@ -4,12 +4,12 @@ use std::sync::RwLock;
 use types::{Keypair, Signature};
 
 /// A test-only struct used to perform signing for a proposer or attester.
-pub struct TestSigner {
+pub struct LocalSigner {
     keypair: Keypair,
     should_sign: RwLock<bool>,
 }
 
-impl TestSigner {
+impl LocalSigner {
     /// Produce a new TestSigner with signing enabled by default.
     pub fn new(keypair: Keypair) -> Self {
         Self {
@@ -30,7 +30,7 @@ impl TestSigner {
     }
 }
 
-impl BlockProposerSigner for TestSigner {
+impl BlockProposerSigner for LocalSigner {
     fn sign_block_proposal(&self, message: &[u8]) -> Option<Signature> {
         self.bls_sign(message)
     }
@@ -40,7 +40,7 @@ impl BlockProposerSigner for TestSigner {
     }
 }
 
-impl AttesterSigner for TestSigner {
+impl AttesterSigner for LocalSigner {
     fn sign_attestation_message(&self, message: &[u8]) -> Option<Signature> {
         self.bls_sign(message)
     }
