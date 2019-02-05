@@ -170,7 +170,7 @@ impl From<BeaconNodeError> for Error {
 
 #[cfg(test)]
 mod tests {
-    use super::test_utils::{TestBeaconNode, TestEpochMap, TestSigner};
+    use super::test_utils::{EpochMap, LocalSigner, SimulatedBeaconNode};
     use super::*;
     use slot_clock::TestingSlotClock;
     use types::{
@@ -189,10 +189,10 @@ mod tests {
 
         let spec = Arc::new(ChainSpec::foundation());
         let slot_clock = Arc::new(TestingSlotClock::new(0));
-        let beacon_node = Arc::new(TestBeaconNode::default());
-        let signer = Arc::new(TestSigner::new(Keypair::random()));
+        let beacon_node = Arc::new(SimulatedBeaconNode::default());
+        let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-        let mut duties = TestEpochMap::new(spec.epoch_length);
+        let mut duties = EpochMap::new(spec.epoch_length);
         let attest_slot = 100;
         let attest_epoch = attest_slot / spec.epoch_length;
         let attest_shard = 12;
