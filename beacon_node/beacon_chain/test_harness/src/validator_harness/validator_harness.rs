@@ -1,6 +1,6 @@
 use super::direct_beacon_node::DirectBeaconNode;
 use super::direct_duties::DirectDuties;
-use super::signer::TestSigner;
+use super::local_signer::LocalSigner;
 use attester::PollOutcome as AttestationPollOutcome;
 use attester::{Attester, Error as AttestationPollError};
 use beacon_chain::BeaconChain;
@@ -28,29 +28,29 @@ pub enum AttestationProduceError {
 /// The test validator connects directly to a borrowed `BeaconChain` struct. It is useful for
 /// testing that the core proposer and attester logic is functioning. Also for supporting beacon
 /// chain tests.
-pub struct TestValidator {
+pub struct ValidatorHarness {
     pub block_producer: BlockProducer<
         TestingSlotClock,
         DirectBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
-        TestSigner,
+        LocalSigner,
     >,
     pub attester: Attester<
         TestingSlotClock,
         DirectBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
-        TestSigner,
+        LocalSigner,
     >,
     pub spec: Arc<ChainSpec>,
     pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock>>,
     pub keypair: Keypair,
     pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock>>,
     pub slot_clock: Arc<TestingSlotClock>,
-    pub signer: Arc<TestSigner>,
+    pub signer: Arc<LocalSigner>,
 }
 
-impl TestValidator {
-    /// Create a new TestValidator that signs with the given keypair, operates per the given spec and connects to the
+impl ValidatorHarness {
+    /// Create a new ValidatorHarness that signs with the given keypair, operates per the given spec and connects to the
     /// supplied beacon node.
     ///
     /// A `BlockProducer` and `Attester` is created..
@@ -60,7 +60,7 @@ impl TestValidator {
         spec: Arc<ChainSpec>,
     ) -> Self {
         let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot));
-        let signer = Arc::new(TestSigner::new(keypair.clone()));
+        let signer = Arc::new(LocalSigner::new(keypair.clone()));
         let beacon_node = Arc::new(DirectBeaconNode::new(beacon_chain.clone()));
         let epoch_map = Arc::new(DirectDuties::new(keypair.pk.clone(), beacon_chain.clone()));
 

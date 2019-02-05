@@ -1,4 +1,4 @@
-use super::TestValidator;
+use super::ValidatorHarness;
 use beacon_chain::BeaconChain;
 pub use beacon_chain::{CheckPoint, Error as BeaconChainError};
 use db::{
@@ -26,7 +26,7 @@ pub struct BeaconChainHarness {
     pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
-    pub validators: Vec<TestValidator>,
+    pub validators: Vec<ValidatorHarness>,
     pub spec: Arc<ChainSpec>,
 }
 
@@ -91,12 +91,14 @@ impl BeaconChainHarness {
         debug!("Creating validator producer and attester instances...");
 
         // Spawn the test validator instances.
-        let validators: Vec<TestValidator> = keypairs
+        let validators: Vec<ValidatorHarness> = keypairs
             .iter()
-            .map(|keypair| TestValidator::new(keypair.clone(), beacon_chain.clone(), spec.clone()))
+            .map(|keypair| {
+                ValidatorHarness::new(keypair.clone(), beacon_chain.clone(), spec.clone())
+            })
             .collect();
 
-        debug!("Created {} TestValidators", validators.len());
+        debug!("Created {} ValidatorHarnesss", validators.len());
 
         Self {
             db,
