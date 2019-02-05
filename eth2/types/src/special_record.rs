@@ -1,9 +1,10 @@
+use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// The value of the "type" field of SpecialRecord.
 ///
 /// Note: this value must serialize to a u8 and therefore must not be greater than 255.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize)]
 pub enum SpecialRecordKind {
     Logout = 0,
     CasperSlashing = 1,

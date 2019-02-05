@@ -1,3 +1,4 @@
+use super::state_reader::BeaconStateReader;
 use crate::{BeaconBlock, Hash256};
 use std::fmt::Debug;
 

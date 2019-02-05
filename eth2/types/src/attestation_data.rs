@@ -1,7 +1,8 @@
-use super::ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
-use super::Hash256;
+use super::{AttestationDataAndCustodyBit, Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
+use serde_derive::Serialize;
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -14,7 +15,7 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 // justified_block_root
 };
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash)]
 pub struct AttestationData {
     pub slot: u64,
     pub shard: u64,
@@ -25,6 +26,8 @@ pub struct AttestationData {
     pub justified_slot: u64,
     pub justified_block_root: Hash256,
 }
+
+impl Eq for AttestationData {}
 
 impl AttestationData {
     pub fn zero() -> Self {
@@ -40,10 +43,16 @@ impl AttestationData {
         }
     }
 
-    // TODO: Implement this as a merkle root, once tree_ssz is implemented.
-    // https://github.com/sigp/lighthouse/issues/92
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::zero()
+        Hash256::from(&self.hash_tree_root()[..])
+    }
+
+    pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
+        let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
+            data: self.clone(),
+            custody_bit,
+        };
+        attestation_data_and_custody_bit.hash_tree_root()
     }
 }
 
@@ -117,9 +126,9 @@ impl<T: RngCore> TestRandom<T> for AttestationData {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

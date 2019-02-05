@@ -1,6 +1,9 @@
-use super::ssz::{decode_ssz_list, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use super::{PublicKey, SecretKey};
 use bls_aggregates::Signature as RawSignature;
+use serde::ser::{Serialize, Serializer};
+use ssz::{
+    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
+};
 
 /// A single BLS signature.
 ///
@@ -63,11 +66,20 @@ impl TreeHash for Signature {
     }
 }
 
+impl Serialize for Signature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz_encode(self))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::super::Keypair;
     use super::*;
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

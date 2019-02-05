@@ -1,11 +1,11 @@
-use super::ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
-use super::{BeaconBlockBody, Eth1Data, Hash256};
+use super::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, ProposalSignedData};
 use crate::test_utils::TestRandom;
 use bls::Signature;
-use hashing::canonical_hash;
 use rand::RngCore;
+use serde_derive::Serialize;
+use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct BeaconBlock {
     pub slot: u64,
     pub parent_root: Hash256,
@@ -18,9 +18,22 @@ pub struct BeaconBlock {
 
 impl BeaconBlock {
     pub fn canonical_root(&self) -> Hash256 {
-        // TODO: implement tree hashing.
-        // https://github.com/sigp/lighthouse/issues/70
-        Hash256::from(&canonical_hash(&ssz_encode(self))[..])
+        Hash256::from(&self.hash_tree_root()[..])
+    }
+
+    pub fn proposal_root(&self, spec: &ChainSpec) -> Hash256 {
+        let block_without_signature_root = {
+            let mut block_without_signature = self.clone();
+            block_without_signature.signature = spec.empty_signature.clone();
+            block_without_signature.canonical_root()
+        };
+
+        let proposal = ProposalSignedData {
+            slot: self.slot,
+            shard: spec.beacon_chain_shard_number,
+            block_root: block_without_signature_root,
+        };
+        Hash256::from_slice(&proposal.hash_tree_root()[..])
     }
 }
 
@@ -91,9 +104,9 @@ impl<T: RngCore> TestRandom<T> for BeaconBlock {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

@@ -1,43 +1,18 @@
+mod epoch_duties;
 mod grpc;
 mod service;
 #[cfg(test)]
 mod test_node;
 mod traits;
 
+pub use self::epoch_duties::EpochDutiesMap;
+use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
+pub use self::service::DutiesManagerService;
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use types::ChainSpec;
-
-pub use self::service::DutiesManagerService;
-
-/// The information required for a validator to propose and attest during some epoch.
-///
-/// Generally obtained from a Beacon Node, this information contains the validators canonical index
-/// (thier sequence in the global validator induction process) and the "shuffling" for that index
-/// for some epoch.
-#[derive(Debug, PartialEq, Clone, Copy, Default)]
-pub struct EpochDuties {
-    pub validator_index: u64,
-    pub block_production_slot: Option<u64>,
-    // Future shard info
-}
-
-impl EpochDuties {
-    /// Returns `true` if the supplied `slot` is a slot in which the validator should produce a
-    /// block.
-    pub fn is_block_production_slot(&self, slot: u64) -> bool {
-        match self.block_production_slot {
-            Some(s) if s == slot => true,
-            _ => false,
-        }
-    }
-}
-
-/// Maps an `epoch` to some `EpochDuties` for a single validator.
-pub type EpochDutiesMap = HashMap<u64, EpochDuties>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
@@ -58,7 +33,6 @@ pub enum Error {
     SlotClockError,
     SlotUnknowable,
     EpochMapPoisoned,
-    SlotClockPoisoned,
     EpochLengthIsZero,
     BeaconNodeError(BeaconNodeError),
 }
@@ -68,11 +42,11 @@ pub enum Error {
 ///
 /// There is a single `DutiesManager` per validator instance.
 pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
-    pub duties_map: Arc<RwLock<EpochDutiesMap>>,
+    pub duties_map: Arc<EpochDutiesMap>,
     /// The validator's public key.
     pub pubkey: PublicKey,
     pub spec: Arc<ChainSpec>,
-    pub slot_clock: Arc<RwLock<T>>,
+    pub slot_clock: Arc<T>,
     pub beacon_node: Arc<U>,
 }
 
@@ -84,8 +58,6 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
     pub fn poll(&self) -> Result<PollOutcome, Error> {
         let slot = self
             .slot_clock
-            .read()
-            .map_err(|_| Error::SlotClockPoisoned)?
             .present_slot()
             .map_err(|_| Error::SlotClockError)?
             .ok_or(Error::SlotUnknowable)?;
@@ -95,14 +67,9 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             .ok_or(Error::EpochLengthIsZero)?;
 
         if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkey)? {
-            let mut map = self
-                .duties_map
-                .write()
-                .map_err(|_| Error::EpochMapPoisoned)?;
-
             // If these duties were known, check to see if they're updates or identical.
-            let result = if let Some(known_duties) = map.get(&epoch) {
-                if *known_duties == duties {
+            let result = if let Some(known_duties) = self.duties_map.get(epoch)? {
+                if known_duties == duties {
                     Ok(PollOutcome::NoChange(epoch))
                 } else {
                     Ok(PollOutcome::DutiesChanged(epoch, duties))
@@ -110,7 +77,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             } else {
                 Ok(PollOutcome::NewDuties(epoch, duties))
             };
-            map.insert(epoch, duties);
+            self.duties_map.insert(epoch, duties)?;
             result
         } else {
             Ok(PollOutcome::UnknownValidatorOrEpoch(epoch))
@@ -121,6 +88,14 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
 impl From<BeaconNodeError> for Error {
     fn from(e: BeaconNodeError) -> Error {
         Error::BeaconNodeError(e)
+    }
+}
+
+impl From<EpochDutiesMapError> for Error {
+    fn from(e: EpochDutiesMapError) -> Error {
+        match e {
+            EpochDutiesMapError::Poisoned => Error::EpochMapPoisoned,
+        }
     }
 }
 
@@ -139,9 +114,9 @@ mod tests {
     #[test]
     pub fn polling() {
         let spec = Arc::new(ChainSpec::foundation());
-        let duties_map = Arc::new(RwLock::new(EpochDutiesMap::new()));
+        let duties_map = Arc::new(EpochDutiesMap::new(spec.epoch_length));
         let keypair = Keypair::random();
-        let slot_clock = Arc::new(RwLock::new(TestingSlotClock::new(0)));
+        let slot_clock = Arc::new(TestingSlotClock::new(0));
         let beacon_node = Arc::new(TestBeaconNode::default());
 
         let manager = DutiesManager {

@@ -1,6 +1,7 @@
 use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
 use hex::encode as hex_encode;
+use serde::ser::{Serialize, Serializer};
 use ssz::{
     decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
 };
@@ -55,6 +56,15 @@ impl Decodable for PublicKey {
     }
 }
 
+impl Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz_encode(self))
+    }
+}
+
 impl TreeHash for PublicKey {
     fn hash_tree_root(&self) -> Vec<u8> {
         hash(&self.0.as_bytes())
@@ -75,8 +85,8 @@ impl Hash for PublicKey {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::ssz_encode;
     use super::*;
+    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

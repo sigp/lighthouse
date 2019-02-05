@@ -3,13 +3,14 @@ use std::time::{Duration, SystemTime};
 
 pub use std::time::SystemTimeError;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     SlotDurationIsZero,
-    SystemTimeError(SystemTimeError),
+    SystemTimeError(String),
 }
 
 /// Determines the present slot based upon the present system time.
+#[derive(Clone)]
 pub struct SystemTimeSlotClock {
     genesis_seconds: u64,
     slot_duration_seconds: u64,
@@ -51,7 +52,7 @@ impl SlotClock for SystemTimeSlotClock {
 
 impl From<SystemTimeError> for Error {
     fn from(e: SystemTimeError) -> Error {
-        Error::SystemTimeError(e)
+        Error::SystemTimeError(format!("{:?}", e))
     }
 }
 

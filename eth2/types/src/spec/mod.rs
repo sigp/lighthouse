@@ -3,7 +3,7 @@ mod foundation;
 use crate::{Address, Eth1Data, Hash256, Validator};
 use bls::Signature;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Misc

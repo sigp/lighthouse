@@ -3,6 +3,7 @@ extern crate ssz;
 
 use bit_vec::BitVec;
 
+use serde::ser::{Serialize, Serializer};
 use std::cmp;
 use std::default;
 
@@ -113,6 +114,28 @@ impl cmp::PartialEq for BooleanBitfield {
     }
 }
 
+/// Create a new bitfield that is a union of two other bitfields.
+///
+/// For example `union(0101, 1000) == 1101`
+impl std::ops::BitAnd for BooleanBitfield {
+    type Output = Self;
+
+    fn bitand(self, other: Self) -> Self {
+        let (biggest, smallest) = if self.len() > other.len() {
+            (&self, &other)
+        } else {
+            (&other, &self)
+        };
+        let mut new = biggest.clone();
+        for i in 0..smallest.len() {
+            if let Ok(true) = smallest.get(i) {
+                new.set(i, true);
+            }
+        }
+        new
+    }
+}
+
 impl ssz::Encodable for BooleanBitfield {
     // ssz_append encodes Self according to the `ssz` spec.
     fn ssz_append(&self, s: &mut ssz::SszStream) {
@@ -146,6 +169,15 @@ impl ssz::Decodable for BooleanBitfield {
             let index = index + ssz::LENGTH_BYTES + len;
             Ok((field, index))
         }
+    }
+}
+
+impl Serialize for BooleanBitfield {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&ssz::ssz_encode(self))
     }
 }
 
@@ -364,5 +396,13 @@ mod tests {
         let ssz = ssz_encode(&original);
         let (decoded, _) = BooleanBitfield::ssz_decode(&ssz, 0).unwrap();
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_bitand() {
+        let a = BooleanBitfield::from_bytes(&vec![2, 8, 1][..]);
+        let b = BooleanBitfield::from_bytes(&vec![4, 8, 16][..]);
+        let c = BooleanBitfield::from_bytes(&vec![6, 8, 17][..]);
+        assert_eq!(c, a & b);
     }
 }
