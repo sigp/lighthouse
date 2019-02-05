@@ -14,6 +14,8 @@ use types::{
     AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Eth1Data,
     FreeAttestation, Hash256, PublicKey, Signature,
 };
+use fork_choice::{longest_chain, basic_lmd_ghost};
+use fork_choice::{ForkChoice};
 
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
 use crate::attestation_targets::AttestationTargets;
@@ -571,7 +573,39 @@ where
 
         Some((block, state))
     }
+
+    // For now, we give it the option of choosing which fork choice to use
+    pub fn fork_choice(&self, fork_choice: ForkChoice) -> Result<(), Error> {
+        let present_head = &self.finalized_head().beacon_block_root;
+
+        let new_head = match fork_choice {
+           ForkChoice::BasicLMDGhost => basic_lmd_ghost(&self.finalized_head().beacon_block_root)?,
+           // TODO: Implement others
+           _ => present_head
+        }
+
+        if new_head != *present_head {
+            let block = self
+                .block_store
+                .get_deserialized(&new_head)?
+                .ok_or_else(|| Error::MissingBeaconBlock(new_head))?;
+            let block_root = block.canonical_root();
+
+            let state = self
+                .state_store
+                .get_deserialized(&block.state_root)?
+                .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+            let state_root = state.canonical_root();
+
+            self.update_canonical_head(block, block_root, state, state_root);
+        }
+
+        Ok(())
+
+
+
 }
+
 
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {

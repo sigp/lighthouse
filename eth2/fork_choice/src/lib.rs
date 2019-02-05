@@ -22,3 +22,15 @@ pub mod basic_lmd_ghost;
 pub mod longest_chain;
 pub mod optimised_lmd_ghost;
 pub mod protolambda_lmd_ghost;
+
+/// Fork choice options that are currently implemented.
+pub enum ForkChoice {
+    /// Chooses the longest chain becomes the head. Not for production.
+    LongestChain,
+    /// A simple and highly inefficient implementation of LMD ghost.
+    BasicLMDGhost,
+    /// An optimised version of LMD-GHOST by Vitalik.
+    OptimmisedLMDGhost,
+    /// An optimised version of LMD-GHOST by Protolambda.
+    ProtoLMDGhost,
+}
