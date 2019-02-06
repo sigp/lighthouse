@@ -1,9 +1,10 @@
 /// Contains logic to manipulate a `&[Validator]`.
 /// For now, we avoid defining a newtype and just have flat functions here.
 use super::validator::*;
+use crate::Slot;
 
 /// Given an indexed sequence of `validators`, return the indices corresponding to validators that are active at `slot`.
-pub fn get_active_validator_indices(validators: &[Validator], slot: u64) -> Vec<usize> {
+pub fn get_active_validator_indices(validators: &[Validator], slot: Slot) -> Vec<usize> {
     validators
         .iter()
         .enumerate()
@@ -27,7 +28,7 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
         let validators = vec![];
-        let some_slot = u64::random_for_test(&mut rng);
+        let some_slot = Slot::random_for_test(&mut rng);
         let indices = get_active_validator_indices(&validators, some_slot);
         assert_eq!(indices, vec![]);
     }
@@ -41,7 +42,7 @@ mod tests {
             validators.push(Validator::default())
         }
 
-        let some_slot = u64::random_for_test(&mut rng);
+        let some_slot = Slot::random_for_test(&mut rng);
         let indices = get_active_validator_indices(&validators, some_slot);
         assert_eq!(indices, vec![]);
     }
@@ -50,7 +51,7 @@ mod tests {
     fn can_get_all_active_validator_indices() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let count_validators = 10;
-        let some_slot = u64::random_for_test(&mut rng);
+        let some_slot = Slot::random_for_test(&mut rng);
 
         let mut validators = (0..count_validators)
             .into_iter()
@@ -60,8 +61,8 @@ mod tests {
                 let activation_offset = u64::random_for_test(&mut rng);
                 let exit_offset = u64::random_for_test(&mut rng);
 
-                validator.activation_slot = some_slot.checked_sub(activation_offset).unwrap_or(0);
-                validator.exit_slot = some_slot.checked_add(exit_offset).unwrap_or(std::u64::MAX);
+                validator.activation_slot = some_slot - activation_offset;
+                validator.exit_slot = some_slot + exit_offset;
 
                 validator
             })
@@ -81,13 +82,13 @@ mod tests {
 
     fn set_validators_to_default_entry_exit(validators: &mut [Validator]) {
         for validator in validators.iter_mut() {
-            validator.activation_slot = std::u64::MAX;
-            validator.exit_slot = std::u64::MAX;
+            validator.activation_slot = Slot::max_value();
+            validator.exit_slot = Slot::max_value();
         }
     }
 
     // sets all `validators` to be active as of some slot prior to `slot`. returns the activation slot.
-    fn set_validators_to_activated(validators: &mut [Validator], slot: u64) -> u64 {
+    fn set_validators_to_activated(validators: &mut [Validator], slot: Slot) -> Slot {
         let activation_slot = slot - 10;
         for validator in validators.iter_mut() {
             validator.activation_slot = activation_slot;
@@ -96,7 +97,7 @@ mod tests {
     }
 
     // sets all `validators` to be exited as of some slot before `slot`.
-    fn set_validators_to_exited(validators: &mut [Validator], slot: u64, activation_slot: u64) {
+    fn set_validators_to_exited(validators: &mut [Validator], slot: Slot, activation_slot: Slot) {
         assert!(activation_slot < slot);
         let mut exit_slot = activation_slot + 10;
         while exit_slot >= slot {
@@ -114,18 +115,18 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         const COUNT_PARTITIONS: usize = 3;
         const COUNT_VALIDATORS: usize = 3 * COUNT_PARTITIONS;
-        let some_slot: u64 = u64::random_for_test(&mut rng);
+        let some_slot: Slot = Slot::random_for_test(&mut rng);
 
         let mut validators = (0..COUNT_VALIDATORS)
             .into_iter()
             .map(|_| {
                 let mut validator = Validator::default();
 
-                let activation_offset = u64::random_for_test(&mut rng);
-                let exit_offset = u64::random_for_test(&mut rng);
+                let activation_offset = Slot::random_for_test(&mut rng);
+                let exit_offset = Slot::random_for_test(&mut rng);
 
-                validator.activation_slot = some_slot.checked_sub(activation_offset).unwrap_or(0);
-                validator.exit_slot = some_slot.checked_add(exit_offset).unwrap_or(std::u64::MAX);
+                validator.activation_slot = some_slot - activation_offset;
+                validator.exit_slot = some_slot + exit_offset;
 
                 validator
             })
