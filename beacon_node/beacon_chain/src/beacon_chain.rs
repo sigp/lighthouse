@@ -12,7 +12,7 @@ use types::{
     beacon_state::{BlockProcessingError, CommitteesError, SlotProcessingError},
     readers::{BeaconBlockReader, BeaconStateReader},
     AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Eth1Data,
-    FreeAttestation, Hash256, PublicKey, Signature,
+    FreeAttestation, Hash256, PublicKey, Signature, Slot,
 };
 
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
@@ -196,10 +196,10 @@ where
     /// It is important to note that this is _not_ the state corresponding to the canonical head
     /// block, instead it is that state which may or may not have had additional per slot/epoch
     /// processing applied to it.
-    pub fn advance_state(&self, slot: u64) -> Result<(), SlotProcessingError> {
+    pub fn advance_state(&self, slot: Slot) -> Result<(), SlotProcessingError> {
         let state_slot = self.state.read().slot;
         let head_block_root = self.head().beacon_block_root;
-        for _ in state_slot..slot {
+        for _ in state_slot.as_u64()..slot.as_u64() {
             self.state
                 .write()
                 .per_slot_processing(head_block_root.clone(), &self.spec)?;
@@ -230,7 +230,7 @@ where
     /// Returns `None` if the `validator_index` is invalid.
     ///
     /// Information is retrieved from the present `beacon_state.validator_registry`.
-    pub fn proposer_slots(&self, validator_index: usize) -> Option<u64> {
+    pub fn proposer_slots(&self, validator_index: usize) -> Option<Slot> {
         if let Some(validator) = self.state.read().validator_registry.get(validator_index) {
             Some(validator.proposer_slots)
         } else {
@@ -246,9 +246,10 @@ where
     /// This is distinct to `present_slot`, which simply reads the latest state. If a
     /// call to `read_slot_clock` results in a higher slot than a call to `present_slot`,
     /// `self.state` should undergo per slot processing.
-    pub fn read_slot_clock(&self) -> Option<u64> {
+    pub fn read_slot_clock(&self) -> Option<Slot> {
         match self.slot_clock.present_slot() {
-            Ok(some_slot) => some_slot,
+            Ok(Some(some_slot)) => Some(Slot::new(some_slot)),
+            Ok(None) => None,
             _ => None,
         }
     }
@@ -258,7 +259,7 @@ where
     /// This is distinct to `read_slot_clock`, which reads from the actual system clock. If
     /// `self.state` has not been transitioned it is possible for the system clock to be on a
     /// different slot to what is returned from this call.
-    pub fn present_slot(&self) -> u64 {
+    pub fn present_slot(&self) -> Slot {
         self.state.read().slot
     }
 
@@ -266,7 +267,7 @@ where
     ///
     /// Information is read from the present `beacon_state` shuffling, so only information from the
     /// present and prior epoch is available.
-    pub fn block_proposer(&self, slot: u64) -> Result<usize, CommitteesError> {
+    pub fn block_proposer(&self, slot: Slot) -> Result<usize, CommitteesError> {
         let index = self
             .state
             .read()
@@ -276,7 +277,7 @@ where
     }
 
     /// Returns the justified slot for the present state.
-    pub fn justified_slot(&self) -> u64 {
+    pub fn justified_slot(&self) -> Slot {
         self.state.read().justified_slot
     }
 
@@ -287,7 +288,7 @@ where
     pub fn validator_attestion_slot_and_shard(
         &self,
         validator_index: usize,
-    ) -> Result<Option<(u64, u64)>, CommitteesError> {
+    ) -> Result<Option<(Slot, u64)>, CommitteesError> {
         if let Some((slot, shard, _committee)) = self
             .state
             .read()
@@ -461,7 +462,7 @@ where
 
         // Transition the parent state to the present slot.
         let mut state = parent_state;
-        for _ in state.slot..present_slot {
+        for _ in state.slot.as_u64()..present_slot.as_u64() {
             if let Err(e) = state.per_slot_processing(parent_block_root.clone(), &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
@@ -533,7 +534,7 @@ where
         );
 
         let parent_root = state
-            .get_block_root(state.slot.saturating_sub(1), &self.spec)?
+            .get_block_root(state.slot.saturating_sub(1_u64), &self.spec)?
             .clone();
 
         let mut block = BeaconBlock {
