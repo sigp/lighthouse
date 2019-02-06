@@ -10,13 +10,13 @@
 /// implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
 /// may lead to programming errors which are not detected by the compiler.
 use crate::test_utils::TestRandom;
-use crate::ChainSpec;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
-use std::ops::{Add, AddAssign, Rem, Sub, SubAssign};
+use std::iter::Iterator;
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
 macro_rules! impl_from_into_u64 {
     ($main: ident) => {
@@ -88,7 +88,7 @@ macro_rules! impl_math_between {
 
         impl AddAssign<$other> for $main {
             fn add_assign(&mut self, other: $other) {
-                self.0.saturating_add(other.into());
+                self.0 = self.0.saturating_add(other.into());
             }
         }
 
@@ -102,7 +102,45 @@ macro_rules! impl_math_between {
 
         impl SubAssign<$other> for $main {
             fn sub_assign(&mut self, other: $other) {
-                self.0.saturating_sub(other.into());
+                self.0 = self.0.saturating_sub(other.into());
+            }
+        }
+
+        impl Mul<$other> for $main {
+            type Output = $main;
+
+            fn mul(self, rhs: $other) -> $main {
+                let rhs: u64 = rhs.into();
+                $main::from(self.0.saturating_mul(rhs))
+            }
+        }
+
+        impl MulAssign<$other> for $main {
+            fn mul_assign(&mut self, rhs: $other) {
+                let rhs: u64 = rhs.into();
+                self.0 = self.0.saturating_mul(rhs)
+            }
+        }
+
+        impl Div<$other> for $main {
+            type Output = $main;
+
+            fn div(self, rhs: $other) -> $main {
+                let rhs: u64 = rhs.into();
+                if rhs == 0 {
+                    panic!("Cannot divide by zero-valued Slot/Epoch")
+                }
+                $main::from(self.0 / rhs)
+            }
+        }
+
+        impl DivAssign<$other> for $main {
+            fn div_assign(&mut self, rhs: $other) {
+                let rhs: u64 = rhs.into();
+                if rhs == 0 {
+                    panic!("Cannot divide by zero-valued Slot/Epoch")
+                }
+                self.0 = self.0 / rhs
             }
         }
 
@@ -112,6 +150,27 @@ macro_rules! impl_math_between {
             fn rem(self, modulus: $other) -> $main {
                 let modulus: u64 = modulus.into();
                 $main::from(self.0 % modulus)
+            }
+        }
+    };
+}
+
+macro_rules! impl_math {
+    ($type: ident) => {
+        impl $type {
+            pub fn saturating_sub<T: Into<$type>>(&self, other: T) -> $type {
+                *self - other.into()
+            }
+
+            pub fn is_power_of_two(&self) -> bool {
+                self.0.is_power_of_two()
+            }
+        }
+
+        impl Ord for $type {
+            fn cmp(&self, other: &$type) -> Ordering {
+                let other: u64 = (*other).into();
+                self.0.cmp(&other)
             }
         }
     };
@@ -169,6 +228,7 @@ impl_from_into_u64!(Slot);
 impl_from_into_usize!(Slot);
 impl_math_between!(Slot, Slot);
 impl_math_between!(Slot, u64);
+impl_math!(Slot);
 impl_display!(Slot);
 impl_ssz!(Slot);
 
@@ -176,33 +236,59 @@ impl_from_into_u64!(Epoch);
 impl_from_into_usize!(Epoch);
 impl_math_between!(Epoch, Epoch);
 impl_math_between!(Epoch, u64);
+impl_math!(Epoch);
 impl_display!(Epoch);
 impl_ssz!(Epoch);
 
 impl Slot {
-    pub fn epoch(&self, spec: &ChainSpec) -> Epoch {
-        Epoch::from(self.0 / spec.epoch_length)
+    pub fn epoch(&self, epoch_length: u64) -> Epoch {
+        Epoch::from(self.0 / epoch_length)
+    }
+
+    pub fn max_value() -> Slot {
+        Slot(u64::max_value())
     }
 }
 
 impl Epoch {
-    pub fn start_slot(&self, spec: &ChainSpec) -> Slot {
-        Slot::from(self.0.saturating_mul(spec.epoch_length))
+    pub fn start_slot(&self, epoch_length: u64) -> Slot {
+        Slot::from(self.0.saturating_mul(epoch_length))
     }
 
-    pub fn end_slot(&self, spec: &ChainSpec) -> Slot {
+    pub fn end_slot(&self, epoch_length: u64) -> Slot {
         Slot::from(
             self.0
                 .saturating_add(1)
-                .saturating_mul(spec.epoch_length)
+                .saturating_mul(epoch_length)
                 .saturating_sub(1),
         )
     }
 
-    pub fn slots(&self, spec: &ChainSpec) -> Vec<Slot> {
-        (self.start_slot(spec).as_u64()..self.end_slot(spec).as_u64())
-            .into_iter()
-            .map(|i| Slot::from(i))
-            .collect()
+    pub fn slot_iter(&self, epoch_length: u64) -> SlotIter {
+        SlotIter {
+            current: self.start_slot(epoch_length),
+            epoch: self,
+            epoch_length,
+        }
+    }
+}
+
+pub struct SlotIter<'a> {
+    current: Slot,
+    epoch: &'a Epoch,
+    epoch_length: u64,
+}
+
+impl<'a> Iterator for SlotIter<'a> {
+    type Item = Slot;
+
+    fn next(&mut self) -> Option<Slot> {
+        if self.current == self.epoch.end_slot(self.epoch_length) {
+            None
+        } else {
+            let previous = self.current;
+            self.current += 1;
+            Some(previous)
+        }
     }
 }

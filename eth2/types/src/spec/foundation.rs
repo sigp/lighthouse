@@ -1,7 +1,7 @@
 use super::ChainSpec;
 use bls::{Keypair, PublicKey, SecretKey, Signature};
 
-use crate::{Address, Eth1Data, Hash256, Validator};
+use crate::{Address, Eth1Data, Hash256, Slot, Validator};
 
 /// The size of a validators deposit in GWei.
 pub const DEPOSIT_GWEI: u64 = 32_000_000_000;
@@ -37,9 +37,9 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: 0,
-            genesis_slot: 0,
+            genesis_slot: Slot::from(0_u64),
             genesis_start_shard: 0,
-            far_future_slot: u64::max_value(),
+            far_future_slot: Slot::from(u64::max_value()),
             zero_hash: Hash256::zero(),
             empty_signature: Signature::empty_signature(),
             bls_withdrawal_prefix_byte: 0x00,
@@ -109,15 +109,15 @@ fn initial_validators_for_testing() -> Vec<Validator> {
         let validator = Validator {
             pubkey: keypair.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
-            proposer_slots: 0,
-            activation_slot: u64::max_value(),
-            exit_slot: u64::max_value(),
-            withdrawal_slot: u64::max_value(),
-            penalized_slot: u64::max_value(),
+            proposer_slots: Slot::from(0_u64),
+            activation_slot: Slot::max_value(),
+            exit_slot: Slot::max_value(),
+            withdrawal_slot: Slot::max_value(),
+            penalized_slot: Slot::max_value(),
             exit_count: 0,
             status_flags: None,
-            latest_custody_reseed_slot: 0,
-            penultimate_custody_reseed_slot: 0,
+            latest_custody_reseed_slot: Slot::from(0_u64),
+            penultimate_custody_reseed_slot: Slot::from(0_u64),
         };
         initial_validators.push(validator);
     }
