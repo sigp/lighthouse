@@ -241,6 +241,10 @@ impl_display!(Epoch);
 impl_ssz!(Epoch);
 
 impl Slot {
+    pub fn new(slot: u64) -> Slot {
+        Slot(slot)
+    }
+
     pub fn epoch(&self, epoch_length: u64) -> Epoch {
         Epoch::from(self.0 / epoch_length)
     }
@@ -251,6 +255,10 @@ impl Slot {
 }
 
 impl Epoch {
+    pub fn new(slot: u64) -> Epoch {
+        Epoch(slot)
+    }
+
     pub fn start_slot(&self, epoch_length: u64) -> Slot {
         Slot::from(self.0.saturating_mul(epoch_length))
     }
