@@ -239,27 +239,26 @@ macro_rules! impl_ssz {
     };
 }
 
+macro_rules! impl_common {
+    ($type: ident) => {
+        impl_from_into_u64!($type);
+        impl_from_into_usize!($type);
+        impl_math_between!($type, $type);
+        impl_math_between!($type, u64);
+        impl_math!($type);
+        impl_display!($type);
+        impl_ssz!($type);
+    };
+}
+
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize, Hash)]
 pub struct Slot(u64);
 
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize, Hash)]
 pub struct Epoch(u64);
 
-impl_from_into_u64!(Slot);
-impl_from_into_usize!(Slot);
-impl_math_between!(Slot, Slot);
-impl_math_between!(Slot, u64);
-impl_math!(Slot);
-impl_display!(Slot);
-impl_ssz!(Slot);
-
-impl_from_into_u64!(Epoch);
-impl_from_into_usize!(Epoch);
-impl_math_between!(Epoch, Epoch);
-impl_math_between!(Epoch, u64);
-impl_math!(Epoch);
-impl_display!(Epoch);
-impl_ssz!(Epoch);
+impl_common!(Slot);
+impl_common!(Epoch);
 
 impl Slot {
     pub fn new(slot: u64) -> Slot {
