@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::iter::FromIterator;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Validator};
+use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Slot, Validator};
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -40,7 +40,7 @@ impl BeaconChainHarness {
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
-        let slot_clock = TestingSlotClock::new(spec.genesis_slot);
+        let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
 
         // Remove the validators present in the spec (if any).
         spec.initial_validators = Vec::with_capacity(validator_count);
@@ -60,7 +60,7 @@ impl BeaconChainHarness {
             .par_iter()
             .map(|keypair| Validator {
                 pubkey: keypair.pk.clone(),
-                activation_slot: 0,
+                activation_slot: Slot::new(0),
                 ..std::default::Default::default()
             })
             .collect();
@@ -115,12 +115,12 @@ impl BeaconChainHarness {
     /// This is the equivalent of advancing a system clock forward one `SLOT_DURATION`.
     ///
     /// Returns the new slot.
-    pub fn increment_beacon_chain_slot(&mut self) -> u64 {
+    pub fn increment_beacon_chain_slot(&mut self) -> Slot {
         let slot = self.beacon_chain.present_slot() + 1;
 
         debug!("Incrementing BeaconChain slot to {}.", slot);
 
-        self.beacon_chain.slot_clock.set_slot(slot);
+        self.beacon_chain.slot_clock.set_slot(slot.as_u64());
         self.beacon_chain.advance_state(slot).unwrap();
         slot
     }

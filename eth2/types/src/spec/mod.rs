@@ -1,6 +1,6 @@
 mod foundation;
 
-use crate::{Address, Eth1Data, Hash256, Validator};
+use crate::{Address, Eth1Data, Hash256, Slot, Validator};
 use bls::Signature;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -29,9 +29,9 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_fork_version: u64,
-    pub genesis_slot: u64,
+    pub genesis_slot: Slot,
     pub genesis_start_shard: u64,
-    pub far_future_slot: u64,
+    pub far_future_slot: Slot,
     pub zero_hash: Hash256,
     pub empty_signature: Signature,
     pub bls_withdrawal_prefix_byte: u8,

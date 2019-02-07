@@ -1,5 +1,5 @@
-use super::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, ProposalSignedData};
 use crate::test_utils::TestRandom;
+use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, ProposalSignedData, Slot};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
@@ -7,7 +7,7 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct BeaconBlock {
-    pub slot: u64,
+    pub slot: Slot,
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub randao_reveal: Signature,

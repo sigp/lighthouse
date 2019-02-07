@@ -3,7 +3,7 @@ mod traits;
 
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{AttestationData, FreeAttestation, Signature};
+use types::{AttestationData, FreeAttestation, Signature, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -13,14 +13,14 @@ const PHASE_0_CUSTODY_BIT: bool = false;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
-    AttestationProduced(u64),
-    AttestationNotRequired(u64),
-    SlashableAttestationNotProduced(u64),
-    BeaconNodeUnableToProduceAttestation(u64),
-    ProducerDutiesUnknown(u64),
-    SlotAlreadyProcessed(u64),
-    SignerRejection(u64),
-    ValidatorIsUnknown(u64),
+    AttestationProduced(Slot),
+    AttestationNotRequired(Slot),
+    SlashableAttestationNotProduced(Slot),
+    BeaconNodeUnableToProduceAttestation(Slot),
+    ProducerDutiesUnknown(Slot),
+    SlotAlreadyProcessed(Slot),
+    SignerRejection(Slot),
+    ValidatorIsUnknown(Slot),
 }
 
 #[derive(Debug, PartialEq)]
@@ -40,7 +40,7 @@ pub enum Error {
 ///
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
 pub struct Attester<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
-    pub last_processed_slot: Option<u64>,
+    pub last_processed_slot: Option<Slot>,
     duties: Arc<V>,
     slot_clock: Arc<T>,
     beacon_node: Arc<U>,
@@ -91,7 +91,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
         }
     }
 
-    fn produce_attestation(&mut self, slot: u64, shard: u64) -> Result<PollOutcome, Error> {
+    fn produce_attestation(&mut self, slot: Slot, shard: u64) -> Result<PollOutcome, Error> {
         let attestation_data = match self.beacon_node.produce_attestation_data(slot, shard)? {
             Some(attestation_data) => attestation_data,
             None => return Ok(PollOutcome::BeaconNodeUnableToProduceAttestation(slot)),
@@ -122,7 +122,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
         Ok(PollOutcome::AttestationProduced(slot))
     }
 
-    fn is_processed_slot(&self, slot: u64) -> bool {
+    fn is_processed_slot(&self, slot: Slot) -> bool {
         match self.last_processed_slot {
             Some(processed_slot) if slot <= processed_slot => true,
             _ => false,
@@ -193,7 +193,7 @@ mod tests {
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
         let mut duties = EpochMap::new(spec.epoch_length);
-        let attest_slot = 100;
+        let attest_slot = Slot::new(100);
         let attest_epoch = attest_slot / spec.epoch_length;
         let attest_shard = 12;
         duties.insert_attestation_shard(attest_slot, attest_shard);
@@ -212,28 +212,28 @@ mod tests {
         beacon_node.set_next_publish_result(Ok(PublishOutcome::ValidAttestation));
 
         // One slot before attestation slot...
-        slot_clock.set_slot(attest_slot - 1);
+        slot_clock.set_slot(attest_slot.as_u64() - 1);
         assert_eq!(
             attester.poll(),
             Ok(PollOutcome::AttestationNotRequired(attest_slot - 1))
         );
 
         // On the attest slot...
-        slot_clock.set_slot(attest_slot);
+        slot_clock.set_slot(attest_slot.as_u64());
         assert_eq!(
             attester.poll(),
             Ok(PollOutcome::AttestationProduced(attest_slot))
         );
 
         // Trying the same attest slot again...
-        slot_clock.set_slot(attest_slot);
+        slot_clock.set_slot(attest_slot.as_u64());
         assert_eq!(
             attester.poll(),
             Ok(PollOutcome::SlotAlreadyProcessed(attest_slot))
         );
 
         // One slot after the attest slot...
-        slot_clock.set_slot(attest_slot + 1);
+        slot_clock.set_slot(attest_slot.as_u64() + 1);
         assert_eq!(
             attester.poll(),
             Ok(PollOutcome::AttestationNotRequired(attest_slot + 1))
@@ -241,7 +241,7 @@ mod tests {
 
         // In an epoch without known duties...
         let slot = (attest_epoch + 1) * spec.epoch_length;
-        slot_clock.set_slot(slot);
+        slot_clock.set_slot(slot.into());
         assert_eq!(
             attester.poll(),
             Ok(PollOutcome::ProducerDutiesUnknown(slot))
