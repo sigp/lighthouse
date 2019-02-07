@@ -14,4 +14,4 @@ RUN git clone https://github.com/google/protobuf.git && \
     rm -r protobuf
 
 
-RUN mkdir /cargocache && chmod -r ugo+rwX /cargocache
+RUN mkdir /cargocache && chmod -R ugo+rwX /cargocache
