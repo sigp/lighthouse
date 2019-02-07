@@ -1,5 +1,6 @@
 use super::SlotClock;
 use std::time::{Duration, SystemTime};
+use types::Slot;
 
 pub use std::time::SystemTimeError;
 
@@ -38,7 +39,7 @@ impl SystemTimeSlotClock {
 impl SlotClock for SystemTimeSlotClock {
     type Error = Error;
 
-    fn present_slot(&self) -> Result<Option<u64>, Error> {
+    fn present_slot(&self) -> Result<Option<Slot>, Error> {
         let syslot_time = SystemTime::now();
         let duration_since_epoch = syslot_time.duration_since(SystemTime::UNIX_EPOCH)?;
         let duration_since_genesis =
@@ -56,8 +57,10 @@ impl From<SystemTimeError> for Error {
     }
 }
 
-fn slot_from_duration(slot_duration_seconds: u64, duration: Duration) -> Option<u64> {
-    duration.as_secs().checked_div(slot_duration_seconds)
+fn slot_from_duration(slot_duration_seconds: u64, duration: Duration) -> Option<Slot> {
+    Some(Slot::new(
+        duration.as_secs().checked_div(slot_duration_seconds)?,
+    ))
 }
 
 #[cfg(test)]
@@ -81,19 +84,19 @@ mod tests {
             genesis_seconds: genesis,
             slot_duration_seconds: slot_time,
         };
-        assert_eq!(clock.present_slot().unwrap(), Some(89));
+        assert_eq!(clock.present_slot().unwrap(), Some(Slot::new(89)));
 
         let clock = SystemTimeSlotClock {
             genesis_seconds: since_epoch.as_secs(),
             slot_duration_seconds: slot_time,
         };
-        assert_eq!(clock.present_slot().unwrap(), Some(0));
+        assert_eq!(clock.present_slot().unwrap(), Some(Slot::new(0)));
 
         let clock = SystemTimeSlotClock {
             genesis_seconds: since_epoch.as_secs() - slot_time * 42 - 5,
             slot_duration_seconds: slot_time,
         };
-        assert_eq!(clock.present_slot().unwrap(), Some(42));
+        assert_eq!(clock.present_slot().unwrap(), Some(Slot::new(42)));
     }
 
     #[test]
@@ -102,23 +105,23 @@ mod tests {
 
         assert_eq!(
             slot_from_duration(slot_time, Duration::from_secs(0)),
-            Some(0)
+            Some(Slot::new(0))
         );
         assert_eq!(
             slot_from_duration(slot_time, Duration::from_secs(10)),
-            Some(0)
+            Some(Slot::new(0))
         );
         assert_eq!(
             slot_from_duration(slot_time, Duration::from_secs(100)),
-            Some(1)
+            Some(Slot::new(1))
         );
         assert_eq!(
             slot_from_duration(slot_time, Duration::from_secs(101)),
-            Some(1)
+            Some(Slot::new(1))
         );
         assert_eq!(
             slot_from_duration(slot_time, Duration::from_secs(1000)),
-            Some(10)
+            Some(Slot::new(10))
         );
     }
 

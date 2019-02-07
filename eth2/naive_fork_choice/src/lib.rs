@@ -6,7 +6,7 @@ use db::stores::BeaconBlockStore;
 use db::{ClientDB, DBError};
 use ssz::{Decodable, DecodeError};
 use std::sync::Arc;
-use types::{BeaconBlock, Hash256};
+use types::{BeaconBlock, Hash256, Slot};
 
 pub enum ForkChoiceError {
     BadSszInDatabase,
@@ -37,7 +37,7 @@ where
     /*
      * Loop through all the head blocks and find the highest slot.
      */
-    let highest_slot: Option<u64> = None;
+    let highest_slot: Option<Slot> = None;
     for (_, block) in &head_blocks {
         let slot = block.slot;
 

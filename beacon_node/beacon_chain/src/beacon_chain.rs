@@ -230,7 +230,7 @@ where
     /// Returns `None` if the `validator_index` is invalid.
     ///
     /// Information is retrieved from the present `beacon_state.validator_registry`.
-    pub fn proposer_slots(&self, validator_index: usize) -> Option<Slot> {
+    pub fn proposer_slots(&self, validator_index: usize) -> Option<u64> {
         if let Some(validator) = self.state.read().validator_registry.get(validator_index) {
             Some(validator.proposer_slots)
         } else {
@@ -248,7 +248,7 @@ where
     /// `self.state` should undergo per slot processing.
     pub fn read_slot_clock(&self) -> Option<Slot> {
         match self.slot_clock.present_slot() {
-            Ok(Some(some_slot)) => Some(Slot::new(some_slot)),
+            Ok(Some(some_slot)) => Some(some_slot),
             Ok(None) => None,
             _ => None,
         }

@@ -8,7 +8,7 @@ use block_producer::{
 use db::ClientDB;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::PublicKey;
+use types::{PublicKey, Slot};
 
 /// Connects directly to a borrowed `BeaconChain` and reads attester/proposer duties directly from
 /// it.
@@ -27,7 +27,7 @@ impl<T: ClientDB, U: SlotClock> DirectDuties<T, U> {
 }
 
 impl<T: ClientDB, U: SlotClock> ProducerDutiesReader for DirectDuties<T, U> {
-    fn is_block_production_slot(&self, slot: u64) -> Result<bool, ProducerDutiesReaderError> {
+    fn is_block_production_slot(&self, slot: Slot) -> Result<bool, ProducerDutiesReaderError> {
         let validator_index = self
             .beacon_chain
             .validator_index(&self.pubkey)
@@ -49,7 +49,7 @@ impl<T: ClientDB, U: SlotClock> AttesterDutiesReader for DirectDuties<T, U> {
         }
     }
 
-    fn attestation_shard(&self, slot: u64) -> Result<Option<u64>, AttesterDutiesReaderError> {
+    fn attestation_shard(&self, slot: Slot) -> Result<Option<u64>, AttesterDutiesReaderError> {
         if let Some(validator_index) = self.validator_index() {
             match self
                 .beacon_chain

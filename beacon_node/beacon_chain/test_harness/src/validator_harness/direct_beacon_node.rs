@@ -11,7 +11,7 @@ use db::ClientDB;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{AttestationData, BeaconBlock, FreeAttestation, PublicKey, Signature};
+use types::{AttestationData, BeaconBlock, FreeAttestation, PublicKey, Signature, Slot};
 
 // mod attester;
 // mod producer;
@@ -51,7 +51,7 @@ impl<T: ClientDB, U: SlotClock> DirectBeaconNode<T, U> {
 impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for DirectBeaconNode<T, U> {
     fn produce_attestation_data(
         &self,
-        _slot: u64,
+        _slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, NodeError> {
         match self.beacon_chain.produce_attestation_data(shard) {
@@ -87,7 +87,7 @@ impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U> {
     /// Requests a new `BeaconBlock from the `BeaconChain`.
     fn produce_beacon_block(
         &self,
-        slot: u64,
+        slot: Slot,
         randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconBlockNodeError> {
         let (block, _state) = self

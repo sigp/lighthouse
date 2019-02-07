@@ -1,6 +1,6 @@
 use crate::traits::{BeaconNode, BeaconNodeError, PublishOutcome};
 use std::sync::RwLock;
-use types::{BeaconBlock, PublicKey, Signature};
+use types::{BeaconBlock, PublicKey, Signature, Slot};
 
 type NonceResult = Result<u64, BeaconNodeError>;
 type ProduceResult = Result<Option<BeaconBlock>, BeaconNodeError>;
@@ -12,7 +12,7 @@ pub struct SimulatedBeaconNode {
     pub nonce_input: RwLock<Option<PublicKey>>,
     pub nonce_result: RwLock<Option<NonceResult>>,
 
-    pub produce_input: RwLock<Option<(u64, Signature)>>,
+    pub produce_input: RwLock<Option<(Slot, Signature)>>,
     pub produce_result: RwLock<Option<ProduceResult>>,
 
     pub publish_input: RwLock<Option<BeaconBlock>>,
@@ -46,7 +46,7 @@ impl BeaconNode for SimulatedBeaconNode {
     }
 
     /// Returns the value specified by the `set_next_produce_result`.
-    fn produce_beacon_block(&self, slot: u64, randao_reveal: &Signature) -> ProduceResult {
+    fn produce_beacon_block(&self, slot: Slot, randao_reveal: &Signature) -> ProduceResult {
         *self.produce_input.write().unwrap() = Some((slot, randao_reveal.clone()));
         match *self.produce_result.read().unwrap() {
             Some(ref r) => r.clone(),
