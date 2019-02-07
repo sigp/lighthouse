@@ -1,5 +1,4 @@
-use super::Hash256;
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, Hash256, Slot};
 use bls::PublicKey;
 use rand::RngCore;
 use serde_derive::Serialize;
@@ -11,7 +10,7 @@ pub struct ValidatorRegistryDeltaBlock {
     pub latest_registry_delta_root: Hash256,
     pub validator_index: u32,
     pub pubkey: PublicKey,
-    pub slot: u64,
+    pub slot: Slot,
     pub flag: u64,
 }
 
@@ -22,7 +21,7 @@ impl Default for ValidatorRegistryDeltaBlock {
             latest_registry_delta_root: Hash256::zero(),
             validator_index: std::u32::MAX,
             pubkey: PublicKey::default(),
-            slot: std::u64::MAX,
+            slot: Slot::from(std::u64::MAX),
             flag: std::u64::MAX,
         }
     }

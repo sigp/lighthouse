@@ -9,7 +9,7 @@ use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
     validator_registry::get_active_validator_indices,
-    Hash256,
+    Hash256, Slot,
 };
 
 #[derive(Debug, PartialEq)]
@@ -118,7 +118,7 @@ fn get_vote_count<T: ClientDB>(
     block_store: &Arc<BeaconBlockStore<T>>,
     attestation_targets: &[Hash256],
     block_root: &Hash256,
-    slot: u64,
+    slot: Slot,
 ) -> Result<u64, Error> {
     let mut count = 0;
     for target in attestation_targets {
@@ -138,7 +138,7 @@ fn get_child_hashes_and_slots<T: ClientDB>(
     block_store: &Arc<BeaconBlockStore<T>>,
     root_hash: &Hash256,
     leaf_hashes: &HashSet<Hash256>,
-) -> Result<HashSet<(Hash256, u64)>, Error> {
+) -> Result<HashSet<(Hash256, Slot)>, Error> {
     let mut hash_set = HashSet::new();
 
     for leaf_hash in leaf_hashes {

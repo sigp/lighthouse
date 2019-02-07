@@ -1,5 +1,4 @@
-use super::Hash256;
-use crate::{test_utils::TestRandom, PublicKey};
+use crate::{test_utils::TestRandom, Hash256, PublicKey, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -48,19 +47,19 @@ pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub proposer_slots: u64,
-    pub activation_slot: u64,
-    pub exit_slot: u64,
-    pub withdrawal_slot: u64,
-    pub penalized_slot: u64,
+    pub activation_slot: Slot,
+    pub exit_slot: Slot,
+    pub withdrawal_slot: Slot,
+    pub penalized_slot: Slot,
     pub exit_count: u64,
     pub status_flags: Option<StatusFlags>,
-    pub latest_custody_reseed_slot: u64,
-    pub penultimate_custody_reseed_slot: u64,
+    pub latest_custody_reseed_slot: Slot,
+    pub penultimate_custody_reseed_slot: Slot,
 }
 
 impl Validator {
     /// This predicate indicates if the validator represented by this record is considered "active" at `slot`.
-    pub fn is_active_at(&self, slot: u64) -> bool {
+    pub fn is_active_at(&self, slot: Slot) -> bool {
         self.activation_slot <= slot && slot < self.exit_slot
     }
 }
@@ -72,14 +71,14 @@ impl Default for Validator {
             pubkey: PublicKey::default(),
             withdrawal_credentials: Hash256::default(),
             proposer_slots: 0,
-            activation_slot: std::u64::MAX,
-            exit_slot: std::u64::MAX,
-            withdrawal_slot: std::u64::MAX,
-            penalized_slot: std::u64::MAX,
+            activation_slot: Slot::from(std::u64::MAX),
+            exit_slot: Slot::from(std::u64::MAX),
+            withdrawal_slot: Slot::from(std::u64::MAX),
+            penalized_slot: Slot::from(std::u64::MAX),
             exit_count: 0,
             status_flags: None,
-            latest_custody_reseed_slot: 0, // NOTE: is `GENESIS_SLOT`
-            penultimate_custody_reseed_slot: 0, // NOTE: is `GENESIS_SLOT`
+            latest_custody_reseed_slot: Slot::from(0_u64), // NOTE: is `GENESIS_SLOT`
+            penultimate_custody_reseed_slot: Slot::from(0_u64), // NOTE: is `GENESIS_SLOT`
         }
     }
 }
@@ -203,10 +202,11 @@ mod tests {
         let activation_slot = u64::random_for_test(&mut rng);
         let exit_slot = activation_slot + 234;
 
-        validator.activation_slot = activation_slot;
-        validator.exit_slot = exit_slot;
+        validator.activation_slot = Slot::from(activation_slot);
+        validator.exit_slot = Slot::from(exit_slot);
 
         for slot in (activation_slot - 100)..(exit_slot + 100) {
+            let slot = Slot::from(slot);
             if slot < activation_slot {
                 assert!(!validator.is_active_at(slot));
             } else if slot >= exit_slot {

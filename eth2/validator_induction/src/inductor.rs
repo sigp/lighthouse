@@ -1,5 +1,5 @@
 use bls::verify_proof_of_possession;
-use types::{BeaconState, ChainSpec, Deposit, Validator};
+use types::{BeaconState, ChainSpec, Deposit, Slot, Validator};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValidatorInductionError {
@@ -48,8 +48,8 @@ pub fn process_deposit(
                 penalized_slot: spec.far_future_slot,
                 exit_count: 0,
                 status_flags: None,
-                latest_custody_reseed_slot: 0,
-                penultimate_custody_reseed_slot: 0,
+                latest_custody_reseed_slot: Slot::new(0),
+                penultimate_custody_reseed_slot: Slot::new(0),
             };
 
             let _index = state.validator_registry.len();

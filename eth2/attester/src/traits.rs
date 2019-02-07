@@ -1,4 +1,4 @@
-use types::{AttestationData, FreeAttestation, Signature};
+use types::{AttestationData, FreeAttestation, Signature, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
@@ -16,7 +16,7 @@ pub enum PublishOutcome {
 pub trait BeaconNode: Send + Sync {
     fn produce_attestation_data(
         &self,
-        slot: u64,
+        slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, BeaconNodeError>;
 
@@ -37,7 +37,7 @@ pub enum DutiesReaderError {
 /// Informs a validator of their duties (e.g., block production).
 pub trait DutiesReader: Send + Sync {
     /// Returns `Some(shard)` if this slot is an attestation slot. Otherwise, returns `None.`
-    fn attestation_shard(&self, slot: u64) -> Result<Option<u64>, DutiesReaderError>;
+    fn attestation_shard(&self, slot: Slot) -> Result<Option<u64>, DutiesReaderError>;
 
     /// Returns `Some(shard)` if this slot is an attestation slot. Otherwise, returns `None.`
     fn validator_index(&self) -> Option<u64>;

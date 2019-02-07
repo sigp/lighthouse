@@ -1,12 +1,12 @@
-use super::Hash256;
 use crate::test_utils::TestRandom;
+use crate::{Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Crosslink {
-    pub slot: u64,
+    pub slot: Slot,
     pub shard_block_root: Hash256,
 }
 
@@ -14,7 +14,7 @@ impl Crosslink {
     /// Generates a new instance where `dynasty` and `hash` are both zero.
     pub fn zero() -> Self {
         Self {
-            slot: 0,
+            slot: Slot::from(0_u64),
             shard_block_root: Hash256::zero(),
         }
     }

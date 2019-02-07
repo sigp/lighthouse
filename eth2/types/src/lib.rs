@@ -19,16 +19,16 @@ pub mod free_attestation;
 pub mod pending_attestation;
 pub mod proposal_signed_data;
 pub mod proposer_slashing;
+pub mod readers;
 pub mod shard_committee;
 pub mod shard_reassignment_record;
 pub mod slashable_vote_data;
+pub mod slot_epoch;
 pub mod spec;
 pub mod special_record;
 pub mod validator;
 pub mod validator_registry;
 pub mod validator_registry_delta_block;
-
-pub mod readers;
 
 use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
@@ -54,6 +54,7 @@ pub use crate::proposal_signed_data::ProposalSignedData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::shard_committee::ShardCommittee;
 pub use crate::slashable_vote_data::SlashableVoteData;
+pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::spec::ChainSpec;
 pub use crate::special_record::{SpecialRecord, SpecialRecordKind};
 pub use crate::validator::{StatusFlags as ValidatorStatusFlags, Validator};

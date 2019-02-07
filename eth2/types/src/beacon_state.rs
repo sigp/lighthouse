@@ -1,8 +1,8 @@
 use crate::test_utils::TestRandom;
 use crate::{
     validator::StatusFlags, validator_registry::get_active_validator_indices, AggregatePublicKey,
-    Attestation, AttestationData, BeaconBlock, Bitfield, ChainSpec, Crosslink, Eth1Data,
-    Eth1DataVote, Exit, Fork, Hash256, PendingAttestation, PublicKey, Signature, Validator,
+    Attestation, AttestationData, BeaconBlock, Bitfield, ChainSpec, Crosslink, Epoch, Eth1Data,
+    Eth1DataVote, Exit, Fork, Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::bls_verify_aggregate;
 use honey_badger_split::SplitExt;
@@ -28,7 +28,7 @@ const DOMAIN_ATTESTATION: u64 = 1;
 pub enum Error {
     InsufficientValidators,
     BadBlockSignature,
-    InvalidEpoch(u64, Range<u64>),
+    InvalidEpoch(Slot, Range<Epoch>),
     CommitteesError(CommitteesError),
 }
 
@@ -81,7 +81,7 @@ pub enum WinningRootError {
 
 #[derive(Debug, PartialEq)]
 pub enum CommitteesError {
-    InvalidEpoch(u64, Range<u64>),
+    InvalidEpoch,
     InsufficientNumberOfValidators,
 }
 
@@ -151,14 +151,14 @@ type CustodyChallenge = usize;
 #[derive(Debug, PartialEq, Clone, Default, Serialize)]
 pub struct BeaconState {
     // Misc
-    pub slot: u64,
+    pub slot: Slot,
     pub genesis_time: u64,
     pub fork_data: Fork,
 
     // Validator registry
     pub validator_registry: Vec<Validator>,
     pub validator_balances: Vec<u64>,
-    pub validator_registry_update_slot: u64,
+    pub validator_registry_update_slot: Slot,
     pub validator_registry_exit_count: u64,
     pub validator_registry_delta_chain_tip: Hash256,
 
@@ -167,8 +167,8 @@ pub struct BeaconState {
     pub latest_vdf_outputs: Vec<Hash256>,
     pub previous_epoch_start_shard: u64,
     pub current_epoch_start_shard: u64,
-    pub previous_epoch_calculation_slot: u64,
-    pub current_epoch_calculation_slot: u64,
+    pub previous_epoch_calculation_slot: Slot,
+    pub current_epoch_calculation_slot: Slot,
     pub previous_epoch_seed: Hash256,
     pub current_epoch_seed: Hash256,
 
@@ -176,10 +176,10 @@ pub struct BeaconState {
     pub custody_challenges: Vec<CustodyChallenge>,
 
     // Finality
-    pub previous_justified_slot: u64,
-    pub justified_slot: u64,
+    pub previous_justified_slot: Slot,
+    pub justified_slot: Slot,
     pub justification_bitfield: u64,
-    pub finalized_slot: u64,
+    pub finalized_slot: Slot,
 
     // Recent state
     pub latest_crosslinks: Vec<Crosslink>,
@@ -198,20 +198,20 @@ impl BeaconState {
         Hash256::from(&self.hash_tree_root()[..])
     }
 
-    pub fn current_epoch(&self, spec: &ChainSpec) -> u64 {
-        self.slot / spec.epoch_length
+    pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
+        self.slot.epoch(spec.epoch_length)
     }
 
-    pub fn previous_epoch(&self, spec: &ChainSpec) -> u64 {
-        self.current_epoch(spec).saturating_sub(1)
+    pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
+        self.current_epoch(spec).saturating_sub(1_u64)
     }
 
-    pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> u64 {
-        self.current_epoch(spec) * spec.epoch_length
+    pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
+        self.current_epoch(spec).start_slot(spec.epoch_length)
     }
 
-    pub fn previous_epoch_start_slot(&self, spec: &ChainSpec) -> u64 {
-        self.previous_epoch(spec) * spec.epoch_length
+    pub fn previous_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
+        self.previous_epoch(spec).start_slot(spec.epoch_length)
     }
 
     /// Returns the number of committees per slot.
@@ -229,23 +229,6 @@ impl BeaconState {
                 active_validator_count as u64 / spec.epoch_length / spec.target_committee_size,
             ),
         )
-    }
-
-    /// Returns the start slot and end slot of the current epoch containing `self.slot`.
-    pub fn get_current_epoch_boundaries(&self, epoch_length: u64) -> Range<u64> {
-        let slot_in_epoch = self.slot % epoch_length;
-        let start = self.slot - slot_in_epoch;
-        let end = self.slot + (epoch_length - slot_in_epoch);
-        start..end
-    }
-
-    /// Returns the start slot and end slot of the current epoch containing `self.slot`.
-    pub fn get_previous_epoch_boundaries(&self, spec: &ChainSpec) -> Range<u64> {
-        let current_epoch = self.slot / spec.epoch_length;
-        let previous_epoch = current_epoch.saturating_sub(1);
-        let start = previous_epoch * spec.epoch_length;
-        let end = start + spec.epoch_length;
-        start..end
     }
 
     fn get_previous_epoch_committee_count_per_slot(&self, spec: &ChainSpec) -> u64 {
@@ -266,24 +249,24 @@ impl BeaconState {
 
     pub fn get_crosslink_committees_at_slot(
         &self,
-        slot: u64,
+        slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Vec<(Vec<usize>, u64)>, CommitteesError> {
-        let epoch = slot / spec.epoch_length;
-        let current_epoch = self.slot / spec.epoch_length;
-        let previous_epoch = if current_epoch == spec.genesis_slot {
+        let epoch = slot.epoch(spec.epoch_length);
+        let current_epoch = self.current_epoch(spec);
+        let previous_epoch = if current_epoch == spec.genesis_slot.epoch(spec.epoch_length) {
             current_epoch
         } else {
-            current_epoch.saturating_sub(1)
+            current_epoch.saturating_sub(1_u64)
         };
         let next_epoch = current_epoch + 1;
 
         ensure!(
             (previous_epoch <= epoch) & (epoch < next_epoch),
-            CommitteesError::InvalidEpoch(slot, previous_epoch..current_epoch)
+            CommitteesError::InvalidEpoch
         );
 
-        let offset = slot % spec.epoch_length;
+        let offset = slot.as_u64() % spec.epoch_length;
 
         let (committees_per_slot, shuffling, slot_start_shard) = if epoch < current_epoch {
             let committees_per_slot = self.get_previous_epoch_committee_count_per_slot(spec);
@@ -332,11 +315,11 @@ impl BeaconState {
         let block_proposer = self.get_beacon_proposer_index(self.slot, spec)?;
 
         self.validator_registry[block_proposer].proposer_slots += 1;
-        self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length) as usize] =
-            self.latest_randao_mixes[((self.slot - 1) % spec.latest_randao_mixes_length) as usize];
+        self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length).as_usize()] = self
+            .latest_randao_mixes[((self.slot - 1) % spec.latest_randao_mixes_length).as_usize()];
 
         // Block roots.
-        self.latest_block_roots[((self.slot - 1) % spec.latest_block_roots_length) as usize] =
+        self.latest_block_roots[((self.slot - 1) % spec.latest_block_roots_length).as_usize()] =
             previous_block_root;
 
         if self.slot % spec.latest_block_roots_length == 0 {
@@ -350,9 +333,9 @@ impl BeaconState {
         &self,
         validator_index: usize,
         spec: &ChainSpec,
-    ) -> Result<Option<(u64, u64, u64)>, CommitteesError> {
+    ) -> Result<Option<(Slot, u64, u64)>, CommitteesError> {
         let mut result = None;
-        for slot in self.get_current_epoch_boundaries(spec.epoch_length) {
+        for slot in self.current_epoch(spec).slot_iter(spec.epoch_length) {
             for (committee, shard) in self.get_crosslink_committees_at_slot(slot, spec)? {
                 if let Some(committee_index) = committee.iter().position(|&i| i == validator_index)
                 {
@@ -426,13 +409,14 @@ impl BeaconState {
         // TODO: check this is correct.
         let new_mix = {
             let mut mix = self.latest_randao_mixes
-                [(self.slot % spec.latest_randao_mixes_length) as usize]
-                .to_vec();
+                [(self.slot % spec.latest_randao_mixes_length).as_usize()]
+            .to_vec();
             mix.append(&mut ssz_encode(&block.randao_reveal));
             Hash256::from(&hash(&mix)[..])
         };
 
-        self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length) as usize] = new_mix;
+        self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length).as_usize()] =
+            new_mix;
 
         /*
          * Eth1 data
@@ -593,7 +577,7 @@ impl BeaconState {
         Ok(())
     }
 
-    pub fn get_shuffling(&self, seed: Hash256, slot: u64, spec: &ChainSpec) -> Vec<Vec<usize>> {
+    pub fn get_shuffling(&self, seed: Hash256, slot: Slot, spec: &ChainSpec) -> Vec<Vec<usize>> {
         let slot = slot - (slot % spec.epoch_length);
 
         let active_validator_indices = get_active_validator_indices(&self.validator_registry, slot);
@@ -602,7 +586,7 @@ impl BeaconState {
             self.get_committee_count_per_slot(active_validator_indices.len(), spec);
 
         // TODO: check that Hash256 matches 'int_to_bytes32'.
-        let seed = seed ^ Hash256::from(slot);
+        let seed = seed ^ Hash256::from(slot.as_u64());
         let shuffled_active_validator_indices =
             shuffle(&seed, active_validator_indices).expect("Max validator count exceed!");
 
@@ -616,7 +600,7 @@ impl BeaconState {
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     pub fn get_beacon_proposer_index(
         &self,
-        slot: u64,
+        slot: Slot,
         spec: &ChainSpec,
     ) -> Result<usize, CommitteesError> {
         let committees = self.get_crosslink_committees_at_slot(slot, spec)?;
@@ -624,7 +608,7 @@ impl BeaconState {
             .first()
             .ok_or(CommitteesError::InsufficientNumberOfValidators)
             .and_then(|(first_committee, _)| {
-                let index = (slot as usize)
+                let index = (slot.as_usize())
                     .checked_rem(first_committee.len())
                     .ok_or(CommitteesError::InsufficientNumberOfValidators)?;
                 // NOTE: next index will not panic as we have already returned if this is the case
@@ -653,7 +637,10 @@ impl BeaconState {
         let current_epoch_attestations: Vec<&PendingAttestation> = self
             .latest_attestations
             .par_iter()
-            .filter(|a| a.data.slot / spec.epoch_length == self.current_epoch(spec))
+            .filter(|a| {
+                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
+                    == self.current_epoch(spec)
+            })
             .collect();
 
         debug!(
@@ -708,7 +695,8 @@ impl BeaconState {
             .par_iter()
             .filter(|a| {
                 //TODO: ensure these saturating subs are correct.
-                a.data.slot / spec.epoch_length == self.previous_epoch(spec)
+                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
+                    == self.previous_epoch(spec)
             })
             .collect();
 
@@ -864,7 +852,7 @@ impl BeaconState {
             HashMap::new();
 
         // for slot in self.slot.saturating_sub(2 * spec.epoch_length)..self.slot {
-        for slot in self.get_previous_epoch_boundaries(spec) {
+        for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
             let crosslink_committees_at_slot = self.get_crosslink_committees_at_slot(slot, spec)?;
 
             for (crosslink_committee, shard) in crosslink_committees_at_slot {
@@ -909,7 +897,7 @@ impl BeaconState {
          * Justification and finalization
          */
         let epochs_since_finality =
-            self.slot.saturating_sub(self.finalized_slot) / spec.epoch_length;
+            (self.slot.saturating_sub(self.finalized_slot) / spec.epoch_length).as_u64();
 
         // TODO: fix this extra map
         let previous_epoch_justified_attester_indices_hashset: HashSet<usize> =
@@ -1028,7 +1016,7 @@ impl BeaconState {
         /*
          * Crosslinks
          */
-        for slot in self.get_previous_epoch_boundaries(spec) {
+        for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
             let crosslink_committees_at_slot = self.get_crosslink_committees_at_slot(slot, spec)?;
 
             for (_crosslink_committee, shard) in crosslink_committees_at_slot {
@@ -1097,8 +1085,7 @@ impl BeaconState {
                 + self.get_current_epoch_committee_count_per_slot(spec) as u64 * spec.epoch_length)
                 % spec.shard_count;
             self.current_epoch_seed = self.get_randao_mix(
-                self.current_epoch_calculation_slot
-                    .saturating_sub(spec.seed_lookahead),
+                self.current_epoch_calculation_slot - spec.seed_lookahead,
                 spec,
             );
         } else {
@@ -1107,8 +1094,7 @@ impl BeaconState {
             if epochs_since_last_registry_change.is_power_of_two() {
                 self.current_epoch_calculation_slot = self.slot;
                 self.current_epoch_seed = self.get_randao_mix(
-                    self.current_epoch_calculation_slot
-                        .saturating_sub(spec.seed_lookahead),
+                    self.current_epoch_calculation_slot - spec.seed_lookahead,
                     spec,
                 );
             }
@@ -1117,13 +1103,16 @@ impl BeaconState {
         self.process_penalties_and_exits(spec);
 
         let e = self.slot / spec.epoch_length;
-        self.latest_penalized_balances[((e + 1) % spec.latest_penalized_exit_length) as usize] =
-            self.latest_penalized_balances[(e % spec.latest_penalized_exit_length) as usize];
+        self.latest_penalized_balances[((e + 1) % spec.latest_penalized_exit_length).as_usize()] =
+            self.latest_penalized_balances[(e % spec.latest_penalized_exit_length).as_usize()];
 
         self.latest_attestations = self
             .latest_attestations
             .iter()
-            .filter(|a| a.data.slot / spec.epoch_length >= self.current_epoch(spec))
+            .filter(|a| {
+                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
+                    >= self.current_epoch(spec)
+            })
             .cloned()
             .collect();
 
@@ -1146,8 +1135,8 @@ impl BeaconState {
             {
                 let e = (self.slot / spec.epoch_length) % spec.latest_penalized_exit_length;
                 let total_at_start = self.latest_penalized_balances
-                    [((e + 1) % spec.latest_penalized_exit_length) as usize];
-                let total_at_end = self.latest_penalized_balances[e as usize];
+                    [((e + 1) % spec.latest_penalized_exit_length).as_usize()];
+                let total_at_end = self.latest_penalized_balances[e.as_usize()];
                 let total_penalities = total_at_end.saturating_sub(total_at_start);
                 let penalty = self.get_effective_balance(index, spec)
                     * std::cmp::min(total_penalities * 3, total_balance)
@@ -1187,10 +1176,10 @@ impl BeaconState {
         self.validator_registry[index].status_flags = Some(StatusFlags::Withdrawable);
     }
 
-    fn get_randao_mix(&mut self, slot: u64, spec: &ChainSpec) -> Hash256 {
+    fn get_randao_mix(&mut self, slot: Slot, spec: &ChainSpec) -> Hash256 {
         assert!(self.slot < slot + spec.latest_randao_mixes_length);
         assert!(slot <= self.slot);
-        self.latest_randao_mixes[(slot & spec.latest_randao_mixes_length) as usize]
+        self.latest_randao_mixes[(slot % spec.latest_randao_mixes_length).as_usize()]
     }
 
     fn update_validator_registry(&mut self, spec: &ChainSpec) {
@@ -1260,7 +1249,7 @@ impl BeaconState {
         }
     }
 
-    fn entry_exit_effect_slot(&self, slot: u64, spec: &ChainSpec) -> u64 {
+    fn entry_exit_effect_slot(&self, slot: Slot, spec: &ChainSpec) -> Slot {
         (slot - slot % spec.epoch_length) + spec.epoch_length + spec.entry_exit_delay
     }
 
@@ -1288,9 +1277,7 @@ impl BeaconState {
     ) -> Result<u64, InclusionError> {
         let attestation =
             self.earliest_included_attestation(attestations, validator_index, spec)?;
-        Ok(attestation
-            .slot_included
-            .saturating_sub(attestation.data.slot))
+        Ok((attestation.slot_included - attestation.data.slot).as_u64())
     }
 
     fn inclusion_slot(
@@ -1298,7 +1285,7 @@ impl BeaconState {
         attestations: &[&PendingAttestation],
         validator_index: usize,
         spec: &ChainSpec,
-    ) -> Result<u64, InclusionError> {
+    ) -> Result<Slot, InclusionError> {
         let attestation =
             self.earliest_included_attestation(attestations, validator_index, spec)?;
         Ok(attestation.slot_included)
@@ -1350,10 +1337,10 @@ impl BeaconState {
         std::cmp::min(self.validator_balances[validator_index], spec.max_deposit)
     }
 
-    pub fn get_block_root(&self, slot: u64, spec: &ChainSpec) -> Option<&Hash256> {
+    pub fn get_block_root(&self, slot: Slot, spec: &ChainSpec) -> Option<&Hash256> {
         if self.slot <= slot + spec.latest_block_roots_length && slot <= self.slot {
             self.latest_block_roots
-                .get((slot % spec.latest_block_roots_length) as usize)
+                .get((slot % spec.latest_block_roots_length).as_usize())
         } else {
             None
         }
@@ -1589,7 +1576,7 @@ fn penalize_validator(_state: &BeaconState, _proposer_index: usize) {
     // TODO: stubbed out.
 }
 
-fn get_domain(_fork: &Fork, _slot: u64, _domain_type: u64) -> u64 {
+fn get_domain(_fork: &Fork, _slot: Slot, _domain_type: u64) -> u64 {
     // TODO: stubbed out.
     0
 }
