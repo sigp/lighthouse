@@ -109,7 +109,7 @@ fn initial_validators_for_testing() -> Vec<Validator> {
         let validator = Validator {
             pubkey: keypair.pk.clone(),
             withdrawal_credentials: Hash256::zero(),
-            proposer_slots: Slot::from(0_u64),
+            proposer_slots: 0,
             activation_slot: Slot::max_value(),
             exit_slot: Slot::max_value(),
             withdrawal_slot: Slot::max_value(),

@@ -1,10 +1,11 @@
 use crate::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
+use types::{Epoch, Slot};
 
 pub struct EpochMap {
     epoch_length: u64,
     validator_index: Option<u64>,
-    map: HashMap<u64, (u64, u64)>,
+    map: HashMap<Epoch, (Slot, u64)>,
 }
 
 impl EpochMap {
@@ -16,9 +17,8 @@ impl EpochMap {
         }
     }
 
-    pub fn insert_attestation_shard(&mut self, slot: u64, shard: u64) {
-        let epoch = slot / self.epoch_length;
-
+    pub fn insert_attestation_shard(&mut self, slot: Slot, shard: u64) {
+        let epoch = slot.epoch(self.epoch_length);
         self.map.insert(epoch, (slot, shard));
     }
 
@@ -28,8 +28,8 @@ impl EpochMap {
 }
 
 impl DutiesReader for EpochMap {
-    fn attestation_shard(&self, slot: u64) -> Result<Option<u64>, DutiesReaderError> {
-        let epoch = slot / self.epoch_length;
+    fn attestation_shard(&self, slot: Slot) -> Result<Option<u64>, DutiesReaderError> {
+        let epoch = slot.epoch(self.epoch_length);
 
         match self.map.get(&epoch) {
             Some((attest_slot, attest_shard)) if *attest_slot == slot => Ok(Some(*attest_shard)),

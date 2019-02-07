@@ -9,7 +9,7 @@ use block_producer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair};
+use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProduceError {
@@ -59,7 +59,7 @@ impl ValidatorHarness {
         beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
-        let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot));
+        let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot.as_u64()));
         let signer = Arc::new(LocalSigner::new(keypair.clone()));
         let beacon_node = Arc::new(DirectBeaconNode::new(beacon_chain.clone()));
         let epoch_map = Arc::new(DirectDuties::new(keypair.pk.clone(), beacon_chain.clone()));
@@ -127,7 +127,7 @@ impl ValidatorHarness {
     /// Set the validators slot clock to the specified slot.
     ///
     /// The validators slot clock will always read this value until it is set to something else.
-    pub fn set_slot(&mut self, slot: u64) {
-        self.slot_clock.set_slot(slot)
+    pub fn set_slot(&mut self, slot: Slot) {
+        self.slot_clock.set_slot(slot.as_u64())
     }
 }

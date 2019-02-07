@@ -46,7 +46,7 @@ fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDec
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
-    pub proposer_slots: Slot,
+    pub proposer_slots: u64,
     pub activation_slot: Slot,
     pub exit_slot: Slot,
     pub withdrawal_slot: Slot,
@@ -70,7 +70,7 @@ impl Default for Validator {
         Self {
             pubkey: PublicKey::default(),
             withdrawal_credentials: Hash256::default(),
-            proposer_slots: Slot::from(0_u64),
+            proposer_slots: 0,
             activation_slot: Slot::from(std::u64::MAX),
             exit_slot: Slot::from(std::u64::MAX),
             withdrawal_slot: Slot::from(std::u64::MAX),

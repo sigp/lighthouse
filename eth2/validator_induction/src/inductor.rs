@@ -41,7 +41,7 @@ pub fn process_deposit(
             let validator = Validator {
                 pubkey: deposit_input.pubkey.clone(),
                 withdrawal_credentials: deposit_input.withdrawal_credentials,
-                proposer_slots: Slot::new(0),
+                proposer_slots: 0,
                 activation_slot: spec.far_future_slot,
                 exit_slot: spec.far_future_slot,
                 withdrawal_slot: spec.far_future_slot,

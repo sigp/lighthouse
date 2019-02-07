@@ -12,6 +12,7 @@
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
+use slog;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
@@ -162,6 +163,15 @@ macro_rules! impl_math {
                 *self - other.into()
             }
 
+            pub fn checked_div<T: Into<$type>>(&self, rhs: T) -> Option<$type> {
+                let rhs: $type = rhs.into();
+                if rhs == 0 {
+                    None
+                } else {
+                    Some(*self / rhs)
+                }
+            }
+
             pub fn is_power_of_two(&self) -> bool {
                 self.0.is_power_of_two()
             }
@@ -181,6 +191,17 @@ macro_rules! impl_display {
         impl fmt::Display for $type {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 write!(f, "{}", self.0)
+            }
+        }
+
+        impl slog::Value for $type {
+            fn serialize(
+                &self,
+                record: &slog::Record,
+                key: slog::Key,
+                serializer: &mut slog::Serializer,
+            ) -> slog::Result {
+                self.0.serialize(record, key, serializer)
             }
         }
     };

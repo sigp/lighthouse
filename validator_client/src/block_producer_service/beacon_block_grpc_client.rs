@@ -5,7 +5,7 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, PublicKey, Signature};
+use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, PublicKey, Signature, Slot};
 
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
@@ -32,11 +32,11 @@ impl BeaconNode for BeaconBlockGrpcClient {
     /// BN is unable to find a parent block.
     fn produce_beacon_block(
         &self,
-        slot: u64,
+        slot: Slot,
         randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
         let mut req = ProduceBeaconBlockRequest::new();
-        req.set_slot(slot);
+        req.set_slot(slot.as_u64());
 
         let reply = self
             .client
@@ -54,7 +54,7 @@ impl BeaconNode for BeaconBlockGrpcClient {
 
             // TODO: this conversion is incomplete; fix it.
             Ok(Some(BeaconBlock {
-                slot: block.get_slot(),
+                slot: Slot::new(block.get_slot()),
                 parent_root: Hash256::zero(),
                 state_root: Hash256::zero(),
                 randao_reveal,
@@ -88,7 +88,7 @@ impl BeaconNode for BeaconBlockGrpcClient {
 
         // TODO: this conversion is incomplete; fix it.
         let mut grpc_block = GrpcBeaconBlock::new();
-        grpc_block.set_slot(block.slot);
+        grpc_block.set_slot(block.slot.as_u64());
         grpc_block.set_block_root(vec![0]);
         grpc_block.set_randao_reveal(ssz_encode(&block.randao_reveal));
         grpc_block.set_signature(ssz_encode(&block.signature));
