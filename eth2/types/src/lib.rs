@@ -19,6 +19,7 @@ pub mod free_attestation;
 pub mod pending_attestation;
 pub mod proposal_signed_data;
 pub mod proposer_slashing;
+pub mod readers;
 pub mod shard_committee;
 pub mod shard_reassignment_record;
 pub mod slashable_vote_data;
@@ -28,8 +29,6 @@ pub mod special_record;
 pub mod validator;
 pub mod validator_registry;
 pub mod validator_registry_delta_block;
-
-pub mod readers;
 
 use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
