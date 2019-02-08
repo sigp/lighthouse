@@ -12,15 +12,15 @@ pub enum PublishOutcome {
     InvalidBlock(String),
 }
 
-/// Defines the methods required to produce and publish blocks on a Beacon Node.
+/// Defines the methods required to propose and publish blocks on a Beacon Node.
 pub trait BeaconNode: Send + Sync {
     /// Requests the proposer nonce (presently named `proposer_slots`).
     fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconNodeError>;
 
-    /// Request that the node produces a block.
+    /// Request that the node proposes a block.
     ///
-    /// Returns Ok(None) if the Beacon Node is unable to produce at the given slot.
-    fn produce_beacon_block(
+    /// Returns Ok(None) if the Beacon Node is unable to propose at the given slot.
+    fn propose_beacon_block(
         &self,
         slot: Slot,
         randao_reveal: &Signature,

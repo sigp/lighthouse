@@ -12,18 +12,18 @@ pub use self::traits::{
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
-    /// A new block was produced.
-    BlockProduced(Slot),
-    /// A block was not produced as it would have been slashable.
-    SlashableBlockNotProduced(Slot),
-    /// The validator duties did not require a block to be produced.
+    /// A new block was proposed.
+    BlockProposed(Slot),
+    /// A block was not proposed as it would have been slashable.
+    SlashableBlockNotProposed(Slot),
+    /// The validator duties did not require a block to be proposed.
     BlockProductionNotRequired(Slot),
     /// The duties for the present epoch were not found.
-    ProducerDutiesUnknown(Slot),
+    ProposerDutiesUnknown(Slot),
     /// The slot has already been processed, execution was skipped.
     SlotAlreadyProcessed(Slot),
-    /// The Beacon Node was unable to produce a block at that slot.
-    BeaconNodeUnableToProduceBlock(Slot),
+    /// The Beacon Node was unable to propose a block at that slot.
+    BeaconNodeUnableToProposeBlock(Slot),
     /// The signer failed to sign the message.
     SignerRejection(Slot),
     /// The public key for this validator is not an active validator.
@@ -46,7 +46,7 @@ pub enum Error {
 /// Ensures that messages are not slashable.
 ///
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
-pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
+pub struct BlockProposer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
     pub last_processed_slot: Option<Slot>,
     pubkey: PublicKey,
     spec: Arc<ChainSpec>,
@@ -56,7 +56,7 @@ pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer
     signer: Arc<W>,
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U, V, W> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProposer<T, U, V, W> {
     /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
@@ -78,7 +78,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     }
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U, V, W> {
+impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProposer<T, U, V, W> {
     /// "Poll" to see if the validator is required to take any action.
     ///
     /// The slot clock will be read and any new actions undertaken.
@@ -94,7 +94,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             let is_block_production_slot = match self.epoch_map.is_block_production_slot(slot) {
                 Ok(result) => result,
                 Err(DutiesReaderError::UnknownEpoch) => {
-                    return Ok(PollOutcome::ProducerDutiesUnknown(slot));
+                    return Ok(PollOutcome::ProposerDutiesUnknown(slot));
                 }
                 Err(DutiesReaderError::UnknownValidator) => {
                     return Ok(PollOutcome::ValidatorIsUnknown(slot));
@@ -106,7 +106,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             if is_block_production_slot {
                 self.last_processed_slot = Some(slot);
 
-                self.produce_block(slot)
+                self.propose_block(slot)
             } else {
                 Ok(PollOutcome::BlockProductionNotRequired(slot))
             }
@@ -122,7 +122,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
         }
     }
 
-    /// Produce a block at some slot.
+    /// Propose a block at some slot.
     ///
     /// Assumes that a block is required at this slot (does not check the duties).
     ///
@@ -132,12 +132,12 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ///
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
-    fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
+    fn propose_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
         let randao_reveal = {
-            let producer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
+            let proposer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
 
             // TODO: add domain, etc to this message.
-            let message = ssz_encode(&producer_nonce);
+            let message = ssz_encode(&proposer_nonce);
 
             match self.signer.sign_randao_reveal(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
@@ -147,20 +147,20 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
 
         if let Some(block) = self
             .beacon_node
-            .produce_beacon_block(slot, &randao_reveal)?
+            .propose_beacon_block(slot, &randao_reveal)?
         {
-            if self.safe_to_produce(&block) {
+            if self.safe_to_propose(&block) {
                 if let Some(block) = self.sign_block(block) {
                     self.beacon_node.publish_beacon_block(block)?;
-                    Ok(PollOutcome::BlockProduced(slot))
+                    Ok(PollOutcome::BlockProposed(slot))
                 } else {
                     Ok(PollOutcome::SignerRejection(slot))
                 }
             } else {
-                Ok(PollOutcome::SlashableBlockNotProduced(slot))
+                Ok(PollOutcome::SlashableBlockNotProposed(slot))
             }
         } else {
-            Ok(PollOutcome::BeaconNodeUnableToProduceBlock(slot))
+            Ok(PollOutcome::BeaconNodeUnableToProposeBlock(slot))
         }
     }
 
@@ -169,7 +169,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// Important: this function will not check to ensure the block is not slashable. This must be
     /// done upstream.
     fn sign_block(&mut self, mut block: BeaconBlock) -> Option<BeaconBlock> {
-        self.store_produce(&block);
+        self.store_propose(&block);
 
         match self
             .signer
@@ -188,18 +188,18 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn safe_to_produce(&self, _block: &BeaconBlock) -> bool {
-        // TODO: ensure the producer doesn't produce slashable blocks.
+    fn safe_to_propose(&self, _block: &BeaconBlock) -> bool {
+        // TODO: ensure the proposer doesn't propose slashable blocks.
         // https://github.com/sigp/lighthouse/issues/160
         true
     }
 
-    /// Record that a block was produced so that slashable votes may not be made in the future.
+    /// Record that a block was proposed so that slashable votes may not be made in the future.
     ///
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn store_produce(&mut self, _block: &BeaconBlock) {
+    fn store_propose(&mut self, _block: &BeaconBlock) {
         // TODO: record this block production to prevent future slashings.
         // https://github.com/sigp/lighthouse/issues/160
     }
@@ -236,13 +236,13 @@ mod tests {
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
         let mut epoch_map = EpochMap::new(spec.epoch_length);
-        let produce_slot = Slot::new(100);
-        let produce_epoch = produce_slot.epoch(spec.epoch_length);
-        epoch_map.map.insert(produce_epoch, produce_slot);
+        let propose_slot = Slot::new(100);
+        let propose_epoch = propose_slot.epoch(spec.epoch_length);
+        epoch_map.map.insert(propose_epoch, propose_slot);
         let epoch_map = Arc::new(epoch_map);
         let keypair = Keypair::random();
 
-        let mut block_producer = BlockProducer::new(
+        let mut block_proposer = BlockProposer::new(
             spec.clone(),
             keypair.pk.clone(),
             epoch_map.clone(),
@@ -252,44 +252,44 @@ mod tests {
         );
 
         // Configure responses from the BeaconNode.
-        beacon_node.set_next_produce_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));
+        beacon_node.set_next_propose_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));
         beacon_node.set_next_publish_result(Ok(PublishOutcome::ValidBlock));
         beacon_node.set_next_nonce_result(Ok(0));
 
         // One slot before production slot...
-        slot_clock.set_slot(produce_slot.as_u64() - 1);
+        slot_clock.set_slot(propose_slot.as_u64() - 1);
         assert_eq!(
-            block_producer.poll(),
-            Ok(PollOutcome::BlockProductionNotRequired(produce_slot - 1))
+            block_proposer.poll(),
+            Ok(PollOutcome::BlockProductionNotRequired(propose_slot - 1))
         );
 
-        // On the produce slot...
-        slot_clock.set_slot(produce_slot.as_u64());
+        // On the propose slot...
+        slot_clock.set_slot(propose_slot.as_u64());
         assert_eq!(
-            block_producer.poll(),
-            Ok(PollOutcome::BlockProduced(produce_slot.into()))
+            block_proposer.poll(),
+            Ok(PollOutcome::BlockProposed(propose_slot.into()))
         );
 
-        // Trying the same produce slot again...
-        slot_clock.set_slot(produce_slot.as_u64());
+        // Trying the same propose slot again...
+        slot_clock.set_slot(propose_slot.as_u64());
         assert_eq!(
-            block_producer.poll(),
-            Ok(PollOutcome::SlotAlreadyProcessed(produce_slot))
+            block_proposer.poll(),
+            Ok(PollOutcome::SlotAlreadyProcessed(propose_slot))
         );
 
-        // One slot after the produce slot...
-        slot_clock.set_slot(produce_slot.as_u64() + 1);
+        // One slot after the propose slot...
+        slot_clock.set_slot(propose_slot.as_u64() + 1);
         assert_eq!(
-            block_producer.poll(),
-            Ok(PollOutcome::BlockProductionNotRequired(produce_slot + 1))
+            block_proposer.poll(),
+            Ok(PollOutcome::BlockProductionNotRequired(propose_slot + 1))
         );
 
         // In an epoch without known duties...
-        let slot = (produce_epoch.as_u64() + 1) * spec.epoch_length;
+        let slot = (propose_epoch.as_u64() + 1) * spec.epoch_length;
         slot_clock.set_slot(slot);
         assert_eq!(
-            block_producer.poll(),
-            Ok(PollOutcome::ProducerDutiesUnknown(Slot::new(slot)))
+            block_proposer.poll(),
+            Ok(PollOutcome::ProposerDutiesUnknown(Slot::new(slot)))
         );
     }
 }
