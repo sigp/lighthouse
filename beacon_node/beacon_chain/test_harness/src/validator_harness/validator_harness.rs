@@ -4,32 +4,32 @@ use super::local_signer::LocalSigner;
 use attester::PollOutcome as AttestationPollOutcome;
 use attester::{Attester, Error as AttestationPollError};
 use beacon_chain::BeaconChain;
-use block_producer::PollOutcome as BlockPollOutcome;
-use block_producer::{BlockProducer, Error as BlockPollError};
+use block_proposer::PollOutcome as BlockPollOutcome;
+use block_proposer::{BlockProposer, Error as BlockPollError};
 use db::MemoryDB;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Slot};
 
 #[derive(Debug, PartialEq)]
-pub enum BlockProduceError {
-    DidNotProduce(BlockPollOutcome),
+pub enum BlockProposeError {
+    DidNotPropose(BlockPollOutcome),
     PollError(BlockPollError),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AttestationProduceError {
-    DidNotProduce(AttestationPollOutcome),
+pub enum AttestationProposeError {
+    DidNotPropose(AttestationPollOutcome),
     PollError(AttestationPollError),
 }
 
-/// A `BlockProducer` and `Attester` which sign using a common keypair.
+/// A `BlockProposer` and `Attester` which sign using a common keypair.
 ///
 /// The test validator connects directly to a borrowed `BeaconChain` struct. It is useful for
 /// testing that the core proposer and attester logic is functioning. Also for supporting beacon
 /// chain tests.
 pub struct ValidatorHarness {
-    pub block_producer: BlockProducer<
+    pub block_proposer: BlockProposer<
         TestingSlotClock,
         DirectBeaconNode<MemoryDB, TestingSlotClock>,
         DirectDuties<MemoryDB, TestingSlotClock>,
@@ -53,7 +53,7 @@ impl ValidatorHarness {
     /// Create a new ValidatorHarness that signs with the given keypair, operates per the given spec and connects to the
     /// supplied beacon node.
     ///
-    /// A `BlockProducer` and `Attester` is created..
+    /// A `BlockProposer` and `Attester` is created..
     pub fn new(
         keypair: Keypair,
         beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
@@ -64,7 +64,7 @@ impl ValidatorHarness {
         let beacon_node = Arc::new(DirectBeaconNode::new(beacon_chain.clone()));
         let epoch_map = Arc::new(DirectDuties::new(keypair.pk.clone(), beacon_chain.clone()));
 
-        let block_producer = BlockProducer::new(
+        let block_proposer = BlockProposer::new(
             spec.clone(),
             keypair.pk.clone(),
             epoch_map.clone(),
@@ -81,7 +81,7 @@ impl ValidatorHarness {
         );
 
         Self {
-            block_producer,
+            block_proposer,
             attester,
             spec,
             epoch_map,
@@ -92,36 +92,36 @@ impl ValidatorHarness {
         }
     }
 
-    /// Run the `poll` function on the `BlockProducer` and produce a block.
+    /// Run the `poll` function on the `BlockProposer` and propose a block.
     ///
-    /// An error is returned if the producer refuses to produce.
-    pub fn produce_block(&mut self) -> Result<BeaconBlock, BlockProduceError> {
+    /// An error is returned if the proposer refuses to propose.
+    pub fn propose_block(&mut self) -> Result<BeaconBlock, BlockProposeError> {
         // Using `DirectBeaconNode`, the validator will always return sucessufully if it tries to
         // publish a block.
-        match self.block_producer.poll() {
-            Ok(BlockPollOutcome::BlockProduced(_)) => {}
-            Ok(outcome) => return Err(BlockProduceError::DidNotProduce(outcome)),
-            Err(error) => return Err(BlockProduceError::PollError(error)),
+        match self.block_proposer.poll() {
+            Ok(BlockPollOutcome::BlockProposed(_)) => {}
+            Ok(outcome) => return Err(BlockProposeError::DidNotPropose(outcome)),
+            Err(error) => return Err(BlockProposeError::PollError(error)),
         };
         Ok(self
             .beacon_node
             .last_published_block()
-            .expect("Unable to obtain produced block."))
+            .expect("Unable to obtain proposed block."))
     }
 
-    /// Run the `poll` function on the `Attester` and produce a `FreeAttestation`.
+    /// Run the `poll` function on the `Attester` and propose a `FreeAttestation`.
     ///
     /// An error is returned if the attester refuses to attest.
-    pub fn produce_free_attestation(&mut self) -> Result<FreeAttestation, AttestationProduceError> {
+    pub fn propose_free_attestation(&mut self) -> Result<FreeAttestation, AttestationProposeError> {
         match self.attester.poll() {
-            Ok(AttestationPollOutcome::AttestationProduced(_)) => {}
-            Ok(outcome) => return Err(AttestationProduceError::DidNotProduce(outcome)),
-            Err(error) => return Err(AttestationProduceError::PollError(error)),
+            Ok(AttestationPollOutcome::AttestationProposed(_)) => {}
+            Ok(outcome) => return Err(AttestationProposeError::DidNotPropose(outcome)),
+            Err(error) => return Err(AttestationProposeError::PollError(error)),
         };
         Ok(self
             .beacon_node
             .last_published_free_attestation()
-            .expect("Unable to obtain produced attestation."))
+            .expect("Unable to obtain proposed attestation."))
     }
 
     /// Set the validators slot clock to the specified slot.

@@ -3,7 +3,7 @@ use attester::{
     PublishOutcome as AttestationPublishOutcome,
 };
 use beacon_chain::BeaconChain;
-use block_producer::{
+use block_proposer::{
     BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError,
     PublishOutcome as BlockPublishOutcome,
 };
@@ -14,9 +14,9 @@ use std::sync::Arc;
 use types::{AttestationData, BeaconBlock, FreeAttestation, PublicKey, Signature, Slot};
 
 // mod attester;
-// mod producer;
+// mod proposer;
 
-/// Connect directly to a borrowed `BeaconChain` instance so an attester/producer can request/submit
+/// Connect directly to a borrowed `BeaconChain` instance so an attester/proposer can request/submit
 /// blocks/attestations.
 ///
 /// `BeaconBlock`s and `FreeAttestation`s are not actually published to the `BeaconChain`, instead
@@ -49,12 +49,12 @@ impl<T: ClientDB, U: SlotClock> DirectBeaconNode<T, U> {
 }
 
 impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for DirectBeaconNode<T, U> {
-    fn produce_attestation_data(
+    fn propose_attestation_data(
         &self,
         _slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, NodeError> {
-        match self.beacon_chain.produce_attestation_data(shard) {
+        match self.beacon_chain.propose_attestation_data(shard) {
             Ok(attestation_data) => Ok(Some(attestation_data)),
             Err(e) => Err(NodeError::RemoteFailure(format!("{:?}", e))),
         }
@@ -85,23 +85,23 @@ impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U> {
     }
 
     /// Requests a new `BeaconBlock from the `BeaconChain`.
-    fn produce_beacon_block(
+    fn propose_beacon_block(
         &self,
         slot: Slot,
         randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconBlockNodeError> {
         let (block, _state) = self
             .beacon_chain
-            .produce_block(randao_reveal.clone())
+            .propose_block(randao_reveal.clone())
             .ok_or_else(|| {
-                BeaconBlockNodeError::RemoteFailure(format!("Did not produce block."))
+                BeaconBlockNodeError::RemoteFailure(format!("Did not propose block."))
             })?;
 
         if block.slot == slot {
             Ok(Some(block))
         } else {
             Err(BeaconBlockNodeError::RemoteFailure(
-                "Unable to produce at non-current slot.".to_string(),
+                "Unable to propose at non-current slot.".to_string(),
             ))
         }
     }

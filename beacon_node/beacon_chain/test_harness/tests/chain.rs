@@ -22,7 +22,7 @@ fn it_can_build_on_genesis_block() {
 
 #[test]
 #[ignore]
-fn it_can_produce_past_first_epoch_boundary() {
+fn it_can_propose_past_first_epoch_boundary() {
     Builder::from_env(Env::default().default_filter_or("debug")).init();
 
     let validator_count = 100;
@@ -37,7 +37,7 @@ fn it_can_produce_past_first_epoch_boundary() {
 
     for i in 0..blocks {
         harness.advance_chain_with_block();
-        debug!("Produced block {}/{}.", i, blocks);
+        debug!("Proposed block {}/{}.", i, blocks);
     }
     let dump = harness.chain_dump().expect("Chain dump failed.");
 

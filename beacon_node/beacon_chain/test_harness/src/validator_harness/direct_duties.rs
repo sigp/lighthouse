@@ -2,8 +2,8 @@ use attester::{
     DutiesReader as AttesterDutiesReader, DutiesReaderError as AttesterDutiesReaderError,
 };
 use beacon_chain::BeaconChain;
-use block_producer::{
-    DutiesReader as ProducerDutiesReader, DutiesReaderError as ProducerDutiesReaderError,
+use block_proposer::{
+    DutiesReader as ProposerDutiesReader, DutiesReaderError as ProposerDutiesReaderError,
 };
 use db::ClientDB;
 use slot_clock::SlotClock;
@@ -26,17 +26,17 @@ impl<T: ClientDB, U: SlotClock> DirectDuties<T, U> {
     }
 }
 
-impl<T: ClientDB, U: SlotClock> ProducerDutiesReader for DirectDuties<T, U> {
-    fn is_block_production_slot(&self, slot: Slot) -> Result<bool, ProducerDutiesReaderError> {
+impl<T: ClientDB, U: SlotClock> ProposerDutiesReader for DirectDuties<T, U> {
+    fn is_block_production_slot(&self, slot: Slot) -> Result<bool, ProposerDutiesReaderError> {
         let validator_index = self
             .beacon_chain
             .validator_index(&self.pubkey)
-            .ok_or_else(|| ProducerDutiesReaderError::UnknownValidator)?;
+            .ok_or_else(|| ProposerDutiesReaderError::UnknownValidator)?;
 
         match self.beacon_chain.block_proposer(slot) {
             Ok(proposer) if proposer == validator_index => Ok(true),
             Ok(_) => Ok(false),
-            Err(_) => Err(ProducerDutiesReaderError::UnknownEpoch),
+            Err(_) => Err(ProposerDutiesReaderError::UnknownEpoch),
         }
     }
 }

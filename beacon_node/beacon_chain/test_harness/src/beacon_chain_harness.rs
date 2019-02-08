@@ -33,7 +33,7 @@ pub struct BeaconChainHarness {
 impl BeaconChainHarness {
     /// Create a new harness with:
     ///
-    /// - A keypair, `BlockProducer` and `Attester` for each validator.
+    /// - A keypair, `BlockProposer` and `Attester` for each validator.
     /// - A new BeaconChain struct where the given validators are in the genesis.
     pub fn new(mut spec: ChainSpec, validator_count: usize) -> Self {
         let db = Arc::new(MemoryDB::open());
@@ -88,7 +88,7 @@ impl BeaconChainHarness {
 
         let spec = Arc::new(spec);
 
-        debug!("Creating validator producer and attester instances...");
+        debug!("Creating validator proposer and attester instances...");
 
         // Spawn the test validator instances.
         let validators: Vec<ValidatorHarness> = keypairs
@@ -127,7 +127,7 @@ impl BeaconChainHarness {
 
     /// Gather the `FreeAttestation`s from the valiators.
     ///
-    /// Note: validators will only produce attestations _once per slot_. So, if you call this twice
+    /// Note: validators will only propose attestations _once per slot_. So, if you call this twice
     /// you'll only get attestations on the first run.
     pub fn gather_free_attesations(&mut self) -> Vec<FreeAttestation> {
         let present_slot = self.beacon_chain.present_slot();
@@ -155,8 +155,8 @@ impl BeaconChainHarness {
                     // Advance the validator slot.
                     validator.set_slot(present_slot);
 
-                    // Prompt the validator to produce an attestation (if required).
-                    validator.produce_free_attestation().ok()
+                    // Prompt the validator to propose an attestation (if required).
+                    validator.propose_free_attestation().ok()
                 } else {
                     None
                 }
@@ -174,9 +174,9 @@ impl BeaconChainHarness {
 
     /// Get the block from the proposer for the slot.
     ///
-    /// Note: the validator will only produce it _once per slot_. So, if you call this twice you'll
+    /// Note: the validator will only propose it _once per slot_. So, if you call this twice you'll
     /// only get a block once.
-    pub fn produce_block(&mut self) -> BeaconBlock {
+    pub fn propose_block(&mut self) -> BeaconBlock {
         let present_slot = self.beacon_chain.present_slot();
 
         let proposer = self.beacon_chain.block_proposer(present_slot).unwrap();
@@ -188,7 +188,7 @@ impl BeaconChainHarness {
 
         // Ensure the validators slot clock is accurate.
         self.validators[proposer].set_slot(present_slot);
-        self.validators[proposer].produce_block().unwrap()
+        self.validators[proposer].propose_block().unwrap()
     }
 
     /// Advances the chain with a BeaconBlock and attestations from all validators.
@@ -198,15 +198,15 @@ impl BeaconChainHarness {
     pub fn advance_chain_with_block(&mut self) {
         self.increment_beacon_chain_slot();
 
-        // Produce a new block.
-        let block = self.produce_block();
+        // Propose a new block.
+        let block = self.propose_block();
         debug!("Submitting block for processing...");
         self.beacon_chain.process_block(block).unwrap();
         debug!("...block processed by BeaconChain.");
 
         debug!("Producing free attestations...");
 
-        // Produce new attestations.
+        // Propose new attestations.
         let free_attestations = self.gather_free_attesations();
 
         debug!("Processing free attestations...");
