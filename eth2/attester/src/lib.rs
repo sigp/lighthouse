@@ -13,11 +13,11 @@ const PHASE_0_CUSTODY_BIT: bool = false;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
-    AttestationProduced(Slot),
+    AttestationProposed(Slot),
     AttestationNotRequired(Slot),
-    SlashableAttestationNotProduced(Slot),
-    BeaconNodeUnableToProduceAttestation(Slot),
-    ProducerDutiesUnknown(Slot),
+    SlashableAttestationNotProposed(Slot),
+    BeaconNodeUnableToProposeAttestation(Slot),
+    ProposerDutiesUnknown(Slot),
     SlotAlreadyProcessed(Slot),
     SignerRejection(Slot),
     ValidatorIsUnknown(Slot),
@@ -61,7 +61,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
 }
 
 impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, W> {
-    /// Poll the `BeaconNode` and produce an attestation if required.
+    /// Poll the `BeaconNode` and propose an attestation if required.
     pub fn poll(&mut self) -> Result<PollOutcome, Error> {
         let slot = self
             .slot_clock
@@ -76,7 +76,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
                 Ok(Some(result)) => result,
                 Ok(None) => return Ok(PollOutcome::AttestationNotRequired(slot)),
                 Err(DutiesReaderError::UnknownEpoch) => {
-                    return Ok(PollOutcome::ProducerDutiesUnknown(slot));
+                    return Ok(PollOutcome::ProposerDutiesUnknown(slot));
                 }
                 Err(DutiesReaderError::UnknownValidator) => {
                     return Ok(PollOutcome::ValidatorIsUnknown(slot));
@@ -85,20 +85,20 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
                 Err(DutiesReaderError::Poisoned) => return Err(Error::EpochMapPoisoned),
             };
 
-            self.produce_attestation(slot, shard)
+            self.propose_attestation(slot, shard)
         } else {
             Ok(PollOutcome::SlotAlreadyProcessed(slot))
         }
     }
 
-    fn produce_attestation(&mut self, slot: Slot, shard: u64) -> Result<PollOutcome, Error> {
-        let attestation_data = match self.beacon_node.produce_attestation_data(slot, shard)? {
+    fn propose_attestation(&mut self, slot: Slot, shard: u64) -> Result<PollOutcome, Error> {
+        let attestation_data = match self.beacon_node.propose_attestation_data(slot, shard)? {
             Some(attestation_data) => attestation_data,
-            None => return Ok(PollOutcome::BeaconNodeUnableToProduceAttestation(slot)),
+            None => return Ok(PollOutcome::BeaconNodeUnableToProposeAttestation(slot)),
         };
 
-        if !self.safe_to_produce(&attestation_data) {
-            return Ok(PollOutcome::SlashableAttestationNotProduced(slot));
+        if !self.safe_to_propose(&attestation_data) {
+            return Ok(PollOutcome::SlashableAttestationNotProposed(slot));
         }
 
         let signature = match self.sign_attestation_data(&attestation_data) {
@@ -119,7 +119,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
 
         self.beacon_node
             .publish_attestation_data(free_attestation)?;
-        Ok(PollOutcome::AttestationProduced(slot))
+        Ok(PollOutcome::AttestationProposed(slot))
     }
 
     fn is_processed_slot(&self, slot: Slot) -> bool {
@@ -134,7 +134,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
     /// Important: this function will not check to ensure the block is not slashable. This must be
     /// done upstream.
     fn sign_attestation_data(&mut self, attestation_data: &AttestationData) -> Option<Signature> {
-        self.store_produce(attestation_data);
+        self.store_propose(attestation_data);
 
         self.signer
             .sign_attestation_message(&attestation_data.signable_message(PHASE_0_CUSTODY_BIT)[..])
@@ -145,18 +145,18 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn safe_to_produce(&self, _attestation_data: &AttestationData) -> bool {
-        // TODO: ensure the producer doesn't produce slashable blocks.
+    fn safe_to_propose(&self, _attestation_data: &AttestationData) -> bool {
+        // TODO: ensure the proposer doesn't propose slashable blocks.
         // https://github.com/sigp/lighthouse/issues/160
         true
     }
 
-    /// Record that a block was produced so that slashable votes may not be made in the future.
+    /// Record that a block was proposed so that slashable votes may not be made in the future.
     ///
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn store_produce(&mut self, _block: &AttestationData) {
+    fn store_propose(&mut self, _block: &AttestationData) {
         // TODO: record this block production to prevent future slashings.
         // https://github.com/sigp/lighthouse/issues/160
     }
@@ -208,7 +208,7 @@ mod tests {
         );
 
         // Configure responses from the BeaconNode.
-        beacon_node.set_next_produce_result(Ok(Some(AttestationData::random_for_test(&mut rng))));
+        beacon_node.set_next_propose_result(Ok(Some(AttestationData::random_for_test(&mut rng))));
         beacon_node.set_next_publish_result(Ok(PublishOutcome::ValidAttestation));
 
         // One slot before attestation slot...
@@ -222,7 +222,7 @@ mod tests {
         slot_clock.set_slot(attest_slot.as_u64());
         assert_eq!(
             attester.poll(),
-            Ok(PollOutcome::AttestationProduced(attest_slot))
+            Ok(PollOutcome::AttestationProposed(attest_slot))
         );
 
         // Trying the same attest slot again...
@@ -244,7 +244,7 @@ mod tests {
         slot_clock.set_slot(slot.into());
         assert_eq!(
             attester.poll(),
-            Ok(PollOutcome::ProducerDutiesUnknown(slot))
+            Ok(PollOutcome::ProposerDutiesUnknown(slot))
         );
     }
 }

@@ -9,7 +9,7 @@ pub struct LocalSigner {
 }
 
 impl LocalSigner {
-    /// Produce a new LocalSigner with signing enabled by default.
+    /// Propose a new LocalSigner with signing enabled by default.
     pub fn new(keypair: Keypair) -> Self {
         Self {
             keypair,

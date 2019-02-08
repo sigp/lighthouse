@@ -12,9 +12,9 @@ pub enum PublishOutcome {
     InvalidAttestation(String),
 }
 
-/// Defines the methods required to produce and publish blocks on a Beacon Node.
+/// Defines the methods required to propose and publish blocks on a Beacon Node.
 pub trait BeaconNode: Send + Sync {
-    fn produce_attestation_data(
+    fn propose_attestation_data(
         &self,
         slot: Slot,
         shard: u64,
