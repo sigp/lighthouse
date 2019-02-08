@@ -26,7 +26,7 @@ impl BeaconNode for TestBeaconNode {
         *self.request_shuffling_input.write().unwrap() = Some((epoch, public_key.clone()));
         match *self.request_shuffling_result.read().unwrap() {
             Some(ref r) => r.clone(),
-            None => panic!("TestBeaconNode: produce_result == None"),
+            None => panic!("TestBeaconNode: propose_result == None"),
         }
     }
 }

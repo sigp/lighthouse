@@ -1,6 +1,6 @@
-use block_producer::{BeaconNode, BeaconNodeError, PublishOutcome};
+use block_proposer::{BeaconNode, BeaconNodeError, PublishOutcome};
 use protos::services::{
-    BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
+    BeaconBlock as GrpcBeaconBlock, ProposeBeaconBlockRequest, PublishBeaconBlockRequest,
 };
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{ssz_encode, Decodable};
@@ -26,21 +26,21 @@ impl BeaconNode for BeaconBlockGrpcClient {
         // See: https://github.com/ethereum/eth2.0-specs/pull/496
         panic!("Not implemented.")
     }
-    /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
+    /// Request a Beacon Node (BN) to propose a new block at the supplied slot.
     ///
-    /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
+    /// Returns `None` if it is not possible to propose at the supplied slot. For example, if the
     /// BN is unable to find a parent block.
-    fn produce_beacon_block(
+    fn propose_beacon_block(
         &self,
         slot: Slot,
         randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
-        let mut req = ProduceBeaconBlockRequest::new();
+        let mut req = ProposeBeaconBlockRequest::new();
         req.set_slot(slot.as_u64());
 
         let reply = self
             .client
-            .produce_beacon_block(&req)
+            .propose_beacon_block(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
         if reply.has_block() {
@@ -81,7 +81,7 @@ impl BeaconNode for BeaconBlockGrpcClient {
 
     /// Request a Beacon Node (BN) to publish a block.
     ///
-    /// Generally, this will be called after a `produce_beacon_block` call with a block that has
+    /// Generally, this will be called after a `propose_beacon_block` call with a block that has
     /// been completed (signed) by the validator client.
     fn publish_beacon_block(&self, block: BeaconBlock) -> Result<PublishOutcome, BeaconNodeError> {
         let mut req = PublishBeaconBlockRequest::new();

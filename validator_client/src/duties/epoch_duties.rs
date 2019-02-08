@@ -1,4 +1,4 @@
-use block_producer::{DutiesReader, DutiesReaderError};
+use block_proposer::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
 use std::sync::RwLock;
 use types::{Epoch, Slot};
@@ -16,7 +16,7 @@ pub struct EpochDuties {
 }
 
 impl EpochDuties {
-    /// Returns `true` if the supplied `slot` is a slot in which the validator should produce a
+    /// Returns `true` if the supplied `slot` is a slot in which the validator should propose a
     /// block.
     pub fn is_block_production_slot(&self, slot: Slot) -> bool {
         match self.block_production_slot {

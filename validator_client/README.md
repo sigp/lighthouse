@@ -8,11 +8,11 @@ Node (BN) and fulfils the roles of a validator.
 The VC is responsible for the following tasks:
 
 - Requesting validator duties (a.k.a. shuffling) from the BN.
-- Prompting the BN to produce a new block, when a validators block production
+- Prompting the BN to propose a new block, when a validators block production
 	duties require.
 - Completing all the fields on a new block (e.g., RANDAO reveal, signature) and
 	publishing the block to a BN.
-- Prompting the BN to produce a new shard atteststation as per a validators
+- Prompting the BN to propose a new shard atteststation as per a validators
 	duties.
 - Ensuring that no slashable messages are signed by a validator private key.
 - Keeping track of the system clock and how it relates to slots/epochs.
@@ -47,9 +47,9 @@ EpochDuties {
 This is stored in the `EpochDutiesMap`, a `HashMap` mapping `epoch ->
 EpochDuties`.
 
-#### `BlockProducerService`
+#### `BlockProposerService`
 
-Polls the system clock and determines if a block needs to be produced. Reads
+Polls the system clock and determines if a block needs to be proposed. Reads
 from the `EpochDutiesMap` maintained by the `DutiesManagerService`.
 
 If block production is required, performs all the necessary duties to request,

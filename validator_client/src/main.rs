@@ -1,7 +1,7 @@
-use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
+use self::block_proposer_service::{BeaconBlockGrpcClient, BlockProposerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::config::ClientConfig;
-use block_producer::{test_utils::LocalSigner, BlockProducer};
+use block_proposer::{test_utils::LocalSigner, BlockProposer};
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 use types::ChainSpec;
 
-mod block_producer_service;
+mod block_proposer_service;
 mod config;
 mod duties;
 
@@ -96,7 +96,7 @@ fn main() {
     };
 
     let poll_interval_millis = spec.slot_duration * 1000 / 10; // 10% epoch time precision.
-    info!(log, "Starting block producer service"; "polls_per_epoch" => spec.slot_duration * 1000 / poll_interval_millis);
+    info!(log, "Starting block proposer service"; "polls_per_epoch" => spec.slot_duration * 1000 / poll_interval_millis);
 
     /*
      * Start threads.
@@ -137,7 +137,7 @@ fn main() {
         };
 
         // Spawn a new thread to perform block production for the validator.
-        let producer_thread = {
+        let proposer_thread = {
             let spec = spec.clone();
             let pubkey = keypair.pk.clone();
             let signer = Arc::new(LocalSigner::new(keypair.clone()));
@@ -146,25 +146,25 @@ fn main() {
             let log = log.clone();
             let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
             thread::spawn(move || {
-                let block_producer =
-                    BlockProducer::new(spec, pubkey, duties_map, slot_clock, client, signer);
-                let mut block_producer_service = BlockProducerService {
-                    block_producer,
+                let block_proposer =
+                    BlockProposer::new(spec, pubkey, duties_map, slot_clock, client, signer);
+                let mut block_proposer_service = BlockProposerService {
+                    block_proposer,
                     poll_interval_millis,
                     log,
                 };
 
-                block_producer_service.run();
+                block_proposer_service.run();
             })
         };
 
-        threads.push((duties_manager_thread, producer_thread));
+        threads.push((duties_manager_thread, proposer_thread));
     }
 
     // Naively wait for all the threads to complete.
     for tuple in threads {
-        let (manager, producer) = tuple;
-        let _ = producer.join();
+        let (manager, proposer) = tuple;
+        let _ = proposer.join();
         let _ = manager.join();
     }
 }
