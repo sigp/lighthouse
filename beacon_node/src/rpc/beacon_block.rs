@@ -1,7 +1,7 @@
 use futures::Future;
 use grpcio::{RpcContext, UnarySink};
 use protos::services::{
-    BeaconBlock as BeaconBlockProto, ProduceBeaconBlockRequest, ProduceBeaconBlockResponse,
+    BeaconBlock as BeaconBlockProto, ProposeBeaconBlockRequest, ProposeBeaconBlockResponse,
     PublishBeaconBlockRequest, PublishBeaconBlockResponse,
 };
 use protos::services_grpc::BeaconBlockService;
@@ -13,12 +13,12 @@ pub struct BeaconBlockServiceInstance {
 }
 
 impl BeaconBlockService for BeaconBlockServiceInstance {
-    /// Produce a `BeaconBlock` for signing by a validator.
-    fn produce_beacon_block(
+    /// Propose a `BeaconBlock` for signing by a validator.
+    fn propose_beacon_block(
         &mut self,
         ctx: RpcContext,
-        req: ProduceBeaconBlockRequest,
-        sink: UnarySink<ProduceBeaconBlockResponse>,
+        req: ProposeBeaconBlockRequest,
+        sink: UnarySink<ProposeBeaconBlockResponse>,
     ) {
         println!("producing at slot {}", req.get_slot());
 
@@ -27,7 +27,7 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         block.set_slot(req.get_slot());
         block.set_block_root("cats".as_bytes().to_vec());
 
-        let mut resp = ProduceBeaconBlockResponse::new();
+        let mut resp = ProposeBeaconBlockResponse::new();
         resp.set_block(block);
 
         let f = sink

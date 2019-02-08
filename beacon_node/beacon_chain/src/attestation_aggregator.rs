@@ -11,7 +11,7 @@ const PHASE_0_CUSTODY_BIT: bool = false;
 ///  - Recieve a `FreeAttestation` and aggregate it into an `Attestation` (or create a new if it
 ///  doesn't exist).
 ///  - Store all aggregated or created `Attestation`s.
-///  - Produce a list of attestations that would be valid for inclusion in some `BeaconState` (and
+///  - Propose a list of attestations that would be valid for inclusion in some `BeaconState` (and
 ///  therefore valid for inclusion in a `BeaconBlock`.
 ///
 ///  Note: `Attestations` are stored in memory and never deleted. This is not scalable and must be
@@ -66,7 +66,7 @@ impl AttestationAggregator {
     }
 
     /// Accepts some `FreeAttestation`, validates it and either aggregates it upon some existing
-    /// `Attestation` or produces a new `Attestation`.
+    /// `Attestation` or proposes a new `Attestation`.
     ///
     /// The "validation" provided is not complete, instead the following points are checked:
     ///  - The given `validator_index` is in the committee for the given `shard` for the given
@@ -186,7 +186,7 @@ impl AttestationAggregator {
     }
 }
 
-/// Produces a new `Attestation` where:
+/// Proposes a new `Attestation` where:
 ///
 /// - `signature` is added to `Attestation.aggregate_signature`
 /// - Attestation.aggregation_bitfield[committee_index]` is set to true.

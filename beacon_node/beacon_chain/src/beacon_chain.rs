@@ -300,8 +300,8 @@ where
         }
     }
 
-    /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
-    pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
+    /// Propose an `AttestationData` that is valid for the present `slot` and given `shard`.
+    pub fn propose_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         let justified_slot = self.justified_slot();
         let justified_block_root = self
             .state
@@ -512,11 +512,11 @@ where
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
     }
 
-    /// Produce a new block at the present slot.
+    /// Propose a new block at the present slot.
     ///
-    /// The produced block will not be inheriently valid, it must be signed by a block producer.
+    /// The proposed block will not be inheriently valid, it must be signed by a block proposer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub fn produce_block(&self, randao_reveal: Signature) -> Option<(BeaconBlock, BeaconState)> {
+    pub fn propose_block(&self, randao_reveal: Signature) -> Option<(BeaconBlock, BeaconState)> {
         debug!("Producing block at slot {}...", self.state.read().slot);
 
         let mut state = self.state.read().clone();
@@ -568,7 +568,7 @@ where
 
         block.state_root = state_root;
 
-        trace!("Block produced.");
+        trace!("Block proposed.");
 
         Some((block, state))
     }
