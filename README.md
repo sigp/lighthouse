@@ -94,7 +94,7 @@ validation, BLS crypto, etc.
 **NOTE: The cryptography libraries used in this implementation are
 experimental. As such all cryptography is assumed to be insecure.**
 
-This code-base is still very much under-development and does not provide any
+This code-base is still very much under development and does not provide any
 user-facing functionality. For developers and researchers, there are several
 tests and benchmarks which may be of interest.
 
