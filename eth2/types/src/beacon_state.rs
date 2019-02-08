@@ -43,7 +43,7 @@ pub enum BlockProcessingError {
     MissingBeaconBlock(Hash256),
     InvalidBeaconBlock(Hash256),
     MissingParentBlock(Hash256),
-    NoBlockProducer,
+    NoBlockProposer,
     StateSlotMismatch,
     BadBlockSignature,
     BadRandaoSignature,
@@ -64,7 +64,7 @@ pub enum BlockProcessingError {
 
 #[derive(Debug, PartialEq)]
 pub enum EpochError {
-    UnableToDetermineProducer,
+    UnableToDetermineProposer,
     NoBlockRoots,
     BaseRewardQuotientIsZero,
     CommitteesError(CommitteesError),
@@ -378,7 +378,7 @@ impl BeaconState {
          */
         let block_proposer_index = self
             .get_beacon_proposer_index(block.slot, spec)
-            .map_err(|_| BlockProcessingError::NoBlockProducer)?;
+            .map_err(|_| BlockProcessingError::NoBlockProposer)?;
         let block_proposer = &self.validator_registry[block_proposer_index];
 
         if verify_block_signature {
@@ -1000,7 +1000,7 @@ impl BeaconState {
                 self.inclusion_slot(&previous_epoch_attestations[..], index, spec)?;
             let proposer_index = self
                 .get_beacon_proposer_index(inclusion_slot, spec)
-                .map_err(|_| EpochError::UnableToDetermineProducer)?;
+                .map_err(|_| EpochError::UnableToDetermineProposer)?;
             let base_reward = self.base_reward(proposer_index, base_reward_quotient, spec);
             safe_add_assign!(
                 self.validator_balances[proposer_index],
