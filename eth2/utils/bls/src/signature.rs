@@ -14,8 +14,8 @@ pub struct Signature(RawSignature);
 
 impl Signature {
     /// Instantiate a new Signature from a message and a SecretKey.
-    pub fn new(msg: &[u8], sk: &SecretKey) -> Self {
-        Signature(RawSignature::new(msg, sk.as_raw()))
+    pub fn new(msg: &[u8], domain: u64, sk: &SecretKey) -> Self {
+        Signature(RawSignature::new(msg, domain, sk.as_raw()))
     }
 
     /// Instantiate a new Signature from a message and a SecretKey, where the message has already
@@ -25,13 +25,13 @@ impl Signature {
     }
 
     /// Verify the Signature against a PublicKey.
-    pub fn verify(&self, msg: &[u8], pk: &PublicKey) -> bool {
-        self.0.verify(msg, pk.as_raw())
+    pub fn verify(&self, msg: &[u8], domain: u64, pk: &PublicKey) -> bool {
+        self.0.verify(msg, domain, pk.as_raw())
     }
 
     /// Verify the Signature against a PublicKey, where the message has already been hashed.
-    pub fn verify_hashed(&self, msg_hash: &[u8], pk: &PublicKey) -> bool {
-        self.0.verify_hashed(msg_hash, pk.as_raw())
+    pub fn verify_hashed(&self, msg_hash_x_real: &[u8], msg_hash_x_imaginary: &[u8], pk: &PublicKey) -> bool {
+        self.0.verify_hashed(msg_hash_x_real, msg_hash_x_imaginary, pk.as_raw())
     }
 
     /// Returns the underlying signature.

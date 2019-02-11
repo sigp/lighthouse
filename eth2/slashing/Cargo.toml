@@ -7,4 +7,3 @@ edition = "2018"
 [dependencies]
 bls = { path = "../utils/bls" }
 types = { path = "../types" }
-spec = { path = "../spec" } 
