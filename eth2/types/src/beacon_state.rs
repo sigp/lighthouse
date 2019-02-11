@@ -125,26 +125,44 @@ pub struct BeaconState {
 }
 
 impl BeaconState {
+    /// Return the tree hash root for this `BeaconState`.
+    ///
+    /// Spec v0.2.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from(&self.hash_tree_root()[..])
     }
 
+    /// The epoch corresponding to `self.slot`.
+    ///
+    /// Spec v0.2.0
     pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.slot.epoch(spec.epoch_length)
     }
 
+    /// The epoch prior to `self.current_epoch()`.
+    ///
+    /// Spec v0.2.0
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.current_epoch(spec).saturating_sub(1_u64)
     }
 
+    /// The epoch following `self.current_epoch()`.
+    ///
+    /// Spec v0.2.0
     pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.current_epoch(spec).saturating_add(1_u64)
     }
 
+    /// The first slot of the epoch corresponding to `self.slot`.
+    ///
+    /// Spec v0.2.0
     pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
         self.current_epoch(spec).start_slot(spec.epoch_length)
     }
 
+    /// The first slot of the epoch preceeding the one corresponding to `self.slot`.
+    ///
+    /// Spec v0.2.0
     pub fn previous_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
         self.previous_epoch(spec).start_slot(spec.epoch_length)
     }
@@ -331,6 +349,10 @@ impl BeaconState {
         Ok(crosslinks_at_slot)
     }
 
+    /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
+    /// attestation.
+    ///
+    /// Spec v0.2.0
     pub fn attestation_slot_and_shard_for_validator(
         &self,
         validator_index: usize,
@@ -764,107 +786,6 @@ impl BeaconState {
         }
         Ok(participants)
     }
-
-    pub fn validate_attestation(
-        &self,
-        attestation: &Attestation,
-        spec: &ChainSpec,
-    ) -> Result<(), AttestationValidationError> {
-        self.validate_attestation_signature_optional(attestation, spec, true)
-    }
-
-    pub fn validate_attestation_without_signature(
-        &self,
-        attestation: &Attestation,
-        spec: &ChainSpec,
-    ) -> Result<(), AttestationValidationError> {
-        self.validate_attestation_signature_optional(attestation, spec, false)
-    }
-
-    fn validate_attestation_signature_optional(
-        &self,
-        attestation: &Attestation,
-        spec: &ChainSpec,
-        verify_signature: bool,
-    ) -> Result<(), AttestationValidationError> {
-        ensure!(
-            attestation.data.slot + spec.min_attestation_inclusion_delay <= self.slot,
-            AttestationValidationError::IncludedTooEarly
-        );
-        ensure!(
-            attestation.data.slot + spec.epoch_length >= self.slot,
-            AttestationValidationError::IncludedTooLate
-        );
-        if attestation.data.slot >= self.current_epoch_start_slot(spec) {
-            ensure!(
-                attestation.data.justified_epoch == self.justified_epoch,
-                AttestationValidationError::WrongJustifiedSlot
-            );
-        } else {
-            ensure!(
-                attestation.data.justified_epoch == self.previous_justified_epoch,
-                AttestationValidationError::WrongJustifiedSlot
-            );
-        }
-        ensure!(
-            attestation.data.justified_block_root
-                == *self
-                    .get_block_root(
-                        attestation
-                            .data
-                            .justified_epoch
-                            .start_slot(spec.epoch_length),
-                        &spec
-                    )
-                    .ok_or(AttestationValidationError::NoBlockRoot)?,
-            AttestationValidationError::WrongJustifiedRoot
-        );
-        ensure!(
-            (attestation.data.latest_crosslink
-                == self.latest_crosslinks[attestation.data.shard as usize])
-                || (attestation.data.latest_crosslink
-                    == self.latest_crosslinks[attestation.data.shard as usize]),
-            AttestationValidationError::BadLatestCrosslinkRoot
-        );
-        if verify_signature {
-            let participants = self.get_attestation_participants(
-                &attestation.data,
-                &attestation.aggregation_bitfield,
-                spec,
-            )?;
-            let mut group_public_key = AggregatePublicKey::new();
-            for participant in participants {
-                group_public_key.add(
-                    self.validator_registry[participant as usize]
-                        .pubkey
-                        .as_raw(),
-                )
-            }
-            ensure!(
-                bls_verify_aggregate(
-                    &group_public_key,
-                    &attestation.signable_message(PHASE_0_CUSTODY_BIT),
-                    &attestation.aggregate_signature,
-                    get_domain(
-                        &self.fork,
-                        attestation.data.slot.epoch(spec.epoch_length),
-                        DOMAIN_ATTESTATION
-                    )
-                ),
-                AttestationValidationError::BadSignature
-            );
-        }
-        ensure!(
-            attestation.data.shard_block_root == spec.zero_hash,
-            AttestationValidationError::ShardBlockRootNotZero
-        );
-        Ok(())
-    }
-}
-
-fn get_domain(_fork: &Fork, _epoch: Epoch, _domain_type: u64) -> u64 {
-    // TODO: stubbed out.
-    0
 }
 
 impl From<AttestationParticipantsError> for AttestationValidationError {

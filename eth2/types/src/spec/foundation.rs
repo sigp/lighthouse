@@ -7,6 +7,8 @@ impl ChainSpec {
     ///
     /// Of course, the actual foundation specs are unknown at this point so these are just a rough
     /// estimate.
+    ///
+    /// Spec v0.2.0
     pub fn foundation() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(19));
         let epoch_length = 64;
@@ -57,7 +59,7 @@ impl ChainSpec {
             min_attestation_inclusion_delay: Slot::new(4),
             epoch_length,
             seed_lookahead: Epoch::new(1),
-            entry_exit_delay: Epoch::new(4),
+            entry_exit_delay: 4,
             eth1_data_voting_period: 16,
             min_validator_withdrawal_epochs: Epoch::new(256),
 
