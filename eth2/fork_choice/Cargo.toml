@@ -8,3 +8,5 @@ edition = "2018"
 db = { path = "../../beacon_node/db" }
 ssz = { path = "../utils/ssz" }
 types = { path = "../types" }
+fast-math = "0.1.1"
+byteorder = "1.3.1"
