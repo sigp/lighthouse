@@ -33,7 +33,7 @@ pub enum Error {
 
 #[derive(Debug, PartialEq)]
 pub enum ValidBlock {
-    /// The block was sucessfully processed.
+    /// The block was successfully processed.
     Processed,
 }
 

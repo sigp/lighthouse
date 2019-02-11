@@ -2,6 +2,7 @@ extern crate db;
 
 // TODO: Pull out the dependency on self and beacon_chain
 
+/*
 use db::{
     stores::{BeaconBlockAtSlotError, BeaconBlockStore},
     ClientDB, DBError,
@@ -165,3 +166,4 @@ impl From<TestingSlotClockError> for Error {
         unreachable!(); // Testing clock never throws an error.
     }
 }
+*/
