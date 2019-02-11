@@ -1,20 +1,15 @@
 use crate::test_utils::TestRandom;
 use crate::{
     validator::StatusFlags, validator_registry::get_active_validator_indices, AggregatePublicKey,
-    Attestation, AttestationData, BeaconBlock, Bitfield, ChainSpec, Crosslink, Epoch, Eth1Data,
-    Eth1DataVote, Exit, Fork, Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
+    Attestation, AttestationData, Bitfield, ChainSpec, Crosslink, Epoch, Eth1Data, Eth1DataVote,
+    Fork, Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::bls_verify_aggregate;
 use honey_badger_split::SplitExt;
-use integer_sqrt::IntegerSquareRoot;
-use log::debug;
 use rand::RngCore;
-use rayon::prelude::*;
 use serde_derive::Serialize;
-use ssz::ssz_encode;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
+use std::collections::HashMap;
 use std::ops::Range;
 use vec_shuffle::shuffle;
 
@@ -32,6 +27,7 @@ pub enum Error {
     CommitteesError(CommitteesError),
 }
 
+/*
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingError {
     DBError(String),
@@ -61,7 +57,9 @@ pub enum BlockProcessingError {
     CommitteesError(CommitteesError),
     SlotProcessingError(SlotProcessingError),
 }
+*/
 
+/*
 #[derive(Debug, PartialEq)]
 pub enum EpochError {
     UnableToDetermineProducer,
@@ -72,6 +70,7 @@ pub enum EpochError {
     InclusionError(InclusionError),
     WinningRootError(WinningRootError),
 }
+*/
 
 #[derive(Debug, PartialEq)]
 pub enum WinningRootError {
@@ -99,11 +98,13 @@ pub enum AttestationParticipantsError {
     CommitteesError(CommitteesError),
 }
 
+/*
 #[derive(Debug, PartialEq)]
 pub enum SlotProcessingError {
     CommitteesError(CommitteesError),
     EpochProcessingError(EpochError),
 }
+*/
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationValidationError {
@@ -153,33 +154,27 @@ pub struct BeaconState {
     // Misc
     pub slot: Slot,
     pub genesis_time: u64,
-    pub fork_data: Fork,
+    pub fork: Fork,
 
     // Validator registry
     pub validator_registry: Vec<Validator>,
     pub validator_balances: Vec<u64>,
-    pub validator_registry_update_slot: Slot,
-    pub validator_registry_exit_count: u64,
-    pub validator_registry_delta_chain_tip: Hash256,
+    pub validator_registry_update_epoch: Epoch,
 
     // Randomness and committees
     pub latest_randao_mixes: Vec<Hash256>,
-    pub latest_vdf_outputs: Vec<Hash256>,
     pub previous_epoch_start_shard: u64,
     pub current_epoch_start_shard: u64,
-    pub previous_epoch_calculation_slot: Slot,
-    pub current_epoch_calculation_slot: Slot,
+    pub previous_calculation_epoch: Epoch,
+    pub current_calculation_epoch: Epoch,
     pub previous_epoch_seed: Hash256,
     pub current_epoch_seed: Hash256,
 
-    // Custody challenges
-    pub custody_challenges: Vec<CustodyChallenge>,
-
     // Finality
-    pub previous_justified_slot: Slot,
-    pub justified_slot: Slot,
+    pub previous_justified_epoch: Epoch,
+    pub justified_epoch: Epoch,
     pub justification_bitfield: u64,
-    pub finalized_slot: Slot,
+    pub finalized_epoch: Epoch,
 
     // Recent state
     pub latest_crosslinks: Vec<Crosslink>,
@@ -206,6 +201,10 @@ impl BeaconState {
         self.current_epoch(spec).saturating_sub(1_u64)
     }
 
+    pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
+        self.current_epoch(spec).saturating_add(1_u64)
+    }
+
     pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
         self.current_epoch(spec).start_slot(spec.epoch_length)
     }
@@ -214,10 +213,12 @@ impl BeaconState {
         self.previous_epoch(spec).start_slot(spec.epoch_length)
     }
 
-    /// Returns the number of committees per slot.
+    /// Return the number of committees in one epoch.
     ///
-    /// Note: this is _not_ the committee size.
-    pub fn get_committee_count_per_slot(
+    /// TODO: this should probably be a method on `ChainSpec`.
+    ///
+    /// Spec v0.1
+    pub fn get_epoch_committee_count(
         &self,
         active_validator_count: usize,
         spec: &ChainSpec,
@@ -228,33 +229,75 @@ impl BeaconState {
                 spec.shard_count / spec.epoch_length,
                 active_validator_count as u64 / spec.epoch_length / spec.target_committee_size,
             ),
-        )
+        ) * spec.epoch_length
     }
 
-    fn get_previous_epoch_committee_count_per_slot(&self, spec: &ChainSpec) -> u64 {
-        let previous_active_validators = get_active_validator_indices(
-            &self.validator_registry,
-            self.previous_epoch_calculation_slot,
-        );
-        self.get_committee_count_per_slot(previous_active_validators.len(), spec) as u64
+    /// Shuffle ``validators`` into crosslink committees seeded by ``seed`` and ``epoch``.
+    /// Return a list of ``committees_per_epoch`` committees where each
+    /// committee is itself a list of validator indices.
+    ///
+    /// Spec v0.1
+    pub fn get_shuffling(&self, seed: Hash256, epoch: Epoch, spec: &ChainSpec) -> Vec<Vec<usize>> {
+        let active_validator_indices =
+            get_active_validator_indices(&self.validator_registry, epoch);
+
+        let committees_per_epoch =
+            self.get_epoch_committee_count(active_validator_indices.len(), spec);
+
+        // TODO: check that Hash256::from(u64) matches 'int_to_bytes32'.
+        let seed = seed ^ Hash256::from(epoch.as_u64());
+        // TODO: fix `expect` assert.
+        let shuffled_active_validator_indices =
+            shuffle(&seed, active_validator_indices).expect("Max validator count exceed!");
+
+        shuffled_active_validator_indices
+            .honey_badger_split(committees_per_epoch as usize)
+            .filter_map(|slice: &[usize]| Some(slice.to_vec()))
+            .collect()
     }
 
-    pub fn get_current_epoch_committee_count_per_slot(&self, spec: &ChainSpec) -> u64 {
-        let current_active_validators = get_active_validator_indices(
-            &self.validator_registry,
-            self.current_epoch_calculation_slot,
-        );
-        self.get_committee_count_per_slot(current_active_validators.len(), spec)
+    /// Return the number of committees in the previous epoch.
+    ///
+    /// Spec v0.1
+    fn get_previous_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
+        let previous_active_validators =
+            get_active_validator_indices(&self.validator_registry, self.previous_calculation_epoch);
+        self.get_epoch_committee_count(previous_active_validators.len(), spec)
     }
 
+    /// Return the number of committees in the current epoch.
+    ///
+    /// Spec v0.1
+    pub fn get_current_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
+        let current_active_validators =
+            get_active_validator_indices(&self.validator_registry, self.current_calculation_epoch);
+        self.get_epoch_committee_count(current_active_validators.len(), spec)
+    }
+
+    /// Return the number of committees in the next epoch.
+    ///
+    /// Spec v0.1
+    pub fn get_next_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
+        let current_active_validators =
+            get_active_validator_indices(&self.validator_registry, self.current_epoch(spec) + 1);
+        self.get_epoch_committee_count(current_active_validators.len(), spec)
+    }
+
+    /// Return the list of ``(committee, shard)`` tuples for the ``slot``.
+    ///
+    /// Note: There are two possible shufflings for crosslink committees for a
+    /// `slot` in the next epoch: with and without a `registry_change`
+    ///
+    /// Spec v0.1
     pub fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
+        registry_change: bool,
         spec: &ChainSpec,
     ) -> Result<Vec<(Vec<usize>, u64)>, CommitteesError> {
         let epoch = slot.epoch(spec.epoch_length);
         let current_epoch = self.current_epoch(spec);
-        let previous_epoch = if current_epoch == spec.genesis_slot.epoch(spec.epoch_length) {
+        let previous_epoch = if current_epoch == spec.genesis_epoch {
             current_epoch
         } else {
             current_epoch.saturating_sub(1_u64)
@@ -269,20 +312,20 @@ impl BeaconState {
         let offset = slot.as_u64() % spec.epoch_length;
 
         let (committees_per_slot, shuffling, slot_start_shard) = if epoch < current_epoch {
-            let committees_per_slot = self.get_previous_epoch_committee_count_per_slot(spec);
+            let committees_per_slot = self.get_previous_epoch_committee_count(spec);
             let shuffling = self.get_shuffling(
                 self.previous_epoch_seed,
-                self.previous_epoch_calculation_slot,
+                self.previous_calculation_epoch,
                 spec,
             );
             let slot_start_shard =
                 (self.previous_epoch_start_shard + committees_per_slot * offset) % spec.shard_count;
             (committees_per_slot, shuffling, slot_start_shard)
         } else {
-            let committees_per_slot = self.get_current_epoch_committee_count_per_slot(spec);
+            let committees_per_slot = self.get_current_epoch_committee_count(spec);
             let shuffling = self.get_shuffling(
                 self.current_epoch_seed,
-                self.current_epoch_calculation_slot,
+                self.current_calculation_epoch,
                 spec,
             );
             let slot_start_shard =
@@ -301,34 +344,6 @@ impl BeaconState {
         Ok(crosslinks_at_slot)
     }
 
-    pub fn per_slot_processing(
-        &mut self,
-        previous_block_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<(), SlotProcessingError> {
-        if (self.slot + 1) % spec.epoch_length == 0 {
-            self.per_epoch_processing(spec)?;
-        }
-
-        self.slot += 1;
-
-        let block_proposer = self.get_beacon_proposer_index(self.slot, spec)?;
-
-        self.validator_registry[block_proposer].proposer_slots += 1;
-        self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length).as_usize()] = self
-            .latest_randao_mixes[((self.slot - 1) % spec.latest_randao_mixes_length).as_usize()];
-
-        // Block roots.
-        self.latest_block_roots[((self.slot - 1) % spec.latest_block_roots_length).as_usize()] =
-            previous_block_root;
-
-        if self.slot % spec.latest_block_roots_length == 0 {
-            let root = merkle_root(&self.latest_block_roots[..]);
-            self.batched_block_roots.push(root);
-        }
-        Ok(())
-    }
-
     pub fn attestation_slot_and_shard_for_validator(
         &self,
         validator_index: usize,
@@ -336,7 +351,7 @@ impl BeaconState {
     ) -> Result<Option<(Slot, u64, u64)>, CommitteesError> {
         let mut result = None;
         for slot in self.current_epoch(spec).slot_iter(spec.epoch_length) {
-            for (committee, shard) in self.get_crosslink_committees_at_slot(slot, spec)? {
+            for (committee, shard) in self.get_crosslink_committees_at_slot(slot, false, spec)? {
                 if let Some(committee_index) = committee.iter().position(|&i| i == validator_index)
                 {
                     result = Some((slot, shard, committee_index as u64));
@@ -346,254 +361,8 @@ impl BeaconState {
         Ok(result)
     }
 
-    pub fn per_block_processing(
-        &mut self,
-        block: &BeaconBlock,
-        spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        self.per_block_processing_signature_optional(block, true, spec)
-    }
-
-    pub fn per_block_processing_without_verifying_block_signature(
-        &mut self,
-        block: &BeaconBlock,
-        spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        self.per_block_processing_signature_optional(block, false, spec)
-    }
-
-    fn per_block_processing_signature_optional(
-        &mut self,
-        block: &BeaconBlock,
-        verify_block_signature: bool,
-        spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        ensure!(
-            block.slot == self.slot,
-            BlockProcessingError::StateSlotMismatch
-        );
-
-        /*
-         * Proposer Signature
-         */
-        let block_proposer_index = self
-            .get_beacon_proposer_index(block.slot, spec)
-            .map_err(|_| BlockProcessingError::NoBlockProducer)?;
-        let block_proposer = &self.validator_registry[block_proposer_index];
-
-        if verify_block_signature {
-            ensure!(
-                bls_verify(
-                    &block_proposer.pubkey,
-                    &block.proposal_root(spec)[..],
-                    &block.signature,
-                    get_domain(&self.fork_data, self.slot, DOMAIN_PROPOSAL)
-                ),
-                BlockProcessingError::BadBlockSignature
-            );
-        }
-
-        /*
-         * RANDAO
-         */
-        ensure!(
-            bls_verify(
-                &block_proposer.pubkey,
-                &ssz_encode(&block_proposer.proposer_slots),
-                &block.randao_reveal,
-                get_domain(&self.fork_data, self.slot, DOMAIN_RANDAO)
-            ),
-            BlockProcessingError::BadRandaoSignature
-        );
-
-        // TODO: check this is correct.
-        let new_mix = {
-            let mut mix = self.latest_randao_mixes
-                [(self.slot % spec.latest_randao_mixes_length).as_usize()]
-            .to_vec();
-            mix.append(&mut ssz_encode(&block.randao_reveal));
-            Hash256::from(&hash(&mix)[..])
-        };
-
-        self.latest_randao_mixes[(self.slot % spec.latest_randao_mixes_length).as_usize()] =
-            new_mix;
-
-        /*
-         * Eth1 data
-         */
-
-        // TODO: Eth1 data processing.
-
-        /*
-         * Proposer slashings
-         */
-        ensure!(
-            block.body.proposer_slashings.len() as u64 <= spec.max_proposer_slashings,
-            BlockProcessingError::MaxProposerSlashingsExceeded
-        );
-        for proposer_slashing in &block.body.proposer_slashings {
-            let proposer = self
-                .validator_registry
-                .get(proposer_slashing.proposer_index as usize)
-                .ok_or(BlockProcessingError::BadProposerSlashing)?;
-            ensure!(
-                proposer_slashing.proposal_data_1.slot == proposer_slashing.proposal_data_2.slot,
-                BlockProcessingError::BadProposerSlashing
-            );
-            ensure!(
-                proposer_slashing.proposal_data_1.shard == proposer_slashing.proposal_data_2.shard,
-                BlockProcessingError::BadProposerSlashing
-            );
-            ensure!(
-                proposer_slashing.proposal_data_1.block_root
-                    != proposer_slashing.proposal_data_2.block_root,
-                BlockProcessingError::BadProposerSlashing
-            );
-            ensure!(
-                proposer.penalized_slot > self.slot,
-                BlockProcessingError::BadProposerSlashing
-            );
-            ensure!(
-                bls_verify(
-                    &proposer.pubkey,
-                    &proposer_slashing.proposal_data_1.hash_tree_root(),
-                    &proposer_slashing.proposal_signature_1,
-                    get_domain(
-                        &self.fork_data,
-                        proposer_slashing.proposal_data_1.slot,
-                        DOMAIN_PROPOSAL
-                    )
-                ),
-                BlockProcessingError::BadProposerSlashing
-            );
-            ensure!(
-                bls_verify(
-                    &proposer.pubkey,
-                    &proposer_slashing.proposal_data_2.hash_tree_root(),
-                    &proposer_slashing.proposal_signature_2,
-                    get_domain(
-                        &self.fork_data,
-                        proposer_slashing.proposal_data_2.slot,
-                        DOMAIN_PROPOSAL
-                    )
-                ),
-                BlockProcessingError::BadProposerSlashing
-            );
-            penalize_validator(&self, proposer_slashing.proposer_index as usize);
-        }
-
-        /*
-         * Attestations
-         */
-        ensure!(
-            block.body.attestations.len() as u64 <= spec.max_attestations,
-            BlockProcessingError::MaxAttestationsExceeded
-        );
-
-        for attestation in &block.body.attestations {
-            self.validate_attestation(attestation, spec)?;
-
-            let pending_attestation = PendingAttestation {
-                data: attestation.data.clone(),
-                aggregation_bitfield: attestation.aggregation_bitfield.clone(),
-                custody_bitfield: attestation.custody_bitfield.clone(),
-                slot_included: self.slot,
-            };
-            self.latest_attestations.push(pending_attestation);
-        }
-
-        debug!(
-            "{} attestations verified & processed.",
-            block.body.attestations.len()
-        );
-
-        /*
-         * Deposits
-         */
-        ensure!(
-            block.body.deposits.len() as u64 <= spec.max_deposits,
-            BlockProcessingError::MaxDepositsExceeded
-        );
-
-        // TODO: process deposits.
-
-        /*
-         * Exits
-         */
-
-        ensure!(
-            block.body.exits.len() as u64 <= spec.max_exits,
-            BlockProcessingError::MaxExitsExceeded
-        );
-
-        for exit in &block.body.exits {
-            let validator = self
-                .validator_registry
-                .get(exit.validator_index as usize)
-                .ok_or(BlockProcessingError::BadExit)?;
-            ensure!(
-                validator.exit_slot > self.slot + spec.entry_exit_delay,
-                BlockProcessingError::BadExit
-            );
-            ensure!(self.slot >= exit.slot, BlockProcessingError::BadExit);
-            let exit_message = {
-                let exit_struct = Exit {
-                    slot: exit.slot,
-                    validator_index: exit.validator_index,
-                    signature: spec.empty_signature.clone(),
-                };
-                exit_struct.hash_tree_root()
-            };
-            ensure!(
-                bls_verify(
-                    &validator.pubkey,
-                    &exit_message,
-                    &exit.signature,
-                    get_domain(&self.fork_data, exit.slot, DOMAIN_EXIT)
-                ),
-                BlockProcessingError::BadProposerSlashing
-            );
-            initiate_validator_exit(&self, exit.validator_index);
-        }
-
-        /*
-         * Custody
-         */
-        ensure!(
-            block.body.custody_reseeds.is_empty(),
-            BlockProcessingError::BadCustodyReseeds
-        );
-        ensure!(
-            block.body.custody_challenges.is_empty(),
-            BlockProcessingError::BadCustodyChallenges
-        );
-        ensure!(
-            block.body.custody_responses.is_empty(),
-            BlockProcessingError::BadCustodyResponses
-        );
-
-        debug!("State transition complete.");
-
-        Ok(())
-    }
-
-    pub fn get_shuffling(&self, seed: Hash256, slot: Slot, spec: &ChainSpec) -> Vec<Vec<usize>> {
-        let slot = slot - (slot % spec.epoch_length);
-
-        let active_validator_indices = get_active_validator_indices(&self.validator_registry, slot);
-
-        let committees_per_slot =
-            self.get_committee_count_per_slot(active_validator_indices.len(), spec);
-
-        // TODO: check that Hash256 matches 'int_to_bytes32'.
-        let seed = seed ^ Hash256::from(slot.as_u64());
-        let shuffled_active_validator_indices =
-            shuffle(&seed, active_validator_indices).expect("Max validator count exceed!");
-
-        shuffled_active_validator_indices
-            .honey_badger_split((committees_per_slot * spec.epoch_length) as usize)
-            .filter_map(|slice: &[usize]| Some(slice.to_vec()))
-            .collect()
+    pub fn get_entry_exit_effect_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
+        epoch + 1 + spec.entry_exit_delay
     }
 
     /// Returns the beacon proposer index for the `slot`.
@@ -603,7 +372,7 @@ impl BeaconState {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Result<usize, CommitteesError> {
-        let committees = self.get_crosslink_committees_at_slot(slot, spec)?;
+        let committees = self.get_crosslink_committees_at_slot(slot, false, spec)?;
         committees
             .first()
             .ok_or(CommitteesError::InsufficientNumberOfValidators)
@@ -616,527 +385,27 @@ impl BeaconState {
             })
     }
 
-    pub fn per_epoch_processing(&mut self, spec: &ChainSpec) -> Result<(), EpochError> {
-        debug!(
-            "Starting per-epoch processing on epoch {}...",
-            self.current_epoch(spec)
-        );
-        /*
-         * All Validators
-         */
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, self.slot);
-        let total_balance = self.get_effective_balances(&active_validator_indices[..], spec);
-
-        debug!(
-            "{} validators with a total balance of {} wei.",
-            active_validator_indices.len(),
-            total_balance
-        );
-
-        let current_epoch_attestations: Vec<&PendingAttestation> = self
-            .latest_attestations
-            .par_iter()
-            .filter(|a| {
-                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
-                    == self.current_epoch(spec)
-            })
-            .collect();
-
-        debug!(
-            "Current epoch attestations: {}",
-            current_epoch_attestations.len()
-        );
-
-        /*
-         * Validators attesting during the current epoch.
-         */
-        if self.latest_block_roots.is_empty() {
-            return Err(EpochError::NoBlockRoots);
-        }
-
-        let current_epoch_boundary_attestations: Vec<&PendingAttestation> =
-            current_epoch_attestations
-                .par_iter()
-                .filter(|a| {
-                    match self.get_block_root(self.current_epoch_start_slot(spec), spec) {
-                        Some(block_root) => {
-                            (a.data.epoch_boundary_root == *block_root)
-                                && (a.data.justified_slot == self.justified_slot)
-                        }
-                        // Protected by a check that latest_block_roots isn't empty.
-                        //
-                        // TODO: provide detailed reasoning.
-                        None => unreachable!(),
-                    }
-                })
-                .cloned()
-                .collect();
-
-        let current_epoch_boundary_attester_indices = self
-            .get_attestation_participants_union(&current_epoch_boundary_attestations[..], spec)?;
-        let current_epoch_boundary_attesting_balance =
-            self.get_effective_balances(&current_epoch_boundary_attester_indices[..], spec);
-
-        debug!(
-            "Current epoch boundary attesters: {}",
-            current_epoch_boundary_attester_indices.len()
-        );
-
-        /*
-         * Validators attesting during the previous epoch
-         */
-
-        /*
-         * Validators that made an attestation during the previous epoch
-         */
-        let previous_epoch_attestations: Vec<&PendingAttestation> = self
-            .latest_attestations
-            .par_iter()
-            .filter(|a| {
-                //TODO: ensure these saturating subs are correct.
-                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
-                    == self.previous_epoch(spec)
-            })
-            .collect();
-
-        debug!(
-            "previous epoch attestations: {}",
-            previous_epoch_attestations.len()
-        );
-
-        let previous_epoch_attester_indices =
-            self.get_attestation_participants_union(&previous_epoch_attestations[..], spec)?;
-
-        /*
-         * Validators targetting the previous justified slot
-         */
-        let previous_epoch_justified_attestations: Vec<&PendingAttestation> = {
-            let mut a: Vec<&PendingAttestation> = current_epoch_attestations
-                .iter()
-                .filter(|a| a.data.justified_slot == self.previous_justified_slot)
-                .cloned()
-                .collect();
-            let mut b: Vec<&PendingAttestation> = previous_epoch_attestations
-                .iter()
-                .filter(|a| a.data.justified_slot == self.previous_justified_slot)
-                .cloned()
-                .collect();
-            a.append(&mut b);
-            a
-        };
-
-        let previous_epoch_justified_attester_indices = self
-            .get_attestation_participants_union(&previous_epoch_justified_attestations[..], spec)?;
-        let previous_epoch_justified_attesting_balance =
-            self.get_effective_balances(&previous_epoch_justified_attester_indices[..], spec);
-
-        /*
-         * Validators justifying the epoch boundary block at the start of the previous epoch
-         */
-        let previous_epoch_boundary_attestations: Vec<&PendingAttestation> =
-            previous_epoch_justified_attestations
-                .iter()
-                .filter(|a| {
-                    match self.get_block_root(self.previous_epoch_start_slot(spec), spec) {
-                        Some(block_root) => a.data.epoch_boundary_root == *block_root,
-                        // Protected by a check that latest_block_roots isn't empty.
-                        //
-                        // TODO: provide detailed reasoning.
-                        None => unreachable!(),
-                    }
-                })
-                .cloned()
-                .collect();
-
-        let previous_epoch_boundary_attester_indices = self
-            .get_attestation_participants_union(&previous_epoch_boundary_attestations[..], spec)?;
-        let previous_epoch_boundary_attesting_balance =
-            self.get_effective_balances(&previous_epoch_boundary_attester_indices[..], spec);
-
-        /*
-         * Validators attesting to the expected beacon chain head during the previous epoch.
-         */
-        let previous_epoch_head_attestations: Vec<&PendingAttestation> =
-            previous_epoch_attestations
-                .iter()
-                .filter(|a| {
-                    match self.get_block_root(a.data.slot, spec) {
-                        Some(block_root) => a.data.beacon_block_root == *block_root,
-                        // Protected by a check that latest_block_roots isn't empty.
-                        //
-                        // TODO: provide detailed reasoning.
-                        None => unreachable!(),
-                    }
-                })
-                .cloned()
-                .collect();
-
-        let previous_epoch_head_attester_indices =
-            self.get_attestation_participants_union(&previous_epoch_head_attestations[..], spec)?;
-        let previous_epoch_head_attesting_balance =
-            self.get_effective_balances(&previous_epoch_head_attester_indices[..], spec);
-
-        debug!(
-            "previous_epoch_head_attester_balance of {} wei.",
-            previous_epoch_head_attesting_balance
-        );
-
-        /*
-         * Eth1 Data
-         */
-        if self.slot % spec.eth1_data_voting_period == 0 {
-            for eth1_data_vote in &self.eth1_data_votes {
-                if eth1_data_vote.vote_count * 2 > spec.eth1_data_voting_period {
-                    self.latest_eth1_data = eth1_data_vote.eth1_data.clone();
-                }
-            }
-            self.eth1_data_votes = vec![];
-        }
-
-        /*
-         * Justification
-         */
-        self.previous_justified_slot = self.justified_slot;
-        let (new_bitfield, _) = self.justification_bitfield.overflowing_mul(2);
-        self.justification_bitfield = new_bitfield;
-
-        // If >= 2/3 of validators voted for the previous epoch boundary
-        if (3 * previous_epoch_boundary_attesting_balance) >= (2 * total_balance) {
-            // TODO: check saturating_sub is correct.
-            self.justification_bitfield |= 2;
-            self.justified_slot = self.slot.saturating_sub(2 * spec.epoch_length);
-            debug!(">= 2/3 voted for previous epoch boundary");
-        }
-
-        // If >= 2/3 of validators voted for the current epoch boundary
-        if (3 * current_epoch_boundary_attesting_balance) >= (2 * total_balance) {
-            // TODO: check saturating_sub is correct.
-            self.justification_bitfield |= 1;
-            self.justified_slot = self.slot.saturating_sub(1 * spec.epoch_length);
-            debug!(">= 2/3 voted for current epoch boundary");
-        }
-
-        if (self.previous_justified_slot == self.slot.saturating_sub(2 * spec.epoch_length))
-            && (self.justification_bitfield % 4 == 3)
-        {
-            self.finalized_slot = self.previous_justified_slot;
-        }
-        if (self.previous_justified_slot == self.slot.saturating_sub(3 * spec.epoch_length))
-            && (self.justification_bitfield % 8 == 7)
-        {
-            self.finalized_slot = self.previous_justified_slot;
-        }
-        if (self.previous_justified_slot == self.slot.saturating_sub(4 * spec.epoch_length))
-            && (self.justification_bitfield % 16 == 14)
-        {
-            self.finalized_slot = self.previous_justified_slot;
-        }
-        if (self.previous_justified_slot == self.slot.saturating_sub(4 * spec.epoch_length))
-            && (self.justification_bitfield % 16 == 15)
-        {
-            self.finalized_slot = self.previous_justified_slot;
-        }
-
-        debug!(
-            "Finalized slot {}, justified slot {}.",
-            self.finalized_slot, self.justified_slot
-        );
-
-        /*
-         * Crosslinks
-         */
-
-        // Cached for later lookups.
-        let mut winning_root_for_shards: HashMap<u64, Result<WinningRoot, WinningRootError>> =
-            HashMap::new();
-
-        // for slot in self.slot.saturating_sub(2 * spec.epoch_length)..self.slot {
-        for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
-            let crosslink_committees_at_slot = self.get_crosslink_committees_at_slot(slot, spec)?;
-
-            for (crosslink_committee, shard) in crosslink_committees_at_slot {
-                let shard = shard as u64;
-
-                let winning_root = self.winning_root(
-                    shard,
-                    &current_epoch_attestations,
-                    &previous_epoch_attestations,
-                    spec,
-                );
-
-                if let Ok(winning_root) = &winning_root {
-                    let total_committee_balance =
-                        self.get_effective_balances(&crosslink_committee[..], spec);
-
-                    if (3 * winning_root.total_attesting_balance) >= (2 * total_committee_balance) {
-                        self.latest_crosslinks[shard as usize] = Crosslink {
-                            slot: self.slot,
-                            shard_block_root: winning_root.shard_block_root,
-                        }
-                    }
-                }
-                winning_root_for_shards.insert(shard, winning_root);
-            }
-        }
-
-        debug!(
-            "Found {} winning shard roots.",
-            winning_root_for_shards.len()
-        );
-
-        /*
-         * Rewards and Penalities
-         */
-        let base_reward_quotient = total_balance.integer_sqrt();
-        if base_reward_quotient == 0 {
-            return Err(EpochError::BaseRewardQuotientIsZero);
-        }
-
-        /*
-         * Justification and finalization
-         */
-        let epochs_since_finality =
-            (self.slot.saturating_sub(self.finalized_slot) / spec.epoch_length).as_u64();
-
-        // TODO: fix this extra map
-        let previous_epoch_justified_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_justified_attester_indices.iter().map(|i| *i));
-        let previous_epoch_boundary_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_boundary_attester_indices.iter().map(|i| *i));
-        let previous_epoch_head_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_head_attester_indices.iter().map(|i| *i));
-        let previous_epoch_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_attester_indices.iter().map(|i| *i));
-
-        debug!("previous epoch justified attesters: {}, previous epoch boundary attesters: {}, previous epoch head attesters: {}, previous epoch attesters: {}", previous_epoch_justified_attester_indices.len(), previous_epoch_boundary_attester_indices.len(), previous_epoch_head_attester_indices.len(), previous_epoch_attester_indices.len());
-
-        debug!("{} epochs since finality.", epochs_since_finality);
-
-        if epochs_since_finality <= 4 {
-            for index in 0..self.validator_balances.len() {
-                let base_reward = self.base_reward(index, base_reward_quotient, spec);
-
-                if previous_epoch_justified_attester_indices_hashset.contains(&index) {
-                    safe_add_assign!(
-                        self.validator_balances[index],
-                        base_reward * previous_epoch_justified_attesting_balance / total_balance
-                    );
-                } else {
-                    safe_sub_assign!(self.validator_balances[index], base_reward);
-                }
-
-                if previous_epoch_boundary_attester_indices_hashset.contains(&index) {
-                    safe_add_assign!(
-                        self.validator_balances[index],
-                        base_reward * previous_epoch_boundary_attesting_balance / total_balance
-                    );
-                } else {
-                    safe_sub_assign!(self.validator_balances[index], base_reward);
-                }
-
-                if previous_epoch_head_attester_indices_hashset.contains(&index) {
-                    safe_add_assign!(
-                        self.validator_balances[index],
-                        base_reward * previous_epoch_head_attesting_balance / total_balance
-                    );
-                } else {
-                    safe_sub_assign!(self.validator_balances[index], base_reward);
-                }
-            }
-
-            for index in previous_epoch_attester_indices {
-                let base_reward = self.base_reward(index, base_reward_quotient, spec);
-                let inclusion_distance =
-                    self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
-
-                safe_add_assign!(
-                    self.validator_balances[index],
-                    base_reward * spec.min_attestation_inclusion_delay / inclusion_distance
-                )
-            }
-        } else {
-            for index in 0..self.validator_balances.len() {
-                let inactivity_penalty = self.inactivity_penalty(
-                    index,
-                    epochs_since_finality,
-                    base_reward_quotient,
-                    spec,
-                );
-
-                if !previous_epoch_justified_attester_indices_hashset.contains(&index) {
-                    safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
-                }
-
-                if !previous_epoch_boundary_attester_indices_hashset.contains(&index) {
-                    safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
-                }
-
-                if !previous_epoch_head_attester_indices_hashset.contains(&index) {
-                    safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
-                }
-            }
-
-            for index in previous_epoch_attester_indices {
-                let base_reward = self.base_reward(index, base_reward_quotient, spec);
-                let inclusion_distance =
-                    self.inclusion_distance(&previous_epoch_attestations, index, spec)?;
-
-                safe_sub_assign!(
-                    self.validator_balances[index],
-                    base_reward
-                        - base_reward * spec.min_attestation_inclusion_delay / inclusion_distance
-                );
-            }
-        }
-
-        debug!("Processed validator justification and finalization rewards/penalities.");
-
-        /*
-         * Attestation inclusion
-         */
-        for &index in &previous_epoch_attester_indices_hashset {
-            let inclusion_slot =
-                self.inclusion_slot(&previous_epoch_attestations[..], index, spec)?;
-            let proposer_index = self
-                .get_beacon_proposer_index(inclusion_slot, spec)
-                .map_err(|_| EpochError::UnableToDetermineProducer)?;
-            let base_reward = self.base_reward(proposer_index, base_reward_quotient, spec);
-            safe_add_assign!(
-                self.validator_balances[proposer_index],
-                base_reward / spec.includer_reward_quotient
-            );
-        }
-
-        debug!(
-            "Previous epoch attesters: {}.",
-            previous_epoch_attester_indices_hashset.len()
-        );
-
-        /*
-         * Crosslinks
-         */
-        for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
-            let crosslink_committees_at_slot = self.get_crosslink_committees_at_slot(slot, spec)?;
-
-            for (_crosslink_committee, shard) in crosslink_committees_at_slot {
-                let shard = shard as u64;
-
-                if let Some(Ok(winning_root)) = winning_root_for_shards.get(&shard) {
-                    // TODO: remove the map.
-                    let attesting_validator_indices: HashSet<usize> = HashSet::from_iter(
-                        winning_root.attesting_validator_indices.iter().map(|i| *i),
-                    );
-
-                    for index in 0..self.validator_balances.len() {
-                        let base_reward = self.base_reward(index, base_reward_quotient, spec);
-
-                        if attesting_validator_indices.contains(&index) {
-                            safe_add_assign!(
-                                self.validator_balances[index],
-                                base_reward * winning_root.total_attesting_balance
-                                    / winning_root.total_balance
-                            );
-                        } else {
-                            safe_sub_assign!(self.validator_balances[index], base_reward);
-                        }
-                    }
-
-                    for index in &winning_root.attesting_validator_indices {
-                        let base_reward = self.base_reward(*index, base_reward_quotient, spec);
-                        safe_add_assign!(
-                            self.validator_balances[*index],
-                            base_reward * winning_root.total_attesting_balance
-                                / winning_root.total_balance
-                        );
-                    }
-                }
-            }
-        }
-
-        /*
-         * Ejections
-         */
-        self.process_ejections();
-
-        /*
-         * Validator Registry
-         */
-        self.previous_epoch_calculation_slot = self.current_epoch_calculation_slot;
-        self.previous_epoch_start_shard = self.current_epoch_start_shard;
-        self.previous_epoch_seed = self.current_epoch_seed;
-
-        let should_update_validator_registy = if self.finalized_slot
-            > self.validator_registry_update_slot
-        {
-            (0..self.get_current_epoch_committee_count_per_slot(spec)).all(|i| {
-                let shard = (self.current_epoch_start_shard + i as u64) % spec.shard_count;
-                self.latest_crosslinks[shard as usize].slot > self.validator_registry_update_slot
-            })
-        } else {
-            false
-        };
-
-        if should_update_validator_registy {
-            self.update_validator_registry(spec);
-
-            self.current_epoch_calculation_slot = self.slot;
-            self.current_epoch_start_shard = (self.current_epoch_start_shard
-                + self.get_current_epoch_committee_count_per_slot(spec) as u64 * spec.epoch_length)
-                % spec.shard_count;
-            self.current_epoch_seed = self.get_randao_mix(
-                self.current_epoch_calculation_slot - spec.seed_lookahead,
-                spec,
-            );
-        } else {
-            let epochs_since_last_registry_change =
-                (self.slot - self.validator_registry_update_slot) / spec.epoch_length;
-            if epochs_since_last_registry_change.is_power_of_two() {
-                self.current_epoch_calculation_slot = self.slot;
-                self.current_epoch_seed = self.get_randao_mix(
-                    self.current_epoch_calculation_slot - spec.seed_lookahead,
-                    spec,
-                );
-            }
-        }
-
-        self.process_penalties_and_exits(spec);
-
-        let e = self.slot / spec.epoch_length;
-        self.latest_penalized_balances[((e + 1) % spec.latest_penalized_exit_length).as_usize()] =
-            self.latest_penalized_balances[(e % spec.latest_penalized_exit_length).as_usize()];
-
-        self.latest_attestations = self
-            .latest_attestations
-            .iter()
-            .filter(|a| {
-                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
-                    >= self.current_epoch(spec)
-            })
-            .cloned()
-            .collect();
-
-        debug!("Epoch transition complete.");
-
-        Ok(())
-    }
-
+    /// Process the penalties and prepare the validators who are eligible to withdrawal.
+    ///
+    /// Spec v0.2.0
     fn process_penalties_and_exits(&mut self, spec: &ChainSpec) {
+        let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, self.slot);
-        let total_balance = self.get_effective_balances(&active_validator_indices[..], spec);
+            get_active_validator_indices(&self.validator_registry, current_epoch);
+        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
 
         for index in 0..self.validator_balances.len() {
             let validator = &self.validator_registry[index];
 
-            if (self.slot / spec.epoch_length)
-                == (validator.penalized_slot / spec.epoch_length)
-                    + spec.latest_penalized_exit_length / 2
+            if current_epoch
+                == validator.penalized_epoch + Epoch::from(spec.latest_penalized_exit_length / 2)
             {
-                let e = (self.slot / spec.epoch_length) % spec.latest_penalized_exit_length;
+                let epoch_index: usize =
+                    current_epoch.as_usize() % spec.latest_penalized_exit_length;
+
                 let total_at_start = self.latest_penalized_balances
-                    [((e + 1) % spec.latest_penalized_exit_length).as_usize()];
-                let total_at_end = self.latest_penalized_balances[e.as_usize()];
+                    [(epoch_index + 1) % spec.latest_penalized_exit_length];
+                let total_at_end = self.latest_penalized_balances[epoch_index];
                 let total_penalities = total_at_end.saturating_sub(total_at_start);
                 let penalty = self.get_effective_balance(index, spec)
                     * std::cmp::min(total_penalities * 3, total_balance)
@@ -1148,19 +417,18 @@ impl BeaconState {
         let eligible = |index: usize| {
             let validator = &self.validator_registry[index];
 
-            if validator.penalized_slot <= self.slot {
-                let penalized_withdrawal_time =
-                    spec.latest_penalized_exit_length * spec.epoch_length / 2;
-                self.slot >= validator.penalized_slot + penalized_withdrawal_time
+            if validator.penalized_epoch <= current_epoch {
+                let penalized_withdrawal_epochs = spec.latest_penalized_exit_length / 2;
+                current_epoch >= validator.penalized_epoch + penalized_withdrawal_epochs as u64
             } else {
-                self.slot >= validator.exit_slot + spec.min_validator_withdrawal_time
+                current_epoch >= validator.exit_epoch + spec.min_validator_withdrawal_epochs
             }
         };
 
         let mut eligable_indices: Vec<usize> = (0..self.validator_registry.len())
             .filter(|i| eligible(*i))
             .collect();
-        eligable_indices.sort_by_key(|i| self.validator_registry[*i].exit_count);
+        eligable_indices.sort_by_key(|i| self.validator_registry[*i].exit_epoch);
         let mut withdrawn_so_far = 0;
         for index in eligable_indices {
             self.prepare_validator_for_withdrawal(index);
@@ -1171,24 +439,27 @@ impl BeaconState {
         }
     }
 
-    fn prepare_validator_for_withdrawal(&mut self, index: usize) {
-        //TODO: we're not ANDing here, we're setting. Potentially wrong.
-        self.validator_registry[index].status_flags = Some(StatusFlags::Withdrawable);
+    /// Return the randao mix at a recent ``epoch``.
+    ///
+    /// Returns `None` if the epoch is out-of-bounds of `self.latest_randao_mixes`.
+    ///
+    /// Spec v0.2.0
+    fn get_randao_mix(&mut self, epoch: Epoch, spec: &ChainSpec) -> Option<&Hash256> {
+        self.latest_randao_mixes
+            .get(epoch.as_usize() % spec.latest_randao_mixes_length)
     }
 
-    fn get_randao_mix(&mut self, slot: Slot, spec: &ChainSpec) -> Hash256 {
-        assert!(self.slot < slot + spec.latest_randao_mixes_length);
-        assert!(slot <= self.slot);
-        self.latest_randao_mixes[(slot % spec.latest_randao_mixes_length).as_usize()]
-    }
-
+    /// Update validator registry, activating/exiting validators if possible.
+    ///
+    /// Spec v0.2.0
     fn update_validator_registry(&mut self, spec: &ChainSpec) {
+        let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, self.slot);
-        let total_balance = self.get_effective_balances(&active_validator_indices[..], spec);
+            get_active_validator_indices(&self.validator_registry, current_epoch);
+        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
 
         let max_balance_churn = std::cmp::max(
-            spec.max_deposit,
+            spec.max_deposit_amount,
             total_balance / (2 * spec.max_balance_churn_quotient),
         );
 
@@ -1196,14 +467,13 @@ impl BeaconState {
         for index in 0..self.validator_registry.len() {
             let validator = &self.validator_registry[index];
 
-            if (validator.activation_slot > self.slot + spec.entry_exit_delay)
-                && self.validator_balances[index] >= spec.max_deposit
+            if (validator.activation_epoch > self.get_entry_exit_effect_epoch(current_epoch, spec))
+                && self.validator_balances[index] >= spec.max_deposit_amount
             {
                 balance_churn += self.get_effective_balance(index, spec);
                 if balance_churn > max_balance_churn {
                     break;
                 }
-
                 self.activate_validator(index, false, spec);
             }
         }
@@ -1212,7 +482,7 @@ impl BeaconState {
         for index in 0..self.validator_registry.len() {
             let validator = &self.validator_registry[index];
 
-            if (validator.exit_slot > self.slot + spec.entry_exit_delay)
+            if (validator.exit_epoch > self.get_entry_exit_effect_epoch(current_epoch, spec))
                 && validator.status_flags == Some(StatusFlags::InitiatedExit)
             {
                 balance_churn += self.get_effective_balance(index, spec);
@@ -1224,39 +494,105 @@ impl BeaconState {
             }
         }
 
-        self.validator_registry_update_slot = self.slot;
+        self.validator_registry_update_epoch = current_epoch;
     }
 
+    /// Activate the validator of the given ``index``.
+    ///
+    /// Spec v0.2.0
+    fn activate_validator(&mut self, validator_index: usize, is_genesis: bool, spec: &ChainSpec) {
+        let current_epoch = self.current_epoch(spec);
+
+        self.validator_registry[validator_index].activation_epoch = if is_genesis {
+            spec.genesis_epoch
+        } else {
+            self.get_entry_exit_effect_epoch(current_epoch, spec)
+        }
+    }
+
+    /// Initiate an exit for the validator of the given `index`.
+    ///
+    /// Spec v0.2.0
+    fn initiate_validator_exit(&mut self, validator_index: usize, spec: &ChainSpec) {
+        // TODO: the spec does an `|=` here, ensure this isn't buggy.
+        self.validator_registry[validator_index].status_flags = Some(StatusFlags::InitiatedExit);
+    }
+
+    /// Exit the validator of the given `index`.
+    ///
+    /// Spec v0.2.0
     fn exit_validator(&mut self, validator_index: usize, spec: &ChainSpec) {
-        if self.validator_registry[validator_index].exit_slot
-            <= self.entry_exit_effect_slot(self.slot, spec)
+        let current_epoch = self.current_epoch(spec);
+
+        if self.validator_registry[validator_index].exit_epoch
+            <= self.get_entry_exit_effect_epoch(current_epoch, spec)
         {
             return;
         }
 
-        self.validator_registry[validator_index].exit_slot =
-            self.entry_exit_effect_slot(self.slot, spec);
-
-        self.validator_registry_exit_count += 1;
-        self.validator_registry[validator_index].exit_count = self.validator_registry_exit_count;
+        self.validator_registry[validator_index].exit_epoch =
+            self.get_entry_exit_effect_epoch(current_epoch, spec);
     }
 
-    fn activate_validator(&mut self, validator_index: usize, is_genesis: bool, spec: &ChainSpec) {
-        self.validator_registry[validator_index].activation_slot = if is_genesis {
-            spec.genesis_slot
-        } else {
-            self.entry_exit_effect_slot(self.slot, spec)
+    ///  Penalize the validator of the given ``index``.
+    ///
+    ///  Exits the validator and assigns its effective balance to the block producer for this
+    ///  state.
+    ///
+    /// Spec v0.2.0
+    pub fn penalize_validator(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), CommitteesError> {
+        self.exit_validator(validator_index, spec);
+        let current_epoch = self.current_epoch(spec);
+
+        self.latest_penalized_balances
+            [current_epoch.as_usize() % spec.latest_penalized_exit_length] +=
+            self.get_effective_balance(validator_index, spec);
+
+        let whistleblower_index = self.get_beacon_proposer_index(self.slot, spec)?;
+        let whistleblower_reward = self.get_effective_balance(validator_index, spec);
+        safe_add_assign!(
+            self.validator_balances[whistleblower_index as usize],
+            whistleblower_reward
+        );
+        safe_sub_assign!(
+            self.validator_balances[validator_index],
+            whistleblower_reward
+        );
+        self.validator_registry[validator_index].penalized_epoch = current_epoch;
+        Ok(())
+    }
+
+    /// Initiate an exit for the validator of the given `index`.
+    ///
+    /// Spec v0.2.0
+    fn prepare_validator_for_withdrawal(&mut self, validator_index: usize) {
+        //TODO: we're not ANDing here, we're setting. Potentially wrong.
+        self.validator_registry[validator_index].status_flags = Some(StatusFlags::Withdrawable);
+    }
+
+    /// Iterate through the validator registry and eject active validators with balance below
+    /// ``EJECTION_BALANCE``.
+    ///
+    /// Spec v0.2.0
+    fn process_ejections(&mut self, spec: &ChainSpec) {
+        for validator_index in
+            get_active_validator_indices(&self.validator_registry, self.current_epoch(spec))
+        {
+            if self.validator_balances[validator_index] < spec.ejection_balance {
+                self.exit_validator(validator_index, spec)
+            }
         }
     }
 
-    fn entry_exit_effect_slot(&self, slot: Slot, spec: &ChainSpec) -> Slot {
-        (slot - slot % spec.epoch_length) + spec.epoch_length + spec.entry_exit_delay
-    }
-
-    fn process_ejections(&self) {
-        //TODO: stubbed out.
-    }
-
+    /// Returns the penality that should be applied to some validator for inactivity.
+    ///
+    /// Note: this is defined "inline" in the spec, not as a helper function.
+    ///
+    /// Spec v0.2.0
     fn inactivity_penalty(
         &self,
         validator_index: usize,
@@ -1269,6 +605,12 @@ impl BeaconState {
             + effective_balance * epochs_since_finality / spec.inactivity_penalty_quotient / 2
     }
 
+    /// Returns the distance between the first included attestation for some validator and this
+    /// slot.
+    ///
+    /// Note: In the spec this is defined "inline", not as a helper function.
+    ///
+    /// Spec v0.2.0
     fn inclusion_distance(
         &self,
         attestations: &[&PendingAttestation],
@@ -1277,9 +619,14 @@ impl BeaconState {
     ) -> Result<u64, InclusionError> {
         let attestation =
             self.earliest_included_attestation(attestations, validator_index, spec)?;
-        Ok((attestation.slot_included - attestation.data.slot).as_u64())
+        Ok((attestation.inclusion_slot - attestation.data.slot).as_u64())
     }
 
+    /// Returns the slot of the earliest included attestation for some validator.
+    ///
+    /// Note: In the spec this is defined "inline", not as a helper function.
+    ///
+    /// Spec v0.2.0
     fn inclusion_slot(
         &self,
         attestations: &[&PendingAttestation],
@@ -1288,9 +635,14 @@ impl BeaconState {
     ) -> Result<Slot, InclusionError> {
         let attestation =
             self.earliest_included_attestation(attestations, validator_index, spec)?;
-        Ok(attestation.slot_included)
+        Ok(attestation.inclusion_slot)
     }
 
+    /// Finds the earliest included attestation for some validator.
+    ///
+    /// Note: In the spec this is defined "inline", not as a helper function.
+    ///
+    /// Spec v0.2.0
     fn earliest_included_attestation(
         &self,
         attestations: &[&PendingAttestation],
@@ -1313,11 +665,16 @@ impl BeaconState {
 
         let earliest_attestation_index = included_attestations
             .iter()
-            .min_by_key(|i| attestations[**i].slot_included)
+            .min_by_key(|i| attestations[**i].inclusion_slot)
             .ok_or_else(|| InclusionError::NoIncludedAttestations)?;
         Ok(attestations[*earliest_attestation_index].clone())
     }
 
+    /// Returns the base reward for some validator.
+    ///
+    /// Note: In the spec this is defined "inline", not as a helper function.
+    ///
+    /// Spec v0.2.0
     fn base_reward(
         &self,
         validator_index: usize,
@@ -1327,23 +684,31 @@ impl BeaconState {
         self.get_effective_balance(validator_index, spec) / base_reward_quotient / 5
     }
 
-    pub fn get_effective_balances(&self, validator_indices: &[usize], spec: &ChainSpec) -> u64 {
+    /// Return the combined effective balance of an array of validators.
+    ///
+    /// Spec v0.2.0
+    pub fn get_total_balance(&self, validator_indices: &[usize], spec: &ChainSpec) -> u64 {
         validator_indices
             .iter()
             .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec))
     }
 
+    /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
+    ///
+    /// Spec v0.2.0
     pub fn get_effective_balance(&self, validator_index: usize, spec: &ChainSpec) -> u64 {
-        std::cmp::min(self.validator_balances[validator_index], spec.max_deposit)
+        std::cmp::min(
+            self.validator_balances[validator_index],
+            spec.max_deposit_amount,
+        )
     }
 
+    /// Return the block root at a recent `slot`.
+    ///
+    /// Spec v0.2.0
     pub fn get_block_root(&self, slot: Slot, spec: &ChainSpec) -> Option<&Hash256> {
-        if self.slot <= slot + spec.latest_block_roots_length && slot <= self.slot {
-            self.latest_block_roots
-                .get((slot % spec.latest_block_roots_length).as_usize())
-        } else {
-            None
-        }
+        self.latest_block_roots
+            .get(slot.as_usize() % spec.latest_block_roots_length)
     }
 
     pub(crate) fn winning_root(
@@ -1455,7 +820,7 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, AttestationParticipantsError> {
         let crosslink_committees =
-            self.get_crosslink_committees_at_slot(attestation_data.slot, spec)?;
+            self.get_crosslink_committees_at_slot(attestation_data.slot, false, spec)?;
 
         let committee_index: usize = crosslink_committees
             .iter()
@@ -1509,27 +874,33 @@ impl BeaconState {
         );
         if attestation.data.slot >= self.current_epoch_start_slot(spec) {
             ensure!(
-                attestation.data.justified_slot == self.justified_slot,
+                attestation.data.justified_epoch == self.justified_epoch,
                 AttestationValidationError::WrongJustifiedSlot
             );
         } else {
             ensure!(
-                attestation.data.justified_slot == self.previous_justified_slot,
+                attestation.data.justified_epoch == self.previous_justified_epoch,
                 AttestationValidationError::WrongJustifiedSlot
             );
         }
         ensure!(
             attestation.data.justified_block_root
                 == *self
-                    .get_block_root(attestation.data.justified_slot, &spec)
+                    .get_block_root(
+                        attestation
+                            .data
+                            .justified_epoch
+                            .start_slot(spec.epoch_length),
+                        &spec
+                    )
                     .ok_or(AttestationValidationError::NoBlockRoot)?,
             AttestationValidationError::WrongJustifiedRoot
         );
         ensure!(
-            (attestation.data.latest_crosslink_root
-                == self.latest_crosslinks[attestation.data.shard as usize].shard_block_root)
-                || (attestation.data.shard_block_root
-                    == self.latest_crosslinks[attestation.data.shard as usize].shard_block_root),
+            (attestation.data.latest_crosslink
+                == self.latest_crosslinks[attestation.data.shard as usize])
+                || (attestation.data.latest_crosslink
+                    == self.latest_crosslinks[attestation.data.shard as usize]),
             AttestationValidationError::BadLatestCrosslinkRoot
         );
         if verify_signature {
@@ -1551,7 +922,11 @@ impl BeaconState {
                     &group_public_key,
                     &attestation.signable_message(PHASE_0_CUSTODY_BIT),
                     &attestation.aggregate_signature,
-                    get_domain(&self.fork_data, attestation.data.slot, DOMAIN_ATTESTATION)
+                    get_domain(
+                        &self.fork,
+                        attestation.data.slot.epoch(spec.epoch_length),
+                        DOMAIN_ATTESTATION
+                    )
                 ),
                 AttestationValidationError::BadSignature
             );
@@ -1568,15 +943,7 @@ fn merkle_root(_input: &[Hash256]) -> Hash256 {
     Hash256::zero()
 }
 
-fn initiate_validator_exit(_state: &BeaconState, _index: u32) {
-    // TODO: stubbed out.
-}
-
-fn penalize_validator(_state: &BeaconState, _proposer_index: usize) {
-    // TODO: stubbed out.
-}
-
-fn get_domain(_fork: &Fork, _slot: Slot, _domain_type: u64) -> u64 {
+fn get_domain(_fork: &Fork, _epoch: Epoch, _domain_type: u64) -> u64 {
     // TODO: stubbed out.
     0
 }
@@ -1604,6 +971,7 @@ impl From<CommitteesError> for AttestationParticipantsError {
     }
 }
 
+/*
 impl From<AttestationValidationError> for BlockProcessingError {
     fn from(e: AttestationValidationError) -> BlockProcessingError {
         BlockProcessingError::InvalidAttestation(e)
@@ -1633,6 +1001,7 @@ impl From<EpochError> for SlotProcessingError {
         SlotProcessingError::EpochProcessingError(e)
     }
 }
+*/
 
 impl From<AttestationParticipantsError> for InclusionError {
     fn from(e: AttestationParticipantsError) -> InclusionError {
@@ -1640,6 +1009,7 @@ impl From<AttestationParticipantsError> for InclusionError {
     }
 }
 
+/*
 impl From<InclusionError> for EpochError {
     fn from(e: InclusionError) -> EpochError {
         EpochError::InclusionError(e)
@@ -1657,6 +1027,7 @@ impl From<AttestationParticipantsError> for EpochError {
         EpochError::AttestationParticipantsError(e)
     }
 }
+*/
 
 impl From<CommitteesError> for Error {
     fn from(e: CommitteesError) -> Error {
@@ -1668,25 +1039,21 @@ impl Encodable for BeaconState {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.slot);
         s.append(&self.genesis_time);
-        s.append(&self.fork_data);
+        s.append(&self.fork);
         s.append(&self.validator_registry);
         s.append(&self.validator_balances);
-        s.append(&self.validator_registry_update_slot);
-        s.append(&self.validator_registry_exit_count);
-        s.append(&self.validator_registry_delta_chain_tip);
+        s.append(&self.validator_registry_update_epoch);
         s.append(&self.latest_randao_mixes);
-        s.append(&self.latest_vdf_outputs);
         s.append(&self.previous_epoch_start_shard);
         s.append(&self.current_epoch_start_shard);
-        s.append(&self.previous_epoch_calculation_slot);
-        s.append(&self.current_epoch_calculation_slot);
+        s.append(&self.previous_calculation_epoch);
+        s.append(&self.current_calculation_epoch);
         s.append(&self.previous_epoch_seed);
         s.append(&self.current_epoch_seed);
-        s.append(&self.custody_challenges);
-        s.append(&self.previous_justified_slot);
-        s.append(&self.justified_slot);
+        s.append(&self.previous_justified_epoch);
+        s.append(&self.justified_epoch);
         s.append(&self.justification_bitfield);
-        s.append(&self.finalized_slot);
+        s.append(&self.finalized_epoch);
         s.append(&self.latest_crosslinks);
         s.append(&self.latest_block_roots);
         s.append(&self.latest_penalized_balances);
@@ -1701,25 +1068,21 @@ impl Decodable for BeaconState {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (slot, i) = <_>::ssz_decode(bytes, i)?;
         let (genesis_time, i) = <_>::ssz_decode(bytes, i)?;
-        let (fork_data, i) = <_>::ssz_decode(bytes, i)?;
+        let (fork, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_balances, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry_update_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry_exit_count, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry_delta_chain_tip, i) = <_>::ssz_decode(bytes, i)?;
+        let (validator_registry_update_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_randao_mixes, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_vdf_outputs, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
         let (current_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_epoch_calculation_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
         let (current_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
-        let (custody_challenges, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_justified_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (justified_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (justification_bitfield, i) = <_>::ssz_decode(bytes, i)?;
-        let (finalized_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (finalized_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_crosslinks, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_block_roots, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_penalized_balances, i) = <_>::ssz_decode(bytes, i)?;
@@ -1732,25 +1095,21 @@ impl Decodable for BeaconState {
             Self {
                 slot,
                 genesis_time,
-                fork_data,
+                fork,
                 validator_registry,
                 validator_balances,
-                validator_registry_update_slot,
-                validator_registry_exit_count,
-                validator_registry_delta_chain_tip,
+                validator_registry_update_epoch,
                 latest_randao_mixes,
-                latest_vdf_outputs,
                 previous_epoch_start_shard,
                 current_epoch_start_shard,
-                previous_epoch_calculation_slot,
-                current_epoch_calculation_slot,
+                previous_calculation_epoch,
+                current_calculation_epoch,
                 previous_epoch_seed,
                 current_epoch_seed,
-                custody_challenges,
-                previous_justified_slot,
-                justified_slot,
+                previous_justified_epoch,
+                justified_epoch,
                 justification_bitfield,
-                finalized_slot,
+                finalized_epoch,
                 latest_crosslinks,
                 latest_block_roots,
                 latest_penalized_balances,
@@ -1769,25 +1128,21 @@ impl TreeHash for BeaconState {
         let mut result: Vec<u8> = vec![];
         result.append(&mut self.slot.hash_tree_root());
         result.append(&mut self.genesis_time.hash_tree_root());
-        result.append(&mut self.fork_data.hash_tree_root());
+        result.append(&mut self.fork.hash_tree_root());
         result.append(&mut self.validator_registry.hash_tree_root());
         result.append(&mut self.validator_balances.hash_tree_root());
-        result.append(&mut self.validator_registry_update_slot.hash_tree_root());
-        result.append(&mut self.validator_registry_exit_count.hash_tree_root());
-        result.append(&mut self.validator_registry_delta_chain_tip.hash_tree_root());
+        result.append(&mut self.validator_registry_update_epoch.hash_tree_root());
         result.append(&mut self.latest_randao_mixes.hash_tree_root());
-        result.append(&mut self.latest_vdf_outputs.hash_tree_root());
         result.append(&mut self.previous_epoch_start_shard.hash_tree_root());
         result.append(&mut self.current_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.previous_epoch_calculation_slot.hash_tree_root());
-        result.append(&mut self.current_epoch_calculation_slot.hash_tree_root());
+        result.append(&mut self.previous_calculation_epoch.hash_tree_root());
+        result.append(&mut self.current_calculation_epoch.hash_tree_root());
         result.append(&mut self.previous_epoch_seed.hash_tree_root());
         result.append(&mut self.current_epoch_seed.hash_tree_root());
-        result.append(&mut self.custody_challenges.hash_tree_root());
-        result.append(&mut self.previous_justified_slot.hash_tree_root());
-        result.append(&mut self.justified_slot.hash_tree_root());
+        result.append(&mut self.previous_justified_epoch.hash_tree_root());
+        result.append(&mut self.justified_epoch.hash_tree_root());
         result.append(&mut self.justification_bitfield.hash_tree_root());
-        result.append(&mut self.finalized_slot.hash_tree_root());
+        result.append(&mut self.finalized_epoch.hash_tree_root());
         result.append(&mut self.latest_crosslinks.hash_tree_root());
         result.append(&mut self.latest_block_roots.hash_tree_root());
         result.append(&mut self.latest_penalized_balances.hash_tree_root());
@@ -1804,25 +1159,21 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
         Self {
             slot: <_>::random_for_test(rng),
             genesis_time: <_>::random_for_test(rng),
-            fork_data: <_>::random_for_test(rng),
+            fork: <_>::random_for_test(rng),
             validator_registry: <_>::random_for_test(rng),
             validator_balances: <_>::random_for_test(rng),
-            validator_registry_update_slot: <_>::random_for_test(rng),
-            validator_registry_exit_count: <_>::random_for_test(rng),
-            validator_registry_delta_chain_tip: <_>::random_for_test(rng),
+            validator_registry_update_epoch: <_>::random_for_test(rng),
             latest_randao_mixes: <_>::random_for_test(rng),
-            latest_vdf_outputs: <_>::random_for_test(rng),
             previous_epoch_start_shard: <_>::random_for_test(rng),
             current_epoch_start_shard: <_>::random_for_test(rng),
-            previous_epoch_calculation_slot: <_>::random_for_test(rng),
-            current_epoch_calculation_slot: <_>::random_for_test(rng),
+            previous_calculation_epoch: <_>::random_for_test(rng),
+            current_calculation_epoch: <_>::random_for_test(rng),
             previous_epoch_seed: <_>::random_for_test(rng),
             current_epoch_seed: <_>::random_for_test(rng),
-            custody_challenges: <_>::random_for_test(rng),
-            previous_justified_slot: <_>::random_for_test(rng),
-            justified_slot: <_>::random_for_test(rng),
+            previous_justified_epoch: <_>::random_for_test(rng),
+            justified_epoch: <_>::random_for_test(rng),
             justification_bitfield: <_>::random_for_test(rng),
-            finalized_slot: <_>::random_for_test(rng),
+            finalized_epoch: <_>::random_for_test(rng),
             latest_crosslinks: <_>::random_for_test(rng),
             latest_block_roots: <_>::random_for_test(rng),
             latest_penalized_balances: <_>::random_for_test(rng),

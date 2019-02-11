@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, Hash256, PublicKey, Slot};
+use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKey};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -46,21 +46,17 @@ fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDec
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
-    pub proposer_slots: u64,
-    pub activation_slot: Slot,
-    pub exit_slot: Slot,
-    pub withdrawal_slot: Slot,
-    pub penalized_slot: Slot,
-    pub exit_count: u64,
+    pub activation_epoch: Epoch,
+    pub exit_epoch: Epoch,
+    pub withdrawal_epoch: Epoch,
+    pub penalized_epoch: Epoch,
     pub status_flags: Option<StatusFlags>,
-    pub latest_custody_reseed_slot: Slot,
-    pub penultimate_custody_reseed_slot: Slot,
 }
 
 impl Validator {
     /// This predicate indicates if the validator represented by this record is considered "active" at `slot`.
-    pub fn is_active_at(&self, slot: Slot) -> bool {
-        self.activation_slot <= slot && slot < self.exit_slot
+    pub fn is_active_at(&self, slot: Epoch) -> bool {
+        self.activation_epoch <= slot && slot < self.exit_epoch
     }
 }
 
@@ -70,15 +66,11 @@ impl Default for Validator {
         Self {
             pubkey: PublicKey::default(),
             withdrawal_credentials: Hash256::default(),
-            proposer_slots: 0,
-            activation_slot: Slot::from(std::u64::MAX),
-            exit_slot: Slot::from(std::u64::MAX),
-            withdrawal_slot: Slot::from(std::u64::MAX),
-            penalized_slot: Slot::from(std::u64::MAX),
-            exit_count: 0,
+            activation_epoch: Epoch::from(std::u64::MAX),
+            exit_epoch: Epoch::from(std::u64::MAX),
+            withdrawal_epoch: Epoch::from(std::u64::MAX),
+            penalized_epoch: Epoch::from(std::u64::MAX),
             status_flags: None,
-            latest_custody_reseed_slot: Slot::from(0_u64), // NOTE: is `GENESIS_SLOT`
-            penultimate_custody_reseed_slot: Slot::from(0_u64), // NOTE: is `GENESIS_SLOT`
         }
     }
 }
@@ -94,15 +86,11 @@ impl Encodable for Validator {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.pubkey);
         s.append(&self.withdrawal_credentials);
-        s.append(&self.proposer_slots);
-        s.append(&self.activation_slot);
-        s.append(&self.exit_slot);
-        s.append(&self.withdrawal_slot);
-        s.append(&self.penalized_slot);
-        s.append(&self.exit_count);
+        s.append(&self.activation_epoch);
+        s.append(&self.exit_epoch);
+        s.append(&self.withdrawal_epoch);
+        s.append(&self.penalized_epoch);
         s.append(&status_flag_to_byte(self.status_flags));
-        s.append(&self.latest_custody_reseed_slot);
-        s.append(&self.penultimate_custody_reseed_slot);
     }
 }
 
@@ -110,15 +98,11 @@ impl Decodable for Validator {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
         let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
-        let (proposer_slots, i) = <_>::ssz_decode(bytes, i)?;
-        let (activation_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (exit_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (withdrawal_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (penalized_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (exit_count, i) = <_>::ssz_decode(bytes, i)?;
+        let (activation_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (exit_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (withdrawal_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (penalized_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (status_flags_byte, i): (u8, usize) = <_>::ssz_decode(bytes, i)?;
-        let (latest_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (penultimate_custody_reseed_slot, i) = <_>::ssz_decode(bytes, i)?;
 
         let status_flags = status_flag_from_byte(status_flags_byte)?;
 
@@ -126,15 +110,11 @@ impl Decodable for Validator {
             Self {
                 pubkey,
                 withdrawal_credentials,
-                proposer_slots,
-                activation_slot,
-                exit_slot,
-                withdrawal_slot,
-                penalized_slot,
-                exit_count,
+                activation_epoch,
+                exit_epoch,
+                withdrawal_epoch,
+                penalized_epoch,
                 status_flags,
-                latest_custody_reseed_slot,
-                penultimate_custody_reseed_slot,
             },
             i,
         ))
@@ -146,15 +126,11 @@ impl TreeHash for Validator {
         let mut result: Vec<u8> = vec![];
         result.append(&mut self.pubkey.hash_tree_root());
         result.append(&mut self.withdrawal_credentials.hash_tree_root());
-        result.append(&mut self.proposer_slots.hash_tree_root());
-        result.append(&mut self.activation_slot.hash_tree_root());
-        result.append(&mut self.exit_slot.hash_tree_root());
-        result.append(&mut self.withdrawal_slot.hash_tree_root());
-        result.append(&mut self.penalized_slot.hash_tree_root());
-        result.append(&mut self.exit_count.hash_tree_root());
+        result.append(&mut self.activation_epoch.hash_tree_root());
+        result.append(&mut self.exit_epoch.hash_tree_root());
+        result.append(&mut self.withdrawal_epoch.hash_tree_root());
+        result.append(&mut self.penalized_epoch.hash_tree_root());
         result.append(&mut (status_flag_to_byte(self.status_flags) as u64).hash_tree_root());
-        result.append(&mut self.latest_custody_reseed_slot.hash_tree_root());
-        result.append(&mut self.penultimate_custody_reseed_slot.hash_tree_root());
         hash(&result)
     }
 }
@@ -164,15 +140,11 @@ impl<T: RngCore> TestRandom<T> for Validator {
         Self {
             pubkey: <_>::random_for_test(rng),
             withdrawal_credentials: <_>::random_for_test(rng),
-            proposer_slots: <_>::random_for_test(rng),
-            activation_slot: <_>::random_for_test(rng),
-            exit_slot: <_>::random_for_test(rng),
-            withdrawal_slot: <_>::random_for_test(rng),
-            penalized_slot: <_>::random_for_test(rng),
-            exit_count: <_>::random_for_test(rng),
+            activation_epoch: <_>::random_for_test(rng),
+            exit_epoch: <_>::random_for_test(rng),
+            withdrawal_epoch: <_>::random_for_test(rng),
+            penalized_epoch: <_>::random_for_test(rng),
             status_flags: Some(<_>::random_for_test(rng)),
-            latest_custody_reseed_slot: <_>::random_for_test(rng),
-            penultimate_custody_reseed_slot: <_>::random_for_test(rng),
         }
     }
 }
@@ -199,17 +171,17 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut validator = Validator::random_for_test(&mut rng);
 
-        let activation_slot = u64::random_for_test(&mut rng);
-        let exit_slot = activation_slot + 234;
+        let activation_epoch = u64::random_for_test(&mut rng);
+        let exit_epoch = activation_epoch + 234;
 
-        validator.activation_slot = Slot::from(activation_slot);
-        validator.exit_slot = Slot::from(exit_slot);
+        validator.activation_epoch = Epoch::from(activation_epoch);
+        validator.exit_epoch = Epoch::from(exit_epoch);
 
-        for slot in (activation_slot - 100)..(exit_slot + 100) {
-            let slot = Slot::from(slot);
-            if slot < activation_slot {
+        for slot in (activation_epoch - 100)..(exit_epoch + 100) {
+            let slot = Epoch::from(slot);
+            if slot < activation_epoch {
                 assert!(!validator.is_active_at(slot));
-            } else if slot >= exit_slot {
+            } else if slot >= exit_epoch {
                 assert!(!validator.is_active_at(slot));
             } else {
                 assert!(validator.is_active_at(slot));
