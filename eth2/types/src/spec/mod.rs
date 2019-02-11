@@ -3,6 +3,9 @@ mod foundation;
 use crate::{Address, Epoch, Hash256, Slot};
 use bls::Signature;
 
+/// Holds all the "constants" for a BeaconChain.
+///
+/// Spec v0.2.0
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
@@ -49,7 +52,7 @@ pub struct ChainSpec {
     pub min_attestation_inclusion_delay: Slot,
     pub epoch_length: u64,
     pub seed_lookahead: Epoch,
-    pub entry_exit_delay: Epoch,
+    pub entry_exit_delay: u64,
     pub eth1_data_voting_period: u64,
     pub min_validator_withdrawal_epochs: Epoch,
 
