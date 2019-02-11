@@ -1,6 +1,6 @@
-use super::{AttestationData, Bitfield, Hash256};
+use super::{AggregatePublicKey, AggregateSignature, AttestationData, Bitfield, Hash256};
 use crate::test_utils::TestRandom;
-use bls::AggregateSignature;
+use bls::bls_verify_aggregate;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -20,6 +20,17 @@ impl Attestation {
 
     pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
         self.data.signable_message(custody_bit)
+    }
+
+    pub fn verify_signature(
+        &self,
+        group_public_key: &AggregatePublicKey,
+        custody_bit: bool,
+        // TODO: use domain.
+        _domain: u64,
+    ) -> bool {
+        self.aggregate_signature
+            .verify(&self.signable_message(custody_bit), group_public_key)
     }
 }
 
