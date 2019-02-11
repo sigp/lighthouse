@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 hashing = { path = "../utils/hashing" }
+integer-sqrt = "0.1"
 log = "0.4"
 ssz = { path = "../utils/ssz" }
 types = { path = "../types" }
