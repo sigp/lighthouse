@@ -8,4 +8,3 @@ edition = "2018"
 bls = { path = "../utils/bls"  }
 ssz = { path = "../utils/ssz" }
 types = { path = "../types"  }
-validator_induction = { path = "../validator_induction"  }
