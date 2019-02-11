@@ -617,13 +617,15 @@ impl BeaconState {
     pub fn inactivity_penalty(
         &self,
         validator_index: usize,
-        epochs_since_finality: u64,
+        epochs_since_finality: Epoch,
         base_reward_quotient: u64,
         spec: &ChainSpec,
     ) -> u64 {
         let effective_balance = self.get_effective_balance(validator_index, spec);
         self.base_reward(validator_index, base_reward_quotient, spec)
-            + effective_balance * epochs_since_finality / spec.inactivity_penalty_quotient / 2
+            + effective_balance * epochs_since_finality.as_u64()
+                / spec.inactivity_penalty_quotient
+                / 2
     }
 
     /// Returns the distance between the first included attestation for some validator and this
@@ -802,17 +804,6 @@ impl From<CommitteesError> for AttestationParticipantsError {
 
 /*
 
-impl From<CommitteesError> for SlotProcessingError {
-    fn from(e: CommitteesError) -> SlotProcessingError {
-        SlotProcessingError::CommitteesError(e)
-    }
-}
-
-impl From<EpochError> for SlotProcessingError {
-    fn from(e: EpochError) -> SlotProcessingError {
-        SlotProcessingError::EpochProcessingError(e)
-    }
-}
 */
 
 impl From<AttestationParticipantsError> for InclusionError {

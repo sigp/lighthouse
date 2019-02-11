@@ -1,11 +1,13 @@
-use log::debug;
+use integer_sqrt::IntegerSquareRoot;
+use log::{debug, trace};
 use rayon::prelude::*;
+use ssz::TreeHash;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use types::{
     beacon_state::{AttestationParticipantsError, CommitteesError, InclusionError},
     validator_registry::get_active_validator_indices,
-    BeaconState, ChainSpec, Crosslink, Hash256, PendingAttestation,
+    BeaconState, ChainSpec, Crosslink, Epoch, Hash256, PendingAttestation,
 };
 
 macro_rules! safe_add_assign {
@@ -24,6 +26,7 @@ pub enum Error {
     UnableToDetermineProducer,
     NoBlockRoots,
     BaseRewardQuotientIsZero,
+    NoRandaoSeed,
     CommitteesError(CommitteesError),
     AttestationParticipantsError(AttestationParticipantsError),
     InclusionError(InclusionError),
@@ -60,18 +63,18 @@ impl EpochProcessable for BeaconState {
         );
 
         /*
-         * All Validators
+         * Validators attesting during the current epoch.
          */
         let active_validator_indices = get_active_validator_indices(
             &self.validator_registry,
             self.slot.epoch(spec.epoch_length),
         );
-        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
+        let current_total_balance = self.get_total_balance(&active_validator_indices[..], spec);
 
-        debug!(
+        trace!(
             "{} validators with a total balance of {} wei.",
             active_validator_indices.len(),
-            total_balance
+            current_total_balance
         );
 
         let current_epoch_attestations: Vec<&PendingAttestation> = self
@@ -83,33 +86,23 @@ impl EpochProcessable for BeaconState {
             })
             .collect();
 
-        debug!(
+        trace!(
             "Current epoch attestations: {}",
             current_epoch_attestations.len()
         );
 
-        /*
-         * Validators attesting during the current epoch.
-         */
-        if self.latest_block_roots.is_empty() {
-            return Err(Error::NoBlockRoots);
-        }
-
         let current_epoch_boundary_attestations: Vec<&PendingAttestation> =
             current_epoch_attestations
                 .par_iter()
-                .filter(|a| {
-                    match self.get_block_root(self.current_epoch_start_slot(spec), spec) {
+                .filter(
+                    |a| match self.get_block_root(self.current_epoch_start_slot(spec), spec) {
                         Some(block_root) => {
                             (a.data.epoch_boundary_root == *block_root)
                                 && (a.data.justified_epoch == self.justified_epoch)
                         }
-                        // Protected by a check that latest_block_roots isn't empty.
-                        //
-                        // TODO: provide detailed reasoning.
                         None => unreachable!(),
-                    }
-                })
+                    },
+                )
                 .cloned()
                 .collect();
 
@@ -118,7 +111,7 @@ impl EpochProcessable for BeaconState {
         let current_epoch_boundary_attesting_balance =
             self.get_total_balance(&current_epoch_boundary_attester_indices[..], spec);
 
-        debug!(
+        trace!(
             "Current epoch boundary attesters: {}",
             current_epoch_boundary_attester_indices.len()
         );
@@ -147,6 +140,8 @@ impl EpochProcessable for BeaconState {
 
         let previous_epoch_attester_indices =
             self.get_attestation_participants_union(&previous_epoch_attestations[..], spec)?;
+        let previous_total_balance =
+            self.get_total_balance(&previous_epoch_attester_indices[..], spec);
 
         /*
          * Validators targetting the previous justified slot
@@ -177,15 +172,12 @@ impl EpochProcessable for BeaconState {
         let previous_epoch_boundary_attestations: Vec<&PendingAttestation> =
             previous_epoch_justified_attestations
                 .iter()
-                .filter(|a| {
-                    match self.get_block_root(self.previous_epoch_start_slot(spec), spec) {
+                .filter(
+                    |a| match self.get_block_root(self.previous_epoch_start_slot(spec), spec) {
                         Some(block_root) => a.data.epoch_boundary_root == *block_root,
-                        // Protected by a check that latest_block_roots isn't empty.
-                        //
-                        // TODO: provide detailed reasoning.
                         None => unreachable!(),
-                    }
-                })
+                    },
+                )
                 .cloned()
                 .collect();
 
@@ -200,14 +192,9 @@ impl EpochProcessable for BeaconState {
         let previous_epoch_head_attestations: Vec<&PendingAttestation> =
             previous_epoch_attestations
                 .iter()
-                .filter(|a| {
-                    match self.get_block_root(a.data.slot, spec) {
-                        Some(block_root) => a.data.beacon_block_root == *block_root,
-                        // Protected by a check that latest_block_roots isn't empty.
-                        //
-                        // TODO: provide detailed reasoning.
-                        None => unreachable!(),
-                    }
+                .filter(|a| match self.get_block_root(a.data.slot, spec) {
+                    Some(block_root) => a.data.beacon_block_root == *block_root,
+                    None => unreachable!(),
                 })
                 .cloned()
                 .collect();
@@ -237,51 +224,84 @@ impl EpochProcessable for BeaconState {
         /*
          * Justification
          */
-        let new_justified_epoch = self.justified_epoch;
-        self.previous_justified_epoch = self.justified_epoch;
-        let (new_bitfield, _) = self.justification_bitfield.overflowing_mul(2);
-        self.justification_bitfield = new_bitfield;
 
-        // If >= 2/3 of validators voted for the previous epoch boundary
-        if (3 * previous_epoch_boundary_attesting_balance) >= (2 * total_balance) {
-            // TODO: check saturating_sub is correct.
+        let mut new_justified_epoch = self.justified_epoch;
+        self.justification_bitfield = self.justification_bitfield << 1;
+
+        // If > 2/3 of the total balance attested to the previous epoch boundary
+        //
+        // - Set the 2nd bit of the bitfield.
+        // - Set the previous epoch to be justified.
+        if (3 * previous_epoch_boundary_attesting_balance) >= (2 * current_total_balance) {
             self.justification_bitfield |= 2;
-            self.justified_epoch = self.slot.saturating_sub(2 * spec.epoch_length);
-            debug!(">= 2/3 voted for previous epoch boundary");
+            new_justified_epoch = previous_epoch;
+            trace!(">= 2/3 voted for previous epoch boundary");
         }
-
-        // If >= 2/3 of validators voted for the current epoch boundary
-        if (3 * current_epoch_boundary_attesting_balance) >= (2 * total_balance) {
-            // TODO: check saturating_sub is correct.
+        // If > 2/3 of the total balance attested to the previous epoch boundary
+        //
+        // - Set the 1st bit of the bitfield.
+        // - Set the current epoch to be justified.
+        if (3 * current_epoch_boundary_attesting_balance) >= (2 * current_total_balance) {
             self.justification_bitfield |= 1;
-            self.justified_epoch = self.slot.saturating_sub(1 * spec.epoch_length);
-            debug!(">= 2/3 voted for current epoch boundary");
+            new_justified_epoch = current_epoch;
+            trace!(">= 2/3 voted for current epoch boundary");
         }
 
-        if (self.previous_justified_epoch == self.slot.saturating_sub(2 * spec.epoch_length))
-            && (self.justification_bitfield % 4 == 3)
+        // If:
+        //
+        // - All three epochs prior to this epoch have been justified.
+        // - The previous justified justified epoch was three epochs ago.
+        //
+        // Then, set the finalized epoch to be three epochs ago.
+        if ((self.justification_bitfield >> 1) % 8 == 0b111)
+            & (self.previous_justified_epoch == previous_epoch - 2)
         {
-            self.finalized_slot = self.previous_justified_epoch;
+            self.finalized_epoch = self.previous_justified_epoch;
+            trace!("epoch - 3 was finalized (1st condition).");
         }
-        if (self.previous_justified_epoch == self.slot.saturating_sub(3 * spec.epoch_length))
-            && (self.justification_bitfield % 8 == 7)
+        // If:
+        //
+        // - Both two epochs prior to this epoch have been justified.
+        // - The previous justified epoch was two epochs ago.
+        //
+        // Then, set the finalized epoch to two epochs ago.
+        if ((self.justification_bitfield >> 1) % 4 == 0b11)
+            & (self.previous_justified_epoch == previous_epoch - 1)
         {
-            self.finalized_slot = self.previous_justified_epoch;
+            self.finalized_epoch = self.previous_justified_epoch;
+            trace!("epoch - 2 was finalized (2nd condition).");
         }
-        if (self.previous_justified_epoch == self.slot.saturating_sub(4 * spec.epoch_length))
-            && (self.justification_bitfield % 16 == 14)
+        // If:
+        //
+        // - This epoch and the two prior have been justified.
+        // - The presently justified epoch was two epochs ago.
+        //
+        // Then, set the finalized epoch to two epochs ago.
+        if ((self.justification_bitfield >> 0) % 8 == 0b111)
+            & (self.justified_epoch == previous_epoch - 1)
         {
-            self.finalized_slot = self.previous_justified_epoch;
+            self.finalized_epoch = self.justified_epoch;
+            trace!("epoch - 2 was finalized (3rd condition).");
         }
-        if (self.previous_justified_epoch == self.slot.saturating_sub(4 * spec.epoch_length))
-            && (self.justification_bitfield % 16 == 15)
+        // If:
+        //
+        // - This epoch and the epoch prior to it have been justified.
+        // - Set the previous epoch to be justified.
+        //
+        // Then, set the finalized epoch to be the previous epoch.
+        if ((self.justification_bitfield >> 0) % 4 == 0b11)
+            & (self.justified_epoch == previous_epoch)
         {
-            self.finalized_slot = self.previous_justified_epoch;
+            self.finalized_epoch = self.justified_epoch;
+            trace!("epoch - 1 was finalized (4th condition).");
         }
+
+        self.previous_justified_epoch = self.justified_epoch;
+        self.justified_epoch = new_justified_epoch;
 
         debug!(
-            "Finalized slot {}, justified slot {}.",
-            self.finalized_slot, self.justified_epoch
+            "Finalized epoch {}, justified epoch {}.",
+            self.finalized_epoch, self.justified_epoch
         );
 
         /*
@@ -300,7 +320,8 @@ impl EpochProcessable for BeaconState {
             for (crosslink_committee, shard) in crosslink_committees_at_slot {
                 let shard = shard as u64;
 
-                let winning_root = self.winning_root(
+                let winning_root = winning_root(
+                    self,
                     shard,
                     &current_epoch_attestations,
                     &previous_epoch_attestations,
@@ -313,7 +334,7 @@ impl EpochProcessable for BeaconState {
 
                     if (3 * winning_root.total_attesting_balance) >= (2 * total_committee_balance) {
                         self.latest_crosslinks[shard as usize] = Crosslink {
-                            slot: self.slot,
+                            epoch: current_epoch,
                             shard_block_root: winning_root.shard_block_root,
                         }
                     }
@@ -322,7 +343,7 @@ impl EpochProcessable for BeaconState {
             }
         }
 
-        debug!(
+        trace!(
             "Found {} winning shard roots.",
             winning_root_for_shards.len()
         );
@@ -330,7 +351,7 @@ impl EpochProcessable for BeaconState {
         /*
          * Rewards and Penalities
          */
-        let base_reward_quotient = total_balance.integer_sqrt();
+        let base_reward_quotient = previous_total_balance.integer_sqrt();
         if base_reward_quotient == 0 {
             return Err(Error::BaseRewardQuotientIsZero);
         }
@@ -338,18 +359,18 @@ impl EpochProcessable for BeaconState {
         /*
          * Justification and finalization
          */
-        let epochs_since_finality =
-            (self.slot.saturating_sub(self.finalized_slot) / spec.epoch_length).as_u64();
+        let epochs_since_finality = next_epoch - self.finalized_epoch;
 
-        // TODO: fix this extra map
         let previous_epoch_justified_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_justified_attester_indices.iter().map(|i| *i));
+            HashSet::from_iter(previous_epoch_justified_attester_indices.iter().cloned());
         let previous_epoch_boundary_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_boundary_attester_indices.iter().map(|i| *i));
+            HashSet::from_iter(previous_epoch_boundary_attester_indices.iter().cloned());
         let previous_epoch_head_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_head_attester_indices.iter().map(|i| *i));
+            HashSet::from_iter(previous_epoch_head_attester_indices.iter().cloned());
         let previous_epoch_attester_indices_hashset: HashSet<usize> =
-            HashSet::from_iter(previous_epoch_attester_indices.iter().map(|i| *i));
+            HashSet::from_iter(previous_epoch_attester_indices.iter().cloned());
+        let active_validator_indices_hashset: HashSet<usize> =
+            HashSet::from_iter(active_validator_indices.iter().cloned());
 
         debug!("previous epoch justified attesters: {}, previous epoch boundary attesters: {}, previous epoch head attesters: {}, previous epoch attesters: {}", previous_epoch_justified_attester_indices.len(), previous_epoch_boundary_attester_indices.len(), previous_epoch_head_attester_indices.len(), previous_epoch_attester_indices.len());
 
@@ -362,28 +383,37 @@ impl EpochProcessable for BeaconState {
                 if previous_epoch_justified_attester_indices_hashset.contains(&index) {
                     safe_add_assign!(
                         self.validator_balances[index],
-                        base_reward * previous_epoch_justified_attesting_balance / total_balance
+                        base_reward * previous_epoch_justified_attesting_balance
+                            / previous_total_balance
                     );
                 } else {
-                    safe_sub_assign!(self.validator_balances[index], base_reward);
+                    if active_validator_indices_hashset.contains(&index) {
+                        safe_sub_assign!(self.validator_balances[index], base_reward);
+                    }
                 }
 
                 if previous_epoch_boundary_attester_indices_hashset.contains(&index) {
                     safe_add_assign!(
                         self.validator_balances[index],
-                        base_reward * previous_epoch_boundary_attesting_balance / total_balance
+                        base_reward * previous_epoch_boundary_attesting_balance
+                            / previous_total_balance
                     );
                 } else {
-                    safe_sub_assign!(self.validator_balances[index], base_reward);
+                    if active_validator_indices_hashset.contains(&index) {
+                        safe_sub_assign!(self.validator_balances[index], base_reward);
+                    }
                 }
 
                 if previous_epoch_head_attester_indices_hashset.contains(&index) {
                     safe_add_assign!(
                         self.validator_balances[index],
-                        base_reward * previous_epoch_head_attesting_balance / total_balance
+                        base_reward * previous_epoch_head_attesting_balance
+                            / previous_total_balance
                     );
                 } else {
-                    safe_sub_assign!(self.validator_balances[index], base_reward);
+                    if active_validator_indices_hashset.contains(&index) {
+                        safe_sub_assign!(self.validator_balances[index], base_reward);
+                    }
                 }
             }
 
@@ -405,17 +435,24 @@ impl EpochProcessable for BeaconState {
                     base_reward_quotient,
                     spec,
                 );
+                if active_validator_indices_hashset.contains(&index) {
+                    if !previous_epoch_justified_attester_indices_hashset.contains(&index) {
+                        safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
+                    }
+                    if !previous_epoch_boundary_attester_indices_hashset.contains(&index) {
+                        safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
+                    }
+                    if !previous_epoch_head_attester_indices_hashset.contains(&index) {
+                        safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
+                    }
 
-                if !previous_epoch_justified_attester_indices_hashset.contains(&index) {
-                    safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
-                }
-
-                if !previous_epoch_boundary_attester_indices_hashset.contains(&index) {
-                    safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
-                }
-
-                if !previous_epoch_head_attester_indices_hashset.contains(&index) {
-                    safe_sub_assign!(self.validator_balances[index], inactivity_penalty);
+                    if self.validator_registry[index].penalized_epoch <= current_epoch {
+                        let base_reward = self.base_reward(index, base_reward_quotient, spec);
+                        safe_sub_assign!(
+                            self.validator_balances[index],
+                            2 * inactivity_penalty + base_reward
+                        );
+                    }
                 }
             }
 
@@ -432,7 +469,7 @@ impl EpochProcessable for BeaconState {
             }
         }
 
-        debug!("Processed validator justification and finalization rewards/penalities.");
+        trace!("Processed validator justification and finalization rewards/penalities.");
 
         /*
          * Attestation inclusion
@@ -450,7 +487,7 @@ impl EpochProcessable for BeaconState {
             );
         }
 
-        debug!(
+        trace!(
             "Previous epoch attesters: {}.",
             previous_epoch_attester_indices_hashset.len()
         );
@@ -459,7 +496,8 @@ impl EpochProcessable for BeaconState {
          * Crosslinks
          */
         for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
-            let crosslink_committees_at_slot = self.get_crosslink_committees_at_slot(slot, spec)?;
+            let crosslink_committees_at_slot =
+                self.get_crosslink_committees_at_slot(slot, false, spec)?;
 
             for (_crosslink_committee, shard) in crosslink_committees_at_slot {
                 let shard = shard as u64;
@@ -499,7 +537,7 @@ impl EpochProcessable for BeaconState {
         /*
          * Ejections
          */
-        self.process_ejections();
+        self.process_ejections(spec);
 
         /*
          * Validator Registry
@@ -508,7 +546,7 @@ impl EpochProcessable for BeaconState {
         self.previous_epoch_start_shard = self.current_epoch_start_shard;
         self.previous_epoch_seed = self.current_epoch_seed;
 
-        let should_update_validator_registy = if self.finalized_slot
+        let should_update_validator_registy = if self.finalized_epoch
             > self.validator_registry_update_epoch
         {
             (0..self.get_current_epoch_committee_count(spec)).all(|i| {
@@ -522,35 +560,50 @@ impl EpochProcessable for BeaconState {
         if should_update_validator_registy {
             self.update_validator_registry(spec);
 
-            self.current_calculation_epoch = self.slot;
+            self.current_calculation_epoch = next_epoch;
             self.current_epoch_start_shard = (self.current_epoch_start_shard
-                + self.get_current_epoch_committee_count(spec) as u64 * spec.epoch_length)
+                + self.get_current_epoch_committee_count(spec) as u64)
                 % spec.shard_count;
-            self.current_epoch_seed =
-                self.get_randao_mix(self.current_calculation_epoch - spec.seed_lookahead, spec);
+            self.current_epoch_seed = self
+                .generate_seed(self.current_calculation_epoch, spec)
+                .ok_or_else(|| Error::NoRandaoSeed)?;
         } else {
-            let epochs_since_last_registry_change =
-                (self.slot - self.validator_registry_update_epoch) / spec.epoch_length;
-            if epochs_since_last_registry_change.is_power_of_two() {
-                self.current_calculation_epoch = self.slot;
-                self.current_epoch_seed =
-                    self.get_randao_mix(self.current_calculation_epoch - spec.seed_lookahead, spec);
+            let epochs_since_last_registry_update =
+                current_epoch - self.validator_registry_update_epoch;
+            if (epochs_since_last_registry_update > 1)
+                & epochs_since_last_registry_update.is_power_of_two()
+            {
+                self.current_calculation_epoch = next_epoch;
+                self.current_epoch_seed = self
+                    .generate_seed(self.current_calculation_epoch, spec)
+                    .ok_or_else(|| Error::NoRandaoSeed)?;
             }
         }
 
         self.process_penalties_and_exits(spec);
 
+        /*
         let e = self.slot / spec.epoch_length;
         self.latest_penalized_balances[((e + 1) % spec.latest_penalized_exit_length).as_usize()] =
             self.latest_penalized_balances[(e % spec.latest_penalized_exit_length).as_usize()];
 
+        */
+        self.latest_index_roots[(next_epoch.as_usize() + spec.entry_exit_delay as usize)
+            % spec.latest_index_roots_length] = hash_tree_root(get_active_validator_indices(
+            &self.validator_registry,
+            next_epoch + Epoch::from(spec.entry_exit_delay),
+        ));
+        self.latest_penalized_balances[next_epoch.as_usize() % spec.latest_penalized_exit_length] =
+            self.latest_penalized_balances
+                [current_epoch.as_usize() % spec.latest_penalized_exit_length];
+        self.latest_randao_mixes[next_epoch.as_usize() % spec.latest_randao_mixes_length] = self
+            .get_randao_mix(current_epoch, spec)
+            .and_then(|x| Some(*x))
+            .ok_or_else(|| Error::NoRandaoSeed)?;
         self.latest_attestations = self
             .latest_attestations
             .iter()
-            .filter(|a| {
-                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
-                    >= self.current_epoch(spec)
-            })
+            .filter(|a| a.data.slot.epoch(spec.epoch_length) >= current_epoch)
             .cloned()
             .collect();
 
@@ -558,6 +611,10 @@ impl EpochProcessable for BeaconState {
 
         Ok(())
     }
+}
+
+fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
+    Hash256::from(&input.hash_tree_root()[..])
 }
 
 fn winning_root(

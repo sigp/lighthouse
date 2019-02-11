@@ -49,7 +49,7 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub slot_duration: u64,
-    pub min_attestation_inclusion_delay: Slot,
+    pub min_attestation_inclusion_delay: u64,
     pub epoch_length: u64,
     pub seed_lookahead: Epoch,
     pub entry_exit_delay: u64,

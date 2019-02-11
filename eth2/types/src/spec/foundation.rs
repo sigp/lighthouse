@@ -56,7 +56,7 @@ impl ChainSpec {
              * Time parameters
              */
             slot_duration: 6,
-            min_attestation_inclusion_delay: Slot::new(4),
+            min_attestation_inclusion_delay: 4,
             epoch_length,
             seed_lookahead: Epoch::new(1),
             entry_exit_delay: 4,
