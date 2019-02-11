@@ -535,6 +535,7 @@ mod tests {
                 assert_saturating_sub(1, 2, 0);
             }
 
+            #[test]
             fn saturating_add() {
                 let assert_saturating_add = |a: u64, b: u64, result: u64| {
                     assert_eq!($type(a).saturating_add($type(b)), $type(result));
