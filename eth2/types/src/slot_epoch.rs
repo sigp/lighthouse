@@ -163,6 +163,10 @@ macro_rules! impl_math {
                 *self - other.into()
             }
 
+            pub fn saturating_add<T: Into<$type>>(&self, other: T) -> $type {
+                *self + other.into()
+            }
+
             pub fn checked_div<T: Into<$type>>(&self, rhs: T) -> Option<$type> {
                 let rhs: $type = rhs.into();
                 if rhs == 0 {
@@ -277,6 +281,10 @@ impl Slot {
 impl Epoch {
     pub fn new(slot: u64) -> Epoch {
         Epoch(slot)
+    }
+
+    pub fn max_value() -> Epoch {
+        Epoch(u64::max_value())
     }
 
     pub fn start_slot(&self, epoch_length: u64) -> Slot {
@@ -525,6 +533,22 @@ mod tests {
                 // Subtraction should be saturating
                 assert_saturating_sub(0, 1, 0);
                 assert_saturating_sub(1, 2, 0);
+            }
+
+            fn saturating_add() {
+                let assert_saturating_add = |a: u64, b: u64, result: u64| {
+                    assert_eq!($type(a).saturating_add($type(b)), $type(result));
+                };
+
+                assert_saturating_add(0, 1, 1);
+                assert_saturating_add(1, 0, 1);
+                assert_saturating_add(1, 2, 3);
+                assert_saturating_add(2, 1, 3);
+                assert_saturating_add(7, 7, 14);
+
+                // Addition should be saturating.
+                assert_saturating_add(u64::max_value(), 1, u64::max_value());
+                assert_saturating_add(u64::max_value(), u64::max_value(), u64::max_value());
             }
 
             #[test]

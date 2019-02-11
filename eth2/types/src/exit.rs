@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, Slot};
+use crate::{test_utils::TestRandom, Epoch};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
@@ -6,14 +6,14 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct Exit {
-    pub slot: Slot,
-    pub validator_index: u32,
+    pub epoch: Epoch,
+    pub validator_index: u64,
     pub signature: Signature,
 }
 
 impl Encodable for Exit {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.slot);
+        s.append(&self.epoch);
         s.append(&self.validator_index);
         s.append(&self.signature);
     }
@@ -21,13 +21,13 @@ impl Encodable for Exit {
 
 impl Decodable for Exit {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_index, i) = <_>::ssz_decode(bytes, i)?;
         let (signature, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                slot,
+                epoch,
                 validator_index,
                 signature,
             },
@@ -39,7 +39,7 @@ impl Decodable for Exit {
 impl TreeHash for Exit {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
+        result.append(&mut self.epoch.hash_tree_root());
         result.append(&mut self.validator_index.hash_tree_root());
         result.append(&mut self.signature.hash_tree_root());
         hash(&result)
@@ -49,7 +49,7 @@ impl TreeHash for Exit {
 impl<T: RngCore> TestRandom<T> for Exit {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            slot: <_>::random_for_test(rng),
+            epoch: <_>::random_for_test(rng),
             validator_index: <_>::random_for_test(rng),
             signature: <_>::random_for_test(rng),
         }
