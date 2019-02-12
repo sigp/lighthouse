@@ -152,9 +152,14 @@ impl TreeHash for Validator {
         result.append(&mut self.withdrawal_slot.hash_tree_root_internal());
         result.append(&mut self.penalized_slot.hash_tree_root_internal());
         result.append(&mut self.exit_count.hash_tree_root_internal());
-        result.append(&mut (status_flag_to_byte(self.status_flags) as u64).hash_tree_root_internal());
+        result
+            .append(&mut (status_flag_to_byte(self.status_flags) as u64).hash_tree_root_internal());
         result.append(&mut self.latest_custody_reseed_slot.hash_tree_root_internal());
-        result.append(&mut self.penultimate_custody_reseed_slot.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .penultimate_custody_reseed_slot
+                .hash_tree_root_internal(),
+        );
         hash(&result)
     }
 }

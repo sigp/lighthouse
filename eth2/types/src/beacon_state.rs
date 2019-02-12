@@ -1772,15 +1772,31 @@ impl TreeHash for BeaconState {
         result.append(&mut self.fork_data.hash_tree_root_internal());
         result.append(&mut self.validator_registry.hash_tree_root_internal());
         result.append(&mut self.validator_balances.hash_tree_root_internal());
-        result.append(&mut self.validator_registry_update_slot.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .validator_registry_update_slot
+                .hash_tree_root_internal(),
+        );
         result.append(&mut self.validator_registry_exit_count.hash_tree_root_internal());
-        result.append(&mut self.validator_registry_delta_chain_tip.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .validator_registry_delta_chain_tip
+                .hash_tree_root_internal(),
+        );
         result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
         result.append(&mut self.latest_vdf_outputs.hash_tree_root_internal());
         result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
         result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());
-        result.append(&mut self.previous_epoch_calculation_slot.hash_tree_root_internal());
-        result.append(&mut self.current_epoch_calculation_slot.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .previous_epoch_calculation_slot
+                .hash_tree_root_internal(),
+        );
+        result.append(
+            &mut self
+                .current_epoch_calculation_slot
+                .hash_tree_root_internal(),
+        );
         result.append(&mut self.previous_epoch_seed.hash_tree_root_internal());
         result.append(&mut self.current_epoch_seed.hash_tree_root_internal());
         result.append(&mut self.custody_challenges.hash_tree_root_internal());
