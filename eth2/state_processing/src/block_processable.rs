@@ -4,8 +4,8 @@ use log::debug;
 use ssz::{ssz_encode, TreeHash};
 use types::{
     beacon_state::{AttestationValidationError, CommitteesError},
-    AggregatePublicKey, Attestation, BeaconBlock, BeaconState, ChainSpec, Epoch, Exit, Fork,
-    Hash256, PendingAttestation, PublicKey, Signature,
+    AggregatePublicKey, Attestation, BeaconBlock, BeaconState, ChainSpec, Crosslink, Epoch, Exit,
+    Fork, Hash256, PendingAttestation, PublicKey, Signature,
 };
 
 // TODO: define elsehwere.
@@ -330,11 +330,14 @@ fn validate_attestation_signature_optional(
                 .ok_or(AttestationValidationError::NoBlockRoot)?,
         AttestationValidationError::WrongJustifiedRoot
     );
+    let potential_crosslink = Crosslink {
+        shard_block_root: attestation.data.shard_block_root,
+        epoch: attestation.data.slot.epoch(spec.epoch_length),
+    };
     ensure!(
         (attestation.data.latest_crosslink
             == state.latest_crosslinks[attestation.data.shard as usize])
-            | (attestation.data.latest_crosslink
-                == state.latest_crosslinks[attestation.data.shard as usize]),
+            | (attestation.data.latest_crosslink == potential_crosslink),
         AttestationValidationError::BadLatestCrosslinkRoot
     );
     if verify_signature {
