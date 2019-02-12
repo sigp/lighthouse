@@ -67,7 +67,6 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
-    justified_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
     pub latest_attestation_targets: RwLock<AttestationTargets>,
     pub spec: ChainSpec,
@@ -106,25 +105,19 @@ where
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
         let block_graph = BlockGraph::new();
-        block_graph.add_leaf(&Hash256::zero(), block_root.clone());
+        block_graph.add_leaf(&Hash256::zero(), block_root);
 
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
-            block_root.clone(),
+            block_root,
             genesis_state.clone(),
-            state_root.clone(),
-        ));
-        let justified_head = RwLock::new(CheckPoint::new(
-            genesis_block.clone(),
-            block_root.clone(),
-            genesis_state.clone(),
-            state_root.clone(),
+            state_root,
         ));
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
-            block_root.clone(),
+            block_root,
             genesis_state.clone(),
-            state_root.clone(),
+            state_root,
         ));
         let attestation_aggregator = RwLock::new(AttestationAggregator::new());
 
@@ -137,11 +130,10 @@ where
             block_graph,
             attestation_aggregator,
             state: RwLock::new(genesis_state.clone()),
-            justified_head,
             finalized_head,
             canonical_head,
             latest_attestation_targets,
-            spec: spec,
+            spec,
         })
     }
 
@@ -211,7 +203,7 @@ where
         for _ in state_slot.as_u64()..slot.as_u64() {
             self.state
                 .write()
-                .per_slot_processing(head_block_root.clone(), &self.spec)?;
+                .per_slot_processing(head_block_root, &self.spec)?;
         }
         Ok(())
     }
@@ -299,30 +291,28 @@ where
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         let justified_epoch = self.justified_epoch();
-        let justified_block_root = self
+        let justified_block_root = *self
             .state
             .read()
             .get_block_root(
                 justified_epoch.start_slot(self.spec.epoch_length),
                 &self.spec,
             )
-            .ok_or_else(|| Error::BadRecentBlockRoots)?
-            .clone();
+            .ok_or_else(|| Error::BadRecentBlockRoots)?;
 
-        let epoch_boundary_root = self
+        let epoch_boundary_root = *self
             .state
             .read()
             .get_block_root(
                 self.state.read().current_epoch_start_slot(&self.spec),
                 &self.spec,
             )
-            .ok_or_else(|| Error::BadRecentBlockRoots)?
-            .clone();
+            .ok_or_else(|| Error::BadRecentBlockRoots)?;
 
         Ok(AttestationData {
             slot: self.state.read().slot,
             shard,
-            beacon_block_root: self.head().beacon_block_root.clone(),
+            beacon_block_root: self.head().beacon_block_root,
             epoch_boundary_root,
             shard_block_root: Hash256::zero(),
             latest_crosslink: Crosslink {
@@ -359,7 +349,7 @@ where
         let targets = self.latest_attestation_targets.read();
 
         match targets.get(validator_index) {
-            Some(hash) => Some(hash.clone()),
+            Some(hash) => Some(*hash),
             None => None,
         }
     }
@@ -449,15 +439,11 @@ where
         let parent_state = self
             .state_store
             .get_reader(&parent_state_root)?
-            .ok_or(Error::DBInconsistent(format!(
-                "Missing state {}",
-                parent_state_root
-            )))?
+            .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?
             .into_beacon_state()
-            .ok_or(Error::DBInconsistent(format!(
-                "State SSZ invalid {}",
-                parent_state_root
-            )))?;
+            .ok_or_else(|| {
+                Error::DBInconsistent(format!("State SSZ invalid {}", parent_state_root))
+            })?;
 
         // TODO: check the block proposer signature BEFORE doing a state transition. This will
         // significantly lower exposure surface to DoS attacks.
@@ -465,7 +451,7 @@ where
         // Transition the parent state to the present slot.
         let mut state = parent_state;
         for _ in state.slot.as_u64()..present_slot.as_u64() {
-            if let Err(e) = state.per_slot_processing(parent_block_root.clone(), &self.spec) {
+            if let Err(e) = state.per_slot_processing(parent_block_root, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
                 ));
@@ -493,20 +479,14 @@ where
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
         // Update the block DAG.
-        self.block_graph
-            .add_leaf(&parent_block_root, block_root.clone());
+        self.block_graph.add_leaf(&parent_block_root, block_root);
 
         // If the parent block was the parent_block, automatically update the canonical head.
         //
         // TODO: this is a first-in-best-dressed scenario that is not ideal; fork_choice should be
         // run instead.
         if self.head().beacon_block_root == parent_block_root {
-            self.update_canonical_head(
-                block.clone(),
-                block_root.clone(),
-                state.clone(),
-                state_root.clone(),
-            );
+            self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
             // Update the local state variable.
             *self.state.write() = state.clone();
         }
@@ -535,15 +515,13 @@ where
             attestations.len()
         );
 
-        let parent_root = state
-            .get_block_root(state.slot.saturating_sub(1_u64), &self.spec)?
-            .clone();
+        let parent_root = *state.get_block_root(state.slot.saturating_sub(1_u64), &self.spec)?;
 
         let mut block = BeaconBlock {
             slot: state.slot,
             parent_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
-            randao_reveal: randao_reveal,
+            randao_reveal,
             eth1_data: Eth1Data {
                 // TODO: replace with real data
                 deposit_root: Hash256::zero(),
@@ -553,7 +531,7 @@ where
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
                 attester_slashings: vec![],
-                attestations: attestations,
+                attestations,
                 deposits: vec![],
                 exits: vec![],
             },
