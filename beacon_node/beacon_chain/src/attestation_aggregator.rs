@@ -17,6 +17,7 @@ const PHASE_0_CUSTODY_BIT: bool = false;
 ///
 ///  Note: `Attestations` are stored in memory and never deleted. This is not scalable and must be
 ///  rectified in a future revision.
+#[derive(Default)]
 pub struct AttestationAggregator {
     store: HashMap<Vec<u8>, Attestation>,
 }

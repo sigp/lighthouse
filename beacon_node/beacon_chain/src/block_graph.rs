@@ -11,6 +11,7 @@ use types::Hash256;
 /// Presently, the DAG root (genesis block) is not tracked.
 ///
 /// The BlogGraph is thread-safe due to internal RwLocks.
+#[derive(Default)]
 pub struct BlockGraph {
     pub leaves: RwLock<HashSet<Hash256>>,
 }
