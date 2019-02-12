@@ -81,6 +81,11 @@ impl BooleanBitfield {
         self.0.len()
     }
 
+    /// Returns true if `self.len() == 0`
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Returns the number of bytes required to represent this bitfield.
     pub fn num_bytes(&self) -> usize {
         self.to_bytes().len()
