@@ -11,7 +11,6 @@ boolean-bitfield = { path = "../../eth2/utils/boolean-bitfield" }
 db = { path = "../db" }
 failure = "0.1"
 failure_derive = "0.1"
-genesis = { path = "../../eth2/genesis" }
 hashing = { path = "../../eth2/utils/hashing" }
 parking_lot = "0.7"
 log = "0.4"

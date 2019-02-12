@@ -2,7 +2,6 @@
 members = [
 	"eth2/attester",
 	"eth2/block_producer",
-	"eth2/genesis",
 	"eth2/naive_fork_choice",
 	"eth2/state_processing",
 	"eth2/types",
