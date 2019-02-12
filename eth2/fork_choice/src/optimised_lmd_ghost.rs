@@ -234,9 +234,34 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
         validator_index: u64,
         target_block_root: &Hash256,
     ) -> Result<(), ForkChoiceError> {
-        // simply add the attestation to the latest_attestation_target
-        self.latest_attestation_targets
-            .insert(validator_index, target_block_root.clone());
+        // simply add the attestation to the latest_attestation_target if the block_height is
+        // larger
+        let attestation_target = self
+            .latest_attestation_targets
+            .entry(validator_index)
+            .or_insert_with(|| *target_block_root);
+        // if we already have a value
+        if attestation_target != target_block_root {
+            // get the height of the target block
+            let block_height = self
+                .block_store
+                .get_reader(&target_block_root)?
+                .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
+                .slot()
+                - GENESIS_SLOT;
+
+            // get the height of the past target block
+            let past_block_height = self
+                .block_store
+                .get_reader(&attestation_target)?
+                .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
+                .slot()
+                - GENESIS_SLOT;
+            // update the attestation only if the new target is higher
+            if past_block_height < block_height {
+                *attestation_target = *target_block_root;
+            }
+        }
         Ok(())
     }
 
