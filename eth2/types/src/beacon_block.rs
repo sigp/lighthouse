@@ -55,7 +55,7 @@ impl BeaconBlock {
             shard: spec.beacon_chain_shard_number,
             block_root: block_without_signature_root,
         };
-        Hash256::from_slice(&proposal.hash_tree_root()[..])
+        Hash256::from(&proposal.hash_tree_root()[..])
     }
 }
 
