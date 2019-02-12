@@ -29,11 +29,11 @@ impl Decodable for AttestationDataAndCustodyBit {
 }
 
 impl TreeHash for AttestationDataAndCustodyBit {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.data.hash_tree_root());
+        result.append(&mut self.data.hash_tree_root_internal());
         // TODO: add bool ssz
-        // result.append(custody_bit.hash_tree_root());
+        // result.append(custody_bit.hash_tree_root_internal());
         ssz::hash(&result)
     }
 }
@@ -68,11 +68,11 @@ mod test {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = AttestationDataAndCustodyBit::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests

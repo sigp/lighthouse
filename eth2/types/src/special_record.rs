@@ -73,10 +73,10 @@ impl Decodable for SpecialRecord {
 }
 
 impl TreeHash for SpecialRecord {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.kind.hash_tree_root());
-        result.append(&mut self.data.as_slice().hash_tree_root());
+        result.append(&mut self.kind.hash_tree_root_internal());
+        result.append(&mut self.data.as_slice().hash_tree_root_internal());
         hash(&result)
     }
 }

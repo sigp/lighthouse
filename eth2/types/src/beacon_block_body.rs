@@ -63,16 +63,16 @@ impl Decodable for BeaconBlockBody {
 }
 
 impl TreeHash for BeaconBlockBody {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.proposer_slashings.hash_tree_root());
-        result.append(&mut self.casper_slashings.hash_tree_root());
-        result.append(&mut self.attestations.hash_tree_root());
-        result.append(&mut self.custody_reseeds.hash_tree_root());
-        result.append(&mut self.custody_challenges.hash_tree_root());
-        result.append(&mut self.custody_responses.hash_tree_root());
-        result.append(&mut self.deposits.hash_tree_root());
-        result.append(&mut self.exits.hash_tree_root());
+        result.append(&mut self.proposer_slashings.hash_tree_root_internal());
+        result.append(&mut self.casper_slashings.hash_tree_root_internal());
+        result.append(&mut self.attestations.hash_tree_root_internal());
+        result.append(&mut self.custody_reseeds.hash_tree_root_internal());
+        result.append(&mut self.custody_challenges.hash_tree_root_internal());
+        result.append(&mut self.custody_responses.hash_tree_root_internal());
+        result.append(&mut self.deposits.hash_tree_root_internal());
+        result.append(&mut self.exits.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -110,11 +110,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = BeaconBlockBody::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests

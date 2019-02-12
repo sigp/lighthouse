@@ -142,19 +142,19 @@ impl Decodable for Validator {
 }
 
 impl TreeHash for Validator {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.pubkey.hash_tree_root());
-        result.append(&mut self.withdrawal_credentials.hash_tree_root());
-        result.append(&mut self.proposer_slots.hash_tree_root());
-        result.append(&mut self.activation_slot.hash_tree_root());
-        result.append(&mut self.exit_slot.hash_tree_root());
-        result.append(&mut self.withdrawal_slot.hash_tree_root());
-        result.append(&mut self.penalized_slot.hash_tree_root());
-        result.append(&mut self.exit_count.hash_tree_root());
-        result.append(&mut (status_flag_to_byte(self.status_flags) as u64).hash_tree_root());
-        result.append(&mut self.latest_custody_reseed_slot.hash_tree_root());
-        result.append(&mut self.penultimate_custody_reseed_slot.hash_tree_root());
+        result.append(&mut self.pubkey.hash_tree_root_internal());
+        result.append(&mut self.withdrawal_credentials.hash_tree_root_internal());
+        result.append(&mut self.proposer_slots.hash_tree_root_internal());
+        result.append(&mut self.activation_slot.hash_tree_root_internal());
+        result.append(&mut self.exit_slot.hash_tree_root_internal());
+        result.append(&mut self.withdrawal_slot.hash_tree_root_internal());
+        result.append(&mut self.penalized_slot.hash_tree_root_internal());
+        result.append(&mut self.exit_count.hash_tree_root_internal());
+        result.append(&mut (status_flag_to_byte(self.status_flags) as u64).hash_tree_root_internal());
+        result.append(&mut self.latest_custody_reseed_slot.hash_tree_root_internal());
+        result.append(&mut self.penultimate_custody_reseed_slot.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -218,11 +218,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = Validator::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests

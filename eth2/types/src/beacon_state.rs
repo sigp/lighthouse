@@ -195,7 +195,7 @@ pub struct BeaconState {
 
 impl BeaconState {
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
+        Hash256::from(&self.hash_tree_root_internal()[..])
     }
 
     pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
@@ -456,7 +456,7 @@ impl BeaconState {
             ensure!(
                 bls_verify(
                     &proposer.pubkey,
-                    &proposer_slashing.proposal_data_1.hash_tree_root(),
+                    &proposer_slashing.proposal_data_1.hash_tree_root_internal(),
                     &proposer_slashing.proposal_signature_1,
                     get_domain(
                         &self.fork_data,
@@ -469,7 +469,7 @@ impl BeaconState {
             ensure!(
                 bls_verify(
                     &proposer.pubkey,
-                    &proposer_slashing.proposal_data_2.hash_tree_root(),
+                    &proposer_slashing.proposal_data_2.hash_tree_root_internal(),
                     &proposer_slashing.proposal_signature_2,
                     get_domain(
                         &self.fork_data,
@@ -542,7 +542,7 @@ impl BeaconState {
                     validator_index: exit.validator_index,
                     signature: spec.empty_signature.clone(),
                 };
-                exit_struct.hash_tree_root()
+                exit_struct.hash_tree_root_internal()
             };
             ensure!(
                 bls_verify(
@@ -1765,36 +1765,36 @@ impl Decodable for BeaconState {
 }
 
 impl TreeHash for BeaconState {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
-        result.append(&mut self.genesis_time.hash_tree_root());
-        result.append(&mut self.fork_data.hash_tree_root());
-        result.append(&mut self.validator_registry.hash_tree_root());
-        result.append(&mut self.validator_balances.hash_tree_root());
-        result.append(&mut self.validator_registry_update_slot.hash_tree_root());
-        result.append(&mut self.validator_registry_exit_count.hash_tree_root());
-        result.append(&mut self.validator_registry_delta_chain_tip.hash_tree_root());
-        result.append(&mut self.latest_randao_mixes.hash_tree_root());
-        result.append(&mut self.latest_vdf_outputs.hash_tree_root());
-        result.append(&mut self.previous_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.current_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.previous_epoch_calculation_slot.hash_tree_root());
-        result.append(&mut self.current_epoch_calculation_slot.hash_tree_root());
-        result.append(&mut self.previous_epoch_seed.hash_tree_root());
-        result.append(&mut self.current_epoch_seed.hash_tree_root());
-        result.append(&mut self.custody_challenges.hash_tree_root());
-        result.append(&mut self.previous_justified_slot.hash_tree_root());
-        result.append(&mut self.justified_slot.hash_tree_root());
-        result.append(&mut self.justification_bitfield.hash_tree_root());
-        result.append(&mut self.finalized_slot.hash_tree_root());
-        result.append(&mut self.latest_crosslinks.hash_tree_root());
-        result.append(&mut self.latest_block_roots.hash_tree_root());
-        result.append(&mut self.latest_penalized_balances.hash_tree_root());
-        result.append(&mut self.latest_attestations.hash_tree_root());
-        result.append(&mut self.batched_block_roots.hash_tree_root());
-        result.append(&mut self.latest_eth1_data.hash_tree_root());
-        result.append(&mut self.eth1_data_votes.hash_tree_root());
+        result.append(&mut self.slot.hash_tree_root_internal());
+        result.append(&mut self.genesis_time.hash_tree_root_internal());
+        result.append(&mut self.fork_data.hash_tree_root_internal());
+        result.append(&mut self.validator_registry.hash_tree_root_internal());
+        result.append(&mut self.validator_balances.hash_tree_root_internal());
+        result.append(&mut self.validator_registry_update_slot.hash_tree_root_internal());
+        result.append(&mut self.validator_registry_exit_count.hash_tree_root_internal());
+        result.append(&mut self.validator_registry_delta_chain_tip.hash_tree_root_internal());
+        result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
+        result.append(&mut self.latest_vdf_outputs.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_calculation_slot.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_calculation_slot.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.custody_challenges.hash_tree_root_internal());
+        result.append(&mut self.previous_justified_slot.hash_tree_root_internal());
+        result.append(&mut self.justified_slot.hash_tree_root_internal());
+        result.append(&mut self.justification_bitfield.hash_tree_root_internal());
+        result.append(&mut self.finalized_slot.hash_tree_root_internal());
+        result.append(&mut self.latest_crosslinks.hash_tree_root_internal());
+        result.append(&mut self.latest_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_penalized_balances.hash_tree_root_internal());
+        result.append(&mut self.latest_attestations.hash_tree_root_internal());
+        result.append(&mut self.batched_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
+        result.append(&mut self.eth1_data_votes.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -1852,11 +1852,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = BeaconState::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
