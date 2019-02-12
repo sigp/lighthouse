@@ -5,7 +5,7 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, PublicKey, Signature, Slot};
+use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, Signature, Slot};
 
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
@@ -27,7 +27,8 @@ impl BeaconNode for BeaconBlockGrpcClient {
     fn produce_beacon_block(
         &self,
         slot: Slot,
-        randao_reveal: &Signature,
+        // TODO: use randao_reveal, when proto APIs have been updated.
+        _randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
         let mut req = ProduceBeaconBlockRequest::new();
         req.set_slot(slot.as_u64());

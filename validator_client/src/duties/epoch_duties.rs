@@ -47,7 +47,7 @@ impl EpochDutiesMap {
     pub fn get(&self, epoch: Epoch) -> Result<Option<EpochDuties>, EpochDutiesMapError> {
         let map = self.map.read().map_err(|_| EpochDutiesMapError::Poisoned)?;
         match map.get(&epoch) {
-            Some(duties) => Ok(Some(duties.clone())),
+            Some(duties) => Ok(Some(*duties)),
             None => Ok(None),
         }
     }

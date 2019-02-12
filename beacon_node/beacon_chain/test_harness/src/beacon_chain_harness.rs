@@ -61,8 +61,7 @@ impl BeaconChainHarness {
 
         debug!("Creating validator deposits...");
 
-        let mut initial_validator_deposits = Vec::with_capacity(validator_count);
-        initial_validator_deposits = keypairs
+        let initial_validator_deposits = keypairs
             .par_iter()
             .map(|keypair| Deposit {
                 branch: vec![], // branch verification is not specified.
@@ -235,7 +234,7 @@ impl BeaconChainHarness {
     }
 
     /// Write the output of `chain_dump` to a JSON file.
-    pub fn dump_to_file(&self, filename: String, chain_dump: &Vec<CheckPoint>) {
+    pub fn dump_to_file(&self, filename: String, chain_dump: &[CheckPoint]) {
         let json = serde_json::to_string(chain_dump).unwrap();
         let mut file = File::create(filename).unwrap();
         file.write_all(json.as_bytes())
