@@ -52,6 +52,10 @@ pub trait EpochProcessable {
 }
 
 impl EpochProcessable for BeaconState {
+    // Cyclomatic complexity is ignored. It would be ideal to split this function apart, however it
+    // remains monolithic to allow for easier spec updates. Once the spec is more stable we can
+    // optimise.
+    #[allow(clippy::cyclomatic_complexity)]
     fn per_epoch_processing(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         let current_epoch = self.current_epoch(spec);
         let previous_epoch = self.previous_epoch(spec);
