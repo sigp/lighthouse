@@ -5,7 +5,7 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, PublicKey, Signature, Slot};
+use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, Signature, Slot};
 
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
@@ -20,12 +20,6 @@ impl BeaconBlockGrpcClient {
 }
 
 impl BeaconNode for BeaconBlockGrpcClient {
-    fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconNodeError> {
-        // TODO: this might not be required.
-        //
-        // See: https://github.com/ethereum/eth2.0-specs/pull/496
-        panic!("Not implemented.")
-    }
     /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
     ///
     /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
@@ -33,7 +27,8 @@ impl BeaconNode for BeaconBlockGrpcClient {
     fn produce_beacon_block(
         &self,
         slot: Slot,
-        randao_reveal: &Signature,
+        // TODO: use randao_reveal, when proto APIs have been updated.
+        _randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
         let mut req = ProduceBeaconBlockRequest::new();
         req.set_slot(slot.as_u64());
@@ -65,11 +60,8 @@ impl BeaconNode for BeaconBlockGrpcClient {
                 signature,
                 body: BeaconBlockBody {
                     proposer_slashings: vec![],
-                    casper_slashings: vec![],
+                    attester_slashings: vec![],
                     attestations: vec![],
-                    custody_reseeds: vec![],
-                    custody_challenges: vec![],
-                    custody_responses: vec![],
                     deposits: vec![],
                     exits: vec![],
                 },

@@ -11,7 +11,6 @@ boolean-bitfield = { path = "../../eth2/utils/boolean-bitfield" }
 db = { path = "../db" }
 failure = "0.1"
 failure_derive = "0.1"
-genesis = { path = "../../eth2/genesis" }
 hashing = { path = "../../eth2/utils/hashing" }
 parking_lot = "0.7"
 log = "0.4"
@@ -21,4 +20,5 @@ serde_derive = "1.0"
 serde_json = "1.0"
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 ssz = { path = "../../eth2/utils/ssz" }
+state_processing = { path = "../../eth2/state_processing" }
 types = { path = "../../eth2/types" }

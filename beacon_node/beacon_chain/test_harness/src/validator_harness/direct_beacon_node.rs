@@ -11,7 +11,7 @@ use db::ClientDB;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{AttestationData, BeaconBlock, FreeAttestation, PublicKey, Signature, Slot};
+use types::{AttestationData, BeaconBlock, FreeAttestation, Signature, Slot};
 
 // mod attester;
 // mod producer;
@@ -70,20 +70,6 @@ impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for DirectBeaconNode<T, U> {
 }
 
 impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U> {
-    /// Requests the `proposer_nonce` from the `BeaconChain`.
-    fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconBlockNodeError> {
-        let validator_index = self
-            .beacon_chain
-            .validator_index(pubkey)
-            .ok_or_else(|| BeaconBlockNodeError::RemoteFailure("pubkey unknown.".to_string()))?;
-
-        self.beacon_chain
-            .proposer_slots(validator_index)
-            .ok_or_else(|| {
-                BeaconBlockNodeError::RemoteFailure("validator_index unknown.".to_string())
-            })
-    }
-
     /// Requests a new `BeaconBlock from the `BeaconChain`.
     fn produce_beacon_block(
         &self,
@@ -94,7 +80,7 @@ impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U> {
             .beacon_chain
             .produce_block(randao_reveal.clone())
             .ok_or_else(|| {
-                BeaconBlockNodeError::RemoteFailure(format!("Did not produce block."))
+                BeaconBlockNodeError::RemoteFailure("Did not produce block.".to_string())
             })?;
 
         if block.slot == slot {

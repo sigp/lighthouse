@@ -1,12 +1,12 @@
 use crate::test_utils::TestRandom;
-use crate::{Hash256, Slot};
+use crate::{Epoch, Hash256};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash)]
 pub struct Crosslink {
-    pub slot: Slot,
+    pub epoch: Epoch,
     pub shard_block_root: Hash256,
 }
 
@@ -14,7 +14,7 @@ impl Crosslink {
     /// Generates a new instance where `dynasty` and `hash` are both zero.
     pub fn zero() -> Self {
         Self {
-            slot: Slot::from(0_u64),
+            epoch: Epoch::new(0),
             shard_block_root: Hash256::zero(),
         }
     }
@@ -22,19 +22,19 @@ impl Crosslink {
 
 impl Encodable for Crosslink {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.slot);
+        s.append(&self.epoch);
         s.append(&self.shard_block_root);
     }
 }
 
 impl Decodable for Crosslink {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (shard_block_root, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                slot,
+                epoch,
                 shard_block_root,
             },
             i,
@@ -45,7 +45,7 @@ impl Decodable for Crosslink {
 impl TreeHash for Crosslink {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
+        result.append(&mut self.epoch.hash_tree_root());
         result.append(&mut self.shard_block_root.hash_tree_root());
         hash(&result)
     }
@@ -54,7 +54,7 @@ impl TreeHash for Crosslink {
 impl<T: RngCore> TestRandom<T> for Crosslink {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            slot: <_>::random_for_test(rng),
+            epoch: <_>::random_for_test(rng),
             shard_block_root: <_>::random_for_test(rng),
         }
     }

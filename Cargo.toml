@@ -2,8 +2,8 @@
 members = [
 	"eth2/attester",
 	"eth2/block_producer",
-	"eth2/genesis",
 	"eth2/naive_fork_choice",
+	"eth2/state_processing",
 	"eth2/types",
 	"eth2/utils/bls",
 	"eth2/utils/boolean-bitfield",
@@ -12,7 +12,6 @@ members = [
 	"eth2/utils/slot_clock",
 	"eth2/utils/ssz",
 	"eth2/utils/vec_shuffle",
-	"eth2/validator_induction",
 	"beacon_node",
 	"beacon_node/db",
 	"beacon_node/beacon_chain",

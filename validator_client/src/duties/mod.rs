@@ -12,7 +12,7 @@ use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{ChainSpec, Epoch, Slot};
+use types::{ChainSpec, Epoch};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
@@ -33,7 +33,6 @@ pub enum Error {
     SlotClockError,
     SlotUnknowable,
     EpochMapPoisoned,
-    EpochLengthIsZero,
     BeaconNodeError(BeaconNodeError),
 }
 
@@ -103,6 +102,7 @@ mod tests {
     use super::*;
     use bls::Keypair;
     use slot_clock::TestingSlotClock;
+    use types::Slot;
 
     // TODO: implement more thorough testing.
     // https://github.com/sigp/lighthouse/issues/160

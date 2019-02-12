@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use types::Hash256;
 
+#[derive(Default)]
 pub struct AttestationTargets {
     map: HashMap<u64, Hash256>,
 }

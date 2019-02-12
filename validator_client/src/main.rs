@@ -88,9 +88,12 @@ fn main() {
     let spec = Arc::new(ChainSpec::foundation());
 
     // Clock for determining the present slot.
+    // TODO: this shouldn't be a static time, instead it should be pulled from the beacon node.
+    // https://github.com/sigp/lighthouse/issues/160
+    let genesis_time = 1_549_935_547;
     let slot_clock = {
-        info!(log, "Genesis time"; "unix_epoch_seconds" => spec.genesis_time);
-        let clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
+        info!(log, "Genesis time"; "unix_epoch_seconds" => genesis_time);
+        let clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
             .expect("Unable to instantiate SystemTimeSlotClock.");
         Arc::new(clock)
     };
@@ -139,7 +142,6 @@ fn main() {
         // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
-            let pubkey = keypair.pk.clone();
             let signer = Arc::new(LocalSigner::new(keypair.clone()));
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
@@ -147,7 +149,7 @@ fn main() {
             let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
             thread::spawn(move || {
                 let block_producer =
-                    BlockProducer::new(spec, pubkey, duties_map, slot_clock, client, signer);
+                    BlockProducer::new(spec, duties_map, slot_clock, client, signer);
                 let mut block_producer_service = BlockProducerService {
                     block_producer,
                     poll_interval_millis,
