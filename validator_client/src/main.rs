@@ -88,9 +88,12 @@ fn main() {
     let spec = Arc::new(ChainSpec::foundation());
 
     // Clock for determining the present slot.
+    // TODO: this shouldn't be a static time, instead it should be pulled from the beacon node.
+    // https://github.com/sigp/lighthouse/issues/160
+    let genesis_time = 1_549_935_547;
     let slot_clock = {
-        info!(log, "Genesis time"; "unix_epoch_seconds" => spec.genesis_time);
-        let clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
+        info!(log, "Genesis time"; "unix_epoch_seconds" => genesis_time);
+        let clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
             .expect("Unable to instantiate SystemTimeSlotClock.");
         Arc::new(clock)
     };
