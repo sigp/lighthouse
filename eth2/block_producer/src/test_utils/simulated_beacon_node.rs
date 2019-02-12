@@ -1,6 +1,6 @@
 use crate::traits::{BeaconNode, BeaconNodeError, PublishOutcome};
 use std::sync::RwLock;
-use types::{BeaconBlock, PublicKey, Signature, Slot};
+use types::{BeaconBlock, Signature, Slot};
 
 type NonceResult = Result<u64, BeaconNodeError>;
 type ProduceResult = Result<Option<BeaconBlock>, BeaconNodeError>;
@@ -9,9 +9,6 @@ type PublishResult = Result<PublishOutcome, BeaconNodeError>;
 /// A test-only struct used to simulate a Beacon Node.
 #[derive(Default)]
 pub struct SimulatedBeaconNode {
-    pub nonce_input: RwLock<Option<PublicKey>>,
-    pub nonce_result: RwLock<Option<NonceResult>>,
-
     pub produce_input: RwLock<Option<(Slot, Signature)>>,
     pub produce_result: RwLock<Option<ProduceResult>>,
 
@@ -20,11 +17,6 @@ pub struct SimulatedBeaconNode {
 }
 
 impl SimulatedBeaconNode {
-    /// Set the result to be returned when `produce_beacon_block` is called.
-    pub fn set_next_nonce_result(&self, result: NonceResult) {
-        *self.nonce_result.write().unwrap() = Some(result);
-    }
-
     /// Set the result to be returned when `produce_beacon_block` is called.
     pub fn set_next_produce_result(&self, result: ProduceResult) {
         *self.produce_result.write().unwrap() = Some(result);
@@ -37,14 +29,6 @@ impl SimulatedBeaconNode {
 }
 
 impl BeaconNode for SimulatedBeaconNode {
-    fn proposer_nonce(&self, pubkey: &PublicKey) -> NonceResult {
-        *self.nonce_input.write().unwrap() = Some(pubkey.clone());
-        match *self.nonce_result.read().unwrap() {
-            Some(ref r) => r.clone(),
-            None => panic!("SimulatedBeaconNode: nonce_result == None"),
-        }
-    }
-
     /// Returns the value specified by the `set_next_produce_result`.
     fn produce_beacon_block(&self, slot: Slot, randao_reveal: &Signature) -> ProduceResult {
         *self.produce_input.write().unwrap() = Some((slot, randao_reveal.clone()));

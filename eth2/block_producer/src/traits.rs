@@ -1,4 +1,4 @@
-use types::{BeaconBlock, PublicKey, Signature, Slot};
+use types::{BeaconBlock, Signature, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
@@ -14,9 +14,6 @@ pub enum PublishOutcome {
 
 /// Defines the methods required to produce and publish blocks on a Beacon Node.
 pub trait BeaconNode: Send + Sync {
-    /// Requests the proposer nonce (presently named `proposer_slots`).
-    fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconNodeError>;
-
     /// Request that the node produces a block.
     ///
     /// Returns Ok(None) if the Beacon Node is unable to produce at the given slot.
