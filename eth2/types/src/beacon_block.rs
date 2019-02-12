@@ -17,6 +17,28 @@ pub struct BeaconBlock {
 }
 
 impl BeaconBlock {
+    /// Produce the first block of the Beacon Chain.
+    pub fn genesis(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
+        BeaconBlock {
+            slot: spec.genesis_slot,
+            parent_root: spec.zero_hash,
+            state_root,
+            randao_reveal: spec.empty_signature.clone(),
+            eth1_data: Eth1Data {
+                deposit_root: spec.zero_hash,
+                block_hash: spec.zero_hash,
+            },
+            signature: spec.empty_signature.clone(),
+            body: BeaconBlockBody {
+                proposer_slashings: vec![],
+                attester_slashings: vec![],
+                attestations: vec![],
+                deposits: vec![],
+                exits: vec![],
+            },
+        }
+    }
+
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from(&self.hash_tree_root()[..])
     }
