@@ -134,10 +134,8 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// slashing.
     fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
         let randao_reveal = {
-            let producer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
-
-            // TODO: add domain, etc to this message.
-            let message = ssz_encode(&producer_nonce);
+            // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
+            let message = ssz_encode(&slot.epoch(self.spec.epoch_length));
 
             match self.signer.sign_randao_reveal(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
@@ -254,7 +252,6 @@ mod tests {
         // Configure responses from the BeaconNode.
         beacon_node.set_next_produce_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));
         beacon_node.set_next_publish_result(Ok(PublishOutcome::ValidBlock));
-        beacon_node.set_next_nonce_result(Ok(0));
 
         // One slot before production slot...
         slot_clock.set_slot(produce_slot.as_u64() - 1);
