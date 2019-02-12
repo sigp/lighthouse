@@ -1,3 +1,4 @@
+use state_processing::validate_attestation_without_signature;
 use std::collections::{HashMap, HashSet};
 use types::{
     beacon_state::CommitteesError, AggregateSignature, Attestation, AttestationData, BeaconState,
@@ -172,9 +173,7 @@ impl AttestationAggregator {
         self.store
             .values()
             .filter_map(|attestation| {
-                if state
-                    .validate_attestation_without_signature(attestation, spec)
-                    .is_ok()
+                if validate_attestation_without_signature(&state, attestation, spec).is_ok()
                     && !known_attestation_data.contains(&attestation.data)
                 {
                     Some(attestation.clone())

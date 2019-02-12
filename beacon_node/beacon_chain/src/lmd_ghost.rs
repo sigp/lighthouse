@@ -68,8 +68,10 @@ where
             .into_beacon_state()
             .ok_or(Error::InvalidBeaconState(start_state_root))?;
 
-        let active_validator_indices =
-            get_active_validator_indices(&state.validator_registry, start.slot());
+        let active_validator_indices = get_active_validator_indices(
+            &state.validator_registry,
+            start.slot().epoch(self.spec.epoch_length),
+        );
 
         let mut attestation_targets = Vec::with_capacity(active_validator_indices.len());
         for i in active_validator_indices {

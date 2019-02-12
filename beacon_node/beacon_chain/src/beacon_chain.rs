@@ -1,24 +1,25 @@
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB, DBError,
-};
-use genesis::{genesis_beacon_block, genesis_beacon_state};
-use log::{debug, trace};
-use parking_lot::{RwLock, RwLockReadGuard};
-use slot_clock::SlotClock;
-use ssz::ssz_encode;
-use std::sync::Arc;
-use types::{
-    beacon_state::{BlockProcessingError, CommitteesError, SlotProcessingError},
-    readers::{BeaconBlockReader, BeaconStateReader},
-    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Eth1Data,
-    FreeAttestation, Hash256, PublicKey, Signature, Slot,
-};
-
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
 use crate::attestation_targets::AttestationTargets;
 use crate::block_graph::BlockGraph;
 use crate::checkpoint::CheckPoint;
+use db::{
+    stores::{BeaconBlockStore, BeaconStateStore},
+    ClientDB, DBError,
+};
+use log::{debug, trace};
+use parking_lot::{RwLock, RwLockReadGuard};
+use slot_clock::SlotClock;
+use ssz::ssz_encode;
+use state_processing::{
+    BlockProcessable, BlockProcessingError, SlotProcessable, SlotProcessingError,
+};
+use std::sync::Arc;
+use types::{
+    beacon_state::CommitteesError,
+    readers::{BeaconBlockReader, BeaconStateReader},
+    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Crosslink, Deposit,
+    Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, Signature, Slot,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -82,17 +83,25 @@ where
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,
         slot_clock: U,
+        genesis_time: u64,
+        latest_eth1_data: Eth1Data,
+        initial_validator_deposits: Vec<Deposit>,
         spec: ChainSpec,
     ) -> Result<Self, Error> {
-        if spec.initial_validators.is_empty() {
+        if initial_validator_deposits.is_empty() {
             return Err(Error::InsufficientValidators);
         }
 
-        let genesis_state = genesis_beacon_state(&spec);
+        let genesis_state = BeaconState::genesis(
+            genesis_time,
+            initial_validator_deposits,
+            latest_eth1_data,
+            &spec,
+        );
         let state_root = genesis_state.canonical_root();
         state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
 
-        let genesis_block = genesis_beacon_block(state_root, &spec);
+        let genesis_block = BeaconBlock::genesis(state_root, &spec);
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
@@ -225,19 +234,6 @@ where
         None
     }
 
-    /// Returns the number of slots the validator has been required to propose.
-    ///
-    /// Returns `None` if the `validator_index` is invalid.
-    ///
-    /// Information is retrieved from the present `beacon_state.validator_registry`.
-    pub fn proposer_slots(&self, validator_index: usize) -> Option<u64> {
-        if let Some(validator) = self.state.read().validator_registry.get(validator_index) {
-            Some(validator.proposer_slots)
-        } else {
-            None
-        }
-    }
-
     /// Reads the slot clock, returns `None` if the slot is unavailable.
     ///
     /// The slot might be unavailable due to an error with the system clock, or if the present time
@@ -277,8 +273,8 @@ where
     }
 
     /// Returns the justified slot for the present state.
-    pub fn justified_slot(&self) -> Slot {
-        self.state.read().justified_slot
+    pub fn justified_epoch(&self) -> Epoch {
+        self.state.read().justified_epoch
     }
 
     /// Returns the attestation slot and shard for a given validator index.
@@ -302,11 +298,14 @@ where
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
-        let justified_slot = self.justified_slot();
+        let justified_epoch = self.justified_epoch();
         let justified_block_root = self
             .state
             .read()
-            .get_block_root(justified_slot, &self.spec)
+            .get_block_root(
+                justified_epoch.start_slot(self.spec.epoch_length),
+                &self.spec,
+            )
             .ok_or_else(|| Error::BadRecentBlockRoots)?
             .clone();
 
@@ -326,8 +325,11 @@ where
             beacon_block_root: self.head().beacon_block_root.clone(),
             epoch_boundary_root,
             shard_block_root: Hash256::zero(),
-            latest_crosslink_root: Hash256::zero(),
-            justified_slot,
+            latest_crosslink: Crosslink {
+                epoch: self.state.read().slot.epoch(self.spec.epoch_length),
+                shard_block_root: Hash256::zero(),
+            },
+            justified_epoch,
             justified_block_root,
         })
     }
@@ -550,11 +552,8 @@ where
             signature: self.spec.empty_signature.clone(), // To be completed by a validator.
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
-                casper_slashings: vec![],
+                attester_slashings: vec![],
                 attestations: attestations,
-                custody_reseeds: vec![],
-                custody_challenges: vec![],
-                custody_responses: vec![],
                 deposits: vec![],
                 exits: vec![],
             },
