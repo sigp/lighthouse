@@ -1,20 +1,16 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    validator::StatusFlags, validator_registry::get_active_validator_indices, AggregatePublicKey,
-    Attestation, AttestationData, Bitfield, ChainSpec, Crosslink, Epoch, Eth1Data, Eth1DataVote,
-    Fork, Hash256, PendingAttestation, Slot, Validator,
+    validator::StatusFlags, validator_registry::get_active_validator_indices, AttestationData,
+    Bitfield, ChainSpec, Crosslink, Deposit, Epoch, Eth1Data, Eth1DataVote, Fork, Hash256,
+    PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
-use bls::bls_verify_aggregate;
+use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::ops::Range;
 use vec_shuffle::shuffle;
-
-// TODO: define elsehwere.
-const PHASE_0_CUSTODY_BIT: bool = false;
-const DOMAIN_ATTESTATION: u64 = 1;
 
 pub enum Error {
     InsufficientValidators,
@@ -63,14 +59,6 @@ pub enum AttestationValidationError {
     ShardBlockRootNotZero,
     NoBlockRoot,
     AttestationParticipantsError(AttestationParticipantsError),
-}
-
-macro_rules! ensure {
-    ($condition: expr, $result: expr) => {
-        if !$condition {
-            return Err($result);
-        }
-    };
 }
 
 macro_rules! safe_add_assign {
@@ -125,6 +113,103 @@ pub struct BeaconState {
 }
 
 impl BeaconState {
+    /// Produce the first state of the Beacon Chain.
+    pub fn genesis(
+        genesis_time: u64,
+        initial_validator_deposits: Vec<Deposit>,
+        latest_eth1_data: Eth1Data,
+        spec: &ChainSpec,
+    ) -> BeaconState {
+        let initial_crosslink = Crosslink {
+            epoch: spec.genesis_epoch,
+            shard_block_root: spec.zero_hash,
+        };
+
+        let mut genesis_state = BeaconState {
+            /*
+             * Misc
+             */
+            slot: spec.genesis_slot,
+            genesis_time,
+            fork: Fork {
+                previous_version: spec.genesis_fork_version,
+                current_version: spec.genesis_fork_version,
+                epoch: spec.genesis_epoch,
+            },
+
+            /*
+             * Validator registry
+             */
+            validator_registry: vec![], // Set later in the function.
+            validator_balances: vec![], // Set later in the function.
+            validator_registry_update_epoch: spec.genesis_epoch,
+
+            /*
+             * Randomness and committees
+             */
+            latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize],
+            previous_epoch_start_shard: spec.genesis_start_shard,
+            current_epoch_start_shard: spec.genesis_start_shard,
+            previous_calculation_epoch: spec.genesis_epoch,
+            current_calculation_epoch: spec.genesis_epoch,
+            previous_epoch_seed: spec.zero_hash,
+            current_epoch_seed: spec.zero_hash,
+
+            /*
+             * Finality
+             */
+            previous_justified_epoch: spec.genesis_epoch,
+            justified_epoch: spec.genesis_epoch,
+            justification_bitfield: 0,
+            finalized_epoch: spec.genesis_epoch,
+
+            /*
+             * Recent state
+             */
+            latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
+            latest_block_roots: vec![spec.zero_hash; spec.latest_block_roots_length as usize],
+            latest_index_roots: vec![spec.zero_hash; spec.latest_index_roots_length as usize],
+            latest_penalized_balances: vec![0; spec.latest_penalized_exit_length as usize],
+            latest_attestations: vec![],
+            batched_block_roots: vec![],
+
+            /*
+             * PoW receipt root
+             */
+            latest_eth1_data,
+            eth1_data_votes: vec![],
+        };
+
+        for deposit in initial_validator_deposits {
+            let _index = genesis_state.process_deposit(
+                deposit.deposit_data.deposit_input.pubkey,
+                deposit.deposit_data.amount,
+                deposit.deposit_data.deposit_input.proof_of_possession,
+                deposit.deposit_data.deposit_input.withdrawal_credentials,
+                spec,
+            );
+        }
+
+        for validator_index in 0..genesis_state.validator_registry.len() {
+            if genesis_state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount
+            {
+                genesis_state.activate_validator(validator_index, true, spec);
+            }
+        }
+
+        let genesis_active_index_root = hash_tree_root(get_active_validator_indices(
+            &genesis_state.validator_registry,
+            spec.genesis_epoch,
+        ));
+        genesis_state.latest_index_roots =
+            vec![genesis_active_index_root; spec.latest_index_roots_length];
+        genesis_state.current_epoch_seed = genesis_state
+            .generate_seed(spec.genesis_epoch, spec)
+            .expect("Unable to generate seed.");
+
+        genesis_state
+    }
+
     /// Return the tree hash root for this `BeaconState`.
     ///
     /// Spec v0.2.0
@@ -512,6 +597,48 @@ impl BeaconState {
 
         self.validator_registry_update_epoch = current_epoch;
     }
+    /// Process a validator deposit, returning the validator index if the deposit is valid.
+    ///
+    /// Spec v0.2.0
+    pub fn process_deposit(
+        &mut self,
+        pubkey: PublicKey,
+        amount: u64,
+        proof_of_possession: Signature,
+        withdrawal_credentials: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<usize, ()> {
+        // TODO: ensure verify proof-of-possession represents the spec accurately.
+        if !verify_proof_of_possession(&proof_of_possession, &pubkey) {
+            return Err(());
+        }
+
+        if let Some(index) = self
+            .validator_registry
+            .iter()
+            .position(|v| v.pubkey == pubkey)
+        {
+            if self.validator_registry[index].withdrawal_credentials == withdrawal_credentials {
+                safe_add_assign!(self.validator_balances[index], amount);
+                Ok(index)
+            } else {
+                Err(())
+            }
+        } else {
+            let validator = Validator {
+                pubkey,
+                withdrawal_credentials,
+                activation_epoch: spec.far_future_epoch,
+                exit_epoch: spec.far_future_epoch,
+                withdrawal_epoch: spec.far_future_epoch,
+                penalized_epoch: spec.far_future_epoch,
+                status_flags: None,
+            };
+            self.validator_registry.push(validator);
+            self.validator_balances.push(amount);
+            Ok(self.validator_registry.len() - 1)
+        }
+    }
 
     /// Activate the validator of the given ``index``.
     ///
@@ -788,6 +915,10 @@ impl BeaconState {
         }
         Ok(participants)
     }
+}
+
+fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
+    Hash256::from(&input.hash_tree_root()[..])
 }
 
 impl From<AttestationParticipantsError> for AttestationValidationError {
