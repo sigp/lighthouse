@@ -20,12 +20,6 @@ impl BeaconBlockGrpcClient {
 }
 
 impl BeaconNode for BeaconBlockGrpcClient {
-    fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconNodeError> {
-        // TODO: this might not be required.
-        //
-        // See: https://github.com/ethereum/eth2.0-specs/pull/496
-        panic!("Not implemented.")
-    }
     /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
     ///
     /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
