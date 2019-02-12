@@ -3,15 +3,18 @@ extern crate fast_math;
 use byteorder::{BigEndian, ByteOrder};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB,
+    ClientDB, DBError,
 };
 use fast_math::log2_raw;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
-    Attestation, Hash256,
+    validator_registry::get_active_validator_indices,
+    Attestation, BeaconBlock, Hash256,
 };
+
+//TODO: Sort out global constants! Currently implemented into the struct
 
 /// The optimised LMD-GHOST fork choice rule.
 /// NOTE: This uses u32 to represent difference between block heights. Thus this is only
@@ -36,12 +39,20 @@ pub struct OptimisedLMDGhost<T: ClientDB + Sized> {
     /// Log lookup table for blocks to their ancestors.
     //TODO: Verify we only want/need a size 16 log lookup
     ancestors: Vec<HashMap<Hash256, Hash256>>,
+    /// Stores the children for any given parent.
+    children: HashMap<Hash256, Vec<Hash256>>,
+    /// The latest attestation targets as a map of validator index to block hash.
+    //TODO: Could this be a fixed size vec
+    latest_attestation_targets: HashMap<usize, Hash256>,
     /// Block storage access.
     block_store: Arc<BeaconBlockStore<T>>,
     /// State storage access.
     state_store: Arc<BeaconStateStore<T>>,
+    max_known_height: u64,
     /// Genesis slot height to calculate block heights.
     GENESIS_SLOT: u64,
+    FORK_CHOICE_BALANCE_INCREMENT: u64,
+    MAX_DEPOSIT_AMOUNT: u64,
 }
 
 impl<T> OptimisedLMDGhost<T>
@@ -52,9 +63,14 @@ where
         OptimisedLMDGhost {
             cache: HashMap::new(),
             ancestors: vec![HashMap::new(); 16],
+            latest_attestation_targets: HashMap::new(),
+            children: HashMap::new(),
+            max_known_height: 0,
             block_store: Arc::new(block_store),
             state_store: Arc::new(state_store),
             GENESIS_SLOT: 0,
+            FORK_CHOICE_BALANCE_INCREMENT: 1e9 as u64, //in Gwei
+            MAX_DEPOSIT_AMOUNT: 32e9 as u64,           // in Gwei
         }
     }
 
@@ -66,7 +82,7 @@ where
                 .block_store
                 .get_reader(&block_hash)
                 .ok()?
-                .unwrap()
+                .expect("Should have returned already if None")
                 .into_beacon_block()?
                 .slot;
 
@@ -105,30 +121,38 @@ where
         None
     }
 
+    // looks for an obvious block winner given the latest votes for a specific height
     fn get_clear_winner(
         &mut self,
-        latest_votes: HashMap<Hash256, usize>,
-        h: usize,
+        latest_votes: &HashMap<Hash256, u64>,
+        height: u64,
     ) -> Option<Hash256> {
-        let mut at_height: HashMap<Hash256, usize> = HashMap::new();
+        // map of vote counts for every hash at this height
+        let mut current_votes: HashMap<Hash256, u64> = HashMap::new();
         let mut total_vote_count = 0;
 
+        // loop through the latest votes and count all votes
+        // these have already been weighted by balance
         for (hash, votes) in latest_votes.iter() {
-            if let Some(ancestor) = self.get_ancestor(*hash, h as u32) {
-                let at_height_value = at_height.get(&ancestor).unwrap_or_else(|| &0);
-                at_height.insert(ancestor, at_height_value + *votes);
+            if let Some(ancestor) = self.get_ancestor(*hash, height as u32) {
+                let current_vote_value = current_votes.get(&ancestor).unwrap_or_else(|| &0);
+                current_votes.insert(ancestor, current_vote_value + *votes);
                 total_vote_count += votes;
             }
         }
-        for (hash, votes) in at_height.iter() {
+        // Check if there is a clear block winner at this height. If so return it.
+        for (hash, votes) in current_votes.iter() {
             if *votes >= total_vote_count / 2 {
+                // we have a clear winner, return it
                 return Some(*hash);
             }
         }
+        // didn't find a clear winner
         None
     }
 
-    fn choose_best_child(&self, votes: &HashMap<Hash256, usize>) -> Option<Hash256> {
+    // Finds the best child, splitting children into a binary tree, based on their hashes
+    fn choose_best_child(&self, votes: &HashMap<Hash256, u64>) -> Option<Hash256> {
         let mut bitmask = 0;
         for bit in (0..=255).rev() {
             let mut zero_votes = 0;
@@ -165,10 +189,124 @@ where
             //TODO Remove this during benchmark after testing
             assert!(bit >= 1);
         }
+        // should never reach here
         None
     }
+}
 
-    // Implement ForkChoice to build required data structures during block processing.
+impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
+    fn add_block(&mut self, block: BeaconBlock) {}
+    // TODO: Ensure the state is updated
+
+    fn add_attestation(&mut self, attestation: Attestation) {}
+
+    /// Perform lmd_ghost on the current chain to find the head.
+    fn find_head(&mut self, justified_block_start: &Hash256) -> Result<Hash256, ForkChoiceError> {
+        let block = self
+            .block_store
+            .get_reader(&justified_block_start)?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
+        //.into_beacon_block()?;
+
+        let block_slot = block.slot();
+        let block_height = block_slot - self.GENESIS_SLOT;
+        let state_root = block.state_root();
+
+        // get latest votes
+        // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
+        // FORK_CHOICE_BALANCE_INCREMENT
+        // build a hashmap of block_hash to weighted votes
+        let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
+        // gets the current weighted votes
+        {
+            let current_state = self
+                .state_store
+                .get_reader(&state_root)?
+                .ok_or_else(|| ForkChoiceError::MissingBeaconState(state_root))?
+                .into_beacon_state()
+                .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(state_root))?;
+
+            let active_validator_indices =
+                get_active_validator_indices(&current_state.validator_registry, block_slot);
+
+            for i in active_validator_indices {
+                let balance =
+                    std::cmp::min(current_state.validator_balances[i], self.MAX_DEPOSIT_AMOUNT)
+                        / self.FORK_CHOICE_BALANCE_INCREMENT;
+                if balance > 0 {
+                    if let Some(target) = self.latest_attestation_targets.get(&(i as usize)) {
+                        *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
+                    }
+                }
+            }
+        }
+
+        let mut current_head = *justified_block_start;
+
+        // remove any votes that don't relate to our current head.
+        latest_votes
+            .retain(|hash, _| self.get_ancestor(*hash, block_height as u32) == Some(current_head));
+
+        // begin searching for the head
+        loop {
+            // if there are no children, we are done, return the current_head
+            let children = match self.children.get(&current_head) {
+                Some(children) => children.clone(),
+                None => return Ok(current_head),
+            };
+
+            // logarithmic lookup blocks to see if there are obvious winners, if so,
+            // progress to the next iteration.
+            let mut step = power_of_2_below(self.max_known_height as u32 - block_height as u32) / 2;
+            while step > 0 {
+                if let Some(clear_winner) = self.get_clear_winner(
+                    &latest_votes,
+                    block_height - (block_height % u64::from(step)) + u64::from(step),
+                ) {
+                    current_head = clear_winner;
+                    break;
+                }
+                step /= 2;
+            }
+            if step > 0 {
+            }
+            // if our skip lookup failed and we only have one child, progress to that child
+            else if children.len() == 1 {
+                current_head = children[0];
+            }
+            // we need to find the best child path to progress down.
+            else {
+                let mut child_votes = HashMap::new();
+                for (voted_hash, vote) in latest_votes.iter() {
+                    // if the latest votes correspond to a child
+                    if let Some(child) = self.get_ancestor(*voted_hash, (block_height + 1) as u32) {
+                        // add up the votes for each child
+                        *child_votes.entry(child).or_insert_with(|| 0) += vote;
+                    }
+                }
+                // given the votes on the children, find the best child
+                current_head = self
+                    .choose_best_child(&child_votes)
+                    .ok_or(ForkChoiceError::CannotFindBestChild)?;
+            }
+
+            // No head was found, re-iterate
+
+            // update the block height for the next iteration
+            let block_height = self
+                .block_store
+                .get_reader(&current_head)?
+                .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?
+                .slot()
+                - self.GENESIS_SLOT;
+
+            // prune the latest votes for votes that are not part of current chosen chain
+            // more specifically, only keep votes that have head as an ancestor
+            latest_votes.retain(|hash, _| {
+                self.get_ancestor(*hash, block_height as u32) == Some(current_head)
+            });
+        }
+    }
 }
 
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
@@ -177,11 +315,28 @@ where
 pub trait ForkChoice {
     /// Called when a block has been added. Allows generic block-level data structures to be
     /// built for a given fork-choice.
-    fn add_block(&self, block: Hash256);
+    fn add_block(&mut self, block: BeaconBlock);
     /// Called when an attestation has been added. Allows generic attestation-level data structures to be built for a given fork choice.
-    fn add_attestation(&self, attestation: Attestation);
+    fn add_attestation(&mut self, attestation: Attestation);
     /// The fork-choice algorithm to find the current canonical head of the chain.
-    fn find_head() -> Hash256;
+    // TODO: Remove the justified_start_block parameter and make it internal
+    fn find_head(&mut self, justified_start_block: &Hash256) -> Result<Hash256, ForkChoiceError>;
+}
+
+/// Possible fork choice errors that can occur.
+pub enum ForkChoiceError {
+    MissingBeaconBlock(Hash256),
+    MissingBeaconState(Hash256),
+    IncorrectBeaconState(Hash256),
+    CannotFindBestChild,
+    ChildrenNotFound,
+    StorageError(String),
+}
+
+impl From<DBError> for ForkChoiceError {
+    fn from(e: DBError) -> ForkChoiceError {
+        ForkChoiceError::StorageError(e.message)
+    }
 }
 
 /// Type for storing blocks in a memory cache. Key is comprised of block-hash plus the height.
