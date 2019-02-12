@@ -65,11 +65,8 @@ impl BeaconNode for BeaconBlockGrpcClient {
                 signature,
                 body: BeaconBlockBody {
                     proposer_slashings: vec![],
-                    casper_slashings: vec![],
+                    attester_slashings: vec![],
                     attestations: vec![],
-                    custody_reseeds: vec![],
-                    custody_challenges: vec![],
-                    custody_responses: vec![],
                     deposits: vec![],
                     exits: vec![],
                 },
