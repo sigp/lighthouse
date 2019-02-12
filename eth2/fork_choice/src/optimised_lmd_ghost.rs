@@ -1,9 +1,10 @@
 extern crate byteorder;
 extern crate fast_math;
+use crate::{ForkChoice, ForkChoiceError};
 use byteorder::{BigEndian, ByteOrder};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB, DBError,
+    ClientDB,
 };
 use fast_math::log2_raw;
 use std::collections::HashMap;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
     validator_registry::get_active_validator_indices,
-    Attestation, BeaconBlock, Hash256,
+    BeaconBlock, Hash256,
 };
 
 //TODO: Sort out global constants
@@ -46,7 +47,7 @@ pub struct OptimisedLMDGhost<T: ClientDB + Sized> {
     children: HashMap<Hash256, Vec<Hash256>>,
     /// The latest attestation targets as a map of validator index to block hash.
     //TODO: Could this be a fixed size vec
-    latest_attestation_targets: HashMap<usize, Hash256>,
+    latest_attestation_targets: HashMap<u64, Hash256>,
     /// Block storage access.
     block_store: Arc<BeaconBlockStore<T>>,
     /// State storage access.
@@ -82,7 +83,7 @@ where
                 .into_beacon_block()?
                 .slot;
 
-            (block_slot - self.GENESIS_SLOT) as u32
+            (block_slot - GENESIS_SLOT) as u32
         };
 
         // verify we haven't exceeded the block height
@@ -202,7 +203,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             .get_reader(&block.parent_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.parent_root))?
             .slot()
-            - self.GENESIS_SLOT;
+            - GENESIS_SLOT;
 
         let parent_hash = &block.parent_root;
 
@@ -228,8 +229,14 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
         Ok(())
     }
 
-    fn add_attestation(&mut self, attestation: &Attestation) -> Result<(), ForkChoiceError> {
-        // simply add the attestation to the latest_message_target mapping
+    fn add_attestation(
+        &mut self,
+        validator_index: u64,
+        target_block_root: &Hash256,
+    ) -> Result<(), ForkChoiceError> {
+        // simply add the attestation to the latest_attestation_target
+        self.latest_attestation_targets
+            .insert(validator_index, target_block_root.clone());
         Ok(())
     }
 
@@ -242,7 +249,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
         //.into_beacon_block()?;
 
         let block_slot = block.slot();
-        let block_height = block_slot - self.GENESIS_SLOT;
+        let block_height = block_slot - GENESIS_SLOT;
         let state_root = block.state_root();
 
         // get latest votes
@@ -262,12 +269,12 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             let active_validator_indices =
                 get_active_validator_indices(&current_state.validator_registry, block_slot);
 
-            for i in active_validator_indices {
+            for index in active_validator_indices {
                 let balance =
-                    std::cmp::min(current_state.validator_balances[i], self.MAX_DEPOSIT_AMOUNT)
-                        / self.FORK_CHOICE_BALANCE_INCREMENT;
+                    std::cmp::min(current_state.validator_balances[index], MAX_DEPOSIT_AMOUNT)
+                        / FORK_CHOICE_BALANCE_INCREMENT;
                 if balance > 0 {
-                    if let Some(target) = self.latest_attestation_targets.get(&(i as usize)) {
+                    if let Some(target) = self.latest_attestation_targets.get(&(index as u64)) {
                         *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
                     }
                 }
@@ -331,7 +338,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 .get_reader(&current_head)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?
                 .slot()
-                - self.GENESIS_SLOT;
+                - GENESIS_SLOT;
 
             // prune the latest votes for votes that are not part of current chosen chain
             // more specifically, only keep votes that have head as an ancestor
@@ -339,40 +346,6 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 self.get_ancestor(*hash, block_height as u32) == Some(current_head)
             });
         }
-    }
-}
-
-/// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
-/// which can be built in block processing through the `add_block` and `add_attestation` functions.
-/// The main fork choice algorithm is specified in `find_head`.
-pub trait ForkChoice {
-    /// Called when a block has been added. Allows generic block-level data structures to be
-    /// built for a given fork-choice.
-    fn add_block(
-        &mut self,
-        block: &BeaconBlock,
-        block_hash: &Hash256,
-    ) -> Result<(), ForkChoiceError>;
-    /// Called when an attestation has been added. Allows generic attestation-level data structures to be built for a given fork choice.
-    fn add_attestation(&mut self, attestation: &Attestation) -> Result<(), ForkChoiceError>;
-    /// The fork-choice algorithm to find the current canonical head of the chain.
-    // TODO: Remove the justified_start_block parameter and make it internal
-    fn find_head(&mut self, justified_start_block: &Hash256) -> Result<Hash256, ForkChoiceError>;
-}
-
-/// Possible fork choice errors that can occur.
-pub enum ForkChoiceError {
-    MissingBeaconBlock(Hash256),
-    MissingBeaconState(Hash256),
-    IncorrectBeaconState(Hash256),
-    CannotFindBestChild,
-    ChildrenNotFound,
-    StorageError(String),
-}
-
-impl From<DBError> for ForkChoiceError {
-    fn from(e: DBError) -> ForkChoiceError {
-        ForkChoiceError::StorageError(e.message)
     }
 }
 

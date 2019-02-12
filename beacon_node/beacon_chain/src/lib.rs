@@ -1,5 +1,4 @@
 mod attestation_aggregator;
-mod attestation_targets;
 mod beacon_chain;
 mod block_graph;
 mod checkpoint;
