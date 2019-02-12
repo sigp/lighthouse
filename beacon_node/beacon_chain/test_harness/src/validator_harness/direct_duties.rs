@@ -60,7 +60,7 @@ impl<T: ClientDB, U: SlotClock> AttesterDutiesReader for DirectDuties<T, U> {
                 }
                 Ok(Some(_)) => Ok(None),
                 Ok(None) => Err(AttesterDutiesReaderError::UnknownEpoch),
-                Err(_) => panic!("Error when getting validator attestation shard."),
+                Err(_) => unreachable!("Error when getting validator attestation shard."),
             }
         } else {
             Err(AttesterDutiesReaderError::UnknownValidator)

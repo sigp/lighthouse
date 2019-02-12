@@ -57,19 +57,21 @@ where
         let start = self
             .block_store
             .get_reader(&start_hash)?
-            .ok_or(Error::MissingBeaconBlock(*start_hash))?;
+            .ok_or_else(|| Error::MissingBeaconBlock(*start_hash))?;
 
         let start_state_root = start.state_root();
 
         let state = self
             .state_store
             .get_reader(&start_state_root)?
-            .ok_or(Error::MissingBeaconState(start_state_root))?
+            .ok_or_else(|| Error::MissingBeaconState(start_state_root))?
             .into_beacon_state()
-            .ok_or(Error::InvalidBeaconState(start_state_root))?;
+            .ok_or_else(|| Error::InvalidBeaconState(start_state_root))?;
 
-        let active_validator_indices =
-            get_active_validator_indices(&state.validator_registry, start.slot());
+        let active_validator_indices = get_active_validator_indices(
+            &state.validator_registry,
+            start.slot().epoch(self.spec.epoch_length),
+        );
 
         let mut attestation_targets = Vec::with_capacity(active_validator_indices.len());
         for i in active_validator_indices {
@@ -88,7 +90,7 @@ where
                 &self.block_graph.leaves(),
             )?;
 
-            if child_hashes_and_slots.len() == 0 {
+            if child_hashes_and_slots.is_empty() {
                 break;
             }
 
@@ -124,7 +126,7 @@ fn get_vote_count<T: ClientDB>(
     for target in attestation_targets {
         let (root_at_slot, _) = block_store
             .block_at_slot(&block_root, slot)?
-            .ok_or(Error::MissingBeaconBlock(*block_root))?;
+            .ok_or_else(|| Error::MissingBeaconBlock(*block_root))?;
         if root_at_slot == *target {
             count += 1;
         }
@@ -163,7 +165,7 @@ fn get_child_hashes_and_slots<T: ClientDB>(
                     break;
                 }
 
-                current_hash = parent_root.clone();
+                current_hash = parent_root;
             } else {
                 return Err(Error::MissingBeaconBlock(current_hash));
             }

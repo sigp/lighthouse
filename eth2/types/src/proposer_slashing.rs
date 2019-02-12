@@ -7,7 +7,7 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct ProposerSlashing {
-    pub proposer_index: u32,
+    pub proposer_index: u64,
     pub proposal_data_1: ProposalSignedData,
     pub proposal_signature_1: Signature,
     pub proposal_data_2: ProposalSignedData,

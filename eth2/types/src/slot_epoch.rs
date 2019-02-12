@@ -13,9 +13,10 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use slog;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
@@ -163,6 +164,10 @@ macro_rules! impl_math {
                 *self - other.into()
             }
 
+            pub fn saturating_add<T: Into<$type>>(&self, other: T) -> $type {
+                *self + other.into()
+            }
+
             pub fn checked_div<T: Into<$type>>(&self, rhs: T) -> Option<$type> {
                 let rhs: $type = rhs.into();
                 if rhs == 0 {
@@ -239,6 +244,18 @@ macro_rules! impl_ssz {
     };
 }
 
+macro_rules! impl_hash {
+    ($type: ident) => {
+        // Implemented to stop clippy lint:
+        // https://rust-lang.github.io/rust-clippy/master/index.html#derive_hash_xor_eq
+        impl Hash for $type {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                ssz_encode(self).hash(state)
+            }
+        }
+    };
+}
+
 macro_rules! impl_common {
     ($type: ident) => {
         impl_from_into_u64!($type);
@@ -248,13 +265,14 @@ macro_rules! impl_common {
         impl_math!($type);
         impl_display!($type);
         impl_ssz!($type);
+        impl_hash!($type);
     };
 }
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Hash)]
+#[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
 pub struct Slot(u64);
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Hash)]
+#[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);
@@ -265,7 +283,7 @@ impl Slot {
         Slot(slot)
     }
 
-    pub fn epoch(&self, epoch_length: u64) -> Epoch {
+    pub fn epoch(self, epoch_length: u64) -> Epoch {
         Epoch::from(self.0 / epoch_length)
     }
 
@@ -279,11 +297,15 @@ impl Epoch {
         Epoch(slot)
     }
 
-    pub fn start_slot(&self, epoch_length: u64) -> Slot {
+    pub fn max_value() -> Epoch {
+        Epoch(u64::max_value())
+    }
+
+    pub fn start_slot(self, epoch_length: u64) -> Slot {
         Slot::from(self.0.saturating_mul(epoch_length))
     }
 
-    pub fn end_slot(&self, epoch_length: u64) -> Slot {
+    pub fn end_slot(self, epoch_length: u64) -> Slot {
         Slot::from(
             self.0
                 .saturating_add(1)
@@ -525,6 +547,23 @@ mod tests {
                 // Subtraction should be saturating
                 assert_saturating_sub(0, 1, 0);
                 assert_saturating_sub(1, 2, 0);
+            }
+
+            #[test]
+            fn saturating_add() {
+                let assert_saturating_add = |a: u64, b: u64, result: u64| {
+                    assert_eq!($type(a).saturating_add($type(b)), $type(result));
+                };
+
+                assert_saturating_add(0, 1, 1);
+                assert_saturating_add(1, 0, 1);
+                assert_saturating_add(1, 2, 3);
+                assert_saturating_add(2, 1, 3);
+                assert_saturating_add(7, 7, 14);
+
+                // Addition should be saturating.
+                assert_saturating_add(u64::max_value(), 1, u64::max_value());
+                assert_saturating_add(u64::max_value(), u64::max_value(), u64::max_value());
             }
 
             #[test]

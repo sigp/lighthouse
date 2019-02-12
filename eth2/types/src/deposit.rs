@@ -6,29 +6,29 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct Deposit {
-    pub merkle_branch: Vec<Hash256>,
-    pub merkle_tree_index: u64,
+    pub branch: Vec<Hash256>,
+    pub index: u64,
     pub deposit_data: DepositData,
 }
 
 impl Encodable for Deposit {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.merkle_branch);
-        s.append(&self.merkle_tree_index);
+        s.append_vec(&self.branch);
+        s.append(&self.index);
         s.append(&self.deposit_data);
     }
 }
 
 impl Decodable for Deposit {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (merkle_branch, i) = <_>::ssz_decode(bytes, i)?;
-        let (merkle_tree_index, i) = <_>::ssz_decode(bytes, i)?;
+        let (branch, i) = <_>::ssz_decode(bytes, i)?;
+        let (index, i) = <_>::ssz_decode(bytes, i)?;
         let (deposit_data, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                merkle_branch,
-                merkle_tree_index,
+                branch,
+                index,
                 deposit_data,
             },
             i,
@@ -39,8 +39,8 @@ impl Decodable for Deposit {
 impl TreeHash for Deposit {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.merkle_branch.hash_tree_root());
-        result.append(&mut self.merkle_tree_index.hash_tree_root());
+        result.append(&mut self.branch.hash_tree_root());
+        result.append(&mut self.index.hash_tree_root());
         result.append(&mut self.deposit_data.hash_tree_root());
         hash(&result)
     }
@@ -49,8 +49,8 @@ impl TreeHash for Deposit {
 impl<T: RngCore> TestRandom<T> for Deposit {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            merkle_branch: <_>::random_for_test(rng),
-            merkle_tree_index: <_>::random_for_test(rng),
+            branch: <_>::random_for_test(rng),
+            index: <_>::random_for_test(rng),
             deposit_data: <_>::random_for_test(rng),
         }
     }

@@ -1,14 +1,13 @@
-use super::{AttestationData, Bitfield, Hash256};
+use super::{AggregatePublicKey, AggregateSignature, AttestationData, Bitfield, Hash256};
 use crate::test_utils::TestRandom;
-use bls::AggregateSignature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Attestation {
-    pub data: AttestationData,
     pub aggregation_bitfield: Bitfield,
+    pub data: AttestationData,
     pub custody_bitfield: Bitfield,
     pub aggregate_signature: AggregateSignature,
 }
@@ -21,12 +20,23 @@ impl Attestation {
     pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
         self.data.signable_message(custody_bit)
     }
+
+    pub fn verify_signature(
+        &self,
+        group_public_key: &AggregatePublicKey,
+        custody_bit: bool,
+        // TODO: use domain.
+        _domain: u64,
+    ) -> bool {
+        self.aggregate_signature
+            .verify(&self.signable_message(custody_bit), group_public_key)
+    }
 }
 
 impl Encodable for Attestation {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.data);
         s.append(&self.aggregation_bitfield);
+        s.append(&self.data);
         s.append(&self.custody_bitfield);
         s.append(&self.aggregate_signature);
     }
@@ -34,14 +44,14 @@ impl Encodable for Attestation {
 
 impl Decodable for Attestation {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (data, i) = AttestationData::ssz_decode(bytes, i)?;
         let (aggregation_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
+        let (data, i) = AttestationData::ssz_decode(bytes, i)?;
         let (custody_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
         let (aggregate_signature, i) = AggregateSignature::ssz_decode(bytes, i)?;
 
         let attestation_record = Self {
-            data,
             aggregation_bitfield,
+            data,
             custody_bitfield,
             aggregate_signature,
         };
@@ -49,22 +59,11 @@ impl Decodable for Attestation {
     }
 }
 
-impl Attestation {
-    pub fn zero() -> Self {
-        Self {
-            data: AttestationData::zero(),
-            aggregation_bitfield: Bitfield::new(),
-            custody_bitfield: Bitfield::new(),
-            aggregate_signature: AggregateSignature::new(),
-        }
-    }
-}
-
 impl TreeHash for Attestation {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.data.hash_tree_root());
         result.append(&mut self.aggregation_bitfield.hash_tree_root());
+        result.append(&mut self.data.hash_tree_root());
         result.append(&mut self.custody_bitfield.hash_tree_root());
         result.append(&mut self.aggregate_signature.hash_tree_root());
         hash(&result)

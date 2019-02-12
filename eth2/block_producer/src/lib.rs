@@ -4,7 +4,7 @@ mod traits;
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, PublicKey, Slot};
+use types::{BeaconBlock, ChainSpec, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -48,7 +48,6 @@ pub enum Error {
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
 pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
     pub last_processed_slot: Option<Slot>,
-    pubkey: PublicKey,
     spec: Arc<ChainSpec>,
     epoch_map: Arc<V>,
     slot_clock: Arc<T>,
@@ -60,7 +59,6 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
-        pubkey: PublicKey,
         epoch_map: Arc<V>,
         slot_clock: Arc<T>,
         beacon_node: Arc<U>,
@@ -68,7 +66,6 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ) -> Self {
         Self {
             last_processed_slot: None,
-            pubkey,
             spec,
             epoch_map,
             slot_clock,
@@ -134,10 +131,8 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// slashing.
     fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
         let randao_reveal = {
-            let producer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
-
-            // TODO: add domain, etc to this message.
-            let message = ssz_encode(&producer_nonce);
+            // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
+            let message = ssz_encode(&slot.epoch(self.spec.epoch_length));
 
             match self.signer.sign_randao_reveal(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
@@ -240,11 +235,9 @@ mod tests {
         let produce_epoch = produce_slot.epoch(spec.epoch_length);
         epoch_map.map.insert(produce_epoch, produce_slot);
         let epoch_map = Arc::new(epoch_map);
-        let keypair = Keypair::random();
 
         let mut block_producer = BlockProducer::new(
             spec.clone(),
-            keypair.pk.clone(),
             epoch_map.clone(),
             slot_clock.clone(),
             beacon_node.clone(),
@@ -254,7 +247,6 @@ mod tests {
         // Configure responses from the BeaconNode.
         beacon_node.set_next_produce_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));
         beacon_node.set_next_publish_result(Ok(PublishOutcome::ValidBlock));
-        beacon_node.set_next_nonce_result(Ok(0));
 
         // One slot before production slot...
         slot_clock.set_slot(produce_slot.as_u64() - 1);

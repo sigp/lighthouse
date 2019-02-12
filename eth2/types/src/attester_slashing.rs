@@ -1,56 +1,50 @@
-use crate::{test_utils::TestRandom, Epoch};
+use crate::{test_utils::TestRandom, SlashableAttestation};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
-pub struct Fork {
-    pub previous_version: u64,
-    pub current_version: u64,
-    pub epoch: Epoch,
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct AttesterSlashing {
+    pub slashable_attestation_1: SlashableAttestation,
+    pub slashable_attestation_2: SlashableAttestation,
 }
 
-impl Encodable for Fork {
+impl Encodable for AttesterSlashing {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.previous_version);
-        s.append(&self.current_version);
-        s.append(&self.epoch);
+        s.append(&self.slashable_attestation_1);
+        s.append(&self.slashable_attestation_2);
     }
 }
 
-impl Decodable for Fork {
+impl Decodable for AttesterSlashing {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (previous_version, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_version, i) = <_>::ssz_decode(bytes, i)?;
-        let (epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (slashable_attestation_1, i) = <_>::ssz_decode(bytes, i)?;
+        let (slashable_attestation_2, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
-            Self {
-                previous_version,
-                current_version,
-                epoch,
+            AttesterSlashing {
+                slashable_attestation_1,
+                slashable_attestation_2,
             },
             i,
         ))
     }
 }
 
-impl TreeHash for Fork {
+impl TreeHash for AttesterSlashing {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.previous_version.hash_tree_root());
-        result.append(&mut self.current_version.hash_tree_root());
-        result.append(&mut self.epoch.hash_tree_root());
+        result.append(&mut self.slashable_attestation_1.hash_tree_root());
+        result.append(&mut self.slashable_attestation_2.hash_tree_root());
         hash(&result)
     }
 }
 
-impl<T: RngCore> TestRandom<T> for Fork {
+impl<T: RngCore> TestRandom<T> for AttesterSlashing {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            previous_version: <_>::random_for_test(rng),
-            current_version: <_>::random_for_test(rng),
-            epoch: <_>::random_for_test(rng),
+            slashable_attestation_1: <_>::random_for_test(rng),
+            slashable_attestation_2: <_>::random_for_test(rng),
         }
     }
 }
@@ -64,7 +58,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Fork::random_for_test(&mut rng);
+        let original = AttesterSlashing::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -75,7 +69,7 @@ mod tests {
     #[test]
     pub fn test_hash_tree_root() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Fork::random_for_test(&mut rng);
+        let original = AttesterSlashing::random_for_test(&mut rng);
 
         let result = original.hash_tree_root();
 
