@@ -14,7 +14,10 @@ use types::{
     Attestation, BeaconBlock, Hash256,
 };
 
-//TODO: Sort out global constants! Currently implemented into the struct
+//TODO: Sort out global constants
+const GENESIS_SLOT: u64 = 0;
+const FORK_CHOICE_BALANCE_INCREMENT: u64 = 1e9 as u64;
+const MAX_DEPOSIT_AMOUNT: u64 = 32e9 as u64;
 
 /// The optimised LMD-GHOST fork choice rule.
 /// NOTE: This uses u32 to represent difference between block heights. Thus this is only
@@ -49,10 +52,6 @@ pub struct OptimisedLMDGhost<T: ClientDB + Sized> {
     /// State storage access.
     state_store: Arc<BeaconStateStore<T>>,
     max_known_height: u64,
-    /// Genesis slot height to calculate block heights.
-    GENESIS_SLOT: u64,
-    FORK_CHOICE_BALANCE_INCREMENT: u64,
-    MAX_DEPOSIT_AMOUNT: u64,
 }
 
 impl<T> OptimisedLMDGhost<T>
@@ -68,9 +67,6 @@ where
             max_known_height: 0,
             block_store: Arc::new(block_store),
             state_store: Arc::new(state_store),
-            GENESIS_SLOT: 0,
-            FORK_CHOICE_BALANCE_INCREMENT: 1e9 as u64, //in Gwei
-            MAX_DEPOSIT_AMOUNT: 32e9 as u64,           // in Gwei
         }
     }
 
@@ -195,10 +191,47 @@ where
 }
 
 impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
-    fn add_block(&mut self, block: BeaconBlock) {}
-    // TODO: Ensure the state is updated
+    fn add_block(
+        &mut self,
+        block: &BeaconBlock,
+        block_hash: &Hash256,
+    ) -> Result<(), ForkChoiceError> {
+        // get the height of the parent
+        let parent_height = self
+            .block_store
+            .get_reader(&block.parent_root)?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.parent_root))?
+            .slot()
+            - self.GENESIS_SLOT;
 
-    fn add_attestation(&mut self, attestation: Attestation) {}
+        let parent_hash = &block.parent_root;
+
+        // add the new block to the children of parent
+        (*self
+            .children
+            .entry(block.parent_root)
+            .or_insert_with(|| vec![]))
+        .push(block_hash.clone());
+
+        // build the ancestor data structure
+        for index in 0..16 {
+            if parent_height % (1 << index) == 0 {
+                self.ancestors[index].insert(*block_hash, *parent_hash);
+            } else {
+                // TODO: This is unsafe. Will panic if parent_hash doesn't exist. Using it for debugging
+                let parent_ancestor = self.ancestors[index][parent_hash];
+                self.ancestors[index].insert(*block_hash, parent_ancestor);
+            }
+        }
+        // update the max height
+        self.max_known_height = std::cmp::max(self.max_known_height, parent_height + 1);
+        Ok(())
+    }
+
+    fn add_attestation(&mut self, attestation: &Attestation) -> Result<(), ForkChoiceError> {
+        // simply add the attestation to the latest_message_target mapping
+        Ok(())
+    }
 
     /// Perform lmd_ghost on the current chain to find the head.
     fn find_head(&mut self, justified_block_start: &Hash256) -> Result<Hash256, ForkChoiceError> {
@@ -315,9 +348,13 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
 pub trait ForkChoice {
     /// Called when a block has been added. Allows generic block-level data structures to be
     /// built for a given fork-choice.
-    fn add_block(&mut self, block: BeaconBlock);
+    fn add_block(
+        &mut self,
+        block: &BeaconBlock,
+        block_hash: &Hash256,
+    ) -> Result<(), ForkChoiceError>;
     /// Called when an attestation has been added. Allows generic attestation-level data structures to be built for a given fork choice.
-    fn add_attestation(&mut self, attestation: Attestation);
+    fn add_attestation(&mut self, attestation: &Attestation) -> Result<(), ForkChoiceError>;
     /// The fork-choice algorithm to find the current canonical head of the chain.
     // TODO: Remove the justified_start_block parameter and make it internal
     fn find_head(&mut self, justified_start_block: &Hash256) -> Result<Hash256, ForkChoiceError>;
