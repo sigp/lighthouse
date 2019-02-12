@@ -142,7 +142,6 @@ fn main() {
         // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
-            let pubkey = keypair.pk.clone();
             let signer = Arc::new(LocalSigner::new(keypair.clone()));
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
@@ -150,7 +149,7 @@ fn main() {
             let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
             thread::spawn(move || {
                 let block_producer =
-                    BlockProducer::new(spec, pubkey, duties_map, slot_clock, client, signer);
+                    BlockProducer::new(spec, duties_map, slot_clock, client, signer);
                 let mut block_producer_service = BlockProducerService {
                     block_producer,
                     poll_interval_millis,
