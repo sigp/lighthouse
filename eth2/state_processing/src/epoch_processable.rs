@@ -582,12 +582,6 @@ impl EpochProcessable for BeaconState {
 
         self.process_penalties_and_exits(spec);
 
-        /*
-        let e = self.slot / spec.epoch_length;
-        self.latest_penalized_balances[((e + 1) % spec.latest_penalized_exit_length).as_usize()] =
-            self.latest_penalized_balances[(e % spec.latest_penalized_exit_length).as_usize()];
-
-        */
         self.latest_index_roots[(next_epoch.as_usize() + spec.entry_exit_delay as usize)
             % spec.latest_index_roots_length] = hash_tree_root(get_active_validator_indices(
             &self.validator_registry,

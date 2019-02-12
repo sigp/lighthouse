@@ -40,14 +40,6 @@ pub enum AttestationParticipantsError {
     CommitteesError(CommitteesError),
 }
 
-/*
-#[derive(Debug, PartialEq)]
-pub enum SlotProcessingError {
-    CommitteesError(CommitteesError),
-    EpochProcessingError(EpochError),
-}
-*/
-
 #[derive(Debug, PartialEq)]
 pub enum AttestationValidationError {
     IncludedTooEarly,
