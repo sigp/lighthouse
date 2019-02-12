@@ -78,7 +78,7 @@ impl Default for Validator {
 impl<T: RngCore> TestRandom<T> for StatusFlags {
     fn random_for_test(rng: &mut T) -> Self {
         let options = vec![StatusFlags::InitiatedExit, StatusFlags::Withdrawable];
-        options[(rng.next_u32() as usize) % options.len()].clone()
+        options[(rng.next_u32() as usize) % options.len()]
     }
 }
 
@@ -130,7 +130,7 @@ impl TreeHash for Validator {
         result.append(&mut self.exit_epoch.hash_tree_root());
         result.append(&mut self.withdrawal_epoch.hash_tree_root());
         result.append(&mut self.penalized_epoch.hash_tree_root());
-        result.append(&mut (status_flag_to_byte(self.status_flags) as u64).hash_tree_root());
+        result.append(&mut u64::from(status_flag_to_byte(self.status_flags)).hash_tree_root());
         hash(&result)
     }
 }

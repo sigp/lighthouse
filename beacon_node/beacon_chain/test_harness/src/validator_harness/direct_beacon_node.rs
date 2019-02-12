@@ -80,7 +80,7 @@ impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U> {
             .beacon_chain
             .produce_block(randao_reveal.clone())
             .ok_or_else(|| {
-                BeaconBlockNodeError::RemoteFailure(format!("Did not produce block."))
+                BeaconBlockNodeError::RemoteFailure("Did not produce block.".to_string())
             })?;
 
         if block.slot == slot {

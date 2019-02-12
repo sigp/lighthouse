@@ -2,7 +2,6 @@ use crate::traits::{BeaconNode, BeaconNodeError, PublishOutcome};
 use std::sync::RwLock;
 use types::{BeaconBlock, Signature, Slot};
 
-type NonceResult = Result<u64, BeaconNodeError>;
 type ProduceResult = Result<Option<BeaconBlock>, BeaconNodeError>;
 type PublishResult = Result<PublishOutcome, BeaconNodeError>;
 

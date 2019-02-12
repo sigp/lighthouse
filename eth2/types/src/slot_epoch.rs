@@ -13,9 +13,10 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use slog;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
@@ -243,6 +244,18 @@ macro_rules! impl_ssz {
     };
 }
 
+macro_rules! impl_hash {
+    ($type: ident) => {
+        // Implemented to stop clippy lint:
+        // https://rust-lang.github.io/rust-clippy/master/index.html#derive_hash_xor_eq
+        impl Hash for $type {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                ssz_encode(self).hash(state)
+            }
+        }
+    };
+}
+
 macro_rules! impl_common {
     ($type: ident) => {
         impl_from_into_u64!($type);
@@ -252,13 +265,14 @@ macro_rules! impl_common {
         impl_math!($type);
         impl_display!($type);
         impl_ssz!($type);
+        impl_hash!($type);
     };
 }
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Hash)]
+#[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
 pub struct Slot(u64);
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Hash)]
+#[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);
@@ -269,7 +283,7 @@ impl Slot {
         Slot(slot)
     }
 
-    pub fn epoch(&self, epoch_length: u64) -> Epoch {
+    pub fn epoch(self, epoch_length: u64) -> Epoch {
         Epoch::from(self.0 / epoch_length)
     }
 
@@ -287,11 +301,11 @@ impl Epoch {
         Epoch(u64::max_value())
     }
 
-    pub fn start_slot(&self, epoch_length: u64) -> Slot {
+    pub fn start_slot(self, epoch_length: u64) -> Slot {
         Slot::from(self.0.saturating_mul(epoch_length))
     }
 
-    pub fn end_slot(&self, epoch_length: u64) -> Slot {
+    pub fn end_slot(self, epoch_length: u64) -> Slot {
         Slot::from(
             self.0
                 .saturating_add(1)

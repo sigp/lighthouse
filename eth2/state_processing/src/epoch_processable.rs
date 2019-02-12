@@ -226,7 +226,7 @@ impl EpochProcessable for BeaconState {
          */
 
         let mut new_justified_epoch = self.justified_epoch;
-        self.justification_bitfield = self.justification_bitfield << 1;
+        self.justification_bitfield <<= 1;
 
         // If > 2/3 of the total balance attested to the previous epoch boundary
         //
@@ -277,8 +277,7 @@ impl EpochProcessable for BeaconState {
         // - The presently justified epoch was two epochs ago.
         //
         // Then, set the finalized epoch to two epochs ago.
-        if ((self.justification_bitfield >> 0) % 8 == 0b111)
-            & (self.justified_epoch == previous_epoch - 1)
+        if (self.justification_bitfield % 8 == 0b111) & (self.justified_epoch == previous_epoch - 1)
         {
             self.finalized_epoch = self.justified_epoch;
             trace!("epoch - 2 was finalized (3rd condition).");
@@ -289,9 +288,7 @@ impl EpochProcessable for BeaconState {
         // - Set the previous epoch to be justified.
         //
         // Then, set the finalized epoch to be the previous epoch.
-        if ((self.justification_bitfield >> 0) % 4 == 0b11)
-            & (self.justified_epoch == previous_epoch)
-        {
+        if (self.justification_bitfield % 4 == 0b11) & (self.justified_epoch == previous_epoch) {
             self.finalized_epoch = self.justified_epoch;
             trace!("epoch - 1 was finalized (4th condition).");
         }
@@ -386,10 +383,8 @@ impl EpochProcessable for BeaconState {
                         base_reward * previous_epoch_justified_attesting_balance
                             / previous_total_balance
                     );
-                } else {
-                    if active_validator_indices_hashset.contains(&index) {
-                        safe_sub_assign!(self.validator_balances[index], base_reward);
-                    }
+                } else if active_validator_indices_hashset.contains(&index) {
+                    safe_sub_assign!(self.validator_balances[index], base_reward);
                 }
 
                 if previous_epoch_boundary_attester_indices_hashset.contains(&index) {
@@ -398,10 +393,8 @@ impl EpochProcessable for BeaconState {
                         base_reward * previous_epoch_boundary_attesting_balance
                             / previous_total_balance
                     );
-                } else {
-                    if active_validator_indices_hashset.contains(&index) {
-                        safe_sub_assign!(self.validator_balances[index], base_reward);
-                    }
+                } else if active_validator_indices_hashset.contains(&index) {
+                    safe_sub_assign!(self.validator_balances[index], base_reward);
                 }
 
                 if previous_epoch_head_attester_indices_hashset.contains(&index) {
@@ -410,10 +403,8 @@ impl EpochProcessable for BeaconState {
                         base_reward * previous_epoch_head_attesting_balance
                             / previous_total_balance
                     );
-                } else {
-                    if active_validator_indices_hashset.contains(&index) {
-                        safe_sub_assign!(self.validator_balances[index], base_reward);
-                    }
+                } else if active_validator_indices_hashset.contains(&index) {
+                    safe_sub_assign!(self.validator_balances[index], base_reward);
                 }
             }
 
@@ -505,7 +496,7 @@ impl EpochProcessable for BeaconState {
                 if let Some(Ok(winning_root)) = winning_root_for_shards.get(&shard) {
                     // TODO: remove the map.
                     let attesting_validator_indices: HashSet<usize> = HashSet::from_iter(
-                        winning_root.attesting_validator_indices.iter().map(|i| *i),
+                        winning_root.attesting_validator_indices.iter().cloned(),
                     );
 
                     for index in 0..self.validator_balances.len() {
@@ -664,7 +655,7 @@ fn winning_root(
         }
 
         let candidate_root = WinningRoot {
-            shard_block_root: shard_block_root.clone(),
+            shard_block_root: *shard_block_root,
             attesting_validator_indices,
             total_attesting_balance,
             total_balance,

@@ -30,8 +30,6 @@ where
 
         self.slot += 1;
 
-        let block_proposer = self.get_beacon_proposer_index(self.slot, spec)?;
-
         self.latest_randao_mixes[self.slot.as_usize() % spec.latest_randao_mixes_length] =
             self.latest_randao_mixes[(self.slot.as_usize() - 1) % spec.latest_randao_mixes_length];
 

@@ -333,7 +333,7 @@ fn validate_attestation_signature_optional(
     ensure!(
         (attestation.data.latest_crosslink
             == state.latest_crosslinks[attestation.data.shard as usize])
-            || (attestation.data.latest_crosslink
+            | (attestation.data.latest_crosslink
                 == state.latest_crosslinks[attestation.data.shard as usize]),
         AttestationValidationError::BadLatestCrosslinkRoot
     );

@@ -283,7 +283,7 @@ impl BeaconState {
 
         shuffled_active_validator_indices
             .honey_badger_split(committees_per_epoch as usize)
-            .filter_map(|slice: &[usize]| Some(slice.to_vec()))
+            .map(|slice: &[usize]| slice.to_vec())
             .collect()
     }
 
@@ -522,11 +522,9 @@ impl BeaconState {
             .filter(|i| eligible(*i))
             .collect();
         eligable_indices.sort_by_key(|i| self.validator_registry[*i].exit_epoch);
-        let mut withdrawn_so_far = 0;
-        for index in eligable_indices {
-            self.prepare_validator_for_withdrawal(index);
-            withdrawn_so_far += 1;
-            if withdrawn_so_far >= spec.max_withdrawals_per_epoch {
+        for (withdrawn_so_far, index) in eligable_indices.iter().enumerate() {
+            self.prepare_validator_for_withdrawal(*index);
+            if withdrawn_so_far as u64 >= spec.max_withdrawals_per_epoch {
                 break;
             }
         }
@@ -796,11 +794,7 @@ impl BeaconState {
         for (i, a) in attestations.iter().enumerate() {
             let participants =
                 self.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
-            if participants
-                .iter()
-                .find(|i| **i == validator_index)
-                .is_some()
-            {
+            if participants.iter().any(|i| *i == validator_index) {
                 included_attestations.push(i);
             }
         }

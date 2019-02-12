@@ -1,6 +1,5 @@
 use super::{AggregatePublicKey, AggregateSignature, AttestationData, Bitfield, Hash256};
 use crate::test_utils::TestRandom;
-use bls::bls_verify_aggregate;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
