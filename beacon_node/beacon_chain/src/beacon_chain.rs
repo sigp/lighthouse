@@ -2,6 +2,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
 };
+use fork_choice::{ForkChoice, ForkChoiceError};
 use genesis::{genesis_beacon_block, genesis_beacon_state};
 use log::{debug, trace};
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -14,11 +15,8 @@ use types::{
     AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Eth1Data,
     FreeAttestation, Hash256, PublicKey, Signature,
 };
-use fork_choice::{longest_chain, basic_lmd_ghost};
-use fork_choice::{ForkChoice};
 
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
-use crate::attestation_targets::AttestationTargets;
 use crate::block_graph::BlockGraph;
 use crate::checkpoint::CheckPoint;
 
@@ -29,6 +27,9 @@ pub enum Error {
     CommitteesError(CommitteesError),
     DBInconsistent(String),
     DBError(String),
+    ForkChoiceError(ForkChoiceError),
+    MissingBeaconBlock(Hash256),
+    MissingBeaconState(Hash256),
 }
 
 #[derive(Debug, PartialEq)]
@@ -60,7 +61,7 @@ pub enum BlockProcessingOutcome {
     InvalidBlock(InvalidBlock),
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
+pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
@@ -70,14 +71,15 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
     finalized_head: RwLock<CheckPoint>,
     justified_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
-    pub latest_attestation_targets: RwLock<AttestationTargets>,
     pub spec: ChainSpec,
+    pub fork_choice: F,
 }
 
-impl<T, U> BeaconChain<T, U>
+impl<T, U, F> BeaconChain<T, U, F>
 where
     T: ClientDB,
     U: SlotClock,
+    F: ForkChoice,
 {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn genesis(
@@ -85,6 +87,7 @@ where
         block_store: Arc<BeaconBlockStore<T>>,
         slot_clock: U,
         spec: ChainSpec,
+        fork_choice: F,
     ) -> Result<Self, Error> {
         if spec.initial_validators.is_empty() {
             return Err(Error::InsufficientValidators);
@@ -121,8 +124,6 @@ where
         ));
         let attestation_aggregator = RwLock::new(AttestationAggregator::new());
 
-        let latest_attestation_targets = RwLock::new(AttestationTargets::new());
-
         Ok(Self {
             block_store,
             state_store,
@@ -133,8 +134,8 @@ where
             justified_head,
             finalized_head,
             canonical_head,
-            latest_attestation_targets,
             spec: spec,
+            fork_choice,
         })
     }
 
@@ -209,7 +210,7 @@ where
         Ok(())
     }
 
-    /// Returns the the validator index (if any) for the given public key.
+    /// Returns the validator index (if any) for the given public key.
     ///
     /// Information is retrieved from the present `beacon_state.validator_registry`.
     pub fn validator_index(&self, pubkey: &PublicKey) -> Option<usize> {
@@ -338,29 +339,27 @@ where
     /// - Create a new `Attestation`.
     /// - Aggregate it to an existing `Attestation`.
     pub fn process_free_attestation(
-        &self,
+        &mut self,
         free_attestation: FreeAttestation,
     ) -> Result<AggregationOutcome, Error> {
-        self.attestation_aggregator
+        let aggregation_outcome = self
+            .attestation_aggregator
             .write()
-            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)
-            .map_err(|e| e.into())
-    }
+            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)?;
+        // TODO: Check this comment
+        //.map_err(|e| e.into())?;
 
-    /// Set the latest attestation target for some validator.
-    pub fn insert_latest_attestation_target(&self, validator_index: u64, block_root: Hash256) {
-        let mut targets = self.latest_attestation_targets.write();
-        targets.insert(validator_index, block_root);
-    }
-
-    /// Get the latest attestation target for some validator.
-    pub fn get_latest_attestation_target(&self, validator_index: u64) -> Option<Hash256> {
-        let targets = self.latest_attestation_targets.read();
-
-        match targets.get(validator_index) {
-            Some(hash) => Some(hash.clone()),
-            None => None,
+        // return if the attestation is invalid
+        if !aggregation_outcome.valid {
+            return Ok(aggregation_outcome);
         }
+
+        // valid attestation, proceed with fork-choice logic
+        self.fork_choice.add_attestation(
+            free_attestation.validator_index,
+            &free_attestation.data.beacon_block_root,
+        )?;
+        Ok(aggregation_outcome)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
@@ -417,7 +416,7 @@ where
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
+    pub fn process_block(&mut self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot());
 
         let block_root = block.canonical_root();
@@ -471,7 +470,7 @@ where
             }
         }
 
-        // Apply the recieved block to its parent state (which has been transitioned into this
+        // Apply the received block to its parent state (which has been transitioned into this
         // slot).
         if let Err(e) = state.per_block_processing(&block, &self.spec) {
             return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -494,6 +493,9 @@ where
         // Update the block DAG.
         self.block_graph
             .add_leaf(&parent_block_root, block_root.clone());
+
+        // run the fork_choice add_block logic
+        self.fork_choice.add_block(&block, &block_root)?;
 
         // If the parent block was the parent_block, automatically update the canonical head.
         //
@@ -574,15 +576,11 @@ where
         Some((block, state))
     }
 
-    // For now, we give it the option of choosing which fork choice to use
-    pub fn fork_choice(&self, fork_choice: ForkChoice) -> Result<(), Error> {
-        let present_head = &self.finalized_head().beacon_block_root;
+    // TODO: Left this as is, modify later
+    pub fn fork_choice(&mut self) -> Result<(), Error> {
+        let present_head = &self.finalized_head().beacon_block_root.clone();
 
-        let new_head = match fork_choice {
-           ForkChoice::BasicLMDGhost => basic_lmd_ghost(&self.finalized_head().beacon_block_root)?,
-           // TODO: Implement others
-           _ => present_head
-        }
+        let new_head = self.fork_choice.find_head(present_head)?;
 
         if new_head != *present_head {
             let block = self
@@ -601,15 +599,18 @@ where
         }
 
         Ok(())
-
-
-
+    }
 }
-
 
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
         Error::DBError(e.message)
+    }
+}
+
+impl From<ForkChoiceError> for Error {
+    fn from(e: ForkChoiceError) -> Error {
+        Error::ForkChoiceError(e)
     }
 }
 
