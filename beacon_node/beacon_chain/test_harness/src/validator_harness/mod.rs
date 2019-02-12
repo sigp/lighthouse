@@ -70,7 +70,6 @@ impl ValidatorHarness {
 
         let block_producer = BlockProducer::new(
             spec.clone(),
-            keypair.pk.clone(),
             epoch_map.clone(),
             slot_clock.clone(),
             beacon_node.clone(),
