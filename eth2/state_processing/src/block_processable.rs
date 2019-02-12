@@ -194,7 +194,7 @@ fn per_block_processing_signature_optional(
             ),
             Error::BadProposerSlashing
         );
-        state.penalize_validator(proposer_slashing.proposer_index as usize, spec);
+        state.penalize_validator(proposer_slashing.proposer_index as usize, spec)?;
     }
 
     /*
