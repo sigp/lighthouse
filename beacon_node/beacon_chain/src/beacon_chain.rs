@@ -17,7 +17,6 @@ use types::{
 };
 
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
-use crate::block_graph::BlockGraph;
 use crate::checkpoint::CheckPoint;
 
 #[derive(Debug, PartialEq)]
@@ -65,7 +64,6 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
-    pub block_graph: BlockGraph,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
@@ -101,9 +99,6 @@ where
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
-        let block_graph = BlockGraph::new();
-        block_graph.add_leaf(&Hash256::zero(), block_root);
-
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
@@ -128,7 +123,6 @@ where
             block_store,
             state_store,
             slot_clock,
-            block_graph,
             attestation_aggregator,
             state: RwLock::new(genesis_state.clone()),
             justified_head,
@@ -483,9 +477,6 @@ where
         // Store the block and state.
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
-
-        // Update the block DAG.
-        self.block_graph.add_leaf(&parent_block_root, block_root);
 
         // run the fork_choice add_block logic
         self.fork_choice.add_block(&block, &block_root)?;

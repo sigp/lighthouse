@@ -71,6 +71,42 @@ where
         }
     }
 
+    /// Finds the latest votes weighted by validator balance. Returns a hashmap of block_hash to
+    /// weighted votes.
+    pub fn get_latest_votes(
+        state_root: &Hash256,
+        block_slot: &Hash256,
+    ) -> Result<HashMap<Has256, u64>, ForkChoiceError> {
+        // get latest votes
+        // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
+        // FORK_CHOICE_BALANCE_INCREMENT
+        // build a hashmap of block_hash to weighted votes
+        let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
+        // gets the current weighted votes
+        let current_state = self
+            .state_store
+            .get_reader(&state_root)?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconState(state_root))?
+            .into_beacon_state()
+            .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(state_root))?;
+
+        let active_validator_indices =
+            get_active_validator_indices(&current_state.validator_registry, block_slot);
+
+        for index in active_validator_indices {
+            let balance =
+                std::cmp::min(current_state.validator_balances[index], MAX_DEPOSIT_AMOUNT)
+                    / FORK_CHOICE_BALANCE_INCREMENT;
+            if balance > 0 {
+                if let Some(target) = self.latest_attestation_targets.get(&(index as u64)) {
+                    *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
+                }
+            }
+        }
+
+        Ok(latest_votes)
+    }
+
     /// Gets the ancestor at a given height `at_height` of a block specified by `block_hash`.
     fn get_ancestor(&mut self, block_hash: Hash256, at_height: u32) -> Option<Hash256> {
         // return None if we can't get the block from the db.
@@ -271,42 +307,14 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             .block_store
             .get_reader(&justified_block_start)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
-        //.into_beacon_block()?;
 
         let block_slot = block.slot();
         let block_height = block_slot - GENESIS_SLOT;
         let state_root = block.state_root();
 
-        // get latest votes
-        // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
-        // FORK_CHOICE_BALANCE_INCREMENT
-        // build a hashmap of block_hash to weighted votes
-        let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
-        // gets the current weighted votes
-        {
-            let current_state = self
-                .state_store
-                .get_reader(&state_root)?
-                .ok_or_else(|| ForkChoiceError::MissingBeaconState(state_root))?
-                .into_beacon_state()
-                .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(state_root))?;
-
-            let active_validator_indices =
-                get_active_validator_indices(&current_state.validator_registry, block_slot);
-
-            for index in active_validator_indices {
-                let balance =
-                    std::cmp::min(current_state.validator_balances[index], MAX_DEPOSIT_AMOUNT)
-                        / FORK_CHOICE_BALANCE_INCREMENT;
-                if balance > 0 {
-                    if let Some(target) = self.latest_attestation_targets.get(&(index as u64)) {
-                        *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
-                    }
-                }
-            }
-        }
-
         let mut current_head = *justified_block_start;
+
+        let mut latest_votes = self.get_latest_votes(&state_root, &block_slot)?;
 
         // remove any votes that don't relate to our current head.
         latest_votes
