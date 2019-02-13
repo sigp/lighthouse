@@ -315,7 +315,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 .get_reader(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
                 .slot()
-                - GENESIS_SLOT;
+                .height(Slot::from(GENESIS_SLOT));
 
             // get the height of the past target block
             let past_block_height = self
@@ -323,7 +323,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 .get_reader(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot()
-                - GENESIS_SLOT;
+                .height(Slot::from(GENESIS_SLOT));
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
                 *attestation_target = *target_block_root;
