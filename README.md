@@ -100,15 +100,8 @@ tests and benchmarks which may be of interest.
 
 A few basic steps are needed to get set up:
 
-   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macos | Windows). For installation run the below command in your terminal
-   ```
-        $ curl https://sh.rustup.rs -sSf | sh
-    ```
-   2. (Linux & MacOS) To configure your current shell run:
-  
-   ```
-        $ source $HOME/.cargo/env
-    ```
+   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macos | Windows). For installation run the below command in your terminal `$ curl https://sh.rustup.rs -sSf | sh`
+   2. (Linux & MacOS) To configure your current shell run: `$ source $HOME/.cargo/env`
    3. Use the command `rustup show` to get information about the Rust installation. You should see that the
    active toolchain is the stable version.
    4. Run `rustc --version` to check the installation and version of rust.

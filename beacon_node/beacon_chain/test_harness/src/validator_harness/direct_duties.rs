@@ -9,7 +9,7 @@ use db::ClientDB;
 use fork_choice::ForkChoice;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::PublicKey;
+use types::{PublicKey, Slot};
 
 /// Connects directly to a borrowed `BeaconChain` and reads attester/proposer duties directly from
 /// it.
@@ -28,7 +28,7 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectDuties<T, U, F> {
 }
 
 impl<T: ClientDB, U: SlotClock, F: ForkChoice> ProducerDutiesReader for DirectDuties<T, U, F> {
-    fn is_block_production_slot(&self, slot: u64) -> Result<bool, ProducerDutiesReaderError> {
+    fn is_block_production_slot(&self, slot: Slot) -> Result<bool, ProducerDutiesReaderError> {
         let validator_index = self
             .beacon_chain
             .validator_index(&self.pubkey)
@@ -50,7 +50,7 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterDutiesReader for DirectDu
         }
     }
 
-    fn attestation_shard(&self, slot: u64) -> Result<Option<u64>, AttesterDutiesReaderError> {
+    fn attestation_shard(&self, slot: Slot) -> Result<Option<u64>, AttesterDutiesReaderError> {
         if let Some(validator_index) = self.validator_index() {
             match self
                 .beacon_chain
@@ -61,7 +61,7 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterDutiesReader for DirectDu
                 }
                 Ok(Some(_)) => Ok(None),
                 Ok(None) => Err(AttesterDutiesReaderError::UnknownEpoch),
-                Err(_) => panic!("Error when getting validator attestation shard."),
+                Err(_) => unreachable!("Error when getting validator attestation shard."),
             }
         } else {
             Err(AttesterDutiesReaderError::UnknownValidator)

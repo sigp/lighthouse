@@ -1,7 +1,7 @@
 use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::config::ClientConfig;
-use block_producer::{test_utils::TestSigner, BlockProducer};
+use block_producer::{test_utils::LocalSigner, BlockProducer};
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -88,9 +88,12 @@ fn main() {
     let spec = Arc::new(ChainSpec::foundation());
 
     // Clock for determining the present slot.
+    // TODO: this shouldn't be a static time, instead it should be pulled from the beacon node.
+    // https://github.com/sigp/lighthouse/issues/160
+    let genesis_time = 1_549_935_547;
     let slot_clock = {
-        info!(log, "Genesis time"; "unix_epoch_seconds" => spec.genesis_time);
-        let clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
+        info!(log, "Genesis time"; "unix_epoch_seconds" => genesis_time);
+        let clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
             .expect("Unable to instantiate SystemTimeSlotClock.");
         Arc::new(clock)
     };
@@ -139,15 +142,14 @@ fn main() {
         // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
-            let pubkey = keypair.pk.clone();
-            let signer = Arc::new(TestSigner::new(keypair.clone()));
+            let signer = Arc::new(LocalSigner::new(keypair.clone()));
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
             let log = log.clone();
             let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
             thread::spawn(move || {
                 let block_producer =
-                    BlockProducer::new(spec, pubkey, duties_map, slot_clock, client, signer);
+                    BlockProducer::new(spec, duties_map, slot_clock, client, signer);
                 let mut block_producer_service = BlockProducerService {
                     block_producer,
                     poll_interval_millis,

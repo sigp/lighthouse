@@ -1,3 +1,23 @@
+// Copyright 2019 Sigma Prime Pty Ltd.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 extern crate byteorder;
 extern crate fast_math;
 use crate::{ForkChoice, ForkChoiceError};
@@ -11,6 +31,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
+    slot_epoch_height::{Height, Slot},
     validator_registry::get_active_validator_indices,
     BeaconBlock, Hash256,
 };
@@ -22,6 +43,7 @@ use types::{
 const GENESIS_SLOT: u64 = 0;
 const FORK_CHOICE_BALANCE_INCREMENT: u64 = 1e9 as u64;
 const MAX_DEPOSIT_AMOUNT: u64 = 32e9 as u64;
+const EPOCH_LENGTH: u64 = 64;
 
 /// The optimised LMD-GHOST fork choice rule.
 /// NOTE: This uses u32 to represent difference between block heights. Thus this is only
@@ -55,7 +77,7 @@ pub struct OptimisedLMDGhost<T: ClientDB + Sized> {
     block_store: Arc<BeaconBlockStore<T>>,
     /// State storage access.
     state_store: Arc<BeaconStateStore<T>>,
-    max_known_height: u64,
+    max_known_height: Height,
 }
 
 impl<T> OptimisedLMDGhost<T>
@@ -71,7 +93,7 @@ where
             ancestors: vec![HashMap::new(); 16],
             latest_attestation_targets: HashMap::new(),
             children: HashMap::new(),
-            max_known_height: 0,
+            max_known_height: Height::new(0),
             block_store,
             state_store,
         }
@@ -82,7 +104,7 @@ where
     pub fn get_latest_votes(
         &self,
         state_root: &Hash256,
-        block_slot: u64,
+        block_slot: Slot,
     ) -> Result<HashMap<Hash256, u64>, ForkChoiceError> {
         // get latest votes
         // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
@@ -97,8 +119,10 @@ where
             .into_beacon_state()
             .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(*state_root))?;
 
-        let active_validator_indices =
-            get_active_validator_indices(&current_state.validator_registry, block_slot);
+        let active_validator_indices = get_active_validator_indices(
+            &current_state.validator_registry,
+            block_slot.epoch(EPOCH_LENGTH),
+        );
 
         for index in active_validator_indices {
             let balance =
@@ -115,7 +139,7 @@ where
     }
 
     /// Gets the ancestor at a given height `at_height` of a block specified by `block_hash`.
-    fn get_ancestor(&mut self, block_hash: Hash256, at_height: u32) -> Option<Hash256> {
+    fn get_ancestor(&mut self, block_hash: Hash256, at_height: Height) -> Option<Hash256> {
         // return None if we can't get the block from the db.
         let block_height = {
             let block_slot = self
@@ -126,7 +150,7 @@ where
                 .into_beacon_block()?
                 .slot;
 
-            (block_slot - GENESIS_SLOT) as u32
+            block_slot.height(Slot::from(GENESIS_SLOT))
         };
 
         // verify we haven't exceeded the block height
@@ -138,7 +162,7 @@ where
             }
         }
         // check if the result is stored in our cache
-        let cache_key = CacheKey::new(&block_hash, at_height);
+        let cache_key = CacheKey::new(&block_hash, at_height.as_u32());
         if let Some(ancestor) = self.cache.get(&cache_key) {
             return Some(*ancestor);
         }
@@ -147,7 +171,7 @@ where
 
         if let Some(ancestor) = {
             let ancestor_lookup = self.ancestors
-                [log2_int((block_height - at_height - 1) as u32) as usize]
+                [log2_int((block_height - at_height - 1u64).as_u32()) as usize]
                 .get(&block_hash)
                 //TODO: Panic if we can't lookup and fork choice fails
                 .expect("All blocks should be added to the ancestor log lookup table");
@@ -165,7 +189,7 @@ where
     fn get_clear_winner(
         &mut self,
         latest_votes: &HashMap<Hash256, u64>,
-        height: u64,
+        block_height: Height,
     ) -> Option<Hash256> {
         // map of vote counts for every hash at this height
         let mut current_votes: HashMap<Hash256, u64> = HashMap::new();
@@ -174,7 +198,7 @@ where
         // loop through the latest votes and count all votes
         // these have already been weighted by balance
         for (hash, votes) in latest_votes.iter() {
-            if let Some(ancestor) = self.get_ancestor(*hash, height as u32) {
+            if let Some(ancestor) = self.get_ancestor(*hash, block_height) {
                 let current_vote_value = current_votes.get(&ancestor).unwrap_or_else(|| &0);
                 current_votes.insert(ancestor, current_vote_value + *votes);
                 total_vote_count += votes;
@@ -246,7 +270,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             .get_reader(&block.parent_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.parent_root))?
             .slot()
-            - GENESIS_SLOT;
+            .height(Slot::from(GENESIS_SLOT));
 
         let parent_hash = &block.parent_root;
 
@@ -316,7 +340,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
 
         let block_slot = block.slot();
-        let block_height = block_slot - GENESIS_SLOT;
+        let block_height = block_slot.height(Slot::from(GENESIS_SLOT));
         let state_root = block.state_root();
 
         let mut current_head = *justified_block_start;
@@ -324,8 +348,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
         let mut latest_votes = self.get_latest_votes(&state_root, block_slot)?;
 
         // remove any votes that don't relate to our current head.
-        latest_votes
-            .retain(|hash, _| self.get_ancestor(*hash, block_height as u32) == Some(current_head));
+        latest_votes.retain(|hash, _| self.get_ancestor(*hash, block_height) == Some(current_head));
 
         // begin searching for the head
         loop {
@@ -337,7 +360,8 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
 
             // logarithmic lookup blocks to see if there are obvious winners, if so,
             // progress to the next iteration.
-            let mut step = power_of_2_below(self.max_known_height as u32 - block_height as u32) / 2;
+            let mut step =
+                power_of_2_below(self.max_known_height.saturating_sub(block_height).as_u32()) / 2;
             while step > 0 {
                 if let Some(clear_winner) = self.get_clear_winner(
                     &latest_votes,
@@ -359,7 +383,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 let mut child_votes = HashMap::new();
                 for (voted_hash, vote) in latest_votes.iter() {
                     // if the latest votes correspond to a child
-                    if let Some(child) = self.get_ancestor(*voted_hash, (block_height + 1) as u32) {
+                    if let Some(child) = self.get_ancestor(*voted_hash, block_height + 1) {
                         // add up the votes for each child
                         *child_votes.entry(child).or_insert_with(|| 0) += vote;
                     }
@@ -378,13 +402,12 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 .get_reader(&current_head)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?
                 .slot()
-                - GENESIS_SLOT;
+                .height(Slot::from(GENESIS_SLOT));
 
             // prune the latest votes for votes that are not part of current chosen chain
             // more specifically, only keep votes that have head as an ancestor
-            latest_votes.retain(|hash, _| {
-                self.get_ancestor(*hash, block_height as u32) == Some(current_head)
-            });
+            latest_votes
+                .retain(|hash, _| self.get_ancestor(*hash, block_height) == Some(current_head));
         }
     }
 }

@@ -1,63 +1,62 @@
-use crate::test_utils::TestRandom;
-use crate::{AttestationData, Bitfield, Slot};
+use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfield};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct PendingAttestation {
-    pub aggregation_bitfield: Bitfield,
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct SlashableAttestation {
+    pub validator_indices: Vec<u64>,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
-    pub inclusion_slot: Slot,
+    pub aggregate_signature: AggregateSignature,
 }
 
-impl Encodable for PendingAttestation {
+impl Encodable for SlashableAttestation {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.aggregation_bitfield);
+        s.append_vec(&self.validator_indices);
         s.append(&self.data);
         s.append(&self.custody_bitfield);
-        s.append(&self.inclusion_slot);
+        s.append(&self.aggregate_signature);
     }
 }
 
-impl Decodable for PendingAttestation {
+impl Decodable for SlashableAttestation {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (aggregation_bitfield, i) = <_>::ssz_decode(bytes, i)?;
+        let (validator_indices, i) = <_>::ssz_decode(bytes, i)?;
         let (data, i) = <_>::ssz_decode(bytes, i)?;
         let (custody_bitfield, i) = <_>::ssz_decode(bytes, i)?;
-        let (inclusion_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (aggregate_signature, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
-            Self {
+            SlashableAttestation {
+                validator_indices,
                 data,
-                aggregation_bitfield,
                 custody_bitfield,
-                inclusion_slot,
+                aggregate_signature,
             },
             i,
         ))
     }
 }
 
-impl TreeHash for PendingAttestation {
+impl TreeHash for SlashableAttestation {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.aggregation_bitfield.hash_tree_root());
+        result.append(&mut self.validator_indices.hash_tree_root());
         result.append(&mut self.data.hash_tree_root());
         result.append(&mut self.custody_bitfield.hash_tree_root());
-        result.append(&mut self.inclusion_slot.hash_tree_root());
+        result.append(&mut self.aggregate_signature.hash_tree_root());
         hash(&result)
     }
 }
 
-impl<T: RngCore> TestRandom<T> for PendingAttestation {
+impl<T: RngCore> TestRandom<T> for SlashableAttestation {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
+            validator_indices: <_>::random_for_test(rng),
             data: <_>::random_for_test(rng),
-            aggregation_bitfield: <_>::random_for_test(rng),
             custody_bitfield: <_>::random_for_test(rng),
-            inclusion_slot: <_>::random_for_test(rng),
+            aggregate_signature: <_>::random_for_test(rng),
         }
     }
 }
@@ -71,7 +70,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = PendingAttestation::random_for_test(&mut rng);
+        let original = SlashableAttestation::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -82,7 +81,7 @@ mod tests {
     #[test]
     pub fn test_hash_tree_root() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = PendingAttestation::random_for_test(&mut rng);
+        let original = SlashableAttestation::random_for_test(&mut rng);
 
         let result = original.hash_tree_root();
 

@@ -1,5 +1,5 @@
-use super::{AttestationDataAndCustodyBit, Hash256};
 use crate::test_utils::TestRandom;
+use crate::{AttestationDataAndCustodyBit, Crosslink, Epoch, Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -11,38 +11,25 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 +            // epoch_boundary_root
     32 +            // shard_block_hash
     32 +            // latest_crosslink_hash
-    8 +             // justified_slot
+    8 +             // justified_epoch
     32 // justified_block_root
 };
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Hash)]
 pub struct AttestationData {
-    pub slot: u64,
+    pub slot: Slot,
     pub shard: u64,
     pub beacon_block_root: Hash256,
     pub epoch_boundary_root: Hash256,
     pub shard_block_root: Hash256,
-    pub latest_crosslink_root: Hash256,
-    pub justified_slot: u64,
+    pub latest_crosslink: Crosslink,
+    pub justified_epoch: Epoch,
     pub justified_block_root: Hash256,
 }
 
 impl Eq for AttestationData {}
 
 impl AttestationData {
-    pub fn zero() -> Self {
-        Self {
-            slot: 0,
-            shard: 0,
-            beacon_block_root: Hash256::zero(),
-            epoch_boundary_root: Hash256::zero(),
-            shard_block_root: Hash256::zero(),
-            latest_crosslink_root: Hash256::zero(),
-            justified_slot: 0,
-            justified_block_root: Hash256::zero(),
-        }
-    }
-
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from(&self.hash_tree_root()[..])
     }
@@ -63,22 +50,22 @@ impl Encodable for AttestationData {
         s.append(&self.beacon_block_root);
         s.append(&self.epoch_boundary_root);
         s.append(&self.shard_block_root);
-        s.append(&self.latest_crosslink_root);
-        s.append(&self.justified_slot);
+        s.append(&self.latest_crosslink);
+        s.append(&self.justified_epoch);
         s.append(&self.justified_block_root);
     }
 }
 
 impl Decodable for AttestationData {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = u64::ssz_decode(bytes, i)?;
-        let (shard, i) = u64::ssz_decode(bytes, i)?;
-        let (beacon_block_root, i) = Hash256::ssz_decode(bytes, i)?;
-        let (epoch_boundary_root, i) = Hash256::ssz_decode(bytes, i)?;
-        let (shard_block_root, i) = Hash256::ssz_decode(bytes, i)?;
-        let (latest_crosslink_root, i) = Hash256::ssz_decode(bytes, i)?;
-        let (justified_slot, i) = u64::ssz_decode(bytes, i)?;
-        let (justified_block_root, i) = Hash256::ssz_decode(bytes, i)?;
+        let (slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (shard, i) = <_>::ssz_decode(bytes, i)?;
+        let (beacon_block_root, i) = <_>::ssz_decode(bytes, i)?;
+        let (epoch_boundary_root, i) = <_>::ssz_decode(bytes, i)?;
+        let (shard_block_root, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_crosslink, i) = <_>::ssz_decode(bytes, i)?;
+        let (justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (justified_block_root, i) = <_>::ssz_decode(bytes, i)?;
 
         let attestation_data = AttestationData {
             slot,
@@ -86,8 +73,8 @@ impl Decodable for AttestationData {
             beacon_block_root,
             epoch_boundary_root,
             shard_block_root,
-            latest_crosslink_root,
-            justified_slot,
+            latest_crosslink,
+            justified_epoch,
             justified_block_root,
         };
         Ok((attestation_data, i))
@@ -102,8 +89,8 @@ impl TreeHash for AttestationData {
         result.append(&mut self.beacon_block_root.hash_tree_root());
         result.append(&mut self.epoch_boundary_root.hash_tree_root());
         result.append(&mut self.shard_block_root.hash_tree_root());
-        result.append(&mut self.latest_crosslink_root.hash_tree_root());
-        result.append(&mut self.justified_slot.hash_tree_root());
+        result.append(&mut self.latest_crosslink.hash_tree_root());
+        result.append(&mut self.justified_epoch.hash_tree_root());
         result.append(&mut self.justified_block_root.hash_tree_root());
         hash(&result)
     }
@@ -117,8 +104,8 @@ impl<T: RngCore> TestRandom<T> for AttestationData {
             beacon_block_root: <_>::random_for_test(rng),
             epoch_boundary_root: <_>::random_for_test(rng),
             shard_block_root: <_>::random_for_test(rng),
-            latest_crosslink_root: <_>::random_for_test(rng),
-            justified_slot: <_>::random_for_test(rng),
+            latest_crosslink: <_>::random_for_test(rng),
+            justified_epoch: <_>::random_for_test(rng),
             justified_block_root: <_>::random_for_test(rng),
         }
     }

@@ -3,7 +3,7 @@ use super::EpochDuties;
 use protos::services::{ProposeBlockSlotRequest, PublicKey as IndexRequest};
 use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
-use types::PublicKey;
+use types::{Epoch, PublicKey, Slot};
 
 impl BeaconNode for ValidatorServiceClient {
     /// Request the shuffling from the Beacon Node (BN).
@@ -14,7 +14,7 @@ impl BeaconNode for ValidatorServiceClient {
     /// Note: presently only block production information is returned.
     fn request_shuffling(
         &self,
-        epoch: u64,
+        epoch: Epoch,
         public_key: &PublicKey,
     ) -> Result<Option<EpochDuties>, BeaconNodeError> {
         // Lookup the validator index for the supplied public key.
@@ -29,7 +29,7 @@ impl BeaconNode for ValidatorServiceClient {
 
         let mut req = ProposeBlockSlotRequest::new();
         req.set_validator_index(validator_index);
-        req.set_epoch(epoch);
+        req.set_epoch(epoch.as_u64());
 
         let reply = self
             .propose_block_slot(&req)
@@ -39,6 +39,11 @@ impl BeaconNode for ValidatorServiceClient {
             Some(reply.get_slot())
         } else {
             None
+        };
+
+        let block_production_slot = match block_production_slot {
+            Some(slot) => Some(Slot::new(slot)),
+            None => None,
         };
 
         Ok(Some(EpochDuties {

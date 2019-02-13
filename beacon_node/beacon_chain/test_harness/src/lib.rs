@@ -1,5 +1,5 @@
-mod harness;
-mod validator;
+mod beacon_chain_harness;
+mod validator_harness;
 
-pub use self::harness::BeaconChainHarness;
-pub use self::validator::TestValidator;
+pub use self::beacon_chain_harness::BeaconChainHarness;
+pub use self::validator_harness::ValidatorHarness;

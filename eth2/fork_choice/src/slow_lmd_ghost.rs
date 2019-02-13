@@ -1,3 +1,23 @@
+// Copyright 2019 Sigma Prime Pty Ltd.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 extern crate db;
 
 use crate::{ForkChoice, ForkChoiceError};
@@ -9,6 +29,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
+    slot_epoch_height::Slot,
     validator_registry::get_active_validator_indices,
     BeaconBlock, Hash256,
 };
@@ -19,6 +40,7 @@ use types::{
 const GENESIS_SLOT: u64 = 0;
 const FORK_CHOICE_BALANCE_INCREMENT: u64 = 1e9 as u64;
 const MAX_DEPOSIT_AMOUNT: u64 = 32e9 as u64;
+const EPOCH_LENGTH: u64 = 64;
 
 pub struct SlowLMDGhost<T: ClientDB + Sized> {
     /// The latest attestation targets as a map of validator index to block hash.
@@ -50,7 +72,7 @@ where
     pub fn get_latest_votes(
         &self,
         state_root: &Hash256,
-        block_slot: u64,
+        block_slot: Slot,
     ) -> Result<HashMap<Hash256, u64>, ForkChoiceError> {
         // get latest votes
         // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
@@ -65,8 +87,10 @@ where
             .into_beacon_state()
             .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(*state_root))?;
 
-        let active_validator_indices =
-            get_active_validator_indices(&current_state.validator_registry, block_slot);
+        let active_validator_indices = get_active_validator_indices(
+            &current_state.validator_registry,
+            block_slot.epoch(EPOCH_LENGTH),
+        );
 
         for index in active_validator_indices {
             let balance =
@@ -148,7 +172,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .get_reader(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
                 .slot()
-                - GENESIS_SLOT;
+                .height(Slot::from(GENESIS_SLOT));
 
             // get the height of the past target block
             let past_block_height = self
@@ -156,7 +180,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .get_reader(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot()
-                - GENESIS_SLOT;
+                .height(Slot::from(GENESIS_SLOT));
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
                 *attestation_target = *target_block_root;

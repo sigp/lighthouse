@@ -1,30 +1,21 @@
 use crate::traits::{BeaconNode, BeaconNodeError, PublishOutcome};
 use std::sync::RwLock;
-use types::{BeaconBlock, PublicKey, Signature};
+use types::{BeaconBlock, Signature, Slot};
 
-type NonceResult = Result<u64, BeaconNodeError>;
 type ProduceResult = Result<Option<BeaconBlock>, BeaconNodeError>;
 type PublishResult = Result<PublishOutcome, BeaconNodeError>;
 
 /// A test-only struct used to simulate a Beacon Node.
 #[derive(Default)]
-pub struct TestBeaconNode {
-    pub nonce_input: RwLock<Option<PublicKey>>,
-    pub nonce_result: RwLock<Option<NonceResult>>,
-
-    pub produce_input: RwLock<Option<(u64, Signature)>>,
+pub struct SimulatedBeaconNode {
+    pub produce_input: RwLock<Option<(Slot, Signature)>>,
     pub produce_result: RwLock<Option<ProduceResult>>,
 
     pub publish_input: RwLock<Option<BeaconBlock>>,
     pub publish_result: RwLock<Option<PublishResult>>,
 }
 
-impl TestBeaconNode {
-    /// Set the result to be returned when `produce_beacon_block` is called.
-    pub fn set_next_nonce_result(&self, result: NonceResult) {
-        *self.nonce_result.write().unwrap() = Some(result);
-    }
-
+impl SimulatedBeaconNode {
     /// Set the result to be returned when `produce_beacon_block` is called.
     pub fn set_next_produce_result(&self, result: ProduceResult) {
         *self.produce_result.write().unwrap() = Some(result);
@@ -36,21 +27,13 @@ impl TestBeaconNode {
     }
 }
 
-impl BeaconNode for TestBeaconNode {
-    fn proposer_nonce(&self, pubkey: &PublicKey) -> NonceResult {
-        *self.nonce_input.write().unwrap() = Some(pubkey.clone());
-        match *self.nonce_result.read().unwrap() {
-            Some(ref r) => r.clone(),
-            None => panic!("TestBeaconNode: nonce_result == None"),
-        }
-    }
-
+impl BeaconNode for SimulatedBeaconNode {
     /// Returns the value specified by the `set_next_produce_result`.
-    fn produce_beacon_block(&self, slot: u64, randao_reveal: &Signature) -> ProduceResult {
+    fn produce_beacon_block(&self, slot: Slot, randao_reveal: &Signature) -> ProduceResult {
         *self.produce_input.write().unwrap() = Some((slot, randao_reveal.clone()));
         match *self.produce_result.read().unwrap() {
             Some(ref r) => r.clone(),
-            None => panic!("TestBeaconNode: produce_result == None"),
+            None => panic!("SimulatedBeaconNode: produce_result == None"),
         }
     }
 
@@ -59,7 +42,7 @@ impl BeaconNode for TestBeaconNode {
         *self.publish_input.write().unwrap() = Some(block);
         match *self.publish_result.read().unwrap() {
             Some(ref r) => r.clone(),
-            None => panic!("TestBeaconNode: publish_result == None"),
+            None => panic!("SimulatedBeaconNode: publish_result == None"),
         }
     }
 }

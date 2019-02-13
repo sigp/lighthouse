@@ -1,6 +1,7 @@
-use super::TestValidator;
+use super::ValidatorHarness;
 use beacon_chain::BeaconChain;
 pub use beacon_chain::{CheckPoint, Error as BeaconChainError};
+use bls::create_proof_of_possession;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
@@ -14,7 +15,10 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::iter::FromIterator;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Validator};
+use types::{
+    BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput, Eth1Data, FreeAttestation, Hash256,
+    Keypair, Slot,
+};
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -27,7 +31,7 @@ pub struct BeaconChainHarness {
     pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
-    pub validators: Vec<TestValidator>,
+    pub validators: Vec<ValidatorHarness>,
     pub spec: Arc<ChainSpec>,
 }
 
@@ -36,16 +40,17 @@ impl BeaconChainHarness {
     ///
     /// - A keypair, `BlockProducer` and `Attester` for each validator.
     /// - A new BeaconChain struct where the given validators are in the genesis.
-    pub fn new(mut spec: ChainSpec, validator_count: usize) -> Self {
+    pub fn new(spec: ChainSpec, validator_count: usize) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
-        let slot_clock = TestingSlotClock::new(spec.genesis_slot);
+        let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
+        let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
         let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
-
-        // Remove the validators present in the spec (if any).
-        spec.initial_validators = Vec::with_capacity(validator_count);
-        spec.initial_balances = Vec::with_capacity(validator_count);
+        let latest_eth1_data = Eth1Data {
+            deposit_root: Hash256::zero(),
+            block_hash: Hash256::zero(),
+        };
 
         debug!("Generating validator keypairs...");
 
@@ -55,23 +60,23 @@ impl BeaconChainHarness {
             .map(|_| Keypair::random())
             .collect();
 
-        debug!("Creating validator records...");
+        debug!("Creating validator deposits...");
 
-        spec.initial_validators = keypairs
+        let initial_validator_deposits = keypairs
             .par_iter()
-            .map(|keypair| Validator {
-                pubkey: keypair.pk.clone(),
-                activation_slot: 0,
-                ..std::default::Default::default()
+            .map(|keypair| Deposit {
+                branch: vec![], // branch verification is not specified.
+                index: 0,       // index verification is not specified.
+                deposit_data: DepositData {
+                    amount: 32_000_000_000, // 32 ETH (in Gwei)
+                    timestamp: genesis_time - 1,
+                    deposit_input: DepositInput {
+                        pubkey: keypair.pk.clone(),
+                        withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
+                        proof_of_possession: create_proof_of_possession(&keypair),
+                    },
+                },
             })
-            .collect();
-
-        debug!("Setting validator balances...");
-
-        spec.initial_balances = spec
-            .initial_validators
-            .par_iter()
-            .map(|_| 32_000_000_000) // 32 ETH
             .collect();
 
         debug!("Creating the BeaconChain...");
@@ -82,6 +87,9 @@ impl BeaconChainHarness {
                 state_store.clone(),
                 block_store.clone(),
                 slot_clock,
+                genesis_time,
+                latest_eth1_data,
+                initial_validator_deposits,
                 spec.clone(),
                 fork_choice,
             )
@@ -93,12 +101,14 @@ impl BeaconChainHarness {
         debug!("Creating validator producer and attester instances...");
 
         // Spawn the test validator instances.
-        let validators: Vec<TestValidator> = keypairs
+        let validators: Vec<ValidatorHarness> = keypairs
             .iter()
-            .map(|keypair| TestValidator::new(keypair.clone(), beacon_chain.clone(), spec.clone()))
+            .map(|keypair| {
+                ValidatorHarness::new(keypair.clone(), beacon_chain.clone(), spec.clone())
+            })
             .collect();
 
-        debug!("Created {} TestValidators", validators.len());
+        debug!("Created {} ValidatorHarnesss", validators.len());
 
         Self {
             db,
@@ -115,12 +125,12 @@ impl BeaconChainHarness {
     /// This is the equivalent of advancing a system clock forward one `SLOT_DURATION`.
     ///
     /// Returns the new slot.
-    pub fn increment_beacon_chain_slot(&mut self) -> u64 {
+    pub fn increment_beacon_chain_slot(&mut self) -> Slot {
         let slot = self.beacon_chain.present_slot() + 1;
 
         debug!("Incrementing BeaconChain slot to {}.", slot);
 
-        self.beacon_chain.slot_clock.set_slot(slot);
+        self.beacon_chain.slot_clock.set_slot(slot.as_u64());
         self.beacon_chain.advance_state(slot).unwrap();
         slot
     }
@@ -136,7 +146,7 @@ impl BeaconChainHarness {
             .beacon_chain
             .state
             .read()
-            .get_crosslink_committees_at_slot(present_slot, &self.spec)
+            .get_crosslink_committees_at_slot(present_slot, false, &self.spec)
             .unwrap()
             .iter()
             .fold(vec![], |mut acc, (committee, _slot)| {
@@ -226,7 +236,7 @@ impl BeaconChainHarness {
     }
 
     /// Write the output of `chain_dump` to a JSON file.
-    pub fn dump_to_file(&self, filename: String, chain_dump: &Vec<CheckPoint>) {
+    pub fn dump_to_file(&self, filename: String, chain_dump: &[CheckPoint]) {
         let json = serde_json::to_string(chain_dump).unwrap();
         let mut file = File::create(filename).unwrap();
         file.write_all(json.as_bytes())

@@ -1,3 +1,4 @@
+use state_processing::validate_attestation_without_signature;
 use std::collections::{HashMap, HashSet};
 use types::{
     beacon_state::CommitteesError, AggregateSignature, Attestation, AttestationData, BeaconState,
@@ -16,6 +17,7 @@ const PHASE_0_CUSTODY_BIT: bool = false;
 ///
 ///  Note: `Attestations` are stored in memory and never deleted. This is not scalable and must be
 ///  rectified in a future revision.
+#[derive(Default)]
 pub struct AttestationAggregator {
     store: HashMap<Vec<u8>, Attestation>,
 }
@@ -172,9 +174,7 @@ impl AttestationAggregator {
         self.store
             .values()
             .filter_map(|attestation| {
-                if state
-                    .validate_attestation_without_signature(attestation, spec)
-                    .is_ok()
+                if validate_attestation_without_signature(&state, attestation, spec).is_ok()
                     && !known_attestation_data.contains(&attestation.data)
                 {
                     Some(attestation.clone())

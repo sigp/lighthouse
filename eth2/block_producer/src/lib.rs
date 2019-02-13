@@ -4,7 +4,7 @@ mod traits;
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, PublicKey};
+use types::{BeaconBlock, ChainSpec, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -13,21 +13,21 @@ pub use self::traits::{
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
     /// A new block was produced.
-    BlockProduced(u64),
+    BlockProduced(Slot),
     /// A block was not produced as it would have been slashable.
-    SlashableBlockNotProduced(u64),
+    SlashableBlockNotProduced(Slot),
     /// The validator duties did not require a block to be produced.
-    BlockProductionNotRequired(u64),
+    BlockProductionNotRequired(Slot),
     /// The duties for the present epoch were not found.
-    ProducerDutiesUnknown(u64),
+    ProducerDutiesUnknown(Slot),
     /// The slot has already been processed, execution was skipped.
-    SlotAlreadyProcessed(u64),
+    SlotAlreadyProcessed(Slot),
     /// The Beacon Node was unable to produce a block at that slot.
-    BeaconNodeUnableToProduceBlock(u64),
+    BeaconNodeUnableToProduceBlock(Slot),
     /// The signer failed to sign the message.
-    SignerRejection(u64),
+    SignerRejection(Slot),
     /// The public key for this validator is not an active validator.
-    ValidatorIsUnknown(u64),
+    ValidatorIsUnknown(Slot),
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,8 +47,7 @@ pub enum Error {
 ///
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
 pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
-    pub last_processed_slot: Option<u64>,
-    pubkey: PublicKey,
+    pub last_processed_slot: Option<Slot>,
     spec: Arc<ChainSpec>,
     epoch_map: Arc<V>,
     slot_clock: Arc<T>,
@@ -60,7 +59,6 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
-        pubkey: PublicKey,
         epoch_map: Arc<V>,
         slot_clock: Arc<T>,
         beacon_node: Arc<U>,
@@ -68,7 +66,6 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ) -> Self {
         Self {
             last_processed_slot: None,
-            pubkey,
             spec,
             epoch_map,
             slot_clock,
@@ -115,7 +112,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
         }
     }
 
-    fn is_processed_slot(&self, slot: u64) -> bool {
+    fn is_processed_slot(&self, slot: Slot) -> bool {
         match self.last_processed_slot {
             Some(processed_slot) if processed_slot >= slot => true,
             _ => false,
@@ -132,12 +129,10 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ///
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
-    fn produce_block(&mut self, slot: u64) -> Result<PollOutcome, Error> {
+    fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
         let randao_reveal = {
-            let producer_nonce = self.beacon_node.proposer_nonce(&self.pubkey)?;
-
-            // TODO: add domain, etc to this message.
-            let message = ssz_encode(&producer_nonce);
+            // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
+            let message = ssz_encode(&slot.epoch(self.spec.epoch_length));
 
             match self.signer.sign_randao_reveal(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
@@ -213,7 +208,7 @@ impl From<BeaconNodeError> for Error {
 
 #[cfg(test)]
 mod tests {
-    use super::test_utils::{TestBeaconNode, TestEpochMap, TestSigner};
+    use super::test_utils::{EpochMap, LocalSigner, SimulatedBeaconNode};
     use super::*;
     use slot_clock::TestingSlotClock;
     use types::{
@@ -232,19 +227,17 @@ mod tests {
 
         let spec = Arc::new(ChainSpec::foundation());
         let slot_clock = Arc::new(TestingSlotClock::new(0));
-        let beacon_node = Arc::new(TestBeaconNode::default());
-        let signer = Arc::new(TestSigner::new(Keypair::random()));
+        let beacon_node = Arc::new(SimulatedBeaconNode::default());
+        let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-        let mut epoch_map = TestEpochMap::new(spec.epoch_length);
-        let produce_slot = 100;
-        let produce_epoch = produce_slot / spec.epoch_length;
+        let mut epoch_map = EpochMap::new(spec.epoch_length);
+        let produce_slot = Slot::new(100);
+        let produce_epoch = produce_slot.epoch(spec.epoch_length);
         epoch_map.map.insert(produce_epoch, produce_slot);
         let epoch_map = Arc::new(epoch_map);
-        let keypair = Keypair::random();
 
         let mut block_producer = BlockProducer::new(
             spec.clone(),
-            keypair.pk.clone(),
             epoch_map.clone(),
             slot_clock.clone(),
             beacon_node.clone(),
@@ -254,42 +247,41 @@ mod tests {
         // Configure responses from the BeaconNode.
         beacon_node.set_next_produce_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));
         beacon_node.set_next_publish_result(Ok(PublishOutcome::ValidBlock));
-        beacon_node.set_next_nonce_result(Ok(0));
 
         // One slot before production slot...
-        slot_clock.set_slot(produce_slot - 1);
+        slot_clock.set_slot(produce_slot.as_u64() - 1);
         assert_eq!(
             block_producer.poll(),
             Ok(PollOutcome::BlockProductionNotRequired(produce_slot - 1))
         );
 
         // On the produce slot...
-        slot_clock.set_slot(produce_slot);
+        slot_clock.set_slot(produce_slot.as_u64());
         assert_eq!(
             block_producer.poll(),
-            Ok(PollOutcome::BlockProduced(produce_slot))
+            Ok(PollOutcome::BlockProduced(produce_slot.into()))
         );
 
         // Trying the same produce slot again...
-        slot_clock.set_slot(produce_slot);
+        slot_clock.set_slot(produce_slot.as_u64());
         assert_eq!(
             block_producer.poll(),
             Ok(PollOutcome::SlotAlreadyProcessed(produce_slot))
         );
 
         // One slot after the produce slot...
-        slot_clock.set_slot(produce_slot + 1);
+        slot_clock.set_slot(produce_slot.as_u64() + 1);
         assert_eq!(
             block_producer.poll(),
             Ok(PollOutcome::BlockProductionNotRequired(produce_slot + 1))
         );
 
         // In an epoch without known duties...
-        let slot = (produce_epoch + 1) * spec.epoch_length;
+        let slot = (produce_epoch.as_u64() + 1) * spec.epoch_length;
         slot_clock.set_slot(slot);
         assert_eq!(
             block_producer.poll(),
-            Ok(PollOutcome::ProducerDutiesUnknown(slot))
+            Ok(PollOutcome::ProducerDutiesUnknown(Slot::new(slot)))
         );
     }
 }
