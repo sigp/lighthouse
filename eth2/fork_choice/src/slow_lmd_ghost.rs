@@ -82,10 +82,8 @@ where
         // gets the current weighted votes
         let current_state = self
             .state_store
-            .get_reader(&state_root)?
-            .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?
-            .into_beacon_state()
-            .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(*state_root))?;
+            .get_deserialized(&state_root)?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices = get_active_validator_indices(
             &current_state.validator_registry,
@@ -117,7 +115,7 @@ where
         let mut count = 0;
         let block_slot = self
             .block_store
-            .get_reader(&block_root)?
+            .get_deserialized(&block_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_root))?
             .slot();
 
@@ -169,7 +167,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
             // get the height of the target block
             let block_height = self
                 .block_store
-                .get_reader(&target_block_root)?
+                .get_deserialized(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
                 .slot()
                 .height(Slot::from(GENESIS_SLOT));
@@ -177,7 +175,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
             // get the height of the past target block
             let past_block_height = self
                 .block_store
-                .get_reader(&attestation_target)?
+                .get_deserialized(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot()
                 .height(Slot::from(GENESIS_SLOT));
@@ -193,7 +191,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
     fn find_head(&mut self, justified_block_start: &Hash256) -> Result<Hash256, ForkChoiceError> {
         let start = self
             .block_store
-            .get_reader(&justified_block_start)?
+            .get_deserialized(&justified_block_start)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
 
         let start_state_root = start.state_root();

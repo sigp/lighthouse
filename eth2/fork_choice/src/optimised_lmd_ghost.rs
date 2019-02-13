@@ -30,7 +30,7 @@ use fast_math::log2_raw;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
-    readers::{BeaconBlockReader, BeaconStateReader},
+    readers::BeaconBlockReader,
     slot_epoch_height::{Height, Slot},
     validator_registry::get_active_validator_indices,
     BeaconBlock, Hash256,
@@ -114,10 +114,8 @@ where
         // gets the current weighted votes
         let current_state = self
             .state_store
-            .get_reader(&state_root)?
-            .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?
-            .into_beacon_state()
-            .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(*state_root))?;
+            .get_deserialized(&state_root)?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices = get_active_validator_indices(
             &current_state.validator_registry,
@@ -144,10 +142,9 @@ where
         let block_height = {
             let block_slot = self
                 .block_store
-                .get_reader(&block_hash)
+                .get_deserialized(&block_hash)
                 .ok()?
                 .expect("Should have returned already if None")
-                .into_beacon_block()?
                 .slot;
 
             block_slot.height(Slot::from(GENESIS_SLOT))
@@ -267,7 +264,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
         // get the height of the parent
         let parent_height = self
             .block_store
-            .get_reader(&block.parent_root)?
+            .get_deserialized(&block.parent_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.parent_root))?
             .slot()
             .height(Slot::from(GENESIS_SLOT));
@@ -312,7 +309,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             // get the height of the target block
             let block_height = self
                 .block_store
-                .get_reader(&target_block_root)?
+                .get_deserialized(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
                 .slot()
                 .height(Slot::from(GENESIS_SLOT));
@@ -320,7 +317,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             // get the height of the past target block
             let past_block_height = self
                 .block_store
-                .get_reader(&attestation_target)?
+                .get_deserialized(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot()
                 .height(Slot::from(GENESIS_SLOT));
@@ -336,7 +333,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
     fn find_head(&mut self, justified_block_start: &Hash256) -> Result<Hash256, ForkChoiceError> {
         let block = self
             .block_store
-            .get_reader(&justified_block_start)?
+            .get_deserialized(&justified_block_start)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
 
         let block_slot = block.slot();
@@ -399,7 +396,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
             // update the block height for the next iteration
             let block_height = self
                 .block_store
-                .get_reader(&current_head)?
+                .get_deserialized(&current_head)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?
                 .slot()
                 .height(Slot::from(GENESIS_SLOT));

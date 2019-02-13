@@ -112,7 +112,7 @@ pub enum ForkChoiceAlgorithms {
     /// A simple and highly inefficient implementation of LMD ghost.
     SlowLMDGhost,
     /// An optimised version of LMD-GHOST by Vitalik.
-    OptimmisedLMDGhost,
+    OptimisedLMDGhost,
     /// An optimised version of LMD-GHOST by Protolambda.
     ProtoLMDGhost,
 }
