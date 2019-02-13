@@ -1,4 +1,4 @@
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -7,7 +7,7 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 pub struct ShardReassignmentRecord {
     pub validator_index: u64,
     pub shard: u64,
-    pub slot: u64,
+    pub slot: Slot,
 }
 
 impl Encodable for ShardReassignmentRecord {

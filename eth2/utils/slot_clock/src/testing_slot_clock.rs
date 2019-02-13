@@ -1,5 +1,6 @@
 use super::SlotClock;
 use std::sync::RwLock;
+use types::Slot;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {}
@@ -27,9 +28,9 @@ impl TestingSlotClock {
 impl SlotClock for TestingSlotClock {
     type Error = Error;
 
-    fn present_slot(&self) -> Result<Option<u64>, Error> {
+    fn present_slot(&self) -> Result<Option<Slot>, Error> {
         let slot = *self.slot.read().expect("TestingSlotClock poisoned.");
-        Ok(Some(slot))
+        Ok(Some(Slot::new(slot)))
     }
 }
 
@@ -40,8 +41,8 @@ mod tests {
     #[test]
     fn test_slot_now() {
         let clock = TestingSlotClock::new(10);
-        assert_eq!(clock.present_slot(), Ok(Some(10)));
+        assert_eq!(clock.present_slot(), Ok(Some(Slot::new(10))));
         clock.set_slot(123);
-        assert_eq!(clock.present_slot(), Ok(Some(123)));
+        assert_eq!(clock.present_slot(), Ok(Some(Slot::new(123))));
     }
 }

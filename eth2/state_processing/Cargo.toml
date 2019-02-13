@@ -1,10 +1,13 @@
 [package]
-name = "validator_induction"
+name = "state_processing"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-bls = { path = "../utils/bls" }
 hashing = { path = "../utils/hashing" }
+integer-sqrt = "0.1"
+log = "0.4"
+ssz = { path = "../utils/ssz" }
 types = { path = "../types" }
+rayon = "1.0"

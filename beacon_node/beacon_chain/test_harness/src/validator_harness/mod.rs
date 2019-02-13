@@ -1,16 +1,20 @@
-use super::direct_beacon_node::DirectBeaconNode;
-use super::direct_duties::DirectDuties;
-use super::signer::TestSigner;
+mod direct_beacon_node;
+mod direct_duties;
+mod local_signer;
+
 use attester::PollOutcome as AttestationPollOutcome;
 use attester::{Attester, Error as AttestationPollError};
 use beacon_chain::BeaconChain;
 use block_producer::PollOutcome as BlockPollOutcome;
 use block_producer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
+use direct_beacon_node::DirectBeaconNode;
+use direct_duties::DirectDuties;
 use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost};
+use local_signer::LocalSigner;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair};
+use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProduceError {
@@ -29,29 +33,29 @@ pub enum AttestationProduceError {
 /// The test validator connects directly to a borrowed `BeaconChain` struct. It is useful for
 /// testing that the core proposer and attester logic is functioning. Also for supporting beacon
 /// chain tests.
-pub struct TestValidator {
+pub struct ValidatorHarness {
     pub block_producer: BlockProducer<
         TestingSlotClock,
         DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
         DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
-        TestSigner,
+        LocalSigner,
     >,
     pub attester: Attester<
         TestingSlotClock,
         DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
         DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
-        TestSigner,
+        LocalSigner,
     >,
     pub spec: Arc<ChainSpec>,
     pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub keypair: Keypair,
     pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub slot_clock: Arc<TestingSlotClock>,
-    pub signer: Arc<TestSigner>,
+    pub signer: Arc<LocalSigner>,
 }
 
-impl TestValidator {
-    /// Create a new TestValidator that signs with the given keypair, operates per the given spec and connects to the
+impl ValidatorHarness {
+    /// Create a new ValidatorHarness that signs with the given keypair, operates per the given spec and connects to the
     /// supplied beacon node.
     ///
     /// A `BlockProducer` and `Attester` is created..
@@ -60,14 +64,13 @@ impl TestValidator {
         beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
-        let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot));
-        let signer = Arc::new(TestSigner::new(keypair.clone()));
+        let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot.as_u64()));
+        let signer = Arc::new(LocalSigner::new(keypair.clone()));
         let beacon_node = Arc::new(DirectBeaconNode::new(beacon_chain.clone()));
         let epoch_map = Arc::new(DirectDuties::new(keypair.pk.clone(), beacon_chain.clone()));
 
         let block_producer = BlockProducer::new(
             spec.clone(),
-            keypair.pk.clone(),
             epoch_map.clone(),
             slot_clock.clone(),
             beacon_node.clone(),
@@ -128,7 +131,7 @@ impl TestValidator {
     /// Set the validators slot clock to the specified slot.
     ///
     /// The validators slot clock will always read this value until it is set to something else.
-    pub fn set_slot(&mut self, slot: u64) {
-        self.slot_clock.set_slot(slot)
+    pub fn set_slot(&mut self, slot: Slot) {
+        self.slot_clock.set_slot(slot.as_u64())
     }
 }

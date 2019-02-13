@@ -1,23 +1,24 @@
+use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
+use crate::checkpoint::CheckPoint;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
 };
 use fork_choice::{ForkChoice, ForkChoiceError};
-use genesis::{genesis_beacon_block, genesis_beacon_state};
 use log::{debug, trace};
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
+use state_processing::{
+    BlockProcessable, BlockProcessingError, SlotProcessable, SlotProcessingError,
+};
 use std::sync::Arc;
 use types::{
-    beacon_state::{BlockProcessingError, CommitteesError, SlotProcessingError},
+    beacon_state::CommitteesError,
     readers::{BeaconBlockReader, BeaconStateReader},
-    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Eth1Data,
-    FreeAttestation, Hash256, PublicKey, Signature,
+    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Crosslink, Deposit,
+    Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, Signature, Slot,
 };
-
-use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
-use crate::checkpoint::CheckPoint;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -67,7 +68,6 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
-    justified_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
     pub spec: ChainSpec,
     pub fork_choice: RwLock<F>,
@@ -84,28 +84,30 @@ where
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,
         slot_clock: U,
+        genesis_time: u64,
+        latest_eth1_data: Eth1Data,
+        initial_validator_deposits: Vec<Deposit>,
         spec: ChainSpec,
         fork_choice: F,
     ) -> Result<Self, Error> {
-        if spec.initial_validators.is_empty() {
+        if initial_validator_deposits.is_empty() {
             return Err(Error::InsufficientValidators);
         }
 
-        let genesis_state = genesis_beacon_state(&spec);
+        let genesis_state = BeaconState::genesis(
+            genesis_time,
+            initial_validator_deposits,
+            latest_eth1_data,
+            &spec,
+        );
         let state_root = genesis_state.canonical_root();
         state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
 
-        let genesis_block = genesis_beacon_block(state_root, &spec);
+        let genesis_block = BeaconBlock::genesis(state_root, &spec);
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
         let finalized_head = RwLock::new(CheckPoint::new(
-            genesis_block.clone(),
-            block_root,
-            genesis_state.clone(),
-            state_root,
-        ));
-        let justified_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
             genesis_state.clone(),
@@ -125,7 +127,6 @@ where
             slot_clock,
             attestation_aggregator,
             state: RwLock::new(genesis_state.clone()),
-            justified_head,
             finalized_head,
             canonical_head,
             spec,
@@ -193,10 +194,10 @@ where
     /// It is important to note that this is _not_ the state corresponding to the canonical head
     /// block, instead it is that state which may or may not have had additional per slot/epoch
     /// processing applied to it.
-    pub fn advance_state(&self, slot: u64) -> Result<(), SlotProcessingError> {
+    pub fn advance_state(&self, slot: Slot) -> Result<(), SlotProcessingError> {
         let state_slot = self.state.read().slot;
         let head_block_root = self.head().beacon_block_root;
-        for _ in state_slot..slot {
+        for _ in state_slot.as_u64()..slot.as_u64() {
             self.state
                 .write()
                 .per_slot_processing(head_block_root, &self.spec)?;
@@ -222,19 +223,6 @@ where
         None
     }
 
-    /// Returns the number of slots the validator has been required to propose.
-    ///
-    /// Returns `None` if the `validator_index` is invalid.
-    ///
-    /// Information is retrieved from the present `beacon_state.validator_registry`.
-    pub fn proposer_slots(&self, validator_index: usize) -> Option<u64> {
-        if let Some(validator) = self.state.read().validator_registry.get(validator_index) {
-            Some(validator.proposer_slots)
-        } else {
-            None
-        }
-    }
-
     /// Reads the slot clock, returns `None` if the slot is unavailable.
     ///
     /// The slot might be unavailable due to an error with the system clock, or if the present time
@@ -243,9 +231,10 @@ where
     /// This is distinct to `present_slot`, which simply reads the latest state. If a
     /// call to `read_slot_clock` results in a higher slot than a call to `present_slot`,
     /// `self.state` should undergo per slot processing.
-    pub fn read_slot_clock(&self) -> Option<u64> {
+    pub fn read_slot_clock(&self) -> Option<Slot> {
         match self.slot_clock.present_slot() {
-            Ok(some_slot) => some_slot,
+            Ok(Some(some_slot)) => Some(some_slot),
+            Ok(None) => None,
             _ => None,
         }
     }
@@ -255,7 +244,7 @@ where
     /// This is distinct to `read_slot_clock`, which reads from the actual system clock. If
     /// `self.state` has not been transitioned it is possible for the system clock to be on a
     /// different slot to what is returned from this call.
-    pub fn present_slot(&self) -> u64 {
+    pub fn present_slot(&self) -> Slot {
         self.state.read().slot
     }
 
@@ -263,7 +252,7 @@ where
     ///
     /// Information is read from the present `beacon_state` shuffling, so only information from the
     /// present and prior epoch is available.
-    pub fn block_proposer(&self, slot: u64) -> Result<usize, CommitteesError> {
+    pub fn block_proposer(&self, slot: Slot) -> Result<usize, CommitteesError> {
         let index = self
             .state
             .read()
@@ -273,8 +262,8 @@ where
     }
 
     /// Returns the justified slot for the present state.
-    pub fn justified_slot(&self) -> u64 {
-        self.state.read().justified_slot
+    pub fn justified_epoch(&self) -> Epoch {
+        self.state.read().justified_epoch
     }
 
     /// Returns the attestation slot and shard for a given validator index.
@@ -284,7 +273,7 @@ where
     pub fn validator_attestion_slot_and_shard(
         &self,
         validator_index: usize,
-    ) -> Result<Option<(u64, u64)>, CommitteesError> {
+    ) -> Result<Option<(Slot, u64)>, CommitteesError> {
         if let Some((slot, shard, _committee)) = self
             .state
             .read()
@@ -298,11 +287,14 @@ where
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
-        let justified_slot = self.justified_slot();
+        let justified_epoch = self.justified_epoch();
         let justified_block_root = *self
             .state
             .read()
-            .get_block_root(justified_slot, &self.spec)
+            .get_block_root(
+                justified_epoch.start_slot(self.spec.epoch_length),
+                &self.spec,
+            )
             .ok_or_else(|| Error::BadRecentBlockRoots)?;
 
         let epoch_boundary_root = *self
@@ -320,8 +312,11 @@ where
             beacon_block_root: self.head().beacon_block_root,
             epoch_boundary_root,
             shard_block_root: Hash256::zero(),
-            latest_crosslink_root: Hash256::zero(),
-            justified_slot,
+            latest_crosslink: Crosslink {
+                epoch: self.state.read().slot.epoch(self.spec.epoch_length),
+                shard_block_root: Hash256::zero(),
+            },
+            justified_epoch,
             justified_block_root,
         })
     }
@@ -450,7 +445,7 @@ where
 
         // Transition the parent state to the present slot.
         let mut state = parent_state;
-        for _ in state.slot..present_slot {
+        for _ in state.slot.as_u64()..present_slot.as_u64() {
             if let Err(e) = state.per_slot_processing(parent_block_root, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
@@ -520,7 +515,7 @@ where
             attestations.len()
         );
 
-        let parent_root = *state.get_block_root(state.slot.saturating_sub(1), &self.spec)?;
+        let parent_root = *state.get_block_root(state.slot.saturating_sub(1_u64), &self.spec)?;
 
         let mut block = BeaconBlock {
             slot: state.slot,
@@ -535,11 +530,8 @@ where
             signature: self.spec.empty_signature.clone(), // To be completed by a validator.
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
-                casper_slashings: vec![],
+                attester_slashings: vec![],
                 attestations,
-                custody_reseeds: vec![],
-                custody_challenges: vec![],
-                custody_responses: vec![],
                 deposits: vec![],
                 exits: vec![],
             },

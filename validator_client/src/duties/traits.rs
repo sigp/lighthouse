@@ -1,5 +1,6 @@
 use super::EpochDuties;
 use bls::PublicKey;
+use types::Epoch;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
@@ -13,7 +14,7 @@ pub trait BeaconNode: Send + Sync {
     /// Returns Ok(None) if the public key is unknown, or the shuffling for that epoch is unknown.
     fn request_shuffling(
         &self,
-        epoch: u64,
+        epoch: Epoch,
         public_key: &PublicKey,
     ) -> Result<Option<EpochDuties>, BeaconNodeError>;
 }

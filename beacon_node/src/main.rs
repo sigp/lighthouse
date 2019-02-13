@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use crate::config::LighthouseConfig;
 use crate::rpc::start_server;
 use beacon_chain::BeaconChain;
+use bls::create_proof_of_possession;
 use clap::{App, Arg};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -17,7 +18,7 @@ use fork_choice::optimised_lmd_ghost::OptimisedLMDGhost;
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use std::sync::Arc;
-use types::ChainSpec;
+use types::{ChainSpec, Deposit, DepositData, DepositInput, Eth1Data, Hash256, Keypair};
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -76,17 +77,51 @@ fn main() {
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
     // Slot clock
-    let slot_clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
+    let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
+    let slot_clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
         .expect("Unable to load SystemTimeSlotClock");
-
     // Choose the fork choice
     let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
+
+    /*
+     * Generate some random data to start a chain with.
+     *
+     * This is will need to be replace for production usage.
+     */
+    let latest_eth1_data = Eth1Data {
+        deposit_root: Hash256::zero(),
+        block_hash: Hash256::zero(),
+    };
+    let keypairs: Vec<Keypair> = (0..10)
+        .collect::<Vec<usize>>()
+        .iter()
+        .map(|_| Keypair::random())
+        .collect();
+    let initial_validator_deposits = keypairs
+        .iter()
+        .map(|keypair| Deposit {
+            branch: vec![], // branch verification is not specified.
+            index: 0,       // index verification is not specified.
+            deposit_data: DepositData {
+                amount: 32_000_000_000, // 32 ETH (in Gwei)
+                timestamp: genesis_time - 1,
+                deposit_input: DepositInput {
+                    pubkey: keypair.pk.clone(),
+                    withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
+                    proof_of_possession: create_proof_of_possession(&keypair),
+                },
+            },
+        })
+        .collect();
+
     // Genesis chain
-    // TODO: persist chain to storage.
     let _chain_result = BeaconChain::genesis(
         state_store.clone(),
         block_store.clone(),
         slot_clock,
+        genesis_time,
+        latest_eth1_data,
+        initial_validator_deposits,
         spec,
         fork_choice,
     );

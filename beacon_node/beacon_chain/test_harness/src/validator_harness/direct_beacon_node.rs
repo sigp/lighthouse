@@ -12,7 +12,7 @@ use fork_choice::ForkChoice;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{AttestationData, BeaconBlock, FreeAttestation, PublicKey, Signature};
+use types::{AttestationData, BeaconBlock, FreeAttestation, Signature, Slot};
 
 // mod attester;
 // mod producer;
@@ -52,7 +52,7 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectBeaconNode<T, U, F> {
 impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterBeaconNode for DirectBeaconNode<T, U, F> {
     fn produce_attestation_data(
         &self,
-        _slot: u64,
+        _slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, NodeError> {
         match self.beacon_chain.produce_attestation_data(shard) {
@@ -71,31 +71,17 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterBeaconNode for DirectBeac
 }
 
 impl<T: ClientDB, U: SlotClock, F: ForkChoice> BeaconBlockNode for DirectBeaconNode<T, U, F> {
-    /// Requests the `proposer_nonce` from the `BeaconChain`.
-    fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconBlockNodeError> {
-        let validator_index = self
-            .beacon_chain
-            .validator_index(pubkey)
-            .ok_or_else(|| BeaconBlockNodeError::RemoteFailure("pubkey unknown.".to_string()))?;
-
-        self.beacon_chain
-            .proposer_slots(validator_index)
-            .ok_or_else(|| {
-                BeaconBlockNodeError::RemoteFailure("validator_index unknown.".to_string())
-            })
-    }
-
     /// Requests a new `BeaconBlock from the `BeaconChain`.
     fn produce_beacon_block(
         &self,
-        slot: u64,
+        slot: Slot,
         randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconBlockNodeError> {
         let (block, _state) = self
             .beacon_chain
             .produce_block(randao_reveal.clone())
             .ok_or_else(|| {
-                BeaconBlockNodeError::RemoteFailure(format!("Did not produce block."))
+                BeaconBlockNodeError::RemoteFailure("Did not produce block.".to_string())
             })?;
 
         if block.slot == slot {

@@ -1,31 +1,31 @@
-mod duties_map;
+mod epoch_duties;
 mod grpc;
 mod service;
 #[cfg(test)]
 mod test_node;
 mod traits;
 
-pub use self::duties_map::EpochDutiesMap;
-use self::duties_map::{EpochDuties, EpochDutiesMapError};
+pub use self::epoch_duties::EpochDutiesMap;
+use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
 pub use self::service::DutiesManagerService;
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::ChainSpec;
+use types::{ChainSpec, Epoch};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PollOutcome {
     /// The `EpochDuties` were not updated during this poll.
-    NoChange(u64),
+    NoChange(Epoch),
     /// The `EpochDuties` for the `epoch` were previously unknown, but obtained in the poll.
-    NewDuties(u64, EpochDuties),
+    NewDuties(Epoch, EpochDuties),
     /// New `EpochDuties` were obtained, different to those which were previously known. This is
     /// likely to be the result of chain re-organisation.
-    DutiesChanged(u64, EpochDuties),
+    DutiesChanged(Epoch, EpochDuties),
     /// The Beacon Node was unable to return the duties as the validator is unknown, or the
     /// shuffling for the epoch is unknown.
-    UnknownValidatorOrEpoch(u64),
+    UnknownValidatorOrEpoch(Epoch),
 }
 
 #[derive(Debug, PartialEq)]
@@ -33,7 +33,6 @@ pub enum Error {
     SlotClockError,
     SlotUnknowable,
     EpochMapPoisoned,
-    EpochLengthIsZero,
     BeaconNodeError(BeaconNodeError),
 }
 
@@ -62,9 +61,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             .map_err(|_| Error::SlotClockError)?
             .ok_or(Error::SlotUnknowable)?;
 
-        let epoch = slot
-            .checked_div(self.spec.epoch_length)
-            .ok_or(Error::EpochLengthIsZero)?;
+        let epoch = slot.epoch(self.spec.epoch_length);
 
         if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkey)? {
             // If these duties were known, check to see if they're updates or identical.
@@ -105,6 +102,7 @@ mod tests {
     use super::*;
     use bls::Keypair;
     use slot_clock::TestingSlotClock;
+    use types::Slot;
 
     // TODO: implement more thorough testing.
     // https://github.com/sigp/lighthouse/issues/160
@@ -130,25 +128,34 @@ mod tests {
         // Configure response from the BeaconNode.
         let duties = EpochDuties {
             validator_index: 0,
-            block_production_slot: Some(10),
+            block_production_slot: Some(Slot::new(10)),
         };
         beacon_node.set_next_shuffling_result(Ok(Some(duties)));
 
         // Get the duties for the first time...
-        assert_eq!(manager.poll(), Ok(PollOutcome::NewDuties(0, duties)));
+        assert_eq!(
+            manager.poll(),
+            Ok(PollOutcome::NewDuties(Epoch::new(0), duties))
+        );
         // Get the same duties again...
-        assert_eq!(manager.poll(), Ok(PollOutcome::NoChange(0)));
+        assert_eq!(manager.poll(), Ok(PollOutcome::NoChange(Epoch::new(0))));
 
         // Return new duties.
         let duties = EpochDuties {
             validator_index: 0,
-            block_production_slot: Some(11),
+            block_production_slot: Some(Slot::new(11)),
         };
         beacon_node.set_next_shuffling_result(Ok(Some(duties)));
-        assert_eq!(manager.poll(), Ok(PollOutcome::DutiesChanged(0, duties)));
+        assert_eq!(
+            manager.poll(),
+            Ok(PollOutcome::DutiesChanged(Epoch::new(0), duties))
+        );
 
         // Return no duties.
         beacon_node.set_next_shuffling_result(Ok(None));
-        assert_eq!(manager.poll(), Ok(PollOutcome::UnknownValidatorOrEpoch(0)));
+        assert_eq!(
+            manager.poll(),
+            Ok(PollOutcome::UnknownValidatorOrEpoch(Epoch::new(0)))
+        );
     }
 }

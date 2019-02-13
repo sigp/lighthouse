@@ -1,7 +1,7 @@
-mod beacon_node;
 mod epoch_map;
-mod signer;
+mod local_signer;
+mod simulated_beacon_node;
 
-pub use self::beacon_node::TestBeaconNode;
-pub use self::epoch_map::TestEpochMap;
-pub use self::signer::TestSigner;
+pub use self::epoch_map::EpochMap;
+pub use self::local_signer::LocalSigner;
+pub use self::simulated_beacon_node::SimulatedBeaconNode;

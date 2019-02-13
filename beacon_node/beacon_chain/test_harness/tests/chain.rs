@@ -1,13 +1,13 @@
 use env_logger::{Builder, Env};
 use log::debug;
 use test_harness::BeaconChainHarness;
-use types::ChainSpec;
+use types::{ChainSpec, Slot};
 
 #[test]
 #[ignore]
 fn it_can_build_on_genesis_block() {
     let mut spec = ChainSpec::foundation();
-    spec.genesis_slot = spec.epoch_length * 8;
+    spec.genesis_slot = Slot::new(spec.epoch_length * 8);
 
     /*
     spec.shard_count = spec.shard_count / 8;

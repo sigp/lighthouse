@@ -1,3 +1,23 @@
+// Copyright 2019 Sigma Prime Pty Ltd.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 //! This crate stores the various implementations of fork-choice rules that can be used for the
 //! beacon blockchain.
 //!
@@ -7,16 +27,20 @@
 //! The current implementations are:
 //! - [`longest-chain`]: Simplistic longest-chain fork choice - primarily for testing, **not for
 //! production**.
-//! - [`basic_lmd_ghost`]: This is a simple and very inefficient implementation given in the ethereum 2.0
+//! - [`slow_lmd_ghost`]: This is a simple and very inefficient implementation given in the ethereum 2.0
 //! specifications (https://github.com/ethereum/eth2.0-specs/blob/v0.1/specs/core/0_beacon-chain.md#get_block_root).
 //! - [`optimised_lmd_ghost`]: This is an optimised version of the naive implementation as proposed
 //! by Vitalik. The reference implementation can be found at: https://github.com/ethereum/research/blob/master/ghost/ghost.py
 //! - [`protolambda_lmd_ghost`]: Another optimised version of LMD-GHOST designed by @protolambda.
 //! The go implementation can be found here: https://github.com/protolambda/lmd-ghost.
 //!
-//! [`basic_lmd_ghost`]: struct.BasicLmdGhost.html
+//! [`slow_lmd_ghost`]: struct.SlowLmdGhost.html
 //! [`optimised_lmd_ghost`]: struct.OptimisedLmdGhost.html
 //! [`protolambda_lmd_ghost`]: struct.ProtolambdaLmdGhost.html
+
+extern crate db;
+extern crate ssz;
+extern crate types;
 
 pub mod longest_chain;
 pub mod optimised_lmd_ghost;
