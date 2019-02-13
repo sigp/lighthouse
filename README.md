@@ -7,7 +7,49 @@ Chain, maintained by Sigma Prime.
 
 The "Serenity" project is also known as "Ethereum 2.0" or "Shasper".
 
-## Lighthouse Client
+## Project Structure
+
+The Lighthouse project is managed across four Github repositories:
+
+- [sigp/lighthouse](https://github.com/sigp/lighthouse) (this repo): The
+	"integration" repository which provides:
+	- Project-wide documentation
+	- A landing-page for users and contributors.
+	- In the future, various other integration tests and orchestration suites.
+- [sigp/lighthouse-libs](https://github.com/sigp/lighthouse-libs): Contains
+	Rust crates common to the entire Lighthouse project, including:
+	- Pure specification logic (e.g., state transitions, etc)
+	- SSZ (SimpleSerialize)
+	- BLS Signature libraries, and more.
+- [sigp/lighthouse-beacon](https://github.com/sigp/lighthouse-beacon): The
+	beacon node binary, responsible for connection to peers across the
+	network and maintaining a view of the Beacon Chain.
+- [sigp/lighthouse-validator](https://github.com/sigp/lighthouse-validator):
+	The validator client binary, which connects to a beacon node and fulfils
+	the duties of a staked validator (producing and attesting to blocks).
+
+## Contributing
+
+We welcome new contributors and greatly appreciate the efforts from existing
+contributors.
+
+If you'd like to contribute to development on Lighthouse, we recommend checking
+for [issues on the lighthouse-libs
+repo](https://github.com/sigp/lighthouse-libs/issues) first, then checking the
+other repositories.
+
+If you don't find anything there, please reach out on the
+[gitter](https://gitter.im/sigp/lighthouse) channel.
+
+Additional resources:
+
+- [ONBOARDING.md](docs/ONBOARDING.md): General on-boarding info,
+	including style-guide.
+- [LIGHTHOUSE.md](docs/LIGHTHOUSE.md): Project goals and ethos.
+- [RUNNING.md](docs/RUNNING.md): Step-by-step on getting the code running.
+- [SERENITY.md](docs/SERENITY.md): Introduction to Ethereum Serenity.
+
+## Project Summary
 
 Lighthouse is an open-source Ethereum Serenity client that is currently under
 development. Designed as a Serenity-only client, Lighthouse will not
@@ -19,15 +61,6 @@ to existing clients, such as
 [Parity-Ethereum](https://github.com/paritytech/parity-ethereum), via RPC to enable
 present-Ethereum functionality.
 
-### Further Reading
-
-- [About Lighthouse](docs/lighthouse.md): Goals, Ideology and Ethos surrounding
-this implementation.
-- [What is Ethereum Serenity](docs/serenity.md): an introduction to Ethereum Serenity.
-
-If you'd like some background on Sigma Prime, please see the [Lighthouse Update
-\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
-[company website](https://sigmaprime.io).
 
 ### Components
 
@@ -61,7 +94,7 @@ by the team:
   from the Ethereum Foundation to develop *simpleserialize* (SSZ), a
   purpose-built serialization format for sending information across a network.
   Check out the [SSZ
-implementation](https://github.com/sigp/lighthouse/tree/master/beacon_chain/utils/ssz)
+implementation](https://github.com/sigp/lighthouse-libs/tree/master/ssz)
 and this
 [research](https://github.com/sigp/serialization_sandbox/blob/report/report/serialization_report.md)
 on serialization formats for more information.
@@ -79,89 +112,23 @@ In addition to these components we are also working on database schemas, RPC
 frameworks, specification development, database optimizations (e.g.,
 bloom-filters), and tons of other interesting stuff (at least we think so).
 
-### Directory Structure
-
-Here we provide an overview of the directory structure:
-
-- `beacon_chain/`: contains logic derived directly from the specification.
-  E.g., shuffling algorithms, state transition logic and structs, block
-validation, BLS crypto, etc.
-- `lighthouse/`: contains logic specific to this client implementation. E.g.,
-  CLI parsing, RPC end-points, databases, etc.
-
-### Running
-
-**NOTE: The cryptography libraries used in this implementation are
-experimental. As such all cryptography is assumed to be insecure.**
-
-This code-base is still very much under-development and does not provide any
-user-facing functionality. For developers and researchers, there are several
-tests and benchmarks which may be of interest.
-
-A few basic steps are needed to get set up:
-
-   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macos | Windows). For installation run the below command in your terminal `$ curl https://sh.rustup.rs -sSf | sh`
-   2. (Linux & MacOS) To configure your current shell run: `$ source $HOME/.cargo/env`
-   3. Use the command `rustup show` to get information about the Rust installation. You should see that the
-   active toolchain is the stable version.
-   4. Run `rustc --version` to check the installation and version of rust.
-      - Updates can be performed using` rustup update` .
-   5. Install build dependencies (Arch packages are listed here, your distribution will likely be similar):
-	  - `clang`: required by RocksDB.
-	  - `protobuf`: required for protobuf serialization (gRPC).
-   6. Navigate to the working directory.
-   7. Run the test by using command `cargo test --all`. By running, it will pass all the required test cases.
-        If you are doing it for the first time, then you can grab a coffee in the meantime. Usually, it takes time
-        to build, compile and pass all test cases. If there is no error then it means everything is working properly
-        and it's time to get your hands dirty.
-        In case, if there is an error, then please raise the [issue](https://github.com/sigp/lighthouse/issues).
-        We will help you.
-   8. As an alternative to, or instead of the above step, you may also run benchmarks by using
-        the command `cargo bench --all`
-
-##### Note:
-Lighthouse presently runs on Rust `stable`, however, benchmarks currently require the
-`nightly` version.
-
-##### Note for Windows users:
-Perl may also be required to build lighthouse. You can install [Strawberry Perl](http://strawberryperl.com/),
-or alternatively use a choco install command `choco install strawberryperl`.
-
-Additionally, the dependency `protoc-grpcio v0.3.1` is reported to have issues compiling in Windows. You can specify
-a known working version by editing version in protos/Cargo.toml's "build-dependencies" section to
-`protoc-grpcio = "<=0.3.0"`.
-
-### Contributing
-
-**Lighthouse welcomes contributors with open-arms.**
-
-If you would like to learn more about Ethereum Serenity and/or
-[Rust](https://www.rust-lang.org/), we are more than happy to on-board you
-and assign you some tasks. We aim to be as accepting and understanding as
-possible; we are more than happy to up-skill contributors in exchange for their
-assistance with the project.
-
-Alternatively, if you are an ETH/Rust veteran, we'd love your input.  We're
-always looking for the best way to implement things and welcome all
-respectful criticisms.
-
-If you are looking to contribute, please head to our
-[onboarding documentation](https://github.com/sigp/lighthouse/blob/master/docs/onboarding.md).
-
-If you'd like to contribute, try having a look through the [open
-issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
-first
-issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
-your support!
 
 ## Contact
 
 The best place for discussion is the [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 Ping @paulhauner or @AgeManning to get the quickest response.
 
+If you'd like some background on Sigma Prime, please see the [Lighthouse Update
+\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
+[company website](https://sigmaprime.io).
+
 # Donations
 
-If you support the cause, we could certainly use donations to help fund development:
+We accept donations at the following Ethereum address. All donations go towards
+funding development of Ethereum 2.0.
 
-`0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b`
+[`0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b`](https://etherscan.io/address/0x25c4a76e7d118705e7ea2e9b7d8c59930d8acd3b)
+
+Alternatively, you can contribute via [Gitcoin Grant](https://gitcoin.co/grants/25/lighthouse-ethereum-20-client).
+
+We appreciate all contributions to the project.
