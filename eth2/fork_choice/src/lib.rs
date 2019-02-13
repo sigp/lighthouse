@@ -18,10 +18,10 @@
 //! [`optimised_lmd_ghost`]: struct.OptimisedLmdGhost.html
 //! [`protolambda_lmd_ghost`]: struct.ProtolambdaLmdGhost.html
 
-pub mod basic_lmd_ghost;
 pub mod longest_chain;
 pub mod optimised_lmd_ghost;
 pub mod protolambda_lmd_ghost;
+pub mod slow_lmd_ghost;
 
 use db::DBError;
 use types::{BeaconBlock, Hash256};
@@ -71,7 +71,7 @@ pub enum ForkChoiceAlgorithms {
     /// Chooses the longest chain becomes the head. Not for production.
     LongestChain,
     /// A simple and highly inefficient implementation of LMD ghost.
-    BasicLMDGhost,
+    SlowLMDGhost,
     /// An optimised version of LMD-GHOST by Vitalik.
     OptimmisedLMDGhost,
     /// An optimised version of LMD-GHOST by Protolambda.
