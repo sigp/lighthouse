@@ -1,11 +1,10 @@
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
-use crate::attestation_targets::AttestationTargets;
-use crate::block_graph::BlockGraph;
 use crate::checkpoint::CheckPoint;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
 };
+use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
@@ -28,11 +27,14 @@ pub enum Error {
     CommitteesError(CommitteesError),
     DBInconsistent(String),
     DBError(String),
+    ForkChoiceError(ForkChoiceError),
+    MissingBeaconBlock(Hash256),
+    MissingBeaconState(Hash256),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ValidBlock {
-    /// The block was sucessfully processed.
+    /// The block was successfully processed.
     Processed,
 }
 
@@ -53,29 +55,29 @@ pub enum InvalidBlock {
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
-    /// The block was sucessfully validated.
+    /// The block was successfully validated.
     ValidBlock(ValidBlock),
-    /// The block was not sucessfully validated.
+    /// The block was not successfully validated.
     InvalidBlock(InvalidBlock),
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
+pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
-    pub block_graph: BlockGraph,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
-    pub latest_attestation_targets: RwLock<AttestationTargets>,
     pub spec: ChainSpec,
+    pub fork_choice: RwLock<F>,
 }
 
-impl<T, U> BeaconChain<T, U>
+impl<T, U, F> BeaconChain<T, U, F>
 where
     T: ClientDB,
     U: SlotClock,
+    F: ForkChoice,
 {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn genesis(
@@ -86,6 +88,7 @@ where
         latest_eth1_data: Eth1Data,
         initial_validator_deposits: Vec<Deposit>,
         spec: ChainSpec,
+        fork_choice: F,
     ) -> Result<Self, Error> {
         if initial_validator_deposits.is_empty() {
             return Err(Error::InsufficientValidators);
@@ -104,9 +107,6 @@ where
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
-        let block_graph = BlockGraph::new();
-        block_graph.add_leaf(&Hash256::zero(), block_root);
-
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
@@ -121,19 +121,16 @@ where
         ));
         let attestation_aggregator = RwLock::new(AttestationAggregator::new());
 
-        let latest_attestation_targets = RwLock::new(AttestationTargets::new());
-
         Ok(Self {
             block_store,
             state_store,
             slot_clock,
-            block_graph,
             attestation_aggregator,
             state: RwLock::new(genesis_state.clone()),
             finalized_head,
             canonical_head,
-            latest_attestation_targets,
             spec,
+            fork_choice: RwLock::new(fork_choice),
         })
     }
 
@@ -208,7 +205,7 @@ where
         Ok(())
     }
 
-    /// Returns the the validator index (if any) for the given public key.
+    /// Returns the validator index (if any) for the given public key.
     ///
     /// Information is retrieved from the present `beacon_state.validator_registry`.
     pub fn validator_index(&self, pubkey: &PublicKey) -> Option<usize> {
@@ -332,26 +329,24 @@ where
         &self,
         free_attestation: FreeAttestation,
     ) -> Result<AggregationOutcome, Error> {
-        self.attestation_aggregator
+        let aggregation_outcome = self
+            .attestation_aggregator
             .write()
-            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)
-            .map_err(|e| e.into())
-    }
+            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)?;
+        // TODO: Check this comment
+        //.map_err(|e| e.into())?;
 
-    /// Set the latest attestation target for some validator.
-    pub fn insert_latest_attestation_target(&self, validator_index: u64, block_root: Hash256) {
-        let mut targets = self.latest_attestation_targets.write();
-        targets.insert(validator_index, block_root);
-    }
-
-    /// Get the latest attestation target for some validator.
-    pub fn get_latest_attestation_target(&self, validator_index: u64) -> Option<Hash256> {
-        let targets = self.latest_attestation_targets.read();
-
-        match targets.get(validator_index) {
-            Some(hash) => Some(*hash),
-            None => None,
+        // return if the attestation is invalid
+        if !aggregation_outcome.valid {
+            return Ok(aggregation_outcome);
         }
+
+        // valid attestation, proceed with fork-choice logic
+        self.fork_choice.write().add_attestation(
+            free_attestation.validator_index,
+            &free_attestation.data.beacon_block_root,
+        )?;
+        Ok(aggregation_outcome)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
@@ -458,7 +453,7 @@ where
             }
         }
 
-        // Apply the recieved block to its parent state (which has been transitioned into this
+        // Apply the received block to its parent state (which has been transitioned into this
         // slot).
         if let Err(e) = state.per_block_processing(&block, &self.spec) {
             return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -478,15 +473,20 @@ where
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
-        // Update the block DAG.
-        self.block_graph.add_leaf(&parent_block_root, block_root);
+        // run the fork_choice add_block logic
+        self.fork_choice.write().add_block(&block, &block_root)?;
 
         // If the parent block was the parent_block, automatically update the canonical head.
         //
         // TODO: this is a first-in-best-dressed scenario that is not ideal; fork_choice should be
         // run instead.
         if self.head().beacon_block_root == parent_block_root {
-            self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
+            self.update_canonical_head(
+                block.clone(),
+                block_root.clone(),
+                state.clone(),
+                state_root,
+            );
             // Update the local state variable.
             *self.state.write() = state.clone();
         }
@@ -496,7 +496,7 @@ where
 
     /// Produce a new block at the present slot.
     ///
-    /// The produced block will not be inheriently valid, it must be signed by a block producer.
+    /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
     pub fn produce_block(&self, randao_reveal: Signature) -> Option<(BeaconBlock, BeaconState)> {
         debug!("Producing block at slot {}...", self.state.read().slot);
@@ -549,11 +549,42 @@ where
 
         Some((block, state))
     }
+
+    // TODO: Left this as is, modify later
+    pub fn fork_choice(&self) -> Result<(), Error> {
+        let present_head = self.finalized_head().beacon_block_root;
+
+        let new_head = self.fork_choice.write().find_head(&present_head)?;
+
+        if new_head != present_head {
+            let block = self
+                .block_store
+                .get_deserialized(&new_head)?
+                .ok_or_else(|| Error::MissingBeaconBlock(new_head))?;
+            let block_root = block.canonical_root();
+
+            let state = self
+                .state_store
+                .get_deserialized(&block.state_root)?
+                .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+            let state_root = state.canonical_root();
+
+            self.update_canonical_head(block, block_root, state, state_root);
+        }
+
+        Ok(())
+    }
 }
 
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
         Error::DBError(e.message)
+    }
+}
+
+impl From<ForkChoiceError> for Error {
+    fn from(e: ForkChoiceError) -> Error {
+        Error::ForkChoiceError(e)
     }
 }
 

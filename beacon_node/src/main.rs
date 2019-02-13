@@ -14,6 +14,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
+use fork_choice::optimised_lmd_ghost::OptimisedLMDGhost;
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use std::sync::Arc;
@@ -79,6 +80,8 @@ fn main() {
     let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
     let slot_clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
         .expect("Unable to load SystemTimeSlotClock");
+    // Choose the fork choice
+    let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
 
     /*
      * Generate some random data to start a chain with.
@@ -120,6 +123,7 @@ fn main() {
         latest_eth1_data,
         initial_validator_deposits,
         spec,
+        fork_choice,
     );
 
     let _server = start_server(log.clone());

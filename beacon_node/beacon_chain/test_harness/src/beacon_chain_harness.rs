@@ -6,6 +6,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
+use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost}; // import all the algorithms
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
@@ -21,13 +22,13 @@ use types::{
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
-/// information and submit blocks/attesations for processing.
+/// information and submit blocks/attestations for processing.
 ///
 /// This test harness is useful for testing validator and internal state transition logic. It
 /// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
-    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
+    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<ValidatorHarness>,
@@ -43,9 +44,9 @@ impl BeaconChainHarness {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
-
         let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
+        let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
         let latest_eth1_data = Eth1Data {
             deposit_root: Hash256::zero(),
             block_hash: Hash256::zero(),
@@ -90,6 +91,7 @@ impl BeaconChainHarness {
                 latest_eth1_data,
                 initial_validator_deposits,
                 spec.clone(),
+                fork_choice,
             )
             .unwrap(),
         );

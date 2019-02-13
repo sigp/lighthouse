@@ -14,6 +14,7 @@ clap = "2.32.0"
 db = { path = "db" }
 dirs = "1.0.3"
 futures = "0.1.23"
+fork_choice = { path = "../eth2/fork_choice" }
 slog = "^2.2.3"
 slot_clock = { path = "../eth2/utils/slot_clock" }
 slog-term = "^2.4.0"

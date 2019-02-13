@@ -6,19 +6,20 @@ use block_producer::{
     DutiesReader as ProducerDutiesReader, DutiesReaderError as ProducerDutiesReaderError,
 };
 use db::ClientDB;
+use fork_choice::ForkChoice;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::{PublicKey, Slot};
 
 /// Connects directly to a borrowed `BeaconChain` and reads attester/proposer duties directly from
 /// it.
-pub struct DirectDuties<T: ClientDB, U: SlotClock> {
-    beacon_chain: Arc<BeaconChain<T, U>>,
+pub struct DirectDuties<T: ClientDB, U: SlotClock, F: ForkChoice> {
+    beacon_chain: Arc<BeaconChain<T, U, F>>,
     pubkey: PublicKey,
 }
 
-impl<T: ClientDB, U: SlotClock> DirectDuties<T, U> {
-    pub fn new(pubkey: PublicKey, beacon_chain: Arc<BeaconChain<T, U>>) -> Self {
+impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectDuties<T, U, F> {
+    pub fn new(pubkey: PublicKey, beacon_chain: Arc<BeaconChain<T, U, F>>) -> Self {
         Self {
             beacon_chain,
             pubkey,
@@ -26,7 +27,7 @@ impl<T: ClientDB, U: SlotClock> DirectDuties<T, U> {
     }
 }
 
-impl<T: ClientDB, U: SlotClock> ProducerDutiesReader for DirectDuties<T, U> {
+impl<T: ClientDB, U: SlotClock, F: ForkChoice> ProducerDutiesReader for DirectDuties<T, U, F> {
     fn is_block_production_slot(&self, slot: Slot) -> Result<bool, ProducerDutiesReaderError> {
         let validator_index = self
             .beacon_chain
@@ -41,7 +42,7 @@ impl<T: ClientDB, U: SlotClock> ProducerDutiesReader for DirectDuties<T, U> {
     }
 }
 
-impl<T: ClientDB, U: SlotClock> AttesterDutiesReader for DirectDuties<T, U> {
+impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterDutiesReader for DirectDuties<T, U, F> {
     fn validator_index(&self) -> Option<u64> {
         match self.beacon_chain.validator_index(&self.pubkey) {
             Some(index) => Some(index as u64),

@@ -21,6 +21,7 @@ db = { path = "../../db" }
 parking_lot = "0.7"
 failure = "0.1"
 failure_derive = "0.1"
+fork_choice = { path = "../../../eth2/fork_choice" }
 hashing = { path = "../../../eth2/utils/hashing" }
 log = "0.4"
 env_logger = "0.6.0"
