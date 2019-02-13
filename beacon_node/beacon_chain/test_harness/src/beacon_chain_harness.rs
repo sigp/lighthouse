@@ -211,7 +211,7 @@ impl BeaconChainHarness {
         // Produce a new block.
         let block = self.produce_block();
         debug!("Submitting block for processing...");
-        &mut (self.beacon_chain).process_block(block).unwrap();
+        self.beacon_chain.process_block(block).unwrap();
         debug!("...block processed by BeaconChain.");
 
         debug!("Producing free attestations...");
