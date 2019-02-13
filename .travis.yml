@@ -7,9 +7,15 @@ before_install:
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
 script:
-  - cargo build --verbose --all
-  - cargo test --verbose --all
-  - cargo fmt --all -- --check
+  - cargo build --verbose --all --manifest-path lighthouse-beacon/Cargo.toml
+  - cargo build --verbose --all --manifest-path lighthouse-validator/Cargo.toml
+  - cargo build --verbose --all --manifest-path lighthouse-libs/Cargo.toml
+  - cargo test --verbose --all --manifest-path lighthouse-beacon/Cargo.toml
+  - cargo test --verbose --all --manifest-path lighthouse-validator/Cargo.toml
+  - cargo test --verbose --all --manifest-path lighthouse-libs/Cargo.toml
+  - cargo fmt --all -- --check --manifest-path lighthouse-beacon/Cargo.toml
+  - cargo fmt --all -- --check --manifest-path lighthouse-validator/Cargo.toml
+  - cargo fmt --all -- --check --manifest-path lighthouse-libs/Cargo.toml
 rust:
   - stable
   - beta
