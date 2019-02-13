@@ -62,15 +62,18 @@ impl<T> OptimisedLMDGhost<T>
 where
     T: ClientDB + Sized,
 {
-    pub fn new(block_store: BeaconBlockStore<T>, state_store: BeaconStateStore<T>) -> Self {
+    pub fn new(
+        block_store: Arc<BeaconBlockStore<T>>,
+        state_store: Arc<BeaconStateStore<T>>,
+    ) -> Self {
         OptimisedLMDGhost {
             cache: HashMap::new(),
             ancestors: vec![HashMap::new(); 16],
             latest_attestation_targets: HashMap::new(),
             children: HashMap::new(),
             max_known_height: 0,
-            block_store: Arc::new(block_store),
-            state_store: Arc::new(state_store),
+            block_store,
+            state_store,
         }
     }
 

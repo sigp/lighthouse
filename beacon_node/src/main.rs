@@ -13,6 +13,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
+use fork_choice::optimised_lmd_ghost::OptimisedLMDGhost;
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use std::sync::Arc;
@@ -78,10 +79,17 @@ fn main() {
     let slot_clock = SystemTimeSlotClock::new(spec.genesis_time, spec.slot_duration)
         .expect("Unable to load SystemTimeSlotClock");
 
+    // Choose the fork choice
+    let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
     // Genesis chain
     // TODO: persist chain to storage.
-    let _chain_result =
-        BeaconChain::genesis(state_store.clone(), block_store.clone(), slot_clock, spec);
+    let _chain_result = BeaconChain::genesis(
+        state_store.clone(),
+        block_store.clone(),
+        slot_clock,
+        spec,
+        fork_choice,
+    );
 
     let _server = start_server(log.clone());
 
