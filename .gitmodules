@@ -1,0 +1,9 @@
+[submodule "lighthouse-libs"]
+	path = lighthouse-libs
+	url = git@github.com:sigp/lighthouse-libs.git
+[submodule "lighthouse-beacon"]
+	path = lighthouse-beacon
+	url = git@github.com:sigp/lighthouse-beacon.git
+[submodule "lighthouse-validator"]
+	path = lighthouse-validator
+	url = https://github.com/sigp/lighthouse-validator
