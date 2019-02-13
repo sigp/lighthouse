@@ -17,9 +17,6 @@ script:
   - cargo test --verbose --all --manifest-path lighthouse-beacon/Cargo.toml
   - cargo test --verbose --all --manifest-path lighthouse-validator/Cargo.toml
   - cargo test --verbose --all --manifest-path lighthouse-libs/Cargo.toml
-  - cargo fmt --all --manifest-path lighthouse-beacon/Cargo.toml -- --check
-  - cargo fmt --all --manifest-path lighthouse-validator/Cargo.toml -- --check
-  - cargo fmt --all --manifest-path lighthouse-libs/Cargo.toml -- --check
 rust:
   - stable
   - beta
