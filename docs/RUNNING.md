@@ -3,11 +3,8 @@
 These documents provide a guide for running code in the following repositories:
 
 - [lighthouse-libs](https://github.com/sigp/lighthouse-libs)
-- [lighthouse-beacon](https://github.com/sigp/lighthouse-beacon
-- [lighthouse-validator](https://github.com/sigp/lighthouse-validator
-
-**NOTE: The cryptography libraries used in this implementation are
-experimental. As such all cryptography is assumed to be insecure.**
+- [lighthouse-beacon](https://github.com/sigp/lighthouse-beacon)
+- [lighthouse-validator](https://github.com/sigp/lighthouse-validator)
 
 This code-base is still very much under-development and does not provide any
 user-facing functionality. For developers and researchers, there are several
