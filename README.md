@@ -14,15 +14,13 @@ The Lighthouse project is managed across four Github repositories:
 - [sigp/lighthouse](https://github.com/sigp/lighthouse) (this repo): The
 	"integration" repository which provides:
 	- Project-wide documentation
-	- A sub-module for each of the following repos.
 	- A landing-page for users and contributors.
-	- A triage point for issues.
 	- In the future, various other integration tests and orchestration suites.
 - [sigp/lighthouse-libs](https://github.com/sigp/lighthouse-libs): Contains
 	Rust crates common to the entire Lighthouse project, including:
 	- Pure specification logic (e.g., state transitions, etc)
 	- SSZ (SimpleSerialize)
-	- BLS Signature libraries
+	- BLS Signature libraries, and more.
 - [sigp/lighthouse-beacon](https://github.com/sigp/lighthouse-beacon): The
 	beacon node binary, responsible for connection to peers across the
 	network and maintaining a view of the Beacon Chain.
@@ -35,8 +33,8 @@ The Lighthouse project is managed across four Github repositories:
 We welcome new contributors and greatly appreciate the efforts from existing
 contributors.
 
-If you'd like to contribute to development on Lighthouse, we'd recommend
-checking for [issues on the lighthouse-libs
+If you'd like to contribute to development on Lighthouse, we recommend checking
+for [issues on the lighthouse-libs
 repo](https://github.com/sigp/lighthouse-libs/issues) first, then checking the
 other repositories.
 
