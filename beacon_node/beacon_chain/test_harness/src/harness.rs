@@ -5,6 +5,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
+use fork_choice::*; // import all the algorithms
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
@@ -17,13 +18,13 @@ use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Validator};
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
-/// information and submit blocks/attesations for processing.
+/// information and submit blocks/attestations for processing.
 ///
 /// This test harness is useful for testing validator and internal state transition logic. It
 /// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
-    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
+    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<TestValidator>,

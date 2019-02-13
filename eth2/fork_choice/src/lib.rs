@@ -23,12 +23,13 @@ pub mod optimised_lmd_ghost;
 pub mod protolambda_lmd_ghost;
 pub mod slow_lmd_ghost;
 
+use db::stores::BeaconBlockAtSlotError;
 use db::DBError;
 use types::{BeaconBlock, Hash256};
 
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
 /// which can be built in block processing through the `add_block` and `add_attestation` functions.
-/// The main fork choice algorithm is specified in `find_head`.
+/// The main fork choice algorithm is specified in `find_head
 pub trait ForkChoice {
     /// Called when a block has been added. Allows generic block-level data structures to be
     /// built for a given fork-choice.
@@ -63,6 +64,20 @@ pub enum ForkChoiceError {
 impl From<DBError> for ForkChoiceError {
     fn from(e: DBError) -> ForkChoiceError {
         ForkChoiceError::StorageError(e.message)
+    }
+}
+
+impl From<BeaconBlockAtSlotError> for ForkChoiceError {
+    fn from(e: BeaconBlockAtSlotError) -> ForkChoiceError {
+        match e {
+            BeaconBlockAtSlotError::UnknownBeaconBlock(hash) => {
+                ForkChoiceError::MissingBeaconBlock(hash)
+            }
+            BeaconBlockAtSlotError::InvalidBeaconBlock(hash) => {
+                ForkChoiceError::MissingBeaconBlock(hash)
+            }
+            BeaconBlockAtSlotError::DBError(string) => ForkChoiceError::StorageError(string),
+        }
     }
 }
 
