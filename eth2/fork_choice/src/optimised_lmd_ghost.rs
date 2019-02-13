@@ -15,6 +15,9 @@ use types::{
     BeaconBlock, Hash256,
 };
 
+//TODO: Pruning - Children
+//TODO: Handle Syncing
+
 //TODO: Sort out global constants
 const GENESIS_SLOT: u64 = 0;
 const FORK_CHOICE_BALANCE_INCREMENT: u64 = 1e9 as u64;
@@ -74,9 +77,10 @@ where
     /// Finds the latest votes weighted by validator balance. Returns a hashmap of block_hash to
     /// weighted votes.
     pub fn get_latest_votes(
+        &self,
         state_root: &Hash256,
-        block_slot: &Hash256,
-    ) -> Result<HashMap<Has256, u64>, ForkChoiceError> {
+        block_slot: u64,
+    ) -> Result<HashMap<Hash256, u64>, ForkChoiceError> {
         // get latest votes
         // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
         // FORK_CHOICE_BALANCE_INCREMENT
@@ -86,9 +90,9 @@ where
         let current_state = self
             .state_store
             .get_reader(&state_root)?
-            .ok_or_else(|| ForkChoiceError::MissingBeaconState(state_root))?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?
             .into_beacon_state()
-            .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(state_root))?;
+            .ok_or_else(|| ForkChoiceError::IncorrectBeaconState(*state_root))?;
 
         let active_validator_indices =
             get_active_validator_indices(&current_state.validator_registry, block_slot);
@@ -314,7 +318,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
 
         let mut current_head = *justified_block_start;
 
-        let mut latest_votes = self.get_latest_votes(&state_root, &block_slot)?;
+        let mut latest_votes = self.get_latest_votes(&state_root, block_slot)?;
 
         // remove any votes that don't relate to our current head.
         latest_votes
