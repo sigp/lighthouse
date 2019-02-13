@@ -7,6 +7,7 @@ use beacon_chain::BeaconChain;
 use block_producer::PollOutcome as BlockPollOutcome;
 use block_producer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
+use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost};
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair};
@@ -31,20 +32,20 @@ pub enum AttestationProduceError {
 pub struct TestValidator {
     pub block_producer: BlockProducer<
         TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock>,
-        DirectDuties<MemoryDB, TestingSlotClock>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
+        DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
         TestSigner,
     >,
     pub attester: Attester<
         TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock>,
-        DirectDuties<MemoryDB, TestingSlotClock>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
+        DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
         TestSigner,
     >,
     pub spec: Arc<ChainSpec>,
-    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock>>,
+    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub keypair: Keypair,
-    pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock>>,
+    pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub slot_clock: Arc<TestingSlotClock>,
     pub signer: Arc<TestSigner>,
 }
@@ -56,7 +57,7 @@ impl TestValidator {
     /// A `BlockProducer` and `Attester` is created..
     pub fn new(
         keypair: Keypair,
-        beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
+        beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
         let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot));

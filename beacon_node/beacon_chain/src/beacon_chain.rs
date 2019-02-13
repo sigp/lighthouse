@@ -54,9 +54,9 @@ pub enum InvalidBlock {
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
-    /// The block was sucessfully validated.
+    /// The block was successfully validated.
     ValidBlock(ValidBlock),
-    /// The block was not sucessfully validated.
+    /// The block was not successfully validated.
     InvalidBlock(InvalidBlock),
 }
 
@@ -70,7 +70,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     justified_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
     pub spec: ChainSpec,
-    pub fork_choice: F,
+    pub fork_choice: RwLock<F>,
 }
 
 impl<T, U, F> BeaconChain<T, U, F>
@@ -129,7 +129,7 @@ where
             finalized_head,
             canonical_head,
             spec,
-            fork_choice,
+            fork_choice: RwLock::new(fork_choice),
         })
     }
 
@@ -331,7 +331,7 @@ where
     /// - Create a new `Attestation`.
     /// - Aggregate it to an existing `Attestation`.
     pub fn process_free_attestation(
-        &mut self,
+        &self,
         free_attestation: FreeAttestation,
     ) -> Result<AggregationOutcome, Error> {
         let aggregation_outcome = self
@@ -347,7 +347,7 @@ where
         }
 
         // valid attestation, proceed with fork-choice logic
-        self.fork_choice.add_attestation(
+        self.fork_choice.write().add_attestation(
             free_attestation.validator_index,
             &free_attestation.data.beacon_block_root,
         )?;
@@ -408,7 +408,7 @@ where
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    pub fn process_block(&mut self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
+    pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot());
 
         let block_root = block.canonical_root();
@@ -479,7 +479,7 @@ where
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
         // run the fork_choice add_block logic
-        self.fork_choice.add_block(&block, &block_root)?;
+        self.fork_choice.write().add_block(&block, &block_root)?;
 
         // If the parent block was the parent_block, automatically update the canonical head.
         //
@@ -501,7 +501,7 @@ where
 
     /// Produce a new block at the present slot.
     ///
-    /// The produced block will not be inheriently valid, it must be signed by a block producer.
+    /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
     pub fn produce_block(&self, randao_reveal: Signature) -> Option<(BeaconBlock, BeaconState)> {
         debug!("Producing block at slot {}...", self.state.read().slot);
@@ -559,10 +559,10 @@ where
     }
 
     // TODO: Left this as is, modify later
-    pub fn fork_choice(&mut self) -> Result<(), Error> {
+    pub fn fork_choice(&self) -> Result<(), Error> {
         let present_head = self.finalized_head().beacon_block_root;
 
-        let new_head = self.fork_choice.find_head(&present_head)?;
+        let new_head = self.fork_choice.write().find_head(&present_head)?;
 
         if new_head != present_head {
             let block = self

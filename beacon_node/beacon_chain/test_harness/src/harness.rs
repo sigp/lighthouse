@@ -5,7 +5,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
-use fork_choice::*; // import all the algorithms
+use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost}; // import all the algorithms
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
@@ -40,8 +40,8 @@ impl BeaconChainHarness {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
-
         let slot_clock = TestingSlotClock::new(spec.genesis_slot);
+        let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
 
         // Remove the validators present in the spec (if any).
         spec.initial_validators = Vec::with_capacity(validator_count);
@@ -83,6 +83,7 @@ impl BeaconChainHarness {
                 block_store.clone(),
                 slot_clock,
                 spec.clone(),
+                fork_choice,
             )
             .unwrap(),
         );
@@ -200,7 +201,7 @@ impl BeaconChainHarness {
         // Produce a new block.
         let block = self.produce_block();
         debug!("Submitting block for processing...");
-        self.beacon_chain.process_block(block).unwrap();
+        &mut (self.beacon_chain).process_block(block).unwrap();
         debug!("...block processed by BeaconChain.");
 
         debug!("Producing free attestations...");

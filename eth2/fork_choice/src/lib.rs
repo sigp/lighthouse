@@ -30,7 +30,7 @@ use types::{BeaconBlock, Hash256};
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
 /// which can be built in block processing through the `add_block` and `add_attestation` functions.
 /// The main fork choice algorithm is specified in `find_head
-pub trait ForkChoice {
+pub trait ForkChoice: Send + Sync {
     /// Called when a block has been added. Allows generic block-level data structures to be
     /// built for a given fork-choice.
     fn add_block(

@@ -8,6 +8,7 @@ use block_producer::{
     PublishOutcome as BlockPublishOutcome,
 };
 use db::ClientDB;
+use fork_choice::ForkChoice;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -22,14 +23,14 @@ use types::{AttestationData, BeaconBlock, FreeAttestation, PublicKey, Signature}
 /// `BeaconBlock`s and `FreeAttestation`s are not actually published to the `BeaconChain`, instead
 /// they are stored inside this struct. This is to allow one to benchmark the submission of the
 /// block/attestation directly, or modify it before submission.
-pub struct DirectBeaconNode<T: ClientDB, U: SlotClock> {
-    beacon_chain: Arc<BeaconChain<T, U>>,
+pub struct DirectBeaconNode<T: ClientDB, U: SlotClock, F: ForkChoice> {
+    beacon_chain: Arc<BeaconChain<T, U, F>>,
     published_blocks: RwLock<Vec<BeaconBlock>>,
     published_attestations: RwLock<Vec<FreeAttestation>>,
 }
 
-impl<T: ClientDB, U: SlotClock> DirectBeaconNode<T, U> {
-    pub fn new(beacon_chain: Arc<BeaconChain<T, U>>) -> Self {
+impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectBeaconNode<T, U, F> {
+    pub fn new(beacon_chain: Arc<BeaconChain<T, U, F>>) -> Self {
         Self {
             beacon_chain,
             published_blocks: RwLock::new(vec![]),
@@ -48,7 +49,7 @@ impl<T: ClientDB, U: SlotClock> DirectBeaconNode<T, U> {
     }
 }
 
-impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for DirectBeaconNode<T, U> {
+impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterBeaconNode for DirectBeaconNode<T, U, F> {
     fn produce_attestation_data(
         &self,
         _slot: u64,
@@ -69,7 +70,7 @@ impl<T: ClientDB, U: SlotClock> AttesterBeaconNode for DirectBeaconNode<T, U> {
     }
 }
 
-impl<T: ClientDB, U: SlotClock> BeaconBlockNode for DirectBeaconNode<T, U> {
+impl<T: ClientDB, U: SlotClock, F: ForkChoice> BeaconBlockNode for DirectBeaconNode<T, U, F> {
     /// Requests the `proposer_nonce` from the `BeaconChain`.
     fn proposer_nonce(&self, pubkey: &PublicKey) -> Result<u64, BeaconBlockNodeError> {
         let validator_index = self
