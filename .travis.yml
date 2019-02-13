@@ -1,4 +1,6 @@
 language: rust
+git:
+    submodules: false
 before_install:
   - curl -OL https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-linux-x86_64.zip
   - unzip protoc-3.4.0-linux-x86_64.zip -d protoc3
@@ -6,6 +8,8 @@ before_install:
   - sudo mv protoc3/include/* /usr/local/include/
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
+  - sed -i 's/git@github.com:/https:\/\/github.com\//' .gitmodules
+  - git submodule update --init --recursive
 script:
   - cargo build --verbose --all --manifest-path lighthouse-beacon/Cargo.toml
   - cargo build --verbose --all --manifest-path lighthouse-validator/Cargo.toml
