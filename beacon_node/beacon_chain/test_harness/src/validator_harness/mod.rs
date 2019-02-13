@@ -10,6 +10,7 @@ use block_producer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
 use direct_beacon_node::DirectBeaconNode;
 use direct_duties::DirectDuties;
+use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost};
 use local_signer::LocalSigner;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
@@ -35,20 +36,20 @@ pub enum AttestationProduceError {
 pub struct ValidatorHarness {
     pub block_producer: BlockProducer<
         TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock>,
-        DirectDuties<MemoryDB, TestingSlotClock>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
+        DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
         LocalSigner,
     >,
     pub attester: Attester<
         TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock>,
-        DirectDuties<MemoryDB, TestingSlotClock>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
+        DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
         LocalSigner,
     >,
     pub spec: Arc<ChainSpec>,
-    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock>>,
+    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub keypair: Keypair,
-    pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock>>,
+    pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
     pub slot_clock: Arc<TestingSlotClock>,
     pub signer: Arc<LocalSigner>,
 }
@@ -60,7 +61,7 @@ impl ValidatorHarness {
     /// A `BlockProducer` and `Attester` is created..
     pub fn new(
         keypair: Keypair,
-        beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock>>,
+        beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
         let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot.as_u64()));

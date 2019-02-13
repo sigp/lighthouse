@@ -1,7 +1,3 @@
-extern crate db;
-extern crate ssz;
-extern crate types;
-
 use db::stores::BeaconBlockStore;
 use db::{ClientDB, DBError};
 use ssz::{Decodable, DecodeError};
@@ -14,7 +10,7 @@ pub enum ForkChoiceError {
     DBError(String),
 }
 
-pub fn naive_fork_choice<T>(
+pub fn longest_chain<T>(
     head_block_hashes: &[Hash256],
     block_store: &Arc<BeaconBlockStore<T>>,
 ) -> Result<Option<usize>, ForkChoiceError>
