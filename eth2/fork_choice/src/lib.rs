@@ -83,6 +83,7 @@ pub enum ForkChoiceError {
     CannotFindBestChild,
     ChildrenNotFound,
     StorageError(String),
+    HeadNotFound,
 }
 
 impl From<DBError> for ForkChoiceError {
