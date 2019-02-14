@@ -1,0 +1,86 @@
+fork: tchaikovsky
+summary: Test vectors for list shuffling using `get_permutated_index`
+test_suite: permutated_index
+title: Permutated Index Tests
+version: 1.0
+test_cases:
+- {index: 0, list_size: 1, permutated_index: 0, seed: '0xc0c7f226fbd574a8c63dc26864c27833ea931e7c70b34409ba765f3d2031633d',
+  shuffle_round_count: 90}
+- {index: 0, list_size: 2, permutated_index: 0, seed: '0xb20420b2b7b1c64600cbe962544052d0bbe13da403950d198d4f4ea28762953f',
+  shuffle_round_count: 90}
+- {index: 1, list_size: 2, permutated_index: 0, seed: '0x11f1322c3a4cfce20efb7d7eca50291470043d6e8a2c62956e687571607d3f0e',
+  shuffle_round_count: 90}
+- {index: 0, list_size: 3, permutated_index: 2, seed: '0x5bd0af3f74fe6986bb99b3ecc0ea15a403456ce708c05ceeeddc0a4205caf072',
+  shuffle_round_count: 90}
+- {index: 1, list_size: 3, permutated_index: 1, seed: '0xba06ff9bde03f37eddeacb261a51109676d549c1bea3b81edd82df68cc03a97f',
+  shuffle_round_count: 90}
+- {index: 2, list_size: 3, permutated_index: 2, seed: '0xf58a8970c63ca86dd3b8b8a615302ec06cddea1279bf4a2725c781ce6aba348d',
+  shuffle_round_count: 90}
+- {index: 0, list_size: 1024, permutated_index: 1005, seed: '0x383556e23fcb9e73c23ad33cfb50f4c098f49688a84b128c2885960e5f1b3982',
+  shuffle_round_count: 90}
+- {index: 1023, list_size: 1024, permutated_index: 934, seed: '0x2ee5dab30ad1580cdabb175a4b1512cac5566866d65a15e9e22c8444f460c9dc',
+  shuffle_round_count: 90}
+- {index: 3925, list_size: 4040, permutated_index: 32, seed: '0x34a3c13f211e63c56e9e1187f31a56a4230d8d5bf5e584f0e4fe93946af91cce',
+  shuffle_round_count: 90}
+- {index: 885, list_size: 2417, permutated_index: 1822, seed: '0x1346e3970815107154b58b1eff411bfca3342ea0d8282a86304d79d62d5f3c52',
+  shuffle_round_count: 90}
+- {index: 840, list_size: 1805, permutated_index: 808, seed: '0x0810c104b75e25bf89c0066deebc3461937fc0e72ae04ee74f245616c15718df',
+  shuffle_round_count: 90}
+- {index: 881, list_size: 1788, permutated_index: 582, seed: '0x34adb35f3fc2880d220e520120a032bbaa0f4bd7a5fcf1c2269de21075e7a464',
+  shuffle_round_count: 90}
+- {index: 1362, list_size: 1817, permutated_index: 1018, seed: '0xc9b0c76e11f4c3c3c38b447aca5352d93132ad5678da420ca2e69d92588e0fba',
+  shuffle_round_count: 90}
+- {index: 28, list_size: 111, permutated_index: 0, seed: '0x293145c31aeb3eb29ccdf3327d0f3dd4592cdfb2fad3703229c6c2e720dc792f',
+  shuffle_round_count: 90}
+- {index: 959, list_size: 2558, permutated_index: 2094, seed: '0xc9f4c5fbb2a397fd8ea36dbfcec0d733d0af7ec3a03d789a66231f3bc7cafa5e',
+  shuffle_round_count: 90}
+- {index: 887, list_size: 2406, permutated_index: 831, seed: '0x565729e0d5de524e6dee54d1b8b5882ad8e55c18a30462ac02c4bb86c27d26cb',
+  shuffle_round_count: 90}
+- {index: 3526, list_size: 3674, permutated_index: 3531, seed: '0x2951395b1a1bbda8d53b776c7fc8bdad6030de943c4e3f938202ac553f44381d',
+  shuffle_round_count: 90}
+- {index: 978, list_size: 3175, permutated_index: 2257, seed: '0x74aac23523cb45b7ee52d5d2f7b2d24ebc6bf2d63ef189efccabc4a16bb17cd8',
+  shuffle_round_count: 90}
+- {index: 37, list_size: 231, permutated_index: 48, seed: '0xe4083e61b31931bad662392758e8bc30a4ce7b26b6897c2221a3358f25fdc1d8',
+  shuffle_round_count: 90}
+- {index: 340, list_size: 693, permutated_index: 234, seed: '0x8089c1f242aa48c6611180f221c120e930adeecaf3084b2b85f9b1dfebe34f63',
+  shuffle_round_count: 90}
+- {index: 0, list_size: 9, permutated_index: 1, seed: '0x7fda0ab6a746b6b0206febb8259891e0e6f88bf52143b20d6c78caf7caf8e7b3',
+  shuffle_round_count: 90}
+- {index: 200, list_size: 1108, permutated_index: 952, seed: '0x87b210d000b5f57e9834388d4bc2b86ae8b31383fa10a34b029546c2ebabb807',
+  shuffle_round_count: 90}
+- {index: 1408, list_size: 1531, permutated_index: 584, seed: '0x0670a78b38e0419aaead5d1cc8f40f58044b7076ced8193c08b580dd95a13555',
+  shuffle_round_count: 90}
+- {index: 1704, list_size: 1863, permutated_index: 1022, seed: '0xdbf78665190a6133191e91ab35b1106e8984dfc0dfa36018004f880b431c2a14',
+  shuffle_round_count: 90}
+- {index: 793, list_size: 3938, permutated_index: 2607, seed: '0x54bf0192292ffae0bf39b39f12e0540b97591af0a2980d32f277bd33201395d3',
+  shuffle_round_count: 90}
+- {index: 14, list_size: 28, permutated_index: 10, seed: '0x43054417c6056404c586c907dfc5fceb66ebef541d143b00a3b676f3c0fbf4c5',
+  shuffle_round_count: 90}
+- {index: 2909, list_size: 3920, permutated_index: 726, seed: '0x5eabf289fdcfe0a3aba33a185fb1a4ae2f2b6f78daf61f5d356971e0cb270207',
+  shuffle_round_count: 90}
+- {index: 1943, list_size: 1959, permutated_index: 1292, seed: '0xca86322db56927d727101e31c93f616f746317d29aa10d88f371592963de92aa',
+  shuffle_round_count: 90}
+- {index: 1647, list_size: 2094, permutated_index: 1805, seed: '0x3cfe274230a112bc68614882645339fda2f134501a042079d620ec65cf8d3fa6',
+  shuffle_round_count: 90}
+- {index: 1012, list_size: 1877, permutated_index: 216, seed: '0x7b5ff8a848af32d85c6d37c26e61a57e96780fcebc350ad1845e83fe5e4679ac',
+  shuffle_round_count: 90}
+- {index: 35, list_size: 2081, permutated_index: 1458, seed: '0x40691aa31a49c2391e025ec272c812510cb07c055f6201e84479499326330628',
+  shuffle_round_count: 90}
+- {index: 1136, list_size: 2189, permutated_index: 1579, seed: '0x31a0deb2c8c5f809f413b7a36ec680ee8b19bbb9a39c4e207326155864bc8be5',
+  shuffle_round_count: 90}
+- {index: 1775, list_size: 3434, permutated_index: 707, seed: '0x92f30d8556382b72a5797db811486e7a213e0145d6c946e5121aa6a8f761d164',
+  shuffle_round_count: 90}
+- {index: 1109, list_size: 2010, permutated_index: 433, seed: '0x093fb976f2497361897012dfa6dc019009eda2e48bbeb4b7c56d4aa5da7d5f87',
+  shuffle_round_count: 90}
+- {index: 359, list_size: 538, permutated_index: 115, seed: '0xa79b35beacbe48c662d60884c704040024c55ab879e5f61521013c5f45eb3b70',
+  shuffle_round_count: 90}
+- {index: 1259, list_size: 1473, permutated_index: 1351, seed: '0x02c53c9c6ddf259716ff02e49a294eba33e4ad255d7e90dbefdbc991adf603e5',
+  shuffle_round_count: 90}
+- {index: 2087, list_size: 2634, permutated_index: 1497, seed: '0xa5a4c57c5705ec697a74e6c7161191b18f58ca882a0fcc18f68dc3b57a1aa5b6',
+  shuffle_round_count: 90}
+- {index: 2069, list_size: 2511, permutated_index: 1837, seed: '0xe7051ebc07f2e7b4d4b28f48d1e42d7b9dcec31c240ca6e1a0c06139ccfc4b8f',
+  shuffle_round_count: 90}
+- {index: 1660, list_size: 3932, permutated_index: 3046, seed: '0x8687c029ffc443879527a64c31b7acbb38ab6e343779d0b2c6e250046fdb9de8',
+  shuffle_round_count: 90}
+- {index: 379, list_size: 646, permutated_index: 32, seed: '0x17e854f4e80401345e13f72af45b221c9f7a840f6a8c1328ddf9c9ca9a088379',
+  shuffle_round_count: 90}

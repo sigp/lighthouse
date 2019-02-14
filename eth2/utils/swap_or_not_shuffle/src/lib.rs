@@ -8,18 +8,22 @@ pub fn get_permutated_index(
     list_size: usize,
     seed: &[u8],
     shuffle_round_count: usize,
-) -> usize {
+) -> Option<usize> {
+    if list_size == 0 || index >= list_size {
+        return None;
+    }
+
     let mut index = index;
     for round in 0..shuffle_round_count {
         let pivot = bytes_to_int64(&hash_with_round(seed, round)[..]) as usize % list_size;
-        let flip = (pivot - index) % list_size;
+        let flip = (pivot + list_size - index) % list_size;
         let position = max(index, flip);
         let source = hash_with_round_and_position(seed, round, position);
         let byte = source[(position % 256) / 8];
         let bit = (byte >> (position % 8)) % 2;
         index = if bit == 1 { flip } else { index }
     }
-    index
+    Some(index)
 }
 
 fn hash_with_round_and_position(seed: &[u8], round: usize, position: usize) -> Vec<u8> {
@@ -60,10 +64,20 @@ mod tests {
     use yaml_rust::yaml;
 
     #[test]
-    fn test_shuffling() {
+    fn returns_none_for_zero_length_list() {
+        assert_eq!(None, get_permutated_index(100, 0, &[42, 42], 90));
+    }
+
+    #[test]
+    fn test_vectors() {
+        /*
+         * Test vectors are generated here:
+         *
+         * https://github.com/ethereum/eth2.0-test-generators
+         */
         let mut file = {
             let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            file_path_buf.push("src/specs/permutated_index_test_vectors.yaml");
+            file_path_buf.push("src/specs/test_vector_permutated_index.yml");
 
             File::open(file_path_buf).unwrap()
         };
@@ -84,10 +98,8 @@ mod tests {
             let seed_string = test_case["seed"].clone().into_string().unwrap();
             let seed = hex::decode(seed_string.replace("0x", "")).unwrap();
 
-            println!("case: {}", i);
-
             assert_eq!(
-                permutated_index,
+                Some(permutated_index),
                 get_permutated_index(index, list_size, &seed[..], shuffle_round_count),
                 "Failure on case #{} index: {}, list_size: {}, round_count: {}, seed: {}",
                 i,
@@ -96,20 +108,6 @@ mod tests {
                 shuffle_round_count,
                 seed_string,
             );
-
-            /*
-            let input = test_case["input"].clone().into_vec().unwrap();
-            let output = test_case["output"].clone().into_vec().unwrap();
-            let seed_bytes = test_case["seed"].as_str().unwrap().as_bytes();
-
-            let seed = if seed_bytes.len() > 0 {
-                hash(seed_bytes)
-            } else {
-                vec![]
-            };
-
-            assert_eq!(shuffle(&seed, input).unwrap(), output);
-            */
         }
     }
 }
