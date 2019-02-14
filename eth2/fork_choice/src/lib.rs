@@ -51,6 +51,10 @@ use db::stores::BeaconBlockAtSlotError;
 use db::DBError;
 use types::{BeaconBlock, Hash256};
 
+// export the main structs
+pub use longest_chain::LongestChain;
+pub use optimised_lmd_ghost::OptimisedLMDGhost;
+
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
 /// which can be built in block processing through the `add_block` and `add_attestation` functions.
 /// The main fork choice algorithm is specified in `find_head
