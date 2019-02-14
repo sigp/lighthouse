@@ -1,0 +1,21 @@
+[package]
+name = "types"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+bls = { path = "../utils/bls" }
+boolean-bitfield = { path = "../utils/boolean-bitfield" }
+ethereum-types = "0.4.0"
+hashing = { path = "../utils/hashing" }
+honey-badger-split =  { path = "../utils/honey-badger-split" }
+log = "0.4"
+rayon = "1.0"
+rand = "0.5.5"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+slog = "^2.2.3"
+ssz = { path = "../utils/ssz" }
+vec_shuffle = { path = "../utils/vec_shuffle" }

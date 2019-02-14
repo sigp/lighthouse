@@ -1,0 +1,20 @@
+[package]
+name = "validator_client"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+block_producer = { path = "../eth2/block_producer" }
+bls = { path = "../eth2/utils/bls" }
+clap = "2.32.0"
+dirs = "1.0.3"
+grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
+protobuf = "2.0.2"
+protos = { path = "../protos" }
+slot_clock = { path = "../eth2/utils/slot_clock" }
+types = { path = "../eth2/types" }
+slog = "^2.2.3"
+slog-term = "^2.4.0"
+slog-async = "^2.3.0"
+ssz = { path = "../eth2/utils/ssz" }
