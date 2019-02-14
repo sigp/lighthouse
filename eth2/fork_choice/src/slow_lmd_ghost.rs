@@ -28,9 +28,7 @@ use db::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
-    readers::{BeaconBlockReader, BeaconStateReader},
-    slot_epoch_height::Slot,
-    validator_registry::get_active_validator_indices,
+    readers::BeaconBlockReader, slot_epoch::Slot, validator_registry::get_active_validator_indices,
     BeaconBlock, Hash256,
 };
 
