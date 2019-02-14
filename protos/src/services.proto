@@ -1,0 +1,94 @@
+// TODO: This setup requires that the BN (beacon node) holds the block in state
+// during the interval between the `GenerateProposalRequest` and the
+// `SubmitProposalRequest`.
+//
+// This is sub-optimal as if a validator client switches BN during this process
+// the block will be lost.
+//
+// This "stateful" method is being used presently because it's easier and
+// requires less maintainence as the `BeaconBlock` definition changes.
+
+syntax = "proto3";
+
+package ethereum.beacon.rpc.v1;
+
+service BeaconBlockService {
+    rpc ProduceBeaconBlock(ProduceBeaconBlockRequest) returns (ProduceBeaconBlockResponse);
+    rpc PublishBeaconBlock(PublishBeaconBlockRequest) returns (PublishBeaconBlockResponse);
+}
+
+service ValidatorService {
+    // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
+	rpc ProposeBlockSlot(ProposeBlockSlotRequest) returns (ProposeBlockSlotResponse);
+	rpc ValidatorIndex(PublicKey) returns (IndexResponse);
+}
+
+message BeaconBlock {
+	uint64 slot = 1;
+	bytes block_root = 2;
+	bytes randao_reveal = 3;
+	bytes signature = 4;
+}
+
+// Validator requests an unsigned proposal.
+message ProduceBeaconBlockRequest {
+    uint64 slot = 1;
+}
+
+// Beacon node returns an unsigned proposal.
+message ProduceBeaconBlockResponse {
+    BeaconBlock block = 1;
+}
+
+// Validator submits a signed proposal.
+message PublishBeaconBlockRequest {
+    BeaconBlock block = 1;
+}
+
+// Beacon node indicates a sucessfully submitted proposal.
+message PublishBeaconBlockResponse {
+    bool success = 1;
+    bytes msg = 2;
+}
+
+// A validators duties for some epoch.
+// TODO: add shard duties.
+message ValidatorAssignment {
+	oneof block_production_slot_oneof {
+		bool block_production_slot_none = 1;
+		uint64 block_production_slot = 2;
+	}
+}
+
+message ValidatorAssignmentRequest {
+	uint64 epoch = 1;
+	bytes validator_index = 2;
+}
+
+/*
+ * Propose slot
+ */
+
+message ProposeBlockSlotRequest {
+	uint64 epoch = 1;
+	uint64 validator_index = 2;
+}
+
+message ProposeBlockSlotResponse {
+	oneof slot_oneof {
+		bool none = 1;
+		uint64 slot = 2;
+	}
+}
+
+/*
+ * Validator Assignment
+ */
+
+message PublicKey {
+	bytes public_key = 1;
+}
+
+message IndexResponse {
+	uint64 index = 1;
+}
