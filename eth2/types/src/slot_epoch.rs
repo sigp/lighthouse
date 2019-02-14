@@ -1,14 +1,15 @@
-/// The `Slot` `Epoch`, `Height` types are defined as newtypes over u64 to enforce type-safety between
-/// the three types.
+use crate::slot_height::SlotHeight;
+/// The `Slot` and `Epoch` types are defined as newtypes over u64 to enforce type-safety between
+/// the two types.
 ///
-/// `Slot`, `Epoch` and `Height` have implementations which permit conversion, comparison and math operations
+/// `Slot` and `Epoch` have implementations which permit conversion, comparison and math operations
 /// between each and `u64`, however specifically not between each other.
 ///
 /// All math operations on `Slot` and `Epoch` are saturating, they never wrap.
 ///
 /// It would be easy to define `PartialOrd` and other traits generically across all types which
-/// implement `Into<u64>`, however this would allow operations between `Slots`, `Epochs` and
-/// `Heights` which may lead to programming errors which are not detected by the compiler.
+/// implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
+/// may lead to programming errors which are not detected by the compiler.
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
@@ -37,23 +38,6 @@ macro_rules! impl_from_into_u64 {
         impl $main {
             pub fn as_u64(&self) -> u64 {
                 self.0
-            }
-        }
-    };
-}
-
-// need to truncate for some fork-choice algorithms
-macro_rules! impl_into_u32 {
-    ($main: ident) => {
-        impl Into<u32> for $main {
-            fn into(self) -> u32 {
-                self.0 as u32
-            }
-        }
-
-        impl $main {
-            pub fn as_u32(&self) -> u32 {
-                self.0 as u32
             }
         }
     };
@@ -286,21 +270,13 @@ macro_rules! impl_common {
     };
 }
 
-/// Beacon block slot.
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
 pub struct Slot(u64);
 
-/// Beacon block height, effectively `Slot/GENESIS_START_BLOCK`.
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
-pub struct Height(u64);
-
-/// Beacon Epoch, effectively `Slot / EPOCH_LENGTH`.
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);
-impl_common!(Height);
-impl_into_u32!(Height); // height can be converted to u32
 impl_common!(Epoch);
 
 impl Slot {
@@ -312,30 +288,12 @@ impl Slot {
         Epoch::from(self.0 / epoch_length)
     }
 
-    pub fn height(self, genesis_slot: Slot) -> Height {
-        Height::from(self.0.saturating_sub(genesis_slot.as_u64()))
+    pub fn height(self, genesis_slot: Slot) -> SlotHeight {
+        SlotHeight::from(self.0.saturating_sub(genesis_slot.as_u64()))
     }
 
     pub fn max_value() -> Slot {
         Slot(u64::max_value())
-    }
-}
-
-impl Height {
-    pub fn new(slot: u64) -> Height {
-        Height(slot)
-    }
-
-    pub fn slot(self, genesis_slot: Slot) -> Slot {
-        Slot::from(self.0.saturating_add(genesis_slot.as_u64()))
-    }
-
-    pub fn epoch(self, genesis_slot: u64, epoch_length: u64) -> Epoch {
-        Epoch::from(self.0.saturating_add(genesis_slot) / epoch_length)
-    }
-
-    pub fn max_value() -> Height {
-        Height(u64::max_value())
     }
 }
 
