@@ -3,13 +3,23 @@ use hashing::hash;
 use std::cmp::max;
 use std::io::Cursor;
 
+/// Return `p(index)` in a pseudorandom permutation `p` of `0...list_size-1` with ``seed`` as entropy.
+///
+/// Utilizes 'swap or not' shuffling found in
+/// https://link.springer.com/content/pdf/10.1007%2F978-3-642-32009-5_1.pdf
+/// See the 'generalized domain' algorithm on page 3.
+///
+/// Returns `None` under any of the following conditions:
+///  - `list_size == 0`
+///  - `index >= list_size`
+///  - `list_size >= usize::max_value() / 2`
 pub fn get_permutated_index(
     index: usize,
     list_size: usize,
     seed: &[u8],
     shuffle_round_count: usize,
 ) -> Option<usize> {
-    if list_size == 0 || index >= list_size {
+    if list_size == 0 || index >= list_size || list_size >= usize::max_value() / 2 {
         return None;
     }
 
@@ -66,6 +76,19 @@ mod tests {
     #[test]
     fn returns_none_for_zero_length_list() {
         assert_eq!(None, get_permutated_index(100, 0, &[42, 42], 90));
+    }
+
+    #[test]
+    fn returns_none_for_out_of_bounds_index() {
+        assert_eq!(None, get_permutated_index(100, 100, &[42, 42], 90));
+    }
+
+    #[test]
+    fn returns_none_for_too_large_list() {
+        assert_eq!(
+            None,
+            get_permutated_index(100, usize::max_value() / 2, &[42, 42], 90)
+        );
     }
 
     #[test]
