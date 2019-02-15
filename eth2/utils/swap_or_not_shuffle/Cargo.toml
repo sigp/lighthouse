@@ -12,3 +12,4 @@ int_to_bytes = { path = "../int_to_bytes" }
 [dev-dependencies]
 yaml-rust = "0.4.2"
 hex = "0.3"
+ethereum-types = "0.5"
