@@ -1,5 +1,6 @@
 use crate::SlotProcessingError;
 use hashing::hash;
+use int_to_bytes::int_to_bytes32;
 use log::debug;
 use ssz::{ssz_encode, TreeHash};
 use types::{
@@ -123,7 +124,7 @@ fn per_block_processing_signature_optional(
     ensure!(
         bls_verify(
             &block_proposer.pubkey,
-            &ssz_encode(&state.current_epoch(spec)),
+            &int_to_bytes32(state.current_epoch(spec).as_u64()),
             &block.randao_reveal,
             get_domain(&state.fork, state.current_epoch(spec), DOMAIN_RANDAO)
         ),
