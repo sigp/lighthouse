@@ -44,12 +44,14 @@ extern crate types;
 
 pub mod longest_chain;
 pub mod optimised_lmd_ghost;
-pub mod protolambda_lmd_ghost;
 pub mod slow_lmd_ghost;
 
 use db::stores::BeaconBlockAtSlotError;
 use db::DBError;
 use types::{BeaconBlock, Hash256};
+
+pub use longest_chain::LongestChain;
+pub use optimised_lmd_ghost::OptimisedLMDGhost;
 
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
 /// which can be built in block processing through the `add_block` and `add_attestation` functions.
@@ -83,6 +85,7 @@ pub enum ForkChoiceError {
     CannotFindBestChild,
     ChildrenNotFound,
     StorageError(String),
+    HeadNotFound,
 }
 
 impl From<DBError> for ForkChoiceError {
@@ -113,6 +116,4 @@ pub enum ForkChoiceAlgorithms {
     SlowLMDGhost,
     /// An optimised version of LMD-GHOST by Vitalik.
     OptimisedLMDGhost,
-    /// An optimised version of LMD-GHOST by Protolambda.
-    ProtoLMDGhost,
 }
