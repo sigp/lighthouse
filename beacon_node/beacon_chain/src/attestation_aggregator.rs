@@ -1,7 +1,7 @@
 use state_processing::validate_attestation_without_signature;
 use std::collections::{HashMap, HashSet};
 use types::{
-    beacon_state::CommitteesError, AggregateSignature, Attestation, AttestationData, BeaconState,
+    beacon_state::BeaconStateError, AggregateSignature, Attestation, AttestationData, BeaconState,
     Bitfield, ChainSpec, FreeAttestation, Signature,
 };
 
@@ -79,7 +79,7 @@ impl AttestationAggregator {
         state: &BeaconState,
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
-    ) -> Result<Outcome, CommitteesError> {
+    ) -> Result<Outcome, BeaconStateError> {
         let (slot, shard, committee_index) = some_or_invalid!(
             state.attestation_slot_and_shard_for_validator(
                 free_attestation.validator_index as usize,
