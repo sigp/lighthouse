@@ -7,6 +7,7 @@ pub mod attester_slashing;
 pub mod beacon_block;
 pub mod beacon_block_body;
 pub mod beacon_state;
+pub mod beacon_state_tests;
 pub mod casper_slashing;
 pub mod crosslink;
 pub mod deposit;

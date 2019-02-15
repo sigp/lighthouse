@@ -14,7 +14,7 @@ use state_processing::{
 };
 use std::sync::Arc;
 use types::{
-    beacon_state::CommitteesError,
+    beacon_state::BeaconStateError,
     readers::{BeaconBlockReader, BeaconStateReader},
     AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Crosslink, Deposit,
     Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, Signature, Slot,
@@ -24,7 +24,7 @@ use types::{
 pub enum Error {
     InsufficientValidators,
     BadRecentBlockRoots,
-    CommitteesError(CommitteesError),
+    BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(String),
     ForkChoiceError(ForkChoiceError),
@@ -99,7 +99,7 @@ where
             initial_validator_deposits,
             latest_eth1_data,
             &spec,
-        );
+        )?;
         let state_root = genesis_state.canonical_root();
         state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
 
@@ -252,7 +252,7 @@ where
     ///
     /// Information is read from the present `beacon_state` shuffling, so only information from the
     /// present and prior epoch is available.
-    pub fn block_proposer(&self, slot: Slot) -> Result<usize, CommitteesError> {
+    pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
         let index = self
             .state
             .read()
@@ -273,7 +273,7 @@ where
     pub fn validator_attestion_slot_and_shard(
         &self,
         validator_index: usize,
-    ) -> Result<Option<(Slot, u64)>, CommitteesError> {
+    ) -> Result<Option<(Slot, u64)>, BeaconStateError> {
         if let Some((slot, shard, _committee)) = self
             .state
             .read()
@@ -588,8 +588,8 @@ impl From<ForkChoiceError> for Error {
     }
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }
