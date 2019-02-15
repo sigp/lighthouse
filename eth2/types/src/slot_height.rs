@@ -32,3 +32,13 @@ impl SlotHeight {
         SlotHeight(u64::max_value())
     }
 }
+
+#[cfg(test)]
+
+mod slot_height_tests {
+    use super::*;
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
+
+    all_tests!(SlotHeight);
+}
