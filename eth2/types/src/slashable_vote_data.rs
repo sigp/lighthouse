@@ -82,7 +82,7 @@ impl<T: RngCore> TestRandom<T> for SlashableVoteData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::slot_epoch_height::{Epoch, Slot};
+    use crate::slot_epoch::{Epoch, Slot};
     use crate::spec::ChainSpec;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     use ssz::ssz_encode;
