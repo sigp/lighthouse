@@ -24,6 +24,8 @@ pub mod readers;
 pub mod shard_reassignment_record;
 pub mod slashable_attestation;
 pub mod slashable_vote_data;
+#[macro_use]
+pub mod slot_epoch_macros;
 pub mod slot_epoch;
 pub mod slot_height;
 pub mod spec;
