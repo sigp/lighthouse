@@ -28,8 +28,8 @@ use db::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
-    readers::BeaconBlockReader, slot_epoch::Slot, validator_registry::get_active_validator_indices,
-    BeaconBlock, Hash256,
+    readers::BeaconBlockReader, validator_registry::get_active_validator_indices, BeaconBlock,
+    Hash256, Slot,
 };
 
 //TODO: Pruning and syncing
