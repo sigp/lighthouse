@@ -17,7 +17,7 @@ pub struct ChainSpec {
     pub beacon_chain_shard_number: u64,
     pub max_indices_per_slashable_vote: u64,
     pub max_withdrawals_per_epoch: u64,
-    pub shuffle_round_count: u64,
+    pub shuffle_round_count: u8,
 
     /*
      *  Deposit contract
