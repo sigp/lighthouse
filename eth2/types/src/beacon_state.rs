@@ -9,48 +9,31 @@ use honey_badger_split::SplitExt;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
-use std::ops::Range;
 use vec_shuffle::shuffle;
 
-pub enum Error {
-    InsufficientValidators,
-    BadBlockSignature,
-    InvalidEpoch(Slot, Range<Epoch>),
-    CommitteesError(CommitteesError),
-}
-
 #[derive(Debug, PartialEq)]
-pub enum CommitteesError {
-    InvalidEpoch,
-    InsufficientNumberOfValidators,
-    BadRandao,
+pub enum BeaconStateError {
+    EpochOutOfBounds,
+    InsufficientRandaoMixes,
+    InsufficientValidators,
+    InsufficientBlockRoots,
+    InsufficientIndexRoots,
+    InsufficientAttestations,
+    InsufficientCommittees,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum InclusionError {
-    NoIncludedAttestations,
+    /// The validator did not participate in an attestation in this period.
+    NoAttestationsForValidator,
     AttestationParticipantsError(AttestationParticipantsError),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationParticipantsError {
+    /// There is no committee for the given shard in the given epoch.
     NoCommitteeForShard,
-    NoCommittees,
-    BadBitfieldLength,
-    CommitteesError(CommitteesError),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum AttestationValidationError {
-    IncludedTooEarly,
-    IncludedTooLate,
-    WrongJustifiedSlot,
-    WrongJustifiedRoot,
-    BadLatestCrosslinkRoot,
-    BadSignature,
-    ShardBlockRootNotZero,
-    NoBlockRoot,
-    AttestationParticipantsError(AttestationParticipantsError),
+    BeaconStateError(BeaconStateError),
 }
 
 macro_rules! safe_add_assign {
@@ -111,7 +94,7 @@ impl BeaconState {
         initial_validator_deposits: Vec<Deposit>,
         latest_eth1_data: Eth1Data,
         spec: &ChainSpec,
-    ) -> BeaconState {
+    ) -> Result<BeaconState, BeaconStateError> {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             shard_block_root: spec.zero_hash,
@@ -195,11 +178,9 @@ impl BeaconState {
         ));
         genesis_state.latest_index_roots =
             vec![genesis_active_index_root; spec.latest_index_roots_length];
-        genesis_state.current_epoch_seed = genesis_state
-            .generate_seed(spec.genesis_epoch, spec)
-            .expect("Unable to generate seed.");
+        genesis_state.current_epoch_seed = genesis_state.generate_seed(spec.genesis_epoch, spec)?;
 
-        genesis_state
+        Ok(genesis_state)
     }
 
     /// Return the tree hash root for this `BeaconState`.
@@ -322,7 +303,7 @@ impl BeaconState {
             + 1;
         let latest_index_root = current_epoch + spec.entry_exit_delay;
 
-        if (epoch <= earliest_index_root) & (epoch >= latest_index_root) {
+        if (epoch >= earliest_index_root) & (epoch <= latest_index_root) {
             Some(self.latest_index_roots[epoch.as_usize() % spec.latest_index_roots_length])
         } else {
             None
@@ -332,12 +313,27 @@ impl BeaconState {
     /// Generate a seed for the given ``epoch``.
     ///
     /// Spec v0.2.0
-    pub fn generate_seed(&self, epoch: Epoch, spec: &ChainSpec) -> Option<Hash256> {
-        let mut input = self.get_randao_mix(epoch, spec)?.to_vec();
-        input.append(&mut self.get_active_index_root(epoch, spec)?.to_vec());
+    pub fn generate_seed(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, BeaconStateError> {
+        let mut input = self
+            .get_randao_mix(epoch, spec)
+            .ok_or_else(|| BeaconStateError::InsufficientRandaoMixes)?
+            .to_vec();
+
+        input.append(
+            &mut self
+                .get_active_index_root(epoch, spec)
+                .ok_or_else(|| BeaconStateError::InsufficientIndexRoots)?
+                .to_vec(),
+        );
+
         // TODO: ensure `Hash256::from(u64)` == `int_to_bytes32`.
         input.append(&mut Hash256::from(epoch.as_u64()).to_vec());
-        Some(Hash256::from(&hash(&input[..])[..]))
+
+        Ok(Hash256::from(&hash(&input[..])[..]))
     }
 
     /// Return the list of ``(committee, shard)`` tuples for the ``slot``.
@@ -351,7 +347,7 @@ impl BeaconState {
         slot: Slot,
         registry_change: bool,
         spec: &ChainSpec,
-    ) -> Result<Vec<(Vec<usize>, u64)>, CommitteesError> {
+    ) -> Result<Vec<(Vec<usize>, u64)>, BeaconStateError> {
         let epoch = slot.epoch(spec.epoch_length);
         let current_epoch = self.current_epoch(spec);
         let previous_epoch = if current_epoch == spec.genesis_epoch {
@@ -381,9 +377,7 @@ impl BeaconState {
                 let epochs_since_last_registry_update =
                     current_epoch - self.validator_registry_update_epoch;
                 let (seed, shuffling_start_shard) = if registry_change {
-                    let next_seed = self
-                        .generate_seed(next_epoch, spec)
-                        .ok_or_else(|| CommitteesError::BadRandao)?;
+                    let next_seed = self.generate_seed(next_epoch, spec)?;
                     (
                         next_seed,
                         (self.current_epoch_start_shard + current_committees_per_epoch)
@@ -392,9 +386,7 @@ impl BeaconState {
                 } else if (epochs_since_last_registry_update > 1)
                     & epochs_since_last_registry_update.is_power_of_two()
                 {
-                    let next_seed = self
-                        .generate_seed(next_epoch, spec)
-                        .ok_or_else(|| CommitteesError::BadRandao)?;
+                    let next_seed = self.generate_seed(next_epoch, spec)?;
                     (next_seed, self.current_epoch_start_shard)
                 } else {
                     (self.current_epoch_seed, self.current_epoch_start_shard)
@@ -406,7 +398,7 @@ impl BeaconState {
                     shuffling_start_shard,
                 )
             } else {
-                panic!("Epoch out-of-bounds.")
+                return Err(BeaconStateError::EpochOutOfBounds);
             };
 
         let shuffling = self.get_shuffling(seed, shuffling_epoch, spec);
@@ -434,7 +426,7 @@ impl BeaconState {
         &self,
         validator_index: usize,
         spec: &ChainSpec,
-    ) -> Result<Option<(Slot, u64, u64)>, CommitteesError> {
+    ) -> Result<Option<(Slot, u64, u64)>, BeaconStateError> {
         let mut result = None;
         for slot in self.current_epoch(spec).slot_iter(spec.epoch_length) {
             for (committee, shard) in self.get_crosslink_committees_at_slot(slot, false, spec)? {
@@ -464,16 +456,15 @@ impl BeaconState {
         &self,
         slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<usize, CommitteesError> {
+    ) -> Result<usize, BeaconStateError> {
         let committees = self.get_crosslink_committees_at_slot(slot, false, spec)?;
         committees
             .first()
-            .ok_or(CommitteesError::InsufficientNumberOfValidators)
+            .ok_or(BeaconStateError::InsufficientValidators)
             .and_then(|(first_committee, _)| {
                 let index = (slot.as_usize())
                     .checked_rem(first_committee.len())
-                    .ok_or(CommitteesError::InsufficientNumberOfValidators)?;
-                // NOTE: next index will not panic as we have already returned if this is the case.
+                    .ok_or(BeaconStateError::InsufficientValidators)?;
                 Ok(first_committee[index])
             })
     }
@@ -682,7 +673,7 @@ impl BeaconState {
         &mut self,
         validator_index: usize,
         spec: &ChainSpec,
-    ) -> Result<(), CommitteesError> {
+    ) -> Result<(), BeaconStateError> {
         self.exit_validator(validator_index, spec);
         let current_epoch = self.current_epoch(spec);
 
@@ -802,7 +793,7 @@ impl BeaconState {
         let earliest_attestation_index = included_attestations
             .iter()
             .min_by_key(|i| attestations[**i].inclusion_slot)
-            .ok_or_else(|| InclusionError::NoIncludedAttestations)?;
+            .ok_or_else(|| InclusionError::NoAttestationsForValidator)?;
         Ok(attestations[*earliest_attestation_index].clone())
     }
 
@@ -907,31 +898,15 @@ fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
     Hash256::from(&input.hash_tree_root()[..])
 }
 
-impl From<AttestationParticipantsError> for AttestationValidationError {
-    fn from(e: AttestationParticipantsError) -> AttestationValidationError {
-        AttestationValidationError::AttestationParticipantsError(e)
+impl From<BeaconStateError> for AttestationParticipantsError {
+    fn from(e: BeaconStateError) -> AttestationParticipantsError {
+        AttestationParticipantsError::BeaconStateError(e)
     }
 }
-
-impl From<CommitteesError> for AttestationParticipantsError {
-    fn from(e: CommitteesError) -> AttestationParticipantsError {
-        AttestationParticipantsError::CommitteesError(e)
-    }
-}
-
-/*
-
-*/
 
 impl From<AttestationParticipantsError> for InclusionError {
     fn from(e: AttestationParticipantsError) -> InclusionError {
         InclusionError::AttestationParticipantsError(e)
-    }
-}
-
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
     }
 }
 

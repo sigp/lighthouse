@@ -1,9 +1,9 @@
 use crate::{EpochProcessable, EpochProcessingError};
-use types::{beacon_state::CommitteesError, BeaconState, ChainSpec, Hash256};
+use types::{beacon_state::BeaconStateError, BeaconState, ChainSpec, Hash256};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    CommitteesError(CommitteesError),
+    BeaconStateError(BeaconStateError),
     EpochProcessingError(EpochProcessingError),
 }
 
@@ -49,9 +49,9 @@ fn merkle_root(_input: &[Hash256]) -> Hash256 {
     Hash256::zero()
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }
 

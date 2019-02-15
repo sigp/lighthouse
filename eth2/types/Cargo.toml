@@ -19,3 +19,6 @@ serde_json = "1.0"
 slog = "^2.2.3"
 ssz = { path = "../utils/ssz" }
 vec_shuffle = { path = "../utils/vec_shuffle" }
+
+[dev-dependencies]
+env_logger = "0.6.0"
