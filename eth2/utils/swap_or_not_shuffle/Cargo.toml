@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 bytes = "0.4"
 hashing = { path = "../hashing" }
+int_to_bytes = { path = "../int_to_bytes" }
 
 [dev-dependencies]
 yaml-rust = "0.4.2"
