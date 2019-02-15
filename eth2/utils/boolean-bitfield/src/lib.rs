@@ -363,12 +363,12 @@ mod tests {
 
         let mut stream = SszStream::new();
         stream.append(&field);
-        assert_eq!(stream.drain(), vec![0, 0, 0, 2, 225, 192]);
+        assert_eq!(stream.drain(), vec![2, 0, 0, 0, 225, 192]);
 
         let field = BooleanBitfield::from_elem(18, true);
         let mut stream = SszStream::new();
         stream.append(&field);
-        assert_eq!(stream.drain(), vec![0, 0, 0, 3, 255, 255, 192]);
+        assert_eq!(stream.drain(), vec![3, 0, 0, 0, 255, 255, 192]);
     }
 
     fn create_test_bitfield() -> BooleanBitfield {
@@ -384,12 +384,12 @@ mod tests {
 
     #[test]
     fn test_ssz_decode() {
-        let encoded = vec![0, 0, 0, 2, 225, 192];
+        let encoded = vec![2, 0, 0, 0, 225, 192];
         let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
         let expected = create_test_bitfield();
         assert_eq!(field, expected);
 
-        let encoded = vec![0, 0, 0, 3, 255, 255, 3];
+        let encoded = vec![3, 0, 0, 0, 255, 255, 3];
         let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
         let expected = BooleanBitfield::from_bytes(&[255, 255, 3]);
         assert_eq!(field, expected);
