@@ -131,14 +131,14 @@ mod tests {
 
         assert_eq!(ssz.len(), LENGTH_BYTES + (12 * 2));
         assert_eq!(ssz[0..4], *vec![24, 0, 0, 0]);
-        assert_eq!(ssz[4..6], *vec![0, 1]);        
+        assert_eq!(ssz[4..6], *vec![0, 1]);
     }
 
     #[test]
     fn test_encode_mixed_prefixed() {
         let test_vec: Vec<u16> = vec![100, 200];
         let test_value: u8 = 5;
-        
+
         let mut stream = SszStream::new();
         stream.append_vec(&test_vec);
         stream.append(&test_value);
@@ -151,11 +151,11 @@ mod tests {
         assert_eq!(ssz[8], 5);
     }
 
-     #[test]
+    #[test]
     fn test_encode_mixed_postfixed() {
         let test_value: u8 = 5;
-        let test_vec: Vec<u16> = vec![100, 200];        
-        
+        let test_vec: Vec<u16> = vec![100, 200];
+
         let mut stream = SszStream::new();
         stream.append(&test_value);
         stream.append_vec(&test_vec);

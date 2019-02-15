@@ -221,7 +221,7 @@ mod tests {
         stream.append(&b);
         stream.append(&c);
 
-        let ssz = stream.drain();        
+        let ssz = stream.drain();
         assert_eq!(ssz[0..20], *vec![0; 20]);
         assert_eq!(ssz[20], 100);
         assert_eq!(ssz[21..23], *vec![255, 255]);
