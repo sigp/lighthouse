@@ -130,7 +130,9 @@ impl TreeHash for Validator {
         result.append(&mut self.exit_epoch.hash_tree_root_internal());
         result.append(&mut self.withdrawal_epoch.hash_tree_root_internal());
         result.append(&mut self.penalized_epoch.hash_tree_root_internal());
-        result.append(&mut u64::from(status_flag_to_byte(self.status_flags)).hash_tree_root_internal());
+        result.append(
+            &mut u64::from(status_flag_to_byte(self.status_flags)).hash_tree_root_internal(),
+        );
         hash(&result)
     }
 }

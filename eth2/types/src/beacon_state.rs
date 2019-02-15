@@ -1009,7 +1009,11 @@ impl TreeHash for BeaconState {
         result.append(&mut self.fork.hash_tree_root_internal());
         result.append(&mut self.validator_registry.hash_tree_root_internal());
         result.append(&mut self.validator_balances.hash_tree_root_internal());
-        result.append(&mut self.validator_registry_update_epoch.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .validator_registry_update_epoch
+                .hash_tree_root_internal(),
+        );
         result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
         result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
         result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());

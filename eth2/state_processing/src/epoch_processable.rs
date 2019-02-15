@@ -575,10 +575,11 @@ impl EpochProcessable for BeaconState {
         self.process_penalties_and_exits(spec);
 
         self.latest_index_roots[(next_epoch.as_usize() + spec.entry_exit_delay as usize)
-            % spec.latest_index_roots_length] = hash_tree_root_internal(get_active_validator_indices(
-            &self.validator_registry,
-            next_epoch + Epoch::from(spec.entry_exit_delay),
-        ));
+            % spec.latest_index_roots_length] =
+            hash_tree_root_internal(get_active_validator_indices(
+                &self.validator_registry,
+                next_epoch + Epoch::from(spec.entry_exit_delay),
+            ));
         self.latest_penalized_balances[next_epoch.as_usize() % spec.latest_penalized_exit_length] =
             self.latest_penalized_balances
                 [current_epoch.as_usize() % spec.latest_penalized_exit_length];
