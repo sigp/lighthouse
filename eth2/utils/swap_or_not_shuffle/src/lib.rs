@@ -13,8 +13,8 @@ use std::io::Cursor;
 /// Returns `None` under any of the following conditions:
 ///  - `list_size == 0`
 ///  - `index >= list_size`
-///  - `list_size >= 2**24`
-///  - `list_size >= usize::max_value() / 2`
+///  - `list_size > 2**24`
+///  - `list_size > usize::max_value() / 2`
 pub fn get_permutated_index(
     index: usize,
     list_size: usize,
@@ -23,8 +23,8 @@ pub fn get_permutated_index(
 ) -> Option<usize> {
     if list_size == 0
         || index >= list_size
-        || list_size >= usize::max_value() / 2
-        || list_size >= 2_usize.pow(24)
+        || list_size > usize::max_value() / 2
+        || list_size > 2_usize.pow(24)
     {
         return None;
     }
@@ -67,9 +67,47 @@ fn bytes_to_int64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ethereum_types::H256 as Hash256;
     use hex;
     use std::{fs::File, io::prelude::*, path::PathBuf};
     use yaml_rust::yaml;
+
+    #[test]
+    #[ignore]
+    fn fuzz_test() {
+        let max_list_size = 2_usize.pow(24);
+        let test_runs = 1000;
+
+        // Test at max list_size with the end index.
+        for _ in 0..test_runs {
+            let index = max_list_size - 1;
+            let list_size = max_list_size;
+            let seed = Hash256::random();
+            let shuffle_rounds = 90;
+
+            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+        }
+
+        // Test at max list_size low indices.
+        for i in 0..test_runs {
+            let index = i;
+            let list_size = max_list_size;
+            let seed = Hash256::random();
+            let shuffle_rounds = 90;
+
+            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+        }
+
+        // Test at max list_size high indices.
+        for i in 0..test_runs {
+            let index = max_list_size - 1 - i;
+            let list_size = max_list_size;
+            let seed = Hash256::random();
+            let shuffle_rounds = 90;
+
+            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+        }
+    }
 
     #[test]
     fn returns_none_for_zero_length_list() {
