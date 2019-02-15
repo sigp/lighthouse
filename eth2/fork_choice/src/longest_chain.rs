@@ -52,7 +52,7 @@ impl<T: ClientDB + Sized> ForkChoice for LongestChain<T> {
             let block = self
                 .block_store
                 .get_deserialized(&block_hash)?
-                .ok_or(ForkChoiceError::MissingBeaconBlock(*block_hash))?;
+                .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_hash))?;
             head_blocks.push((index, block));
         }
 

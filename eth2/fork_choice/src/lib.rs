@@ -44,14 +44,12 @@ extern crate types;
 
 pub mod longest_chain;
 pub mod optimised_lmd_ghost;
-//pub mod protolambda_lmd_ghost;
 pub mod slow_lmd_ghost;
 
 use db::stores::BeaconBlockAtSlotError;
 use db::DBError;
 use types::{BeaconBlock, Hash256};
 
-// export the main structs
 pub use longest_chain::LongestChain;
 pub use optimised_lmd_ghost::OptimisedLMDGhost;
 
@@ -118,7 +116,4 @@ pub enum ForkChoiceAlgorithms {
     SlowLMDGhost,
     /// An optimised version of LMD-GHOST by Vitalik.
     OptimisedLMDGhost,
-    // Protolambda currently not implemented
-    // /// An optimised version of LMD-GHOST by Protolambda.
-    //ProtoLMDGhost,
 }
