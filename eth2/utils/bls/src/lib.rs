@@ -29,24 +29,18 @@ fn extend_if_needed(hash: &mut Vec<u8>) {
 
 /// For some signature and public key, ensure that the signature message was the public key and it
 /// was signed by the secret key that corresponds to that public key.
-pub fn verify_proof_of_possession(sig: &Signature, pubkey: &PublicKey) -> bool {
-    let mut hash = hash(&ssz_encode(pubkey));
-    extend_if_needed(&mut hash);
-    sig.verify_hashed(&hash, &pubkey)
-}
+
 
 pub fn create_proof_of_possession(keypair: &Keypair) -> Signature {
-    let mut hash = hash(&ssz_encode(&keypair.pk));
-    extend_if_needed(&mut hash);
-    Signature::new_hashed(&hash, &keypair.sk)
+    Signature::new(&ssz_encode(&keypair.pk), 0, &keypair.sk)
 }
 
 pub fn bls_verify_aggregate(
     pubkey: &AggregatePublicKey,
     message: &[u8],
     signature: &AggregateSignature,
-    _domain: u64,
+    domain: u64,
 ) -> bool {
     // TODO: add domain
-    signature.verify(message, pubkey)
+    signature.verify(message, domain, pubkey)
 }

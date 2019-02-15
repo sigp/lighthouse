@@ -31,7 +31,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
     readers::BeaconBlockReader,
-    slot_epoch_height::{Height, Slot},
+    slot_epoch::Slot,
+    slot_height::SlotHeight,
     validator_registry::get_active_validator_indices,
     BeaconBlock, Hash256,
 };
@@ -77,7 +78,7 @@ pub struct OptimisedLMDGhost<T: ClientDB + Sized> {
     block_store: Arc<BeaconBlockStore<T>>,
     /// State storage access.
     state_store: Arc<BeaconStateStore<T>>,
-    max_known_height: Height,
+    max_known_height: SlotHeight,
 }
 
 impl<T> OptimisedLMDGhost<T>
@@ -93,7 +94,7 @@ where
             ancestors: vec![HashMap::new(); 16],
             latest_attestation_targets: HashMap::new(),
             children: HashMap::new(),
-            max_known_height: Height::new(0),
+            max_known_height: SlotHeight::new(0),
             block_store,
             state_store,
         }
@@ -137,7 +138,7 @@ where
     }
 
     /// Gets the ancestor at a given height `at_height` of a block specified by `block_hash`.
-    fn get_ancestor(&mut self, block_hash: Hash256, at_height: Height) -> Option<Hash256> {
+    fn get_ancestor(&mut self, block_hash: Hash256, at_height: SlotHeight) -> Option<Hash256> {
         // return None if we can't get the block from the db.
         let block_height = {
             let block_slot = self
@@ -186,7 +187,7 @@ where
     fn get_clear_winner(
         &mut self,
         latest_votes: &HashMap<Hash256, u64>,
-        block_height: Height,
+        block_height: SlotHeight,
     ) -> Option<Hash256> {
         // map of vote counts for every hash at this height
         let mut current_votes: HashMap<Hash256, u64> = HashMap::new();
