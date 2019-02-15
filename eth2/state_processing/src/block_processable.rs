@@ -4,7 +4,7 @@ use int_to_bytes::int_to_bytes32;
 use log::debug;
 use ssz::{ssz_encode, TreeHash};
 use types::{
-    beacon_state::{AttestationValidationError, CommitteesError},
+    beacon_state::{AttestationParticipantsError, BeaconStateError},
     AggregatePublicKey, Attestation, BeaconBlock, BeaconState, ChainSpec, Crosslink, Epoch, Exit,
     Fork, Hash256, PendingAttestation, PublicKey, Signature,
 };
@@ -42,8 +42,21 @@ pub enum Error {
     BadCustodyReseeds,
     BadCustodyChallenges,
     BadCustodyResponses,
-    CommitteesError(CommitteesError),
+    BeaconStateError(BeaconStateError),
     SlotProcessingError(SlotProcessingError),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum AttestationValidationError {
+    IncludedTooEarly,
+    IncludedTooLate,
+    WrongJustifiedSlot,
+    WrongJustifiedRoot,
+    BadLatestCrosslinkRoot,
+    BadSignature,
+    ShardBlockRootNotZero,
+    NoBlockRoot,
+    AttestationParticipantsError(AttestationParticipantsError),
 }
 
 macro_rules! ensure {
@@ -391,14 +404,20 @@ impl From<AttestationValidationError> for Error {
     }
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }
 
 impl From<SlotProcessingError> for Error {
     fn from(e: SlotProcessingError) -> Error {
         Error::SlotProcessingError(e)
+    }
+}
+
+impl From<AttestationParticipantsError> for AttestationValidationError {
+    fn from(e: AttestationParticipantsError) -> AttestationValidationError {
+        AttestationValidationError::AttestationParticipantsError(e)
     }
 }

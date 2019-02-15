@@ -19,3 +19,6 @@ serde_json = "1.0"
 slog = "^2.2.3"
 ssz = { path = "../utils/ssz" }
 fisher_yates_shuffle = { path = "../utils/fisher_yates_shuffle" }
+
+[dev-dependencies]
+env_logger = "0.6.0"
