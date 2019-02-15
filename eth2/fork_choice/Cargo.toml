@@ -14,3 +14,5 @@ byteorder = "1.3.1"
 [dev-dependencies]
 yaml-rust = "0.4.2"
 bls = { path = "../utils/bls" }
+slot_clock = { path = "../utils/slot_clock" }
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
