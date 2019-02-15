@@ -187,8 +187,8 @@ impl Serialize for BooleanBitfield {
 }
 
 impl ssz::TreeHash for BooleanBitfield {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        self.to_bytes().hash_tree_root()
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
+        self.to_bytes().hash_tree_root_internal()
     }
 }
 

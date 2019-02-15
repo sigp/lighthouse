@@ -33,10 +33,10 @@ impl Decodable for CasperSlashing {
 }
 
 impl TreeHash for CasperSlashing {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slashable_vote_data_1.hash_tree_root());
-        result.append(&mut self.slashable_vote_data_2.hash_tree_root());
+        result.append(&mut self.slashable_vote_data_1.hash_tree_root_internal());
+        result.append(&mut self.slashable_vote_data_2.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -68,11 +68,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = CasperSlashing::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
