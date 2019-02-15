@@ -6,6 +6,7 @@ use crate::{
 };
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
+use log::trace;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -259,11 +260,24 @@ impl BeaconState {
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, epoch);
 
+        if active_validator_indices.is_empty() {
+            return None;
+        }
+
+        trace!(
+            "BeaconState::get_shuffling: active_validator_indices.len() == {}",
+            active_validator_indices.len()
+        );
+
         let committees_per_epoch =
             self.get_epoch_committee_count(active_validator_indices.len(), spec);
 
-        let mut shuffled_active_validator_indices =
-            Vec::with_capacity(active_validator_indices.len());
+        trace!(
+            "BeaconState::get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
+            active_validator_indices.len(), committees_per_epoch
+        );
+
+        let mut shuffled_active_validator_indices = vec![0; active_validator_indices.len()];
         for &i in &active_validator_indices {
             let shuffled_i = get_permutated_index(
                 i,
@@ -317,9 +331,17 @@ impl BeaconState {
             + 1;
         let latest_index_root = current_epoch + spec.entry_exit_delay;
 
+        trace!(
+            "BeaconState::get_active_index_root: epoch: {}, earliest: {}, latest: {}",
+            epoch,
+            earliest_index_root,
+            latest_index_root
+        );
+
         if (epoch >= earliest_index_root) & (epoch <= latest_index_root) {
             Some(self.latest_index_roots[epoch.as_usize() % spec.latest_index_roots_length])
         } else {
+            trace!("BeaconState::get_active_index_root: epoch out of range.");
             None
         }
     }
@@ -371,8 +393,14 @@ impl BeaconState {
         };
         let next_epoch = self.next_epoch(spec);
 
+        trace!(
+            "BeaconState::get_crosslink_committees_at_slot: epoch: {}",
+            epoch
+        );
+
         let (committees_per_epoch, seed, shuffling_epoch, shuffling_start_shard) =
             if epoch == previous_epoch {
+                trace!("BeaconState::get_crosslink_committees_at_slot: epoch == previous_epoch");
                 (
                     self.get_previous_epoch_committee_count(spec),
                     self.previous_epoch_seed,
@@ -380,6 +408,7 @@ impl BeaconState {
                     self.previous_epoch_start_shard,
                 )
             } else if epoch == current_epoch {
+                trace!("BeaconState::get_crosslink_committees_at_slot: epoch == current_epoch");
                 (
                     self.get_current_epoch_committee_count(spec),
                     self.current_epoch_seed,
@@ -387,6 +416,7 @@ impl BeaconState {
                     self.current_epoch_start_shard,
                 )
             } else if epoch == next_epoch {
+                trace!("BeaconState::get_crosslink_committees_at_slot: epoch == next_epoch");
                 let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
                 let epochs_since_last_registry_update =
                     current_epoch - self.validator_registry_update_epoch;
@@ -422,6 +452,12 @@ impl BeaconState {
         let committees_per_slot = committees_per_epoch / spec.epoch_length;
         let slot_start_shard =
             (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
+
+        trace!(
+            "BeaconState::get_crosslink_committees_at_slot: committees_per_slot: {}, slot_start_shard: {}",
+            committees_per_slot,
+            slot_start_shard
+        );
 
         let mut crosslinks_at_slot = vec![];
         for i in 0..committees_per_slot {
@@ -474,6 +510,11 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<usize, BeaconStateError> {
         let committees = self.get_crosslink_committees_at_slot(slot, false, spec)?;
+        trace!(
+            "get_beacon_proposer_index: slot: {}, committees_count: {}",
+            slot,
+            committees.len()
+        );
         committees
             .first()
             .ok_or(BeaconStateError::InsufficientValidators)

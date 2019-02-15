@@ -253,6 +253,7 @@ where
     /// Information is read from the present `beacon_state` shuffling, so only information from the
     /// present and prior epoch is available.
     pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
+        trace!("BeaconChain::block_proposer: slot: {}", slot);
         let index = self
             .state
             .read()
@@ -274,6 +275,10 @@ where
         &self,
         validator_index: usize,
     ) -> Result<Option<(Slot, u64)>, BeaconStateError> {
+        trace!(
+            "BeaconChain::validator_attestion_slot_and_shard: validator_index: {}",
+            validator_index
+        );
         if let Some((slot, shard, _committee)) = self
             .state
             .read()
@@ -287,6 +292,7 @@ where
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
+        trace!("BeaconChain::produce_attestation_data: shard: {}", shard);
         let justified_epoch = self.justified_epoch();
         let justified_block_root = *self
             .state

@@ -209,6 +209,7 @@ impl BeaconChainHarness {
         self.increment_beacon_chain_slot();
 
         // Produce a new block.
+        debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
         self.beacon_chain.process_block(block).unwrap();

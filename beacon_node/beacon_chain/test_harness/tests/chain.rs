@@ -1,19 +1,14 @@
 use env_logger::{Builder, Env};
 use log::debug;
 use test_harness::BeaconChainHarness;
-use types::{ChainSpec, Slot};
+use types::ChainSpec;
 
 #[test]
-#[ignore]
 fn it_can_build_on_genesis_block() {
-    let mut spec = ChainSpec::foundation();
-    spec.genesis_slot = Slot::new(spec.epoch_length * 8);
+    Builder::from_env(Env::default().default_filter_or("trace")).init();
+    let spec = ChainSpec::few_validators();
 
-    /*
-    spec.shard_count = spec.shard_count / 8;
-    spec.target_committee_size = spec.target_committee_size / 8;
-    */
-    let validator_count = 1000;
+    let validator_count = 8;
 
     let mut harness = BeaconChainHarness::new(spec, validator_count as usize);
 
@@ -23,7 +18,7 @@ fn it_can_build_on_genesis_block() {
 #[test]
 #[ignore]
 fn it_can_produce_past_first_epoch_boundary() {
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
+    Builder::from_env(Env::default().default_filter_or("trace")).init();
 
     let validator_count = 100;
 
@@ -33,7 +28,7 @@ fn it_can_produce_past_first_epoch_boundary() {
 
     debug!("Harness built, tests starting..");
 
-    let blocks = harness.spec.epoch_length * 3 + 1;
+    let blocks = harness.spec.epoch_length * 2 + 1;
 
     for i in 0..blocks {
         harness.advance_chain_with_block();
