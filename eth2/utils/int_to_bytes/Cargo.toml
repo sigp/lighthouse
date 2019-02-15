@@ -1,15 +1,12 @@
 [package]
-name = "swap_or_not_shuffle"
+name = "int_to_bytes"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
 bytes = "0.4"
-hashing = { path = "../hashing" }
-int_to_bytes = { path = "../int_to_bytes" }
 
 [dev-dependencies]
 yaml-rust = "0.4.2"
 hex = "0.3"
-ethereum-types = "0.5"

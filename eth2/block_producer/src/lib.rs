@@ -1,8 +1,8 @@
 pub mod test_utils;
 mod traits;
 
+use int_to_bytes::int_to_bytes32;
 use slot_clock::SlotClock;
-use ssz::ssz_encode;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Slot};
 
@@ -132,7 +132,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
         let randao_reveal = {
             // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
-            let message = ssz_encode(&slot.epoch(self.spec.epoch_length));
+            let message = int_to_bytes32(slot.epoch(self.spec.epoch_length).as_u64());
 
             match self.signer.sign_randao_reveal(&message) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
