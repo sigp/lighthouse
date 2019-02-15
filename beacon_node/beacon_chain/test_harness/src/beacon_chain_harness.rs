@@ -6,7 +6,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
-use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost}; // import all the algorithms
+use fork_choice::OptimisedLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
