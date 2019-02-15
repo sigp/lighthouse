@@ -112,7 +112,7 @@ impl AttestationAggregator {
 
         if !free_attestation
             .signature
-            .verify(&signable_message, &validator_record.pubkey)
+            .verify(&signable_message, spec.domain_attestation, &validator_record.pubkey)
         {
             return Ok(Outcome {
                 valid: false,

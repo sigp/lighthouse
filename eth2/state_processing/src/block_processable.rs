@@ -374,14 +374,12 @@ fn validate_attestation_signature_optional(
     Ok(())
 }
 
-fn get_domain(_fork: &Fork, _epoch: Epoch, _domain_type: u64) -> u64 {
-    // TODO: stubbed out.
-    0
+fn get_domain(fork: &Fork, epoch: Epoch, domain_type: u64) -> u64 {
+    fork.get_domain(epoch, domain_type)
 }
 
-fn bls_verify(pubkey: &PublicKey, message: &[u8], signature: &Signature, _domain: u64) -> bool {
-    // TODO: add domain
-    signature.verify(message, pubkey)
+fn bls_verify(pubkey: &PublicKey, message: &[u8], signature: &Signature, domain: u64) -> bool {
+    signature.verify(message, domain, pubkey)
 }
 
 impl From<AttestationValidationError> for Error {
