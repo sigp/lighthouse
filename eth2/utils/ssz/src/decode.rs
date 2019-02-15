@@ -101,7 +101,7 @@ mod tests {
         let decoded = decode_length(&vec![0, 1, 0, 0], 0, LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 256);
 
-         let decoded = decode_length(&vec![255, 1, 0, 0], 0, LENGTH_BYTES);
+        let decoded = decode_length(&vec![255, 1, 0, 0], 0, LENGTH_BYTES);
         assert_eq!(decoded.unwrap(), 511);
 
         let decoded = decode_length(&vec![255, 255, 255, 255], 0, LENGTH_BYTES);
@@ -172,8 +172,8 @@ mod tests {
         let v: Vec<u64> = vec![10, 10, 10, 10];
         let decoded: (Vec<u64>, usize) = decode_ssz_list(
             &vec![
-                32, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0,
-                0, 10, 0, 0, 0, 0, 0, 0, 0,
+                32, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0,
+                0, 0, 10, 0, 0, 0, 0, 0, 0, 0,
             ],
             0,
         )
