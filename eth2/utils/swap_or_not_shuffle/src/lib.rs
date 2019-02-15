@@ -1,5 +1,6 @@
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::Buf;
 use hashing::hash;
+use int_to_bytes::{int_to_bytes1, int_to_bytes4};
 use std::cmp::max;
 use std::io::Cursor;
 
@@ -12,14 +13,19 @@ use std::io::Cursor;
 /// Returns `None` under any of the following conditions:
 ///  - `list_size == 0`
 ///  - `index >= list_size`
-///  - `list_size >= usize::max_value() / 2`
+///  - `list_size > 2**24`
+///  - `list_size > usize::max_value() / 2`
 pub fn get_permutated_index(
     index: usize,
     list_size: usize,
     seed: &[u8],
-    shuffle_round_count: usize,
+    shuffle_round_count: u8,
 ) -> Option<usize> {
-    if list_size == 0 || index >= list_size || list_size >= usize::max_value() / 2 {
+    if list_size == 0
+        || index >= list_size
+        || list_size > usize::max_value() / 2
+        || list_size > 2_usize.pow(24)
+    {
         return None;
     }
 
@@ -28,7 +34,7 @@ pub fn get_permutated_index(
         let pivot = bytes_to_int64(&hash_with_round(seed, round)[..]) as usize % list_size;
         let flip = (pivot + list_size - index) % list_size;
         let position = max(index, flip);
-        let source = hash_with_round_and_position(seed, round, position);
+        let source = hash_with_round_and_position(seed, round, position)?;
         let byte = source[(position % 256) / 8];
         let bit = (byte >> (position % 8)) % 2;
         index = if bit == 1 { flip } else { index }
@@ -36,29 +42,21 @@ pub fn get_permutated_index(
     Some(index)
 }
 
-fn hash_with_round_and_position(seed: &[u8], round: usize, position: usize) -> Vec<u8> {
+fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Option<Vec<u8>> {
     let mut seed = seed.to_vec();
-    seed.append(&mut int_to_bytes1(round as u64));
-    seed.append(&mut int_to_bytes4(position as u64 / 256));
-    hash(&seed[..])
+    seed.append(&mut int_to_bytes1(round));
+    /*
+     * Note: the specification has an implicit assertion in `int_to_bytes4` that `position / 256 <
+     * 2**24`. For efficiency, we do not check for that here as it is checked in `get_permutated_index`.
+     */
+    seed.append(&mut int_to_bytes4((position / 256) as u32));
+    Some(hash(&seed[..]))
 }
 
-fn hash_with_round(seed: &[u8], round: usize) -> Vec<u8> {
+fn hash_with_round(seed: &[u8], round: u8) -> Vec<u8> {
     let mut seed = seed.to_vec();
-    seed.append(&mut int_to_bytes1(round as u64));
+    seed.append(&mut int_to_bytes1(round));
     hash(&seed[..])
-}
-
-fn int_to_bytes1(int: u64) -> Vec<u8> {
-    let mut bytes = BytesMut::with_capacity(8);
-    bytes.put_u64_le(int);
-    vec![bytes[0]]
-}
-
-fn int_to_bytes4(int: u64) -> Vec<u8> {
-    let mut bytes = BytesMut::with_capacity(8);
-    bytes.put_u64_le(int);
-    bytes[0..4].to_vec()
 }
 
 fn bytes_to_int64(bytes: &[u8]) -> u64 {
@@ -69,9 +67,47 @@ fn bytes_to_int64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ethereum_types::H256 as Hash256;
     use hex;
     use std::{fs::File, io::prelude::*, path::PathBuf};
     use yaml_rust::yaml;
+
+    #[test]
+    #[ignore]
+    fn fuzz_test() {
+        let max_list_size = 2_usize.pow(24);
+        let test_runs = 1000;
+
+        // Test at max list_size with the end index.
+        for _ in 0..test_runs {
+            let index = max_list_size - 1;
+            let list_size = max_list_size;
+            let seed = Hash256::random();
+            let shuffle_rounds = 90;
+
+            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+        }
+
+        // Test at max list_size low indices.
+        for i in 0..test_runs {
+            let index = i;
+            let list_size = max_list_size;
+            let seed = Hash256::random();
+            let shuffle_rounds = 90;
+
+            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+        }
+
+        // Test at max list_size high indices.
+        for i in 0..test_runs {
+            let index = max_list_size - 1 - i;
+            let list_size = max_list_size;
+            let seed = Hash256::random();
+            let shuffle_rounds = 90;
+
+            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+        }
+    }
 
     #[test]
     fn returns_none_for_zero_length_list() {
@@ -117,9 +153,15 @@ mod tests {
             let index = test_case["index"].as_i64().unwrap() as usize;
             let list_size = test_case["list_size"].as_i64().unwrap() as usize;
             let permutated_index = test_case["permutated_index"].as_i64().unwrap() as usize;
-            let shuffle_round_count = test_case["shuffle_round_count"].as_i64().unwrap() as usize;
+            let shuffle_round_count = test_case["shuffle_round_count"].as_i64().unwrap();
             let seed_string = test_case["seed"].clone().into_string().unwrap();
             let seed = hex::decode(seed_string.replace("0x", "")).unwrap();
+
+            let shuffle_round_count = if shuffle_round_count < (u8::max_value() as i64) {
+                shuffle_round_count as u8
+            } else {
+                panic!("shuffle_round_count must be a u8")
+            };
 
             assert_eq!(
                 Some(permutated_index),
