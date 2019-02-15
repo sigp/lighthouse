@@ -5,12 +5,12 @@ use crate::{
     PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::verify_proof_of_possession;
+use fisher_yates_shuffle::shuffle;
 use honey_badger_split::SplitExt;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::ops::Range;
-use vec_shuffle::shuffle;
 
 pub enum Error {
     InsufficientValidators,
