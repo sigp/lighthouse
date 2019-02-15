@@ -5,15 +5,16 @@ use crate::{
     PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::verify_proof_of_possession;
-use fisher_yates_shuffle::shuffle;
 use honey_badger_split::SplitExt;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use swap_or_not_shuffle::get_permutated_index;
 
 #[derive(Debug, PartialEq)]
 pub enum BeaconStateError {
     EpochOutOfBounds,
+    UnableToShuffle,
     InsufficientRandaoMixes,
     InsufficientValidators,
     InsufficientBlockRoots,
@@ -249,23 +250,36 @@ impl BeaconState {
     /// committee is itself a list of validator indices.
     ///
     /// Spec v0.1
-    pub fn get_shuffling(&self, seed: Hash256, epoch: Epoch, spec: &ChainSpec) -> Vec<Vec<usize>> {
+    pub fn get_shuffling(
+        &self,
+        seed: Hash256,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Option<Vec<Vec<usize>>> {
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, epoch);
 
         let committees_per_epoch =
             self.get_epoch_committee_count(active_validator_indices.len(), spec);
 
-        // TODO: check that Hash256::from(u64) matches 'int_to_bytes32'.
-        let seed = seed ^ Hash256::from(epoch.as_u64());
-        // TODO: fix `expect` assert.
-        let shuffled_active_validator_indices =
-            shuffle(&seed, active_validator_indices).expect("Max validator count exceed!");
+        let mut shuffled_active_validator_indices =
+            Vec::with_capacity(active_validator_indices.len());
+        for &i in &active_validator_indices {
+            let shuffled_i = get_permutated_index(
+                i,
+                active_validator_indices.len(),
+                &seed[..],
+                spec.shuffle_round_count,
+            )?;
+            shuffled_active_validator_indices[i] = active_validator_indices[shuffled_i]
+        }
 
-        shuffled_active_validator_indices
-            .honey_badger_split(committees_per_epoch as usize)
-            .map(|slice: &[usize]| slice.to_vec())
-            .collect()
+        Some(
+            shuffled_active_validator_indices
+                .honey_badger_split(committees_per_epoch as usize)
+                .map(|slice: &[usize]| slice.to_vec())
+                .collect(),
+        )
     }
 
     /// Return the number of committees in the previous epoch.
@@ -401,7 +415,9 @@ impl BeaconState {
                 return Err(BeaconStateError::EpochOutOfBounds);
             };
 
-        let shuffling = self.get_shuffling(seed, shuffling_epoch, spec);
+        let shuffling = self
+            .get_shuffling(seed, shuffling_epoch, spec)
+            .ok_or_else(|| BeaconStateError::UnableToShuffle)?;
         let offset = slot.as_u64() % spec.epoch_length;
         let committees_per_slot = committees_per_epoch / spec.epoch_length;
         let slot_start_shard =
