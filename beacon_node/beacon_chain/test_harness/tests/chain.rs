@@ -6,8 +6,8 @@ use types::ChainSpec;
 #[test]
 fn it_can_build_on_genesis_block() {
     Builder::from_env(Env::default().default_filter_or("trace")).init();
-    let spec = ChainSpec::few_validators();
 
+    let spec = ChainSpec::few_validators();
     let validator_count = 8;
 
     let mut harness = BeaconChainHarness::new(spec, validator_count as usize);
@@ -18,13 +18,14 @@ fn it_can_build_on_genesis_block() {
 #[test]
 #[ignore]
 fn it_can_produce_past_first_epoch_boundary() {
-    Builder::from_env(Env::default().default_filter_or("trace")).init();
+    Builder::from_env(Env::default().default_filter_or("debug")).init();
 
-    let validator_count = 100;
+    let spec = ChainSpec::few_validators();
+    let validator_count = 8;
 
     debug!("Starting harness build...");
 
-    let mut harness = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
+    let mut harness = BeaconChainHarness::new(spec, validator_count);
 
     debug!("Harness built, tests starting..");
 
