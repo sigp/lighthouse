@@ -359,7 +359,8 @@ impl EpochProcessable for BeaconState {
         /*
          * Rewards and Penalities
          */
-        let base_reward_quotient = previous_total_balance.integer_sqrt();
+        let base_reward_quotient =
+            previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
         if base_reward_quotient == 0 {
             return Err(Error::BaseRewardQuotientIsZero);
         }
