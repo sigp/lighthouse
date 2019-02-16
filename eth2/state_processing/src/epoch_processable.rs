@@ -144,8 +144,10 @@ impl EpochProcessable for BeaconState {
 
         let previous_epoch_attester_indices =
             self.get_attestation_participants_union(&previous_epoch_attestations[..], spec)?;
-        let previous_total_balance =
-            self.get_total_balance(&previous_epoch_attester_indices[..], spec);
+        let previous_total_balance = self.get_total_balance(
+            &get_active_validator_indices(&self.validator_registry, previous_epoch),
+            spec,
+        );
 
         /*
          * Validators targetting the previous justified slot
