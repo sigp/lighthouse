@@ -1,4 +1,4 @@
-use log::debug;
+use log::{debug, trace};
 use std::collections::HashMap;
 use types::{beacon_state::BeaconStateError, BeaconState, ChainSpec, Epoch, Slot};
 
@@ -42,7 +42,7 @@ impl CachedBeaconState {
         let mut attestation_duties: Vec<AttestationDutyMap> = Vec::with_capacity(3);
 
         if CACHE_PREVIOUS {
-            debug!("CachedBeaconState::from_beacon_state: building previous epoch cache.");
+            debug!("from_beacon_state: building previous epoch cache.");
             let cache = build_epoch_cache(&state, previous_epoch, &spec)?;
             committees.push(cache.committees);
             attestation_duties.push(cache.attestation_duty_map);
@@ -51,7 +51,7 @@ impl CachedBeaconState {
             attestation_duties.push(HashMap::new());
         }
         if CACHE_CURRENT {
-            debug!("CachedBeaconState::from_beacon_state: building current epoch cache.");
+            debug!("from_beacon_state: building current epoch cache.");
             let cache = build_epoch_cache(&state, current_epoch, &spec)?;
             committees.push(cache.committees);
             attestation_duties.push(cache.attestation_duty_map);
@@ -60,7 +60,7 @@ impl CachedBeaconState {
             attestation_duties.push(HashMap::new());
         }
         if CACHE_NEXT {
-            debug!("CachedBeaconState::from_beacon_state: building next epoch cache.");
+            debug!("from_beacon_state: building next epoch cache.");
             let cache = build_epoch_cache(&state, next_epoch, &spec)?;
             committees.push(cache.committees);
             attestation_duties.push(cache.attestation_duty_map);
@@ -81,6 +81,7 @@ impl CachedBeaconState {
     }
 
     fn slot_to_cache_index(&self, slot: Slot) -> Option<usize> {
+        trace!("slot_to_cache_index: cache lookup");
         match slot.epoch(self.spec.epoch_length) {
             epoch if (epoch == self.previous_epoch) & CACHE_PREVIOUS => Some(0),
             epoch if (epoch == self.current_epoch) & CACHE_CURRENT => Some(1),

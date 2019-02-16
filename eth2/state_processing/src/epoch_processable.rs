@@ -315,6 +315,11 @@ impl EpochProcessable for BeaconState {
 
         // for slot in self.slot.saturating_sub(2 * spec.epoch_length)..self.slot {
         for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
+            trace!(
+                "Finding winning root for slot: {} (epoch: {})",
+                slot,
+                slot.epoch(spec.epoch_length)
+            );
             let crosslink_committees_at_slot =
                 self.get_crosslink_committees_at_slot(slot, false, spec)?;
 
@@ -539,6 +544,12 @@ impl EpochProcessable for BeaconState {
          */
         self.previous_calculation_epoch = self.current_calculation_epoch;
         self.previous_epoch_start_shard = self.current_epoch_start_shard;
+
+        debug!(
+            "setting previous_epoch_seed to : {}",
+            self.current_epoch_seed
+        );
+
         self.previous_epoch_seed = self.current_epoch_seed;
 
         let should_update_validator_registy = if self.finalized_epoch
@@ -553,6 +564,7 @@ impl EpochProcessable for BeaconState {
         };
 
         if should_update_validator_registy {
+            trace!("updating validator registry.");
             self.update_validator_registry(spec);
 
             self.current_calculation_epoch = next_epoch;
@@ -561,6 +573,7 @@ impl EpochProcessable for BeaconState {
                 % spec.shard_count;
             self.current_epoch_seed = self.generate_seed(self.current_calculation_epoch, spec)?
         } else {
+            trace!("not updating validator registry.");
             let epochs_since_last_registry_update =
                 current_epoch - self.validator_registry_update_epoch;
             if (epochs_since_last_registry_update > 1)
