@@ -179,7 +179,7 @@ fn per_block_processing_signature_optional(
         ensure!(
             bls_verify(
                 &proposer.pubkey,
-                &proposer_slashing.proposal_data_1.hash_tree_root(),
+                &proposer_slashing.proposal_data_1.hash_tree_root_internal(),
                 &proposer_slashing.proposal_signature_1,
                 get_domain(
                     &state.fork,
@@ -195,7 +195,7 @@ fn per_block_processing_signature_optional(
         ensure!(
             bls_verify(
                 &proposer.pubkey,
-                &proposer_slashing.proposal_data_2.hash_tree_root(),
+                &proposer_slashing.proposal_data_2.hash_tree_root_internal(),
                 &proposer_slashing.proposal_signature_2,
                 get_domain(
                     &state.fork,
@@ -271,7 +271,7 @@ fn per_block_processing_signature_optional(
                 validator_index: exit.validator_index,
                 signature: spec.empty_signature.clone(),
             };
-            exit_struct.hash_tree_root()
+            exit_struct.hash_tree_root_internal()
         };
         ensure!(
             bls_verify(

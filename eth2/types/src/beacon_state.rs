@@ -175,7 +175,7 @@ impl BeaconState {
             }
         }
 
-        let genesis_active_index_root = hash_tree_root(get_active_validator_indices(
+        let genesis_active_index_root = hash_tree_root_internal(get_active_validator_indices(
             &genesis_state.validator_registry,
             spec.genesis_epoch,
         ));
@@ -190,7 +190,7 @@ impl BeaconState {
     ///
     /// Spec v0.2.0
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
+        Hash256::from(&self.hash_tree_root_internal()[..])
     }
 
     /// The epoch corresponding to `self.slot`.
@@ -912,8 +912,8 @@ impl BeaconState {
     }
 }
 
-fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from(&input.hash_tree_root()[..])
+fn hash_tree_root_internal<T: TreeHash>(input: Vec<T>) -> Hash256 {
+    Hash256::from(&input.hash_tree_root_internal()[..])
 }
 
 impl From<BeaconStateError> for AttestationParticipantsError {
@@ -1020,33 +1020,33 @@ impl Decodable for BeaconState {
 }
 
 impl TreeHash for BeaconState {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
-        result.append(&mut self.genesis_time.hash_tree_root());
-        result.append(&mut self.fork.hash_tree_root());
-        result.append(&mut self.validator_registry.hash_tree_root());
-        result.append(&mut self.validator_balances.hash_tree_root());
-        result.append(&mut self.validator_registry_update_epoch.hash_tree_root());
-        result.append(&mut self.latest_randao_mixes.hash_tree_root());
-        result.append(&mut self.previous_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.current_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.previous_calculation_epoch.hash_tree_root());
-        result.append(&mut self.current_calculation_epoch.hash_tree_root());
-        result.append(&mut self.previous_epoch_seed.hash_tree_root());
-        result.append(&mut self.current_epoch_seed.hash_tree_root());
-        result.append(&mut self.previous_justified_epoch.hash_tree_root());
-        result.append(&mut self.justified_epoch.hash_tree_root());
-        result.append(&mut self.justification_bitfield.hash_tree_root());
-        result.append(&mut self.finalized_epoch.hash_tree_root());
-        result.append(&mut self.latest_crosslinks.hash_tree_root());
-        result.append(&mut self.latest_block_roots.hash_tree_root());
-        result.append(&mut self.latest_index_roots.hash_tree_root());
-        result.append(&mut self.latest_penalized_balances.hash_tree_root());
-        result.append(&mut self.latest_attestations.hash_tree_root());
-        result.append(&mut self.batched_block_roots.hash_tree_root());
-        result.append(&mut self.latest_eth1_data.hash_tree_root());
-        result.append(&mut self.eth1_data_votes.hash_tree_root());
+        result.append(&mut self.slot.hash_tree_root_internal());
+        result.append(&mut self.genesis_time.hash_tree_root_internal());
+        result.append(&mut self.fork.hash_tree_root_internal());
+        result.append(&mut self.validator_registry.hash_tree_root_internal());
+        result.append(&mut self.validator_balances.hash_tree_root_internal());
+        result.append(&mut self.validator_registry_update_epoch.hash_tree_root_internal());
+        result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.previous_calculation_epoch.hash_tree_root_internal());
+        result.append(&mut self.current_calculation_epoch.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.previous_justified_epoch.hash_tree_root_internal());
+        result.append(&mut self.justified_epoch.hash_tree_root_internal());
+        result.append(&mut self.justification_bitfield.hash_tree_root_internal());
+        result.append(&mut self.finalized_epoch.hash_tree_root_internal());
+        result.append(&mut self.latest_crosslinks.hash_tree_root_internal());
+        result.append(&mut self.latest_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_index_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_penalized_balances.hash_tree_root_internal());
+        result.append(&mut self.latest_attestations.hash_tree_root_internal());
+        result.append(&mut self.batched_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
+        result.append(&mut self.eth1_data_votes.hash_tree_root_internal());
         hash(&result)
     }
 }

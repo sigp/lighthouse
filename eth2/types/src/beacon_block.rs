@@ -40,7 +40,7 @@ impl BeaconBlock {
     }
 
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
+        Hash256::from(&self.hash_tree_root_internal()[..])
     }
 
     pub fn proposal_root(&self, spec: &ChainSpec) -> Hash256 {
@@ -55,7 +55,7 @@ impl BeaconBlock {
             shard: spec.beacon_chain_shard_number,
             block_root: block_without_signature_root,
         };
-        Hash256::from(&proposal.hash_tree_root()[..])
+        Hash256::from(&proposal.hash_tree_root_internal()[..])
     }
 }
 
@@ -97,15 +97,15 @@ impl Decodable for BeaconBlock {
 }
 
 impl TreeHash for BeaconBlock {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
-        result.append(&mut self.parent_root.hash_tree_root());
-        result.append(&mut self.state_root.hash_tree_root());
-        result.append(&mut self.randao_reveal.hash_tree_root());
-        result.append(&mut self.eth1_data.hash_tree_root());
-        result.append(&mut self.signature.hash_tree_root());
-        result.append(&mut self.body.hash_tree_root());
+        result.append(&mut self.slot.hash_tree_root_internal());
+        result.append(&mut self.parent_root.hash_tree_root_internal());
+        result.append(&mut self.state_root.hash_tree_root_internal());
+        result.append(&mut self.randao_reveal.hash_tree_root_internal());
+        result.append(&mut self.eth1_data.hash_tree_root_internal());
+        result.append(&mut self.signature.hash_tree_root_internal());
+        result.append(&mut self.body.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -142,11 +142,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = BeaconBlock::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
