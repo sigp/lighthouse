@@ -203,7 +203,12 @@ impl BeaconState {
     ///
     /// Spec v0.2.0
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.current_epoch(spec).saturating_sub(1_u64)
+        let current_epoch = self.current_epoch(&spec);
+        if current_epoch == spec.genesis_epoch {
+            current_epoch
+        } else {
+            current_epoch - 1
+        }
     }
 
     /// The epoch following `self.current_epoch()`.
