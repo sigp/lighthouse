@@ -265,7 +265,7 @@ impl BeaconState {
         }
 
         trace!(
-            "BeaconState::get_shuffling: active_validator_indices.len() == {}",
+            "get_shuffling: active_validator_indices.len() == {}",
             active_validator_indices.len()
         );
 
@@ -273,8 +273,9 @@ impl BeaconState {
             self.get_epoch_committee_count(active_validator_indices.len(), spec);
 
         trace!(
-            "BeaconState::get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
-            active_validator_indices.len(), committees_per_epoch
+            "get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
+            active_validator_indices.len(),
+            committees_per_epoch
         );
 
         let mut shuffled_active_validator_indices = vec![0; active_validator_indices.len()];
@@ -332,7 +333,7 @@ impl BeaconState {
         let latest_index_root = current_epoch + spec.entry_exit_delay;
 
         trace!(
-            "BeaconState::get_active_index_root: epoch: {}, earliest: {}, latest: {}",
+            "get_active_index_root: epoch: {}, earliest: {}, latest: {}",
             epoch,
             earliest_index_root,
             latest_index_root
@@ -341,7 +342,7 @@ impl BeaconState {
         if (epoch >= earliest_index_root) & (epoch <= latest_index_root) {
             Some(self.latest_index_roots[epoch.as_usize() % spec.latest_index_roots_length])
         } else {
-            trace!("BeaconState::get_active_index_root: epoch out of range.");
+            trace!("get_active_index_root: epoch out of range.");
             None
         }
     }
@@ -386,37 +387,28 @@ impl BeaconState {
     ) -> Result<Vec<(Vec<usize>, u64)>, BeaconStateError> {
         let epoch = slot.epoch(spec.epoch_length);
         let current_epoch = self.current_epoch(spec);
-        let previous_epoch = if current_epoch == spec.genesis_epoch {
-            current_epoch
-        } else {
-            current_epoch.saturating_sub(1_u64)
-        };
+        let previous_epoch = self.previous_epoch(spec);
         let next_epoch = self.next_epoch(spec);
 
-        trace!(
-            "BeaconState::get_crosslink_committees_at_slot: epoch: {}",
-            epoch
-        );
-
         let (committees_per_epoch, seed, shuffling_epoch, shuffling_start_shard) =
-            if epoch == previous_epoch {
-                trace!("BeaconState::get_crosslink_committees_at_slot: epoch == previous_epoch");
-                (
-                    self.get_previous_epoch_committee_count(spec),
-                    self.previous_epoch_seed,
-                    self.previous_calculation_epoch,
-                    self.previous_epoch_start_shard,
-                )
-            } else if epoch == current_epoch {
-                trace!("BeaconState::get_crosslink_committees_at_slot: epoch == current_epoch");
+            if epoch == current_epoch {
+                trace!("get_crosslink_committees_at_slot: current_epoch");
                 (
                     self.get_current_epoch_committee_count(spec),
                     self.current_epoch_seed,
                     self.current_calculation_epoch,
                     self.current_epoch_start_shard,
                 )
+            } else if epoch == previous_epoch {
+                trace!("get_crosslink_committees_at_slot: previous_epoch");
+                (
+                    self.get_previous_epoch_committee_count(spec),
+                    self.previous_epoch_seed,
+                    self.previous_calculation_epoch,
+                    self.previous_epoch_start_shard,
+                )
             } else if epoch == next_epoch {
-                trace!("BeaconState::get_crosslink_committees_at_slot: epoch == next_epoch");
+                trace!("get_crosslink_committees_at_slot: next_epoch");
                 let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
                 let epochs_since_last_registry_update =
                     current_epoch - self.validator_registry_update_epoch;
@@ -454,9 +446,10 @@ impl BeaconState {
             (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
 
         trace!(
-            "BeaconState::get_crosslink_committees_at_slot: committees_per_slot: {}, slot_start_shard: {}",
+            "get_crosslink_committees_at_slot: committees_per_slot: {}, slot_start_shard: {}, seed: {}",
             committees_per_slot,
-            slot_start_shard
+            slot_start_shard,
+            seed
         );
 
         let mut crosslinks_at_slot = vec![];

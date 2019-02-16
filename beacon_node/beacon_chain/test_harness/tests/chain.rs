@@ -33,7 +33,7 @@ fn it_can_produce_past_first_epoch_boundary() {
 
     for i in 0..blocks {
         harness.advance_chain_with_block();
-        debug!("Produced block {}/{}.", i, blocks);
+        debug!("Produced block {}/{}.", i + 1, blocks);
     }
     let dump = harness.chain_dump().expect("Chain dump failed.");
 
