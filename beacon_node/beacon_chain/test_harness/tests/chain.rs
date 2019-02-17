@@ -5,7 +5,7 @@ use types::ChainSpec;
 
 #[test]
 fn it_can_build_on_genesis_block() {
-    Builder::from_env(Env::default().default_filter_or("trace")).init();
+    Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let spec = ChainSpec::few_validators();
     let validator_count = 8;
@@ -18,7 +18,7 @@ fn it_can_build_on_genesis_block() {
 #[test]
 #[ignore]
 fn it_can_produce_past_first_epoch_boundary() {
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
+    Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let spec = ChainSpec::few_validators();
     let validator_count = 8;
