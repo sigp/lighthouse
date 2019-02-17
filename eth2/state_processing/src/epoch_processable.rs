@@ -5,7 +5,7 @@ use ssz::TreeHash;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use types::{
-    beacon_state::{AttestationParticipantsError, CommitteesError, InclusionError},
+    beacon_state::{AttestationParticipantsError, BeaconStateError, InclusionError},
     validator_registry::get_active_validator_indices,
     BeaconState, ChainSpec, Crosslink, Epoch, Hash256, PendingAttestation,
 };
@@ -27,7 +27,7 @@ pub enum Error {
     NoBlockRoots,
     BaseRewardQuotientIsZero,
     NoRandaoSeed,
-    CommitteesError(CommitteesError),
+    BeaconStateError(BeaconStateError),
     AttestationParticipantsError(AttestationParticipantsError),
     InclusionError(InclusionError),
     WinningRootError(WinningRootError),
@@ -144,8 +144,10 @@ impl EpochProcessable for BeaconState {
 
         let previous_epoch_attester_indices =
             self.get_attestation_participants_union(&previous_epoch_attestations[..], spec)?;
-        let previous_total_balance =
-            self.get_total_balance(&previous_epoch_attester_indices[..], spec);
+        let previous_total_balance = self.get_total_balance(
+            &get_active_validator_indices(&self.validator_registry, previous_epoch),
+            spec,
+        );
 
         /*
          * Validators targetting the previous justified slot
@@ -315,6 +317,11 @@ impl EpochProcessable for BeaconState {
 
         // for slot in self.slot.saturating_sub(2 * spec.epoch_length)..self.slot {
         for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
+            trace!(
+                "Finding winning root for slot: {} (epoch: {})",
+                slot,
+                slot.epoch(spec.epoch_length)
+            );
             let crosslink_committees_at_slot =
                 self.get_crosslink_committees_at_slot(slot, false, spec)?;
 
@@ -352,7 +359,8 @@ impl EpochProcessable for BeaconState {
         /*
          * Rewards and Penalities
          */
-        let base_reward_quotient = previous_total_balance.integer_sqrt();
+        let base_reward_quotient =
+            previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
         if base_reward_quotient == 0 {
             return Err(Error::BaseRewardQuotientIsZero);
         }
@@ -539,6 +547,12 @@ impl EpochProcessable for BeaconState {
          */
         self.previous_calculation_epoch = self.current_calculation_epoch;
         self.previous_epoch_start_shard = self.current_epoch_start_shard;
+
+        debug!(
+            "setting previous_epoch_seed to : {}",
+            self.current_epoch_seed
+        );
+
         self.previous_epoch_seed = self.current_epoch_seed;
 
         let should_update_validator_registy = if self.finalized_epoch
@@ -553,25 +567,24 @@ impl EpochProcessable for BeaconState {
         };
 
         if should_update_validator_registy {
+            trace!("updating validator registry.");
             self.update_validator_registry(spec);
 
             self.current_calculation_epoch = next_epoch;
             self.current_epoch_start_shard = (self.current_epoch_start_shard
                 + self.get_current_epoch_committee_count(spec) as u64)
                 % spec.shard_count;
-            self.current_epoch_seed = self
-                .generate_seed(self.current_calculation_epoch, spec)
-                .ok_or_else(|| Error::NoRandaoSeed)?;
+            self.current_epoch_seed = self.generate_seed(self.current_calculation_epoch, spec)?
         } else {
+            trace!("not updating validator registry.");
             let epochs_since_last_registry_update =
                 current_epoch - self.validator_registry_update_epoch;
             if (epochs_since_last_registry_update > 1)
                 & epochs_since_last_registry_update.is_power_of_two()
             {
                 self.current_calculation_epoch = next_epoch;
-                self.current_epoch_seed = self
-                    .generate_seed(self.current_calculation_epoch, spec)
-                    .ok_or_else(|| Error::NoRandaoSeed)?;
+                self.current_epoch_seed =
+                    self.generate_seed(self.current_calculation_epoch, spec)?
             }
         }
 
@@ -689,9 +702,9 @@ impl From<InclusionError> for Error {
     }
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }
 

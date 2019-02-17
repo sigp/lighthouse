@@ -6,7 +6,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
-use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost}; // import all the algorithms
+use fork_choice::OptimisedLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
@@ -128,7 +128,18 @@ impl BeaconChainHarness {
     pub fn increment_beacon_chain_slot(&mut self) -> Slot {
         let slot = self.beacon_chain.present_slot() + 1;
 
-        debug!("Incrementing BeaconChain slot to {}.", slot);
+        let nth_slot = slot
+            - slot
+                .epoch(self.spec.epoch_length)
+                .start_slot(self.spec.epoch_length);
+        let nth_epoch = slot.epoch(self.spec.epoch_length) - self.spec.genesis_epoch;
+        debug!(
+            "Advancing BeaconChain to slot {}, epoch {} (epoch height: {}, slot {} in epoch.).",
+            slot,
+            slot.epoch(self.spec.epoch_length),
+            nth_epoch,
+            nth_slot
+        );
 
         self.beacon_chain.slot_clock.set_slot(slot.as_u64());
         self.beacon_chain.advance_state(slot).unwrap();
@@ -209,6 +220,7 @@ impl BeaconChainHarness {
         self.increment_beacon_chain_slot();
 
         // Produce a new block.
+        debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
         self.beacon_chain.process_block(block).unwrap();

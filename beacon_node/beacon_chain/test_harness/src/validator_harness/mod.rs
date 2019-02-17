@@ -10,7 +10,7 @@ use block_producer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
 use direct_beacon_node::DirectBeaconNode;
 use direct_duties::DirectDuties;
-use fork_choice::{optimised_lmd_ghost::OptimisedLMDGhost, slow_lmd_ghost::SlowLMDGhost};
+use fork_choice::OptimisedLMDGhost;
 use local_signer::LocalSigner;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
