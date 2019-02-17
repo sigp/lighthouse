@@ -30,8 +30,8 @@ use fast_math::log2_raw;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
-    readers::BeaconBlockReader, slot_epoch::Slot, slot_height::SlotHeight,
-    validator_registry::get_active_validator_indices, BeaconBlock, Hash256,
+    readers::BeaconBlockReader, validator_registry::get_active_validator_indices, BeaconBlock,
+    Hash256, Slot, SlotHeight,
 };
 
 //TODO: Pruning - Children
@@ -116,7 +116,7 @@ where
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices = get_active_validator_indices(
-            &current_state.validator_registry,
+            &current_state.validator_registry[..],
             block_slot.epoch(EPOCH_LENGTH),
         );
 

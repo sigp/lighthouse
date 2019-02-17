@@ -1,9 +1,10 @@
 use crate::SlotProcessingError;
 use hashing::hash;
-use log::debug;
+use int_to_bytes::int_to_bytes32;
+use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
 use types::{
-    beacon_state::{AttestationValidationError, CommitteesError},
+    beacon_state::{AttestationParticipantsError, BeaconStateError},
     AggregatePublicKey, Attestation, BeaconBlock, BeaconState, ChainSpec, Crosslink, Epoch, Exit,
     Fork, Hash256, PendingAttestation, PublicKey, Signature,
 };
@@ -41,8 +42,21 @@ pub enum Error {
     BadCustodyReseeds,
     BadCustodyChallenges,
     BadCustodyResponses,
-    CommitteesError(CommitteesError),
+    BeaconStateError(BeaconStateError),
     SlotProcessingError(SlotProcessingError),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum AttestationValidationError {
+    IncludedTooEarly,
+    IncludedTooLate,
+    WrongJustifiedSlot,
+    WrongJustifiedRoot,
+    BadLatestCrosslinkRoot,
+    BadSignature,
+    ShardBlockRootNotZero,
+    NoBlockRoot,
+    AttestationParticipantsError(AttestationParticipantsError),
 }
 
 macro_rules! ensure {
@@ -110,7 +124,7 @@ fn per_block_processing_signature_optional(
     ensure!(
         bls_verify(
             &block_proposer.pubkey,
-            &ssz_encode(&state.current_epoch(spec)),
+            &int_to_bytes32(state.current_epoch(spec).as_u64()),
             &block.randao_reveal,
             get_domain(&state.fork, state.current_epoch(spec), DOMAIN_RANDAO)
         ),
@@ -205,6 +219,8 @@ fn per_block_processing_signature_optional(
         Error::MaxAttestationsExceeded
     );
 
+    debug!("Verifying {} attestations.", block.body.attestations.len());
+
     for attestation in &block.body.attestations {
         validate_attestation(&state, attestation, spec)?;
 
@@ -216,11 +232,6 @@ fn per_block_processing_signature_optional(
         };
         state.latest_attestations.push(pending_attestation);
     }
-
-    debug!(
-        "{} attestations verified & processed.",
-        block.body.attestations.len()
-    );
 
     /*
      * Deposits
@@ -298,6 +309,10 @@ fn validate_attestation_signature_optional(
     spec: &ChainSpec,
     verify_signature: bool,
 ) -> Result<(), AttestationValidationError> {
+    trace!(
+        "validate_attestation_signature_optional: attestation epoch: {}",
+        attestation.data.slot.epoch(spec.epoch_length)
+    );
     ensure!(
         attestation.data.slot + spec.min_attestation_inclusion_delay <= state.slot,
         AttestationValidationError::IncludedTooEarly
@@ -388,14 +403,20 @@ impl From<AttestationValidationError> for Error {
     }
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }
 
 impl From<SlotProcessingError> for Error {
     fn from(e: SlotProcessingError) -> Error {
         Error::SlotProcessingError(e)
+    }
+}
+
+impl From<AttestationParticipantsError> for AttestationValidationError {
+    fn from(e: AttestationParticipantsError) -> AttestationValidationError {
+        AttestationValidationError::AttestationParticipantsError(e)
     }
 }
