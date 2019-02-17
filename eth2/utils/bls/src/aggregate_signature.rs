@@ -27,7 +27,12 @@ impl AggregateSignature {
     ///
     /// Only returns `true` if the set of keys in the `AggregatePublicKey` match the set of keys
     /// that signed the `AggregateSignature`.
-    pub fn verify(&self, msg: &[u8], domain: u64, aggregate_public_key: &AggregatePublicKey) -> bool {
+    pub fn verify(
+        &self,
+        msg: &[u8],
+        domain: u64,
+        aggregate_public_key: &AggregatePublicKey,
+    ) -> bool {
         self.0.verify(msg, domain, aggregate_public_key)
     }
 }

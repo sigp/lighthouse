@@ -1,8 +1,8 @@
 use crate::test_utils::TestRandom;
 use crate::{
     validator::StatusFlags, validator_registry::get_active_validator_indices, AttestationData,
-    Bitfield, ChainSpec, Crosslink, Deposit, DepositInput, Epoch, Eth1Data, Eth1DataVote, Fork, Hash256,
-    PendingAttestation, PublicKey, Signature, Slot, Validator,
+    Bitfield, ChainSpec, Crosslink, Deposit, DepositInput, Epoch, Eth1Data, Eth1DataVote, Fork,
+    Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use honey_badger_split::SplitExt;
 use rand::RngCore;
@@ -593,7 +593,7 @@ impl BeaconState {
         pubkey: PublicKey,
         proof_of_possession: Signature,
         withdrawal_credentials: Hash256,
-        spec: &ChainSpec
+        spec: &ChainSpec,
     ) -> bool {
         let proof_of_possession_data = DepositInput {
             pubkey: pubkey.clone(),
@@ -603,14 +603,11 @@ impl BeaconState {
 
         proof_of_possession.verify(
             &proof_of_possession_data.hash_tree_root(),
-            self.fork.get_domain(
-                self.slot.epoch(spec.epoch_length),
-                spec.domain_deposit,
-            ),
+            self.fork
+                .get_domain(self.slot.epoch(spec.epoch_length), spec.domain_deposit),
             &pubkey,
         )
     }
-
 
     /// Process a validator deposit, returning the validator index if the deposit is valid.
     ///
@@ -623,7 +620,12 @@ impl BeaconState {
         withdrawal_credentials: Hash256,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-        if !self.validate_proof_of_possession(pubkey.clone(), proof_of_possession, withdrawal_credentials, &spec) {
+        if !self.validate_proof_of_possession(
+            pubkey.clone(),
+            proof_of_possession,
+            withdrawal_credentials,
+            &spec,
+        ) {
             return Err(());
         }
 

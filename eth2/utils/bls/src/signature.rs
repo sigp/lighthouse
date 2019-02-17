@@ -21,7 +21,11 @@ impl Signature {
     /// Instantiate a new Signature from a message and a SecretKey, where the message has already
     /// been hashed.
     pub fn new_hashed(x_real_hashed: &[u8], x_imaginary_hashed: &[u8], sk: &SecretKey) -> Self {
-        Signature(RawSignature::new_hashed(x_real_hashed, x_imaginary_hashed, sk.as_raw()))
+        Signature(RawSignature::new_hashed(
+            x_real_hashed,
+            x_imaginary_hashed,
+            sk.as_raw(),
+        ))
     }
 
     /// Verify the Signature against a PublicKey.
@@ -30,8 +34,14 @@ impl Signature {
     }
 
     /// Verify the Signature against a PublicKey, where the message has already been hashed.
-    pub fn verify_hashed(&self, x_real_hashed: &[u8], x_imaginary_hashed: &[u8], pk: &PublicKey) -> bool {
-        self.0.verify_hashed(x_real_hashed, x_imaginary_hashed, pk.as_raw())
+    pub fn verify_hashed(
+        &self,
+        x_real_hashed: &[u8],
+        x_imaginary_hashed: &[u8],
+        pk: &PublicKey,
+    ) -> bool {
+        self.0
+            .verify_hashed(x_real_hashed, x_imaginary_hashed, pk.as_raw())
     }
 
     /// Returns the underlying signature.
@@ -41,7 +51,9 @@ impl Signature {
 
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
-        let empty: Vec<u8> = vec![0; 96];
+        let mut empty: Vec<u8> = vec![0; 96];
+        // TODO: Modify the way flags are used (b_flag should not be used for empty_signature in the future)
+        empty[0] += u8::pow(2, 6);
         Signature(RawSignature::from_bytes(&empty).unwrap())
     }
 }
@@ -99,9 +111,13 @@ mod tests {
 
         let sig_as_bytes: Vec<u8> = sig.as_raw().as_bytes();
 
-        assert_eq!(sig_as_bytes.len(), 97);
-        for one_byte in sig_as_bytes.iter() {
-            assert_eq!(*one_byte, 0);
+        assert_eq!(sig_as_bytes.len(), 96);
+        for (i, one_byte) in sig_as_bytes.iter().enumerate() {
+            if i == 0 {
+                assert_eq!(*one_byte, u8::pow(2, 6));
+            } else {
+                assert_eq!(*one_byte, 0);
+            }
         }
     }
 }

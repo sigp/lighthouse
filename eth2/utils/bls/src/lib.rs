@@ -30,7 +30,6 @@ fn extend_if_needed(hash: &mut Vec<u8>) {
 /// For some signature and public key, ensure that the signature message was the public key and it
 /// was signed by the secret key that corresponds to that public key.
 
-
 pub fn create_proof_of_possession(keypair: &Keypair) -> Signature {
     Signature::new(&ssz_encode(&keypair.pk), 0, &keypair.sk)
 }

@@ -27,8 +27,11 @@ impl Attestation {
         custody_bit: bool,
         domain: u64,
     ) -> bool {
-        self.aggregate_signature
-            .verify(&self.signable_message(custody_bit), domain, group_public_key)
+        self.aggregate_signature.verify(
+            &self.signable_message(custody_bit),
+            domain,
+            group_public_key,
+        )
     }
 }
 

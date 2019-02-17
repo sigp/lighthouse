@@ -22,7 +22,7 @@ impl Fork {
     /// Get the domain number that represents the fork meta and signature domain.
     pub fn get_domain(&self, epoch: Epoch, domain_type: u64) -> u64 {
         let fork_version = self.get_fork_version(epoch);
-        fork_version * u64::pow(2,32) + domain_type
+        fork_version * u64::pow(2, 32) + domain_type
     }
 }
 

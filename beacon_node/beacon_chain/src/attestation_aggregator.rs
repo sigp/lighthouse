@@ -110,10 +110,11 @@ impl AttestationAggregator {
             Message::BadValidatorIndex
         );
 
-        if !free_attestation
-            .signature
-            .verify(&signable_message, spec.domain_attestation, &validator_record.pubkey)
-        {
+        if !free_attestation.signature.verify(
+            &signable_message,
+            spec.domain_attestation,
+            &validator_record.pubkey,
+        ) {
             return Ok(Outcome {
                 valid: false,
                 message: Message::BadSignature,

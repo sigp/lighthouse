@@ -134,7 +134,10 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
             let message = ssz_encode(&slot.epoch(self.spec.epoch_length));
 
-            match self.signer.sign_randao_reveal(&message, self.spec.domain_randao) {
+            match self
+                .signer
+                .sign_randao_reveal(&message, self.spec.domain_randao)
+            {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
                 Some(signature) => signature,
             }
@@ -166,10 +169,10 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn sign_block(&mut self, mut block: BeaconBlock) -> Option<BeaconBlock> {
         self.store_produce(&block);
 
-        match self
-            .signer
-            .sign_block_proposal(&block.proposal_root(&self.spec)[..], self.spec.domain_proposal)
-        {
+        match self.signer.sign_block_proposal(
+            &block.proposal_root(&self.spec)[..],
+            self.spec.domain_proposal,
+        ) {
             None => None,
             Some(signature) => {
                 block.signature = signature;
