@@ -1,23 +1,3 @@
-// Copyright 2019 Sigma Prime Pty Ltd.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
-
 extern crate byteorder;
 extern crate fast_math;
 use crate::{ForkChoice, ForkChoiceError};
@@ -108,6 +88,7 @@ where
         // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
         // FORK_CHOICE_BALANCE_INCREMENT
         // build a hashmap of block_hash to weighted votes
+        trace!("FORKCHOICE: Getting the latest votes");
         let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
         // gets the current weighted votes
         let current_state = self
@@ -118,6 +99,10 @@ where
         let active_validator_indices = get_active_validator_indices(
             &current_state.validator_registry[..],
             block_slot.epoch(EPOCH_LENGTH),
+        );
+        trace!(
+            "FORKCHOICE: Active validator indicies: {:?}",
+            active_validator_indices
         );
 
         for index in active_validator_indices {
@@ -130,7 +115,7 @@ where
                 }
             }
         }
-
+        trace!("FORKCHOICE: Latest votes: {:?}", latest_votes);
         Ok(latest_votes)
     }
 
@@ -212,6 +197,7 @@ where
 
     // Finds the best child, splitting children into a binary tree, based on their hashes
     fn choose_best_child(&self, votes: &HashMap<Hash256, u64>) -> Option<Hash256> {
+        println!("Votes: {:?}", votes);
         let mut bitmask = 0;
         for bit in (0..=255).rev() {
             let mut zero_votes = 0;
@@ -298,12 +284,21 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
     ) -> Result<(), ForkChoiceError> {
         // simply add the attestation to the latest_attestation_target if the block_height is
         // larger
+        trace!(
+            "FORKCHOICE: Adding attestation of validator: {:?} for block: {:?}",
+            validator_index,
+            target_block_root
+        );
         let attestation_target = self
             .latest_attestation_targets
             .entry(validator_index)
             .or_insert_with(|| *target_block_root);
         // if we already have a value
         if attestation_target != target_block_root {
+            trace!(
+                "FORKCHOICE: Old attestation found: {:?}",
+                attestation_target
+            );
             // get the height of the target block
             let block_height = self
                 .block_store
@@ -319,8 +314,11 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot()
                 .height(Slot::from(GENESIS_SLOT));
+            trace!("FORKCHOICE: Old block height: {:?}", past_block_height);
+            trace!("FORKCHOICE: New block height: {:?}", block_height);
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
+                trace!("FORKCHOICE: Updating old attestation");
                 *attestation_target = *target_block_root;
             }
         }
@@ -329,6 +327,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
 
     /// Perform lmd_ghost on the current chain to find the head.
     fn find_head(&mut self, justified_block_start: &Hash256) -> Result<Hash256, ForkChoiceError> {
+        trace!("Starting optimised fork choice");
         let block = self
             .block_store
             .get_deserialized(&justified_block_start)?
@@ -344,6 +343,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
 
         // remove any votes that don't relate to our current head.
         latest_votes.retain(|hash, _| self.get_ancestor(*hash, block_height) == Some(current_head));
+        trace!("FORKCHOICE: Latest votes: {:?}", latest_votes);
 
         // begin searching for the head
         loop {
@@ -368,13 +368,19 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 step /= 2;
             }
             if step > 0 {
+                trace!("FORKCHOICE: Found clear winner in log lookup");
             }
             // if our skip lookup failed and we only have one child, progress to that child
             else if children.len() == 1 {
                 current_head = children[0];
+                trace!(
+                    "FORKCHOICE: Lookup failed, only one child, proceeding to child: {}",
+                    current_head
+                );
             }
             // we need to find the best child path to progress down.
             else {
+                trace!("FORKCHOICE: Searching for best child");
                 let mut child_votes = HashMap::new();
                 for (voted_hash, vote) in latest_votes.iter() {
                     // if the latest votes correspond to a child
@@ -383,14 +389,15 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                         *child_votes.entry(child).or_insert_with(|| 0) += vote;
                     }
                 }
+                println!("Child votes: {:?}", child_votes);
                 // given the votes on the children, find the best child
                 current_head = self
                     .choose_best_child(&child_votes)
                     .ok_or(ForkChoiceError::CannotFindBestChild)?;
+                trace!("FORKCHOICE: Best child found: {}", current_head);
             }
 
             // No head was found, re-iterate
-
             // update the block height for the next iteration
             let block_height = self
                 .block_store
