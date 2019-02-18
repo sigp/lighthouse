@@ -1,5 +1,5 @@
 use super::AttestationData;
-use crate::spec::ChainSpec;
+use crate::chain_spec::ChainSpec;
 use crate::test_utils::TestRandom;
 use bls::AggregateSignature;
 use rand::RngCore;
@@ -15,10 +15,16 @@ pub struct SlashableVoteData {
 }
 
 impl SlashableVoteData {
+    /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
+    ///
+    /// Spec v0.3.0
     pub fn is_double_vote(&self, other: &SlashableVoteData, spec: &ChainSpec) -> bool {
         self.data.slot.epoch(spec.epoch_length) == other.data.slot.epoch(spec.epoch_length)
     }
 
+    /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
+    ///
+    /// Spec v0.3.0
     pub fn is_surround_vote(&self, other: &SlashableVoteData, spec: &ChainSpec) -> bool {
         let source_epoch_1 = self.data.justified_epoch;
         let source_epoch_2 = other.data.justified_epoch;
@@ -82,8 +88,8 @@ impl<T: RngCore> TestRandom<T> for SlashableVoteData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chain_spec::ChainSpec;
     use crate::slot_epoch::{Epoch, Slot};
-    use crate::spec::ChainSpec;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     use ssz::ssz_encode;
 
@@ -116,6 +122,18 @@ mod tests {
         let spec = ChainSpec::foundation();
         let slashable_vote_first = create_slashable_vote_data(2, 1, &spec);
         let slashable_vote_second = create_slashable_vote_data(1, 2, &spec);
+
+        assert_eq!(
+            slashable_vote_first.is_surround_vote(&slashable_vote_second, &spec),
+            true
+        );
+    }
+
+    #[test]
+    pub fn test_is_surround_vote_true_realistic() {
+        let spec = ChainSpec::foundation();
+        let slashable_vote_first = create_slashable_vote_data(4, 1, &spec);
+        let slashable_vote_second = create_slashable_vote_data(3, 2, &spec);
 
         assert_eq!(
             slashable_vote_first.is_surround_vote(&slashable_vote_second, &spec),
