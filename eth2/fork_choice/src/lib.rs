@@ -50,7 +50,7 @@ pub mod slow_lmd_ghost;
 
 use db::stores::BeaconBlockAtSlotError;
 use db::DBError;
-use types::{BeaconBlock, Hash256};
+use types::{BeaconBlock, ChainSpec, Hash256};
 
 pub use longest_chain::LongestChain;
 pub use optimised_lmd_ghost::OptimisedLMDGhost;
@@ -65,6 +65,7 @@ pub trait ForkChoice: Send + Sync {
         &mut self,
         block: &BeaconBlock,
         block_hash: &Hash256,
+        spec: &ChainSpec,
     ) -> Result<(), ForkChoiceError>;
     /// Called when an attestation has been added. Allows generic attestation-level data structures to be built for a given fork choice.
     // This can be generalised to a full attestation if required later.
@@ -72,10 +73,15 @@ pub trait ForkChoice: Send + Sync {
         &mut self,
         validator_index: u64,
         target_block_hash: &Hash256,
+        spec: &ChainSpec,
     ) -> Result<(), ForkChoiceError>;
     /// The fork-choice algorithm to find the current canonical head of the chain.
     // TODO: Remove the justified_start_block parameter and make it internal
-    fn find_head(&mut self, justified_start_block: &Hash256) -> Result<Hash256, ForkChoiceError>;
+    fn find_head(
+        &mut self,
+        justified_start_block: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, ForkChoiceError>;
 }
 
 /// Possible fork choice errors that can occur.
