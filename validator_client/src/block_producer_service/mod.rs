@@ -1,7 +1,7 @@
 mod beacon_block_grpc_client;
 // mod block_producer_service;
 
-use block_producer::{
+use block_proposer::{
     BeaconNode, BlockProducer, DutiesReader, PollOutcome as BlockProducerPollOutcome, Signer,
 };
 use slog::{error, info, warn, Logger};
