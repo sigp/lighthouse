@@ -81,6 +81,7 @@ pub fn verify_slashable_attestation(
         .hash_tree_root(),
     );
 
+    // Verify signatures and votes
     slashable_attestation.aggregate_signature.verify_multiple(
         &messages,
         state.fork.get_domain(
@@ -94,6 +95,6 @@ pub fn verify_slashable_attestation(
 #[cfg(tests)]
 mod test {
     pub fn test_TODO() {
-        assert!(1 == 2);
+        // Write tests for this function
     }
 }
