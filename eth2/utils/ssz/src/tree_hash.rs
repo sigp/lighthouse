@@ -55,8 +55,13 @@ fn list_to_blob(list: &mut Vec<Vec<u8>>) -> (usize, Vec<u8>) {
         list[0].len()
     };
 
-    let items_per_chunk = SSZ_CHUNK_SIZE / list[0].len();
-    let chunk_count = list.len() / items_per_chunk;
+    let (items_per_chunk, chunk_count) = if list.is_empty() {
+        (1, 1)
+    } else {
+        let items_per_chunk = SSZ_CHUNK_SIZE / list[0].len();
+        let chunk_count = list.len() / items_per_chunk;
+        (items_per_chunk, chunk_count)
+    };
 
     let mut chunkz = Vec::new();
     if list.is_empty() {
