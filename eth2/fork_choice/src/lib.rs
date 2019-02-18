@@ -41,6 +41,8 @@
 extern crate db;
 extern crate ssz;
 extern crate types;
+#[macro_use]
+extern crate log;
 
 pub mod longest_chain;
 pub mod optimised_lmd_ghost;
