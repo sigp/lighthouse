@@ -40,7 +40,12 @@ impl AggregateSignature {
     ///
     /// Only returns `true` if each `AggregatePublicKey` matches the key used to sign its
     /// respective message. Here the mappying of `AggregatePublicKey`s to `Messages` is 1:1.
-    pub fn verify_multiple(&self, msg: &[u8], domain: u64, aggregate_public_keys: &[AggregatePublicKey]) -> bool {
+    pub fn verify_multiple(
+        &self,
+        msg: &[u8],
+        domain: u64,
+        aggregate_public_keys: &[AggregatePublicKey],
+    ) -> bool {
         self.0.verify_multiple(msg, domain, aggregate_public_keys)
     }
 }
