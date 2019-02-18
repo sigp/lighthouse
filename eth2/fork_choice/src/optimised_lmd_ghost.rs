@@ -347,7 +347,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
 
         let mut current_head = *justified_block_start;
 
-        let mut latest_votes = self.get_latest_votes(&state_root, block_slot)?;
+        let mut latest_votes = self.get_latest_votes(&state_root, &block_slot, spec)?;
 
         // remove any votes that don't relate to our current head.
         latest_votes
@@ -370,6 +370,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
                 if let Some(clear_winner) = self.get_clear_winner(
                     &latest_votes,
                     block_height - (block_height % u64::from(step)) + u64::from(step),
+                    spec,
                 ) {
                     current_head = clear_winner;
                     break;

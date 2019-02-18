@@ -29,16 +29,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
     readers::BeaconBlockReader, validator_registry::get_active_validator_indices, BeaconBlock,
-    Hash256, Slot,
+    ChainSpec, Hash256, Slot,
 };
 
 //TODO: Pruning and syncing
-
-//TODO: Sort out global constants
-const GENESIS_SLOT: u64 = 0;
-const FORK_CHOICE_BALANCE_INCREMENT: u64 = 1e9 as u64;
-const MAX_DEPOSIT_AMOUNT: u64 = 32e9 as u64;
-const EPOCH_LENGTH: u64 = 64;
 
 pub struct SlowLMDGhost<T: ClientDB + Sized> {
     /// The latest attestation targets as a map of validator index to block hash.
@@ -70,12 +64,14 @@ where
     pub fn get_latest_votes(
         &self,
         state_root: &Hash256,
-        block_slot: Slot,
+        block_slot: &Slot,
+        spec: &ChainSpec,
     ) -> Result<HashMap<Hash256, u64>, ForkChoiceError> {
         // get latest votes
         // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
         // FORK_CHOICE_BALANCE_INCREMENT
         // build a hashmap of block_hash to weighted votes
+        trace!("FORKCHOICE: Getting the latest votes");
         let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
         // gets the current weighted votes
         let current_state = self
@@ -84,21 +80,26 @@ where
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices = get_active_validator_indices(
-            &current_state.validator_registry,
-            block_slot.epoch(EPOCH_LENGTH),
+            &current_state.validator_registry[..],
+            block_slot.epoch(spec.epoch_length),
+        );
+        trace!(
+            "FORKCHOICE: Active validator indicies: {:?}",
+            active_validator_indices
         );
 
         for index in active_validator_indices {
-            let balance =
-                std::cmp::min(current_state.validator_balances[index], MAX_DEPOSIT_AMOUNT)
-                    / FORK_CHOICE_BALANCE_INCREMENT;
+            let balance = std::cmp::min(
+                current_state.validator_balances[index],
+                spec.max_deposit_amount,
+            ) / spec.fork_choice_balance_increment;
             if balance > 0 {
                 if let Some(target) = self.latest_attestation_targets.get(&(index as u64)) {
                     *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
                 }
             }
         }
-
+        trace!("FORKCHOICE: Latest votes: {:?}", latest_votes);
         Ok(latest_votes)
     }
 
@@ -136,6 +137,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
         &mut self,
         block: &BeaconBlock,
         block_hash: &Hash256,
+        _: &ChainSpec,
     ) -> Result<(), ForkChoiceError> {
         // build the children hashmap
         // add the new block to the children of parent
@@ -153,6 +155,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
         &mut self,
         validator_index: u64,
         target_block_root: &Hash256,
+        spec: &ChainSpec,
     ) -> Result<(), ForkChoiceError> {
         // simply add the attestation to the latest_attestation_target if the block_height is
         // larger
@@ -168,7 +171,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .get_deserialized(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
                 .slot()
-                .height(Slot::from(GENESIS_SLOT));
+                .height(Slot::from(spec.genesis_slot));
 
             // get the height of the past target block
             let past_block_height = self
@@ -176,7 +179,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .get_deserialized(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot()
-                .height(Slot::from(GENESIS_SLOT));
+                .height(Slot::from(spec.genesis_slot));
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
                 *attestation_target = *target_block_root;
@@ -186,7 +189,11 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
     }
 
     /// A very inefficient implementation of LMD ghost.
-    fn find_head(&mut self, justified_block_start: &Hash256) -> Result<Hash256, ForkChoiceError> {
+    fn find_head(
+        &mut self,
+        justified_block_start: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, ForkChoiceError> {
         let start = self
             .block_store
             .get_deserialized(&justified_block_start)?
@@ -194,7 +201,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
 
         let start_state_root = start.state_root();
 
-        let latest_votes = self.get_latest_votes(&start_state_root, start.slot())?;
+        let latest_votes = self.get_latest_votes(&start_state_root, &start.slot(), spec)?;
 
         let mut head_hash = Hash256::zero();
 
