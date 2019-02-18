@@ -3,7 +3,7 @@ use tiny_keccak::Keccak;
 pub fn hash(input: &[u8]) -> Vec<u8> {
     let mut keccak = Keccak::new_keccak256();
     keccak.update(input);
-    let mut result = vec![0; 49];
+    let mut result = vec![0; 32];
     keccak.finalize(result.as_mut_slice());
     result
 }
