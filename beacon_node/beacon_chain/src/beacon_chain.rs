@@ -1,37 +1,41 @@
+use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
+use crate::cached_beacon_state::CachedBeaconState;
+use crate::checkpoint::CheckPoint;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
 };
-use genesis::{genesis_beacon_block, genesis_beacon_state};
+use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
+use state_processing::{
+    BlockProcessable, BlockProcessingError, SlotProcessable, SlotProcessingError,
+};
 use std::sync::Arc;
 use types::{
-    beacon_state::{BlockProcessingError, CommitteesError, SlotProcessingError},
+    beacon_state::BeaconStateError,
     readers::{BeaconBlockReader, BeaconStateReader},
-    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Eth1Data,
-    FreeAttestation, Hash256, PublicKey, Signature,
+    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Crosslink, Deposit,
+    Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, Signature, Slot,
 };
-
-use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
-use crate::attestation_targets::AttestationTargets;
-use crate::block_graph::BlockGraph;
-use crate::checkpoint::CheckPoint;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InsufficientValidators,
     BadRecentBlockRoots,
-    CommitteesError(CommitteesError),
+    BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(String),
+    ForkChoiceError(ForkChoiceError),
+    MissingBeaconBlock(Hash256),
+    MissingBeaconState(Hash256),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ValidBlock {
-    /// The block was sucessfully processed.
+    /// The block was successfully processed.
     Processed,
 }
 
@@ -52,87 +56,89 @@ pub enum InvalidBlock {
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
-    /// The block was sucessfully validated.
+    /// The block was successfully validated.
     ValidBlock(ValidBlock),
-    /// The block was not sucessfully validated.
+    /// The block was not successfully validated.
     InvalidBlock(InvalidBlock),
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock> {
+pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
-    pub block_graph: BlockGraph,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
-    justified_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
-    pub latest_attestation_targets: RwLock<AttestationTargets>,
+    pub cached_state: RwLock<CachedBeaconState>,
     pub spec: ChainSpec,
+    pub fork_choice: RwLock<F>,
 }
 
-impl<T, U> BeaconChain<T, U>
+impl<T, U, F> BeaconChain<T, U, F>
 where
     T: ClientDB,
     U: SlotClock,
+    F: ForkChoice,
 {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn genesis(
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,
         slot_clock: U,
+        genesis_time: u64,
+        latest_eth1_data: Eth1Data,
+        initial_validator_deposits: Vec<Deposit>,
         spec: ChainSpec,
+        fork_choice: F,
     ) -> Result<Self, Error> {
-        if spec.initial_validators.is_empty() {
+        if initial_validator_deposits.is_empty() {
             return Err(Error::InsufficientValidators);
         }
 
-        let genesis_state = genesis_beacon_state(&spec);
+        let genesis_state = BeaconState::genesis(
+            genesis_time,
+            initial_validator_deposits,
+            latest_eth1_data,
+            &spec,
+        )?;
         let state_root = genesis_state.canonical_root();
         state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
 
-        let genesis_block = genesis_beacon_block(state_root, &spec);
+        let genesis_block = BeaconBlock::genesis(state_root, &spec);
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
-        let block_graph = BlockGraph::new();
-        block_graph.add_leaf(&Hash256::zero(), block_root.clone());
+        let cached_state = RwLock::new(CachedBeaconState::from_beacon_state(
+            genesis_state.clone(),
+            spec.clone(),
+        )?);
 
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
-            block_root.clone(),
+            block_root,
             genesis_state.clone(),
-            state_root.clone(),
-        ));
-        let justified_head = RwLock::new(CheckPoint::new(
-            genesis_block.clone(),
-            block_root.clone(),
-            genesis_state.clone(),
-            state_root.clone(),
+            state_root,
         ));
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
-            block_root.clone(),
+            block_root,
             genesis_state.clone(),
-            state_root.clone(),
+            state_root,
         ));
         let attestation_aggregator = RwLock::new(AttestationAggregator::new());
-
-        let latest_attestation_targets = RwLock::new(AttestationTargets::new());
 
         Ok(Self {
             block_store,
             state_store,
             slot_clock,
-            block_graph,
             attestation_aggregator,
             state: RwLock::new(genesis_state.clone()),
-            justified_head,
+            cached_state,
             finalized_head,
             canonical_head,
-            latest_attestation_targets,
-            spec: spec,
+            spec,
+            fork_choice: RwLock::new(fork_choice),
         })
     }
 
@@ -196,18 +202,18 @@ where
     /// It is important to note that this is _not_ the state corresponding to the canonical head
     /// block, instead it is that state which may or may not have had additional per slot/epoch
     /// processing applied to it.
-    pub fn advance_state(&self, slot: u64) -> Result<(), SlotProcessingError> {
+    pub fn advance_state(&self, slot: Slot) -> Result<(), SlotProcessingError> {
         let state_slot = self.state.read().slot;
         let head_block_root = self.head().beacon_block_root;
-        for _ in state_slot..slot {
+        for _ in state_slot.as_u64()..slot.as_u64() {
             self.state
                 .write()
-                .per_slot_processing(head_block_root.clone(), &self.spec)?;
+                .per_slot_processing(head_block_root, &self.spec)?;
         }
         Ok(())
     }
 
-    /// Returns the the validator index (if any) for the given public key.
+    /// Returns the validator index (if any) for the given public key.
     ///
     /// Information is retrieved from the present `beacon_state.validator_registry`.
     pub fn validator_index(&self, pubkey: &PublicKey) -> Option<usize> {
@@ -225,19 +231,6 @@ where
         None
     }
 
-    /// Returns the number of slots the validator has been required to propose.
-    ///
-    /// Returns `None` if the `validator_index` is invalid.
-    ///
-    /// Information is retrieved from the present `beacon_state.validator_registry`.
-    pub fn proposer_slots(&self, validator_index: usize) -> Option<u64> {
-        if let Some(validator) = self.state.read().validator_registry.get(validator_index) {
-            Some(validator.proposer_slots)
-        } else {
-            None
-        }
-    }
-
     /// Reads the slot clock, returns `None` if the slot is unavailable.
     ///
     /// The slot might be unavailable due to an error with the system clock, or if the present time
@@ -246,9 +239,10 @@ where
     /// This is distinct to `present_slot`, which simply reads the latest state. If a
     /// call to `read_slot_clock` results in a higher slot than a call to `present_slot`,
     /// `self.state` should undergo per slot processing.
-    pub fn read_slot_clock(&self) -> Option<u64> {
+    pub fn read_slot_clock(&self) -> Option<Slot> {
         match self.slot_clock.present_slot() {
-            Ok(some_slot) => some_slot,
+            Ok(Some(some_slot)) => Some(some_slot),
+            Ok(None) => None,
             _ => None,
         }
     }
@@ -258,7 +252,7 @@ where
     /// This is distinct to `read_slot_clock`, which reads from the actual system clock. If
     /// `self.state` has not been transitioned it is possible for the system clock to be on a
     /// different slot to what is returned from this call.
-    pub fn present_slot(&self) -> u64 {
+    pub fn present_slot(&self) -> Slot {
         self.state.read().slot
     }
 
@@ -266,7 +260,8 @@ where
     ///
     /// Information is read from the present `beacon_state` shuffling, so only information from the
     /// present and prior epoch is available.
-    pub fn block_proposer(&self, slot: u64) -> Result<usize, CommitteesError> {
+    pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
+        trace!("BeaconChain::block_proposer: slot: {}", slot);
         let index = self
             .state
             .read()
@@ -276,8 +271,8 @@ where
     }
 
     /// Returns the justified slot for the present state.
-    pub fn justified_slot(&self) -> u64 {
-        self.state.read().justified_slot
+    pub fn justified_epoch(&self) -> Epoch {
+        self.state.read().justified_epoch
     }
 
     /// Returns the attestation slot and shard for a given validator index.
@@ -287,9 +282,13 @@ where
     pub fn validator_attestion_slot_and_shard(
         &self,
         validator_index: usize,
-    ) -> Result<Option<(u64, u64)>, CommitteesError> {
+    ) -> Result<Option<(Slot, u64)>, BeaconStateError> {
+        trace!(
+            "BeaconChain::validator_attestion_slot_and_shard: validator_index: {}",
+            validator_index
+        );
         if let Some((slot, shard, _committee)) = self
-            .state
+            .cached_state
             .read()
             .attestation_slot_and_shard_for_validator(validator_index, &self.spec)?
         {
@@ -301,32 +300,37 @@ where
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
-        let justified_slot = self.justified_slot();
-        let justified_block_root = self
+        trace!("BeaconChain::produce_attestation_data: shard: {}", shard);
+        let justified_epoch = self.justified_epoch();
+        let justified_block_root = *self
             .state
             .read()
-            .get_block_root(justified_slot, &self.spec)
-            .ok_or_else(|| Error::BadRecentBlockRoots)?
-            .clone();
+            .get_block_root(
+                justified_epoch.start_slot(self.spec.epoch_length),
+                &self.spec,
+            )
+            .ok_or_else(|| Error::BadRecentBlockRoots)?;
 
-        let epoch_boundary_root = self
+        let epoch_boundary_root = *self
             .state
             .read()
             .get_block_root(
                 self.state.read().current_epoch_start_slot(&self.spec),
                 &self.spec,
             )
-            .ok_or_else(|| Error::BadRecentBlockRoots)?
-            .clone();
+            .ok_or_else(|| Error::BadRecentBlockRoots)?;
 
         Ok(AttestationData {
             slot: self.state.read().slot,
             shard,
-            beacon_block_root: self.head().beacon_block_root.clone(),
+            beacon_block_root: self.head().beacon_block_root,
             epoch_boundary_root,
             shard_block_root: Hash256::zero(),
-            latest_crosslink_root: Hash256::zero(),
-            justified_slot,
+            latest_crosslink: Crosslink {
+                epoch: self.state.read().slot.epoch(self.spec.epoch_length),
+                shard_block_root: Hash256::zero(),
+            },
+            justified_epoch,
             justified_block_root,
         })
     }
@@ -339,26 +343,22 @@ where
         &self,
         free_attestation: FreeAttestation,
     ) -> Result<AggregationOutcome, Error> {
-        self.attestation_aggregator
+        let aggregation_outcome = self
+            .attestation_aggregator
             .write()
-            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)
-            .map_err(|e| e.into())
-    }
+            .process_free_attestation(&self.cached_state.read(), &free_attestation, &self.spec)?;
 
-    /// Set the latest attestation target for some validator.
-    pub fn insert_latest_attestation_target(&self, validator_index: u64, block_root: Hash256) {
-        let mut targets = self.latest_attestation_targets.write();
-        targets.insert(validator_index, block_root);
-    }
-
-    /// Get the latest attestation target for some validator.
-    pub fn get_latest_attestation_target(&self, validator_index: u64) -> Option<Hash256> {
-        let targets = self.latest_attestation_targets.read();
-
-        match targets.get(validator_index) {
-            Some(hash) => Some(hash.clone()),
-            None => None,
+        // return if the attestation is invalid
+        if !aggregation_outcome.valid {
+            return Ok(aggregation_outcome);
         }
+
+        // valid attestation, proceed with fork-choice logic
+        self.fork_choice.write().add_attestation(
+            free_attestation.validator_index,
+            &free_attestation.data.beacon_block_root,
+        )?;
+        Ok(aggregation_outcome)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
@@ -446,30 +446,26 @@ where
         let parent_state = self
             .state_store
             .get_reader(&parent_state_root)?
-            .ok_or(Error::DBInconsistent(format!(
-                "Missing state {}",
-                parent_state_root
-            )))?
+            .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?
             .into_beacon_state()
-            .ok_or(Error::DBInconsistent(format!(
-                "State SSZ invalid {}",
-                parent_state_root
-            )))?;
+            .ok_or_else(|| {
+                Error::DBInconsistent(format!("State SSZ invalid {}", parent_state_root))
+            })?;
 
         // TODO: check the block proposer signature BEFORE doing a state transition. This will
         // significantly lower exposure surface to DoS attacks.
 
         // Transition the parent state to the present slot.
         let mut state = parent_state;
-        for _ in state.slot..present_slot {
-            if let Err(e) = state.per_slot_processing(parent_block_root.clone(), &self.spec) {
+        for _ in state.slot.as_u64()..present_slot.as_u64() {
+            if let Err(e) = state.per_slot_processing(parent_block_root, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
                 ));
             }
         }
 
-        // Apply the recieved block to its parent state (which has been transitioned into this
+        // Apply the received block to its parent state (which has been transitioned into this
         // slot).
         if let Err(e) = state.per_block_processing(&block, &self.spec) {
             return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -489,9 +485,8 @@ where
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
-        // Update the block DAG.
-        self.block_graph
-            .add_leaf(&parent_block_root, block_root.clone());
+        // run the fork_choice add_block logic
+        self.fork_choice.write().add_block(&block, &block_root)?;
 
         // If the parent block was the parent_block, automatically update the canonical head.
         //
@@ -502,10 +497,13 @@ where
                 block.clone(),
                 block_root.clone(),
                 state.clone(),
-                state_root.clone(),
+                state_root,
             );
             // Update the local state variable.
             *self.state.write() = state.clone();
+            // Update the cached state variable.
+            *self.cached_state.write() =
+                CachedBeaconState::from_beacon_state(state.clone(), self.spec.clone())?;
         }
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
@@ -513,7 +511,7 @@ where
 
     /// Produce a new block at the present slot.
     ///
-    /// The produced block will not be inheriently valid, it must be signed by a block producer.
+    /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
     pub fn produce_block(&self, randao_reveal: Signature) -> Option<(BeaconBlock, BeaconState)> {
         debug!("Producing block at slot {}...", self.state.read().slot);
@@ -532,15 +530,13 @@ where
             attestations.len()
         );
 
-        let parent_root = state
-            .get_block_root(state.slot.saturating_sub(1), &self.spec)?
-            .clone();
+        let parent_root = *state.get_block_root(state.slot.saturating_sub(1_u64), &self.spec)?;
 
         let mut block = BeaconBlock {
             slot: state.slot,
             parent_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
-            randao_reveal: randao_reveal,
+            randao_reveal,
             eth1_data: Eth1Data {
                 // TODO: replace with real data
                 deposit_root: Hash256::zero(),
@@ -549,19 +545,22 @@ where
             signature: self.spec.empty_signature.clone(), // To be completed by a validator.
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
-                casper_slashings: vec![],
-                attestations: attestations,
-                custody_reseeds: vec![],
-                custody_challenges: vec![],
-                custody_responses: vec![],
+                attester_slashings: vec![],
+                attestations,
                 deposits: vec![],
                 exits: vec![],
             },
         };
 
-        state
-            .per_block_processing_without_verifying_block_signature(&block, &self.spec)
-            .ok()?;
+        trace!("BeaconChain::produce_block: updating state for new block.",);
+
+        let result =
+            state.per_block_processing_without_verifying_block_signature(&block, &self.spec);
+        trace!(
+            "BeaconNode::produce_block: state processing result: {:?}",
+            result
+        );
+        result.ok()?;
 
         let state_root = state.canonical_root();
 
@@ -571,6 +570,31 @@ where
 
         Some((block, state))
     }
+
+    // TODO: Left this as is, modify later
+    pub fn fork_choice(&self) -> Result<(), Error> {
+        let present_head = self.finalized_head().beacon_block_root;
+
+        let new_head = self.fork_choice.write().find_head(&present_head)?;
+
+        if new_head != present_head {
+            let block = self
+                .block_store
+                .get_deserialized(&new_head)?
+                .ok_or_else(|| Error::MissingBeaconBlock(new_head))?;
+            let block_root = block.canonical_root();
+
+            let state = self
+                .state_store
+                .get_deserialized(&block.state_root)?
+                .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+            let state_root = state.canonical_root();
+
+            self.update_canonical_head(block, block_root, state, state_root);
+        }
+
+        Ok(())
+    }
 }
 
 impl From<DBError> for Error {
@@ -579,8 +603,14 @@ impl From<DBError> for Error {
     }
 }
 
-impl From<CommitteesError> for Error {
-    fn from(e: CommitteesError) -> Error {
-        Error::CommitteesError(e)
+impl From<ForkChoiceError> for Error {
+    fn from(e: ForkChoiceError) -> Error {
+        Error::ForkChoiceError(e)
+    }
+}
+
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }

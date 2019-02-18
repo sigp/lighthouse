@@ -1,34 +1,34 @@
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, Epoch};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct Fork {
-    pub pre_fork_version: u64,
-    pub post_fork_version: u64,
-    pub fork_slot: u64,
+    pub previous_version: u64,
+    pub current_version: u64,
+    pub epoch: Epoch,
 }
 
 impl Encodable for Fork {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.pre_fork_version);
-        s.append(&self.post_fork_version);
-        s.append(&self.fork_slot);
+        s.append(&self.previous_version);
+        s.append(&self.current_version);
+        s.append(&self.epoch);
     }
 }
 
 impl Decodable for Fork {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (pre_fork_version, i) = <_>::ssz_decode(bytes, i)?;
-        let (post_fork_version, i) = <_>::ssz_decode(bytes, i)?;
-        let (fork_slot, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_version, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_version, i) = <_>::ssz_decode(bytes, i)?;
+        let (epoch, i) = <_>::ssz_decode(bytes, i)?;
 
         Ok((
             Self {
-                pre_fork_version,
-                post_fork_version,
-                fork_slot,
+                previous_version,
+                current_version,
+                epoch,
             },
             i,
         ))
@@ -38,9 +38,9 @@ impl Decodable for Fork {
 impl TreeHash for Fork {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.pre_fork_version.hash_tree_root());
-        result.append(&mut self.post_fork_version.hash_tree_root());
-        result.append(&mut self.fork_slot.hash_tree_root());
+        result.append(&mut self.previous_version.hash_tree_root());
+        result.append(&mut self.current_version.hash_tree_root());
+        result.append(&mut self.epoch.hash_tree_root());
         hash(&result)
     }
 }
@@ -48,9 +48,9 @@ impl TreeHash for Fork {
 impl<T: RngCore> TestRandom<T> for Fork {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
-            pre_fork_version: <_>::random_for_test(rng),
-            post_fork_version: <_>::random_for_test(rng),
-            fork_slot: <_>::random_for_test(rng),
+            previous_version: <_>::random_for_test(rng),
+            current_version: <_>::random_for_test(rng),
+            epoch: <_>::random_for_test(rng),
         }
     }
 }

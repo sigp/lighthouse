@@ -25,7 +25,7 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         // TODO: build a legit block.
         let mut block = BeaconBlockProto::new();
         block.set_slot(req.get_slot());
-        block.set_block_root("cats".as_bytes().to_vec());
+        block.set_block_root(b"cats".to_vec());
 
         let mut resp = ProduceBeaconBlockResponse::new();
         resp.set_block(block);

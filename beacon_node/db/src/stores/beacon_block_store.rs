@@ -2,7 +2,7 @@ use super::BLOCKS_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use ssz::Decodable;
 use std::sync::Arc;
-use types::{readers::BeaconBlockReader, BeaconBlock, Hash256};
+use types::{readers::BeaconBlockReader, BeaconBlock, Hash256, Slot};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BeaconBlockAtSlotError {
@@ -71,7 +71,7 @@ impl<T: ClientDB> BeaconBlockStore<T> {
     pub fn block_at_slot(
         &self,
         head_hash: &Hash256,
-        slot: u64,
+        slot: Slot,
     ) -> Result<Option<(Hash256, impl BeaconBlockReader)>, BeaconBlockAtSlotError> {
         let mut current_hash = *head_hash;
 
@@ -119,12 +119,12 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
         let mut block = BeaconBlock::random_for_test(&mut rng);
-        block.slot = 10;
+        block.slot = Slot::from(10_u64);
 
         let block_root = block.canonical_root();
         bs.put(&block_root, &ssz_encode(&block)).unwrap();
 
-        let result = bs.block_at_slot(&block_root, 11).unwrap();
+        let result = bs.block_at_slot(&block_root, Slot::from(11_u64)).unwrap();
         assert_eq!(result, None);
     }
 
@@ -138,7 +138,7 @@ mod tests {
 
         db.put(DB_COLUMN, hash, ssz).unwrap();
         assert_eq!(
-            store.block_at_slot(hash, 42),
+            store.block_at_slot(hash, Slot::from(42_u64)),
             Err(BeaconBlockAtSlotError::DBError(
                 "Bad BeaconBlock SSZ.".into()
             ))
@@ -156,7 +156,7 @@ mod tests {
 
         db.put(DB_COLUMN, hash, ssz).unwrap();
         assert_eq!(
-            store.block_at_slot(other_hash, 42),
+            store.block_at_slot(other_hash, Slot::from(42_u64)),
             Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*other_hash))
         );
     }
@@ -221,7 +221,7 @@ mod tests {
             Hash256::from(&[2; 32][..]),
             Hash256::from(&[3; 32][..]),
         ];
-        let slots = [0, 1, 3, 4, 5];
+        let slots: Vec<Slot> = vec![0, 1, 3, 4, 5].iter().map(|x| Slot::new(*x)).collect();
 
         // Generate a vec of random blocks and store them in the DB.
         let block_count = 5;
@@ -249,14 +249,14 @@ mod tests {
             assert_eq!(reader.slot(), slots[slot_index]);
         }
 
-        let ssz = bs.block_at_slot(&hashes[4], 2).unwrap();
+        let ssz = bs.block_at_slot(&hashes[4], Slot::new(2)).unwrap();
         assert_eq!(ssz, None);
 
-        let ssz = bs.block_at_slot(&hashes[4], 6).unwrap();
+        let ssz = bs.block_at_slot(&hashes[4], Slot::new(6)).unwrap();
         assert_eq!(ssz, None);
 
         let bad_hash = &Hash256::from("unknown".as_bytes());
-        let ssz = bs.block_at_slot(bad_hash, 2);
+        let ssz = bs.block_at_slot(bad_hash, Slot::new(2));
         assert_eq!(
             ssz,
             Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*bad_hash))

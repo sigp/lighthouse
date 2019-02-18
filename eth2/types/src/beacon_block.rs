@@ -1,5 +1,5 @@
-use super::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, ProposalSignedData};
 use crate::test_utils::TestRandom;
+use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, ProposalSignedData, Slot};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
@@ -7,7 +7,7 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct BeaconBlock {
-    pub slot: u64,
+    pub slot: Slot,
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub randao_reveal: Signature,
@@ -17,6 +17,28 @@ pub struct BeaconBlock {
 }
 
 impl BeaconBlock {
+    /// Produce the first block of the Beacon Chain.
+    pub fn genesis(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
+        BeaconBlock {
+            slot: spec.genesis_slot,
+            parent_root: spec.zero_hash,
+            state_root,
+            randao_reveal: spec.empty_signature.clone(),
+            eth1_data: Eth1Data {
+                deposit_root: spec.zero_hash,
+                block_hash: spec.zero_hash,
+            },
+            signature: spec.empty_signature.clone(),
+            body: BeaconBlockBody {
+                proposer_slashings: vec![],
+                attester_slashings: vec![],
+                attestations: vec![],
+                deposits: vec![],
+                exits: vec![],
+            },
+        }
+    }
+
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from(&self.hash_tree_root()[..])
     }
@@ -33,7 +55,7 @@ impl BeaconBlock {
             shard: spec.beacon_chain_shard_number,
             block_root: block_without_signature_root,
         };
-        Hash256::from_slice(&proposal.hash_tree_root()[..])
+        Hash256::from(&proposal.hash_tree_root()[..])
     }
 }
 

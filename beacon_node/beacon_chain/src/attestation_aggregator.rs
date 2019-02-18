@@ -1,6 +1,8 @@
+use crate::cached_beacon_state::CachedBeaconState;
+use state_processing::validate_attestation_without_signature;
 use std::collections::{HashMap, HashSet};
 use types::{
-    beacon_state::CommitteesError, AggregateSignature, Attestation, AttestationData, BeaconState,
+    beacon_state::BeaconStateError, AggregateSignature, Attestation, AttestationData, BeaconState,
     Bitfield, ChainSpec, FreeAttestation, Signature,
 };
 
@@ -16,6 +18,7 @@ const PHASE_0_CUSTODY_BIT: bool = false;
 ///
 ///  Note: `Attestations` are stored in memory and never deleted. This is not scalable and must be
 ///  rectified in a future revision.
+#[derive(Default)]
 pub struct AttestationAggregator {
     store: HashMap<Vec<u8>, Attestation>,
 }
@@ -74,12 +77,12 @@ impl AttestationAggregator {
     ///  - The signature is verified against that of the validator at `validator_index`.
     pub fn process_free_attestation(
         &mut self,
-        state: &BeaconState,
+        cached_state: &CachedBeaconState,
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
-    ) -> Result<Outcome, CommitteesError> {
+    ) -> Result<Outcome, BeaconStateError> {
         let (slot, shard, committee_index) = some_or_invalid!(
-            state.attestation_slot_and_shard_for_validator(
+            cached_state.attestation_slot_and_shard_for_validator(
                 free_attestation.validator_index as usize,
                 spec,
             )?,
@@ -102,7 +105,8 @@ impl AttestationAggregator {
         let signable_message = free_attestation.data.signable_message(PHASE_0_CUSTODY_BIT);
 
         let validator_record = some_or_invalid!(
-            state
+            cached_state
+                .state
                 .validator_registry
                 .get(free_attestation.validator_index as usize),
             Message::BadValidatorIndex
@@ -172,9 +176,7 @@ impl AttestationAggregator {
         self.store
             .values()
             .filter_map(|attestation| {
-                if state
-                    .validate_attestation_without_signature(attestation, spec)
-                    .is_ok()
+                if validate_attestation_without_signature(&state, attestation, spec).is_ok()
                     && !known_attestation_data.contains(&attestation.data)
                 {
                     Some(attestation.clone())
