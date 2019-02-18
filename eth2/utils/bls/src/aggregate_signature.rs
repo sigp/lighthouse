@@ -27,7 +27,12 @@ impl AggregateSignature {
     ///
     /// Only returns `true` if the set of keys in the `AggregatePublicKey` match the set of keys
     /// that signed the `AggregateSignature`.
-    pub fn verify(&self, msg: &[u8], domain: u64, aggregate_public_key: &AggregatePublicKey) -> bool {
+    pub fn verify(
+        &self,
+        msg: &[u8],
+        domain: u64,
+        aggregate_public_key: &AggregatePublicKey,
+    ) -> bool {
         self.0.verify(msg, domain, aggregate_public_key)
     }
 
@@ -37,7 +42,6 @@ impl AggregateSignature {
     /// respective message. Here the mappying of `AggregatePublicKey`s to `Messages` is 1:1.
     pub fn verify_multiple(&self, msg: &[u8], domain: u64, aggregate_public_keys: &[AggregatePublicKey]) -> bool {
         self.0.verify_multiple(msg, domain, aggregate_public_keys)
-    }
 }
 
 impl Encodable for AggregateSignature {
@@ -81,7 +85,7 @@ mod tests {
         let keypair = Keypair::random();
 
         let mut original = AggregateSignature::new();
-        original.add(&Signature::new(&[42, 42], &keypair.sk));
+        original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = AggregateSignature::ssz_decode(&bytes, 0).unwrap();

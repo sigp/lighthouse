@@ -1,8 +1,8 @@
 use crate::test_utils::TestRandom;
 use crate::{
     validator::StatusFlags, validator_registry::get_active_validator_indices, AttestationData,
-    Bitfield, ChainSpec, Crosslink, Deposit, Epoch, Eth1Data, Eth1DataVote, Fork, Hash256,
-    PendingAttestation, PublicKey, Signature, Slot, Validator,
+    Bitfield, ChainSpec, Crosslink, Deposit, DepositInput, Epoch, Eth1Data, Eth1DataVote, Fork,
+    Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
@@ -390,6 +390,7 @@ impl BeaconState {
         &self,
         slot: Slot,
         registry_change: bool,
+
         spec: &ChainSpec,
     ) -> Result<Vec<(Vec<usize>, u64)>, BeaconStateError> {
         let epoch = slot.epoch(spec.epoch_length);
@@ -635,6 +636,29 @@ impl BeaconState {
 
         self.validator_registry_update_epoch = current_epoch;
     }
+
+    /// Confirm validator owns PublicKey
+    pub fn validate_proof_of_possession(
+        &self,
+        pubkey: PublicKey,
+        proof_of_possession: Signature,
+        withdrawal_credentials: Hash256,
+        spec: &ChainSpec,
+    ) -> bool {
+        let proof_of_possession_data = DepositInput {
+            pubkey: pubkey.clone(),
+            withdrawal_credentials,
+            proof_of_possession: proof_of_possession.clone(),
+        };
+
+        proof_of_possession.verify(
+            &proof_of_possession_data.hash_tree_root(),
+            self.fork
+                .get_domain(self.slot.epoch(spec.epoch_length), spec.domain_deposit),
+            &pubkey,
+        )
+    }
+
     /// Process a validator deposit, returning the validator index if the deposit is valid.
     ///
     /// Spec v0.2.0
@@ -646,8 +670,17 @@ impl BeaconState {
         withdrawal_credentials: Hash256,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-        // TODO: ensure verify proof-of-possession represents the spec accurately.
-        if !verify_proof_of_possession(&proof_of_possession, &pubkey) {
+        // TODO: update proof of possession to function written above (
+        // requires bls::create_proof_of_possession to be updated
+        // https://github.com/sigp/lighthouse/issues/239
+        if !verify_proof_of_possession(&proof_of_possession, &pubkey)
+        //if !self.validate_proof_of_possession(
+        //    pubkey.clone(),
+        //    proof_of_possession,
+        //    withdrawal_credentials,
+        //    &spec,
+        //    )
+        {
             return Err(());
         }
 

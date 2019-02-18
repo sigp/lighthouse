@@ -10,6 +10,7 @@ pub use self::traits::{
 };
 
 const PHASE_0_CUSTODY_BIT: bool = false;
+const DOMAIN_ATTESTATION: u64 = 1;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -136,8 +137,10 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
     fn sign_attestation_data(&mut self, attestation_data: &AttestationData) -> Option<Signature> {
         self.store_produce(attestation_data);
 
-        self.signer
-            .sign_attestation_message(&attestation_data.signable_message(PHASE_0_CUSTODY_BIT)[..])
+        self.signer.sign_attestation_message(
+            &attestation_data.signable_message(PHASE_0_CUSTODY_BIT)[..],
+            DOMAIN_ATTESTATION,
+        )
     }
 
     /// Returns `true` if signing some attestation_data is safe (non-slashable).
