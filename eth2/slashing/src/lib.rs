@@ -1,7 +1,7 @@
 extern crate bls;
-extern crate spec;
+extern crate ssz;
 extern crate types;
 
-mod slashing;
+mod verify_slashable_attestation;
 
-pub use crate::slashing::verify_slashable_data;
+pub use crate::verify_slashable_attestation::verify_slashable_attestation;

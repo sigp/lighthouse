@@ -6,4 +6,5 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../utils/bls" }
+ssz = { path = "../utils/ssz" }
 types = { path = "../types" }

@@ -13,14 +13,14 @@ pub struct AttestationDataAndCustodyBit {
 impl Encodable for AttestationDataAndCustodyBit {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append(&self.data);
-        // TODO: deal with bools
+        s.append(&self.custody_bit);
     }
 }
 
 impl Decodable for AttestationDataAndCustodyBit {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (data, i) = <_>::ssz_decode(bytes, i)?;
-        let custody_bit = false;
+        let (custody_bit, i) = <_>::ssz_decode(bytes, i)?;
 
         let attestation_data_and_custody_bit = AttestationDataAndCustodyBit { data, custody_bit };
 
@@ -32,7 +32,7 @@ impl TreeHash for AttestationDataAndCustodyBit {
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
         result.append(&mut self.data.hash_tree_root());
-        result.append(custody_bit.hash_tree_root());
+        result.append(&mut self.custody_bit.hash_tree_root());
         ssz::hash(&result)
     }
 }
@@ -41,8 +41,7 @@ impl<T: RngCore> TestRandom<T> for AttestationDataAndCustodyBit {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             data: <_>::random_for_test(rng),
-            // TODO: deal with bools
-            custody_bit: false,
+            custody_bit: <_>::random_for_test(rng),
         }
     }
 }
