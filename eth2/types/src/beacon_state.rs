@@ -4,6 +4,7 @@ use crate::{
     Bitfield, ChainSpec, Crosslink, Deposit, DepositInput, Epoch, Eth1Data, Eth1DataVote, Fork,
     Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
+use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
 use log::trace;
 use rand::RngCore;
@@ -389,6 +390,7 @@ impl BeaconState {
         &self,
         slot: Slot,
         registry_change: bool,
+
         spec: &ChainSpec,
     ) -> Result<Vec<(Vec<usize>, u64)>, BeaconStateError> {
         let epoch = slot.epoch(spec.epoch_length);
@@ -668,12 +670,17 @@ impl BeaconState {
         withdrawal_credentials: Hash256,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-        if !self.validate_proof_of_possession(
-            pubkey.clone(),
-            proof_of_possession,
-            withdrawal_credentials,
-            &spec,
-        ) {
+        // TODO: update proof of possession to function written above (
+        // requires bls::create_proof_of_possession to be updated
+        // https://github.com/sigp/lighthouse/issues/239
+        if !verify_proof_of_possession(&proof_of_possession, &pubkey)
+        //if !self.validate_proof_of_possession(
+        //    pubkey.clone(),
+        //    proof_of_possession,
+        //    withdrawal_credentials,
+        //    &spec,
+        //    )
+        {
             return Err(());
         }
 
