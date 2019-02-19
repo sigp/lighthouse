@@ -40,6 +40,10 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
+/// Returns a Vec of `syn::Ident` for each named field in the struct.
+///
+/// # Panics
+/// Any unnamed struct field (like in a tuple struct) will raise a panic at compile time.
 fn get_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Ident> {
     struct_data
         .fields
