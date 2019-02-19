@@ -15,16 +15,13 @@ use bls::{PublicKey, Signature};
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
 use env_logger::{Builder, Env};
-use fork_choice::{ForkChoice, ForkChoiceError, OptimisedLMDGhost};
+use fork_choice::{ForkChoice, OptimisedLMDGhost};
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::{fs::File, io::prelude::*, path::PathBuf, str::FromStr};
-use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::validator_registry::get_active_validator_indices;
+use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::{
-    BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Deposit, DepositData, DepositInput,
-    Eth1Data, Hash256, Slot, Validator,
+    BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Epoch, Eth1Data, Hash256, Slot, Validator,
 };
 use yaml_rust::yaml;
 
@@ -50,25 +47,6 @@ fn setup_inital_state(
     };
 
     let initial_validator_deposits = vec![];
-
-    /*
-    (0..no_validators)
-        .map(|_| Deposit {
-            branch: vec![],
-            index: 0,
-            deposit_data: DepositData {
-                amount: 32_000_000_000, // 32 ETH (in Gwei)
-                timestamp: genesis_time - 1,
-                deposit_input: DepositInput {
-                    pubkey: PublicKey::default(),
-                    withdrawal_credentials: zero_hash.clone(),
-                    proof_of_possession: Signature::empty_signature(),
-                },
-            },
-        })
-        .collect();
-    */
-
     let spec = ChainSpec::foundation();
 
     // create the state
@@ -80,18 +58,18 @@ fn setup_inital_state(
     )
     .unwrap();
 
+    let default_validator = Validator {
+        pubkey: PublicKey::default(),
+        withdrawal_credentials: zero_hash,
+        activation_epoch: Epoch::from(0u64),
+        exit_epoch: spec.far_future_epoch,
+        withdrawal_epoch: spec.far_future_epoch,
+        penalized_epoch: spec.far_future_epoch,
+        status_flags: None,
+    };
     // activate the validators
     for _ in 0..no_validators {
-        let validator = Validator {
-            pubkey: PublicKey::default(),
-            withdrawal_credentials: zero_hash,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawal_epoch: spec.far_future_epoch,
-            penalized_epoch: spec.far_future_epoch,
-            status_flags: None,
-        };
-        state.validator_registry.push(validator);
+        state.validator_registry.push(default_validator.clone());
         state.validator_balances.push(32_000_000_000);
     }
 
@@ -100,13 +78,6 @@ fn setup_inital_state(
         .put(&state_root, &ssz_encode(&state)[..])
         .unwrap();
 
-    println!(
-        "Active: {:?}",
-        get_active_validator_indices(
-            &state.validator_registry,
-            Slot::from(5u64).epoch(spec.EPOCH_LENGTH)
-        )
-    );
     // return initialised vars
     (optimised_lmd_ghost, block_store, state_root)
 }
@@ -115,7 +86,7 @@ fn setup_inital_state(
 #[test]
 fn test_optimised_lmd_ghost() {
     // set up logging
-    Builder::from_env(Env::default().default_filter_or("trace")).init();
+    Builder::from_env(Env::default().default_filter_or("debug")).init();
 
     // load the yaml
     let mut file = {
@@ -141,6 +112,7 @@ fn test_optimised_lmd_ghost() {
     let mut block_slot: HashMap<Hash256, Slot> = HashMap::new();
 
     // default vars
+    let spec = ChainSpec::foundation();
     let zero_hash = Hash256::zero();
     let eth1_data = Eth1Data {
         deposit_root: zero_hash.clone(),
@@ -165,7 +137,7 @@ fn test_optimised_lmd_ghost() {
 
             // default params for genesis
             let mut block_hash = zero_hash.clone();
-            let mut slot = Slot::from(0u64);
+            let mut slot = spec.genesis_slot;
             let mut parent_root = zero_hash;
 
             // set the slot and parent based off the YAML. Start with genesis;
@@ -206,7 +178,9 @@ fn test_optimised_lmd_ghost() {
 
             // run add block for fork choice if not genesis
             if parent_id != block_id {
-                fork_choice.add_block(&beacon_block, &block_hash).unwrap();
+                fork_choice
+                    .add_block(&beacon_block, &block_hash, &spec)
+                    .unwrap();
             }
         }
 
@@ -225,7 +199,7 @@ fn test_optimised_lmd_ghost() {
                 for _ in 0..weight {
                     assert!(current_validator <= total_emulated_validators);
                     fork_choice
-                        .add_attestation(current_validator as u64, &block_root)
+                        .add_attestation(current_validator as u64, &block_root, &spec)
                         .unwrap();
                     current_validator += 1;
                 }
@@ -233,16 +207,23 @@ fn test_optimised_lmd_ghost() {
         }
 
         // everything is set up, run the fork choice, using genesis as the head
-        println!("Running fork choice");
-        let head = fork_choice.find_head(&zero_hash).unwrap();
+        let head = fork_choice.find_head(&zero_hash, &spec).unwrap();
 
-        let mut found_id = None;
-        for (id, block_hash) in block_id_map.iter() {
-            if *block_hash == head {
-                found_id = Some(id);
-            }
-        }
+        let (found_id, _) = block_id_map
+            .iter()
+            .find(|(_, hash)| **hash == head)
+            .unwrap();
+
+        // compare the result to the expected test
+        let success = test_case["heads"]
+            .clone()
+            .into_vec()
+            .unwrap()
+            .iter()
+            .find(|heads| heads["id"].as_str().unwrap() == found_id)
+            .is_some();
 
         println!("Head Block ID: {:?}", found_id);
+        assert!(success, "Did not find one of the possible heads");
     }
 }

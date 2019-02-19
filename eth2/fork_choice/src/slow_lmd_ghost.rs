@@ -1,23 +1,3 @@
-// Copyright 2019 Sigma Prime Pty Ltd.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
-
 extern crate db;
 
 use crate::{ForkChoice, ForkChoiceError};
@@ -64,7 +44,7 @@ where
     pub fn get_latest_votes(
         &self,
         state_root: &Hash256,
-        block_slot: &Slot,
+        block_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<HashMap<Hash256, u64>, ForkChoiceError> {
         // get latest votes
@@ -122,7 +102,7 @@ where
             let (root_at_slot, _) = self
                 .block_store
                 .block_at_slot(&block_root, block_slot)?
-                .ok_or(ForkChoiceError::MissingBeaconBlock(*block_root))?;
+                .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_root))?;
             if root_at_slot == *target_hash {
                 count += votes;
             }
@@ -171,7 +151,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .get_deserialized(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
                 .slot()
-                .height(Slot::from(spec.genesis_slot));
+                .height(spec.genesis_slot);
 
             // get the height of the past target block
             let past_block_height = self
@@ -179,7 +159,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .get_deserialized(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot()
-                .height(Slot::from(spec.genesis_slot));
+                .height(spec.genesis_slot);
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
                 *attestation_target = *target_block_root;
@@ -201,7 +181,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
 
         let start_state_root = start.state_root();
 
-        let latest_votes = self.get_latest_votes(&start_state_root, &start.slot(), spec)?;
+        let latest_votes = self.get_latest_votes(&start_state_root, start.slot(), spec)?;
 
         let mut head_hash = Hash256::zero();
 
