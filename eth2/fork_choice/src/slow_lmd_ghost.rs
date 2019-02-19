@@ -30,12 +30,15 @@ impl<T> SlowLMDGhost<T>
 where
     T: ClientDB + Sized,
 {
-    pub fn new(block_store: BeaconBlockStore<T>, state_store: BeaconStateStore<T>) -> Self {
+    pub fn new(
+        block_store: Arc<BeaconBlockStore<T>>,
+        state_store: Arc<BeaconStateStore<T>>,
+    ) -> Self {
         SlowLMDGhost {
             latest_attestation_targets: HashMap::new(),
             children: HashMap::new(),
-            block_store: Arc::new(block_store),
-            state_store: Arc::new(state_store),
+            block_store,
+            state_store,
         }
     }
 

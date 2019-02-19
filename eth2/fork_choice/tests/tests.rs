@@ -15,7 +15,7 @@ use bls::{PublicKey, Signature};
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
 use env_logger::{Builder, Env};
-use fork_choice::{ForkChoice, OptimisedLMDGhost};
+use fork_choice::{ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimisedLMDGhost, SlowLMDGhost};
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,86 +25,32 @@ use types::{
 };
 use yaml_rust::yaml;
 
-// initialise a single validator and state. All blocks will reference this state root.
-fn setup_inital_state(
-    no_validators: usize,
-) -> (impl ForkChoice, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
-    let zero_hash = Hash256::zero();
-
-    let db = Arc::new(MemoryDB::open());
-    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
-    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
-
-    // the fork choice instantiation
-    let optimised_lmd_ghost = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
-
-    // misc vars for setting up the state
-    let genesis_time = 1_550_381_159;
-
-    let latest_eth1_data = Eth1Data {
-        deposit_root: zero_hash.clone(),
-        block_hash: zero_hash.clone(),
-    };
-
-    let initial_validator_deposits = vec![];
-    let spec = ChainSpec::foundation();
-
-    // create the state
-    let mut state = BeaconState::genesis(
-        genesis_time,
-        initial_validator_deposits,
-        latest_eth1_data,
-        &spec,
-    )
-    .unwrap();
-
-    let default_validator = Validator {
-        pubkey: PublicKey::default(),
-        withdrawal_credentials: zero_hash,
-        activation_epoch: Epoch::from(0u64),
-        exit_epoch: spec.far_future_epoch,
-        withdrawal_epoch: spec.far_future_epoch,
-        penalized_epoch: spec.far_future_epoch,
-        status_flags: None,
-    };
-    // activate the validators
-    for _ in 0..no_validators {
-        state.validator_registry.push(default_validator.clone());
-        state.validator_balances.push(32_000_000_000);
-    }
-
-    let state_root = state.canonical_root();
-    state_store
-        .put(&state_root, &ssz_encode(&state)[..])
-        .unwrap();
-
-    // return initialised vars
-    (optimised_lmd_ghost, block_store, state_root)
-}
-
-// YAML test vectors
+// run tests
 #[test]
 fn test_optimised_lmd_ghost() {
+    test_yaml_vectors(
+        ForkChoiceAlgorithm::OptimisedLMDGhost,
+        "tests/optimised_lmd_ghost_test_vectors.yaml",
+        100,
+    );
+}
+
+// run a generic test over given YAML test vectors
+fn test_yaml_vectors(
+    fork_choice_algo: ForkChoiceAlgorithm,
+    yaml_file_path: &str,
+    max_validators: usize,
+) {
     // set up logging
     Builder::from_env(Env::default().default_filter_or("debug")).init();
 
-    // load the yaml
-    let mut file = {
-        let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        file_path_buf.push("tests/fork_choice_test_vectors.yaml");
-
-        File::open(file_path_buf).unwrap()
-    };
-
-    let mut yaml_str = String::new();
-    file.read_to_string(&mut yaml_str).unwrap();
-    let docs = yaml::YamlLoader::load_from_str(&yaml_str).unwrap();
-    let doc = &docs[0];
-    let test_cases = doc["test_cases"].as_vec().unwrap();
+    // load test cases from yaml
+    let test_cases = load_test_cases_from_yaml(yaml_file_path);
 
     // set up the test
-    let total_emulated_validators = 20; // the number of validators used to give weights.
-    let (mut fork_choice, block_store, state_root) = setup_inital_state(total_emulated_validators);
+    let total_emulated_validators = max_validators; // the number of validators used to give weights.
+    let (mut fork_choice, block_store, state_root) =
+        setup_inital_state(fork_choice_algo, total_emulated_validators);
 
     // keep a hashmap of block_id's to block_hashes (random hashes to abstract block_id)
     let mut block_id_map: HashMap<String, Hash256> = HashMap::new();
@@ -226,4 +172,86 @@ fn test_optimised_lmd_ghost() {
         println!("Head Block ID: {:?}", found_id);
         assert!(success, "Did not find one of the possible heads");
     }
+}
+
+// loads the test_cases from the supplied yaml file
+fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
+    // load the yaml
+    let mut file = {
+        let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        file_path_buf.push(file_path);
+        File::open(file_path_buf).unwrap()
+    };
+    let mut yaml_str = String::new();
+    file.read_to_string(&mut yaml_str).unwrap();
+    let docs = yaml::YamlLoader::load_from_str(&yaml_str).unwrap();
+    let doc = &docs[0];
+    doc["test_cases"].as_vec().unwrap().clone()
+}
+
+// initialise a single validator and state. All blocks will reference this state root.
+fn setup_inital_state(
+    fork_choice_algo: ForkChoiceAlgorithm,
+    no_validators: usize,
+) -> (Box<ForkChoice>, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
+    let zero_hash = Hash256::zero();
+
+    let db = Arc::new(MemoryDB::open());
+    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
+    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
+
+    // the fork choice instantiation
+    let fork_choice: Box<ForkChoice> = match fork_choice_algo {
+        ForkChoiceAlgorithm::OptimisedLMDGhost => Box::new(OptimisedLMDGhost::new(
+            block_store.clone(),
+            state_store.clone(),
+        )),
+        ForkChoiceAlgorithm::SlowLMDGhost => {
+            Box::new(SlowLMDGhost::new(block_store.clone(), state_store.clone()))
+        }
+        ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(block_store.clone())),
+    };
+
+    // misc vars for setting up the state
+    let genesis_time = 1_550_381_159;
+
+    let latest_eth1_data = Eth1Data {
+        deposit_root: zero_hash.clone(),
+        block_hash: zero_hash.clone(),
+    };
+
+    let initial_validator_deposits = vec![];
+    let spec = ChainSpec::foundation();
+
+    // create the state
+    let mut state = BeaconState::genesis(
+        genesis_time,
+        initial_validator_deposits,
+        latest_eth1_data,
+        &spec,
+    )
+    .unwrap();
+
+    let default_validator = Validator {
+        pubkey: PublicKey::default(),
+        withdrawal_credentials: zero_hash,
+        activation_epoch: Epoch::from(0u64),
+        exit_epoch: spec.far_future_epoch,
+        withdrawal_epoch: spec.far_future_epoch,
+        penalized_epoch: spec.far_future_epoch,
+        status_flags: None,
+    };
+    // activate the validators
+    for _ in 0..no_validators {
+        state.validator_registry.push(default_validator.clone());
+        state.validator_balances.push(32_000_000_000);
+    }
+
+    let state_root = state.canonical_root();
+    state_store
+        .put(&state_root, &ssz_encode(&state)[..])
+        .unwrap();
+
+    // return initialised vars
+    (fork_choice, block_store, state_root)
 }
