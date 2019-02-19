@@ -3,34 +3,13 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz_derive::{Decode, Encode};
 
 // Note: this is refer to as DepositRootVote in specs
-#[derive(Debug, PartialEq, Clone, Default, Serialize)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
 pub struct Eth1DataVote {
     pub eth1_data: Eth1Data,
     pub vote_count: u64,
-}
-
-impl Encodable for Eth1DataVote {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.eth1_data);
-        s.append(&self.vote_count);
-    }
-}
-
-impl Decodable for Eth1DataVote {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (eth1_data, i) = <_>::ssz_decode(bytes, i)?;
-        let (vote_count, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                eth1_data,
-                vote_count,
-            },
-            i,
-        ))
-    }
 }
 
 impl TreeHash for Eth1DataVote {

@@ -2,41 +2,14 @@ use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfiel
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
 pub struct SlashableAttestation {
     pub validator_indices: Vec<u64>,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
     pub aggregate_signature: AggregateSignature,
-}
-
-impl Encodable for SlashableAttestation {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.validator_indices);
-        s.append(&self.data);
-        s.append(&self.custody_bitfield);
-        s.append(&self.aggregate_signature);
-    }
-}
-
-impl Decodable for SlashableAttestation {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (validator_indices, i) = <_>::ssz_decode(bytes, i)?;
-        let (data, i) = <_>::ssz_decode(bytes, i)?;
-        let (custody_bitfield, i) = <_>::ssz_decode(bytes, i)?;
-        let (aggregate_signature, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            SlashableAttestation {
-                validator_indices,
-                data,
-                custody_bitfield,
-                aggregate_signature,
-            },
-            i,
-        ))
-    }
 }
 
 impl TreeHash for SlashableAttestation {
