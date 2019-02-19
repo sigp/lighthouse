@@ -1,3 +1,38 @@
+//! Provides the following procedural derive macros:
+//!
+//! - `#[derive(Encode)]`
+//! - `#[derive(Decode)]`
+//!
+//! These macros provide SSZ encoding/decoding for a `struct`. Fields are encoded/decoded in the
+//! order they are defined.
+//!
+//! Presently, only `structs` with named fields are supported. `enum`s and tuple-structs are
+//! unsupported.
+//!
+//! Example:
+//! ```
+//! use ssz::{ssz_encode, Decodable, Encodable};
+//!
+//! #[derive(Encodable, Decodable)]
+//! struct Foo {
+//!     bar: bool,
+//!     baz: u64,
+//! }
+//!
+//! fn main() {
+//!     let foo = Foo {
+//!         bar: true,
+//!         baz: 42,
+//!     };
+//!
+//!     let bytes = ssz_encode(&foo);
+//!
+//!     let decoded_foo = Foo::ssz_decode(bytes, 0).unwrap();
+//!
+//!     assert_eq!(foo.baz, decoded_foo.baz);
+//! }
+//! ```
+
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
@@ -15,6 +50,9 @@ fn get_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::
         .collect()
 }
 
+/// Implements `ssz::Encodable` on some `struct`.
+///
+/// Fields are encoded in the order they are defined.
 #[proc_macro_derive(Encode)]
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
@@ -40,6 +78,9 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     output.into()
 }
 
+/// Implements `ssz::Decodable` on some `struct`.
+///
+/// Fields are decoded in the order they are defined.
 #[proc_macro_derive(Decode)]
 pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
