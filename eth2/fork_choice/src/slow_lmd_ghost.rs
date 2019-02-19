@@ -54,7 +54,6 @@ where
         // Note: Votes are weighted by min(balance, MAX_DEPOSIT_AMOUNT) //
         // FORK_CHOICE_BALANCE_INCREMENT
         // build a hashmap of block_hash to weighted votes
-        trace!("FORKCHOICE: Getting the latest votes");
         let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
         // gets the current weighted votes
         let current_state = self
@@ -65,10 +64,6 @@ where
         let active_validator_indices = get_active_validator_indices(
             &current_state.validator_registry[..],
             block_slot.epoch(spec.epoch_length),
-        );
-        trace!(
-            "FORKCHOICE: Active validator indicies: {:?}",
-            active_validator_indices
         );
 
         for index in active_validator_indices {
@@ -101,12 +96,12 @@ where
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_root))?
             .slot();
 
-        for (target_hash, votes) in latest_votes.iter() {
+        for (vote_hash, votes) in latest_votes.iter() {
             let (root_at_slot, _) = self
                 .block_store
-                .block_at_slot(&block_root, block_slot)?
+                .block_at_slot(&vote_hash, block_slot)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_root))?;
-            if root_at_slot == *target_hash {
+            if root_at_slot == *block_root {
                 count += votes;
             }
         }
@@ -142,12 +137,21 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
     ) -> Result<(), ForkChoiceError> {
         // simply add the attestation to the latest_attestation_target if the block_height is
         // larger
+        trace!(
+            "FORKCHOICE: Adding attestation of validator: {:?} for block: {}",
+            validator_index,
+            target_block_root
+        );
         let attestation_target = self
             .latest_attestation_targets
             .entry(validator_index)
             .or_insert_with(|| *target_block_root);
         // if we already have a value
         if attestation_target != target_block_root {
+            trace!(
+                "FORKCHOICE: Old attestation found: {:?}",
+                attestation_target
+            );
             // get the height of the target block
             let block_height = self
                 .block_store
@@ -165,6 +169,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .height(spec.genesis_slot);
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
+                trace!("FORKCHOICE: Updating old attestation");
                 *attestation_target = *target_block_root;
             }
         }
@@ -177,6 +182,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
         justified_block_start: &Hash256,
         spec: &ChainSpec,
     ) -> Result<Hash256, ForkChoiceError> {
+        debug!("FORKCHOICE: Running LMD Ghost Fork-choice rule");
         let start = self
             .block_store
             .get_deserialized(&justified_block_start)?
@@ -189,7 +195,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
         let mut head_hash = Hash256::zero();
 
         loop {
-            let mut head_vote_count = 0;
+            debug!("FORKCHOICE: Iteration for block: {}", head_hash);
 
             let children = match self.children.get(&head_hash) {
                 Some(children) => children,
@@ -197,8 +203,22 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 None => break,
             };
 
+            // if we only have one child, use it
+            if children.len() == 1 {
+                trace!("FORKCHOICE: Single child found.");
+                head_hash = children[0];
+                continue;
+            }
+            trace!("FORKCHOICE: Children found: {:?}", children);
+
+            let mut head_vote_count = 0;
             for child_hash in children {
                 let vote_count = self.get_vote_count(&latest_votes, &child_hash)?;
+                trace!(
+                    "FORKCHOICE: Vote count for child: {} is: {}",
+                    child_hash,
+                    vote_count
+                );
 
                 if vote_count > head_vote_count {
                     head_hash = *child_hash;
