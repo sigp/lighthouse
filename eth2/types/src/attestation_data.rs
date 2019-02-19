@@ -45,16 +45,16 @@ impl AttestationData {
 }
 
 impl TreeHash for AttestationData {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
-        result.append(&mut self.shard.hash_tree_root());
-        result.append(&mut self.beacon_block_root.hash_tree_root());
-        result.append(&mut self.epoch_boundary_root.hash_tree_root());
-        result.append(&mut self.shard_block_root.hash_tree_root());
-        result.append(&mut self.latest_crosslink.hash_tree_root());
-        result.append(&mut self.justified_epoch.hash_tree_root());
-        result.append(&mut self.justified_block_root.hash_tree_root());
+        result.append(&mut self.slot.hash_tree_root_internal());
+        result.append(&mut self.shard.hash_tree_root_internal());
+        result.append(&mut self.beacon_block_root.hash_tree_root_internal());
+        result.append(&mut self.epoch_boundary_root.hash_tree_root_internal());
+        result.append(&mut self.shard_block_root.hash_tree_root_internal());
+        result.append(&mut self.latest_crosslink.hash_tree_root_internal());
+        result.append(&mut self.justified_epoch.hash_tree_root_internal());
+        result.append(&mut self.justified_block_root.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -92,11 +92,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = AttestationData::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests

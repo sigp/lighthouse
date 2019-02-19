@@ -1,7 +1,7 @@
 use crate::SlotProcessingError;
 use hashing::hash;
 use int_to_bytes::int_to_bytes32;
-use log::debug;
+use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
 use types::{
     beacon_state::{AttestationParticipantsError, BeaconStateError},
@@ -219,6 +219,8 @@ fn per_block_processing_signature_optional(
         Error::MaxAttestationsExceeded
     );
 
+    debug!("Verifying {} attestations.", block.body.attestations.len());
+
     for attestation in &block.body.attestations {
         validate_attestation(&state, attestation, spec)?;
 
@@ -230,11 +232,6 @@ fn per_block_processing_signature_optional(
         };
         state.latest_attestations.push(pending_attestation);
     }
-
-    debug!(
-        "{} attestations verified & processed.",
-        block.body.attestations.len()
-    );
 
     /*
      * Deposits
@@ -312,6 +309,10 @@ fn validate_attestation_signature_optional(
     spec: &ChainSpec,
     verify_signature: bool,
 ) -> Result<(), AttestationValidationError> {
+    trace!(
+        "validate_attestation_signature_optional: attestation epoch: {}",
+        attestation.data.slot.epoch(spec.epoch_length)
+    );
     ensure!(
         attestation.data.slot + spec.min_attestation_inclusion_delay <= state.slot,
         AttestationValidationError::IncludedTooEarly

@@ -6,6 +6,7 @@ use crate::{
 };
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
+use log::trace;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -205,7 +206,12 @@ impl BeaconState {
     ///
     /// Spec v0.2.0
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.current_epoch(spec).saturating_sub(1_u64)
+        let current_epoch = self.current_epoch(&spec);
+        if current_epoch == spec.genesis_epoch {
+            current_epoch
+        } else {
+            current_epoch - 1
+        }
     }
 
     /// The epoch following `self.current_epoch()`.
@@ -262,11 +268,25 @@ impl BeaconState {
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, epoch);
 
+        if active_validator_indices.is_empty() {
+            return None;
+        }
+
+        trace!(
+            "get_shuffling: active_validator_indices.len() == {}",
+            active_validator_indices.len()
+        );
+
         let committees_per_epoch =
             self.get_epoch_committee_count(active_validator_indices.len(), spec);
 
-        let mut shuffled_active_validator_indices =
-            Vec::with_capacity(active_validator_indices.len());
+        trace!(
+            "get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
+            active_validator_indices.len(),
+            committees_per_epoch
+        );
+
+        let mut shuffled_active_validator_indices = vec![0; active_validator_indices.len()];
         for &i in &active_validator_indices {
             let shuffled_i = get_permutated_index(
                 i,
@@ -320,9 +340,17 @@ impl BeaconState {
             + 1;
         let latest_index_root = current_epoch + spec.entry_exit_delay;
 
+        trace!(
+            "get_active_index_root: epoch: {}, earliest: {}, latest: {}",
+            epoch,
+            earliest_index_root,
+            latest_index_root
+        );
+
         if (epoch >= earliest_index_root) & (epoch <= latest_index_root) {
             Some(self.latest_index_roots[epoch.as_usize() % spec.latest_index_roots_length])
         } else {
+            trace!("get_active_index_root: epoch out of range.");
             None
         }
     }
@@ -367,29 +395,28 @@ impl BeaconState {
     ) -> Result<Vec<(Vec<usize>, u64)>, BeaconStateError> {
         let epoch = slot.epoch(spec.epoch_length);
         let current_epoch = self.current_epoch(spec);
-        let previous_epoch = if current_epoch == spec.genesis_epoch {
-            current_epoch
-        } else {
-            current_epoch.saturating_sub(1_u64)
-        };
+        let previous_epoch = self.previous_epoch(spec);
         let next_epoch = self.next_epoch(spec);
 
         let (committees_per_epoch, seed, shuffling_epoch, shuffling_start_shard) =
-            if epoch == previous_epoch {
-                (
-                    self.get_previous_epoch_committee_count(spec),
-                    self.previous_epoch_seed,
-                    self.previous_calculation_epoch,
-                    self.previous_epoch_start_shard,
-                )
-            } else if epoch == current_epoch {
+            if epoch == current_epoch {
+                trace!("get_crosslink_committees_at_slot: current_epoch");
                 (
                     self.get_current_epoch_committee_count(spec),
                     self.current_epoch_seed,
                     self.current_calculation_epoch,
                     self.current_epoch_start_shard,
                 )
+            } else if epoch == previous_epoch {
+                trace!("get_crosslink_committees_at_slot: previous_epoch");
+                (
+                    self.get_previous_epoch_committee_count(spec),
+                    self.previous_epoch_seed,
+                    self.previous_calculation_epoch,
+                    self.previous_epoch_start_shard,
+                )
             } else if epoch == next_epoch {
+                trace!("get_crosslink_committees_at_slot: next_epoch");
                 let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
                 let epochs_since_last_registry_update =
                     current_epoch - self.validator_registry_update_epoch;
@@ -425,6 +452,13 @@ impl BeaconState {
         let committees_per_slot = committees_per_epoch / spec.epoch_length;
         let slot_start_shard =
             (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
+
+        trace!(
+            "get_crosslink_committees_at_slot: committees_per_slot: {}, slot_start_shard: {}, seed: {}",
+            committees_per_slot,
+            slot_start_shard,
+            seed
+        );
 
         let mut crosslinks_at_slot = vec![];
         for i in 0..committees_per_slot {
@@ -477,6 +511,11 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<usize, BeaconStateError> {
         let committees = self.get_crosslink_committees_at_slot(slot, false, spec)?;
+        trace!(
+            "get_beacon_proposer_index: slot: {}, committees_count: {}",
+            slot,
+            committees.len()
+        );
         committees
             .first()
             .ok_or(BeaconStateError::InsufficientValidators)
@@ -930,33 +969,37 @@ impl From<AttestationParticipantsError> for InclusionError {
 }
 
 impl TreeHash for BeaconState {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
-        result.append(&mut self.genesis_time.hash_tree_root());
-        result.append(&mut self.fork.hash_tree_root());
-        result.append(&mut self.validator_registry.hash_tree_root());
-        result.append(&mut self.validator_balances.hash_tree_root());
-        result.append(&mut self.validator_registry_update_epoch.hash_tree_root());
-        result.append(&mut self.latest_randao_mixes.hash_tree_root());
-        result.append(&mut self.previous_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.current_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.previous_calculation_epoch.hash_tree_root());
-        result.append(&mut self.current_calculation_epoch.hash_tree_root());
-        result.append(&mut self.previous_epoch_seed.hash_tree_root());
-        result.append(&mut self.current_epoch_seed.hash_tree_root());
-        result.append(&mut self.previous_justified_epoch.hash_tree_root());
-        result.append(&mut self.justified_epoch.hash_tree_root());
-        result.append(&mut self.justification_bitfield.hash_tree_root());
-        result.append(&mut self.finalized_epoch.hash_tree_root());
-        result.append(&mut self.latest_crosslinks.hash_tree_root());
-        result.append(&mut self.latest_block_roots.hash_tree_root());
-        result.append(&mut self.latest_index_roots.hash_tree_root());
-        result.append(&mut self.latest_penalized_balances.hash_tree_root());
-        result.append(&mut self.latest_attestations.hash_tree_root());
-        result.append(&mut self.batched_block_roots.hash_tree_root());
-        result.append(&mut self.latest_eth1_data.hash_tree_root());
-        result.append(&mut self.eth1_data_votes.hash_tree_root());
+        result.append(&mut self.slot.hash_tree_root_internal());
+        result.append(&mut self.genesis_time.hash_tree_root_internal());
+        result.append(&mut self.fork.hash_tree_root_internal());
+        result.append(&mut self.validator_registry.hash_tree_root_internal());
+        result.append(&mut self.validator_balances.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .validator_registry_update_epoch
+                .hash_tree_root_internal(),
+        );
+        result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.previous_calculation_epoch.hash_tree_root_internal());
+        result.append(&mut self.current_calculation_epoch.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.previous_justified_epoch.hash_tree_root_internal());
+        result.append(&mut self.justified_epoch.hash_tree_root_internal());
+        result.append(&mut self.justification_bitfield.hash_tree_root_internal());
+        result.append(&mut self.finalized_epoch.hash_tree_root_internal());
+        result.append(&mut self.latest_crosslinks.hash_tree_root_internal());
+        result.append(&mut self.latest_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_index_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_penalized_balances.hash_tree_root_internal());
+        result.append(&mut self.latest_attestations.hash_tree_root_internal());
+        result.append(&mut self.batched_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
+        result.append(&mut self.eth1_data_votes.hash_tree_root_internal());
         hash(&result)
     }
 }

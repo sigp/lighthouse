@@ -1,4 +1,5 @@
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
+use crate::cached_beacon_state::CachedBeaconState;
 use crate::checkpoint::CheckPoint;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -69,6 +70,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
+    pub cached_state: RwLock<CachedBeaconState>,
     pub spec: ChainSpec,
     pub fork_choice: RwLock<F>,
 }
@@ -107,6 +109,11 @@ where
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
+        let cached_state = RwLock::new(CachedBeaconState::from_beacon_state(
+            genesis_state.clone(),
+            spec.clone(),
+        )?);
+
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
@@ -127,6 +134,7 @@ where
             slot_clock,
             attestation_aggregator,
             state: RwLock::new(genesis_state.clone()),
+            cached_state,
             finalized_head,
             canonical_head,
             spec,
@@ -253,6 +261,7 @@ where
     /// Information is read from the present `beacon_state` shuffling, so only information from the
     /// present and prior epoch is available.
     pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
+        trace!("BeaconChain::block_proposer: slot: {}", slot);
         let index = self
             .state
             .read()
@@ -274,8 +283,12 @@ where
         &self,
         validator_index: usize,
     ) -> Result<Option<(Slot, u64)>, BeaconStateError> {
+        trace!(
+            "BeaconChain::validator_attestion_slot_and_shard: validator_index: {}",
+            validator_index
+        );
         if let Some((slot, shard, _committee)) = self
-            .state
+            .cached_state
             .read()
             .attestation_slot_and_shard_for_validator(validator_index, &self.spec)?
         {
@@ -287,6 +300,7 @@ where
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
+        trace!("BeaconChain::produce_attestation_data: shard: {}", shard);
         let justified_epoch = self.justified_epoch();
         let justified_block_root = *self
             .state
@@ -332,9 +346,7 @@ where
         let aggregation_outcome = self
             .attestation_aggregator
             .write()
-            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)?;
-        // TODO: Check this comment
-        //.map_err(|e| e.into())?;
+            .process_free_attestation(&self.cached_state.read(), &free_attestation, &self.spec)?;
 
         // return if the attestation is invalid
         if !aggregation_outcome.valid {
@@ -489,6 +501,9 @@ where
             );
             // Update the local state variable.
             *self.state.write() = state.clone();
+            // Update the cached state variable.
+            *self.cached_state.write() =
+                CachedBeaconState::from_beacon_state(state.clone(), self.spec.clone())?;
         }
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
@@ -537,9 +552,15 @@ where
             },
         };
 
-        state
-            .per_block_processing_without_verifying_block_signature(&block, &self.spec)
-            .ok()?;
+        trace!("BeaconChain::produce_block: updating state for new block.",);
+
+        let result =
+            state.per_block_processing_without_verifying_block_signature(&block, &self.spec);
+        trace!(
+            "BeaconNode::produce_block: state processing result: {:?}",
+            result
+        );
+        result.ok()?;
 
         let state_root = state.canonical_root();
 

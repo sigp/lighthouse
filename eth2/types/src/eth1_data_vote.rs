@@ -13,10 +13,10 @@ pub struct Eth1DataVote {
 }
 
 impl TreeHash for Eth1DataVote {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.eth1_data.hash_tree_root());
-        result.append(&mut self.vote_count.hash_tree_root());
+        result.append(&mut self.eth1_data.hash_tree_root_internal());
+        result.append(&mut self.vote_count.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -48,11 +48,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = Eth1DataVote::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
