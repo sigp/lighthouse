@@ -4,8 +4,9 @@ use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
 pub struct BeaconBlock {
     pub slot: Slot,
     pub parent_root: Hash256,
@@ -56,43 +57,6 @@ impl BeaconBlock {
             block_root: block_without_signature_root,
         };
         Hash256::from(&proposal.hash_tree_root()[..])
-    }
-}
-
-impl Encodable for BeaconBlock {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.slot);
-        s.append(&self.parent_root);
-        s.append(&self.state_root);
-        s.append(&self.randao_reveal);
-        s.append(&self.eth1_data);
-        s.append(&self.signature);
-        s.append(&self.body);
-    }
-}
-
-impl Decodable for BeaconBlock {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (parent_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (state_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (randao_reveal, i) = <_>::ssz_decode(bytes, i)?;
-        let (eth1_data, i) = <_>::ssz_decode(bytes, i)?;
-        let (signature, i) = <_>::ssz_decode(bytes, i)?;
-        let (body, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                slot,
-                parent_root,
-                state_root,
-                randao_reveal,
-                eth1_data,
-                signature,
-                body,
-            },
-            i,
-        ))
     }
 }
 

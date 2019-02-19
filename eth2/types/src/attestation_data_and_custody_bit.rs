@@ -3,29 +3,12 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode)]
 pub struct AttestationDataAndCustodyBit {
     pub data: AttestationData,
     pub custody_bit: bool,
-}
-
-impl Encodable for AttestationDataAndCustodyBit {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.data);
-        // TODO: deal with bools
-    }
-}
-
-impl Decodable for AttestationDataAndCustodyBit {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (data, i) = <_>::ssz_decode(bytes, i)?;
-        let custody_bit = false;
-
-        let attestation_data_and_custody_bit = AttestationDataAndCustodyBit { data, custody_bit };
-
-        Ok((attestation_data_and_custody_bit, i))
-    }
 }
 
 impl TreeHash for AttestationDataAndCustodyBit {

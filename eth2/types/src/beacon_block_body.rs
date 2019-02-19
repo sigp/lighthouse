@@ -3,45 +3,15 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
 pub struct BeaconBlockBody {
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub attester_slashings: Vec<AttesterSlashing>,
     pub attestations: Vec<Attestation>,
     pub deposits: Vec<Deposit>,
     pub exits: Vec<Exit>,
-}
-
-impl Encodable for BeaconBlockBody {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.proposer_slashings);
-        s.append_vec(&self.attester_slashings);
-        s.append_vec(&self.attestations);
-        s.append_vec(&self.deposits);
-        s.append_vec(&self.exits);
-    }
-}
-
-impl Decodable for BeaconBlockBody {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (proposer_slashings, i) = <_>::ssz_decode(bytes, i)?;
-        let (attester_slashings, i) = <_>::ssz_decode(bytes, i)?;
-        let (attestations, i) = <_>::ssz_decode(bytes, i)?;
-        let (deposits, i) = <_>::ssz_decode(bytes, i)?;
-        let (exits, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                proposer_slashings,
-                attester_slashings,
-                attestations,
-                deposits,
-                exits,
-            },
-            i,
-        ))
-    }
 }
 
 impl TreeHash for BeaconBlockBody {
