@@ -1,22 +1,20 @@
 //! This crate stores the various implementations of fork-choice rules that can be used for the
 //! beacon blockchain.
 //!
-//! There are four implementations. One is the naive longest chain rule (primarily for testing
-//! purposes). The other three are proposed implementations of the LMD-GHOST fork-choice rule with various forms of optimisation.
+//! There are three implementations. One is the naive longest chain rule (primarily for testing
+//! purposes). The other two are proposed implementations of the LMD-GHOST fork-choice rule with various forms of optimisation.
 //!
 //! The current implementations are:
 //! - [`longest-chain`]: Simplistic longest-chain fork choice - primarily for testing, **not for
 //! production**.
 //! - [`slow_lmd_ghost`]: This is a simple and very inefficient implementation given in the ethereum 2.0
 //! specifications (https://github.com/ethereum/eth2.0-specs/blob/v0.1/specs/core/0_beacon-chain.md#get_block_root).
-//! - [`optimised_lmd_ghost`]: This is an optimised version of the naive implementation as proposed
+//! - [`optimised_lmd_ghost`]: This is an optimised version of bitwise LMD-GHOST as proposed
 //! by Vitalik. The reference implementation can be found at: https://github.com/ethereum/research/blob/master/ghost/ghost.py
-//! - [`protolambda_lmd_ghost`]: Another optimised version of LMD-GHOST designed by @protolambda.
-//! The go implementation can be found here: https://github.com/protolambda/lmd-ghost.
 //!
+//! [`longest-chain`]: struct.LongestChain.html
 //! [`slow_lmd_ghost`]: struct.SlowLmdGhost.html
 //! [`optimised_lmd_ghost`]: struct.OptimisedLmdGhost.html
-//! [`protolambda_lmd_ghost`]: struct.ProtolambdaLmdGhost.html
 
 extern crate db;
 extern crate ssz;
@@ -34,6 +32,7 @@ use types::{BeaconBlock, ChainSpec, Hash256};
 
 pub use longest_chain::LongestChain;
 pub use optimised_lmd_ghost::OptimisedLMDGhost;
+pub use slow_lmd_ghost::SlowLMDGhost;
 
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
 /// which can be built in block processing through the `add_block` and `add_attestation` functions.
@@ -97,7 +96,7 @@ impl From<BeaconBlockAtSlotError> for ForkChoiceError {
 }
 
 /// Fork choice options that are currently implemented.
-pub enum ForkChoiceAlgorithms {
+pub enum ForkChoiceAlgorithm {
     /// Chooses the longest chain becomes the head. Not for production.
     LongestChain,
     /// A simple and highly inefficient implementation of LMD ghost.
