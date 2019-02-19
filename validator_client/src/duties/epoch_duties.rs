@@ -1,4 +1,4 @@
-use block_producer::{DutiesReader, DutiesReaderError};
+use block_proposer::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
 use std::sync::RwLock;
 use types::{Epoch, Slot};
