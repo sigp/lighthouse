@@ -1,4 +1,4 @@
-// Tests the optimised LMD Ghost Algorithm
+// Tests the available fork-choice algorithms
 
 extern crate beacon_chain;
 extern crate bls;
