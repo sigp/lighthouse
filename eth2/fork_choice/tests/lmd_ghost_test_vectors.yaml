@@ -19,3 +19,19 @@ test_cases:
     - b3: 10
   heads:
     - id: 'b3'
+# bitwise LMD ghost example. GHOST gives b1
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b0'
+  weights:
+    - b1: 5
+    - b2: 4
+    - b3: 3
+  heads:
+    - id: 'b1'

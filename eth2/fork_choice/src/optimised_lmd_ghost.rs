@@ -203,13 +203,22 @@ where
         }
         let mut bitmask: BitVec = BitVec::new();
         // loop through bytes then bits
-        for bit in 0..256 {
+        for bit in 0..=256 {
             let mut zero_votes = 0;
             let mut one_votes = 0;
-            let mut single_candidate = None;
+            let mut single_candidate = (None, false);
 
+            trace!("FORKCHOICE: Child vote length: {}", votes.len());
             for (candidate, votes) in votes.iter() {
                 let candidate_bit: BitVec = BitVec::from_bytes(&candidate);
+                /*
+                trace!(
+                    "FORKCHOICE: Child: {} in bits: {:?}",
+                    candidate,
+                    candidate_bit
+                );
+                trace!("FORKCHOICE: Current bitmask: {:?}", bitmask);
+                */
 
                 // if the bitmasks don't match
                 if !bitmask.iter().eq(candidate_bit.iter().take(bit)) {
@@ -227,15 +236,16 @@ where
                     one_votes += votes;
                 }
 
-                if single_candidate.is_none() {
-                    single_candidate = Some(candidate);
+                if single_candidate.0.is_none() {
+                    single_candidate.0 = Some(candidate);
+                    single_candidate.1 = true;
                 } else {
-                    single_candidate = None;
+                    single_candidate.1 = false;
                 }
             }
             bitmask.push(one_votes > zero_votes);
-            if let Some(candidate) = single_candidate {
-                return Some(*candidate);
+            if single_candidate.1 {
+                return Some(*single_candidate.0.expect("Cannot reach this"));
             }
         }
         // should never reach here

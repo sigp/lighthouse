@@ -13,6 +13,7 @@ log = "0.4.6"
 bit-vec = "0.5.0"
 
 [dev-dependencies]
+hex = "0.3.2"
 yaml-rust = "0.4.2"
 bls = { path = "../utils/bls" }
 slot_clock = { path = "../utils/slot_clock" }
