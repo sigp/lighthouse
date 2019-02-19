@@ -9,7 +9,7 @@ use honey_badger_split::SplitExt;
 use log::trace;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
 use swap_or_not_shuffle::get_permutated_index;
 

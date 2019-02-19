@@ -1,7 +1,7 @@
 use crate::{test_utils::TestRandom, Epoch};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode)]
@@ -35,7 +35,7 @@ impl<T: RngCore> TestRandom<T> for Fork {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {

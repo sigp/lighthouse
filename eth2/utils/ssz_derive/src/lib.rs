@@ -11,7 +11,7 @@
 //!
 //! Example:
 //! ```
-//! use ssz::{ssz_encode, Decodable, Encodable, SszStream, DecodeError};
+//! use ssz::{ssz_encode, Decodable};
 //! use ssz_derive::{Encode, Decode};
 //!
 //! #[derive(Encode, Decode)]
@@ -68,8 +68,8 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let field_idents = get_named_field_idents(&struct_data);
 
     let output = quote! {
-        impl Encodable for #name {
-            fn ssz_append(&self, s: &mut SszStream) {
+        impl ssz::Encodable for #name {
+            fn ssz_append(&self, s: &mut ssz::SszStream) {
                 #(
                     s.append(&self.#field_idents);
                 )*
@@ -103,8 +103,8 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let field_idents_b = &field_idents;
 
     let output = quote! {
-        impl Decodable for #name {
-            fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
+        impl ssz::Decodable for #name {
+            fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), ssz::DecodeError> {
                 #(
                     let (#field_idents_a, i) = <_>::ssz_decode(bytes, i)?;
                 )*
