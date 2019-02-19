@@ -1,7 +1,7 @@
 [workspace]
 members = [
 	"eth2/attester",
-	"eth2/block_producer",
+	"eth2/block_proposer",
 	"eth2/fork_choice",
 	"eth2/state_processing",
 	"eth2/types",

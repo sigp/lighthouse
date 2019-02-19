@@ -2,7 +2,7 @@ use attester::{
     DutiesReader as AttesterDutiesReader, DutiesReaderError as AttesterDutiesReaderError,
 };
 use beacon_chain::BeaconChain;
-use block_producer::{
+use block_proposer::{
     DutiesReader as ProducerDutiesReader, DutiesReaderError as ProducerDutiesReaderError,
 };
 use db::ClientDB;
