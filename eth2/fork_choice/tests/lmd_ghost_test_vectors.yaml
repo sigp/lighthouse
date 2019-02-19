@@ -1,5 +1,5 @@
 title: Fork-choice Tests
-summary: A collection of abstract fork-choice tests for bitwise lmd ghost.
+summary: A collection of abstract fork-choice tests for lmd ghost.
 test_suite: Fork-Choice
 
 test_cases:

@@ -25,13 +25,23 @@ use types::{
 };
 use yaml_rust::yaml;
 
-// run tests
 #[test]
 fn test_optimised_lmd_ghost() {
     test_yaml_vectors(
         ForkChoiceAlgorithm::OptimisedLMDGhost,
         "tests/optimised_lmd_ghost_test_vectors.yaml",
         100,
+        "debug",
+    );
+}
+
+#[test]
+fn test_slow_lmd_ghost() {
+    test_yaml_vectors(
+        ForkChoiceAlgorithm::SlowLMDGhost,
+        "tests/lmd_ghost_test_vectors.yaml",
+        100,
+        "debug",
     );
 }
 
@@ -40,9 +50,10 @@ fn test_yaml_vectors(
     fork_choice_algo: ForkChoiceAlgorithm,
     yaml_file_path: &str,
     max_validators: usize,
+    log_level: &str,
 ) {
     // set up logging
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
+    Builder::from_env(Env::default().default_filter_or(log_level)).init();
 
     // load test cases from yaml
     let test_cases = load_test_cases_from_yaml(yaml_file_path);
