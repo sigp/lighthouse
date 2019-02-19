@@ -14,7 +14,7 @@ criterion = "0.2"
 [dependencies]
 attester = { path = "../../../eth2/attester" }
 beacon_chain = { path = "../../beacon_chain" }
-block_producer = { path = "../../../eth2/block_producer" }
+block_proposer = { path = "../../../eth2/block_proposer" }
 bls = { path = "../../../eth2/utils/bls" }
 boolean-bitfield = { path = "../../../eth2/utils/boolean-bitfield" }
 db = { path = "../../db" }
