@@ -45,6 +45,16 @@ fn test_slow_lmd_ghost() {
     );
 }
 
+#[test]
+fn test_longest_chain() {
+    test_yaml_vectors(
+        ForkChoiceAlgorithm::LongestChain,
+        "tests/longest_chain_test_vectors.yaml",
+        100,
+        "debug",
+    );
+}
+
 // run a generic test over given YAML test vectors
 fn test_yaml_vectors(
     fork_choice_algo: ForkChoiceAlgorithm,
