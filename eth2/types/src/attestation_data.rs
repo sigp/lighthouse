@@ -2,7 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::{AttestationDataAndCustodyBit, Crosslink, Epoch, Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
@@ -78,7 +78,7 @@ impl<T: RngCore> TestRandom<T> for AttestationData {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {
