@@ -1,5 +1,5 @@
 use attester::Signer as AttesterSigner;
-use block_producer::Signer as BlockProposerSigner;
+use block_proposer::Signer as BlockProposerSigner;
 use std::sync::RwLock;
 use types::{Keypair, Signature};
 

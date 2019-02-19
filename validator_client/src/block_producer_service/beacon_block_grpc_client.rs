@@ -1,4 +1,4 @@
-use block_producer::{BeaconNode, BeaconNodeError, PublishOutcome};
+use block_proposer::{BeaconNode, BeaconNodeError, PublishOutcome};
 use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
