@@ -60,7 +60,7 @@ pub fn verify_slashable_attestation(
                     .pubkey
                     .as_raw(),
             ),
-            Err(_) => return false, // TODO: check this isn't reached
+            Err(_) => return false,
         }
     }
 
@@ -92,9 +92,56 @@ pub fn verify_slashable_attestation(
     )
 }
 
-#[cfg(tests)]
-mod test {
-    pub fn test_TODO() {
-        // Write tests for this function
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{AttestationData, AggregateSignature, BeaconStateTestBuilder, Crosslink, Signature};
+
+    #[test]
+    pub fn test_verify_slashable_attestation() {
+        let builder = BeaconStateTestBuilder::with_random_validators(3);
+        let validator_keys = builder.keypairs.clone();
+        let spec = builder.spec.clone();
+        let state = builder.build().unwrap();
+
+        // SlashableAttestation fields
+        let validator_indices: Vec<u64> = vec![0, 1, 2];
+        let data = AttestationData {
+            slot: state.slot,
+            shard: 1,
+            beacon_block_root: spec.zero_hash,
+            epoch_boundary_root: spec.zero_hash,
+            shard_block_root: spec.zero_hash,
+            latest_crosslink: Crosslink{
+                epoch: spec.genesis_epoch,
+                shard_block_root: spec.zero_hash,
+            },
+            justified_epoch: state.justified_epoch,
+            justified_block_root: spec.zero_hash,
+        };
+        let attestation_data_and_false = AttestationDataAndCustodyBit {
+            data: data.clone(),
+            custody_bit: false
+        };
+        let custody_bitfield = Bitfield::with_capacity(validator_indices.len());
+        let mut aggregate_signature = AggregateSignature::new();
+        for validator_index in validator_indices.iter() {
+            let sig = Signature::new(
+                &attestation_data_and_false.hash_tree_root(),
+                spec.domain_attestation,
+                &validator_keys[*validator_index as usize].sk
+            );
+            aggregate_signature.add(&sig);
+        }
+
+        let slashable_attestation = SlashableAttestation {
+            validator_indices,
+            data,
+            custody_bitfield,
+            aggregate_signature,
+        };
+
+        // Note should pass but fails due to bug in spec
+        assert!(verify_slashable_attestation(&state, &slashable_attestation, &spec));
     }
 }

@@ -1,4 +1,4 @@
-use super::{PublicKey, SecretKey};
+use super::{BLS_AGG_SIG_BYTE_SIZE, PublicKey, SecretKey};
 use bls_aggregates::Signature as RawSignature;
 use serde::ser::{Serialize, Serializer};
 use ssz::{
@@ -51,7 +51,7 @@ impl Signature {
 
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
-        let mut empty: Vec<u8> = vec![0; 96];
+        let mut empty: Vec<u8> = vec![0; BLS_AGG_SIG_BYTE_SIZE];
         // TODO: Modify the way flags are used (b_flag should not be used for empty_signature in the future)
         empty[0] += u8::pow(2, 6);
         Signature(RawSignature::from_bytes(&empty).unwrap())
@@ -111,7 +111,7 @@ mod tests {
 
         let sig_as_bytes: Vec<u8> = sig.as_raw().as_bytes();
 
-        assert_eq!(sig_as_bytes.len(), 96);
+        assert_eq!(sig_as_bytes.len(), BLS_AGG_SIG_BYTE_SIZE);
         for (i, one_byte) in sig_as_bytes.iter().enumerate() {
             if i == 0 {
                 assert_eq!(*one_byte, u8::pow(2, 6));

@@ -41,7 +41,7 @@ impl<T: RngCore> TestRandom<T> for AttestationDataAndCustodyBit {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
             data: <_>::random_for_test(rng),
-            custody_bit: <_>::random_for_test(rng),
+            custody_bit: false,
         }
     }
 }
