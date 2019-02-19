@@ -11,12 +11,13 @@
 //!
 //! Example:
 //! ```
-//! use ssz::{ssz_encode, Decodable, Encodable};
+//! use ssz::{ssz_encode, Decodable, Encodable, SszStream, DecodeError};
+//! use ssz_derive::{Encode, Decode};
 //!
-//! #[derive(Encodable, Decodable)]
+//! #[derive(Encode, Decode)]
 //! struct Foo {
-//!     bar: bool,
-//!     baz: u64,
+//!     pub bar: bool,
+//!     pub baz: u64,
 //! }
 //!
 //! fn main() {
@@ -27,7 +28,7 @@
 //!
 //!     let bytes = ssz_encode(&foo);
 //!
-//!     let decoded_foo = Foo::ssz_decode(bytes, 0).unwrap();
+//!     let (decoded_foo, _i) = Foo::ssz_decode(&bytes, 0).unwrap();
 //!
 //!     assert_eq!(foo.baz, decoded_foo.baz);
 //! }
@@ -50,7 +51,7 @@ fn get_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::
         .collect()
 }
 
-/// Implements `ssz::Encodable` on some `struct`.
+/// Implements `ssz::Encodable` for some `struct`.
 ///
 /// Fields are encoded in the order they are defined.
 #[proc_macro_derive(Encode)]
@@ -78,7 +79,7 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-/// Implements `ssz::Decodable` on some `struct`.
+/// Implements `ssz::Decodable` for some `struct`.
 ///
 /// Fields are decoded in the order they are defined.
 #[proc_macro_derive(Decode)]
