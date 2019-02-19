@@ -3,8 +3,9 @@
 extern crate beacon_chain;
 extern crate bls;
 extern crate db;
-extern crate env_logger;
+//extern crate env_logger; // for debugging
 extern crate fork_choice;
+extern crate hex;
 extern crate log;
 extern crate slot_clock;
 extern crate types;
@@ -14,7 +15,7 @@ pub use beacon_chain::BeaconChain;
 use bls::{PublicKey, Signature};
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
-use env_logger::{Builder, Env};
+//use env_logger::{Builder, Env};
 use fork_choice::{ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimisedLMDGhost, SlowLMDGhost};
 use ssz::ssz_encode;
 use std::collections::HashMap;
@@ -25,13 +26,17 @@ use types::{
 };
 use yaml_rust::yaml;
 
+// Note: We Assume the block Id's are hex-encoded.
+
 #[test]
 fn test_optimised_lmd_ghost() {
+    // set up logging
+    //Builder::from_env(Env::default().default_filter_or("trace")).init();
+
     test_yaml_vectors(
         ForkChoiceAlgorithm::OptimisedLMDGhost,
         "tests/optimised_lmd_ghost_test_vectors.yaml",
         100,
-        "debug",
     );
 }
 
@@ -41,7 +46,6 @@ fn test_slow_lmd_ghost() {
         ForkChoiceAlgorithm::SlowLMDGhost,
         "tests/lmd_ghost_test_vectors.yaml",
         100,
-        "debug",
     );
 }
 
@@ -51,7 +55,6 @@ fn test_longest_chain() {
         ForkChoiceAlgorithm::LongestChain,
         "tests/longest_chain_test_vectors.yaml",
         100,
-        "debug",
     );
 }
 
@@ -59,24 +62,10 @@ fn test_longest_chain() {
 fn test_yaml_vectors(
     fork_choice_algo: ForkChoiceAlgorithm,
     yaml_file_path: &str,
-    max_validators: usize,
-    log_level: &str,
+    emulated_validators: usize, // the number of validators used to give weights.
 ) {
-    // set up logging
-    Builder::from_env(Env::default().default_filter_or(log_level)).init();
-
     // load test cases from yaml
     let test_cases = load_test_cases_from_yaml(yaml_file_path);
-
-    // set up the test
-    let total_emulated_validators = max_validators; // the number of validators used to give weights.
-    let (mut fork_choice, block_store, state_root) =
-        setup_inital_state(fork_choice_algo, total_emulated_validators);
-
-    // keep a hashmap of block_id's to block_hashes (random hashes to abstract block_id)
-    let mut block_id_map: HashMap<String, Hash256> = HashMap::new();
-    // keep a list of hash to slot
-    let mut block_slot: HashMap<Hash256, Slot> = HashMap::new();
 
     // default vars
     let spec = ChainSpec::foundation();
@@ -97,32 +86,36 @@ fn test_yaml_vectors(
 
     // process the tests
     for test_case in test_cases {
+        // setup a fresh test
+        let (mut fork_choice, block_store, state_root) =
+            setup_inital_state(&fork_choice_algo, emulated_validators);
+
+        // keep a hashmap of block_id's to block_hashes (random hashes to abstract block_id)
+        //let mut block_id_map: HashMap<String, Hash256> = HashMap::new();
+        // keep a list of hash to slot
+        let mut block_slot: HashMap<Hash256, Slot> = HashMap::new();
         // assume the block tree is given to us in order.
+        let mut genesis_hash = None;
         for block in test_case["blocks"].clone().into_vec().unwrap() {
             let block_id = block["id"].as_str().unwrap().to_string();
-            let parent_id = block["parent"].as_str().unwrap();
+            let parent_id = block["parent"].as_str().unwrap().to_string();
 
             // default params for genesis
-            let mut block_hash = zero_hash.clone();
+            let block_hash = id_to_hash(&block_id);
             let mut slot = spec.genesis_slot;
-            let mut parent_root = zero_hash;
+            let parent_root = id_to_hash(&parent_id);
 
             // set the slot and parent based off the YAML. Start with genesis;
-            // if not the genesis, update slot and parent
+            // if not the genesis, update slot
             if parent_id != block_id {
-                // generate a random hash for the block_hash
-                block_hash = Hash256::random();
-                // find the parent hash
-                parent_root = *block_id_map
-                    .get(parent_id)
-                    .expect(&format!("Parent not found: {}", parent_id));
+                // find parent slot
                 slot = *(block_slot
                     .get(&parent_root)
                     .expect("Parent should have a slot number"))
                     + 1;
+            } else {
+                genesis_hash = Some(block_hash);
             }
-
-            block_id_map.insert(block_id.clone(), block_hash.clone());
 
             // update slot mapping
             block_slot.insert(block_hash, slot);
@@ -138,7 +131,7 @@ fn test_yaml_vectors(
                 body: body.clone(),
             };
 
-            // Store the block and state.
+            // Store the block.
             block_store
                 .put(&block_hash, &ssz_encode(&beacon_block)[..])
                 .unwrap();
@@ -157,14 +150,15 @@ fn test_yaml_vectors(
             // get the block id and weights
             for (map_id, map_weight) in id_map.as_hash().unwrap().iter() {
                 let id = map_id.as_str().unwrap();
-                let block_root = block_id_map
-                    .get(id)
-                    .expect(&format!("Cannot find block id: {} in weights", id));
+                let block_root = id_to_hash(&id.to_string());
                 let weight = map_weight.as_i64().unwrap();
                 // we assume a validator has a value 1 and add an attestation for to achieve the
                 // correct weight
                 for _ in 0..weight {
-                    assert!(current_validator <= total_emulated_validators);
+                    assert!(
+                        current_validator <= emulated_validators,
+                        "Not enough validators to emulate weights"
+                    );
                     fork_choice
                         .add_attestation(current_validator as u64, &block_root, &spec)
                         .unwrap();
@@ -174,11 +168,8 @@ fn test_yaml_vectors(
         }
 
         // everything is set up, run the fork choice, using genesis as the head
-        let head = fork_choice.find_head(&zero_hash, &spec).unwrap();
-
-        let (found_id, _) = block_id_map
-            .iter()
-            .find(|(_, hash)| **hash == head)
+        let head = fork_choice
+            .find_head(&genesis_hash.unwrap(), &spec)
             .unwrap();
 
         // compare the result to the expected test
@@ -187,10 +178,10 @@ fn test_yaml_vectors(
             .into_vec()
             .unwrap()
             .iter()
-            .find(|heads| heads["id"].as_str().unwrap() == found_id)
+            .find(|heads| id_to_hash(&heads["id"].as_str().unwrap().to_string()) == head)
             .is_some();
 
-        println!("Head Block ID: {:?}", found_id);
+        println!("Head found: {}", head);
         assert!(success, "Did not find one of the possible heads");
     }
 }
@@ -212,7 +203,7 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
 
 // initialise a single validator and state. All blocks will reference this state root.
 fn setup_inital_state(
-    fork_choice_algo: ForkChoiceAlgorithm,
+    fork_choice_algo: &ForkChoiceAlgorithm,
     no_validators: usize,
 ) -> (Box<ForkChoice>, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
     let zero_hash = Hash256::zero();
@@ -275,4 +266,16 @@ fn setup_inital_state(
 
     // return initialised vars
     (fork_choice, block_store, state_root)
+}
+
+// convert a block_id into a Hash256 -- assume input is hex encoded;
+fn id_to_hash(id: &String) -> Hash256 {
+    let bytes = hex::decode(id).expect("Block ID should be hex");
+
+    let len = std::cmp::min(bytes.len(), 32);
+    let mut fixed_bytes = [0u8; 32];
+    for (index, byte) in bytes.iter().take(32).enumerate() {
+        fixed_bytes[32 - len + index] = *byte;
+    }
+    Hash256::from(fixed_bytes)
 }

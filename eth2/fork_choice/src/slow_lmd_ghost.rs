@@ -192,7 +192,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
 
         let latest_votes = self.get_latest_votes(&start_state_root, start.slot(), spec)?;
 
-        let mut head_hash = Hash256::zero();
+        let mut head_hash = *justified_block_start;
 
         loop {
             debug!("FORKCHOICE: Iteration for block: {}", head_hash);
