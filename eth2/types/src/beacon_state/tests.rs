@@ -1,9 +1,8 @@
 #![cfg(test)]
 
-use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+use crate::test_utils::{BeaconStateTestBuilder, SeedableRng, TestRandom, XorShiftRng};
 use ssz::ssz_encode;
 use super::*;
-use super::super::beacon_state_test_builder::BeaconStateTestBuilder;
 
 #[test]
 pub fn can_produce_genesis_block() {

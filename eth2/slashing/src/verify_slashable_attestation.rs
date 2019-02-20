@@ -95,7 +95,7 @@ pub fn verify_slashable_attestation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{AttestationData, AggregateSignature, BeaconStateTestBuilder, Crosslink, Signature};
+    use types::{AttestationData, AggregateSignature, test_utils::BeaconStateTestBuilder, Crosslink, Signature};
 
     #[test]
     pub fn test_verify_slashable_attestation() {

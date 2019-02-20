@@ -1,9 +1,11 @@
 use rand::RngCore;
 
 pub use rand::{prng::XorShiftRng, SeedableRng};
+pub use self::beacon_state_test_builder::BeaconStateTestBuilder;
 
 pub mod address;
 pub mod aggregate_signature;
+pub mod beacon_state_test_builder;
 pub mod bitfield;
 pub mod hash256;
 pub mod public_key;
