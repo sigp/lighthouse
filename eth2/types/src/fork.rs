@@ -1,38 +1,14 @@
 use crate::{test_utils::TestRandom, Epoch};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode)]
 pub struct Fork {
     pub previous_version: u64,
     pub current_version: u64,
     pub epoch: Epoch,
-}
-
-impl Encodable for Fork {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.previous_version);
-        s.append(&self.current_version);
-        s.append(&self.epoch);
-    }
-}
-
-impl Decodable for Fork {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (previous_version, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_version, i) = <_>::ssz_decode(bytes, i)?;
-        let (epoch, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                previous_version,
-                current_version,
-                epoch,
-            },
-            i,
-        ))
-    }
 }
 
 impl TreeHash for Fork {
@@ -59,7 +35,7 @@ impl<T: RngCore> TestRandom<T> for Fork {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {

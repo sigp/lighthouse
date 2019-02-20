@@ -3,46 +3,16 @@ use crate::test_utils::TestRandom;
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
     pub proposal_data_1: ProposalSignedData,
     pub proposal_signature_1: Signature,
     pub proposal_data_2: ProposalSignedData,
     pub proposal_signature_2: Signature,
-}
-
-impl Encodable for ProposerSlashing {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.proposer_index);
-        s.append(&self.proposal_data_1);
-        s.append(&self.proposal_signature_1);
-        s.append(&self.proposal_data_2);
-        s.append(&self.proposal_signature_2);
-    }
-}
-
-impl Decodable for ProposerSlashing {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (proposer_index, i) = <_>::ssz_decode(bytes, i)?;
-        let (proposal_data_1, i) = <_>::ssz_decode(bytes, i)?;
-        let (proposal_signature_1, i) = <_>::ssz_decode(bytes, i)?;
-        let (proposal_data_2, i) = <_>::ssz_decode(bytes, i)?;
-        let (proposal_signature_2, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            ProposerSlashing {
-                proposer_index,
-                proposal_data_1,
-                proposal_signature_1,
-                proposal_data_2,
-                proposal_signature_2,
-            },
-            i,
-        ))
-    }
 }
 
 impl TreeHash for ProposerSlashing {
@@ -73,7 +43,7 @@ impl<T: RngCore> TestRandom<T> for ProposerSlashing {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {
