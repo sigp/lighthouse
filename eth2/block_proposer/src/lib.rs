@@ -239,7 +239,7 @@ mod tests {
         epoch_map.map.insert(produce_epoch, produce_slot);
         let epoch_map = Arc::new(epoch_map);
 
-        let mut block_producer = BlockProducer::new(
+        let mut block_proposer = BlockProducer::new(
             spec.clone(),
             epoch_map.clone(),
             slot_clock.clone(),
@@ -254,28 +254,28 @@ mod tests {
         // One slot before production slot...
         slot_clock.set_slot(produce_slot.as_u64() - 1);
         assert_eq!(
-            block_producer.poll(),
+            block_proposer.poll(),
             Ok(PollOutcome::BlockProductionNotRequired(produce_slot - 1))
         );
 
         // On the produce slot...
         slot_clock.set_slot(produce_slot.as_u64());
         assert_eq!(
-            block_producer.poll(),
+            block_proposer.poll(),
             Ok(PollOutcome::BlockProduced(produce_slot.into()))
         );
 
         // Trying the same produce slot again...
         slot_clock.set_slot(produce_slot.as_u64());
         assert_eq!(
-            block_producer.poll(),
+            block_proposer.poll(),
             Ok(PollOutcome::SlotAlreadyProcessed(produce_slot))
         );
 
         // One slot after the produce slot...
         slot_clock.set_slot(produce_slot.as_u64() + 1);
         assert_eq!(
-            block_producer.poll(),
+            block_proposer.poll(),
             Ok(PollOutcome::BlockProductionNotRequired(produce_slot + 1))
         );
 
@@ -283,7 +283,7 @@ mod tests {
         let slot = (produce_epoch.as_u64() + 1) * spec.epoch_length;
         slot_clock.set_slot(slot);
         assert_eq!(
-            block_producer.poll(),
+            block_proposer.poll(),
             Ok(PollOutcome::ProducerDutiesUnknown(Slot::new(slot)))
         );
     }
