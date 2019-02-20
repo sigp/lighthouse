@@ -48,3 +48,11 @@ path = "fuzz_targets/fuzz_target_u64_decode.rs"
 [[bin]]
 name = "fuzz_target_u64_encode"
 path = "fuzz_targets/fuzz_target_u64_encode.rs"
+
+[[bin]]
+name = "fuzz_target_usize_decode"
+path = "fuzz_targets/fuzz_target_usize_decode.rs"
+
+[[bin]]
+name = "fuzz_target_usize_encode"
+path = "fuzz_targets/fuzz_target_usize_encode.rs"
