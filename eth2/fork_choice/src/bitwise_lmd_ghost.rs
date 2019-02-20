@@ -201,13 +201,14 @@ where
         None
     }
 
-    // Finds the best child, splitting children into a binary tree, based on their hashes
+    // Finds the best child, splitting children into a binary tree, based on their hashes (Bitwise
+    // LMD Ghost)
     fn choose_best_child(&self, votes: &HashMap<Hash256, u64>) -> Option<Hash256> {
         if votes.is_empty() {
             return None;
         }
         let mut bitmask: BitVec = BitVec::new();
-        // loop through bytes then bits
+        // loop through all bits
         for bit in 0..=256 {
             let mut zero_votes = 0;
             let mut one_votes = 0;
@@ -216,16 +217,8 @@ where
             trace!("Child vote length: {}", votes.len());
             for (candidate, votes) in votes.iter() {
                 let candidate_bit: BitVec = BitVec::from_bytes(&candidate);
-                /*
-                trace!(
-                    "Child: {} in bits: {:?}",
-                    candidate,
-                    candidate_bit
-                );
-                trace!("Current bitmask: {:?}", bitmask);
-                */
 
-                // if the bitmasks don't match
+                // if the bitmasks don't match, exclude candidate
                 if !bitmask.iter().eq(candidate_bit.iter().take(bit)) {
                     trace!(
                         "Child: {} was removed in bit: {} with the bitmask: {:?}",
