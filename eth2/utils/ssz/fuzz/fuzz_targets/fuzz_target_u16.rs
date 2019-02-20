@@ -6,14 +6,14 @@ use ssz::{DecodeError, Decodable, Encodable};
 
 // Fuzz ssz_decode(u8)
 fuzz_target!(|data: &[u8]| {
-    let result: Result<(u8, usize), DecodeError> = Decodable::ssz_decode(data, 0);
-    if data.len() > 0 {
-        // Should have valid result
-        let (number_u8, index) = result.unwrap();
-        assert_eq!(number_u8, data[0]);
+    let result: Result<(u16, usize), DecodeError> = Decodable::ssz_decode(data, 0);
+    if data.len() > 1 {
+        // Valid result
+        let (number_u16, index) = result.unwrap();
         assert_eq!(index, 2);
+        // TODO: add test for number?
     } else {
-        // Length of 0 should return error
+        // Length of 0 or 1 should return error
         assert_eq!(result, Err(DecodeError::TooShort));
     }
 });
