@@ -78,7 +78,7 @@ where
                 }
             }
         }
-        trace!("FORKCHOICE: Latest votes: {:?}", latest_votes);
+        trace!("Latest votes: {:?}", latest_votes);
         Ok(latest_votes)
     }
 
@@ -139,7 +139,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
         // simply add the attestation to the latest_attestation_target if the block_height is
         // larger
         trace!(
-            "FORKCHOICE: Adding attestation of validator: {:?} for block: {}",
+            "Adding attestation of validator: {:?} for block: {}",
             validator_index,
             target_block_root
         );
@@ -149,10 +149,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
             .or_insert_with(|| *target_block_root);
         // if we already have a value
         if attestation_target != target_block_root {
-            trace!(
-                "FORKCHOICE: Old attestation found: {:?}",
-                attestation_target
-            );
+            trace!("Old attestation found: {:?}", attestation_target);
             // get the height of the target block
             let block_height = self
                 .block_store
@@ -170,7 +167,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 .height(spec.genesis_slot);
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
-                trace!("FORKCHOICE: Updating old attestation");
+                trace!("Updating old attestation");
                 *attestation_target = *target_block_root;
             }
         }
@@ -183,7 +180,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
         justified_block_start: &Hash256,
         spec: &ChainSpec,
     ) -> Result<Hash256, ForkChoiceError> {
-        debug!("FORKCHOICE: Running LMD Ghost Fork-choice rule");
+        debug!("Running LMD Ghost Fork-choice rule");
         let start = self
             .block_store
             .get_deserialized(&justified_block_start)?
@@ -196,7 +193,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
         let mut head_hash = *justified_block_start;
 
         loop {
-            debug!("FORKCHOICE: Iteration for block: {}", head_hash);
+            debug!("Iteration for block: {}", head_hash);
 
             let children = match self.children.get(&head_hash) {
                 Some(children) => children,
@@ -206,20 +203,16 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
 
             // if we only have one child, use it
             if children.len() == 1 {
-                trace!("FORKCHOICE: Single child found.");
+                trace!("Single child found.");
                 head_hash = children[0];
                 continue;
             }
-            trace!("FORKCHOICE: Children found: {:?}", children);
+            trace!("Children found: {:?}", children);
 
             let mut head_vote_count = 0;
             for child_hash in children {
                 let vote_count = self.get_vote_count(&latest_votes, &child_hash)?;
-                trace!(
-                    "FORKCHOICE: Vote count for child: {} is: {}",
-                    child_hash,
-                    vote_count
-                );
+                trace!("Vote count for child: {} is: {}", child_hash, vote_count);
 
                 if vote_count > head_vote_count {
                     head_hash = *child_hash;

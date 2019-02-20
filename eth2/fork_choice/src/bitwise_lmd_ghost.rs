@@ -115,7 +115,7 @@ where
                 }
             }
         }
-        trace!("FORKCHOICE: Latest votes: {:?}", latest_votes);
+        trace!("Latest votes: {:?}", latest_votes);
         Ok(latest_votes)
     }
 
@@ -180,7 +180,7 @@ where
         let mut current_votes: HashMap<Hash256, u64> = HashMap::new();
         let mut total_vote_count = 0;
 
-        trace!("FORKCHOICE: Clear winner at block height: {}", block_height);
+        trace!("Clear winner at block height: {}", block_height);
         // loop through the latest votes and count all votes
         // these have already been weighted by balance
         for (hash, votes) in latest_votes.iter() {
@@ -213,22 +213,22 @@ where
             let mut one_votes = 0;
             let mut single_candidate = (None, false);
 
-            trace!("FORKCHOICE: Child vote length: {}", votes.len());
+            trace!("Child vote length: {}", votes.len());
             for (candidate, votes) in votes.iter() {
                 let candidate_bit: BitVec = BitVec::from_bytes(&candidate);
                 /*
                 trace!(
-                    "FORKCHOICE: Child: {} in bits: {:?}",
+                    "Child: {} in bits: {:?}",
                     candidate,
                     candidate_bit
                 );
-                trace!("FORKCHOICE: Current bitmask: {:?}", bitmask);
+                trace!("Current bitmask: {:?}", bitmask);
                 */
 
                 // if the bitmasks don't match
                 if !bitmask.iter().eq(candidate_bit.iter().take(bit)) {
                     trace!(
-                        "FORKCHOICE: Child: {} was removed in bit: {} with the bitmask: {:?}",
+                        "Child: {} was removed in bit: {} with the bitmask: {:?}",
                         candidate,
                         bit,
                         bitmask
@@ -306,7 +306,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
         // simply add the attestation to the latest_attestation_target if the block_height is
         // larger
         trace!(
-            "FORKCHOICE: Adding attestation of validator: {:?} for block: {}",
+            "Adding attestation of validator: {:?} for block: {}",
             validator_index,
             target_block_root
         );
@@ -316,10 +316,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
             .or_insert_with(|| *target_block_root);
         // if we already have a value
         if attestation_target != target_block_root {
-            trace!(
-                "FORKCHOICE: Old attestation found: {:?}",
-                attestation_target
-            );
+            trace!("Old attestation found: {:?}", attestation_target);
             // get the height of the target block
             let block_height = self
                 .block_store
@@ -337,7 +334,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 .height(spec.genesis_slot);
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
-                trace!("FORKCHOICE: Updating old attestation");
+                trace!("Updating old attestation");
                 *attestation_target = *target_block_root;
             }
         }
@@ -374,7 +371,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
         // begin searching for the head
         loop {
             debug!(
-                "FORKCHOICE: Iteration for block: {} with vote length: {}",
+                "Iteration for block: {} with vote length: {}",
                 current_head,
                 latest_votes.len()
             );
@@ -401,19 +398,19 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 step /= 2;
             }
             if step > 0 {
-                trace!("FORKCHOICE: Found clear winner in log lookup");
+                trace!("Found clear winner in log lookup");
             }
             // if our skip lookup failed and we only have one child, progress to that child
             else if children.len() == 1 {
                 current_head = children[0];
                 trace!(
-                    "FORKCHOICE: Lookup failed, only one child, proceeding to child: {}",
+                    "Lookup failed, only one child, proceeding to child: {}",
                     current_head
                 );
             }
             // we need to find the best child path to progress down.
             else {
-                trace!("FORKCHOICE: Searching for best child");
+                trace!("Searching for best child");
                 let mut child_votes = HashMap::new();
                 for (voted_hash, vote) in latest_votes.iter() {
                     // if the latest votes correspond to a child
@@ -426,7 +423,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 current_head = self
                     .choose_best_child(&child_votes)
                     .ok_or(ForkChoiceError::CannotFindBestChild)?;
-                trace!("FORKCHOICE: Best child found: {}", current_head);
+                trace!("Best child found: {}", current_head);
             }
 
             // didn't find head yet, proceed to next iteration
@@ -441,7 +438,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
             // more specifically, only keep votes that have head as an ancestor
             for hash in latest_votes.keys() {
                 trace!(
-                    "FORKCHOICE: Ancestor for vote: {} at height: {} is: {:?}",
+                    "Ancestor for vote: {} at height: {} is: {:?}",
                     hash,
                     block_height,
                     self.get_ancestor(*hash, block_height, spec)
