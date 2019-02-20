@@ -8,6 +8,7 @@ use db::{
     ClientDB,
 };
 use fast_math::log2_raw;
+use log::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{

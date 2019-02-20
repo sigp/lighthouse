@@ -5,6 +5,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB,
 };
+use log::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{

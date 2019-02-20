@@ -19,8 +19,6 @@
 extern crate db;
 extern crate ssz;
 extern crate types;
-#[macro_use]
-extern crate log;
 
 pub mod bitwise_lmd_ghost;
 pub mod longest_chain;
