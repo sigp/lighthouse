@@ -20,3 +20,7 @@ members = ["."]
 [[bin]]
 name = "fuzz_target_u8"
 path = "fuzz_targets/fuzz_target_u8.rs"
+
+[[bin]]
+name = "fuzz_target_u16"
+path = "fuzz_targets/fuzz_target_u16.rs"
