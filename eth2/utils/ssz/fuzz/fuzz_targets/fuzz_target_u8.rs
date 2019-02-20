@@ -11,7 +11,7 @@ fuzz_target!(|data: &[u8]| {
         // Should have valid result
         let (number_u8, index) = result.unwrap();
         assert_eq!(number_u8, data[0]);
-        assert_eq!(index, 2);
+        assert_eq!(index, 1);
     } else {
         // Length of 0 should return error
         assert_eq!(result, Err(DecodeError::TooShort));
