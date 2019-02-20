@@ -2,38 +2,14 @@ use crate::{test_utils::TestRandom, Epoch};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
 pub struct Exit {
     pub epoch: Epoch,
     pub validator_index: u64,
     pub signature: Signature,
-}
-
-impl Encodable for Exit {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.epoch);
-        s.append(&self.validator_index);
-        s.append(&self.signature);
-    }
-}
-
-impl Decodable for Exit {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_index, i) = <_>::ssz_decode(bytes, i)?;
-        let (signature, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                epoch,
-                validator_index,
-                signature,
-            },
-            i,
-        ))
-    }
 }
 
 impl TreeHash for Exit {
@@ -60,7 +36,7 @@ impl<T: RngCore> TestRandom<T> for Exit {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {

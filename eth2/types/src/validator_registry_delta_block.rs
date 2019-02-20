@@ -2,10 +2,11 @@ use crate::{test_utils::TestRandom, Hash256, Slot};
 use bls::PublicKey;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
 // The information gathered from the PoW chain validator registration function.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode)]
 pub struct ValidatorRegistryDeltaBlock {
     pub latest_registry_delta_root: Hash256,
     pub validator_index: u32,
@@ -24,37 +25,6 @@ impl Default for ValidatorRegistryDeltaBlock {
             slot: Slot::from(std::u64::MAX),
             flag: std::u64::MAX,
         }
-    }
-}
-
-impl Encodable for ValidatorRegistryDeltaBlock {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.latest_registry_delta_root);
-        s.append(&self.validator_index);
-        s.append(&self.pubkey);
-        s.append(&self.slot);
-        s.append(&self.flag);
-    }
-}
-
-impl Decodable for ValidatorRegistryDeltaBlock {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (latest_registry_delta_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_index, i) = <_>::ssz_decode(bytes, i)?;
-        let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (flag, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                latest_registry_delta_root,
-                validator_index,
-                pubkey,
-                slot,
-                flag,
-            },
-            i,
-        ))
     }
 }
 
@@ -86,7 +56,7 @@ impl<T: RngCore> TestRandom<T> for ValidatorRegistryDeltaBlock {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {
