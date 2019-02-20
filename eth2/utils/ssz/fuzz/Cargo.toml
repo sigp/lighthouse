@@ -18,9 +18,17 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 members = ["."]
 
 [[bin]]
-name = "fuzz_target_u8"
-path = "fuzz_targets/fuzz_target_u8.rs"
+name = "fuzz_target_u8_decode"
+path = "fuzz_targets/fuzz_target_u8_decode.rs"
 
 [[bin]]
-name = "fuzz_target_u16"
-path = "fuzz_targets/fuzz_target_u16.rs"
+name = "fuzz_target_u16_decode"
+path = "fuzz_targets/fuzz_target_u16_decode.rs"
+
+[[bin]]
+name = "fuzz_target_u32_decode"
+path = "fuzz_targets/fuzz_target_u32_decode.rs"
+
+[[bin]]
+name = "fuzz_target_u64_decode"
+path = "fuzz_targets/fuzz_target_u64_decode.rs"
