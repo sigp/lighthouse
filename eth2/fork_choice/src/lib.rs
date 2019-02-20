@@ -9,12 +9,12 @@
 //! production**.
 //! - [`slow_lmd_ghost`]: This is a simple and very inefficient implementation given in the ethereum 2.0
 //! specifications (https://github.com/ethereum/eth2.0-specs/blob/v0.1/specs/core/0_beacon-chain.md#get_block_root).
-//! - [`optimised_lmd_ghost`]: This is an optimised version of bitwise LMD-GHOST as proposed
+//! - [`bitwise_lmd_ghost`]: This is an optimised version of bitwise LMD-GHOST as proposed
 //! by Vitalik. The reference implementation can be found at: https://github.com/ethereum/research/blob/master/ghost/ghost.py
 //!
 //! [`longest-chain`]: struct.LongestChain.html
 //! [`slow_lmd_ghost`]: struct.SlowLmdGhost.html
-//! [`optimised_lmd_ghost`]: struct.OptimisedLmdGhost.html
+//! [`bitwise_lmd_ghost`]: struct.OptimisedLmdGhost.html
 
 extern crate db;
 extern crate ssz;
@@ -22,16 +22,16 @@ extern crate types;
 #[macro_use]
 extern crate log;
 
+pub mod bitwise_lmd_ghost;
 pub mod longest_chain;
-pub mod optimised_lmd_ghost;
 pub mod slow_lmd_ghost;
 
 use db::stores::BeaconBlockAtSlotError;
 use db::DBError;
 use types::{BeaconBlock, ChainSpec, Hash256};
 
+pub use bitwise_lmd_ghost::BitwiseLMDGhost;
 pub use longest_chain::LongestChain;
-pub use optimised_lmd_ghost::OptimisedLMDGhost;
 pub use slow_lmd_ghost::SlowLMDGhost;
 
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
@@ -101,6 +101,6 @@ pub enum ForkChoiceAlgorithm {
     LongestChain,
     /// A simple and highly inefficient implementation of LMD ghost.
     SlowLMDGhost,
-    /// An optimised version of LMD-GHOST by Vitalik.
-    OptimisedLMDGhost,
+    /// An optimised version of bitwise LMD-GHOST by Vitalik.
+    BitwiseLMDGhost,
 }

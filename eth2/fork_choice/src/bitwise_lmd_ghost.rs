@@ -37,7 +37,7 @@ fn power_of_2_below(x: u32) -> u32 {
 }
 
 /// Stores the necessary data structures to run the optimised lmd ghost algorithm.
-pub struct OptimisedLMDGhost<T: ClientDB + Sized> {
+pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
     cache: HashMap<CacheKey<u32>, Hash256>,
@@ -56,7 +56,7 @@ pub struct OptimisedLMDGhost<T: ClientDB + Sized> {
     max_known_height: SlotHeight,
 }
 
-impl<T> OptimisedLMDGhost<T>
+impl<T> BitwiseLMDGhost<T>
 where
     T: ClientDB + Sized,
 {
@@ -64,7 +64,7 @@ where
         block_store: Arc<BeaconBlockStore<T>>,
         state_store: Arc<BeaconStateStore<T>>,
     ) -> Self {
-        OptimisedLMDGhost {
+        BitwiseLMDGhost {
             cache: HashMap::new(),
             ancestors: vec![HashMap::new(); 16],
             latest_attestation_targets: HashMap::new(),
@@ -253,7 +253,7 @@ where
     }
 }
 
-impl<T: ClientDB + Sized> ForkChoice for OptimisedLMDGhost<T> {
+impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
     fn add_block(
         &mut self,
         block: &BeaconBlock,

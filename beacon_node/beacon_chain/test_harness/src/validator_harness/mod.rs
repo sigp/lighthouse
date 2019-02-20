@@ -10,7 +10,7 @@ use block_proposer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
 use direct_beacon_node::DirectBeaconNode;
 use direct_duties::DirectDuties;
-use fork_choice::OptimisedLMDGhost;
+use fork_choice::BitwiseLMDGhost;
 use local_signer::LocalSigner;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
@@ -36,20 +36,20 @@ pub enum AttestationProduceError {
 pub struct ValidatorHarness {
     pub block_producer: BlockProducer<
         TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
-        DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
+        DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
         LocalSigner,
     >,
     pub attester: Attester<
         TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
-        DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>,
+        DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
+        DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
         LocalSigner,
     >,
     pub spec: Arc<ChainSpec>,
-    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
+    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
     pub keypair: Keypair,
-    pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
+    pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
     pub slot_clock: Arc<TestingSlotClock>,
     pub signer: Arc<LocalSigner>,
 }
@@ -61,7 +61,7 @@ impl ValidatorHarness {
     /// A `BlockProducer` and `Attester` is created..
     pub fn new(
         keypair: Keypair,
-        beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
+        beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
         let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot.as_u64()));
