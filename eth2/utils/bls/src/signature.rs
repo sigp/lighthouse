@@ -73,7 +73,7 @@ impl Decodable for Signature {
 }
 
 impl TreeHash for Signature {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         hash(&self.0.as_bytes())
     }
 }

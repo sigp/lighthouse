@@ -46,6 +46,13 @@ impl_encodable_for_uint!(u32, 32);
 impl_encodable_for_uint!(u64, 64);
 impl_encodable_for_uint!(usize, 64);
 
+impl Encodable for bool {
+    fn ssz_append(&self, s: &mut SszStream) {
+        let byte = if *self { 0b1000_0000 } else { 0b0000_0000 };
+        s.append_encoded_raw(&[byte]);
+    }
+}
+
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append_encoded_raw(&self.to_vec());
@@ -64,16 +71,6 @@ where
 {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append_vec(&self);
-    }
-}
-
-impl Encodable for bool {
-    fn ssz_append(&self, s: &mut SszStream) {
-        if *self {
-            s.append_encoded_raw(&[1 as u8]);
-        } else {
-            s.append_encoded_raw(&[0 as u8]);
-        }
     }
 }
 
@@ -218,24 +215,15 @@ mod tests {
     }
 
     #[test]
-    pub fn test_ssz_encode_bool() {
-        let b = false;
+    fn test_ssz_encode_bool() {
+        let x: bool = false;
         let mut ssz = SszStream::new();
-        ssz.append(&b);
-        assert_eq!(ssz.drain(), vec![0]);
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0b0000_0000]);
 
-        let b = true;
+        let x: bool = true;
         let mut ssz = SszStream::new();
-        ssz.append(&b);
-        assert_eq!(ssz.drain(), vec![1]);
-
-        let b1 = true;
-        let b2 = false;
-        let b3 = true;
-        let mut ssz = SszStream::new();
-        ssz.append(&b1);
-        ssz.append(&b2);
-        ssz.append(&b3);
-        assert_eq!(ssz.drain(), vec![1, 0, 1]);
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0b1000_0000]);
     }
 }

@@ -2,34 +2,17 @@ use super::AttestationData;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::TreeHash;
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode)]
 pub struct AttestationDataAndCustodyBit {
     pub data: AttestationData,
     pub custody_bit: bool,
 }
 
-impl Encodable for AttestationDataAndCustodyBit {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.data);
-        s.append(&self.custody_bit);
-    }
-}
-
-impl Decodable for AttestationDataAndCustodyBit {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (data, i) = <_>::ssz_decode(bytes, i)?;
-        let (custody_bit, i) = <_>::ssz_decode(bytes, i)?;
-
-        let attestation_data_and_custody_bit = AttestationDataAndCustodyBit { data, custody_bit };
-
-        Ok((attestation_data_and_custody_bit, i))
-    }
-}
-
 impl TreeHash for AttestationDataAndCustodyBit {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
         result.append(&mut self.data.hash_tree_root());
         result.append(&mut self.custody_bit.hash_tree_root());
@@ -50,7 +33,7 @@ impl<T: RngCore> TestRandom<T> for AttestationDataAndCustodyBit {
 mod test {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -66,11 +49,11 @@ mod test {
     }
 
     #[test]
-    pub fn test_hash_tree_root() {
+    pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = AttestationDataAndCustodyBit::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root();
+        let result = original.hash_tree_root_internal();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
