@@ -22,13 +22,29 @@ name = "fuzz_target_u8_decode"
 path = "fuzz_targets/fuzz_target_u8_decode.rs"
 
 [[bin]]
+name = "fuzz_target_u8_encode"
+path = "fuzz_targets/fuzz_target_u8_encode.rs"
+
+[[bin]]
 name = "fuzz_target_u16_decode"
 path = "fuzz_targets/fuzz_target_u16_decode.rs"
+
+[[bin]]
+name = "fuzz_target_u16_encode"
+path = "fuzz_targets/fuzz_target_u16_encode.rs"
 
 [[bin]]
 name = "fuzz_target_u32_decode"
 path = "fuzz_targets/fuzz_target_u32_decode.rs"
 
 [[bin]]
+name = "fuzz_target_u32_encode"
+path = "fuzz_targets/fuzz_target_u32_encode.rs"
+
+[[bin]]
 name = "fuzz_target_u64_decode"
 path = "fuzz_targets/fuzz_target_u64_decode.rs"
+
+[[bin]]
+name = "fuzz_target_u64_encode"
+path = "fuzz_targets/fuzz_target_u64_encode.rs"

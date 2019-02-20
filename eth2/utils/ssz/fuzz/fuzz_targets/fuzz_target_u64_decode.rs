@@ -25,7 +25,7 @@ fuzz_target!(|data: &[u8]| {
             ]);
         assert_eq!(number_u64, val);
     } else {
-        // Length less then 4 should return error
+        // Length less then 8 should return error
         assert_eq!(result, Err(DecodeError::TooShort));
     }
 });

@@ -12,8 +12,8 @@ fuzz_target!(|data: &[u8]| {
         let (number_u8, index) = result.unwrap();
         // TODO: change to little endian bytes
         // https://github.com/sigp/lighthouse/issues/215
-        assert_eq!(number_u8, data[0]);
         assert_eq!(index, 1);
+        assert_eq!(number_u8, data[0]);
     } else {
         // Length of 0 should return error
         assert_eq!(result, Err(DecodeError::TooShort));
