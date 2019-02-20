@@ -19,7 +19,7 @@ use types::{
 //TODO: Pruning - Children
 //TODO: Handle Syncing
 
-/// The optimised LMD-GHOST fork choice rule.
+/// The optimised bitwise LMD-GHOST fork choice rule.
 /// NOTE: This uses u32 to represent difference between block heights. Thus this is only
 /// applicable for block height differences in the range of a u32.
 /// This can potentially be parallelized in some parts.
@@ -30,6 +30,10 @@ fn log2_int(x: u32) -> u32 {
     if x == 0 {
         return 0;
     }
+    assert!(
+        x <= std::f32::MAX as u32,
+        "Height too large for fast log in bitwise fork choice"
+    );
     log2_raw(x as f32) as u32
 }
 
@@ -37,7 +41,7 @@ fn power_of_2_below(x: u32) -> u32 {
     2u32.pow(log2_int(x))
 }
 
-/// Stores the necessary data structures to run the optimised lmd ghost algorithm.
+/// Stores the necessary data structures to run the optimised bitwise lmd ghost algorithm.
 pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
