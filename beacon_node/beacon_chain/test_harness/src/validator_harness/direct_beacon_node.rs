@@ -3,7 +3,7 @@ use attester::{
     PublishOutcome as AttestationPublishOutcome,
 };
 use beacon_chain::BeaconChain;
-use block_producer::{
+use block_proposer::{
     BeaconNode as BeaconBlockNode, BeaconNodeError as BeaconBlockNodeError,
     PublishOutcome as BlockPublishOutcome,
 };
