@@ -16,7 +16,7 @@ use bls::{PublicKey, Signature};
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
 //use env_logger::{Builder, Env};
-use fork_choice::{ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimisedLMDGhost, SlowLMDGhost};
+use fork_choice::{BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, SlowLMDGhost};
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,13 +29,13 @@ use yaml_rust::yaml;
 // Note: We Assume the block Id's are hex-encoded.
 
 #[test]
-fn test_optimised_lmd_ghost() {
+fn test_bitwise_lmd_ghost() {
     // set up logging
     //Builder::from_env(Env::default().default_filter_or("trace")).init();
 
     test_yaml_vectors(
-        ForkChoiceAlgorithm::OptimisedLMDGhost,
-        "tests/optimised_lmd_ghost_test_vectors.yaml",
+        ForkChoiceAlgorithm::BitwiseLMDGhost,
+        "tests/bitwise_lmd_ghost_test_vectors.yaml",
         100,
     );
 }
@@ -214,7 +214,7 @@ fn setup_inital_state(
 
     // the fork choice instantiation
     let fork_choice: Box<ForkChoice> = match fork_choice_algo {
-        ForkChoiceAlgorithm::OptimisedLMDGhost => Box::new(OptimisedLMDGhost::new(
+        ForkChoiceAlgorithm::BitwiseLMDGhost => Box::new(BitwiseLMDGhost::new(
             block_store.clone(),
             state_store.clone(),
         )),
