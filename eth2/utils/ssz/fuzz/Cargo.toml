@@ -8,6 +8,9 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
+[dependencies]
+ethereum-types = "0.4.0"
+
 [dependencies.ssz]
 path = ".."
 [dependencies.libfuzzer-sys]
@@ -16,6 +19,14 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 # Prevent this from interfering with workspaces
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "fuzz_target_bool_decode"
+path = "fuzz_targets/fuzz_target_bool_decode.rs"
+
+[[bin]]
+name = "fuzz_target_bool_encode"
+path = "fuzz_targets/fuzz_target_bool_encode.rs"
 
 [[bin]]
 name = "fuzz_target_u8_decode"
@@ -56,3 +67,19 @@ path = "fuzz_targets/fuzz_target_usize_decode.rs"
 [[bin]]
 name = "fuzz_target_usize_encode"
 path = "fuzz_targets/fuzz_target_usize_encode.rs"
+
+[[bin]]
+name = "fuzz_target_hash256_decode"
+path = "fuzz_targets/fuzz_target_hash256_decode.rs"
+
+[[bin]]
+name = "fuzz_target_hash256_encode"
+path = "fuzz_targets/fuzz_target_hash256_encode.rs"
+
+[[bin]]
+name = "fuzz_target_address_decode"
+path = "fuzz_targets/fuzz_target_address_decode.rs"
+
+[[bin]]
+name = "fuzz_target_address_encode"
+path = "fuzz_targets/fuzz_target_address_encode.rs"
