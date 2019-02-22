@@ -5,9 +5,8 @@ use ssz::TreeHash;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use types::{
-    beacon_state::{AttestationParticipantsError, BeaconStateError, InclusionError},
-    validator_registry::get_active_validator_indices,
-    BeaconState, ChainSpec, Crosslink, Epoch, Hash256, PendingAttestation,
+    validator_registry::get_active_validator_indices, BeaconState, BeaconStateError, ChainSpec,
+    Crosslink, Epoch, Hash256, InclusionError, PendingAttestation, RelativeEpoch,
 };
 
 macro_rules! safe_add_assign {
@@ -28,7 +27,6 @@ pub enum Error {
     BaseRewardQuotientIsZero,
     NoRandaoSeed,
     BeaconStateError(BeaconStateError),
-    AttestationParticipantsError(AttestationParticipantsError),
     InclusionError(InclusionError),
     WinningRootError(WinningRootError),
 }
@@ -36,7 +34,7 @@ pub enum Error {
 #[derive(Debug, PartialEq)]
 pub enum WinningRootError {
     NoWinningRoot,
-    AttestationParticipantsError(AttestationParticipantsError),
+    BeaconStateError(BeaconStateError),
 }
 
 #[derive(Clone)]
@@ -65,6 +63,11 @@ impl EpochProcessable for BeaconState {
             "Starting per-epoch processing on epoch {}...",
             self.current_epoch(spec)
         );
+
+        // Ensure all of the caches are built.
+        self.build_epoch_cache(RelativeEpoch::Previous, spec)?;
+        self.build_epoch_cache(RelativeEpoch::Current, spec)?;
+        self.build_epoch_cache(RelativeEpoch::Next, spec)?;
 
         /*
          * Validators attesting during the current epoch.
@@ -322,8 +325,11 @@ impl EpochProcessable for BeaconState {
                 slot,
                 slot.epoch(spec.epoch_length)
             );
+
+            // Clone is used to remove the borrow. It becomes an issue later when trying to mutate
+            // `self.balances`.
             let crosslink_committees_at_slot =
-                self.get_crosslink_committees_at_slot(slot, false, spec)?;
+                self.get_crosslink_committees_at_slot(slot, spec)?.clone();
 
             for (crosslink_committee, shard) in crosslink_committees_at_slot {
                 let shard = shard as u64;
@@ -499,8 +505,10 @@ impl EpochProcessable for BeaconState {
          * Crosslinks
          */
         for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
+            // Clone is used to remove the borrow. It becomes an issue later when trying to mutate
+            // `self.balances`.
             let crosslink_committees_at_slot =
-                self.get_crosslink_committees_at_slot(slot, false, spec)?;
+                self.get_crosslink_committees_at_slot(slot, spec)?.clone();
 
             for (_crosslink_committee, shard) in crosslink_committees_at_slot {
                 let shard = shard as u64;
@@ -609,6 +617,12 @@ impl EpochProcessable for BeaconState {
             .cloned()
             .collect();
 
+        /*
+         * Manage the beacon state caches
+         */
+        self.advance_caches();
+        self.build_epoch_cache(RelativeEpoch::Next, spec)?;
+
         debug!("Epoch transition complete.");
 
         Ok(())
@@ -645,19 +659,18 @@ fn winning_root(
         }
 
         // TODO: `cargo fmt` makes this rather ugly; tidy up.
-        let attesting_validator_indices = attestations.iter().try_fold::<_, _, Result<
-            _,
-            AttestationParticipantsError,
-        >>(vec![], |mut acc, a| {
-            if (a.data.shard == shard) && (a.data.shard_block_root == *shard_block_root) {
-                acc.append(&mut state.get_attestation_participants(
-                    &a.data,
-                    &a.aggregation_bitfield,
-                    spec,
-                )?);
-            }
-            Ok(acc)
-        })?;
+        let attesting_validator_indices = attestations
+            .iter()
+            .try_fold::<_, _, Result<_, BeaconStateError>>(vec![], |mut acc, a| {
+                if (a.data.shard == shard) && (a.data.shard_block_root == *shard_block_root) {
+                    acc.append(&mut state.get_attestation_participants(
+                        &a.data,
+                        &a.aggregation_bitfield,
+                        spec,
+                    )?);
+                }
+                Ok(acc)
+            })?;
 
         let total_balance: u64 = attesting_validator_indices
             .iter()
@@ -708,15 +721,9 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-impl From<AttestationParticipantsError> for Error {
-    fn from(e: AttestationParticipantsError) -> Error {
-        Error::AttestationParticipantsError(e)
-    }
-}
-
-impl From<AttestationParticipantsError> for WinningRootError {
-    fn from(e: AttestationParticipantsError) -> WinningRootError {
-        WinningRootError::AttestationParticipantsError(e)
+impl From<BeaconStateError> for WinningRootError {
+    fn from(e: BeaconStateError) -> WinningRootError {
+        WinningRootError::BeaconStateError(e)
     }
 }
 
