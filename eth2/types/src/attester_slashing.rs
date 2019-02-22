@@ -3,8 +3,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
 pub struct AttesterSlashing {
     pub slashable_attestation_1: SlashableAttestation,
     pub slashable_attestation_2: SlashableAttestation,
@@ -16,15 +17,6 @@ impl TreeHash for AttesterSlashing {
         result.append(&mut self.slashable_attestation_1.hash_tree_root_internal());
         result.append(&mut self.slashable_attestation_2.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for AttesterSlashing {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slashable_attestation_1: <_>::random_for_test(rng),
-            slashable_attestation_2: <_>::random_for_test(rng),
-        }
     }
 }
 

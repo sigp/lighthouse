@@ -4,8 +4,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
 pub struct Deposit {
     pub branch: Vec<Hash256>,
     pub index: u64,
@@ -19,16 +20,6 @@ impl TreeHash for Deposit {
         result.append(&mut self.index.hash_tree_root_internal());
         result.append(&mut self.deposit_data.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Deposit {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            branch: <_>::random_for_test(rng),
-            index: <_>::random_for_test(rng),
-            deposit_data: <_>::random_for_test(rng),
-        }
     }
 }
 

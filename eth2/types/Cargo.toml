@@ -20,6 +20,7 @@ slog = "^2.2.3"
 ssz = { path = "../utils/ssz" }
 ssz_derive = { path = "../utils/ssz_derive" }
 swap_or_not_shuffle = { path = "../utils/swap_or_not_shuffle" }
+test_random_derive = { path = "../utils/test_random_derive" }
 
 [dev-dependencies]
 env_logger = "0.6.0"

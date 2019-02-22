@@ -4,8 +4,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TestRandom)]
 pub struct BeaconBlockBody {
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub attester_slashings: Vec<AttesterSlashing>,
@@ -23,18 +24,6 @@ impl TreeHash for BeaconBlockBody {
         result.append(&mut self.deposits.hash_tree_root_internal());
         result.append(&mut self.exits.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            proposer_slashings: <_>::random_for_test(rng),
-            attester_slashings: <_>::random_for_test(rng),
-            attestations: <_>::random_for_test(rng),
-            deposits: <_>::random_for_test(rng),
-            exits: <_>::random_for_test(rng),
-        }
     }
 }
 

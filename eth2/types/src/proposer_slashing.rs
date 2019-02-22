@@ -5,8 +5,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
     pub proposal_data_1: ProposalSignedData,
@@ -24,18 +25,6 @@ impl TreeHash for ProposerSlashing {
         result.append(&mut self.proposal_data_2.hash_tree_root_internal());
         result.append(&mut self.proposal_signature_2.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for ProposerSlashing {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            proposer_index: <_>::random_for_test(rng),
-            proposal_data_1: <_>::random_for_test(rng),
-            proposal_signature_1: <_>::random_for_test(rng),
-            proposal_data_2: <_>::random_for_test(rng),
-            proposal_signature_2: <_>::random_for_test(rng),
-        }
     }
 }
 

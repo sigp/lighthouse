@@ -6,8 +6,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
 pub struct SlashableVoteData {
     pub custody_bit_0_indices: Vec<u32>,
     pub custody_bit_1_indices: Vec<u32>,
@@ -44,17 +45,6 @@ impl TreeHash for SlashableVoteData {
         result.append(&mut self.data.hash_tree_root_internal());
         result.append(&mut self.aggregate_signature.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for SlashableVoteData {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            custody_bit_0_indices: <_>::random_for_test(rng),
-            custody_bit_1_indices: <_>::random_for_test(rng),
-            data: <_>::random_for_test(rng),
-            aggregate_signature: <_>::random_for_test(rng),
-        }
     }
 }
 

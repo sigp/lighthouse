@@ -12,6 +12,7 @@ use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
 use swap_or_not_shuffle::get_permutated_index;
+use test_random_derive::TestRandom;
 
 mod tests;
 
@@ -52,7 +53,7 @@ macro_rules! safe_sub_assign {
     };
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TestRandom)]
 pub struct BeaconState {
     // Misc
     pub slot: Slot,
@@ -1001,37 +1002,5 @@ impl TreeHash for BeaconState {
         result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
         result.append(&mut self.eth1_data_votes.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for BeaconState {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slot: <_>::random_for_test(rng),
-            genesis_time: <_>::random_for_test(rng),
-            fork: <_>::random_for_test(rng),
-            validator_registry: <_>::random_for_test(rng),
-            validator_balances: <_>::random_for_test(rng),
-            validator_registry_update_epoch: <_>::random_for_test(rng),
-            latest_randao_mixes: <_>::random_for_test(rng),
-            previous_epoch_start_shard: <_>::random_for_test(rng),
-            current_epoch_start_shard: <_>::random_for_test(rng),
-            previous_calculation_epoch: <_>::random_for_test(rng),
-            current_calculation_epoch: <_>::random_for_test(rng),
-            previous_epoch_seed: <_>::random_for_test(rng),
-            current_epoch_seed: <_>::random_for_test(rng),
-            previous_justified_epoch: <_>::random_for_test(rng),
-            justified_epoch: <_>::random_for_test(rng),
-            justification_bitfield: <_>::random_for_test(rng),
-            finalized_epoch: <_>::random_for_test(rng),
-            latest_crosslinks: <_>::random_for_test(rng),
-            latest_block_roots: <_>::random_for_test(rng),
-            latest_index_roots: <_>::random_for_test(rng),
-            latest_penalized_balances: <_>::random_for_test(rng),
-            latest_attestations: <_>::random_for_test(rng),
-            batched_block_roots: <_>::random_for_test(rng),
-            latest_eth1_data: <_>::random_for_test(rng),
-            eth1_data_votes: <_>::random_for_test(rng),
-        }
     }
 }

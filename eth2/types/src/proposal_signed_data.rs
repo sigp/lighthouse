@@ -4,8 +4,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TestRandom)]
 pub struct ProposalSignedData {
     pub slot: Slot,
     pub shard: u64,
@@ -19,16 +20,6 @@ impl TreeHash for ProposalSignedData {
         result.append(&mut self.shard.hash_tree_root_internal());
         result.append(&mut self.block_root.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for ProposalSignedData {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slot: <_>::random_for_test(rng),
-            shard: <_>::random_for_test(rng),
-            block_root: <_>::random_for_test(rng),
-        }
     }
 }
 
