@@ -1,24 +1,13 @@
 use crate::{test_utils::TestRandom, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, Hashtree};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
 pub struct ShardReassignmentRecord {
     pub validator_index: u64,
     pub shard: u64,
     pub slot: Slot,
-}
-
-impl TreeHash for ShardReassignmentRecord {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.validator_index.hash_tree_root_internal());
-        result.append(&mut self.shard.hash_tree_root_internal());
-        result.append(&mut self.slot.hash_tree_root_internal());
-        hash(&result)
-    }
 }
 
 impl<T: RngCore> TestRandom<T> for ShardReassignmentRecord {
@@ -35,7 +24,7 @@ impl<T: RngCore> TestRandom<T> for ShardReassignmentRecord {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {

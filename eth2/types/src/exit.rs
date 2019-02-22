@@ -2,24 +2,13 @@ use crate::{test_utils::TestRandom, Epoch};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, Hashtree};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
 pub struct Exit {
     pub epoch: Epoch,
     pub validator_index: u64,
     pub signature: Signature,
-}
-
-impl TreeHash for Exit {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.epoch.hash_tree_root_internal());
-        result.append(&mut self.validator_index.hash_tree_root_internal());
-        result.append(&mut self.signature.hash_tree_root_internal());
-        hash(&result)
-    }
 }
 
 impl<T: RngCore> TestRandom<T> for Exit {
@@ -36,7 +25,7 @@ impl<T: RngCore> TestRandom<T> for Exit {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {
