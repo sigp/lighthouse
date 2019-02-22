@@ -1,22 +1,12 @@
 use crate::{test_utils::TestRandom, SlashableAttestation};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, Hashtree};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
 pub struct AttesterSlashing {
     pub slashable_attestation_1: SlashableAttestation,
     pub slashable_attestation_2: SlashableAttestation,
-}
-
-impl TreeHash for AttesterSlashing {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slashable_attestation_1.hash_tree_root_internal());
-        result.append(&mut self.slashable_attestation_2.hash_tree_root_internal());
-        hash(&result)
-    }
 }
 
 impl<T: RngCore> TestRandom<T> for AttesterSlashing {
@@ -32,7 +22,7 @@ impl<T: RngCore> TestRandom<T> for AttesterSlashing {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {

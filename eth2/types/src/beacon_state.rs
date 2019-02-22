@@ -10,7 +10,7 @@ use log::trace;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, Hashtree};
 use swap_or_not_shuffle::get_permutated_index;
 
 mod tests;
@@ -52,7 +52,7 @@ macro_rules! safe_sub_assign {
     };
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, Hashtree)]
 pub struct BeaconState {
     // Misc
     pub slot: Slot,
@@ -965,42 +965,6 @@ impl From<BeaconStateError> for AttestationParticipantsError {
 impl From<AttestationParticipantsError> for InclusionError {
     fn from(e: AttestationParticipantsError) -> InclusionError {
         InclusionError::AttestationParticipantsError(e)
-    }
-}
-
-impl TreeHash for BeaconState {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root_internal());
-        result.append(&mut self.genesis_time.hash_tree_root_internal());
-        result.append(&mut self.fork.hash_tree_root_internal());
-        result.append(&mut self.validator_registry.hash_tree_root_internal());
-        result.append(&mut self.validator_balances.hash_tree_root_internal());
-        result.append(
-            &mut self
-                .validator_registry_update_epoch
-                .hash_tree_root_internal(),
-        );
-        result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
-        result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
-        result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());
-        result.append(&mut self.previous_calculation_epoch.hash_tree_root_internal());
-        result.append(&mut self.current_calculation_epoch.hash_tree_root_internal());
-        result.append(&mut self.previous_epoch_seed.hash_tree_root_internal());
-        result.append(&mut self.current_epoch_seed.hash_tree_root_internal());
-        result.append(&mut self.previous_justified_epoch.hash_tree_root_internal());
-        result.append(&mut self.justified_epoch.hash_tree_root_internal());
-        result.append(&mut self.justification_bitfield.hash_tree_root_internal());
-        result.append(&mut self.finalized_epoch.hash_tree_root_internal());
-        result.append(&mut self.latest_crosslinks.hash_tree_root_internal());
-        result.append(&mut self.latest_block_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_index_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_penalized_balances.hash_tree_root_internal());
-        result.append(&mut self.latest_attestations.hash_tree_root_internal());
-        result.append(&mut self.batched_block_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
-        result.append(&mut self.eth1_data_votes.hash_tree_root_internal());
-        hash(&result)
     }
 }
 

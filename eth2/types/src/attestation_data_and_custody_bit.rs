@@ -2,23 +2,12 @@ use super::AttestationData;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, Hashtree};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, Hashtree)]
 pub struct AttestationDataAndCustodyBit {
     pub data: AttestationData,
     pub custody_bit: bool,
-}
-
-impl TreeHash for AttestationDataAndCustodyBit {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.data.hash_tree_root_internal());
-        // TODO: add bool ssz
-        // result.append(custody_bit.hash_tree_root_internal());
-        ssz::hash(&result)
-    }
 }
 
 impl<T: RngCore> TestRandom<T> for AttestationDataAndCustodyBit {
@@ -35,7 +24,7 @@ impl<T: RngCore> TestRandom<T> for AttestationDataAndCustodyBit {
 mod test {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {
