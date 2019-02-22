@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_utils::{BeaconStateTestBuilder, SeedableRng, TestRandom, XorShiftRng};
-use ssz::ssz_encode;
+use ssz::{ssz_encode, Decodable};
 use super::*;
 
 #[test]

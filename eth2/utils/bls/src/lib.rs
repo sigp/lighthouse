@@ -22,6 +22,22 @@ use hashing::hash;
 use ssz::ssz_encode;
 use std::default::Default;
 
+fn bls_aggregate_pubkeys(pubkeys: &[PublicKey]) -> AggregatePublicKey {
+    let mut aggregate_pubkey = AggregatePublicKey::new();
+    for pubkey in pubkeys {
+        aggregate_pubkey.add(&pubkey.as_raw());
+    }
+    aggregate_pubkey
+}
+
+fn bls_aggregate_signatures(signatures: &[Signature]) -> AggregateSignature {
+    let mut aggregate_signature = AggregateSignature::new();
+    for signature in signatures {
+        aggregate_signature.add(signature);
+    }
+    aggregate_signature
+}
+
 fn extend_if_needed(hash: &mut Vec<u8>) {
     // NOTE: bls_aggregates crate demands 48 bytes, this may be removed as we get closer to production
     hash.resize(48, Default::default())

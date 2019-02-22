@@ -84,10 +84,10 @@ pub fn verify_slashable_attestation(
     // Verify signatures and votes
     slashable_attestation.aggregate_signature.verify_multiple(
         &messages,
-        state.fork.get_domain(
-            slashable_attestation.data.slot.epoch(spec.epoch_length),
-            spec.domain_attestation,
-        ),
+        //state.fork.get_domain(
+        //    slashable_attestation.data.slot.epoch(spec.epoch_length),
+        spec.domain_attestation,
+        //),
         &[pubkeys_custody_bit_0, pubkeys_custody_bit_1],
     )
 }
@@ -95,6 +95,7 @@ pub fn verify_slashable_attestation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bls::SecretKey;
     use types::{AttestationData, AggregateSignature, test_utils::BeaconStateTestBuilder, Crosslink, Signature};
 
     #[test]
@@ -125,6 +126,7 @@ mod tests {
         };
         let custody_bitfield = Bitfield::with_capacity(validator_indices.len());
         let mut aggregate_signature = AggregateSignature::new();
+        // Signature for custody bitfield 0 indices
         for validator_index in validator_indices.iter() {
             let sig = Signature::new(
                 &attestation_data_and_false.hash_tree_root(),
@@ -134,6 +136,22 @@ mod tests {
             aggregate_signature.add(&sig);
         }
 
+        // Signature for custody bit 1 indices
+        let attestation_data_and_true = AttestationDataAndCustodyBit {
+            data: data.clone(),
+            custody_bit: true
+        };
+        let mut sk: Vec<u8> = vec![0;48];
+        sk[47] += 1;
+        let sk = SecretKey::from_bytes(&sk).unwrap();
+        let sig = Signature::new(
+            &attestation_data_and_true.hash_tree_root(),
+            spec.domain_attestation,
+            &sk,
+        );
+        aggregate_signature.add(&sig);
+
+        // Verify Slashable attestation
         let slashable_attestation = SlashableAttestation {
             validator_indices,
             data,
