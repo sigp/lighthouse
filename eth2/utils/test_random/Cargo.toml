@@ -1,0 +1,8 @@
+[package]
+name = "test_random"
+version = "0.1.0"
+authors = ["thojest <thojest@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+rand = "0.5.5"
