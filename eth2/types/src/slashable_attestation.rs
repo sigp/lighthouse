@@ -3,8 +3,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
 pub struct SlashableAttestation {
     pub validator_indices: Vec<u64>,
     pub data: AttestationData,
@@ -20,17 +21,6 @@ impl TreeHash for SlashableAttestation {
         result.append(&mut self.custody_bitfield.hash_tree_root_internal());
         result.append(&mut self.aggregate_signature.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for SlashableAttestation {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            validator_indices: <_>::random_for_test(rng),
-            data: <_>::random_for_test(rng),
-            custody_bitfield: <_>::random_for_test(rng),
-            aggregate_signature: <_>::random_for_test(rng),
-        }
     }
 }
 

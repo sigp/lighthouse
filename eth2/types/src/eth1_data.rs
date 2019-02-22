@@ -4,9 +4,10 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
 // Note: this is refer to as DepositRootVote in specs
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TestRandom)]
 pub struct Eth1Data {
     pub deposit_root: Hash256,
     pub block_hash: Hash256,
@@ -18,15 +19,6 @@ impl TreeHash for Eth1Data {
         result.append(&mut self.deposit_root.hash_tree_root_internal());
         result.append(&mut self.block_hash.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Eth1Data {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            deposit_root: <_>::random_for_test(rng),
-            block_hash: <_>::random_for_test(rng),
-        }
     }
 }
 

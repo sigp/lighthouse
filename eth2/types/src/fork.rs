@@ -3,8 +3,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TestRandom)]
 pub struct Fork {
     pub previous_version: u64,
     pub current_version: u64,
@@ -18,16 +19,6 @@ impl TreeHash for Fork {
         result.append(&mut self.current_version.hash_tree_root_internal());
         result.append(&mut self.epoch.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Fork {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            previous_version: <_>::random_for_test(rng),
-            current_version: <_>::random_for_test(rng),
-            epoch: <_>::random_for_test(rng),
-        }
     }
 }
 

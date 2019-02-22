@@ -4,8 +4,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, TestRandom)]
 pub struct Crosslink {
     pub epoch: Epoch,
     pub shard_block_root: Hash256,
@@ -27,15 +28,6 @@ impl TreeHash for Crosslink {
         result.append(&mut self.epoch.hash_tree_root_internal());
         result.append(&mut self.shard_block_root.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Crosslink {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            epoch: <_>::random_for_test(rng),
-            shard_block_root: <_>::random_for_test(rng),
-        }
     }
 }
 

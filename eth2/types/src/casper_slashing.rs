@@ -4,8 +4,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
 pub struct CasperSlashing {
     pub slashable_vote_data_1: SlashableVoteData,
     pub slashable_vote_data_2: SlashableVoteData,
@@ -17,15 +18,6 @@ impl TreeHash for CasperSlashing {
         result.append(&mut self.slashable_vote_data_1.hash_tree_root_internal());
         result.append(&mut self.slashable_vote_data_2.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for CasperSlashing {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slashable_vote_data_1: <_>::random_for_test(rng),
-            slashable_vote_data_2: <_>::random_for_test(rng),
-        }
     }
 }
 

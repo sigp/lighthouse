@@ -4,8 +4,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, TreeHash};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
 pub struct Exit {
     pub epoch: Epoch,
     pub validator_index: u64,
@@ -19,16 +20,6 @@ impl TreeHash for Exit {
         result.append(&mut self.validator_index.hash_tree_root_internal());
         result.append(&mut self.signature.hash_tree_root_internal());
         hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Exit {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            epoch: <_>::random_for_test(rng),
-            validator_index: <_>::random_for_test(rng),
-            signature: <_>::random_for_test(rng),
-        }
     }
 }
 
