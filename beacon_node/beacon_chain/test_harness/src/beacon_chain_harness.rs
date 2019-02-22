@@ -1,5 +1,5 @@
 use super::ValidatorHarness;
-use beacon_chain::BeaconChain;
+use beacon_chain::{BeaconChain, BlockProcessingOutcome};
 pub use beacon_chain::{CheckPoint, Error as BeaconChainError};
 use bls::create_proof_of_possession;
 use db::{
@@ -157,7 +157,7 @@ impl BeaconChainHarness {
             .beacon_chain
             .state
             .read()
-            .get_crosslink_committees_at_slot(present_slot, false, &self.spec)
+            .get_crosslink_committees_at_slot(present_slot, &self.spec)
             .unwrap()
             .iter()
             .fold(vec![], |mut acc, (committee, _slot)| {
@@ -223,7 +223,10 @@ impl BeaconChainHarness {
         debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
-        self.beacon_chain.process_block(block).unwrap();
+        match self.beacon_chain.process_block(block) {
+            Ok(BlockProcessingOutcome::ValidBlock(_)) => {}
+            other => panic!("block processing failed with {:?}", other),
+        };
         debug!("...block processed by BeaconChain.");
 
         debug!("Producing free attestations...");
@@ -240,6 +243,10 @@ impl BeaconChainHarness {
         });
 
         debug!("Free attestations processed.");
+    }
+
+    pub fn run_fork_choice(&mut self) {
+        self.beacon_chain.fork_choice().unwrap()
     }
 
     /// Dump all blocks and states from the canonical beacon chain.
