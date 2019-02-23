@@ -5,15 +5,20 @@ use crate::{
     PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::verify_proof_of_possession;
-use fisher_yates_shuffle::shuffle;
 use honey_badger_split::SplitExt;
+use log::trace;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
+use swap_or_not_shuffle::get_permutated_index;
+
+mod tests;
 
 #[derive(Debug, PartialEq)]
 pub enum BeaconStateError {
     EpochOutOfBounds,
+    UnableToShuffle,
     InsufficientRandaoMixes,
     InsufficientValidators,
     InsufficientBlockRoots,
@@ -47,7 +52,7 @@ macro_rules! safe_sub_assign {
     };
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
 pub struct BeaconState {
     // Misc
     pub slot: Slot,
@@ -201,7 +206,12 @@ impl BeaconState {
     ///
     /// Spec v0.2.0
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.current_epoch(spec).saturating_sub(1_u64)
+        let current_epoch = self.current_epoch(&spec);
+        if current_epoch == spec.genesis_epoch {
+            current_epoch
+        } else {
+            current_epoch - 1
+        }
     }
 
     /// The epoch following `self.current_epoch()`.
@@ -249,23 +259,50 @@ impl BeaconState {
     /// committee is itself a list of validator indices.
     ///
     /// Spec v0.1
-    pub fn get_shuffling(&self, seed: Hash256, epoch: Epoch, spec: &ChainSpec) -> Vec<Vec<usize>> {
+    pub fn get_shuffling(
+        &self,
+        seed: Hash256,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Option<Vec<Vec<usize>>> {
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, epoch);
+
+        if active_validator_indices.is_empty() {
+            return None;
+        }
+
+        trace!(
+            "get_shuffling: active_validator_indices.len() == {}",
+            active_validator_indices.len()
+        );
 
         let committees_per_epoch =
             self.get_epoch_committee_count(active_validator_indices.len(), spec);
 
-        // TODO: check that Hash256::from(u64) matches 'int_to_bytes32'.
-        let seed = seed ^ Hash256::from(epoch.as_u64());
-        // TODO: fix `expect` assert.
-        let shuffled_active_validator_indices =
-            shuffle(&seed, active_validator_indices).expect("Max validator count exceed!");
+        trace!(
+            "get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
+            active_validator_indices.len(),
+            committees_per_epoch
+        );
 
-        shuffled_active_validator_indices
-            .honey_badger_split(committees_per_epoch as usize)
-            .map(|slice: &[usize]| slice.to_vec())
-            .collect()
+        let mut shuffled_active_validator_indices = vec![0; active_validator_indices.len()];
+        for &i in &active_validator_indices {
+            let shuffled_i = get_permutated_index(
+                i,
+                active_validator_indices.len(),
+                &seed[..],
+                spec.shuffle_round_count,
+            )?;
+            shuffled_active_validator_indices[i] = active_validator_indices[shuffled_i]
+        }
+
+        Some(
+            shuffled_active_validator_indices
+                .honey_badger_split(committees_per_epoch as usize)
+                .map(|slice: &[usize]| slice.to_vec())
+                .collect(),
+        )
     }
 
     /// Return the number of committees in the previous epoch.
@@ -303,9 +340,17 @@ impl BeaconState {
             + 1;
         let latest_index_root = current_epoch + spec.entry_exit_delay;
 
+        trace!(
+            "get_active_index_root: epoch: {}, earliest: {}, latest: {}",
+            epoch,
+            earliest_index_root,
+            latest_index_root
+        );
+
         if (epoch >= earliest_index_root) & (epoch <= latest_index_root) {
             Some(self.latest_index_roots[epoch.as_usize() % spec.latest_index_roots_length])
         } else {
+            trace!("get_active_index_root: epoch out of range.");
             None
         }
     }
@@ -350,29 +395,28 @@ impl BeaconState {
     ) -> Result<Vec<(Vec<usize>, u64)>, BeaconStateError> {
         let epoch = slot.epoch(spec.epoch_length);
         let current_epoch = self.current_epoch(spec);
-        let previous_epoch = if current_epoch == spec.genesis_epoch {
-            current_epoch
-        } else {
-            current_epoch.saturating_sub(1_u64)
-        };
+        let previous_epoch = self.previous_epoch(spec);
         let next_epoch = self.next_epoch(spec);
 
         let (committees_per_epoch, seed, shuffling_epoch, shuffling_start_shard) =
-            if epoch == previous_epoch {
-                (
-                    self.get_previous_epoch_committee_count(spec),
-                    self.previous_epoch_seed,
-                    self.previous_calculation_epoch,
-                    self.previous_epoch_start_shard,
-                )
-            } else if epoch == current_epoch {
+            if epoch == current_epoch {
+                trace!("get_crosslink_committees_at_slot: current_epoch");
                 (
                     self.get_current_epoch_committee_count(spec),
                     self.current_epoch_seed,
                     self.current_calculation_epoch,
                     self.current_epoch_start_shard,
                 )
+            } else if epoch == previous_epoch {
+                trace!("get_crosslink_committees_at_slot: previous_epoch");
+                (
+                    self.get_previous_epoch_committee_count(spec),
+                    self.previous_epoch_seed,
+                    self.previous_calculation_epoch,
+                    self.previous_epoch_start_shard,
+                )
             } else if epoch == next_epoch {
+                trace!("get_crosslink_committees_at_slot: next_epoch");
                 let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
                 let epochs_since_last_registry_update =
                     current_epoch - self.validator_registry_update_epoch;
@@ -401,11 +445,20 @@ impl BeaconState {
                 return Err(BeaconStateError::EpochOutOfBounds);
             };
 
-        let shuffling = self.get_shuffling(seed, shuffling_epoch, spec);
+        let shuffling = self
+            .get_shuffling(seed, shuffling_epoch, spec)
+            .ok_or_else(|| BeaconStateError::UnableToShuffle)?;
         let offset = slot.as_u64() % spec.epoch_length;
         let committees_per_slot = committees_per_epoch / spec.epoch_length;
         let slot_start_shard =
             (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
+
+        trace!(
+            "get_crosslink_committees_at_slot: committees_per_slot: {}, slot_start_shard: {}, seed: {}",
+            committees_per_slot,
+            slot_start_shard,
+            seed
+        );
 
         let mut crosslinks_at_slot = vec![];
         for i in 0..committees_per_slot {
@@ -458,6 +511,11 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<usize, BeaconStateError> {
         let committees = self.get_crosslink_committees_at_slot(slot, false, spec)?;
+        trace!(
+            "get_beacon_proposer_index: slot: {}, committees_count: {}",
+            slot,
+            committees.len()
+        );
         committees
             .first()
             .ok_or(BeaconStateError::InsufficientValidators)
@@ -910,125 +968,38 @@ impl From<AttestationParticipantsError> for InclusionError {
     }
 }
 
-impl Encodable for BeaconState {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.slot);
-        s.append(&self.genesis_time);
-        s.append(&self.fork);
-        s.append(&self.validator_registry);
-        s.append(&self.validator_balances);
-        s.append(&self.validator_registry_update_epoch);
-        s.append(&self.latest_randao_mixes);
-        s.append(&self.previous_epoch_start_shard);
-        s.append(&self.current_epoch_start_shard);
-        s.append(&self.previous_calculation_epoch);
-        s.append(&self.current_calculation_epoch);
-        s.append(&self.previous_epoch_seed);
-        s.append(&self.current_epoch_seed);
-        s.append(&self.previous_justified_epoch);
-        s.append(&self.justified_epoch);
-        s.append(&self.justification_bitfield);
-        s.append(&self.finalized_epoch);
-        s.append(&self.latest_crosslinks);
-        s.append(&self.latest_block_roots);
-        s.append(&self.latest_index_roots);
-        s.append(&self.latest_penalized_balances);
-        s.append(&self.latest_attestations);
-        s.append(&self.batched_block_roots);
-        s.append(&self.latest_eth1_data);
-        s.append(&self.eth1_data_votes);
-    }
-}
-
-impl Decodable for BeaconState {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (genesis_time, i) = <_>::ssz_decode(bytes, i)?;
-        let (fork, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_balances, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry_update_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_randao_mixes, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (justification_bitfield, i) = <_>::ssz_decode(bytes, i)?;
-        let (finalized_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_crosslinks, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_index_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_penalized_balances, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_attestations, i) = <_>::ssz_decode(bytes, i)?;
-        let (batched_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_eth1_data, i) = <_>::ssz_decode(bytes, i)?;
-        let (eth1_data_votes, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                slot,
-                genesis_time,
-                fork,
-                validator_registry,
-                validator_balances,
-                validator_registry_update_epoch,
-                latest_randao_mixes,
-                previous_epoch_start_shard,
-                current_epoch_start_shard,
-                previous_calculation_epoch,
-                current_calculation_epoch,
-                previous_epoch_seed,
-                current_epoch_seed,
-                previous_justified_epoch,
-                justified_epoch,
-                justification_bitfield,
-                finalized_epoch,
-                latest_crosslinks,
-                latest_block_roots,
-                latest_index_roots,
-                latest_penalized_balances,
-                latest_attestations,
-                batched_block_roots,
-                latest_eth1_data,
-                eth1_data_votes,
-            },
-            i,
-        ))
-    }
-}
-
 impl TreeHash for BeaconState {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
-        result.append(&mut self.genesis_time.hash_tree_root());
-        result.append(&mut self.fork.hash_tree_root());
-        result.append(&mut self.validator_registry.hash_tree_root());
-        result.append(&mut self.validator_balances.hash_tree_root());
-        result.append(&mut self.validator_registry_update_epoch.hash_tree_root());
-        result.append(&mut self.latest_randao_mixes.hash_tree_root());
-        result.append(&mut self.previous_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.current_epoch_start_shard.hash_tree_root());
-        result.append(&mut self.previous_calculation_epoch.hash_tree_root());
-        result.append(&mut self.current_calculation_epoch.hash_tree_root());
-        result.append(&mut self.previous_epoch_seed.hash_tree_root());
-        result.append(&mut self.current_epoch_seed.hash_tree_root());
-        result.append(&mut self.previous_justified_epoch.hash_tree_root());
-        result.append(&mut self.justified_epoch.hash_tree_root());
-        result.append(&mut self.justification_bitfield.hash_tree_root());
-        result.append(&mut self.finalized_epoch.hash_tree_root());
-        result.append(&mut self.latest_crosslinks.hash_tree_root());
-        result.append(&mut self.latest_block_roots.hash_tree_root());
-        result.append(&mut self.latest_index_roots.hash_tree_root());
-        result.append(&mut self.latest_penalized_balances.hash_tree_root());
-        result.append(&mut self.latest_attestations.hash_tree_root());
-        result.append(&mut self.batched_block_roots.hash_tree_root());
-        result.append(&mut self.latest_eth1_data.hash_tree_root());
-        result.append(&mut self.eth1_data_votes.hash_tree_root());
+        result.append(&mut self.slot.hash_tree_root_internal());
+        result.append(&mut self.genesis_time.hash_tree_root_internal());
+        result.append(&mut self.fork.hash_tree_root_internal());
+        result.append(&mut self.validator_registry.hash_tree_root_internal());
+        result.append(&mut self.validator_balances.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .validator_registry_update_epoch
+                .hash_tree_root_internal(),
+        );
+        result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());
+        result.append(&mut self.previous_calculation_epoch.hash_tree_root_internal());
+        result.append(&mut self.current_calculation_epoch.hash_tree_root_internal());
+        result.append(&mut self.previous_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.current_epoch_seed.hash_tree_root_internal());
+        result.append(&mut self.previous_justified_epoch.hash_tree_root_internal());
+        result.append(&mut self.justified_epoch.hash_tree_root_internal());
+        result.append(&mut self.justification_bitfield.hash_tree_root_internal());
+        result.append(&mut self.finalized_epoch.hash_tree_root_internal());
+        result.append(&mut self.latest_crosslinks.hash_tree_root_internal());
+        result.append(&mut self.latest_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_index_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_penalized_balances.hash_tree_root_internal());
+        result.append(&mut self.latest_attestations.hash_tree_root_internal());
+        result.append(&mut self.batched_block_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
+        result.append(&mut self.eth1_data_votes.hash_tree_root_internal());
         hash(&result)
     }
 }
@@ -1062,35 +1033,5 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             latest_eth1_data: <_>::random_for_test(rng),
             eth1_data_votes: <_>::random_for_test(rng),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
-
-    #[test]
-    pub fn test_ssz_round_trip() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = BeaconState::random_for_test(&mut rng);
-
-        let bytes = ssz_encode(&original);
-        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
-
-        assert_eq!(original, decoded);
-    }
-
-    #[test]
-    pub fn test_hash_tree_root() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = BeaconState::random_for_test(&mut rng);
-
-        let result = original.hash_tree_root();
-
-        assert_eq!(result.len(), 32);
-        // TODO: Add further tests
-        // https://github.com/sigp/lighthouse/issues/170
     }
 }

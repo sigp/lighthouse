@@ -1,7 +1,7 @@
 use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::config::ClientConfig;
-use block_producer::{test_utils::LocalSigner, BlockProducer};
+use block_proposer::{test_utils::LocalSigner, BlockProducer};
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
