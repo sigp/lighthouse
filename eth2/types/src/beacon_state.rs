@@ -2,12 +2,12 @@ use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{
     validator::StatusFlags, validator_registry::get_active_validator_indices, AttestationData,
-    Bitfield, ChainSpec, Crosslink, Deposit, Epoch, Eth1Data, Eth1DataVote, Fork, Hash256,
-    PendingAttestation, PublicKey, Signature, Slot, Validator,
+    Bitfield, ChainSpec, Crosslink, Deposit, DepositData, Epoch, Eth1Data, Eth1DataVote, Fork,
+    Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
-use log::trace;
+use log::{debug, trace};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
@@ -120,6 +120,7 @@ impl BeaconState {
         latest_eth1_data: Eth1Data,
         spec: &ChainSpec,
     ) -> Result<BeaconState, Error> {
+        debug!("Creating genesis state.");
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             shard_block_root: spec.zero_hash,
@@ -186,15 +187,14 @@ impl BeaconState {
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
         };
 
-        for deposit in initial_validator_deposits {
-            let _index = genesis_state.process_deposit(
-                deposit.deposit_data.deposit_input.pubkey,
-                deposit.deposit_data.amount,
-                deposit.deposit_data.deposit_input.proof_of_possession,
-                deposit.deposit_data.deposit_input.withdrawal_credentials,
-                spec,
-            );
-        }
+        let deposit_data = initial_validator_deposits
+            .iter()
+            .map(|deposit| &deposit.deposit_data)
+            .collect();
+
+        genesis_state.process_deposits_optimized(deposit_data, spec);
+
+        trace!("Processed genesis deposits.");
 
         for validator_index in 0..genesis_state.validator_registry.len() {
             if genesis_state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount
@@ -479,6 +479,77 @@ impl BeaconState {
         Ok(&cache.committees[slot_offset.as_usize()])
     }
 
+    pub(crate) fn get_shuffling_for_slot(
+        &self,
+        slot: Slot,
+        registry_change: bool,
+        spec: &ChainSpec,
+    ) -> Result<Vec<Vec<usize>>, Error> {
+        let (_committees_per_epoch, seed, shuffling_epoch, _shuffling_start_shard) =
+            self.get_committee_params_at_slot(slot, registry_change, spec)?;
+
+        self.get_shuffling(seed, shuffling_epoch, spec)
+            .ok_or_else(|| Error::UnableToShuffle)
+    }
+
+    pub(crate) fn get_committee_params_at_slot(
+        &self,
+        slot: Slot,
+        registry_change: bool,
+        spec: &ChainSpec,
+    ) -> Result<(u64, Hash256, Epoch, u64), Error> {
+        let epoch = slot.epoch(spec.epoch_length);
+        let current_epoch = self.current_epoch(spec);
+        let previous_epoch = self.previous_epoch(spec);
+        let next_epoch = self.next_epoch(spec);
+
+        if epoch == current_epoch {
+            trace!("get_crosslink_committees_at_slot: current_epoch");
+            Ok((
+                self.get_current_epoch_committee_count(spec),
+                self.current_epoch_seed,
+                self.current_calculation_epoch,
+                self.current_epoch_start_shard,
+            ))
+        } else if epoch == previous_epoch {
+            trace!("get_crosslink_committees_at_slot: previous_epoch");
+            Ok((
+                self.get_previous_epoch_committee_count(spec),
+                self.previous_epoch_seed,
+                self.previous_calculation_epoch,
+                self.previous_epoch_start_shard,
+            ))
+        } else if epoch == next_epoch {
+            trace!("get_crosslink_committees_at_slot: next_epoch");
+            let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
+            let epochs_since_last_registry_update =
+                current_epoch - self.validator_registry_update_epoch;
+            let (seed, shuffling_start_shard) = if registry_change {
+                let next_seed = self.generate_seed(next_epoch, spec)?;
+                (
+                    next_seed,
+                    (self.current_epoch_start_shard + current_committees_per_epoch)
+                        % spec.shard_count,
+                )
+            } else if (epochs_since_last_registry_update > 1)
+                & epochs_since_last_registry_update.is_power_of_two()
+            {
+                let next_seed = self.generate_seed(next_epoch, spec)?;
+                (next_seed, self.current_epoch_start_shard)
+            } else {
+                (self.current_epoch_seed, self.current_epoch_start_shard)
+            };
+            Ok((
+                self.get_next_epoch_committee_count(spec),
+                seed,
+                next_epoch,
+                shuffling_start_shard,
+            ))
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }
+    }
+
     /// Return the list of ``(committee, shard)`` tuples for the ``slot``.
     ///
     /// Note: There are two possible shufflings for crosslink committees for a
@@ -491,63 +562,12 @@ impl BeaconState {
         &self,
         slot: Slot,
         registry_change: bool,
+        shuffling: Vec<Vec<usize>>,
         spec: &ChainSpec,
     ) -> Result<Vec<(Vec<usize>, u64)>, Error> {
-        let epoch = slot.epoch(spec.epoch_length);
-        let current_epoch = self.current_epoch(spec);
-        let previous_epoch = self.previous_epoch(spec);
-        let next_epoch = self.next_epoch(spec);
+        let (committees_per_epoch, _seed, _shuffling_epoch, shuffling_start_shard) =
+            self.get_committee_params_at_slot(slot, registry_change, spec)?;
 
-        let (committees_per_epoch, seed, shuffling_epoch, shuffling_start_shard) =
-            if epoch == current_epoch {
-                trace!("get_crosslink_committees_at_slot: current_epoch");
-                (
-                    self.get_current_epoch_committee_count(spec),
-                    self.current_epoch_seed,
-                    self.current_calculation_epoch,
-                    self.current_epoch_start_shard,
-                )
-            } else if epoch == previous_epoch {
-                trace!("get_crosslink_committees_at_slot: previous_epoch");
-                (
-                    self.get_previous_epoch_committee_count(spec),
-                    self.previous_epoch_seed,
-                    self.previous_calculation_epoch,
-                    self.previous_epoch_start_shard,
-                )
-            } else if epoch == next_epoch {
-                trace!("get_crosslink_committees_at_slot: next_epoch");
-                let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
-                let epochs_since_last_registry_update =
-                    current_epoch - self.validator_registry_update_epoch;
-                let (seed, shuffling_start_shard) = if registry_change {
-                    let next_seed = self.generate_seed(next_epoch, spec)?;
-                    (
-                        next_seed,
-                        (self.current_epoch_start_shard + current_committees_per_epoch)
-                            % spec.shard_count,
-                    )
-                } else if (epochs_since_last_registry_update > 1)
-                    & epochs_since_last_registry_update.is_power_of_two()
-                {
-                    let next_seed = self.generate_seed(next_epoch, spec)?;
-                    (next_seed, self.current_epoch_start_shard)
-                } else {
-                    (self.current_epoch_seed, self.current_epoch_start_shard)
-                };
-                (
-                    self.get_next_epoch_committee_count(spec),
-                    seed,
-                    next_epoch,
-                    shuffling_start_shard,
-                )
-            } else {
-                return Err(Error::EpochOutOfBounds);
-            };
-
-        let shuffling = self
-            .get_shuffling(seed, shuffling_epoch, spec)
-            .ok_or_else(|| Error::UnableToShuffle)?;
         let offset = slot.as_u64() % spec.epoch_length;
         let committees_per_slot = committees_per_epoch / spec.epoch_length;
         let slot_start_shard =
@@ -724,6 +744,35 @@ impl BeaconState {
 
         self.validator_registry_update_epoch = current_epoch;
     }
+
+    pub fn process_deposits_optimized(
+        &mut self,
+        deposits: Vec<&DepositData>,
+        spec: &ChainSpec,
+    ) -> Vec<usize> {
+        let mut added_indices = vec![];
+        let mut pubkey_map: HashMap<PublicKey, usize> = HashMap::new();
+
+        for (i, validator) in self.validator_registry.iter().enumerate() {
+            pubkey_map.insert(validator.pubkey.clone(), i);
+        }
+
+        for deposit_data in deposits {
+            let result = self.process_deposit(
+                deposit_data.deposit_input.pubkey.clone(),
+                deposit_data.amount,
+                deposit_data.deposit_input.proof_of_possession.clone(),
+                deposit_data.deposit_input.withdrawal_credentials,
+                Some(&pubkey_map),
+                spec,
+            );
+            if let Ok(index) = result {
+                added_indices.push(index);
+            }
+        }
+        added_indices
+    }
+
     /// Process a validator deposit, returning the validator index if the deposit is valid.
     ///
     /// Spec v0.2.0
@@ -733,6 +782,7 @@ impl BeaconState {
         amount: u64,
         proof_of_possession: Signature,
         withdrawal_credentials: Hash256,
+        pubkey_map: Option<&HashMap<PublicKey, usize>>,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
         // TODO: ensure verify proof-of-possession represents the spec accurately.
@@ -740,11 +790,15 @@ impl BeaconState {
             return Err(());
         }
 
-        if let Some(index) = self
-            .validator_registry
-            .iter()
-            .position(|v| v.pubkey == pubkey)
-        {
+        let validator_index = if let Some(pubkey_map) = pubkey_map {
+            pubkey_map.get(&pubkey).and_then(|i| Some(*i))
+        } else {
+            self.validator_registry
+                .iter()
+                .position(|v| v.pubkey == pubkey)
+        };
+
+        if let Some(index) = validator_index {
             if self.validator_registry[index].withdrawal_credentials == withdrawal_credentials {
                 safe_add_assign!(self.validator_balances[index], amount);
                 Ok(index)

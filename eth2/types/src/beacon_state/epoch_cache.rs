@@ -36,9 +36,16 @@ impl EpochCache {
         let mut attestation_duty_map: AttestationDutyMap = HashMap::new();
         let mut shard_committee_index_map: ShardCommitteeIndexMap = HashMap::new();
 
+        let shuffling =
+            state.get_shuffling_for_slot(epoch.start_slot(spec.epoch_length), false, spec)?;
+
         for (epoch_committeess_index, slot) in epoch.slot_iter(spec.epoch_length).enumerate() {
-            let slot_committees =
-                state.calculate_crosslink_committees_at_slot(slot, false, spec)?;
+            let slot_committees = state.calculate_crosslink_committees_at_slot(
+                slot,
+                false,
+                shuffling.clone(),
+                spec,
+            )?;
 
             for (slot_committees_index, (committee, shard)) in slot_committees.iter().enumerate() {
                 // Empty committees are not permitted.
