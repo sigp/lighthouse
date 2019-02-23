@@ -1,0 +1,51 @@
+title: Fork-choice Tests
+summary: A collection of abstract fork-choice tests to verify the longest chain fork-choice rule.
+test_suite: Fork-Choice
+
+test_cases:
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b1'
+    - id: 'b3'
+      parent: 'b1'
+    - id: 'b4'
+      parent: 'b3'
+  weights:
+    - b0: 0
+    - b1: 0
+    - b2: 10
+    - b3: 1
+  heads:
+    - id: 'b4'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b1'
+    - id: 'b3'
+      parent: 'b2'
+    - id: 'b4'
+      parent: 'b3'
+    - id: 'b5'
+      parent: 'b0'
+    - id: 'b6'
+      parent: 'b5'
+    - id: 'b7'
+      parent: 'b6'
+    - id: 'b8'
+      parent: 'b7'
+    - id: 'b9'
+      parent: 'b8'
+  weights:
+    - b0: 5
+    - b1: 20
+    - b2: 10
+    - b3: 10
+  heads:
+    - id: 'b9'
