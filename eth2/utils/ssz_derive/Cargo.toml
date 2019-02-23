@@ -1,0 +1,14 @@
+[package]
+name = "ssz_derive"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+description = "Procedural derive macros for SSZ encoding and decoding."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "0.15"
+quote = "0.6"
+ssz = { path = "../ssz" }
