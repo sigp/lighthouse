@@ -6,7 +6,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
-use fork_choice::OptimisedLMDGhost;
+use fork_choice::BitwiseLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
@@ -28,7 +28,7 @@ use types::{
 /// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
-    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
+    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<ValidatorHarness>,
@@ -46,7 +46,7 @@ impl BeaconChainHarness {
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
         let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
-        let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
+        let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
         let latest_eth1_data = Eth1Data {
             deposit_root: Hash256::zero(),
             block_hash: Hash256::zero(),
@@ -128,7 +128,18 @@ impl BeaconChainHarness {
     pub fn increment_beacon_chain_slot(&mut self) -> Slot {
         let slot = self.beacon_chain.present_slot() + 1;
 
-        debug!("Incrementing BeaconChain slot to {}.", slot);
+        let nth_slot = slot
+            - slot
+                .epoch(self.spec.epoch_length)
+                .start_slot(self.spec.epoch_length);
+        let nth_epoch = slot.epoch(self.spec.epoch_length) - self.spec.genesis_epoch;
+        debug!(
+            "Advancing BeaconChain to slot {}, epoch {} (epoch height: {}, slot {} in epoch.).",
+            slot,
+            slot.epoch(self.spec.epoch_length),
+            nth_epoch,
+            nth_slot
+        );
 
         self.beacon_chain.slot_clock.set_slot(slot.as_u64());
         self.beacon_chain.advance_state(slot).unwrap();
@@ -209,6 +220,7 @@ impl BeaconChainHarness {
         self.increment_beacon_chain_slot();
 
         // Produce a new block.
+        debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
         self.beacon_chain.process_block(block).unwrap();

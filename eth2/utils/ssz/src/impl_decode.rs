@@ -39,6 +39,21 @@ impl Decodable for u8 {
     }
 }
 
+impl Decodable for bool {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+        if index >= bytes.len() {
+            Err(DecodeError::TooShort)
+        } else {
+            let result = match bytes[index] {
+                0b0000_0000 => false,
+                0b1000_0000 => true,
+                _ => return Err(DecodeError::Invalid),
+            };
+            Ok((result, index + 1))
+        }
+    }
+}
+
 impl Decodable for H256 {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
         if bytes.len() < 32 || bytes.len() - 32 < index {
@@ -214,5 +229,21 @@ mod tests {
 
         let result: u16 = decode_ssz(&vec![0, 0, 0, 1, 0], 3).unwrap().0;
         assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn test_decode_ssz_bool() {
+        let ssz = vec![0b0000_0000, 0b1000_0000];
+        let (result, index): (bool, usize) = decode_ssz(&ssz, 0).unwrap();
+        assert_eq!(index, 1);
+        assert_eq!(result, false);
+
+        let (result, index): (bool, usize) = decode_ssz(&ssz, 1).unwrap();
+        assert_eq!(index, 2);
+        assert_eq!(result, true);
+
+        let ssz = vec![0b0100_0000];
+        let result: Result<(bool, usize), DecodeError> = decode_ssz(&ssz, 0);
+        assert_eq!(result, Err(DecodeError::Invalid));
     }
 }

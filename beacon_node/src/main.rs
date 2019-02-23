@@ -14,7 +14,7 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
-use fork_choice::optimised_lmd_ghost::OptimisedLMDGhost;
+use fork_choice::BitwiseLMDGhost;
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use std::sync::Arc;
@@ -81,7 +81,7 @@ fn main() {
     let slot_clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
         .expect("Unable to load SystemTimeSlotClock");
     // Choose the fork choice
-    let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
+    let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
 
     /*
      * Generate some random data to start a chain with.
