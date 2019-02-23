@@ -1,7 +1,7 @@
 [workspace]
 members = [
 	"eth2/attester",
-	"eth2/block_producer",
+	"eth2/block_proposer",
 	"eth2/fork_choice",
 	"eth2/state_processing",
 	"eth2/types",
@@ -12,6 +12,7 @@ members = [
 	"eth2/utils/int_to_bytes",
 	"eth2/utils/slot_clock",
 	"eth2/utils/ssz",
+	"eth2/utils/ssz_derive",
 	"eth2/utils/swap_or_not_shuffle",
 	"eth2/utils/fisher_yates_shuffle",
 	"beacon_node",
