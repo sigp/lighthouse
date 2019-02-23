@@ -114,7 +114,10 @@ impl AttestationAggregator {
 
         if !free_attestation.signature.verify(
             &signable_message,
-            spec.domain_attestation,
+            cached_state.state.fork.get_domain(
+                cached_state.state.current_epoch(spec),
+                spec.domain_attestation,
+            ),
             &validator_record.pubkey,
         ) {
             return Ok(Outcome {
