@@ -25,12 +25,14 @@ macro_rules! impl_into_u32 {
     ($main: ident) => {
         impl Into<u32> for $main {
             fn into(self) -> u32 {
+                assert!(self.0 < u64::from(std::u32::MAX), "Lossy conversion to u32");
                 self.0 as u32
             }
         }
 
         impl $main {
             pub fn as_u32(&self) -> u32 {
+                assert!(self.0 < u64::from(std::u32::MAX), "Lossy conversion to u32");
                 self.0 as u32
             }
         }
