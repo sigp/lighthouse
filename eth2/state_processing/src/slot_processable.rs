@@ -1,5 +1,5 @@
 use crate::{EpochProcessable, EpochProcessingError};
-use types::{beacon_state::BeaconStateError, BeaconState, ChainSpec, Hash256};
+use types::{BeaconState, BeaconStateError, ChainSpec, Hash256};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
