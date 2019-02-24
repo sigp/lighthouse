@@ -1,9 +1,9 @@
-use crate::cached_beacon_state::CachedBeaconState;
+use log::trace;
 use state_processing::validate_attestation_without_signature;
 use std::collections::{HashMap, HashSet};
 use types::{
-    beacon_state::BeaconStateError, AggregateSignature, Attestation, AttestationData, BeaconState,
-    Bitfield, ChainSpec, FreeAttestation, Signature,
+    AggregateSignature, Attestation, AttestationData, BeaconState, BeaconStateError, Bitfield,
+    ChainSpec, FreeAttestation, Signature,
 };
 
 const PHASE_0_CUSTODY_BIT: bool = false;
@@ -42,21 +42,28 @@ pub enum Message {
     BadSignature,
     /// The given `slot` does not match the validators committee assignment.
     BadSlot,
-    /// The given `shard` does not match the validators committee assignment.
+    /// The given `shard` does not match the validators committee assignment, or is not included in
+    /// a committee for the given slot.
     BadShard,
+    /// Attestation is from the epoch prior to this, ignoring.
+    TooOld,
 }
 
-macro_rules! some_or_invalid {
-    ($expression: expr, $error: expr) => {
-        match $expression {
-            Some(x) => x,
-            None => {
-                return Ok(Outcome {
-                    valid: false,
-                    message: $error,
-                });
-            }
-        }
+macro_rules! valid_outcome {
+    ($error: expr) => {
+        return Ok(Outcome {
+            valid: true,
+            message: $error,
+        });
+    };
+}
+
+macro_rules! invalid_outcome {
+    ($error: expr) => {
+        return Ok(Outcome {
+            valid: false,
+            message: $error,
+        });
     };
 }
 
@@ -77,49 +84,56 @@ impl AttestationAggregator {
     ///  - The signature is verified against that of the validator at `validator_index`.
     pub fn process_free_attestation(
         &mut self,
-        cached_state: &CachedBeaconState,
+        cached_state: &BeaconState,
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
     ) -> Result<Outcome, BeaconStateError> {
-        let (slot, shard, committee_index) = some_or_invalid!(
-            cached_state.attestation_slot_and_shard_for_validator(
-                free_attestation.validator_index as usize,
-                spec,
-            )?,
-            Message::BadValidatorIndex
+        let attestation_duties = match cached_state.attestation_slot_and_shard_for_validator(
+            free_attestation.validator_index as usize,
+            spec,
+        ) {
+            Err(BeaconStateError::EpochCacheUninitialized(e)) => {
+                panic!("Attempted to access unbuilt cache {:?}.", e)
+            }
+            Err(BeaconStateError::EpochOutOfBounds) => invalid_outcome!(Message::TooOld),
+            Err(BeaconStateError::ShardOutOfBounds) => invalid_outcome!(Message::BadShard),
+            Err(e) => return Err(e),
+            Ok(None) => invalid_outcome!(Message::BadValidatorIndex),
+            Ok(Some(attestation_duties)) => attestation_duties,
+        };
+
+        let (slot, shard, committee_index) = attestation_duties;
+
+        trace!(
+            "slot: {}, shard: {}, committee_index: {}, val_index: {}",
+            slot,
+            shard,
+            committee_index,
+            free_attestation.validator_index
         );
 
         if free_attestation.data.slot != slot {
-            return Ok(Outcome {
-                valid: false,
-                message: Message::BadSlot,
-            });
+            invalid_outcome!(Message::BadSlot);
         }
         if free_attestation.data.shard != shard {
-            return Ok(Outcome {
-                valid: false,
-                message: Message::BadShard,
-            });
+            invalid_outcome!(Message::BadShard);
         }
 
         let signable_message = free_attestation.data.signable_message(PHASE_0_CUSTODY_BIT);
 
-        let validator_record = some_or_invalid!(
-            cached_state
-                .state
-                .validator_registry
-                .get(free_attestation.validator_index as usize),
-            Message::BadValidatorIndex
-        );
+        let validator_record = match cached_state
+            .validator_registry
+            .get(free_attestation.validator_index as usize)
+        {
+            None => invalid_outcome!(Message::BadValidatorIndex),
+            Some(validator_record) => validator_record,
+        };
 
         if !free_attestation
             .signature
             .verify(&signable_message, &validator_record.pubkey)
         {
-            return Ok(Outcome {
-                valid: false,
-                message: Message::BadSignature,
-            });
+            invalid_outcome!(Message::BadSignature);
         }
 
         if let Some(existing_attestation) = self.store.get(&signable_message) {
@@ -129,15 +143,9 @@ impl AttestationAggregator {
                 committee_index as usize,
             ) {
                 self.store.insert(signable_message, updated_attestation);
-                Ok(Outcome {
-                    valid: true,
-                    message: Message::Aggregated,
-                })
+                valid_outcome!(Message::Aggregated);
             } else {
-                Ok(Outcome {
-                    valid: true,
-                    message: Message::AggregationNotRequired,
-                })
+                valid_outcome!(Message::AggregationNotRequired);
             }
         } else {
             let mut aggregate_signature = AggregateSignature::new();
@@ -151,10 +159,7 @@ impl AttestationAggregator {
                 aggregate_signature,
             };
             self.store.insert(signable_message, new_attestation);
-            Ok(Outcome {
-                valid: true,
-                message: Message::NewAttestationCreated,
-            })
+            valid_outcome!(Message::NewAttestationCreated);
         }
     }
 
