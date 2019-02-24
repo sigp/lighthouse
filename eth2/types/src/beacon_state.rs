@@ -192,7 +192,7 @@ impl BeaconState {
             .map(|deposit| &deposit.deposit_data)
             .collect();
 
-        genesis_state.process_deposits_optimized(deposit_data, spec);
+        genesis_state.process_deposits(deposit_data, spec);
 
         trace!("Processed genesis deposits.");
 
@@ -243,6 +243,7 @@ impl BeaconState {
         Ok(())
     }
 
+    /// Converts a `RelativeEpoch` into an `Epoch` with respect to the epoch of this state.
     fn absolute_epoch(&self, relative_epoch: RelativeEpoch, spec: &ChainSpec) -> Epoch {
         match relative_epoch {
             RelativeEpoch::Previous => self.previous_epoch(spec),
@@ -251,6 +252,10 @@ impl BeaconState {
         }
     }
 
+    /// Converts an `Epoch` into a `RelativeEpoch` with respect to the epoch of this state.
+    ///
+    /// Returns an error if the given `epoch` not "previous", "current" or "next" compared to the
+    /// epoch of this tate.
     fn relative_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Result<RelativeEpoch, Error> {
         match epoch {
             e if e == self.current_epoch(spec) => Ok(RelativeEpoch::Current),
@@ -260,6 +265,16 @@ impl BeaconState {
         }
     }
 
+    /// Advances the cache for this state into the next epoch.
+    ///
+    /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
+    ///
+    /// The `Next` cache becomes the `Current` and the `Current` cache becomes the `Previous`. The
+    /// `Previous` cache is abandoned.
+    ///
+    /// Care should be taken to update the `Current` epoch in case a registry update is performed
+    /// -- `Next` epoch is always _without_ a registry change. If you perform a registry update,
+    /// you should rebuild the `Current` cache so it uses the new seed.
     pub fn advance_caches(&mut self) {
         let previous_cache_index = self.cache_index(RelativeEpoch::Previous);
 
@@ -269,6 +284,7 @@ impl BeaconState {
         self.cache_index_offset %= CACHED_EPOCHS;
     }
 
+    /// Returns the index of `self.caches` for some `RelativeEpoch`.
     fn cache_index(&self, relative_epoch: RelativeEpoch) -> usize {
         let base_index = match relative_epoch {
             RelativeEpoch::Current => 1,
@@ -279,6 +295,8 @@ impl BeaconState {
         (base_index + self.cache_index_offset) % CACHED_EPOCHS
     }
 
+    /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
+    /// initialized.
     fn cache<'a>(&'a self, relative_epoch: RelativeEpoch) -> Result<&'a EpochCache, Error> {
         let cache = &self.caches[self.cache_index(relative_epoch)];
 
@@ -356,10 +374,11 @@ impl BeaconState {
     }
 
     /// Shuffle ``validators`` into crosslink committees seeded by ``seed`` and ``epoch``.
+    ///
     /// Return a list of ``committees_per_epoch`` committees where each
     /// committee is itself a list of validator indices.
     ///
-    /// Spec v0.1
+    /// Spec v0.2.0
     pub(crate) fn get_shuffling(
         &self,
         seed: Hash256,
@@ -428,6 +447,9 @@ impl BeaconState {
         self.get_epoch_committee_count(current_active_validators.len(), spec)
     }
 
+    /// Return the index root at a recent `epoch`.
+    ///
+    /// Spec v0.2.0
     pub fn get_active_index_root(&self, epoch: Epoch, spec: &ChainSpec) -> Option<Hash256> {
         let current_epoch = self.current_epoch(spec);
 
@@ -443,7 +465,7 @@ impl BeaconState {
         }
     }
 
-    /// Generate a seed for the given ``epoch``.
+    /// Generate a seed for the given `epoch`.
     ///
     /// Spec v0.2.0
     pub fn generate_seed(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
@@ -465,6 +487,11 @@ impl BeaconState {
         Ok(Hash256::from(&hash(&input[..])[..]))
     }
 
+    /// Returns the crosslink committees for some slot.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.2.0
     pub fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
@@ -479,6 +506,11 @@ impl BeaconState {
         Ok(&cache.committees[slot_offset.as_usize()])
     }
 
+    /// Returns the crosslink committees for some slot.
+    ///
+    /// Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.2.0
     pub(crate) fn get_shuffling_for_slot(
         &self,
         slot: Slot,
@@ -492,6 +524,18 @@ impl BeaconState {
             .ok_or_else(|| Error::UnableToShuffle)
     }
 
+    /// Returns the following params for the given slot:
+    ///
+    /// - epoch committee count
+    /// - epoch seed
+    /// - calculation epoch
+    /// - start shard
+    ///
+    /// In the spec, this functionality is included in the `get_crosslink_committees_at_slot(..)`
+    /// function. It is separated here to allow the division of shuffling and committee building,
+    /// as is required for efficient operations.
+    ///
+    /// Spec v0.2.0
     pub(crate) fn get_committee_params_at_slot(
         &self,
         slot: Slot,
@@ -555,7 +599,8 @@ impl BeaconState {
     /// Note: There are two possible shufflings for crosslink committees for a
     /// `slot` in the next epoch: with and without a `registry_change`
     ///
-    /// Note: this is equivalent to the `get_crosslink_committees_at_slot` function in the spec.
+    /// Note: does not utilize the cache, `get_crosslink_committees_at_slot` is an equivalent
+    /// function which uses the cache.
     ///
     /// Spec v0.2.0
     pub(crate) fn calculate_crosslink_committees_at_slot(
@@ -588,6 +633,8 @@ impl BeaconState {
     /// attestation.
     ///
     /// Only reads the current epoch.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
     /// Spec v0.2.0
     pub fn attestation_slot_and_shard_for_validator(
@@ -745,7 +792,14 @@ impl BeaconState {
         self.validator_registry_update_epoch = current_epoch;
     }
 
-    pub fn process_deposits_optimized(
+    /// Process multiple deposits in sequence.
+    ///
+    /// Builds a hashmap of validator pubkeys to validator index and passes it to each successive
+    /// call to `process_deposit(..)`. This requires much less computation than successive calls to
+    /// `process_deposits(..)` without the hashmap.
+    ///
+    /// Spec v0.2.0
+    pub fn process_deposits(
         &mut self,
         deposits: Vec<&DepositData>,
         spec: &ChainSpec,
@@ -774,6 +828,10 @@ impl BeaconState {
     }
 
     /// Process a validator deposit, returning the validator index if the deposit is valid.
+    ///
+    /// Optionally accepts a hashmap of all validator pubkeys to their validator index. Without
+    /// this hashmap, each call to `process_deposits` requires an iteration though
+    /// `self.validator_registry`. This becomes highly inefficient at scale.
     ///
     /// Spec v0.2.0
     pub fn process_deposit(
@@ -1058,6 +1116,11 @@ impl BeaconState {
         Ok(all_participants)
     }
 
+    /// Returns the list of validator indices which participiated in the attestation.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.2.0
     pub fn get_attestation_participants(
         &self,
         attestation_data: &AttestationData,
