@@ -1,38 +1,14 @@
 use crate::{test_utils::TestRandom, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
 pub struct ShardReassignmentRecord {
     pub validator_index: u64,
     pub shard: u64,
     pub slot: Slot,
-}
-
-impl Encodable for ShardReassignmentRecord {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.validator_index);
-        s.append(&self.shard);
-        s.append(&self.slot);
-    }
-}
-
-impl Decodable for ShardReassignmentRecord {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (validator_index, i) = <_>::ssz_decode(bytes, i)?;
-        let (shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                validator_index,
-                shard,
-                slot,
-            },
-            i,
-        ))
-    }
 }
 
 impl TreeHash for ShardReassignmentRecord {
@@ -59,7 +35,7 @@ impl<T: RngCore> TestRandom<T> for ShardReassignmentRecord {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {

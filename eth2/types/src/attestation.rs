@@ -2,9 +2,10 @@ use super::{AggregatePublicKey, AggregateSignature, AttestationData, Bitfield, H
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode)]
 pub struct Attestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
@@ -30,32 +31,6 @@ impl Attestation {
     ) -> bool {
         self.aggregate_signature
             .verify(&self.signable_message(custody_bit), group_public_key)
-    }
-}
-
-impl Encodable for Attestation {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.aggregation_bitfield);
-        s.append(&self.data);
-        s.append(&self.custody_bitfield);
-        s.append(&self.aggregate_signature);
-    }
-}
-
-impl Decodable for Attestation {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (aggregation_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
-        let (data, i) = AttestationData::ssz_decode(bytes, i)?;
-        let (custody_bitfield, i) = Bitfield::ssz_decode(bytes, i)?;
-        let (aggregate_signature, i) = AggregateSignature::ssz_decode(bytes, i)?;
-
-        let attestation_record = Self {
-            aggregation_bitfield,
-            data,
-            custody_bitfield,
-            aggregate_signature,
-        };
-        Ok((attestation_record, i))
     }
 }
 
@@ -85,7 +60,7 @@ impl<T: RngCore> TestRandom<T> for Attestation {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {

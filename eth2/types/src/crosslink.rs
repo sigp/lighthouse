@@ -2,9 +2,10 @@ use crate::test_utils::TestRandom;
 use crate::{Epoch, Hash256};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode)]
 pub struct Crosslink {
     pub epoch: Epoch,
     pub shard_block_root: Hash256,
@@ -17,28 +18,6 @@ impl Crosslink {
             epoch: Epoch::new(0),
             shard_block_root: Hash256::zero(),
         }
-    }
-}
-
-impl Encodable for Crosslink {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.epoch);
-        s.append(&self.shard_block_root);
-    }
-}
-
-impl Decodable for Crosslink {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (shard_block_root, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                epoch,
-                shard_block_root,
-            },
-            i,
-        ))
     }
 }
 
@@ -64,7 +43,7 @@ impl<T: RngCore> TestRandom<T> for Crosslink {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {
