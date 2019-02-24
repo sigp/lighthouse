@@ -222,10 +222,10 @@ impl BeaconState {
     ) -> Result<(), Error> {
         let cache_index = self.cache_index(relative_epoch);
 
-        if self.caches[cache_index].initialized == false {
-            self.force_build_epoch_cache(relative_epoch, spec)
-        } else {
+        if self.caches[cache_index].initialized {
             Ok(())
+        } else {
+            self.force_build_epoch_cache(relative_epoch, spec)
         }
     }
 
@@ -297,13 +297,13 @@ impl BeaconState {
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
-    fn cache<'a>(&'a self, relative_epoch: RelativeEpoch) -> Result<&'a EpochCache, Error> {
+    fn cache(&self, relative_epoch: RelativeEpoch) -> Result<&EpochCache, Error> {
         let cache = &self.caches[self.cache_index(relative_epoch)];
 
-        if cache.initialized == false {
-            Err(Error::EpochCacheUninitialized(relative_epoch))
-        } else {
+        if cache.initialized {
             Ok(cache)
+        } else {
+            Err(Error::EpochCacheUninitialized(relative_epoch))
         }
     }
 
@@ -548,7 +548,7 @@ impl BeaconState {
         let next_epoch = self.next_epoch(spec);
 
         if epoch == current_epoch {
-            trace!("get_crosslink_committees_at_slot: current_epoch");
+            trace!("get_committee_params_at_slot: current_epoch");
             Ok((
                 self.get_current_epoch_committee_count(spec),
                 self.current_epoch_seed,
@@ -556,7 +556,7 @@ impl BeaconState {
                 self.current_epoch_start_shard,
             ))
         } else if epoch == previous_epoch {
-            trace!("get_crosslink_committees_at_slot: previous_epoch");
+            trace!("get_committee_params_at_slot: previous_epoch");
             Ok((
                 self.get_previous_epoch_committee_count(spec),
                 self.previous_epoch_seed,
@@ -564,7 +564,7 @@ impl BeaconState {
                 self.previous_epoch_start_shard,
             ))
         } else if epoch == next_epoch {
-            trace!("get_crosslink_committees_at_slot: next_epoch");
+            trace!("get_committee_params_at_slot: next_epoch");
             let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
             let epochs_since_last_registry_update =
                 current_epoch - self.validator_registry_update_epoch;
