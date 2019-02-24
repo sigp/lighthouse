@@ -7,7 +7,7 @@ use crate::{
     Hash256, Keypair,
 };
 use bls::create_proof_of_possession;
-use ssz::ssz_encode;
+use ssz::{ssz_encode, Decodable};
 
 struct BeaconStateTestBuilder {
     pub genesis_time: u64,

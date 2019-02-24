@@ -46,6 +46,13 @@ impl_encodable_for_uint!(u32, 32);
 impl_encodable_for_uint!(u64, 64);
 impl_encodable_for_uint!(usize, 64);
 
+impl Encodable for bool {
+    fn ssz_append(&self, s: &mut SszStream) {
+        let byte = if *self { 0b1000_0000 } else { 0b0000_0000 };
+        s.append_encoded_raw(&[byte]);
+    }
+}
+
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append_encoded_raw(&self.to_vec());
@@ -205,5 +212,18 @@ mod tests {
         let mut ssz = SszStream::new();
         ssz.append(&x);
         assert_eq!(ssz.drain(), vec![255, 255, 255, 255, 255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn test_ssz_encode_bool() {
+        let x: bool = false;
+        let mut ssz = SszStream::new();
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0b0000_0000]);
+
+        let x: bool = true;
+        let mut ssz = SszStream::new();
+        ssz.append(&x);
+        assert_eq!(ssz.drain(), vec![0b1000_0000]);
     }
 }

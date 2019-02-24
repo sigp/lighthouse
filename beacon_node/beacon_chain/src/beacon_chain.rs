@@ -359,6 +359,7 @@ where
         self.fork_choice.write().add_attestation(
             free_attestation.validator_index,
             &free_attestation.data.beacon_block_root,
+            &self.spec,
         )?;
         Ok(aggregation_outcome)
     }
@@ -488,7 +489,9 @@ where
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
         // run the fork_choice add_block logic
-        self.fork_choice.write().add_block(&block, &block_root)?;
+        self.fork_choice
+            .write()
+            .add_block(&block, &block_root, &self.spec)?;
 
         // If the parent block was the parent_block, automatically update the canonical head.
         //
@@ -569,7 +572,10 @@ where
     pub fn fork_choice(&self) -> Result<(), Error> {
         let present_head = self.finalized_head().beacon_block_root;
 
-        let new_head = self.fork_choice.write().find_head(&present_head)?;
+        let new_head = self
+            .fork_choice
+            .write()
+            .find_head(&present_head, &self.spec)?;
 
         if new_head != present_head {
             let block = self

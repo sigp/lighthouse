@@ -2,7 +2,8 @@ use crate::test_utils::TestRandom;
 use crate::{AttestationDataAndCustodyBit, Crosslink, Epoch, Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, TreeHash};
+use ssz_derive::{Decode, Encode};
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -15,7 +16,7 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 // justified_block_root
 };
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode)]
 pub struct AttestationData {
     pub slot: Slot,
     pub shard: u64,
@@ -40,44 +41,6 @@ impl AttestationData {
             custody_bit,
         };
         attestation_data_and_custody_bit.hash_tree_root()
-    }
-}
-
-impl Encodable for AttestationData {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.slot);
-        s.append(&self.shard);
-        s.append(&self.beacon_block_root);
-        s.append(&self.epoch_boundary_root);
-        s.append(&self.shard_block_root);
-        s.append(&self.latest_crosslink);
-        s.append(&self.justified_epoch);
-        s.append(&self.justified_block_root);
-    }
-}
-
-impl Decodable for AttestationData {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (beacon_block_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (epoch_boundary_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (shard_block_root, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_crosslink, i) = <_>::ssz_decode(bytes, i)?;
-        let (justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (justified_block_root, i) = <_>::ssz_decode(bytes, i)?;
-
-        let attestation_data = AttestationData {
-            slot,
-            shard,
-            beacon_block_root,
-            epoch_boundary_root,
-            shard_block_root,
-            latest_crosslink,
-            justified_epoch,
-            justified_block_root,
-        };
-        Ok((attestation_data, i))
     }
 }
 
@@ -115,7 +78,7 @@ impl<T: RngCore> TestRandom<T> for AttestationData {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable};
 
     #[test]
     pub fn test_ssz_round_trip() {
