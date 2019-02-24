@@ -495,12 +495,7 @@ where
         // TODO: this is a first-in-best-dressed scenario that is not ideal; fork_choice should be
         // run instead.
         if self.head().beacon_block_root == parent_block_root {
-            self.update_canonical_head(
-                block.clone(),
-                block_root.clone(),
-                state.clone(),
-                state_root,
-            );
+            self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
             // Update the local state variable.
             *self.state.write() = state.clone();
         }

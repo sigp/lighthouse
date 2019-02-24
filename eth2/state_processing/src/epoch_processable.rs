@@ -658,7 +658,6 @@ fn winning_root(
             continue;
         }
 
-        // TODO: `cargo fmt` makes this rather ugly; tidy up.
         let attesting_validator_indices = attestations
             .iter()
             .try_fold::<_, _, Result<_, BeaconStateError>>(vec![], |mut acc, a| {
