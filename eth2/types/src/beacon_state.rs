@@ -229,7 +229,7 @@ impl BeaconState {
         }
     }
 
-    /// Always builds an epoch cache, even if it is alread initialized.
+    /// Always builds an epoch cache, even if it is already initialized.
     pub fn force_build_epoch_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
