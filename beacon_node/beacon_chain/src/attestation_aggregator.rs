@@ -129,17 +129,13 @@ impl AttestationAggregator {
             Some(validator_record) => validator_record,
         };
 
-        if !free_attestation
-            .signature
-            .verify(
-                &signable_message,
-                cached_state.fork.get_domain(
-                    cached_state.current_epoch(spec),
-                    spec.domain_attestation,
-                ),
-                &validator_record.pubkey,
-            )
-        {
+        if !free_attestation.signature.verify(
+            &signable_message,
+            cached_state
+                .fork
+                .get_domain(cached_state.current_epoch(spec), spec.domain_attestation),
+            &validator_record.pubkey,
+        ) {
             invalid_outcome!(Message::BadSignature);
         }
 

@@ -2,8 +2,8 @@ use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{
     validator::StatusFlags, validator_registry::get_active_validator_indices, AttestationData,
-    Bitfield, ChainSpec, Crosslink, Deposit, DepositData, DepositInput, Epoch, Eth1Data, Eth1DataVote, Fork,
-    Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
+    Bitfield, ChainSpec, Crosslink, Deposit, DepositData, DepositInput, Epoch, Eth1Data,
+    Eth1DataVote, Fork, Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
 };
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
