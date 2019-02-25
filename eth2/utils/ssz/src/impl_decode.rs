@@ -220,24 +220,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ssz_decode_bool() {
-        let ssz = vec![1];
-        let (result, index): (bool, usize) = decode_ssz(&ssz, 0).unwrap();
-        assert_eq!(index, 1);
-        assert_eq!(result, true);
-
-        let ssz = vec![0];
-        let (result, index): (bool, usize) = decode_ssz(&ssz, 0).unwrap();
-        assert_eq!(index, 1);
-        assert_eq!(result, false);
-
-        let ssz = vec![0, 1, 0];
-        let (result, index): (bool, usize) = decode_ssz(&ssz, 1).unwrap();
-        assert_eq!(index, 2);
-        assert_eq!(result, true);
-    }
-
-    #[test]
     fn test_decode_ssz_bounds() {
         let err: Result<(u16, usize), DecodeError> = decode_ssz(&vec![1], 2);
         assert_eq!(err, Err(DecodeError::TooShort));

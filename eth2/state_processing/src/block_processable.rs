@@ -4,9 +4,8 @@ use int_to_bytes::int_to_bytes32;
 use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
 use types::{
-    beacon_state::{AttestationParticipantsError, BeaconStateError},
-    AggregatePublicKey, Attestation, BeaconBlock, BeaconState, ChainSpec, Crosslink, Epoch, Exit,
-    Fork, Hash256, PendingAttestation, PublicKey, Signature,
+    AggregatePublicKey, Attestation, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
+    Crosslink, Epoch, Exit, Fork, Hash256, PendingAttestation, PublicKey, RelativeEpoch, Signature,
 };
 
 // TODO: define elsehwere.
@@ -27,7 +26,6 @@ pub enum Error {
     MissingBeaconBlock(Hash256),
     InvalidBeaconBlock(Hash256),
     MissingParentBlock(Hash256),
-    NoBlockProducer,
     StateSlotMismatch,
     BadBlockSignature,
     BadRandaoSignature,
@@ -56,7 +54,7 @@ pub enum AttestationValidationError {
     BadSignature,
     ShardBlockRootNotZero,
     NoBlockRoot,
-    AttestationParticipantsError(AttestationParticipantsError),
+    BeaconStateError(BeaconStateError),
 }
 
 macro_rules! ensure {
@@ -98,12 +96,15 @@ fn per_block_processing_signature_optional(
 ) -> Result<(), Error> {
     ensure!(block.slot == state.slot, Error::StateSlotMismatch);
 
+    // Building the previous epoch could be delayed until an attestation from a previous epoch is
+    // included. This is left for future optimisation.
+    state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
+    state.build_epoch_cache(RelativeEpoch::Current, spec)?;
+
     /*
      * Proposer Signature
      */
-    let block_proposer_index = state
-        .get_beacon_proposer_index(block.slot, spec)
-        .map_err(|_| Error::NoBlockProducer)?;
+    let block_proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
     let block_proposer = &state.validator_registry[block_proposer_index];
 
     if verify_block_signature {
@@ -361,6 +362,12 @@ fn validate_attestation_signature_optional(
             &attestation.aggregation_bitfield,
             spec,
         )?;
+        trace!(
+            "slot: {}, shard: {}, participants: {:?}",
+            attestation.data.slot,
+            attestation.data.shard,
+            participants
+        );
         let mut group_public_key = AggregatePublicKey::new();
         for participant in participants {
             group_public_key.add(
@@ -415,8 +422,8 @@ impl From<SlotProcessingError> for Error {
     }
 }
 
-impl From<AttestationParticipantsError> for AttestationValidationError {
-    fn from(e: AttestationParticipantsError) -> AttestationValidationError {
-        AttestationValidationError::AttestationParticipantsError(e)
+impl From<BeaconStateError> for AttestationValidationError {
+    fn from(e: BeaconStateError) -> AttestationValidationError {
+        AttestationValidationError::BeaconStateError(e)
     }
 }

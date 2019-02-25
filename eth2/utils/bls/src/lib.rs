@@ -1,5 +1,4 @@
 extern crate bls_aggregates;
-extern crate hashing;
 extern crate ssz;
 
 mod aggregate_signature;
@@ -18,30 +17,7 @@ pub use self::bls_aggregates::AggregatePublicKey;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 96;
 
-use hashing::hash;
 use ssz::ssz_encode;
-use std::default::Default;
-
-fn bls_aggregate_pubkeys(pubkeys: &[PublicKey]) -> AggregatePublicKey {
-    let mut aggregate_pubkey = AggregatePublicKey::new();
-    for pubkey in pubkeys {
-        aggregate_pubkey.add(&pubkey.as_raw());
-    }
-    aggregate_pubkey
-}
-
-fn bls_aggregate_signatures(signatures: &[Signature]) -> AggregateSignature {
-    let mut aggregate_signature = AggregateSignature::new();
-    for signature in signatures {
-        aggregate_signature.add(signature);
-    }
-    aggregate_signature
-}
-
-fn extend_if_needed(hash: &mut Vec<u8>) {
-    // NOTE: bls_aggregates crate demands 48 bytes, this may be removed as we get closer to production
-    hash.resize(48, Default::default())
-}
 
 /// For some signature and public key, ensure that the signature message was the public key and it
 /// was signed by the secret key that corresponds to that public key.

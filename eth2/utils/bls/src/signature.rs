@@ -1,4 +1,4 @@
-use super::{BLS_AGG_SIG_BYTE_SIZE, PublicKey, SecretKey};
+use super::{PublicKey, SecretKey, BLS_AGG_SIG_BYTE_SIZE};
 use bls_aggregates::Signature as RawSignature;
 use serde::ser::{Serialize, Serializer};
 use ssz::{

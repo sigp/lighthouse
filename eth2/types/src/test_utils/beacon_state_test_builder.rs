@@ -1,6 +1,6 @@
 use crate::{
-    beacon_state::BeaconStateError, BeaconState, ChainSpec, Deposit, DepositData, DepositInput,
-    Eth1Data, Hash256, Keypair,
+    beacon_state::Error as BeaconStateError, BeaconState, ChainSpec, Deposit, DepositData,
+    DepositInput, Eth1Data, Hash256, Keypair,
 };
 use bls::create_proof_of_possession;
 
