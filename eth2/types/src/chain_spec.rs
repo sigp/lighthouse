@@ -199,7 +199,7 @@ impl ChainSpec {
         let genesis_epoch = genesis_slot.epoch(epoch_length);
 
         Self {
-            shard_count: 1,
+            shard_count: 8,
             target_committee_size: 1,
             genesis_slot,
             genesis_epoch,

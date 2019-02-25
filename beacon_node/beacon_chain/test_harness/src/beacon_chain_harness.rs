@@ -1,12 +1,12 @@
 use super::ValidatorHarness;
-use beacon_chain::BeaconChain;
+use beacon_chain::{BeaconChain, BlockProcessingOutcome};
 pub use beacon_chain::{CheckPoint, Error as BeaconChainError};
 use bls::create_proof_of_possession;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
-use fork_choice::OptimisedLMDGhost;
+use fork_choice::BitwiseLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
@@ -28,7 +28,7 @@ use types::{
 /// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
-    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, OptimisedLMDGhost<MemoryDB>>>,
+    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<ValidatorHarness>,
@@ -46,7 +46,7 @@ impl BeaconChainHarness {
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
         let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
-        let fork_choice = OptimisedLMDGhost::new(block_store.clone(), state_store.clone());
+        let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
         let latest_eth1_data = Eth1Data {
             deposit_root: Hash256::zero(),
             block_hash: Hash256::zero(),
@@ -157,7 +157,7 @@ impl BeaconChainHarness {
             .beacon_chain
             .state
             .read()
-            .get_crosslink_committees_at_slot(present_slot, false, &self.spec)
+            .get_crosslink_committees_at_slot(present_slot, &self.spec)
             .unwrap()
             .iter()
             .fold(vec![], |mut acc, (committee, _slot)| {
@@ -223,7 +223,10 @@ impl BeaconChainHarness {
         debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
-        self.beacon_chain.process_block(block).unwrap();
+        match self.beacon_chain.process_block(block) {
+            Ok(BlockProcessingOutcome::ValidBlock(_)) => {}
+            other => panic!("block processing failed with {:?}", other),
+        };
         debug!("...block processed by BeaconChain.");
 
         debug!("Producing free attestations...");
@@ -240,6 +243,10 @@ impl BeaconChainHarness {
         });
 
         debug!("Free attestations processed.");
+    }
+
+    pub fn run_fork_choice(&mut self) {
+        self.beacon_chain.fork_choice().unwrap()
     }
 
     /// Dump all blocks and states from the canonical beacon chain.
