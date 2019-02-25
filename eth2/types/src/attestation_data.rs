@@ -2,8 +2,8 @@ use crate::test_utils::TestRandom;
 use crate::{AttestationDataAndCustodyBit, Crosslink, Epoch, Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz::TreeHash;
+use ssz_derive::{Decode, Encode, TreeHash};
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -16,7 +16,7 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 // justified_block_root
 };
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, TreeHash)]
 pub struct AttestationData {
     pub slot: Slot,
     pub shard: u64,
@@ -44,21 +44,6 @@ impl AttestationData {
     }
 }
 
-impl TreeHash for AttestationData {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root_internal());
-        result.append(&mut self.shard.hash_tree_root_internal());
-        result.append(&mut self.beacon_block_root.hash_tree_root_internal());
-        result.append(&mut self.epoch_boundary_root.hash_tree_root_internal());
-        result.append(&mut self.shard_block_root.hash_tree_root_internal());
-        result.append(&mut self.latest_crosslink.hash_tree_root_internal());
-        result.append(&mut self.justified_epoch.hash_tree_root_internal());
-        result.append(&mut self.justified_block_root.hash_tree_root_internal());
-        hash(&result)
-    }
-}
-
 impl<T: RngCore> TestRandom<T> for AttestationData {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
@@ -78,7 +63,7 @@ impl<T: RngCore> TestRandom<T> for AttestationData {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {
