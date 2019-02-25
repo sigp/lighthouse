@@ -2,32 +2,21 @@ use crate::test_utils::TestRandom;
 use crate::{Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposalSignedData {
     pub slot: Slot,
     pub shard: u64,
     pub block_root: Hash256,
 }
 
-impl TreeHash for ProposalSignedData {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root_internal());
-        result.append(&mut self.shard.hash_tree_root_internal());
-        result.append(&mut self.block_root.hash_tree_root_internal());
-        hash(&result)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {

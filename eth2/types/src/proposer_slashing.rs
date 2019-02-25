@@ -3,11 +3,10 @@ use crate::test_utils::TestRandom;
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
     pub proposal_data_1: ProposalSignedData,
@@ -16,23 +15,11 @@ pub struct ProposerSlashing {
     pub proposal_signature_2: Signature,
 }
 
-impl TreeHash for ProposerSlashing {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.proposer_index.hash_tree_root_internal());
-        result.append(&mut self.proposal_data_1.hash_tree_root_internal());
-        result.append(&mut self.proposal_signature_1.hash_tree_root_internal());
-        result.append(&mut self.proposal_data_2.hash_tree_root_internal());
-        result.append(&mut self.proposal_signature_2.hash_tree_root_internal());
-        hash(&result)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {
