@@ -4,10 +4,9 @@ use crate::test_utils::TestRandom;
 use bls::AggregateSignature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
 pub struct SlashableVoteData {
     pub custody_bit_0_indices: Vec<u32>,
     pub custody_bit_1_indices: Vec<u32>,
@@ -36,17 +35,6 @@ impl SlashableVoteData {
     }
 }
 
-impl TreeHash for SlashableVoteData {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.custody_bit_0_indices.hash_tree_root_internal());
-        result.append(&mut self.custody_bit_1_indices.hash_tree_root_internal());
-        result.append(&mut self.data.hash_tree_root_internal());
-        result.append(&mut self.aggregate_signature.hash_tree_root_internal());
-        hash(&result)
-    }
-}
-
 impl<T: RngCore> TestRandom<T> for SlashableVoteData {
     fn random_for_test(rng: &mut T) -> Self {
         Self {
@@ -64,7 +52,7 @@ mod tests {
     use crate::chain_spec::ChainSpec;
     use crate::slot_epoch::{Epoch, Slot};
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_is_double_vote_true() {

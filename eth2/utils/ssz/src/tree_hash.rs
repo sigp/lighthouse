@@ -7,9 +7,7 @@ pub trait TreeHash {
     fn hash_tree_root_internal(&self) -> Vec<u8>;
     fn hash_tree_root(&self) -> Vec<u8> {
         let mut result = self.hash_tree_root_internal();
-        if result.len() < HASHSIZE {
-            zpad(&mut result, HASHSIZE);
-        }
+        zpad(&mut result, HASHSIZE);
         result
     }
 }

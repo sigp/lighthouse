@@ -2,26 +2,14 @@ use crate::test_utils::TestRandom;
 use crate::{AttestationData, Bitfield, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash)]
 pub struct PendingAttestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
     pub inclusion_slot: Slot,
-}
-
-impl TreeHash for PendingAttestation {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.aggregation_bitfield.hash_tree_root_internal());
-        result.append(&mut self.data.hash_tree_root_internal());
-        result.append(&mut self.custody_bitfield.hash_tree_root_internal());
-        result.append(&mut self.inclusion_slot.hash_tree_root_internal());
-        hash(&result)
-    }
 }
 
 impl<T: RngCore> TestRandom<T> for PendingAttestation {
@@ -39,7 +27,7 @@ impl<T: RngCore> TestRandom<T> for PendingAttestation {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {
