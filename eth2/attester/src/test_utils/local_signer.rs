@@ -25,7 +25,7 @@ impl LocalSigner {
 }
 
 impl Signer for LocalSigner {
-    fn sign_attestation_message(&self, message: &[u8]) -> Option<Signature> {
-        Some(Signature::new(message, &self.keypair.sk))
+    fn sign_attestation_message(&self, message: &[u8], domain: u64) -> Option<Signature> {
+        Some(Signature::new(message, domain, &self.keypair.sk))
     }
 }

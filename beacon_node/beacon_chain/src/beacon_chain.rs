@@ -1,5 +1,4 @@
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
-use crate::cached_beacon_state::CachedBeaconState;
 use crate::checkpoint::CheckPoint;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -15,10 +14,10 @@ use state_processing::{
 };
 use std::sync::Arc;
 use types::{
-    beacon_state::BeaconStateError,
     readers::{BeaconBlockReader, BeaconStateReader},
-    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Crosslink, Deposit,
-    Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, Signature, Slot,
+    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, BeaconStateError, ChainSpec,
+    Crosslink, Deposit, Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, RelativeEpoch,
+    Signature, Slot,
 };
 
 #[derive(Debug, PartialEq)]
@@ -70,7 +69,6 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
-    pub cached_state: RwLock<CachedBeaconState>,
     pub spec: ChainSpec,
     pub fork_choice: RwLock<F>,
 }
@@ -96,7 +94,7 @@ where
             return Err(Error::InsufficientValidators);
         }
 
-        let genesis_state = BeaconState::genesis(
+        let mut genesis_state = BeaconState::genesis(
             genesis_time,
             initial_validator_deposits,
             latest_eth1_data,
@@ -109,32 +107,32 @@ where
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
-        let cached_state = RwLock::new(CachedBeaconState::from_beacon_state(
-            genesis_state.clone(),
-            spec.clone(),
-        )?);
-
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
+            // TODO: this is a memory waste; remove full clone.
             genesis_state.clone(),
             state_root,
         ));
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
+            // TODO: this is a memory waste; remove full clone.
             genesis_state.clone(),
             state_root,
         ));
         let attestation_aggregator = RwLock::new(AttestationAggregator::new());
+
+        genesis_state.build_epoch_cache(RelativeEpoch::Previous, &spec)?;
+        genesis_state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
+        genesis_state.build_epoch_cache(RelativeEpoch::Next, &spec)?;
 
         Ok(Self {
             block_store,
             state_store,
             slot_clock,
             attestation_aggregator,
-            state: RwLock::new(genesis_state.clone()),
-            cached_state,
+            state: RwLock::new(genesis_state),
             finalized_head,
             canonical_head,
             spec,
@@ -150,6 +148,10 @@ where
         new_beacon_state: BeaconState,
         new_beacon_state_root: Hash256,
     ) {
+        debug!(
+            "Updating canonical head with block at slot: {}",
+            new_beacon_block.slot
+        );
         let mut head = self.canonical_head.write();
         head.update(
             new_beacon_block,
@@ -288,7 +290,7 @@ where
             validator_index
         );
         if let Some((slot, shard, _committee)) = self
-            .cached_state
+            .state
             .read()
             .attestation_slot_and_shard_for_validator(validator_index, &self.spec)?
         {
@@ -346,7 +348,7 @@ where
         let aggregation_outcome = self
             .attestation_aggregator
             .write()
-            .process_free_attestation(&self.cached_state.read(), &free_attestation, &self.spec)?;
+            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)?;
 
         // return if the attestation is invalid
         if !aggregation_outcome.valid {
@@ -496,17 +498,9 @@ where
         // TODO: this is a first-in-best-dressed scenario that is not ideal; fork_choice should be
         // run instead.
         if self.head().beacon_block_root == parent_block_root {
-            self.update_canonical_head(
-                block.clone(),
-                block_root.clone(),
-                state.clone(),
-                state_root,
-            );
+            self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
             // Update the local state variable.
             *self.state.write() = state.clone();
-            // Update the cached state variable.
-            *self.cached_state.write() =
-                CachedBeaconState::from_beacon_state(state.clone(), self.spec.clone())?;
         }
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
