@@ -2,9 +2,9 @@ use crate::test_utils::TestRandom;
 use crate::{AttestationData, Bitfield, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash)]
 pub struct PendingAttestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,

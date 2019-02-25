@@ -2,9 +2,9 @@ use crate::test_utils::TestRandom;
 use crate::{Epoch, Hash256};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, Hashtree)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, TreeHash)]
 pub struct Crosslink {
     pub epoch: Epoch,
     pub shard_block_root: Hash256,

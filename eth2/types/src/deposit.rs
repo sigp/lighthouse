@@ -2,9 +2,9 @@ use super::{DepositData, Hash256};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
 pub struct Deposit {
     pub branch: Vec<Hash256>,
     pub index: u64,

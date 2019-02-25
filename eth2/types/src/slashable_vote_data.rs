@@ -4,9 +4,9 @@ use crate::test_utils::TestRandom;
 use bls::AggregateSignature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
 pub struct SlashableVoteData {
     pub custody_bit_0_indices: Vec<u32>,
     pub custody_bit_1_indices: Vec<u32>,

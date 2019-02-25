@@ -2,9 +2,9 @@ use super::SlashableVoteData;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
 pub struct CasperSlashing {
     pub slashable_vote_data_1: SlashableVoteData,
     pub slashable_vote_data_2: SlashableVoteData,

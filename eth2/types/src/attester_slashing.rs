@@ -1,9 +1,9 @@
 use crate::{test_utils::TestRandom, SlashableAttestation};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
 pub struct AttesterSlashing {
     pub slashable_attestation_1: SlashableAttestation,
     pub slashable_attestation_2: SlashableAttestation,

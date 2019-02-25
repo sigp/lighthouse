@@ -1,9 +1,9 @@
 use crate::{test_utils::TestRandom, Epoch};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TreeHash)]
 pub struct Fork {
     pub previous_version: u64,
     pub current_version: u64,
