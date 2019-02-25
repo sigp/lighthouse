@@ -13,7 +13,6 @@ use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::get_permutated_index;
-use test_random_derive::TestRandom;
 
 mod epoch_cache;
 mod tests;
