@@ -3,7 +3,7 @@ use crate::{AttestationDataAndCustodyBit, Crosslink, Epoch, Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -16,7 +16,7 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 // justified_block_root
 };
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, Hashtree)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, TreeHash)]
 pub struct AttestationData {
     pub slot: Slot,
     pub shard: u64,

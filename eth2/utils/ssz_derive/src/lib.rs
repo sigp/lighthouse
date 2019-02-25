@@ -2,7 +2,7 @@
 //!
 //! - `#[derive(Encode)]`
 //! - `#[derive(Decode)]`
-//! - `#[derive(Hashtree)]`
+//! - `#[derive(TreeHash)]`
 //!
 //! These macros provide SSZ encoding/decoding for a `struct`. Fields are encoded/decoded in the
 //! order they are defined.
@@ -131,8 +131,8 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
 /// Implements `ssz::TreeHash` for some `struct`.
 ///
 /// Fields are processed in the order they are defined.
-#[proc_macro_derive(Hashtree)]
-pub fn ssz_hashtree_derive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(TreeHash)]
+pub fn ssz_tree_hash_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
     let name = &item.ident;

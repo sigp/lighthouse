@@ -3,9 +3,9 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash)]
 pub struct Attestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,

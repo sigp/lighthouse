@@ -2,10 +2,10 @@ use crate::{test_utils::TestRandom, Hash256, Slot};
 use bls::PublicKey;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
 // The information gathered from the PoW chain validator registration function.
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash)]
 pub struct ValidatorRegistryDeltaBlock {
     pub latest_registry_delta_root: Hash256,
     pub validator_index: u32,

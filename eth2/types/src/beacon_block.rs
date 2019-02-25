@@ -4,9 +4,9 @@ use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
 pub struct BeaconBlock {
     pub slot: Slot,
     pub parent_root: Hash256,

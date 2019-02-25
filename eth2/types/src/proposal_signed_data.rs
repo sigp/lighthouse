@@ -2,9 +2,9 @@ use crate::test_utils::TestRandom;
 use crate::{Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash)]
 pub struct ProposalSignedData {
     pub slot: Slot,
     pub shard: u64,

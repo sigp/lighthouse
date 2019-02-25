@@ -3,9 +3,9 @@ use crate::test_utils::TestRandom;
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, Hashtree};
+use ssz_derive::{Decode, Encode, TreeHash};
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, Hashtree)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
     pub proposal_data_1: ProposalSignedData,
