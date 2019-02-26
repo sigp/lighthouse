@@ -2,8 +2,9 @@ use crate::{test_utils::TestRandom, Epoch};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Fork {
     pub previous_version: u64,
     pub current_version: u64,
@@ -23,16 +24,6 @@ impl Fork {
     pub fn get_domain(&self, epoch: Epoch, domain_type: u64) -> u64 {
         let fork_version = self.get_fork_version(epoch);
         fork_version * u64::pow(2, 32) + domain_type
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Fork {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            previous_version: <_>::random_for_test(rng),
-            current_version: <_>::random_for_test(rng),
-            epoch: <_>::random_for_test(rng),
-        }
     }
 }
 

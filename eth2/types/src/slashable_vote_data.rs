@@ -5,8 +5,9 @@ use bls::AggregateSignature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct SlashableVoteData {
     pub custody_bit_0_indices: Vec<u32>,
     pub custody_bit_1_indices: Vec<u32>,
@@ -32,17 +33,6 @@ impl SlashableVoteData {
         let target_epoch_2 = other.data.slot.epoch(spec.epoch_length);
 
         (source_epoch_1 < source_epoch_2) && (target_epoch_2 < target_epoch_1)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for SlashableVoteData {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            custody_bit_0_indices: <_>::random_for_test(rng),
-            custody_bit_1_indices: <_>::random_for_test(rng),
-            data: <_>::random_for_test(rng),
-            aggregate_signature: <_>::random_for_test(rng),
-        }
     }
 }
 

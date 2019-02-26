@@ -3,9 +3,10 @@ use bls::PublicKey;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
 // The information gathered from the PoW chain validator registration function.
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ValidatorRegistryDeltaBlock {
     pub latest_registry_delta_root: Hash256,
     pub validator_index: u32,
@@ -23,18 +24,6 @@ impl Default for ValidatorRegistryDeltaBlock {
             pubkey: PublicKey::default(),
             slot: Slot::from(std::u64::MAX),
             flag: std::u64::MAX,
-        }
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for ValidatorRegistryDeltaBlock {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            latest_registry_delta_root: <_>::random_for_test(rng),
-            validator_index: <_>::random_for_test(rng),
-            pubkey: <_>::random_for_test(rng),
-            slot: <_>::random_for_test(rng),
-            flag: <_>::random_for_test(rng),
         }
     }
 }

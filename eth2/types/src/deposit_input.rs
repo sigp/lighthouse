@@ -4,22 +4,13 @@ use bls::{PublicKey, Signature};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct DepositInput {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub proof_of_possession: Signature,
-}
-
-impl<T: RngCore> TestRandom<T> for DepositInput {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            pubkey: <_>::random_for_test(rng),
-            withdrawal_credentials: <_>::random_for_test(rng),
-            proof_of_possession: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

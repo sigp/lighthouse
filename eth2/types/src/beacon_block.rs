@@ -5,8 +5,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::TreeHash;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlock {
     pub slot: Slot,
     pub parent_root: Hash256,
@@ -57,20 +58,6 @@ impl BeaconBlock {
             block_root: block_without_signature_root,
         };
         Hash256::from(&proposal.hash_tree_root()[..])
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for BeaconBlock {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slot: <_>::random_for_test(rng),
-            parent_root: <_>::random_for_test(rng),
-            state_root: <_>::random_for_test(rng),
-            randao_reveal: <_>::random_for_test(rng),
-            eth1_data: <_>::random_for_test(rng),
-            signature: <_>::random_for_test(rng),
-            body: <_>::random_for_test(rng),
-        }
     }
 }
 

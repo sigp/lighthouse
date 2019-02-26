@@ -3,22 +3,13 @@ use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Exit {
     pub epoch: Epoch,
     pub validator_index: u64,
     pub signature: Signature,
-}
-
-impl<T: RngCore> TestRandom<T> for Exit {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            epoch: <_>::random_for_test(rng),
-            validator_index: <_>::random_for_test(rng),
-            signature: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

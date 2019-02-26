@@ -3,20 +3,12 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct CasperSlashing {
     pub slashable_vote_data_1: SlashableVoteData,
     pub slashable_vote_data_2: SlashableVoteData,
-}
-
-impl<T: RngCore> TestRandom<T> for CasperSlashing {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slashable_vote_data_1: <_>::random_for_test(rng),
-            slashable_vote_data_2: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]
