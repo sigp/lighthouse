@@ -3,22 +3,13 @@ use crate::{Hash256, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposalSignedData {
     pub slot: Slot,
     pub shard: u64,
     pub block_root: Hash256,
-}
-
-impl<T: RngCore> TestRandom<T> for ProposalSignedData {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slot: <_>::random_for_test(rng),
-            shard: <_>::random_for_test(rng),
-            block_root: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

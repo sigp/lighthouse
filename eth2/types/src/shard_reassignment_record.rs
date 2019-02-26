@@ -2,22 +2,13 @@ use crate::{test_utils::TestRandom, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ShardReassignmentRecord {
     pub validator_index: u64,
     pub shard: u64,
     pub slot: Slot,
-}
-
-impl<T: RngCore> TestRandom<T> for ShardReassignmentRecord {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            validator_index: <_>::random_for_test(rng),
-            shard: <_>::random_for_test(rng),
-            slot: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

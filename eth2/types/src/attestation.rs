@@ -4,8 +4,9 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::TreeHash;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Attestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
@@ -33,17 +34,6 @@ impl Attestation {
             domain,
             group_public_key,
         )
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Attestation {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            data: <_>::random_for_test(rng),
-            aggregation_bitfield: <_>::random_for_test(rng),
-            custody_bitfield: <_>::random_for_test(rng),
-            aggregate_signature: <_>::random_for_test(rng),
-        }
     }
 }
 

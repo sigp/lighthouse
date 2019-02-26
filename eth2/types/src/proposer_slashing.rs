@@ -4,26 +4,15 @@ use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
     pub proposal_data_1: ProposalSignedData,
     pub proposal_signature_1: Signature,
     pub proposal_data_2: ProposalSignedData,
     pub proposal_signature_2: Signature,
-}
-
-impl<T: RngCore> TestRandom<T> for ProposerSlashing {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            proposer_index: <_>::random_for_test(rng),
-            proposal_data_1: <_>::random_for_test(rng),
-            proposal_signature_1: <_>::random_for_test(rng),
-            proposal_data_2: <_>::random_for_test(rng),
-            proposal_signature_2: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

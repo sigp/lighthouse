@@ -4,6 +4,7 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::TreeHash;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
 pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     8 +             // slot
@@ -16,7 +17,9 @@ pub const SSZ_ATTESTION_DATA_LENGTH: usize = {
     32 // justified_block_root
 };
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, TreeHash)]
+#[derive(
+    Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, TreeHash, TestRandom,
+)]
 pub struct AttestationData {
     pub slot: Slot,
     pub shard: u64,
@@ -41,21 +44,6 @@ impl AttestationData {
             custody_bit,
         };
         attestation_data_and_custody_bit.hash_tree_root()
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for AttestationData {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slot: <_>::random_for_test(rng),
-            shard: <_>::random_for_test(rng),
-            beacon_block_root: <_>::random_for_test(rng),
-            epoch_boundary_root: <_>::random_for_test(rng),
-            shard_block_root: <_>::random_for_test(rng),
-            latest_crosslink: <_>::random_for_test(rng),
-            justified_epoch: <_>::random_for_test(rng),
-            justified_block_root: <_>::random_for_test(rng),
-        }
     }
 }
 

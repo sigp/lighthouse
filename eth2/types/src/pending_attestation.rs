@@ -3,24 +3,14 @@ use crate::{AttestationData, Bitfield, Slot};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct PendingAttestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
     pub inclusion_slot: Slot,
-}
-
-impl<T: RngCore> TestRandom<T> for PendingAttestation {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            data: <_>::random_for_test(rng),
-            aggregation_bitfield: <_>::random_for_test(rng),
-            custody_bitfield: <_>::random_for_test(rng),
-            inclusion_slot: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

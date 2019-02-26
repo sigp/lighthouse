@@ -3,26 +3,15 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlockBody {
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub attester_slashings: Vec<AttesterSlashing>,
     pub attestations: Vec<Attestation>,
     pub deposits: Vec<Deposit>,
     pub exits: Vec<Exit>,
-}
-
-impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            proposer_slashings: <_>::random_for_test(rng),
-            attester_slashings: <_>::random_for_test(rng),
-            attestations: <_>::random_for_test(rng),
-            deposits: <_>::random_for_test(rng),
-            exits: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

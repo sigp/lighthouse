@@ -3,22 +3,13 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Deposit {
     pub branch: Vec<Hash256>,
     pub index: u64,
     pub deposit_data: DepositData,
-}
-
-impl<T: RngCore> TestRandom<T> for Deposit {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            branch: <_>::random_for_test(rng),
-            index: <_>::random_for_test(rng),
-            deposit_data: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]

@@ -2,24 +2,14 @@ use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfiel
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct SlashableAttestation {
     pub validator_indices: Vec<u64>,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
     pub aggregate_signature: AggregateSignature,
-}
-
-impl<T: RngCore> TestRandom<T> for SlashableAttestation {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            validator_indices: <_>::random_for_test(rng),
-            data: <_>::random_for_test(rng),
-            custody_bitfield: <_>::random_for_test(rng),
-            aggregate_signature: <_>::random_for_test(rng),
-        }
-    }
 }
 
 #[cfg(test)]
