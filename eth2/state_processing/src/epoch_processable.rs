@@ -9,6 +9,8 @@ use types::{
     Crosslink, Epoch, Hash256, InclusionError, PendingAttestation, RelativeEpoch,
 };
 
+mod tests;
+
 macro_rules! safe_add_assign {
     ($a: expr, $b: expr) => {
         $a = $a.saturating_add($b);
@@ -723,13 +725,5 @@ impl From<BeaconStateError> for Error {
 impl From<BeaconStateError> for WinningRootError {
     fn from(e: BeaconStateError) -> WinningRootError {
         WinningRootError::BeaconStateError(e)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }
