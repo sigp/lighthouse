@@ -7,7 +7,8 @@ use ssz::{ssz_encode, Decodable};
 
 #[test]
 pub fn can_produce_genesis_block() {
-    let builder = BeaconStateBuilder::with_random_validators(2);
+    let mut builder = BeaconStateBuilder::with_random_validators(2);
+    builder.genesis().unwrap();
 
     builder.build().unwrap();
 }
@@ -20,6 +21,8 @@ pub fn get_attestation_participants_consistency() {
 
     let mut builder = BeaconStateBuilder::with_random_validators(8);
     builder.spec = ChainSpec::few_validators();
+
+    builder.genesis().unwrap();
 
     let mut state = builder.build().unwrap();
     let spec = builder.spec.clone();
