@@ -7,7 +7,7 @@ use crate::{
 };
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
-use log::{debug, trace, error};
+use log::{debug, error, trace};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
