@@ -290,12 +290,16 @@ impl BeaconState {
     /// -- `Next` epoch is always _without_ a registry change. If you perform a registry update,
     /// you should rebuild the `Current` cache so it uses the new seed.
     pub fn advance_caches(&mut self) {
-        let previous_cache_index = self.cache_index(RelativeEpoch::Previous);
-
-        self.caches[previous_cache_index] = EpochCache::empty();
+        self.drop_cache(RelativeEpoch::Previous);
 
         self.cache_index_offset += 1;
         self.cache_index_offset %= CACHED_EPOCHS;
+    }
+
+    /// Removes the specified cache and sets it to uninitialized.
+    pub fn drop_cache(&mut self, relative_epoch: RelativeEpoch) {
+        let previous_cache_index = self.cache_index(relative_epoch);
+        self.caches[previous_cache_index] = EpochCache::empty();
     }
 
     /// Returns the index of `self.caches` for some `RelativeEpoch`.
