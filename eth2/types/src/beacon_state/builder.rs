@@ -46,6 +46,10 @@ impl BeaconStateBuilder {
         }
     }
 
+    /// Builds a `BeaconState` using the `BeaconState::genesis(..)` function.
+    ///
+    /// Each validator is assigned a unique, randomly-generated keypair and all
+    /// proof-of-possessions are verified during genesis.
     pub fn build(&mut self) -> Result<(), BeaconStateError> {
         self.keypairs = (0..self.validator_count)
             .collect::<Vec<usize>>()
@@ -53,7 +57,8 @@ impl BeaconStateBuilder {
             .map(|_| Keypair::random())
             .collect();
 
-        let initial_validator_deposits = self.keypairs
+        let initial_validator_deposits = self
+            .keypairs
             .iter()
             .map(|keypair| Deposit {
                 branch: vec![], // branch verification is not specified.
@@ -82,6 +87,16 @@ impl BeaconStateBuilder {
         Ok(())
     }
 
+    /// Builds a `BeaconState` using the `BeaconState::genesis(..)` function, without supplying any
+    /// validators. Instead validators are added to the state post-genesis.
+    ///
+    /// One keypair is randomly generated and all validators are assigned this same keypair.
+    /// Proof-of-possessions are not created (or validated).
+    ///
+    /// This function runs orders of magnitude faster than `Self::build()`, however it will be
+    /// erroneous for functions which use a validators public key as an identifier (e.g.,
+    /// deposits).
+    /// proof-of-possessions are verified during genesis.
     pub fn build_fast(&mut self) -> Result<(), BeaconStateError> {
         let common_keypair = Keypair::random();
 
