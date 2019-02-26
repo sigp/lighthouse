@@ -96,7 +96,6 @@ impl BeaconStateBuilder {
     /// This function runs orders of magnitude faster than `Self::build()`, however it will be
     /// erroneous for functions which use a validators public key as an identifier (e.g.,
     /// deposits).
-    /// proof-of-possessions are verified during genesis.
     pub fn build_fast(&mut self) -> Result<(), BeaconStateError> {
         let common_keypair = Keypair::random();
 
