@@ -10,6 +10,7 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.2"
+state_processing = { path = "../../../eth2/state_processing" }
 
 [dependencies]
 attester = { path = "../../../eth2/attester" }

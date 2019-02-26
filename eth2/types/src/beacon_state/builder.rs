@@ -6,20 +6,19 @@ use bls::create_proof_of_possession;
 /// Building the `BeaconState` is a three step processes:
 ///
 /// 1. Create a new `BeaconStateBuilder`.
-/// 2. Run the `genesis` function to generate a new BeaconState.
+/// 2. Call `Self::build()` or `Self::build_fast()` generate a  `BeaconState`.
 /// 3. (Optional) Use builder functions to modify the `BeaconState`.
-/// 4. Call `build()` to obtain a cloned `BeaconState`.
+/// 4. Call `Self::cloned_state()` to obtain a `BeaconState` cloned from this struct.
 ///
-/// Step (2) is necessary because step (3) requires an existing `BeaconState` object. (2) is not
-/// included in (1) to allow for modifying params before generating the `BeaconState` (e.g., the
-/// spec).
+/// Step (2) happens prior to step (3) because some functionality requires an existing
+/// `BeaconState`.
 ///
 /// Step (4) produces a clone of the BeaconState and doesn't consume the `BeaconStateBuilder` to
-/// allow access to the `keypairs` and `spec`.
+/// allow access to `self.keypairs` and `self.spec`.
 pub struct BeaconStateBuilder {
+    pub validator_count: usize,
     pub state: Option<BeaconState>,
     pub genesis_time: u64,
-    pub initial_validator_deposits: Vec<Deposit>,
     pub latest_eth1_data: Eth1Data,
     pub spec: ChainSpec,
     pub keypairs: Vec<Keypair>,
@@ -27,21 +26,41 @@ pub struct BeaconStateBuilder {
 
 impl BeaconStateBuilder {
     /// Create a new builder with the given number of validators.
-    pub fn with_random_validators(validator_count: usize) -> Self {
+    pub fn new(validator_count: usize) -> Self {
         let genesis_time = 10_000_000;
-        let keypairs: Vec<Keypair> = (0..validator_count)
+
+        let latest_eth1_data = Eth1Data {
+            deposit_root: Hash256::zero(),
+            block_hash: Hash256::zero(),
+        };
+
+        let spec = ChainSpec::foundation();
+
+        Self {
+            validator_count,
+            state: None,
+            genesis_time,
+            latest_eth1_data,
+            spec,
+            keypairs: vec![],
+        }
+    }
+
+    pub fn build(&mut self) -> Result<(), BeaconStateError> {
+        self.keypairs = (0..self.validator_count)
             .collect::<Vec<usize>>()
             .iter()
             .map(|_| Keypair::random())
             .collect();
-        let initial_validator_deposits = keypairs
+
+        let initial_validator_deposits = self.keypairs
             .iter()
             .map(|keypair| Deposit {
                 branch: vec![], // branch verification is not specified.
                 index: 0,       // index verification is not specified.
                 deposit_data: DepositData {
                     amount: 32_000_000_000, // 32 ETH (in Gwei)
-                    timestamp: genesis_time - 1,
+                    timestamp: self.genesis_time - 1,
                     deposit_input: DepositInput {
                         pubkey: keypair.pk.clone(),
                         withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
@@ -50,30 +69,47 @@ impl BeaconStateBuilder {
                 },
             })
             .collect();
-        let latest_eth1_data = Eth1Data {
-            deposit_root: Hash256::zero(),
-            block_hash: Hash256::zero(),
-        };
-        let spec = ChainSpec::foundation();
 
-        Self {
-            state: None,
-            genesis_time,
-            initial_validator_deposits,
-            latest_eth1_data,
-            spec,
-            keypairs,
-        }
-    }
-
-    /// Runs the `BeaconState::genesis` function and produces a `BeaconState`.
-    pub fn genesis(&mut self) -> Result<(), BeaconStateError> {
         let state = BeaconState::genesis(
             self.genesis_time,
-            self.initial_validator_deposits.clone(),
+            initial_validator_deposits,
             self.latest_eth1_data.clone(),
             &self.spec,
         )?;
+
+        self.state = Some(state);
+
+        Ok(())
+    }
+
+    pub fn build_fast(&mut self) -> Result<(), BeaconStateError> {
+        let common_keypair = Keypair::random();
+
+        let mut validator_registry = Vec::with_capacity(self.validator_count);
+        let mut validator_balances = Vec::with_capacity(self.validator_count);
+        self.keypairs = Vec::with_capacity(self.validator_count);
+
+        for _ in 0..self.validator_count {
+            self.keypairs.push(common_keypair.clone());
+            validator_balances.push(32_000_000_000);
+            validator_registry.push(Validator {
+                pubkey: common_keypair.pk.clone(),
+                withdrawal_credentials: Hash256::zero(),
+                activation_epoch: self.spec.genesis_epoch,
+                ..Validator::default()
+            })
+        }
+
+        let state = BeaconState {
+            validator_registry,
+            validator_balances,
+            ..BeaconState::genesis(
+                self.genesis_time,
+                vec![],
+                self.latest_eth1_data.clone(),
+                &self.spec,
+            )?
+        };
 
         self.state = Some(state);
 
@@ -145,11 +181,8 @@ impl BeaconStateBuilder {
     }
 
     /// Returns a cloned `BeaconState`.
-    pub fn build(&self) -> Result<BeaconState, BeaconStateError> {
-        match &self.state {
-            Some(state) => Ok(state.clone()),
-            None => panic!("Genesis required"),
-        }
+    pub fn cloned_state(&self) -> BeaconState {
+        self.state.as_ref().expect("Genesis required").clone()
     }
 }
 
