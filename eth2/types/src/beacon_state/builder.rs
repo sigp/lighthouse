@@ -156,7 +156,7 @@ impl BeaconStateBuilder {
 /// Builds a valid PendingAttestation with full participation for some committee.
 fn committee_to_pending_attestation(
     state: &BeaconState,
-    committee: &Vec<usize>,
+    committee: &[usize],
     shard: u64,
     slot: Slot,
     spec: &ChainSpec,
