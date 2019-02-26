@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[[bench]]
+name = "benches"
+harness = false
+
+[dev-dependencies]
+criterion = "0.2"
+test_harness = { path = "../../beacon_node/beacon_chain/test_harness" }
+env_logger = "0.6.0"
+
 [dependencies]
 hashing = { path = "../utils/hashing" }
 int_to_bytes = { path = "../utils/int_to_bytes" }
