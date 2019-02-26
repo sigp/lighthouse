@@ -7,13 +7,16 @@ use crate::{
 };
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
-use log::{debug, trace};
+use log::{debug, error, trace};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::get_permutated_index;
 
+pub use builder::BeaconStateBuilder;
+
+mod builder;
 mod epoch_cache;
 mod tests;
 
@@ -384,12 +387,13 @@ impl BeaconState {
         seed: Hash256,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Option<Vec<Vec<usize>>> {
+    ) -> Result<Vec<Vec<usize>>, Error> {
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, epoch);
 
         if active_validator_indices.is_empty() {
-            return None;
+            error!("get_shuffling: no validators.");
+            return Err(Error::InsufficientValidators);
         }
 
         let committees_per_epoch =
@@ -402,22 +406,21 @@ impl BeaconState {
         );
 
         let mut shuffled_active_validator_indices = vec![0; active_validator_indices.len()];
-        for &i in &active_validator_indices {
+        for (i, _) in active_validator_indices.iter().enumerate() {
             let shuffled_i = get_permutated_index(
                 i,
                 active_validator_indices.len(),
                 &seed[..],
                 spec.shuffle_round_count,
-            )?;
+            )
+            .ok_or_else(|| Error::UnableToShuffle)?;
             shuffled_active_validator_indices[i] = active_validator_indices[shuffled_i]
         }
 
-        Some(
-            shuffled_active_validator_indices
-                .honey_badger_split(committees_per_epoch as usize)
-                .map(|slice: &[usize]| slice.to_vec())
-                .collect(),
-        )
+        Ok(shuffled_active_validator_indices
+            .honey_badger_split(committees_per_epoch as usize)
+            .map(|slice: &[usize]| slice.to_vec())
+            .collect())
     }
 
     /// Return the number of committees in the previous epoch.
@@ -522,7 +525,6 @@ impl BeaconState {
             self.get_committee_params_at_slot(slot, registry_change, spec)?;
 
         self.get_shuffling(seed, shuffling_epoch, spec)
-            .ok_or_else(|| Error::UnableToShuffle)
     }
 
     /// Returns the following params for the given slot:
