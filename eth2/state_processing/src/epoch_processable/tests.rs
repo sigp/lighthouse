@@ -8,13 +8,13 @@ use types::*;
 fn runs_without_error() {
     Builder::from_env(Env::default().default_filter_or("error")).init();
 
-    let mut builder = BeaconStateBuilder::with_random_validators(8);
+    let mut builder = BeaconStateBuilder::new(8);
     builder.spec = ChainSpec::few_validators();
 
-    builder.genesis().unwrap();
+    builder.build().unwrap();
     builder.teleport_to_end_of_epoch(builder.spec.genesis_epoch + 4);
 
-    let mut state = builder.build().unwrap();
+    let mut state = builder.cloned_state();
 
     let spec = &builder.spec;
     state.per_epoch_processing(spec).unwrap();

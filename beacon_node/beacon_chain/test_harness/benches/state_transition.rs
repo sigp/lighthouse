@@ -1,6 +1,7 @@
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 // use env_logger::{Builder, Env};
+use state_processing::SlotProcessable;
 use test_harness::BeaconChainHarness;
 use types::{ChainSpec, Hash256};
 
