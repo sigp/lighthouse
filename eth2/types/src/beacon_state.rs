@@ -14,6 +14,9 @@ use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::get_permutated_index;
 
+pub use builder::BeaconStateBuilder;
+
+mod builder;
 mod epoch_cache;
 mod tests;
 
