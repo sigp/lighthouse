@@ -1,7 +1,7 @@
 [package]
 name = "beacon_node"
 version = "0.1.0"
-authors = ["Paul Hauner <paul@paulhauner.com>"]
+authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com"]
 edition = "2018"
 
 [dependencies]
@@ -12,6 +12,9 @@ protobuf = "2.0.2"
 protos = { path = "../protos" }
 clap = "2.32.0"
 db = { path = "db" }
+network = { path = "network" }
+sync = { path = "sync" }
+version = { path = "version" }
 dirs = "1.0.3"
 futures = "0.1.23"
 fork_choice = { path = "../eth2/fork_choice" }
@@ -21,4 +24,6 @@ slog-term = "^2.4.0"
 slog-async = "^2.3.0"
 types = { path = "../eth2/types" }
 ssz = { path = "../eth2/utils/ssz" }
-tokio = "0.1"
+tokio = "0.1.15"
+error-chain = "0.12.0"
+ctrlc = { version = "3.1.1", features = ["termination"] }

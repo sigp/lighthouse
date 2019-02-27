@@ -12,3 +12,10 @@ use self::stores::COLUMNS;
 pub use self::disk_db::DiskDB;
 pub use self::memory_db::MemoryDB;
 pub use self::traits::{ClientDB, DBError, DBValue};
+
+/// Currently available database options
+#[derive(Debug, Clone)]
+pub enum DBType {
+    Memory,
+    RocksDB,
+}
