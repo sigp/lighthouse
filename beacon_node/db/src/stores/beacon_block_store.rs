@@ -38,7 +38,7 @@ impl<T: ClientDB> BeaconBlockStore<T> {
         }
     }
 
-    /// Retuns an object implementing `BeaconBlockReader`, or `None` (if hash not known).
+    /// Returns an object implementing `BeaconBlockReader`, or `None` (if hash not known).
     ///
     /// Note: Presently, this function fully deserializes a `BeaconBlock` and returns that. In the
     /// future, it would be ideal to return an object capable of reading directly from serialized
