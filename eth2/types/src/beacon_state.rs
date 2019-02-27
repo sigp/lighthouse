@@ -117,19 +117,18 @@ pub struct BeaconState {
 
 impl BeaconState {
     /// Produce the first state of the Beacon Chain.
-    pub fn genesis(
+    pub fn genesis_without_validators(
         genesis_time: u64,
-        initial_validator_deposits: Vec<Deposit>,
         latest_eth1_data: Eth1Data,
         spec: &ChainSpec,
     ) -> Result<BeaconState, Error> {
-        debug!("Creating genesis state.");
+        debug!("Creating genesis state (without validator processing).");
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             shard_block_root: spec.zero_hash,
         };
 
-        let mut genesis_state = BeaconState {
+        Ok(BeaconState {
             /*
              * Misc
              */
@@ -188,7 +187,19 @@ impl BeaconState {
              */
             cache_index_offset: 0,
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
-        };
+        })
+    }
+    /// Produce the first state of the Beacon Chain.
+    pub fn genesis(
+        genesis_time: u64,
+        initial_validator_deposits: Vec<Deposit>,
+        latest_eth1_data: Eth1Data,
+        spec: &ChainSpec,
+    ) -> Result<BeaconState, Error> {
+        let mut genesis_state =
+            BeaconState::genesis_without_validators(genesis_time, latest_eth1_data, spec)?;
+
+        trace!("Processing genesis deposits...");
 
         let deposit_data = initial_validator_deposits
             .iter()
@@ -279,12 +290,16 @@ impl BeaconState {
     /// -- `Next` epoch is always _without_ a registry change. If you perform a registry update,
     /// you should rebuild the `Current` cache so it uses the new seed.
     pub fn advance_caches(&mut self) {
-        let previous_cache_index = self.cache_index(RelativeEpoch::Previous);
-
-        self.caches[previous_cache_index] = EpochCache::empty();
+        self.drop_cache(RelativeEpoch::Previous);
 
         self.cache_index_offset += 1;
         self.cache_index_offset %= CACHED_EPOCHS;
+    }
+
+    /// Removes the specified cache and sets it to uninitialized.
+    pub fn drop_cache(&mut self, relative_epoch: RelativeEpoch) {
+        let previous_cache_index = self.cache_index(relative_epoch);
+        self.caches[previous_cache_index] = EpochCache::empty();
     }
 
     /// Returns the index of `self.caches` for some `RelativeEpoch`.
