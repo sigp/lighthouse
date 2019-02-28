@@ -9,6 +9,7 @@ use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
 use log::{debug, error, trace};
 use rand::RngCore;
+use rayon::prelude::*;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::collections::HashMap;
@@ -202,7 +203,7 @@ impl BeaconState {
         trace!("Processing genesis deposits...");
 
         let deposit_data = initial_validator_deposits
-            .iter()
+            .par_iter()
             .map(|deposit| &deposit.deposit_data)
             .collect();
 
