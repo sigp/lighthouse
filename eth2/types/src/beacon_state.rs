@@ -200,7 +200,7 @@ impl BeaconState {
         let mut genesis_state =
             BeaconState::genesis_without_validators(genesis_time, latest_eth1_data, spec)?;
 
-        trace!("Processing genesis deposits...");
+        debug!("Processing genesis deposits...");
 
         let deposit_data = initial_validator_deposits
             .par_iter()
@@ -411,6 +411,8 @@ impl BeaconState {
             error!("get_shuffling: no validators.");
             return Err(Error::InsufficientValidators);
         }
+
+        debug!("Shuffling {} validators...", active_validator_indices.len());
 
         let committees_per_epoch =
             self.get_epoch_committee_count(active_validator_indices.len(), spec);
