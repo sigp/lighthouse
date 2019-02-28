@@ -1,6 +1,6 @@
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use swap_or_not_shuffle::get_permutated_index;
+use swap_or_not_shuffle::{get_permutated_index, get_permutated_list};
 
 const SHUFFLE_ROUND_COUNT: u8 = 90;
 
@@ -49,10 +49,30 @@ fn shuffles(c: &mut Criterion) {
     );
 
     c.bench(
+        "_fast_ whole list shuffle",
+        Benchmark::new("512 elements", move |b| {
+            let seed = vec![42; 32];
+            let list: Vec<usize> = (0..512).collect();
+            b.iter(|| black_box(get_permutated_list(&list, &seed, SHUFFLE_ROUND_COUNT)))
+        })
+        .sample_size(10),
+    );
+
+    c.bench(
         "whole list shuffle",
         Benchmark::new("16384 elements", move |b| {
             let seed = vec![42; 32];
             b.iter(|| black_box(shuffle_list(&seed, 16_384)))
+        })
+        .sample_size(10),
+    );
+
+    c.bench(
+        "_fast_ whole list shuffle",
+        Benchmark::new("16384 elements", move |b| {
+            let seed = vec![42; 32];
+            let list: Vec<usize> = (0..16384).collect();
+            b.iter(|| black_box(get_permutated_list(&list, &seed, SHUFFLE_ROUND_COUNT)))
         })
         .sample_size(10),
     );

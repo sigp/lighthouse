@@ -12,7 +12,7 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::collections::HashMap;
-use swap_or_not_shuffle::get_permutated_index;
+use swap_or_not_shuffle::get_permutated_list;
 
 pub use builder::BeaconStateBuilder;
 
@@ -420,17 +420,15 @@ impl BeaconState {
             committees_per_epoch
         );
 
-        let mut shuffled_active_validator_indices = vec![0; active_validator_indices.len()];
-        for (i, _) in active_validator_indices.iter().enumerate() {
-            let shuffled_i = get_permutated_index(
-                i,
-                active_validator_indices.len(),
-                &seed[..],
-                spec.shuffle_round_count,
-            )
-            .ok_or_else(|| Error::UnableToShuffle)?;
-            shuffled_active_validator_indices[i] = active_validator_indices[shuffled_i]
-        }
+        let active_validator_indices: Vec<usize> =
+            active_validator_indices.iter().cloned().collect();
+
+        let shuffled_active_validator_indices = get_permutated_list(
+            &active_validator_indices,
+            &seed[..],
+            spec.shuffle_round_count,
+        )
+        .ok_or_else(|| Error::UnableToShuffle)?;
 
         Ok(shuffled_active_validator_indices
             .honey_badger_split(committees_per_epoch as usize)

@@ -4,6 +4,36 @@ use int_to_bytes::{int_to_bytes1, int_to_bytes4};
 use std::cmp::max;
 use std::io::Cursor;
 
+pub fn get_permutated_list(
+    list: &[usize],
+    seed: &[u8],
+    shuffle_round_count: u8,
+) -> Option<Vec<usize>> {
+    let list_size = list.len();
+
+    if list_size == 0 || list_size > usize::max_value() / 2 || list_size > 2_usize.pow(24) {
+        return None;
+    }
+
+    let mut pivots = Vec::with_capacity(shuffle_round_count as usize);
+    for round in 0..shuffle_round_count {
+        pivots.push(bytes_to_int64(&hash_with_round(seed, round)[..]) as usize % list_size);
+    }
+
+    let mut output = Vec::with_capacity(list_size);
+
+    for i in 0..list_size {
+        let mut index = i;
+        for round in 0..shuffle_round_count {
+            let pivot = pivots[round as usize];
+            index = do_round(seed, index, pivot, round, list_size)?;
+        }
+        output.push(list[index])
+    }
+
+    Some(output)
+}
+
 /// Return `p(index)` in a pseudorandom permutation `p` of `0...list_size-1` with ``seed`` as entropy.
 ///
 /// Utilizes 'swap or not' shuffling found in
@@ -32,14 +62,18 @@ pub fn get_permutated_index(
     let mut index = index;
     for round in 0..shuffle_round_count {
         let pivot = bytes_to_int64(&hash_with_round(seed, round)[..]) as usize % list_size;
-        let flip = (pivot + list_size - index) % list_size;
-        let position = max(index, flip);
-        let source = hash_with_round_and_position(seed, round, position)?;
-        let byte = source[(position % 256) / 8];
-        let bit = (byte >> (position % 8)) % 2;
-        index = if bit == 1 { flip } else { index }
+        index = do_round(seed, index, pivot, round, list_size)?;
     }
     Some(index)
+}
+
+fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize) -> Option<usize> {
+    let flip = (pivot + list_size - index) % list_size;
+    let position = max(index, flip);
+    let source = hash_with_round_and_position(seed, round, position)?;
+    let byte = source[(position % 256) / 8];
+    let bit = (byte >> (position % 8)) % 2;
+    Some(if bit == 1 { flip } else { index })
 }
 
 fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Option<Vec<u8>> {
