@@ -29,6 +29,19 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
 [company website](https://sigmaprime.io).
 
+### Directory Structure
+
+- [`/beacon_node`](beacon_node/): the "Beacon Node" binary and crates exclusively
+	associated with it.
+- [`/docs`](docs/): documentation related to the repository. This include contributor
+	guides, etc. Code documentation is produced with `cargo doc`.
+- [`/eth2`](eth2/): Crates containing common logic across the Lighthouse project. For
+	example; Ethereum 2.0 types (`BeaconBlock`, `BeaconState`, etc) and
+	SimpleSerialize (SSZ).
+- [`/protos`](protos/): protobuf/gRPC definitions common across the Lighthouse project.
+- [`/validator_client`](validator_client/): the "Validator Client" binary and crates exclusively
+	associated with it.
+
 ### Components
 
 The following list describes some of the components actively under development
