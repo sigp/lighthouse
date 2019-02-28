@@ -4,6 +4,14 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[[bin]]
+name = "test_harness"
+path = "src/bin.rs"
+
+[lib]
+name = "test_harness"
+path = "src/lib.rs"
+
 [[bench]]
 name = "state_transition"
 harness = false
@@ -18,6 +26,7 @@ beacon_chain = { path = "../../beacon_chain" }
 block_proposer = { path = "../../../eth2/block_proposer" }
 bls = { path = "../../../eth2/utils/bls" }
 boolean-bitfield = { path = "../../../eth2/utils/boolean-bitfield" }
+clap = "2.32.0"
 db = { path = "../../db" }
 parking_lot = "0.7"
 failure = "0.1"
@@ -33,3 +42,4 @@ serde_json = "1.0"
 slot_clock = { path = "../../../eth2/utils/slot_clock" }
 ssz = { path = "../../../eth2/utils/ssz" }
 types = { path = "../../../eth2/types" }
+yaml-rust = "0.4.2"
