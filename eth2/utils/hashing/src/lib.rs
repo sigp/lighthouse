@@ -8,13 +8,11 @@ pub fn hash(input: &[u8]) -> Vec<u8> {
     result
 }
 
-/// Generate Merkle Root
-/// 
-/// Outputs a `Vec<u8>` byte array of the merkle root given a set of leaf node values.
-/// Expects leaf nodes to already be hashed.
+// Get merkle root of some hashed values - the input leaf nodes is expected to already be hashed
+// Outputs a `Vec<u8>` byte array of the merkle root given a set of leaf node values.
 pub fn merkle_root(values: &[Vec<u8>]) -> Vec<u8> {
     let values_len = values.len();
-    
+
     // vector to store hashes
     // filled with 0 as placeholders
     let mut o: Vec<Vec<u8>> = vec![vec![0]; values_len];
@@ -82,6 +80,5 @@ mod tests {
         let expected = hash(&root[..]);
 
         assert_eq!(&expected[..], output.as_slice());
-
     }
 }
