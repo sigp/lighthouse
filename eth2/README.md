@@ -1,4 +1,4 @@
-# eth2
+# Ethereum 2.0 Common Crates
 
 Rust crates containing logic common across the Lighthouse project.
 
@@ -13,25 +13,22 @@ Rust crates containing logic common across the Lighthouse project.
 - [`types/`](types/): Defines base Ethereum 2.0 types (e.g., `BeaconBlock`,
 	`BeaconState`, etc).
 - [`utils/`](utils/):
-    - [`bls`](utils/bls/): A wrapper around some external BLS encryption library.
+    - [`bls`](utils/bls/): A wrapper around an external BLS encryption library.
     - [`boolean-bitfield`](utils/boolean-bitfield/): Provides an expandable Vec
 		of bools, specifically for use in Eth2.
     - [`fisher-yates-shuffle`](utils/fisher-yates-shuffle/): shuffles a list
 		pseudo-randomly.
-    - [`hashing`](utils/hashing/): Provides unified hashing methods, provided
-		be some external library.
+    - [`hashing`](utils/hashing/): A wrapper around external hashing libraries.
     - [`honey-badger-split`](utils/honey-badger-split/): Splits a list in `n`
 		parts without giving AF about the length of the list, `n` or anything
 		else.
     - [`int-to-bytes`](utils/int-to-bytes/): Simple library which converts ints
 		into byte-strings of various lengths.
 	- [`slot_clock`](utils/slot_clock/): translates the system time into Beacon
-	- Chain "slots". Also
-		provides another slot clock that's useful during testing.
-	- [`ssz`](utils/ssz/): an implementation of the SimpleSerialize
-	- serialization/deserialization
-		protocol used by
-		Eth 2.0.
+	    Chain "slots". (Also provides another slot clock that's useful during
+		testing.)
+	- [`ssz`](utils/ssz/): an implementation of the SimpleSerialize 
+	    serialization/deserialization protocol used by Eth 2.0.
 	- [`ssz_derive`](utils/ssz_derive/): provides procedural macros for
 		deriving SSZ `Encodable`, `Decodable` and `TreeHash` methods.
 	- [`swap_or_not_shuffle`](utils/swap_or_not_shuffle/): a list-shuffling

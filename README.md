@@ -31,15 +31,15 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 
 ### Directory Structure
 
-- [`/beacon_node`](beacon_node/): the "Beacon Node" binary and crates exclusively
+- [`beacon_node/`](beacon_node/): the "Beacon Node" binary and crates exclusively
 	associated with it.
-- [`/docs`](docs/): documentation related to the repository. This include contributor
-	guides, etc. Code documentation is produced with `cargo doc`.
-- [`/eth2`](eth2/): Crates containing common logic across the Lighthouse project. For
-	example; Ethereum 2.0 types (`BeaconBlock`, `BeaconState`, etc) and
+- [`docs/`](docs/): documentation related to the repository. This include contributor
+	guides, etc. (Code documentation is produced with `cargo doc`).
+- [`eth2/`](eth2/): Crates containing common logic across the Lighthouse project. For
+	example; Ethereum 2.0 types ([`BeaconBlock`](eth2/types/src/beacon_block.rs), [`BeaconState`](eth2/types/src/beacon_state.rs), etc) and
 	SimpleSerialize (SSZ).
-- [`/protos`](protos/): protobuf/gRPC definitions common across the Lighthouse project.
-- [`/validator_client`](validator_client/): the "Validator Client" binary and crates exclusively
+- [`protos/`](protos/): protobuf/gRPC definitions common across the Lighthouse project.
+- [`validator_client/`](validator_client/): the "Validator Client" binary and crates exclusively
 	associated with it.
 
 ### Components
@@ -91,16 +91,6 @@ validators, rotates validators across shards, and implements other core tasks.
 In addition to these components we are also working on database schemas, RPC
 frameworks, specification development, database optimizations (e.g.,
 bloom-filters), and tons of other interesting stuff (at least we think so).
-
-### Directory Structure
-
-Here we provide an overview of the directory structure:
-
-- `beacon_chain/`: contains logic derived directly from the specification.
-  E.g., shuffling algorithms, state transition logic and structs, block
-validation, BLS crypto, etc.
-- `lighthouse/`: contains logic specific to this client implementation. E.g.,
-  CLI parsing, RPC end-points, databases, etc.
 
 ### Running
 
