@@ -8,6 +8,7 @@ test_cases:
       epoch_length: 64
       deposits_for_chain_start: 1000
       num_slots: 32 # Testing advancing state to slot < SlotsPerEpoch
+      skip_slots: [2, 3]
     results:
       slot: 32
       num_validators: 1000
