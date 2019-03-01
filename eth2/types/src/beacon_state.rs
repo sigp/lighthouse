@@ -12,7 +12,7 @@ use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::collections::HashMap;
-use swap_or_not_shuffle::get_permutated_list;
+use swap_or_not_shuffle::shuffle_list;
 
 pub use builder::BeaconStateBuilder;
 
@@ -423,10 +423,11 @@ impl BeaconState {
         let active_validator_indices: Vec<usize> =
             active_validator_indices.iter().cloned().collect();
 
-        let shuffled_active_validator_indices = get_permutated_list(
-            &active_validator_indices,
-            &seed[..],
+        let shuffled_active_validator_indices = shuffle_list(
+            active_validator_indices,
             spec.shuffle_round_count,
+            &seed[..],
+            true,
         )
         .ok_or_else(|| Error::UnableToShuffle)?;
 
