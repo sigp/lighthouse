@@ -1,10 +1,10 @@
 use self::beacon_chain_harness::BeaconChainHarness;
 use self::validator_harness::ValidatorHarness;
 use beacon_chain::CheckPoint;
+use bls::create_proof_of_possession;
 use clap::{App, Arg};
 use env_logger::{Builder, Env};
 use log::{info, warn};
-use std::collections::HashMap;
 use std::{fs::File, io::prelude::*};
 use types::*;
 use yaml_rust::{Yaml, YamlLoader};
@@ -73,7 +73,7 @@ impl Manifest {
     pub fn execute(&self) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;
-        let slots = self.results.slot;
+        let slots = self.config.num_slots;
 
         info!(
             "Building BeaconChainHarness with {} validators...",
@@ -84,7 +84,18 @@ impl Manifest {
 
         info!("Starting simulation across {} slots...", slots);
 
-        for slot_height in 0..self.results.slot {
+        for slot_height in 0..slots {
+            // Include deposits
+            if let Some(ref deposits) = self.config.deposits {
+                for (slot, deposit, keypair) in deposits {
+                    if *slot == slot_height {
+                        info!("Including deposit at slot height {}.", slot_height);
+                        harness.process_deposit(deposit.clone(), Some(keypair.clone()));
+                    }
+                }
+            }
+
+            // Build a block or skip a slot.
             match self.config.skip_slots {
                 Some(ref skip_slots) if skip_slots.contains(&slot_height) => {
                     warn!("Skipping slot at height {}.", slot_height);
@@ -109,8 +120,24 @@ impl Manifest {
     pub fn assert_result_valid(&self, result: ExecutionResult) {
         info!("Verifying test results...");
 
+        let skipped_slots = self
+            .config
+            .skip_slots
+            .clone()
+            .and_then(|slots| Some(slots.len()))
+            .unwrap_or_else(|| 0);
+        let expected_blocks = self.config.num_slots as usize + 1 - skipped_slots;
+
+        assert_eq!(result.chain.len(), expected_blocks);
+
+        info!(
+            "OK: Chain length is {} ({} skipped slots).",
+            result.chain.len(),
+            skipped_slots
+        );
+
         if let Some(ref skip_slots) = self.config.skip_slots {
-            for checkpoint in result.chain {
+            for checkpoint in &result.chain {
                 let block_slot = checkpoint.beacon_block.slot.as_u64();
                 assert!(
                     !skip_slots.contains(&block_slot),
@@ -118,17 +145,30 @@ impl Manifest {
                     block_slot
                 );
             }
+            info!("OK: Skipped slots not present in chain.");
         }
-        info!("OK: Skipped slots not present in chain.");
+
+        if let Some(ref deposits) = self.config.deposits {
+            let latest_state = &result.chain.last().expect("Empty chain.").beacon_state;
+            assert_eq!(
+                latest_state.validator_registry.len(),
+                self.config.deposits_for_chain_start + deposits.len()
+            );
+            info!(
+                "OK: Validator registry has {} more validators.",
+                deposits.len()
+            );
+        }
     }
 }
+
+pub type DepositTuple = (u64, Deposit, Keypair);
 
 struct ExecutionResult {
     pub chain: Vec<CheckPoint>,
 }
 
 struct Results {
-    pub slot: u64,
     pub num_validators: Option<usize>,
     pub slashed_validators: Option<Vec<u64>>,
     pub exited_validators: Option<Vec<u64>>,
@@ -137,7 +177,6 @@ struct Results {
 impl Results {
     pub fn from_yaml(yaml: &Yaml) -> Self {
         Self {
-            slot: as_u64(&yaml, "slot").expect("Must have end slot"),
             num_validators: as_usize(&yaml, "num_validators"),
             slashed_validators: as_vec_u64(&yaml, "slashed_validators"),
             exited_validators: as_vec_u64(&yaml, "exited_validators"),
@@ -148,7 +187,9 @@ impl Results {
 struct Config {
     pub deposits_for_chain_start: usize,
     pub epoch_length: Option<u64>,
+    pub num_slots: u64,
     pub skip_slots: Option<Vec<u64>>,
+    pub deposits: Option<Vec<DepositTuple>>,
 }
 
 impl Config {
@@ -157,9 +198,39 @@ impl Config {
             deposits_for_chain_start: as_usize(&yaml, "deposits_for_chain_start")
                 .expect("Must specify validator count"),
             epoch_length: as_u64(&yaml, "epoch_length"),
+            num_slots: as_u64(&yaml, "num_slots").expect("Must specify `config.num_slots`"),
             skip_slots: as_vec_u64(yaml, "skip_slots"),
+            deposits: process_deposits(&yaml),
         }
     }
+}
+
+fn process_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
+    let mut deposits = vec![];
+
+    for deposit in yaml["deposits"].as_vec()? {
+        let keypair = Keypair::random();
+        let proof_of_possession = create_proof_of_possession(&keypair);
+
+        let slot = as_u64(deposit, "slot").expect("Incomplete deposit");
+        let deposit = Deposit {
+            branch: vec![],
+            index: as_u64(deposit, "merkle_index").unwrap(),
+            deposit_data: DepositData {
+                amount: 32_000_000_000,
+                timestamp: 1,
+                deposit_input: DepositInput {
+                    pubkey: keypair.pk.clone(),
+                    withdrawal_credentials: Hash256::zero(),
+                    proof_of_possession,
+                },
+            },
+        };
+
+        deposits.push((slot, deposit, keypair));
+    }
+
+    Some(deposits)
 }
 
 fn as_usize(yaml: &Yaml, key: &str) -> Option<usize> {
