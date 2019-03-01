@@ -440,6 +440,8 @@ where
             last_slot = slot;
         }
 
+        dump.reverse();
+
         Ok(dump)
     }
 
