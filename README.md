@@ -33,12 +33,12 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 
 - [`beacon_node/`](beacon_node/): the "Beacon Node" binary and crates exclusively
 	associated with it.
-- [`docs/`](docs/): documentation related to the repository. This include contributor
-	guides, etc. (Code documentation is produced with `cargo doc`).
+- [`docs/`](docs/): documentation related to the repository. This includes contributor
+	guides, etc. (It does not include code documentation, which can be produced with `cargo doc`).
 - [`eth2/`](eth2/): Crates containing common logic across the Lighthouse project. For
-	example; Ethereum 2.0 types ([`BeaconBlock`](eth2/types/src/beacon_block.rs), [`BeaconState`](eth2/types/src/beacon_state.rs), etc) and
+	example: Ethereum 2.0 types ([`BeaconBlock`](eth2/types/src/beacon_block.rs), [`BeaconState`](eth2/types/src/beacon_state.rs), etc) and
 	SimpleSerialize (SSZ).
-- [`protos/`](protos/): protobuf/gRPC definitions common across the Lighthouse project.
+- [`protos/`](protos/): protobuf/gRPC definitions that are common across the Lighthouse project.
 - [`validator_client/`](validator_client/): the "Validator Client" binary and crates exclusively
 	associated with it.
 
