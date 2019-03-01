@@ -15,9 +15,7 @@ use state_processing::{
 use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
-    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, BeaconStateError, ChainSpec,
-    Crosslink, Deposit, Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, RelativeEpoch,
-    Signature, Slot,
+    *,
 };
 
 #[derive(Debug, PartialEq)]
@@ -66,6 +64,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
+    pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
@@ -132,6 +131,7 @@ where
             state_store,
             slot_clock,
             attestation_aggregator,
+            deposits_for_inclusion: RwLock::new(vec![]),
             state: RwLock::new(genesis_state),
             finalized_head,
             canonical_head,
@@ -364,6 +364,34 @@ where
         Ok(aggregation_outcome)
     }
 
+    pub fn receive_deposit_for_inclusion(&self, deposit: Deposit) {
+        // TODO: deposits are not check for validity; check them.
+        self.deposits_for_inclusion.write().push(deposit);
+    }
+
+    pub fn get_deposits_for_block(&self) -> Vec<Deposit> {
+        // TODO: deposits are indiscriminately included; check them for validity.
+        self.deposits_for_inclusion.read().clone()
+    }
+
+    pub fn mark_deposits_as_included(&self, included_deposits: &[Deposit]) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_deposits {
+            for (i, for_inclusion) in self.deposits_for_inclusion.read().iter().enumerate() {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let deposits_for_inclusion = &mut self.deposits_for_inclusion.write();
+        for i in indices_to_delete {
+            deposits_for_inclusion.remove(i);
+        }
+    }
+
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
@@ -488,6 +516,9 @@ where
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
+        // Remove any included deposits from the for-inclusion queue
+        self.mark_deposits_as_included(&block.body.deposits[..]);
+
         // run the fork_choice add_block logic
         self.fork_choice
             .write()
@@ -544,7 +575,7 @@ where
                 proposer_slashings: vec![],
                 attester_slashings: vec![],
                 attestations,
-                deposits: vec![],
+                deposits: self.get_deposits_for_block(),
                 exits: vec![],
             },
         };
