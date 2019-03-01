@@ -3,10 +3,7 @@ use hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
-use types::{
-    AggregatePublicKey, Attestation, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
-    Crosslink, Epoch, Exit, Fork, Hash256, PendingAttestation, PublicKey, RelativeEpoch, Signature,
-};
+use types::*;
 
 // TODO: define elsehwere.
 const DOMAIN_PROPOSAL: u64 = 2;
@@ -35,6 +32,7 @@ pub enum Error {
     InvalidAttestation(AttestationValidationError),
     NoBlockRoot,
     MaxDepositsExceeded,
+    BadDeposit,
     MaxExitsExceeded,
     BadExit,
     BadCustodyReseeds,
@@ -242,7 +240,27 @@ fn per_block_processing_signature_optional(
         Error::MaxDepositsExceeded
     );
 
-    // TODO: process deposits.
+    // TODO: verify deposit merkle branches.
+    for deposit in &block.body.deposits {
+        debug!(
+            "Processing deposit for pubkey {:?}",
+            deposit.deposit_data.deposit_input.pubkey
+        );
+        state
+            .process_deposit(
+                deposit.deposit_data.deposit_input.pubkey.clone(),
+                deposit.deposit_data.amount,
+                deposit
+                    .deposit_data
+                    .deposit_input
+                    .proof_of_possession
+                    .clone(),
+                deposit.deposit_data.deposit_input.withdrawal_credentials,
+                None,
+                spec,
+            )
+            .map_err(|_| Error::BadDeposit)?;
+    }
 
     /*
      * Exits
