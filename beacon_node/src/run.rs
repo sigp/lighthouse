@@ -1,23 +1,13 @@
-use crate::config::Config;
-use crate::error;
-use crate::rpc::start_server;
-use beacon_chain::BeaconChain;
-use bls::create_proof_of_possession;
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB, DBType, DiskDB, MemoryDB,
-};
-use fork_choice::{BitwiseLMDGhost, ForkChoiceAlgorithm};
+use client::client_types::{StandardClientType, TestingClientType};
+use client::error;
+use client::{notifier, Client, ClientConfig};
 use futures::sync::oneshot;
-use network::NetworkConfiguration;
-use slog::{error, info};
-use slot_clock::SystemTimeSlotClock;
+use futures::Future;
+use slog::info;
 use std::cell::RefCell;
-use std::sync::Arc;
-use tokio::runtime::{Builder, Runtime, TaskExecutor};
-use types::{ChainSpec, Deposit, DepositData, DepositInput, Eth1Data, Hash256, Keypair};
+use tokio::runtime::Builder;
 
-pub fn run_beacon_node(config: Config, log: &slog::Logger) -> error::Result<()> {
+pub fn run_beacon_node(config: ClientConfig, log: slog::Logger) -> error::Result<()> {
     let mut runtime = Builder::new()
         .name_prefix("main-")
         .build()
@@ -33,22 +23,23 @@ pub fn run_beacon_node(config: Config, log: &slog::Logger) -> error::Result<()> 
     let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
     ctrlc::set_handler(move || {
         if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
-            ctrlc_send
-                .send(())
-                .expect("Error sending termination message");
+            ctrlc_send.send(()).expect("Error sending ctrl-c message");
         }
     });
 
+    let (exit_signal, exit) = exit_future::signal();
+
     let executor = runtime.executor();
 
-    start(config, log, executor);
+    // currently testing - using TestingNode type
+    let client: Client<TestingClientType> = Client::new(config, log.clone(), executor.clone())?;
+    notifier::run(&client, executor, exit);
 
     runtime.block_on(ctrlc);
 
-    info!(log, "Shutting down.");
-    //TODO: handle shutdown of processes gracefully
-
+    info!(log, "Shutting down..");
+    exit_signal.fire();
+    drop(client);
+    runtime.shutdown_on_idle().wait().unwrap();
     Ok(())
 }
-
-fn start(config: Config, log: &slog::Logger, executor: TaskExecutor) {}

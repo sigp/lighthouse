@@ -1,12 +1,9 @@
 extern crate slog;
 
-mod config;
-mod error;
-mod rpc;
 mod run;
 
 use clap::{App, Arg};
-use config::Config;
+use client::ClientConfig;
 use slog::{o, Drain};
 
 fn main() {
@@ -43,7 +40,7 @@ fn main() {
         .get_matches();
 
     // invalid arguments, panic
-    let config = Config::parse_args(matches, &logger).unwrap();
+    let config = ClientConfig::parse_args(matches, &logger).unwrap();
 
-    run::run_beacon_node(config, &logger);
+    run::run_beacon_node(config, logger);
 }
