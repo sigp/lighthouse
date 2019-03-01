@@ -61,7 +61,7 @@ by the team:
   from the Ethereum Foundation to develop *simpleserialize* (SSZ), a
   purpose-built serialization format for sending information across a network.
   Check out the [SSZ
-implementation](https://github.com/sigp/lighthouse/tree/master/beacon_chain/utils/ssz)
+implementation](https://github.com/ethereum/eth2.0-specs/blob/00aa553fee95963b74fbec84dbd274d7247b8a0e/specs/simple-serialize.md)
 and this
 [research](https://github.com/sigp/serialization_sandbox/blob/report/report/serialization_report.md)
 on serialization formats for more information.
