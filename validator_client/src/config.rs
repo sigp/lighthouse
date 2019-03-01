@@ -1,11 +1,13 @@
 use std::fs;
 use std::path::PathBuf;
+use types::ChainSpec;
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone)]
 pub struct ClientConfig {
     pub data_dir: PathBuf,
     pub server: String,
+    pub spec: ChainSpec,
 }
 
 const DEFAULT_LIGHTHOUSE_DIR: &str = ".lighthouse-validators";
@@ -20,6 +22,11 @@ impl ClientConfig {
         fs::create_dir_all(&data_dir)
             .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
         let server = "localhost:50051".to_string();
-        Self { data_dir, server }
+        let spec = ChainSpec::foundation();
+        Self {
+            data_dir,
+            server,
+            spec,
+        }
     }
 }
