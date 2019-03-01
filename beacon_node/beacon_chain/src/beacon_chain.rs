@@ -533,7 +533,7 @@ where
         if self.head().beacon_block_root == parent_block_root {
             self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
             // Update the local state variable.
-            *self.state.write() = state.clone();
+            *self.state.write() = state;
         }
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
