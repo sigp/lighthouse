@@ -15,10 +15,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::iter::FromIterator;
 use std::sync::Arc;
-use types::{
-    BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput, Eth1Data, FreeAttestation, Hash256,
-    Keypair, Slot,
-};
+use types::*;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -243,6 +240,17 @@ impl BeaconChainHarness {
         });
 
         debug!("Free attestations processed.");
+    }
+
+    pub fn process_deposit(&mut self, deposit: Deposit, keypair: Option<Keypair>) {
+        self.beacon_chain.receive_deposit_for_inclusion(deposit);
+
+        // If a keypair is present, add a new `ValidatorHarness` to the rig.
+        if let Some(keypair) = keypair {
+            let validator =
+                ValidatorHarness::new(keypair, self.beacon_chain.clone(), self.spec.clone());
+            self.validators.push(validator);
+        }
     }
 
     pub fn run_fork_choice(&mut self) {

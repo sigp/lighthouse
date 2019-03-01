@@ -7,10 +7,19 @@ test_cases:
   - config:
       epoch_length: 64
       deposits_for_chain_start: 1000
-      num_slots: 32 # Testing advancing state to slot < SlotsPerEpoch
+      num_slots: 65
       skip_slots: [2, 3]
+      deposits:
+        - slot: 1
+          amount: 32
+          merkle_index: 0
+        - slot: 3
+          amount: 32
+          merkle_index: 1
+        - slot: 5
+          amount: 32
+          merkle_index: 2
     results:
-      slot: 32
       num_validators: 1000
   - config:
       epoch_length: 64
