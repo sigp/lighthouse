@@ -8,11 +8,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use types::ChainSpec;
 
-/// Stores the core configuration for this Lighthouse instance.
-/// This struct is general, other components may implement more
-/// specialized configuration structs.
+/// Stores the client configuration for this Lighthouse instance.
 #[derive(Debug, Clone)]
-pub struct Config {
+pub struct ClientConfig {
     pub data_dir: PathBuf,
     pub spec: ChainSpec,
     pub net_conf: network::NetworkConfiguration,
@@ -23,7 +21,7 @@ pub struct Config {
     //pub ipc_conf:
 }
 
-impl Default for Config {
+impl Default for ClientConfig {
     /// Build a new lighthouse configuration from defaults.
     fn default() -> Self {
         let data_dir = {
@@ -47,10 +45,10 @@ impl Default for Config {
     }
 }
 
-impl Config {
+impl ClientConfig {
     /// Parses the CLI arguments into a `Config` struct.
     pub fn parse_args(args: ArgMatches, log: &slog::Logger) -> Result<Self, &'static str> {
-        let mut config = Config::default();
+        let mut config = ClientConfig::default();
 
         // Network related args
 
