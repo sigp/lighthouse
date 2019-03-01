@@ -78,7 +78,10 @@ fn main() {
             "foundation" => config.spec = ChainSpec::foundation(),
             "few_validators" => config.spec = ChainSpec::few_validators(),
             // Should be impossible
-            _ => error!(log, "Invalid spec defined"; "spec" => format!("{:?}", config.spec)),
+            _ => {
+                error!(log, "Invalid ChainSpec defined"; "spec" => spec_str);
+                return;
+            }
         };
     }
 
