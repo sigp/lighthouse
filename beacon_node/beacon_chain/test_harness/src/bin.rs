@@ -85,12 +85,25 @@ impl Manifest {
         info!("Starting simulation across {} slots...", slots);
 
         for slot_height in 0..slots {
-            // Include deposits
+            // Feed deposits to the BeaconChain.
             if let Some(ref deposits) = self.config.deposits {
                 for (slot, deposit, keypair) in deposits {
                     if *slot == slot_height {
                         info!("Including deposit at slot height {}.", slot_height);
-                        harness.process_deposit(deposit.clone(), Some(keypair.clone()));
+                        harness.add_deposit(deposit.clone(), Some(keypair.clone()));
+                    }
+                }
+            }
+
+            // Feed proposer slashings to the BeaconChain.
+            if let Some(ref slashings) = self.config.proposer_slashings {
+                for (slot, slashing) in slashings {
+                    if *slot == slot_height {
+                        info!(
+                            "Including proposer slashing at slot height {}.",
+                            slot_height
+                        );
+                        harness.add_proposer_slashing(slashing.clone());
                     }
                 }
             }
@@ -163,6 +176,7 @@ impl Manifest {
 }
 
 pub type DepositTuple = (u64, Deposit, Keypair);
+pub type ProposerSlashingTuple = (u64, ProposerSlashing);
 
 struct ExecutionResult {
     pub chain: Vec<CheckPoint>,
@@ -190,6 +204,7 @@ struct Config {
     pub num_slots: u64,
     pub skip_slots: Option<Vec<u64>>,
     pub deposits: Option<Vec<DepositTuple>>,
+    pub proposer_slashings: Option<Vec<ProposerSlashingTuple>>,
 }
 
 impl Config {
@@ -200,12 +215,52 @@ impl Config {
             epoch_length: as_u64(&yaml, "epoch_length"),
             num_slots: as_u64(&yaml, "num_slots").expect("Must specify `config.num_slots`"),
             skip_slots: as_vec_u64(yaml, "skip_slots"),
-            deposits: process_deposits(&yaml),
+            deposits: parse_deposits(&yaml),
+            proposer_slashings: parse_proposer_slashings(&yaml),
         }
     }
 }
 
-fn process_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
+fn parse_proposer_slashings(yaml: &Yaml) -> Option<Vec<ProposerSlashingTuple>> {
+    let mut slashings = vec![];
+
+    for slashing in yaml["proposer_slashings"].as_vec()? {
+        let slot = as_u64(slashing, "slot").expect("Incomplete slashing");
+
+        let slashing = ProposerSlashing {
+            proposer_index: as_u64(slashing, "proposer_index")
+                .expect("Incomplete slashing (proposer_index)"),
+            proposal_data_1: ProposalSignedData {
+                slot: Slot::from(
+                    as_u64(slashing, "proposal_1_slot")
+                        .expect("Incomplete slashing (proposal_1_slot)."),
+                ),
+                shard: as_u64(slashing, "proposal_1_shard")
+                    .expect("Incomplete slashing (proposal_1_shard)."),
+                block_root: as_hash256(slashing, "proposal_1_root")
+                    .expect("Incomplete slashing (proposal_1_root)."),
+            },
+            proposal_signature_1: Signature::empty_signature(), // Will be replaced with real signature at runtime.
+            proposal_data_2: ProposalSignedData {
+                slot: Slot::from(
+                    as_u64(slashing, "proposal_2_slot")
+                        .expect("Incomplete slashing (proposal_2_slot)."),
+                ),
+                shard: as_u64(slashing, "proposal_2_shard")
+                    .expect("Incomplete slashing (proposal_2_shard)."),
+                block_root: as_hash256(slashing, "proposal_2_root")
+                    .expect("Incomplete slashing (proposal_2_root)."),
+            },
+            proposal_signature_2: Signature::empty_signature(), // Will be replaced with real signature at runtime.
+        };
+
+        slashings.push((slot, slashing));
+    }
+
+    Some(slashings)
+}
+
+fn parse_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
     let mut deposits = vec![];
 
     for deposit in yaml["deposits"].as_vec()? {
@@ -239,6 +294,12 @@ fn as_usize(yaml: &Yaml, key: &str) -> Option<usize> {
 
 fn as_u64(yaml: &Yaml, key: &str) -> Option<u64> {
     yaml[key].as_i64().and_then(|n| Some(n as u64))
+}
+
+fn as_hash256(yaml: &Yaml, key: &str) -> Option<Hash256> {
+    yaml[key]
+        .as_str()
+        .and_then(|s| Some(Hash256::from(s.as_bytes())))
 }
 
 fn as_vec_u64(yaml: &Yaml, key: &str) -> Option<Vec<u64>> {
