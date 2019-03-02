@@ -243,6 +243,25 @@ impl BeaconChainHarness {
         debug!("Free attestations processed.");
     }
 
+    pub fn validator_sign(
+        &self,
+        validator_index: usize,
+        message: &[u8],
+        epoch: Epoch,
+        domain_type: u64,
+    ) -> Option<Signature> {
+        let validator = self.validators.get(validator_index)?;
+
+        let domain = self
+            .beacon_chain
+            .state
+            .read()
+            .fork
+            .get_domain(epoch, domain_type);
+
+        Some(Signature::new(message, domain, &validator.keypair.sk))
+    }
+
     pub fn add_deposit(&mut self, deposit: Deposit, keypair: Option<Keypair>) {
         self.beacon_chain.receive_deposit_for_inclusion(deposit);
 
