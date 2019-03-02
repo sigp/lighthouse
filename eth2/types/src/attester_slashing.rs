@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, SlashableAttestation};
+use crate::{test_utils::TestRandom, ChainSpec, SlashableAttestation};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
