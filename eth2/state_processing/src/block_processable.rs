@@ -5,12 +5,7 @@ use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
 use types::*;
 
-// TODO: define elsehwere.
-const DOMAIN_PROPOSAL: u64 = 2;
-const DOMAIN_EXIT: u64 = 3;
-const DOMAIN_RANDAO: u64 = 4;
 const PHASE_0_CUSTODY_BIT: bool = false;
-const DOMAIN_ATTESTATION: u64 = 1;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -111,7 +106,7 @@ fn per_block_processing_signature_optional(
                 &block_proposer.pubkey,
                 &block.proposal_root(spec)[..],
                 &block.signature,
-                get_domain(&state.fork, state.current_epoch(spec), DOMAIN_PROPOSAL)
+                get_domain(&state.fork, state.current_epoch(spec), spec.domain_proposal)
             ),
             Error::BadBlockSignature
         );
@@ -125,7 +120,7 @@ fn per_block_processing_signature_optional(
             &block_proposer.pubkey,
             &int_to_bytes32(state.current_epoch(spec).as_u64()),
             &block.randao_reveal,
-            get_domain(&state.fork, state.current_epoch(spec), DOMAIN_RANDAO)
+            get_domain(&state.fork, state.current_epoch(spec), spec.domain_randao)
         ),
         Error::BadRandaoSignature
     );
@@ -186,7 +181,7 @@ fn per_block_processing_signature_optional(
                         .proposal_data_1
                         .slot
                         .epoch(spec.epoch_length),
-                    DOMAIN_PROPOSAL
+                    spec.domain_proposal
                 )
             ),
             Error::BadProposerSlashing
@@ -202,7 +197,7 @@ fn per_block_processing_signature_optional(
                         .proposal_data_2
                         .slot
                         .epoch(spec.epoch_length),
-                    DOMAIN_PROPOSAL
+                    spec.domain_proposal
                 )
             ),
             Error::BadProposerSlashing
@@ -294,7 +289,7 @@ fn per_block_processing_signature_optional(
                 &validator.pubkey,
                 &exit_message,
                 &exit.signature,
-                get_domain(&state.fork, exit.epoch, DOMAIN_EXIT)
+                get_domain(&state.fork, exit.epoch, spec.domain_exit)
             ),
             Error::BadProposerSlashing
         );
@@ -401,7 +396,7 @@ fn validate_attestation_signature_optional(
                 get_domain(
                     &state.fork,
                     attestation.data.slot.epoch(spec.epoch_length),
-                    DOMAIN_ATTESTATION,
+                    spec.domain_attestation,
                 )
             ),
             AttestationValidationError::BadSignature
