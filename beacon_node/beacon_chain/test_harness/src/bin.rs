@@ -5,7 +5,6 @@ use bls::create_proof_of_possession;
 use clap::{App, Arg};
 use env_logger::{Builder, Env};
 use log::{info, warn};
-use ssz::TreeHash;
 use std::{fs::File, io::prelude::*};
 use types::*;
 use types::{
@@ -329,12 +328,6 @@ fn as_usize(yaml: &Yaml, key: &str) -> Option<usize> {
 
 fn as_u64(yaml: &Yaml, key: &str) -> Option<u64> {
     yaml[key].as_i64().and_then(|n| Some(n as u64))
-}
-
-fn as_hash256(yaml: &Yaml, key: &str) -> Option<Hash256> {
-    yaml[key]
-        .as_str()
-        .and_then(|s| Some(Hash256::from(s.as_bytes())))
 }
 
 fn as_vec_u64(yaml: &Yaml, key: &str) -> Option<Vec<u64>> {
