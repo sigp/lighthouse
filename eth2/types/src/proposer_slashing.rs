@@ -6,6 +6,10 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
+mod builder;
+
+pub use builder::ProposerSlashingBuilder;
+
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
