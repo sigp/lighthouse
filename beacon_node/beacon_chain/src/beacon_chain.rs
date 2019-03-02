@@ -5,7 +5,7 @@ use db::{
     ClientDB, DBError,
 };
 use fork_choice::{ForkChoice, ForkChoiceError};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
@@ -668,7 +668,7 @@ where
 
         let result =
             state.per_block_processing_without_verifying_block_signature(&block, &self.spec);
-        trace!(
+        warn!(
             "BeaconNode::produce_block: state processing result: {:?}",
             result
         );
