@@ -10,6 +10,7 @@ use fork_choice::BitwiseLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
+use ssz::TreeHash;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
@@ -242,7 +243,7 @@ impl BeaconChainHarness {
         debug!("Free attestations processed.");
     }
 
-    pub fn process_deposit(&mut self, deposit: Deposit, keypair: Option<Keypair>) {
+    pub fn add_deposit(&mut self, deposit: Deposit, keypair: Option<Keypair>) {
         self.beacon_chain.receive_deposit_for_inclusion(deposit);
 
         // If a keypair is present, add a new `ValidatorHarness` to the rig.
@@ -251,6 +252,36 @@ impl BeaconChainHarness {
                 ValidatorHarness::new(keypair, self.beacon_chain.clone(), self.spec.clone());
             self.validators.push(validator);
         }
+    }
+
+    pub fn add_proposer_slashing(&mut self, mut proposer_slashing: ProposerSlashing) {
+        let validator = &self.validators[proposer_slashing.proposer_index as usize];
+
+        // This following code is a little awkward, but managing the data_1 and data_1 was getting
+        // rather confusing. I think this is better
+        let proposals = vec![
+            &proposer_slashing.proposal_data_1,
+            &proposer_slashing.proposal_data_2,
+        ];
+        let signatures: Vec<Signature> = proposals
+            .iter()
+            .map(|proposal_data| {
+                let message = proposal_data.hash_tree_root();
+                let epoch = proposal_data.slot.epoch(self.spec.epoch_length);
+                let domain = self
+                    .beacon_chain
+                    .state
+                    .read()
+                    .fork
+                    .get_domain(epoch, self.spec.domain_proposal);
+                Signature::new(&message[..], domain, &validator.keypair.sk)
+            })
+            .collect();
+        proposer_slashing.proposal_signature_1 = signatures[0].clone();
+        proposer_slashing.proposal_signature_2 = signatures[1].clone();
+
+        self.beacon_chain
+            .receive_proposer_slashing_for_inclusion(proposer_slashing);
     }
 
     pub fn run_fork_choice(&mut self) {
