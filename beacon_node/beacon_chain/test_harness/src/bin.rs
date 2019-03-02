@@ -5,6 +5,7 @@ use bls::create_proof_of_possession;
 use clap::{App, Arg};
 use env_logger::{Builder, Env};
 use log::{info, warn};
+use ssz::TreeHash;
 use std::{fs::File, io::prelude::*};
 use types::*;
 use yaml_rust::{Yaml, YamlLoader};
@@ -108,6 +109,21 @@ impl Manifest {
                 }
             }
 
+            // Feed attester slashings to the BeaconChain.
+            if let Some(ref slashings) = self.config.attester_slashings {
+                for (slot, validator_indices) in slashings {
+                    if *slot == slot_height {
+                        info!(
+                            "Including attester slashing at slot height {}.",
+                            slot_height
+                        );
+                        let slashing =
+                            build_double_vote_attester_slashing(&harness, &validator_indices[..]);
+                        harness.add_attester_slashing(slashing);
+                    }
+                }
+            }
+
             // Build a block or skip a slot.
             match self.config.skip_slots {
                 Some(ref skip_slots) if skip_slots.contains(&slot_height) => {
@@ -175,8 +191,87 @@ impl Manifest {
     }
 }
 
+fn build_double_vote_attester_slashing(
+    harness: &BeaconChainHarness,
+    validator_indices: &[u64],
+) -> AttesterSlashing {
+    let double_voted_slot = Slot::new(0);
+    let shard = 0;
+    let justified_epoch = Epoch::new(0);
+    let epoch = Epoch::new(0);
+    let hash_1 = Hash256::from("1".as_bytes());
+    let hash_2 = Hash256::from("2".as_bytes());
+
+    let mut slashable_attestation_1 = SlashableAttestation {
+        validator_indices: validator_indices.to_vec(),
+        data: AttestationData {
+            slot: double_voted_slot,
+            shard,
+            beacon_block_root: hash_1,
+            epoch_boundary_root: hash_1,
+            shard_block_root: hash_1,
+            latest_crosslink: Crosslink {
+                epoch,
+                shard_block_root: hash_1,
+            },
+            justified_epoch,
+            justified_block_root: hash_1,
+        },
+        custody_bitfield: Bitfield::new(),
+        aggregate_signature: AggregateSignature::new(),
+    };
+
+    let mut slashable_attestation_2 = SlashableAttestation {
+        validator_indices: validator_indices.to_vec(),
+        data: AttestationData {
+            slot: double_voted_slot,
+            shard,
+            beacon_block_root: hash_2,
+            epoch_boundary_root: hash_2,
+            shard_block_root: hash_2,
+            latest_crosslink: Crosslink {
+                epoch,
+                shard_block_root: hash_2,
+            },
+            justified_epoch,
+            justified_block_root: hash_2,
+        },
+        custody_bitfield: Bitfield::new(),
+        aggregate_signature: AggregateSignature::new(),
+    };
+
+    let add_signatures = |attestation: &mut SlashableAttestation| {
+        for (i, validator_index) in validator_indices.iter().enumerate() {
+            let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
+                data: attestation.data.clone(),
+                custody_bit: attestation.custody_bitfield.get(i).unwrap(),
+            };
+            let message = attestation_data_and_custody_bit.hash_tree_root();
+            let signature = harness
+                .validator_sign(
+                    *validator_index as usize,
+                    &message[..],
+                    epoch,
+                    harness.spec.domain_attestation,
+                )
+                .expect("Unable to sign attestation with unknown validator index.");
+            attestation.aggregate_signature.add(&signature);
+        }
+    };
+
+    add_signatures(&mut slashable_attestation_1);
+    add_signatures(&mut slashable_attestation_2);
+
+    AttesterSlashing {
+        slashable_attestation_1,
+        slashable_attestation_2,
+    }
+}
+
 pub type DepositTuple = (u64, Deposit, Keypair);
 pub type ProposerSlashingTuple = (u64, ProposerSlashing);
+// (slot, validator_indices)
+pub type AttesterSlashingTuple = (u64, Vec<u64>);
 
 struct ExecutionResult {
     pub chain: Vec<CheckPoint>,
@@ -205,6 +300,7 @@ struct Config {
     pub skip_slots: Option<Vec<u64>>,
     pub deposits: Option<Vec<DepositTuple>>,
     pub proposer_slashings: Option<Vec<ProposerSlashingTuple>>,
+    pub attester_slashings: Option<Vec<AttesterSlashingTuple>>,
 }
 
 impl Config {
@@ -217,8 +313,23 @@ impl Config {
             skip_slots: as_vec_u64(yaml, "skip_slots"),
             deposits: parse_deposits(&yaml),
             proposer_slashings: parse_proposer_slashings(&yaml),
+            attester_slashings: parse_attester_slashings(&yaml),
         }
     }
+}
+
+fn parse_attester_slashings(yaml: &Yaml) -> Option<Vec<AttesterSlashingTuple>> {
+    let mut slashings = vec![];
+
+    for slashing in yaml["attester_slashings"].as_vec()? {
+        let slot = as_u64(slashing, "slot").expect("Incomplete attester_slashing (slot)");
+        let validator_indices = as_vec_u64(slashing, "validator_indices")
+            .expect("Incomplete attester_slashing (validator_indices)");
+
+        slashings.push((slot, validator_indices));
+    }
+
+    Some(slashings)
 }
 
 fn parse_proposer_slashings(yaml: &Yaml) -> Option<Vec<ProposerSlashingTuple>> {
@@ -227,6 +338,10 @@ fn parse_proposer_slashings(yaml: &Yaml) -> Option<Vec<ProposerSlashingTuple>> {
     for slashing in yaml["proposer_slashings"].as_vec()? {
         let slot = as_u64(slashing, "slot").expect("Incomplete slashing");
 
+        // Builds a ProposerSlashing object from YAML fields.
+        //
+        // Rustfmt make this look rather ugly, however it is just a simple struct
+        // instantiation.
         let slashing = ProposerSlashing {
             proposer_index: as_u64(slashing, "proposer_index")
                 .expect("Incomplete slashing (proposer_index)"),

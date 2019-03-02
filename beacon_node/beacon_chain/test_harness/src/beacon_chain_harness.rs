@@ -303,6 +303,11 @@ impl BeaconChainHarness {
             .receive_proposer_slashing_for_inclusion(proposer_slashing);
     }
 
+    pub fn add_attester_slashing(&mut self, attester_slashing: AttesterSlashing) {
+        self.beacon_chain
+            .receive_attester_slashing_for_inclusion(attester_slashing);
+    }
+
     pub fn run_fork_choice(&mut self) {
         self.beacon_chain.fork_choice().unwrap()
     }
