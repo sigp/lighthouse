@@ -7,6 +7,7 @@ pub type DepositTuple = (u64, Deposit, Keypair);
 pub type ProposerSlashingTuple = (u64, u64);
 pub type AttesterSlashingTuple = (u64, Vec<u64>);
 
+#[derive(Debug)]
 pub struct Config {
     pub deposits_for_chain_start: usize,
     pub epoch_length: Option<u64>,

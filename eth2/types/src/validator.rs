@@ -55,8 +55,16 @@ pub struct Validator {
 
 impl Validator {
     /// This predicate indicates if the validator represented by this record is considered "active" at `slot`.
-    pub fn is_active_at(&self, slot: Epoch) -> bool {
-        self.activation_epoch <= slot && slot < self.exit_epoch
+    pub fn is_active_at(&self, epoch: Epoch) -> bool {
+        self.activation_epoch <= epoch && epoch < self.exit_epoch
+    }
+
+    pub fn is_exited_at(&self, epoch: Epoch) -> bool {
+        self.exit_epoch <= epoch
+    }
+
+    pub fn is_penalized_at(&self, epoch: Epoch) -> bool {
+        self.penalized_epoch <= epoch
     }
 }
 

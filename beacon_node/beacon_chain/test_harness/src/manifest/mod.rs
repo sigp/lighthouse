@@ -11,8 +11,10 @@ use yaml_rust::Yaml;
 
 mod config;
 mod results;
+mod state_check;
 mod yaml_helpers;
 
+#[derive(Debug)]
 pub struct Manifest {
     pub results: Results,
     pub config: Config,
@@ -20,6 +22,7 @@ pub struct Manifest {
 
 pub struct ExecutionResult {
     pub chain: Vec<CheckPoint>,
+    pub spec: ChainSpec,
 }
 
 impl Manifest {
@@ -54,7 +57,8 @@ impl Manifest {
 
         info!("Starting simulation across {} slots...", slots);
 
-        for slot_height in 0..slots {
+        // -1 slots because genesis counts as a slot.
+        for slot_height in 0..slots - 1 {
             // Feed deposits to the BeaconChain.
             if let Some(ref deposits) = self.config.deposits {
                 for (slot, deposit, keypair) in deposits {
@@ -113,50 +117,40 @@ impl Manifest {
 
         ExecutionResult {
             chain: harness.chain_dump().expect("Chain dump failed."),
+            spec: (*harness.spec).clone(),
         }
     }
 
-    pub fn assert_result_valid(&self, result: ExecutionResult) {
+    pub fn assert_result_valid(&self, execution_result: ExecutionResult) {
         info!("Verifying test results...");
+        let spec = &execution_result.spec;
 
-        let skipped_slots = self
-            .config
-            .skip_slots
-            .clone()
-            .and_then(|slots| Some(slots.len()))
-            .unwrap_or_else(|| 0);
-        let expected_blocks = self.config.num_slots as usize + 1 - skipped_slots;
-
-        assert_eq!(result.chain.len(), expected_blocks);
-
-        info!(
-            "OK: Chain length is {} ({} skipped slots).",
-            result.chain.len(),
-            skipped_slots
-        );
-
-        if let Some(ref skip_slots) = self.config.skip_slots {
-            for checkpoint in &result.chain {
-                let block_slot = checkpoint.beacon_block.slot.as_u64();
-                assert!(
-                    !skip_slots.contains(&block_slot),
-                    "Slot {} was not skipped.",
-                    block_slot
-                );
-            }
-            info!("OK: Skipped slots not present in chain.");
-        }
-
-        if let Some(ref deposits) = self.config.deposits {
-            let latest_state = &result.chain.last().expect("Empty chain.").beacon_state;
+        if let Some(num_skipped_slots) = self.results.num_skipped_slots {
             assert_eq!(
-                latest_state.validator_registry.len(),
-                self.config.deposits_for_chain_start + deposits.len()
+                execution_result.chain.len(),
+                self.config.num_slots as usize - num_skipped_slots,
+                "actual skipped slots != expected."
             );
             info!(
-                "OK: Validator registry has {} more validators.",
-                deposits.len()
+                "OK: Chain length is {} ({} skipped slots).",
+                execution_result.chain.len(),
+                num_skipped_slots
             );
+        }
+
+        if let Some(ref state_checks) = self.results.state_checks {
+            for checkpoint in &execution_result.chain {
+                let state = &checkpoint.beacon_state;
+
+                for state_check in state_checks {
+                    let adjusted_state_slot =
+                        state.slot - spec.genesis_epoch.start_slot(spec.epoch_length);
+
+                    if state_check.slot == adjusted_state_slot {
+                        state_check.assert_valid(state, spec);
+                    }
+                }
+            }
         }
     }
 }

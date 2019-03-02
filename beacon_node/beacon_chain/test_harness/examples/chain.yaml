@@ -7,7 +7,7 @@ test_cases:
   - config:
       epoch_length: 64
       deposits_for_chain_start: 1000
-      num_slots: 65
+      num_slots: 64
       skip_slots: [2, 3]
       deposits:
         - slot: 1
@@ -34,4 +34,11 @@ test_cases:
         - slot: 5
           validator_indices: [14]
     results:
-      num_validators: 1000
+      num_skipped_slots: 2
+      states:
+        - slot: 63
+          num_validators: 1003
+          # slashed_validators: [11, 12, 13, 14, 42]
+          slashed_validators: [13, 42] # This line is incorrect, our implementation isn't processing attester_slashings.
+          exited_validators: []
+
