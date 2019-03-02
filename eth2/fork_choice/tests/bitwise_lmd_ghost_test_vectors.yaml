@@ -35,3 +35,31 @@ test_cases:
     - b3: 3
   heads:
     - id: 'b2'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b1'
+    - id: 'b4'
+      parent: 'b1'
+    - id: 'b5'
+      parent: 'b1'
+    - id: 'b6'
+      parent: 'b2'
+    - id: 'b7'
+      parent: 'b6'
+  weights:
+    - b0: 0
+    - b1: 3
+    - b2: 2
+    - b3: 1
+    - b4: 1
+    - b5: 1
+    - b6: 2
+    - b7: 2
+  heads:
+    - id: 'b4'

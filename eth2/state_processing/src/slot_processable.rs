@@ -26,6 +26,7 @@ where
     ) -> Result<(), Error> {
         if (self.slot + 1) % spec.epoch_length == 0 {
             self.per_epoch_processing(spec)?;
+            self.advance_caches();
         }
 
         self.slot += 1;
