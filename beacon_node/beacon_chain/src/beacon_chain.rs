@@ -65,6 +65,8 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
+    pub proposer_slashings_for_inclusion: RwLock<Vec<ProposerSlashing>>,
+    pub attester_slashings_for_inclusion: RwLock<Vec<AttesterSlashing>>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
@@ -132,6 +134,8 @@ where
             slot_clock,
             attestation_aggregator,
             deposits_for_inclusion: RwLock::new(vec![]),
+            proposer_slashings_for_inclusion: RwLock::new(vec![]),
+            attester_slashings_for_inclusion: RwLock::new(vec![]),
             state: RwLock::new(genesis_state),
             finalized_head,
             canonical_head,
@@ -374,7 +378,7 @@ where
         self.deposits_for_inclusion.read().clone()
     }
 
-    pub fn mark_deposits_as_included(&self, included_deposits: &[Deposit]) {
+    pub fn set_deposits_as_included(&self, included_deposits: &[Deposit]) {
         // TODO: method does not take forks into account; consider this.
         let mut indices_to_delete = vec![];
 
@@ -389,6 +393,82 @@ where
         let deposits_for_inclusion = &mut self.deposits_for_inclusion.write();
         for i in indices_to_delete {
             deposits_for_inclusion.remove(i);
+        }
+    }
+
+    pub fn receive_proposer_slashing_for_inclusion(&self, proposer_slashing: ProposerSlashing) {
+        // TODO: proposer_slashings are not check for validity; check them.
+        self.proposer_slashings_for_inclusion
+            .write()
+            .push(proposer_slashing);
+    }
+
+    pub fn get_proposer_slashings_for_block(&self) -> Vec<ProposerSlashing> {
+        // TODO: proposer_slashings are indiscriminately included; check them for validity.
+        self.proposer_slashings_for_inclusion.read().clone()
+    }
+
+    pub fn set_proposer_slashings_as_included(
+        &self,
+        included_proposer_slashings: &[ProposerSlashing],
+    ) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_proposer_slashings {
+            for (i, for_inclusion) in self
+                .proposer_slashings_for_inclusion
+                .read()
+                .iter()
+                .enumerate()
+            {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let proposer_slashings_for_inclusion = &mut self.proposer_slashings_for_inclusion.write();
+        for i in indices_to_delete {
+            proposer_slashings_for_inclusion.remove(i);
+        }
+    }
+
+    pub fn receive_attester_slashing_for_inclusion(&self, attester_slashing: AttesterSlashing) {
+        // TODO: attester_slashings are not check for validity; check them.
+        self.attester_slashings_for_inclusion
+            .write()
+            .push(attester_slashing);
+    }
+
+    pub fn get_attester_slashings_for_block(&self) -> Vec<AttesterSlashing> {
+        // TODO: attester_slashings are indiscriminately included; check them for validity.
+        self.attester_slashings_for_inclusion.read().clone()
+    }
+
+    pub fn set_attester_slashings_as_included(
+        &self,
+        included_attester_slashings: &[AttesterSlashing],
+    ) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_attester_slashings {
+            for (i, for_inclusion) in self
+                .attester_slashings_for_inclusion
+                .read()
+                .iter()
+                .enumerate()
+            {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let attester_slashings_for_inclusion = &mut self.attester_slashings_for_inclusion.write();
+        for i in indices_to_delete {
+            attester_slashings_for_inclusion.remove(i);
         }
     }
 
@@ -518,8 +598,10 @@ where
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
-        // Remove any included deposits from the for-inclusion queue
-        self.mark_deposits_as_included(&block.body.deposits[..]);
+        // Update the inclusion queues so they aren't re-submitted.
+        self.set_deposits_as_included(&block.body.deposits[..]);
+        self.set_proposer_slashings_as_included(&block.body.proposer_slashings[..]);
+        self.set_attester_slashings_as_included(&block.body.attester_slashings[..]);
 
         // run the fork_choice add_block logic
         self.fork_choice
@@ -574,8 +656,8 @@ where
             },
             signature: self.spec.empty_signature.clone(), // To be completed by a validator.
             body: BeaconBlockBody {
-                proposer_slashings: vec![],
-                attester_slashings: vec![],
+                proposer_slashings: self.get_proposer_slashings_for_block(),
+                attester_slashings: self.get_attester_slashings_for_block(),
                 attestations,
                 deposits: self.get_deposits_for_block(),
                 exits: vec![],
