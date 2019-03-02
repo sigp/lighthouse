@@ -20,19 +20,18 @@ test_cases:
           amount: 32
           merkle_index: 2
       proposer_slashings:
-        - slot: 8 # At slot 8, trigger a proposal slashing
-          proposer_index: 42 # Penalize the validator at position 42
-          proposal_1_shard: 0
-          proposal_1_slot: 15
-          proposal_1_root: !!binary |
-            LkmqmqoodLKAslkjdkajsdljasdkajlksjdasldjasdd
-          proposal_2_shard: 0
-          proposal_2_slot: 15
-          proposal_2_root: !!binary |
-            DIFFERENTKAslkjdkajsdljasdkajlksjdasldjasdd
+          # At slot 2, trigger a proposer slashing for validator #42.
+        - slot: 2
+          validator_index: 42
+          # At slot 8, trigger a proposer slashing for validator #13.
+        - slot: 8
+          validator_index: 13
       attester_slashings:
-          # At slot 2, trigger an attester slashing for validators #11 and #12
+          # At slot 2, trigger an attester slashing for validators #11 and #12.
         - slot: 2
           validator_indices: [11, 12]
+          # At slot 5, trigger an attester slashing for validator #14.
+        - slot: 5
+          validator_indices: [14]
     results:
       num_validators: 1000
