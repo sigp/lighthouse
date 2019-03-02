@@ -1004,6 +1004,10 @@ impl BeaconState {
             whistleblower_reward
         );
         self.validator_registry[validator_index].penalized_epoch = current_epoch;
+        debug!(
+            "Whistleblower {} penalized validator {}.",
+            whistleblower_index, validator_index
+        );
         Ok(())
     }
 
