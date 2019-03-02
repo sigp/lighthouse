@@ -36,8 +36,82 @@ impl SlashableAttestation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chain_spec::ChainSpec;
+    use crate::slot_epoch::{Epoch, Slot};
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     use ssz::{ssz_encode, Decodable, TreeHash};
+
+    #[test]
+    pub fn test_is_double_vote_true() {
+        let spec = ChainSpec::foundation();
+        let slashable_vote_first = create_slashable_attestation(1, 1, &spec);
+        let slashable_vote_second = create_slashable_attestation(1, 1, &spec);
+
+        assert_eq!(
+            slashable_vote_first.is_double_vote(&slashable_vote_second, &spec),
+            true
+        )
+    }
+
+    #[test]
+    pub fn test_is_double_vote_false() {
+        let spec = ChainSpec::foundation();
+        let slashable_vote_first = create_slashable_attestation(1, 1, &spec);
+        let slashable_vote_second = create_slashable_attestation(2, 1, &spec);
+
+        assert_eq!(
+            slashable_vote_first.is_double_vote(&slashable_vote_second, &spec),
+            false
+        );
+    }
+
+    #[test]
+    pub fn test_is_surround_vote_true() {
+        let spec = ChainSpec::foundation();
+        let slashable_vote_first = create_slashable_attestation(2, 1, &spec);
+        let slashable_vote_second = create_slashable_attestation(1, 2, &spec);
+
+        assert_eq!(
+            slashable_vote_first.is_surround_vote(&slashable_vote_second, &spec),
+            true
+        );
+    }
+
+    #[test]
+    pub fn test_is_surround_vote_true_realistic() {
+        let spec = ChainSpec::foundation();
+        let slashable_vote_first = create_slashable_attestation(4, 1, &spec);
+        let slashable_vote_second = create_slashable_attestation(3, 2, &spec);
+
+        assert_eq!(
+            slashable_vote_first.is_surround_vote(&slashable_vote_second, &spec),
+            true
+        );
+    }
+
+    #[test]
+    pub fn test_is_surround_vote_false_source_epoch_fails() {
+        let spec = ChainSpec::foundation();
+        let slashable_vote_first = create_slashable_attestation(2, 2, &spec);
+        let slashable_vote_second = create_slashable_attestation(1, 1, &spec);
+
+        assert_eq!(
+            slashable_vote_first.is_surround_vote(&slashable_vote_second, &spec),
+            false
+        );
+    }
+
+    #[test]
+    pub fn test_is_surround_vote_false_target_epoch_fails() {
+        let spec = ChainSpec::foundation();
+        let slashable_vote_first = create_slashable_attestation(1, 1, &spec);
+        let slashable_vote_second = create_slashable_attestation(2, 2, &spec);
+
+        assert_eq!(
+            slashable_vote_first.is_surround_vote(&slashable_vote_second, &spec),
+            false
+        );
+    }
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -60,5 +134,18 @@ mod tests {
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
         // https://github.com/sigp/lighthouse/issues/170
+    }
+
+    fn create_slashable_attestation(
+        slot_factor: u64,
+        justified_epoch: u64,
+        spec: &ChainSpec,
+    ) -> SlashableAttestation {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut slashable_vote = SlashableAttestation::random_for_test(&mut rng);
+
+        slashable_vote.data.slot = Slot::new(slot_factor * spec.epoch_length);
+        slashable_vote.data.justified_epoch = Epoch::new(justified_epoch);
+        slashable_vote
     }
 }
