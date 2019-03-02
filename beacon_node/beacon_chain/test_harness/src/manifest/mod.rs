@@ -115,6 +115,8 @@ impl Manifest {
 
         info!("Test execution complete!");
 
+        info!("Building chain dump for analysis...");
+
         ExecutionResult {
             chain: harness.chain_dump().expect("Chain dump failed."),
             spec: (*harness.spec).clone(),
