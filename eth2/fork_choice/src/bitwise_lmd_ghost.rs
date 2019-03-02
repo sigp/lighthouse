@@ -1,5 +1,5 @@
+//! The optimised bitwise LMD-GHOST fork choice rule.
 extern crate bit_vec;
-extern crate fast_math;
 
 use crate::{ForkChoice, ForkChoiceError};
 use bit_vec::BitVec;
@@ -7,7 +7,6 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB,
 };
-use fast_math::log2_raw;
 use log::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,22 +18,17 @@ use types::{
 //TODO: Pruning - Children
 //TODO: Handle Syncing
 
-/// The optimised bitwise LMD-GHOST fork choice rule.
-/// NOTE: This uses u32 to represent difference between block heights. Thus this is only
-/// applicable for block height differences in the range of a u32.
-/// This can potentially be parallelized in some parts.
-// we use fast log2, a log2 lookup table is implemented in Vitaliks code, potentially do
-// the comparison. Log2_raw takes 2ns according to the documentation.
+// NOTE: This uses u32 to represent difference between block heights. Thus this is only
+// applicable for block height differences in the range of a u32.
+// This can potentially be parallelized in some parts.
+
+/// Compute the base-2 logarithm of an integer, floored (rounded down)
 #[inline]
 fn log2_int(x: u32) -> u32 {
     if x == 0 {
         return 0;
     }
-    assert!(
-        x <= std::f32::MAX as u32,
-        "Height too large for fast log in bitwise fork choice"
-    );
-    log2_raw(x as f32) as u32
+    31 - x.leading_zeros()
 }
 
 fn power_of_2_below(x: u32) -> u32 {
@@ -469,7 +463,6 @@ mod tests {
 
     #[test]
     pub fn test_power_of_2_below() {
-        println!("{:?}", std::f32::MAX);
         assert_eq!(power_of_2_below(4), 4);
         assert_eq!(power_of_2_below(5), 4);
         assert_eq!(power_of_2_below(7), 4);
@@ -477,5 +470,13 @@ mod tests {
         assert_eq!(power_of_2_below(32), 32);
         assert_eq!(power_of_2_below(33), 32);
         assert_eq!(power_of_2_below(63), 32);
+    }
+
+    #[test]
+    pub fn test_power_of_2_below_large() {
+        let pow: u32 = 1 << 24;
+        for x in (pow - 20)..(pow + 20) {
+            assert!(power_of_2_below(x) <= x, "{}", x);
+        }
     }
 }
