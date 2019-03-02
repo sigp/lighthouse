@@ -192,7 +192,7 @@ where
         }
         // Check if there is a clear block winner at this height. If so return it.
         for (hash, votes) in current_votes.iter() {
-            if *votes >= total_vote_count / 2 {
+            if *votes > total_vote_count / 2 {
                 // we have a clear winner, return it
                 return Some(*hash);
             }
@@ -371,7 +371,10 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
             // if there are no children, we are done, return the current_head
             let children = match self.children.get(&current_head) {
                 Some(children) => children.clone(),
-                None => return Ok(current_head),
+                None => {
+                    debug!("Head found: {}", current_head);
+                    return Ok(current_head);
+                }
             };
 
             // logarithmic lookup blocks to see if there are obvious winners, if so,
@@ -391,7 +394,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 step /= 2;
             }
             if step > 0 {
-                trace!("Found clear winner in log lookup");
+                trace!("Found clear winner: {}", current_head);
             }
             // if our skip lookup failed and we only have one child, progress to that child
             else if children.len() == 1 {

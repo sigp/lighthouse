@@ -619,12 +619,6 @@ impl EpochProcessable for BeaconState {
             .cloned()
             .collect();
 
-        /*
-         * Manage the beacon state caches
-         */
-        self.advance_caches();
-        self.build_epoch_cache(RelativeEpoch::Next, spec)?;
-
         debug!("Epoch transition complete.");
 
         Ok(())
