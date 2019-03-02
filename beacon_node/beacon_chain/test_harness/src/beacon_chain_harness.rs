@@ -273,32 +273,7 @@ impl BeaconChainHarness {
         }
     }
 
-    pub fn add_proposer_slashing(&mut self, mut proposer_slashing: ProposerSlashing) {
-        let validator = &self.validators[proposer_slashing.proposer_index as usize];
-
-        // This following code is a little awkward, but managing the data_1 and data_1 was getting
-        // rather confusing. I think this is better
-        let proposals = vec![
-            &proposer_slashing.proposal_data_1,
-            &proposer_slashing.proposal_data_2,
-        ];
-        let signatures: Vec<Signature> = proposals
-            .iter()
-            .map(|proposal_data| {
-                let message = proposal_data.hash_tree_root();
-                let epoch = proposal_data.slot.epoch(self.spec.epoch_length);
-                let domain = self
-                    .beacon_chain
-                    .state
-                    .read()
-                    .fork
-                    .get_domain(epoch, self.spec.domain_proposal);
-                Signature::new(&message[..], domain, &validator.keypair.sk)
-            })
-            .collect();
-        proposer_slashing.proposal_signature_1 = signatures[0].clone();
-        proposer_slashing.proposal_signature_2 = signatures[1].clone();
-
+    pub fn add_proposer_slashing(&mut self, proposer_slashing: ProposerSlashing) {
         self.beacon_chain
             .receive_proposer_slashing_for_inclusion(proposer_slashing);
     }

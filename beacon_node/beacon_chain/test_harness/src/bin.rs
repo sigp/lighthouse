@@ -7,8 +7,10 @@ use env_logger::{Builder, Env};
 use log::{info, warn};
 use ssz::TreeHash;
 use std::{fs::File, io::prelude::*};
-use types::attester_slashing::AttesterSlashingBuilder;
 use types::*;
+use types::{
+    attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
+};
 use yaml_rust::{Yaml, YamlLoader};
 
 mod beacon_chain_harness;
@@ -99,13 +101,14 @@ impl Manifest {
 
             // Feed proposer slashings to the BeaconChain.
             if let Some(ref slashings) = self.config.proposer_slashings {
-                for (slot, slashing) in slashings {
+                for (slot, validator_index) in slashings {
                     if *slot == slot_height {
                         info!(
-                            "Including proposer slashing at slot height {}.",
-                            slot_height
+                            "Including proposer slashing at slot height {} for validator #{}.",
+                            slot_height, validator_index
                         );
-                        harness.add_proposer_slashing(slashing.clone());
+                        let slashing = build_proposer_slashing(&harness, *validator_index);
+                        harness.add_proposer_slashing(slashing);
                     }
                 }
             }
@@ -115,8 +118,8 @@ impl Manifest {
                 for (slot, validator_indices) in slashings {
                     if *slot == slot_height {
                         info!(
-                            "Including attester slashing at slot height {}.",
-                            slot_height
+                            "Including attester slashing at slot height {} for validators {:?}.",
+                            slot_height, validator_indices
                         );
                         let slashing =
                             build_double_vote_attester_slashing(&harness, &validator_indices[..]);
@@ -205,8 +208,18 @@ fn build_double_vote_attester_slashing(
     AttesterSlashingBuilder::double_vote(validator_indices, signer, &harness.spec)
 }
 
+fn build_proposer_slashing(harness: &BeaconChainHarness, validator_index: u64) -> ProposerSlashing {
+    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: u64| {
+        harness
+            .validator_sign(validator_index as usize, message, epoch, domain)
+            .expect("Unable to sign AttesterSlashing")
+    };
+
+    ProposerSlashingBuilder::double_vote(validator_index, signer, &harness.spec)
+}
+
 pub type DepositTuple = (u64, Deposit, Keypair);
-pub type ProposerSlashingTuple = (u64, ProposerSlashing);
+pub type ProposerSlashingTuple = (u64, u64);
 pub type AttesterSlashingTuple = (u64, Vec<u64>);
 
 struct ExecutionResult {
@@ -272,40 +285,11 @@ fn parse_proposer_slashings(yaml: &Yaml) -> Option<Vec<ProposerSlashingTuple>> {
     let mut slashings = vec![];
 
     for slashing in yaml["proposer_slashings"].as_vec()? {
-        let slot = as_u64(slashing, "slot").expect("Incomplete slashing");
+        let slot = as_u64(slashing, "slot").expect("Incomplete proposer slashing (slot)_");
+        let validator_index = as_u64(slashing, "validator_index")
+            .expect("Incomplete proposer slashing (validator_index)");
 
-        // Builds a ProposerSlashing object from YAML fields.
-        //
-        // Rustfmt make this look rather ugly, however it is just a simple struct
-        // instantiation.
-        let slashing = ProposerSlashing {
-            proposer_index: as_u64(slashing, "proposer_index")
-                .expect("Incomplete slashing (proposer_index)"),
-            proposal_data_1: ProposalSignedData {
-                slot: Slot::from(
-                    as_u64(slashing, "proposal_1_slot")
-                        .expect("Incomplete slashing (proposal_1_slot)."),
-                ),
-                shard: as_u64(slashing, "proposal_1_shard")
-                    .expect("Incomplete slashing (proposal_1_shard)."),
-                block_root: as_hash256(slashing, "proposal_1_root")
-                    .expect("Incomplete slashing (proposal_1_root)."),
-            },
-            proposal_signature_1: Signature::empty_signature(), // Will be replaced with real signature at runtime.
-            proposal_data_2: ProposalSignedData {
-                slot: Slot::from(
-                    as_u64(slashing, "proposal_2_slot")
-                        .expect("Incomplete slashing (proposal_2_slot)."),
-                ),
-                shard: as_u64(slashing, "proposal_2_shard")
-                    .expect("Incomplete slashing (proposal_2_shard)."),
-                block_root: as_hash256(slashing, "proposal_2_root")
-                    .expect("Incomplete slashing (proposal_2_root)."),
-            },
-            proposal_signature_2: Signature::empty_signature(), // Will be replaced with real signature at runtime.
-        };
-
-        slashings.push((slot, slashing));
+        slashings.push((slot, validator_index));
     }
 
     Some(slashings)
