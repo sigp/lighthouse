@@ -1,5 +1,7 @@
 use super::{AggregatePublicKey, Signature};
-use bls_aggregates::AggregateSignature as RawAggregateSignature;
+use bls_aggregates::{
+    AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
+};
 use serde::ser::{Serialize, Serializer};
 use ssz::{
     decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
@@ -33,7 +35,38 @@ impl AggregateSignature {
         domain: u64,
         aggregate_public_key: &AggregatePublicKey,
     ) -> bool {
-        self.0.verify(msg, domain, aggregate_public_key)
+        self.0.verify(msg, domain, aggregate_public_key.as_raw())
+    }
+
+    /// Verify this AggregateSignature against multiple AggregatePublickeys with multiple Messages.
+    ///
+    ///  All PublicKeys related to a Message should be aggregated into one AggregatePublicKey.
+    ///  Each AggregatePublicKey has a 1:1 ratio with a 32 byte Message.
+    pub fn verify_multiple(
+        &self,
+        messages: &[&[u8]],
+        domain: u64,
+        aggregate_public_keys: &[&AggregatePublicKey],
+    ) -> bool {
+        // TODO: the API for `RawAggregatePublicKey` shoudn't need to take an owned
+        // `AggregatePublicKey`. There is an issue to fix this, but in the meantime we need to
+        // clone.
+        //
+        // https://github.com/sigp/signature-schemes/issues/10
+        let aggregate_public_keys: Vec<RawAggregatePublicKey> = aggregate_public_keys
+            .iter()
+            .map(|pk| pk.as_raw())
+            .cloned()
+            .collect();
+
+        // Messages are concatenated into one long message.
+        let mut msg: Vec<u8> = vec![];
+        for message in messages {
+            msg.extend_from_slice(message);
+        }
+
+        self.0
+            .verify_multiple(&msg[..], domain, &aggregate_public_keys[..])
     }
 }
 
