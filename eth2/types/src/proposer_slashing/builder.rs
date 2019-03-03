@@ -1,9 +1,20 @@
 use crate::*;
 use ssz::TreeHash;
 
+/// Builds a `ProposerSlashing`.
 pub struct ProposerSlashingBuilder();
 
 impl ProposerSlashingBuilder {
+    /// Builds a `ProposerSlashing` that is a double vote.
+    ///
+    /// The `signer` function is used to sign the double-vote and accepts:
+    ///
+    /// - `validator_index: u64`
+    /// - `message: &[u8]`
+    /// - `epoch: Epoch`
+    /// - `domain: u64`
+    ///
+    /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
     pub fn double_vote<F>(proposer_index: u64, signer: F, spec: &ChainSpec) -> ProposerSlashing
     where
         F: Fn(u64, &[u8], Epoch, u64) -> Signature,

@@ -1140,6 +1140,9 @@ impl BeaconState {
         )
     }
 
+    /// Verify ``bitfield`` against the ``committee_size``.
+    ///
+    /// Spec v0.2.0
     pub fn verify_bitfield(&self, bitfield: &Bitfield, committee_size: usize) -> bool {
         if bitfield.num_bytes() != ((committee_size + 7) / 8) {
             return false;
@@ -1159,6 +1162,9 @@ impl BeaconState {
         true
     }
 
+    /// Verify validity of ``slashable_attestation`` fields.
+    ///
+    /// Spec v0.2.0
     pub fn verify_slashable_attestation(
         &self,
         slashable_attestation: &SlashableAttestation,

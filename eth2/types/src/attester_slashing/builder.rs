@@ -1,9 +1,20 @@
 use crate::*;
 use ssz::TreeHash;
 
+/// Builds an `AttesterSlashing`.
 pub struct AttesterSlashingBuilder();
 
 impl AttesterSlashingBuilder {
+    /// Builds an `AttesterSlashing` that is a double vote.
+    ///
+    /// The `signer` function is used to sign the double-vote and accepts:
+    ///
+    /// - `validator_index: u64`
+    /// - `message: &[u8]`
+    /// - `epoch: Epoch`
+    /// - `domain: u64`
+    ///
+    /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
     pub fn double_vote<F>(
         validator_indices: &[u64],
         signer: F,
