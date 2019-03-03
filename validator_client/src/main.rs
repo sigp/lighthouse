@@ -50,7 +50,8 @@ fn main() {
                 .short("s")
                 .help("Configuration of Beacon Chain")
                 .takes_value(true)
-                .possible_values(&["foundation", "few_validators"]),
+                .possible_values(&["foundation", "few_validators"])
+                .default_value("foundation"),
         )
         .get_matches();
 
@@ -77,11 +78,8 @@ fn main() {
         match spec_str {
             "foundation" => config.spec = ChainSpec::foundation(),
             "few_validators" => config.spec = ChainSpec::few_validators(),
-            // Should be impossible
-            _ => {
-                error!(log, "Invalid ChainSpec defined"; "spec" => spec_str);
-                return;
-            }
+            // Should be impossible due to clap's `possible_values(..)` function.
+            _ => unreachable!(),
         };
     }
 
