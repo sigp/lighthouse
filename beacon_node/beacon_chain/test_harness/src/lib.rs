@@ -1,6 +1,6 @@
 //! Provides a testing environment for the `BeaconChain`, `Attester` and `BlockProposer` objects.
 //!
-//! This environment bypasses networking client runtimes and connects the `Attester` and `Proposer`
+//! This environment bypasses networking and client run-times and connects the `Attester` and `Proposer`
 //! directly to the `BeaconChain` via an `Arc`.
 //!
 //! The `BeaconChainHarness` contains a single `BeaconChain` instance and many `ValidatorHarness`
