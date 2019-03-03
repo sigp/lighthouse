@@ -1,27 +1,16 @@
 use attester::Signer as AttesterSigner;
 use block_proposer::Signer as BlockProposerSigner;
-use std::sync::RwLock;
 use types::{Keypair, Signature};
 
 /// A test-only struct used to perform signing for a proposer or attester.
 pub struct LocalSigner {
     keypair: Keypair,
-    should_sign: RwLock<bool>,
 }
 
 impl LocalSigner {
     /// Produce a new TestSigner with signing enabled by default.
     pub fn new(keypair: Keypair) -> Self {
-        Self {
-            keypair,
-            should_sign: RwLock::new(true),
-        }
-    }
-
-    /// If set to `false`, the service will refuse to sign all messages. Otherwise, all messages
-    /// will be signed.
-    pub fn enable_signing(&self, enabled: bool) {
-        *self.should_sign.write().unwrap() = enabled;
+        Self { keypair }
     }
 
     /// Sign some message.

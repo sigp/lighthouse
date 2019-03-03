@@ -10,10 +10,7 @@ use fork_choice::BitwiseLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
-use ssz::TreeHash;
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::prelude::*;
 use std::iter::FromIterator;
 use std::sync::Arc;
 use types::*;
@@ -290,13 +287,5 @@ impl BeaconChainHarness {
     /// Dump all blocks and states from the canonical beacon chain.
     pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, BeaconChainError> {
         self.beacon_chain.chain_dump()
-    }
-
-    /// Write the output of `chain_dump` to a JSON file.
-    pub fn dump_to_file(&self, filename: String, chain_dump: &[CheckPoint]) {
-        let json = serde_json::to_string(chain_dump).unwrap();
-        let mut file = File::create(filename).unwrap();
-        file.write_all(json.as_bytes())
-            .expect("Failed writing dump to file.");
     }
 }
