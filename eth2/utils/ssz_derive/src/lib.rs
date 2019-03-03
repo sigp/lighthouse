@@ -147,12 +147,12 @@ pub fn ssz_tree_hash_derive(input: TokenStream) -> TokenStream {
     let output = quote! {
         impl ssz::TreeHash for #name {
             fn hash_tree_root_internal(&self) -> Vec<u8> {
-                let mut result: Vec<u8> = vec![];
+                let mut list: Vec<Vec<u8>> = Vec::new();
                 #(
-                    result.append(&mut self.#field_idents.hash_tree_root_internal());
+                    list.push(self.#field_idents.hash_tree_root_internal());
                 )*
 
-                ssz::hash(&result)
+                ssz::merkle_hash(&mut list)
             }
         }
     };
