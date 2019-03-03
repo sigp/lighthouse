@@ -23,18 +23,18 @@ pub use state_check::StateCheck;
 ///
 /// Typical workflow is:
 ///
-/// 1. Instantiate the `Manifest` from YAML: `let manifest = Manifest::from_yaml(&my_yaml);`
-/// 2. Execute the manifest: `let result = manifest.execute();`
-/// 3. Test the results against the manifest: `manifest.assert_result_valid(result);`
+/// 1. Instantiate the `TestCase` from YAML: `let test_case = TestCase::from_yaml(&my_yaml);`
+/// 2. Execute the test_case: `let result = test_case.execute();`
+/// 3. Test the results against the test_case: `test_case.assert_result_valid(result);`
 #[derive(Debug)]
-pub struct Manifest {
+pub struct TestCase {
     /// Defines the execution.
     pub config: Config,
     /// Defines tests to run against the execution result.
     pub results: Results,
 }
 
-/// The result of executing a `Manifest`.
+/// The result of executing a `TestCase`.
 ///
 pub struct ExecutionResult {
     /// The canonical beacon chain generated from the execution.
@@ -43,8 +43,8 @@ pub struct ExecutionResult {
     pub spec: ChainSpec,
 }
 
-impl Manifest {
-    /// Load the manifest from a YAML document.
+impl TestCase {
+    /// Load the test case from a YAML document.
     pub fn from_yaml(test_case: &Yaml) -> Self {
         Self {
             results: Results::from_yaml(&test_case["results"]),
@@ -65,7 +65,7 @@ impl Manifest {
         spec
     }
 
-    /// Executes the manifest, returning an `ExecutionResult`.
+    /// Executes the test case, returning an `ExecutionResult`.
     pub fn execute(&self) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;
