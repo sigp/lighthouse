@@ -1,10 +1,6 @@
 use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
-use crate::{
-    validator::StatusFlags, validator_registry::get_active_validator_indices, AttestationData,
-    Bitfield, ChainSpec, Crosslink, Deposit, DepositData, DepositInput, Epoch, Eth1Data,
-    Eth1DataVote, Fork, Hash256, PendingAttestation, PublicKey, Signature, Slot, Validator,
-};
+use crate::{validator::StatusFlags, validator_registry::get_active_validator_indices, *};
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
 use log::{debug, error, trace};
@@ -1142,6 +1138,108 @@ impl BeaconState {
         std::cmp::min(
             self.validator_balances[validator_index],
             spec.max_deposit_amount,
+        )
+    }
+
+    pub fn verify_bitfield(&self, bitfield: &Bitfield, committee_size: usize) -> bool {
+        if bitfield.num_bytes() != ((committee_size + 7) / 8) {
+            return false;
+        }
+
+        for i in committee_size..(bitfield.num_bytes() * 8) {
+            match bitfield.get(i) {
+                Ok(bit) => {
+                    if bit {
+                        return false;
+                    }
+                }
+                Err(_) => unreachable!(),
+            }
+        }
+
+        true
+    }
+
+    pub fn verify_slashable_attestation(
+        &self,
+        slashable_attestation: &SlashableAttestation,
+        spec: &ChainSpec,
+    ) -> bool {
+        if slashable_attestation.custody_bitfield.num_set_bits() > 0 {
+            return false;
+        }
+
+        if slashable_attestation.validator_indices.is_empty() {
+            return false;
+        }
+
+        for i in 0..(slashable_attestation.validator_indices.len() - 1) {
+            if slashable_attestation.validator_indices[i]
+                >= slashable_attestation.validator_indices[i + 1]
+            {
+                return false;
+            }
+        }
+
+        if !self.verify_bitfield(
+            &slashable_attestation.custody_bitfield,
+            slashable_attestation.validator_indices.len(),
+        ) {
+            return false;
+        }
+
+        if slashable_attestation.validator_indices.len()
+            > spec.max_indices_per_slashable_vote as usize
+        {
+            return false;
+        }
+
+        let mut aggregate_pubs = vec![AggregatePublicKey::new(); 2];
+        let mut message_exists = vec![false; 2];
+
+        for (i, v) in slashable_attestation.validator_indices.iter().enumerate() {
+            let custody_bit = match slashable_attestation.custody_bitfield.get(i) {
+                Ok(bit) => bit,
+                Err(_) => unreachable!(),
+            };
+
+            message_exists[custody_bit as usize] = true;
+
+            match self.validator_registry.get(*v as usize) {
+                Some(validator) => {
+                    aggregate_pubs[custody_bit as usize].add(&validator.pubkey);
+                }
+                None => return false,
+            };
+        }
+
+        let message_0 = AttestationDataAndCustodyBit {
+            data: slashable_attestation.data.clone(),
+            custody_bit: false,
+        }
+        .hash_tree_root();
+        let message_1 = AttestationDataAndCustodyBit {
+            data: slashable_attestation.data.clone(),
+            custody_bit: true,
+        }
+        .hash_tree_root();
+
+        let mut messages = vec![];
+        let mut keys = vec![];
+
+        if message_exists[0] {
+            messages.push(&message_0[..]);
+            keys.push(&aggregate_pubs[0]);
+        }
+        if message_exists[1] {
+            messages.push(&message_1[..]);
+            keys.push(&aggregate_pubs[1]);
+        }
+
+        slashable_attestation.aggregate_signature.verify_multiple(
+            &messages[..],
+            spec.domain_attestation,
+            &keys[..],
         )
     }
 
