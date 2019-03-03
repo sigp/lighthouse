@@ -3,15 +3,24 @@ use log::info;
 use types::*;
 use yaml_rust::Yaml;
 
+/// Tests to be conducted upon a `BeaconState` object generated during the execution of a
+/// `Manifest`.
 #[derive(Debug)]
 pub struct StateCheck {
+    /// Checked against `beacon_state.slot`.
     pub slot: Slot,
+    /// Checked against `beacon_state.validator_registry.len()`.
     pub num_validators: Option<usize>,
+    /// A list of validator indices which have been penalized. Must be in ascending order.
     pub slashed_validators: Option<Vec<u64>>,
+    /// A list of validator indices which have been exited. Must be in ascending order.
     pub exited_validators: Option<Vec<u64>>,
 }
 
 impl StateCheck {
+    /// Load from a YAML document.
+    ///
+    /// Expects the `state_check` section of the YAML document.
     pub fn from_yaml(yaml: &Yaml) -> Self {
         Self {
             slot: Slot::from(as_u64(&yaml, "slot").expect("State must specify slot")),
@@ -21,6 +30,11 @@ impl StateCheck {
         }
     }
 
+    /// Performs all checks against a `BeaconState`
+    ///
+    /// # Panics
+    ///
+    /// Panics with an error message if any test fails.
     pub fn assert_valid(&self, state: &BeaconState, spec: &ChainSpec) {
         let state_epoch = state.slot.epoch(spec.epoch_length);
 

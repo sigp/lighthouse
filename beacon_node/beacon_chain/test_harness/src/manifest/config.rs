@@ -7,18 +7,29 @@ pub type DepositTuple = (u64, Deposit, Keypair);
 pub type ProposerSlashingTuple = (u64, u64);
 pub type AttesterSlashingTuple = (u64, Vec<u64>);
 
+/// Defines the execution of a `BeaconStateHarness` across a series of slots.
 #[derive(Debug)]
 pub struct Config {
+    /// Initial validators.
     pub deposits_for_chain_start: usize,
+    /// Number of slots in an epoch.
     pub epoch_length: Option<u64>,
+    /// Number of slots to build before ending execution.
     pub num_slots: u64,
+    /// Number of slots that should be skipped due to inactive validator.
     pub skip_slots: Option<Vec<u64>>,
+    /// Deposits to be included during execution.
     pub deposits: Option<Vec<DepositTuple>>,
+    /// Proposer slashings to be included during execution.
     pub proposer_slashings: Option<Vec<ProposerSlashingTuple>>,
+    /// Attester slashings to be including during execution.
     pub attester_slashings: Option<Vec<AttesterSlashingTuple>>,
 }
 
 impl Config {
+    /// Load from a YAML document.
+    ///
+    /// Expects to receive the `config` section of the document.
     pub fn from_yaml(yaml: &Yaml) -> Self {
         Self {
             deposits_for_chain_start: as_usize(&yaml, "deposits_for_chain_start")
@@ -33,6 +44,7 @@ impl Config {
     }
 }
 
+/// Parse the `attester_slashings` section of the YAML document.
 fn parse_attester_slashings(yaml: &Yaml) -> Option<Vec<AttesterSlashingTuple>> {
     let mut slashings = vec![];
 
@@ -47,6 +59,7 @@ fn parse_attester_slashings(yaml: &Yaml) -> Option<Vec<AttesterSlashingTuple>> {
     Some(slashings)
 }
 
+/// Parse the `proposer_slashings` section of the YAML document.
 fn parse_proposer_slashings(yaml: &Yaml) -> Option<Vec<ProposerSlashingTuple>> {
     let mut slashings = vec![];
 
@@ -61,6 +74,7 @@ fn parse_proposer_slashings(yaml: &Yaml) -> Option<Vec<ProposerSlashingTuple>> {
     Some(slashings)
 }
 
+/// Parse the `deposits` section of the YAML document.
 fn parse_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
     let mut deposits = vec![];
 

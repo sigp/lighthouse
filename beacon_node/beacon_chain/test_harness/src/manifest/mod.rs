@@ -1,5 +1,6 @@
-use self::config::Config;
-use self::results::Results;
+//! Defines execution and testing specs for a `BeaconChainHarness` instance. Supports loading from
+//! a YAML file.
+
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
 use log::{info, warn};
@@ -14,18 +15,36 @@ mod results;
 mod state_check;
 mod yaml_helpers;
 
+pub use config::Config;
+pub use results::Results;
+pub use state_check::StateCheck;
+
+/// Defines the execution and testing of a `BeaconChainHarness` instantiation.
+///
+/// Typical workflow is:
+///
+/// 1. Instantiate the `Manifest` from YAML: `let manifest = Manifest::from_yaml(&my_yaml);`
+/// 2. Execute the manifest: `let result = manifest.execute();`
+/// 3. Test the results against the manifest: `manifest.assert_result_valid(result);`
 #[derive(Debug)]
 pub struct Manifest {
-    pub results: Results,
+    /// Defines the execution.
     pub config: Config,
+    /// Defines tests to run against the execution result.
+    pub results: Results,
 }
 
+/// The result of executing a `Manifest`.
+///
 pub struct ExecutionResult {
+    /// The canonical beacon chain generated from the execution.
     pub chain: Vec<CheckPoint>,
+    /// The spec used for execution.
     pub spec: ChainSpec,
 }
 
 impl Manifest {
+    /// Load the manifest from a YAML document.
     pub fn from_yaml(test_case: &Yaml) -> Self {
         Self {
             results: Results::from_yaml(&test_case["results"]),
@@ -33,6 +52,9 @@ impl Manifest {
         }
     }
 
+    /// Return a `ChainSpec::foundation()`.
+    ///
+    /// If specified in `config`, returns it with a modified `epoch_length`.
     fn spec(&self) -> ChainSpec {
         let mut spec = ChainSpec::foundation();
 
@@ -43,6 +65,7 @@ impl Manifest {
         spec
     }
 
+    /// Executes the manifest, returning an `ExecutionResult`.
     pub fn execute(&self) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;
@@ -123,6 +146,11 @@ impl Manifest {
         }
     }
 
+    /// Checks that the `ExecutionResult` is consistent with the specifications in `self.results`.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a message if any result does not match exepectations.
     pub fn assert_result_valid(&self, execution_result: ExecutionResult) {
         info!("Verifying test results...");
         let spec = &execution_result.spec;
@@ -157,6 +185,9 @@ impl Manifest {
     }
 }
 
+/// Builds an `AttesterSlashing` for some `validator_indices`.
+///
+/// Signs the message using a `BeaconChainHarness`.
 fn build_double_vote_attester_slashing(
     harness: &BeaconChainHarness,
     validator_indices: &[u64],
@@ -170,6 +201,9 @@ fn build_double_vote_attester_slashing(
     AttesterSlashingBuilder::double_vote(validator_indices, signer, &harness.spec)
 }
 
+/// Builds an `ProposerSlashing` for some `validator_index`.
+///
+/// Signs the message using a `BeaconChainHarness`.
 fn build_proposer_slashing(harness: &BeaconChainHarness, validator_index: u64) -> ProposerSlashing {
     let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: u64| {
         harness

@@ -37,6 +37,18 @@ fn main() {
         };
 
         for doc in &docs {
+            // For each `test_cases` YAML in the document, build a `Manifest`, execute it and
+            // assert that the execution result matches the manifest description.
+            //
+            // In effect, for each `test_case` a new `BeaconChainHarness` is created from genesis
+            // and a new `BeaconChain` is built as per the manifest.
+            //
+            // After the `BeaconChain` has been built out as per the manifest, a dump of all blocks
+            // and states in the chain is obtained and checked against the `results` specified in
+            // the `test_case`.
+            //
+            // If any of the expectations in the results are not met, the process
+            // panics with a message.
             for test_case in doc["test_cases"].as_vec().unwrap() {
                 let manifest = Manifest::from_yaml(test_case);
                 manifest.assert_result_valid(manifest.execute())
