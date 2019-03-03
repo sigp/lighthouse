@@ -1,7 +1,7 @@
-title: Sample Ethereum Serenity State Transition Tests
-summary: Testing full state transition block processing
-test_suite: prysm
-fork: sapphire
+title: Validator Registry Tests
+summary: Tests deposit and slashing effects on validator registry.
+test_suite: validator_registry
+fork: tchaikovsky
 version: 1.0
 test_cases:
   - config:
@@ -38,7 +38,6 @@ test_cases:
       states:
         - slot: 63
           num_validators: 1003
-          # slashed_validators: [11, 12, 13, 14, 42]
-          slashed_validators: [13, 42] # This line is incorrect, our implementation isn't processing attester_slashings.
+          slashed_validators: [11, 12, 13, 14, 42]
           exited_validators: []
 
