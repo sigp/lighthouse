@@ -4,7 +4,7 @@ use types::*;
 use yaml_rust::Yaml;
 
 /// Tests to be conducted upon a `BeaconState` object generated during the execution of a
-/// `Manifest`.
+/// `TestCase`.
 #[derive(Debug)]
 pub struct StateCheck {
     /// Checked against `beacon_state.slot`.

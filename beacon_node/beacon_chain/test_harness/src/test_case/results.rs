@@ -3,7 +3,7 @@ use super::yaml_helpers::as_usize;
 use yaml_rust::Yaml;
 
 /// A series of tests to be carried out upon an `ExecutionResult`, returned from executing a
-/// `Manifest`.
+/// `TestCase`.
 #[derive(Debug)]
 pub struct Results {
     pub num_skipped_slots: Option<usize>,

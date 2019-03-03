@@ -26,7 +26,7 @@
 //! ```
 
 mod beacon_chain_harness;
-pub mod manifest;
+pub mod test_case;
 mod validator_harness;
 
 pub use self::beacon_chain_harness::BeaconChainHarness;
