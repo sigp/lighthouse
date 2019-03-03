@@ -419,8 +419,7 @@ impl BeaconState {
             committees_per_epoch
         );
 
-        let active_validator_indices: Vec<usize> =
-            active_validator_indices.iter().cloned().collect();
+        let active_validator_indices: Vec<usize> = active_validator_indices.to_vec();
 
         let shuffled_active_validator_indices = shuffle_list(
             active_validator_indices,

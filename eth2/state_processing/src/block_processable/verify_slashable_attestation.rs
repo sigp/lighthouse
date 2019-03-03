@@ -1,5 +1,4 @@
 use super::Error;
-use log::error;
 use types::*;
 
 macro_rules! ensure {
@@ -27,17 +26,14 @@ pub fn verify_slashable_attestation(
             | slashable_attestation_1.is_surround_vote(slashable_attestation_2, spec),
         Error::BadAttesterSlashing
     );
-    error!("this a");
     ensure!(
         state.verify_slashable_attestation(&slashable_attestation_1, spec),
         Error::BadAttesterSlashing
     );
-    error!("this b");
     ensure!(
         state.verify_slashable_attestation(&slashable_attestation_2, spec),
         Error::BadAttesterSlashing
     );
-    error!("this c");
 
     let mut slashable_indices = vec![];
     for i in &slashable_attestation_1.validator_indices {
@@ -53,7 +49,7 @@ pub fn verify_slashable_attestation(
         }
     }
 
-    ensure!(slashable_indices.len() >= 1, Error::BadAttesterSlashing);
+    ensure!(!slashable_indices.is_empty(), Error::BadAttesterSlashing);
 
     for i in slashable_indices {
         state.penalize_validator(*i as usize, spec)?;

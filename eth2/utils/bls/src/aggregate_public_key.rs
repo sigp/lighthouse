@@ -5,7 +5,7 @@ use bls_aggregates::AggregatePublicKey as RawAggregatePublicKey;
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AggregatePublicKey(RawAggregatePublicKey);
 
 impl AggregatePublicKey {

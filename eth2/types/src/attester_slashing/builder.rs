@@ -16,8 +16,8 @@ impl AttesterSlashingBuilder {
         let shard = 0;
         let justified_epoch = Epoch::new(0);
         let epoch = Epoch::new(0);
-        let hash_1 = Hash256::from("1".as_bytes());
-        let hash_2 = Hash256::from("2".as_bytes());
+        let hash_1 = Hash256::from(&[1][..]);
+        let hash_2 = Hash256::from(&[2][..]);
 
         let mut slashable_attestation_1 = SlashableAttestation {
             validator_indices: validator_indices.to_vec(),
