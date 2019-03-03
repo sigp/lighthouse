@@ -383,11 +383,7 @@ fn validate_attestation_signature_optional(
         );
         let mut group_public_key = AggregatePublicKey::new();
         for participant in participants {
-            group_public_key.add(
-                state.validator_registry[participant as usize]
-                    .pubkey
-                    .as_raw(),
-            )
+            group_public_key.add(&state.validator_registry[participant as usize].pubkey)
         }
         ensure!(
             attestation.verify_signature(
