@@ -41,6 +41,4 @@ fn it_can_produce_past_first_epoch_boundary() {
     let dump = harness.chain_dump().expect("Chain dump failed.");
 
     assert_eq!(dump.len() as u64, blocks + 1); // + 1 for genesis block.
-
-    harness.dump_to_file("/tmp/chaindump.json".to_string(), &dump);
 }
