@@ -22,9 +22,20 @@ fn main() {
                 .help("YAML file test_case.")
                 .required(true),
         )
+        .arg(
+            Arg::with_name("log")
+                .long("log-level")
+                .value_name("LOG_LEVEL")
+                .help("Logging level.")
+                .possible_values(&["error", "warn", "info", "debug", "trace"])
+                .default_value("debug")
+                .required(true),
+        )
         .get_matches();
 
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
+    if let Some(log_level) = matches.value_of("log") {
+        Builder::from_env(Env::default().default_filter_or(log_level)).init();
+    }
 
     if let Some(yaml_file) = matches.value_of("yaml") {
         let docs = {
