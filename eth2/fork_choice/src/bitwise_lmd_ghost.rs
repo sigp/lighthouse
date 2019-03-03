@@ -24,22 +24,22 @@ use types::{
 
 /// Compute the base-2 logarithm of an integer, floored (rounded down)
 #[inline]
-fn log2_int(x: u32) -> u32 {
+fn log2_int(x: u64) -> u32 {
     if x == 0 {
         return 0;
     }
-    31 - x.leading_zeros()
+    63 - x.leading_zeros()
 }
 
-fn power_of_2_below(x: u32) -> u32 {
-    2u32.pow(log2_int(x))
+fn power_of_2_below(x: u64) -> u64 {
+    2u64.pow(log2_int(x))
 }
 
 /// Stores the necessary data structures to run the optimised bitwise lmd ghost algorithm.
 pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
-    cache: HashMap<CacheKey<u32>, Hash256>,
+    cache: HashMap<CacheKey<u64>, Hash256>,
     /// Log lookup table for blocks to their ancestors.
     //TODO: Verify we only want/need a size 16 log lookup
     ancestors: Vec<HashMap<Hash256, Hash256>>,
@@ -141,7 +141,7 @@ where
             }
         }
         // check if the result is stored in our cache
-        let cache_key = CacheKey::new(&block_hash, target_height.as_u32());
+        let cache_key = CacheKey::new(&block_hash, target_height.as_u64());
         if let Some(ancestor) = self.cache.get(&cache_key) {
             return Some(*ancestor);
         }
@@ -149,7 +149,7 @@ where
         // not in the cache recursively search for ancestors using a log-lookup
         if let Some(ancestor) = {
             let ancestor_lookup = self.ancestors
-                [log2_int((block_height - target_height - 1u64).as_u32()) as usize]
+                [log2_int((block_height - target_height - 1u64).as_u64()) as usize]
                 .get(&block_hash)
                 //TODO: Panic if we can't lookup and fork choice fails
                 .expect("All blocks should be added to the ancestor log lookup table");
@@ -374,7 +374,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
             // logarithmic lookup blocks to see if there are obvious winners, if so,
             // progress to the next iteration.
             let mut step =
-                power_of_2_below(self.max_known_height.saturating_sub(block_height).as_u32()) / 2;
+                power_of_2_below(self.max_known_height.saturating_sub(block_height).as_u64()) / 2;
             while step > 0 {
                 trace!("Current Step: {}", step);
                 if let Some(clear_winner) = self.get_clear_winner(
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     pub fn test_power_of_2_below_large() {
-        let pow: u32 = 1 << 24;
+        let pow: u64 = 1 << 24;
         for x in (pow - 20)..(pow + 20) {
             assert!(power_of_2_below(x) <= x, "{}", x);
         }
