@@ -1,9 +1,12 @@
+use self::verify_slashable_attestation::verify_slashable_attestation;
 use crate::SlotProcessingError;
 use hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
 use types::*;
+
+mod verify_slashable_attestation;
 
 const PHASE_0_CUSTODY_BIT: bool = false;
 
@@ -23,7 +26,9 @@ pub enum Error {
     BadRandaoSignature,
     MaxProposerSlashingsExceeded,
     BadProposerSlashing,
+    MaxAttesterSlashingsExceed,
     MaxAttestationsExceeded,
+    BadAttesterSlashing,
     InvalidAttestation(AttestationValidationError),
     NoBlockRoot,
     MaxDepositsExceeded,
@@ -82,7 +87,7 @@ impl BlockProcessable for BeaconState {
 }
 
 fn per_block_processing_signature_optional(
-    state: &mut BeaconState,
+    mut state: &mut BeaconState,
     block: &BeaconBlock,
     verify_block_signature: bool,
     spec: &ChainSpec,
@@ -203,6 +208,17 @@ fn per_block_processing_signature_optional(
             Error::BadProposerSlashing
         );
         state.penalize_validator(proposer_slashing.proposer_index as usize, spec)?;
+    }
+
+    /*
+     * Attester slashings
+     */
+    ensure!(
+        block.body.attester_slashings.len() as u64 <= spec.max_attester_slashings,
+        Error::MaxAttesterSlashingsExceed
+    );
+    for attester_slashing in &block.body.attester_slashings {
+        verify_slashable_attestation(&mut state, &attester_slashing, spec)?;
     }
 
     /*
