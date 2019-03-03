@@ -13,7 +13,6 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssi
 pub struct SlotHeight(u64);
 
 impl_common!(SlotHeight);
-impl_into_u32!(SlotHeight); // SlotHeight can be converted to u32
 
 impl SlotHeight {
     pub fn new(slot: u64) -> SlotHeight {
