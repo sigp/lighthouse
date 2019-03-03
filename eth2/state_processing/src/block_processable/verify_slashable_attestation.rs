@@ -9,6 +9,8 @@ macro_rules! ensure {
     };
 }
 
+/// Returns `Ok(())` if some `AttesterSlashing` is valid to be included in some `BeaconState`,
+/// otherwise returns an `Err`.
 pub fn verify_slashable_attestation(
     state: &mut BeaconState,
     attester_slashing: &AttesterSlashing,
