@@ -68,12 +68,17 @@ fn parse_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
         let keypair = Keypair::random();
         let proof_of_possession = create_proof_of_possession(&keypair);
 
-        let slot = as_u64(deposit, "slot").expect("Incomplete deposit");
+        let slot = as_u64(deposit, "slot").expect("Incomplete deposit (slot)");
+        let amount =
+            as_u64(deposit, "amount").expect("Incomplete deposit (amount)") * 1_000_000_000;
+
         let deposit = Deposit {
+            // Note: `branch` and `index` will need to be updated once the spec defines their
+            // validity.
             branch: vec![],
-            index: as_u64(deposit, "merkle_index").unwrap(),
+            index: 0,
             deposit_data: DepositData {
-                amount: 32_000_000_000,
+                amount,
                 timestamp: 1,
                 deposit_input: DepositInput {
                     pubkey: keypair.pk.clone(),
