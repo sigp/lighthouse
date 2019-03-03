@@ -10,27 +10,26 @@ test_cases:
       num_slots: 64
       skip_slots: [2, 3]
       deposits:
+          # At slot 1, create a new validator deposit of 32 ETH.
         - slot: 1
           amount: 32
-          merkle_index: 0
+          # Trigger more deposits...
         - slot: 3
           amount: 32
-          merkle_index: 1
         - slot: 5
           amount: 32
-          merkle_index: 2
       proposer_slashings:
           # At slot 2, trigger a proposer slashing for validator #42.
         - slot: 2
           validator_index: 42
-          # At slot 8, trigger a proposer slashing for validator #13.
+          # Trigger another slashing...
         - slot: 8
           validator_index: 13
       attester_slashings:
           # At slot 2, trigger an attester slashing for validators #11 and #12.
         - slot: 2
           validator_indices: [11, 12]
-          # At slot 5, trigger an attester slashing for validator #14.
+          # Trigger another slashing...
         - slot: 5
           validator_indices: [14]
     results:
