@@ -42,7 +42,7 @@ impl BeaconBlock {
     }
 
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
+        Hash256::from_slice(&self.hash_tree_root()[..])
     }
 
     pub fn proposal_root(&self, spec: &ChainSpec) -> Hash256 {
@@ -57,7 +57,7 @@ impl BeaconBlock {
             shard: spec.beacon_chain_shard_number,
             block_root: block_without_signature_root,
         };
-        Hash256::from(&proposal.hash_tree_root()[..])
+        Hash256::from_slice(&proposal.hash_tree_root()[..])
     }
 }
 

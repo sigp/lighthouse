@@ -210,7 +210,7 @@ where
 
             trace!("Child vote length: {}", votes.len());
             for (candidate, votes) in votes.iter() {
-                let candidate_bit: BitVec = BitVec::from_bytes(&candidate);
+                let candidate_bit: BitVec = BitVec::from_bytes(candidate.as_bytes());
 
                 // if the bitmasks don't match, exclude candidate
                 if !bitmask.iter().eq(candidate_bit.iter().take(bit)) {
