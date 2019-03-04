@@ -7,6 +7,7 @@ pub type ValidatorIndex = u64;
 pub type ValidatorIndices = Vec<u64>;
 
 pub type DepositTuple = (SlotHeight, Deposit, Keypair);
+pub type ExitTuple = (SlotHeight, ValidatorIndex);
 pub type ProposerSlashingTuple = (SlotHeight, ValidatorIndex);
 pub type AttesterSlashingTuple = (SlotHeight, ValidatorIndices);
 
@@ -27,6 +28,8 @@ pub struct Config {
     pub proposer_slashings: Option<Vec<ProposerSlashingTuple>>,
     /// Attester slashings to be including during execution.
     pub attester_slashings: Option<Vec<AttesterSlashingTuple>>,
+    /// Exits to be including during execution.
+    pub exits: Option<Vec<ExitTuple>>,
 }
 
 impl Config {
@@ -43,8 +46,24 @@ impl Config {
             deposits: parse_deposits(&yaml),
             proposer_slashings: parse_proposer_slashings(&yaml),
             attester_slashings: parse_attester_slashings(&yaml),
+            exits: parse_exits(&yaml),
         }
     }
+}
+
+/// Parse the `attester_slashings` section of the YAML document.
+fn parse_exits(yaml: &Yaml) -> Option<Vec<ExitTuple>> {
+    let mut tuples = vec![];
+
+    for exit in yaml["exits"].as_vec()? {
+        let slot = as_u64(exit, "slot").expect("Incomplete exit (slot)");
+        let validator_index =
+            as_u64(exit, "validator_index").expect("Incomplete exit (validator_index)");
+
+        tuples.push((SlotHeight::from(slot), validator_index));
+    }
+
+    Some(tuples)
 }
 
 /// Parse the `attester_slashings` section of the YAML document.
