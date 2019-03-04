@@ -4,18 +4,21 @@ use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
+/// A block of the `BeaconChain`.
+///
+/// Spec v0.4.0
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
 pub struct BeaconBlock {
     pub slot: Slot,
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
-    pub signature: Signature,
     pub body: BeaconBlockBody,
+    pub signature: Signature,
 }
 
 impl BeaconBlock {
@@ -39,25 +42,6 @@ impl BeaconBlock {
                 exits: vec![],
             },
         }
-    }
-
-    pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
-    }
-
-    pub fn proposal_root(&self, spec: &ChainSpec) -> Hash256 {
-        let block_without_signature_root = {
-            let mut block_without_signature = self.clone();
-            block_without_signature.signature = spec.empty_signature.clone();
-            block_without_signature.canonical_root()
-        };
-
-        let proposal = ProposalSignedData {
-            slot: self.slot,
-            shard: spec.beacon_chain_shard_number,
-            block_root: block_without_signature_root,
-        };
-        Hash256::from(&proposal.hash_tree_root()[..])
     }
 }
 

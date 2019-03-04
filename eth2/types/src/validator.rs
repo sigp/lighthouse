@@ -2,55 +2,21 @@ use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKey};
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-const STATUS_FLAG_INITIATED_EXIT: u8 = 1;
-const STATUS_FLAG_WITHDRAWABLE: u8 = 2;
-
-#[derive(Debug, PartialEq, Clone, Copy, Serialize)]
-pub enum StatusFlags {
-    InitiatedExit,
-    Withdrawable,
-}
-
-struct StatusFlagsDecodeError;
-
-impl From<StatusFlagsDecodeError> for DecodeError {
-    fn from(_: StatusFlagsDecodeError) -> DecodeError {
-        DecodeError::Invalid
-    }
-}
-
-/// Handles the serialization logic for the `status_flags` field of the `Validator`.
-fn status_flag_to_byte(flag: Option<StatusFlags>) -> u8 {
-    if let Some(flag) = flag {
-        match flag {
-            StatusFlags::InitiatedExit => STATUS_FLAG_INITIATED_EXIT,
-            StatusFlags::Withdrawable => STATUS_FLAG_WITHDRAWABLE,
-        }
-    } else {
-        0
-    }
-}
-
-/// Handles the deserialization logic for the `status_flags` field of the `Validator`.
-fn status_flag_from_byte(flag: u8) -> Result<Option<StatusFlags>, StatusFlagsDecodeError> {
-    match flag {
-        0 => Ok(None),
-        1 => Ok(Some(StatusFlags::InitiatedExit)),
-        2 => Ok(Some(StatusFlags::Withdrawable)),
-        _ => Err(StatusFlagsDecodeError),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// Information about a `BeaconChain` validator.
+///
+/// Spec v0.4.0
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TestRandom)]
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub activation_epoch: Epoch,
     pub exit_epoch: Epoch,
     pub withdrawal_epoch: Epoch,
-    pub penalized_epoch: Epoch,
-    pub status_flags: Option<StatusFlags>,
+    pub initiated_exit: bool,
+    pub slashed: bool,
 }
 
 impl Validator {
@@ -64,9 +30,9 @@ impl Validator {
         self.exit_epoch <= epoch
     }
 
-    /// Returns `true` if the validator is considered penalized at some epoch.
-    pub fn is_penalized_at(&self, epoch: Epoch) -> bool {
-        self.penalized_epoch <= epoch
+    /// Returns `true` if the validator is able to withdraw at some epoch.
+    pub fn is_withdrawable_at(&self, epoch: Epoch) -> bool {
+        self.withdrawal_epoch <= epoch
     }
 }
 
@@ -81,82 +47,6 @@ impl Default for Validator {
             withdrawal_epoch: Epoch::from(std::u64::MAX),
             penalized_epoch: Epoch::from(std::u64::MAX),
             status_flags: None,
-        }
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for StatusFlags {
-    fn random_for_test(rng: &mut T) -> Self {
-        let options = vec![StatusFlags::InitiatedExit, StatusFlags::Withdrawable];
-        options[(rng.next_u32() as usize) % options.len()]
-    }
-}
-
-impl Encodable for Validator {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.pubkey);
-        s.append(&self.withdrawal_credentials);
-        s.append(&self.activation_epoch);
-        s.append(&self.exit_epoch);
-        s.append(&self.withdrawal_epoch);
-        s.append(&self.penalized_epoch);
-        s.append(&status_flag_to_byte(self.status_flags));
-    }
-}
-
-impl Decodable for Validator {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (pubkey, i) = <_>::ssz_decode(bytes, i)?;
-        let (withdrawal_credentials, i) = <_>::ssz_decode(bytes, i)?;
-        let (activation_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (exit_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (withdrawal_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (penalized_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (status_flags_byte, i): (u8, usize) = <_>::ssz_decode(bytes, i)?;
-
-        let status_flags = status_flag_from_byte(status_flags_byte)?;
-
-        Ok((
-            Self {
-                pubkey,
-                withdrawal_credentials,
-                activation_epoch,
-                exit_epoch,
-                withdrawal_epoch,
-                penalized_epoch,
-                status_flags,
-            },
-            i,
-        ))
-    }
-}
-
-impl TreeHash for Validator {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.pubkey.hash_tree_root_internal());
-        result.append(&mut self.withdrawal_credentials.hash_tree_root_internal());
-        result.append(&mut self.activation_epoch.hash_tree_root_internal());
-        result.append(&mut self.exit_epoch.hash_tree_root_internal());
-        result.append(&mut self.withdrawal_epoch.hash_tree_root_internal());
-        result.append(&mut self.penalized_epoch.hash_tree_root_internal());
-        result.append(
-            &mut u64::from(status_flag_to_byte(self.status_flags)).hash_tree_root_internal(),
-        );
-        hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Validator {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            pubkey: <_>::random_for_test(rng),
-            withdrawal_credentials: <_>::random_for_test(rng),
-            activation_epoch: <_>::random_for_test(rng),
-            exit_epoch: <_>::random_for_test(rng),
-            withdrawal_epoch: <_>::random_for_test(rng),
-            penalized_epoch: <_>::random_for_test(rng),
-            status_flags: Some(<_>::random_for_test(rng)),
         }
     }
 }

@@ -8,6 +8,9 @@ mod builder;
 
 pub use builder::AttesterSlashingBuilder;
 
+/// Two conflicting attestations.
+///
+/// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct AttesterSlashing {
     pub slashable_attestation_1: SlashableAttestation,

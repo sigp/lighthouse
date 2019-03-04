@@ -4,6 +4,9 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
+/// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
+///
+/// Spec v0.4.0
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Fork {
     pub previous_version: u64,

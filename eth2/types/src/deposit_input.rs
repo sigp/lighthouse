@@ -6,6 +6,9 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
+/// The data supplied by the user to the deposit contract.
+///
+/// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct DepositInput {
     pub pubkey: PublicKey,
