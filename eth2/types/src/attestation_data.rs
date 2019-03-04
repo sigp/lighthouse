@@ -35,7 +35,7 @@ impl Eq for AttestationData {}
 
 impl AttestationData {
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
+        Hash256::from_slice(&self.hash_tree_root()[..])
     }
 
     pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {

@@ -134,9 +134,10 @@ fn per_block_processing_signature_optional(
     let new_mix = {
         let mut mix = state.latest_randao_mixes
             [state.slot.as_usize() % spec.latest_randao_mixes_length]
+            .as_bytes()
             .to_vec();
         mix.append(&mut ssz_encode(&block.randao_reveal));
-        Hash256::from(&hash(&mix)[..])
+        Hash256::from_slice(&hash(&mix)[..])
     };
 
     state.latest_randao_mixes[state.slot.as_usize() % spec.latest_randao_mixes_length] = new_mix;

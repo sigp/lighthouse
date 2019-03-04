@@ -25,13 +25,13 @@ impl ProposerSlashingBuilder {
         let proposal_data_1 = ProposalSignedData {
             slot,
             shard,
-            block_root: Hash256::from(&[1][..]),
+            block_root: Hash256::from_low_u64_le(1),
         };
 
         let proposal_data_2 = ProposalSignedData {
             slot,
             shard,
-            block_root: Hash256::from(&[2][..]),
+            block_root: Hash256::from_low_u64_le(2),
         };
 
         let proposal_signature_1 = {

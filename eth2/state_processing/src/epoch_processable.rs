@@ -626,7 +626,7 @@ impl EpochProcessable for BeaconState {
 }
 
 fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from(&input.hash_tree_root()[..])
+    Hash256::from_slice(&input.hash_tree_root()[..])
 }
 
 fn winning_root(
