@@ -1,19 +1,14 @@
+use self::verify_slashable_attestation::verify_slashable_attestation;
 use crate::SlotProcessingError;
 use hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
-use types::{
-    AggregatePublicKey, Attestation, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
-    Crosslink, Epoch, Exit, Fork, Hash256, PendingAttestation, PublicKey, RelativeEpoch, Signature,
-};
+use types::*;
 
-// TODO: define elsehwere.
-const DOMAIN_PROPOSAL: u64 = 2;
-const DOMAIN_EXIT: u64 = 3;
-const DOMAIN_RANDAO: u64 = 4;
+mod verify_slashable_attestation;
+
 const PHASE_0_CUSTODY_BIT: bool = false;
-const DOMAIN_ATTESTATION: u64 = 1;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -31,10 +26,13 @@ pub enum Error {
     BadRandaoSignature,
     MaxProposerSlashingsExceeded,
     BadProposerSlashing,
+    MaxAttesterSlashingsExceed,
     MaxAttestationsExceeded,
+    BadAttesterSlashing,
     InvalidAttestation(AttestationValidationError),
     NoBlockRoot,
     MaxDepositsExceeded,
+    BadDeposit,
     MaxExitsExceeded,
     BadExit,
     BadCustodyReseeds,
@@ -89,7 +87,7 @@ impl BlockProcessable for BeaconState {
 }
 
 fn per_block_processing_signature_optional(
-    state: &mut BeaconState,
+    mut state: &mut BeaconState,
     block: &BeaconBlock,
     verify_block_signature: bool,
     spec: &ChainSpec,
@@ -113,7 +111,7 @@ fn per_block_processing_signature_optional(
                 &block_proposer.pubkey,
                 &block.proposal_root(spec)[..],
                 &block.signature,
-                get_domain(&state.fork, state.current_epoch(spec), DOMAIN_PROPOSAL)
+                get_domain(&state.fork, state.current_epoch(spec), spec.domain_proposal)
             ),
             Error::BadBlockSignature
         );
@@ -127,7 +125,7 @@ fn per_block_processing_signature_optional(
             &block_proposer.pubkey,
             &int_to_bytes32(state.current_epoch(spec).as_u64()),
             &block.randao_reveal,
-            get_domain(&state.fork, state.current_epoch(spec), DOMAIN_RANDAO)
+            get_domain(&state.fork, state.current_epoch(spec), spec.domain_randao)
         ),
         Error::BadRandaoSignature
     );
@@ -188,7 +186,7 @@ fn per_block_processing_signature_optional(
                         .proposal_data_1
                         .slot
                         .epoch(spec.epoch_length),
-                    DOMAIN_PROPOSAL
+                    spec.domain_proposal
                 )
             ),
             Error::BadProposerSlashing
@@ -204,12 +202,23 @@ fn per_block_processing_signature_optional(
                         .proposal_data_2
                         .slot
                         .epoch(spec.epoch_length),
-                    DOMAIN_PROPOSAL
+                    spec.domain_proposal
                 )
             ),
             Error::BadProposerSlashing
         );
         state.penalize_validator(proposer_slashing.proposer_index as usize, spec)?;
+    }
+
+    /*
+     * Attester slashings
+     */
+    ensure!(
+        block.body.attester_slashings.len() as u64 <= spec.max_attester_slashings,
+        Error::MaxAttesterSlashingsExceed
+    );
+    for attester_slashing in &block.body.attester_slashings {
+        verify_slashable_attestation(&mut state, &attester_slashing, spec)?;
     }
 
     /*
@@ -242,7 +251,27 @@ fn per_block_processing_signature_optional(
         Error::MaxDepositsExceeded
     );
 
-    // TODO: process deposits.
+    // TODO: verify deposit merkle branches.
+    for deposit in &block.body.deposits {
+        debug!(
+            "Processing deposit for pubkey {:?}",
+            deposit.deposit_data.deposit_input.pubkey
+        );
+        state
+            .process_deposit(
+                deposit.deposit_data.deposit_input.pubkey.clone(),
+                deposit.deposit_data.amount,
+                deposit
+                    .deposit_data
+                    .deposit_input
+                    .proof_of_possession
+                    .clone(),
+                deposit.deposit_data.deposit_input.withdrawal_credentials,
+                None,
+                spec,
+            )
+            .map_err(|_| Error::BadDeposit)?;
+    }
 
     /*
      * Exits
@@ -276,7 +305,7 @@ fn per_block_processing_signature_optional(
                 &validator.pubkey,
                 &exit_message,
                 &exit.signature,
-                get_domain(&state.fork, exit.epoch, DOMAIN_EXIT)
+                get_domain(&state.fork, exit.epoch, spec.domain_exit)
             ),
             Error::BadProposerSlashing
         );
@@ -370,11 +399,7 @@ fn validate_attestation_signature_optional(
         );
         let mut group_public_key = AggregatePublicKey::new();
         for participant in participants {
-            group_public_key.add(
-                state.validator_registry[participant as usize]
-                    .pubkey
-                    .as_raw(),
-            )
+            group_public_key.add(&state.validator_registry[participant as usize].pubkey)
         }
         ensure!(
             attestation.verify_signature(
@@ -383,7 +408,7 @@ fn validate_attestation_signature_optional(
                 get_domain(
                     &state.fork,
                     attestation.data.slot.epoch(spec.epoch_length),
-                    DOMAIN_ATTESTATION,
+                    spec.domain_attestation,
                 )
             ),
             AttestationValidationError::BadSignature

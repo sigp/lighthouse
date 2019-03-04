@@ -1,19 +1,19 @@
 extern crate bls_aggregates;
 extern crate ssz;
 
+mod aggregate_public_key;
 mod aggregate_signature;
 mod keypair;
 mod public_key;
 mod secret_key;
 mod signature;
 
+pub use crate::aggregate_public_key::AggregatePublicKey;
 pub use crate::aggregate_signature::AggregateSignature;
 pub use crate::keypair::Keypair;
 pub use crate::public_key::PublicKey;
 pub use crate::secret_key::SecretKey;
 pub use crate::signature::Signature;
-
-pub use self::bls_aggregates::AggregatePublicKey;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 96;
 
