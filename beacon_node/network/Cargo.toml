@@ -5,6 +5,6 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
-# SigP repository until PR is merged
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", branch = "gossipsub" }
+libp2p =  { git = "../libp2p" }
 version = { path = "../version" }
+types = { path = "../../eth2/types" }

@@ -13,14 +13,15 @@ pub use client_types::ClientTypes;
 use exit_future::{Exit, Signal};
 use std::marker::PhantomData;
 //use std::sync::Arc;
+use network::NetworkService;
 use tokio::runtime::TaskExecutor;
 
-//use network::NetworkService;
-
+/// Main beacon node client service. This provides the connection and initialisation of the clients
+/// sub-services in multiple threads.
 pub struct Client<T: ClientTypes> {
     config: ClientConfig,
     // beacon_chain: Arc<BeaconChain<T, U, F>>,
-    // network: Option<Arc<NetworkService>>,
+    network: Option<Arc<NetworkService>>,
     exit: exit_future::Exit,
     exit_signal: Option<Signal>,
     log: slog::Logger,
@@ -28,6 +29,7 @@ pub struct Client<T: ClientTypes> {
 }
 
 impl<T: ClientTypes> Client<T> {
+    /// Generate an instance of the client. Spawn and link all internal subprocesses.
     pub fn new(
         config: ClientConfig,
         log: slog::Logger,
@@ -35,16 +37,21 @@ impl<T: ClientTypes> Client<T> {
     ) -> error::Result<Self> {
         let (exit_signal, exit) = exit_future::signal();
 
+        // TODO: generate a beacon_chain service.
+
+        // start the network service, libp2p and syncing threads
+        // TODO: Add beacon_chain reference to network parameters
+        let network_config = config.net_config;
+        let network_logger = client.log.new(o!("Service" => "Network"));
+        let (network, network_send) = NetworkService::new(network_config, network_logger);
+
         Ok(Client {
             config,
             exit,
             exit_signal: Some(exit_signal),
             log,
+            network: Some(network),
             phantom: PhantomData,
         })
-    }
-
-    pub fn logger(&self) -> slog::Logger {
-        self.log.clone()
     }
 }

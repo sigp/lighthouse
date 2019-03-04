@@ -17,7 +17,7 @@ pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exi
     // notification heartbeat
     let interval = Interval::new(Instant::now(), Duration::from_secs(5));
 
-    let log = client.logger();
+    let log = client.log.new(o!("Service" => "Notifier"));
 
     // build heartbeat logic here
     let heartbeat = move |_| {

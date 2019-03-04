@@ -4,10 +4,10 @@ use version;
 
 #[derive(Debug, Clone)]
 /// Network configuration for lighthouse.
-pub struct NetworkConfiguration {
+pub struct NetworkConfig {
     //TODO: stubbing networking initial params, change in the future
     /// IP address to listen on.
-    pub listen_address: Option<IpAddr>,
+    pub listen_addresses: Option<Vec<IpAddr>>,
     /// Listen port UDP/TCP.
     pub listen_port: Option<u16>,
     /// Gossipsub configuration parameters.
@@ -16,14 +16,13 @@ pub struct NetworkConfiguration {
     pub boot_nodes: Vec<String>,
     /// Client version
     pub client_version: String,
-    //TODO: more to be added
 }
 
-impl Default for NetworkConfiguration {
+impl Default for NetworkConfig {
     /// Generate a default network configuration.
     fn default() -> Self {
-        NetworkConfiguration {
-            listen_address: None,
+        NetworkConfig {
+            listen_addresses: None,
             listen_port: None,
             gs_config: GossipsubConfigBuilder::new().build(),
             boot_nodes: Vec::new(),
@@ -32,8 +31,8 @@ impl Default for NetworkConfiguration {
     }
 }
 
-impl NetworkConfiguration {
+impl NetworkConfig {
     pub fn new() -> Self {
-        NetworkConfiguration::default()
+        NetworkConfig::default()
     }
 }
