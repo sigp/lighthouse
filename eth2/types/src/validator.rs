@@ -1,20 +1,19 @@
 use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKey};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.4.0
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TestRandom)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
     pub activation_epoch: Epoch,
     pub exit_epoch: Epoch,
-    pub withdrawal_epoch: Epoch,
+    pub withdrawable_epoch: Epoch,
     pub initiated_exit: bool,
     pub slashed: bool,
 }
@@ -32,7 +31,7 @@ impl Validator {
 
     /// Returns `true` if the validator is able to withdraw at some epoch.
     pub fn is_withdrawable_at(&self, epoch: Epoch) -> bool {
-        self.withdrawal_epoch <= epoch
+        self.withdrawable_epoch <= epoch
     }
 }
 
@@ -44,9 +43,9 @@ impl Default for Validator {
             withdrawal_credentials: Hash256::default(),
             activation_epoch: Epoch::from(std::u64::MAX),
             exit_epoch: Epoch::from(std::u64::MAX),
-            withdrawal_epoch: Epoch::from(std::u64::MAX),
-            penalized_epoch: Epoch::from(std::u64::MAX),
-            status_flags: None,
+            withdrawable_epoch: Epoch::from(std::u64::MAX),
+            initiated_exit: false,
+            slashed: false,
         }
     }
 }
@@ -55,7 +54,7 @@ impl Default for Validator {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {
