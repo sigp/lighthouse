@@ -7,7 +7,6 @@ pub mod attester_slashing;
 pub mod beacon_block;
 pub mod beacon_block_body;
 pub mod beacon_state;
-pub mod casper_slashing;
 pub mod chain_spec;
 pub mod crosslink;
 pub mod deposit;
@@ -19,12 +18,10 @@ pub mod fork;
 pub mod free_attestation;
 pub mod pending_attestation;
 pub mod proposal;
-pub mod proposal_signed_data;
 pub mod proposer_slashing;
 pub mod readers;
 pub mod shard_reassignment_record;
 pub mod slashable_attestation;
-pub mod slashable_vote_data;
 pub mod transfer;
 pub mod voluntary_exit;
 #[macro_use]
@@ -33,7 +30,6 @@ pub mod slot_epoch;
 pub mod slot_height;
 pub mod validator;
 pub mod validator_registry;
-pub mod validator_registry_delta_block;
 
 use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
@@ -47,7 +43,6 @@ pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_state::{
     BeaconState, Error as BeaconStateError, InclusionError, RelativeEpoch,
 };
-pub use crate::casper_slashing::CasperSlashing;
 pub use crate::chain_spec::ChainSpec;
 pub use crate::crosslink::Crosslink;
 pub use crate::deposit::Deposit;
@@ -59,15 +54,12 @@ pub use crate::fork::Fork;
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposal::Proposal;
-pub use crate::proposal_signed_data::ProposalSignedData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::slashable_attestation::SlashableAttestation;
-pub use crate::slashable_vote_data::SlashableVoteData;
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::slot_height::SlotHeight;
 pub use crate::transfer::Transfer;
 pub use crate::validator::Validator;
-pub use crate::validator_registry_delta_block::ValidatorRegistryDeltaBlock;
 pub use crate::voluntary_exit::VolutaryExit;
 
 pub type Hash256 = H256;
