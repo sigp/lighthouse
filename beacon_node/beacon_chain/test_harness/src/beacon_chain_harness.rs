@@ -11,14 +11,9 @@ use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::prelude::*;
 use std::iter::FromIterator;
 use std::sync::Arc;
-use types::{
-    BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput, Eth1Data, FreeAttestation, Hash256,
-    Keypair, Slot,
-};
+use types::*;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -245,6 +240,59 @@ impl BeaconChainHarness {
         debug!("Free attestations processed.");
     }
 
+    /// Signs a message using some validators secret key with the `Fork` info from the latest state
+    /// of the `BeaconChain`.
+    ///
+    /// Useful for producing slashable messages and other objects that `BeaconChainHarness` does
+    /// not produce naturally.
+    pub fn validator_sign(
+        &self,
+        validator_index: usize,
+        message: &[u8],
+        epoch: Epoch,
+        domain_type: u64,
+    ) -> Option<Signature> {
+        let validator = self.validators.get(validator_index)?;
+
+        let domain = self
+            .beacon_chain
+            .state
+            .read()
+            .fork
+            .get_domain(epoch, domain_type);
+
+        Some(Signature::new(message, domain, &validator.keypair.sk))
+    }
+
+    /// Submit a deposit to the `BeaconChain` and, if given a keypair, create a new
+    /// `ValidatorHarness` instance for this validator.
+    ///
+    /// If a new `ValidatorHarness` was created, the validator should become fully operational as
+    /// if the validator were created during `BeaconChainHarness` instantiation.
+    pub fn add_deposit(&mut self, deposit: Deposit, keypair: Option<Keypair>) {
+        self.beacon_chain.receive_deposit_for_inclusion(deposit);
+
+        // If a keypair is present, add a new `ValidatorHarness` to the rig.
+        if let Some(keypair) = keypair {
+            let validator =
+                ValidatorHarness::new(keypair, self.beacon_chain.clone(), self.spec.clone());
+            self.validators.push(validator);
+        }
+    }
+
+    /// Submit a proposer slashing to the `BeaconChain` for inclusion in some block.
+    pub fn add_proposer_slashing(&mut self, proposer_slashing: ProposerSlashing) {
+        self.beacon_chain
+            .receive_proposer_slashing_for_inclusion(proposer_slashing);
+    }
+
+    /// Submit an attester slashing to the `BeaconChain` for inclusion in some block.
+    pub fn add_attester_slashing(&mut self, attester_slashing: AttesterSlashing) {
+        self.beacon_chain
+            .receive_attester_slashing_for_inclusion(attester_slashing);
+    }
+
+    /// Executes the fork choice rule on the `BeaconChain`, selecting a new canonical head.
     pub fn run_fork_choice(&mut self) {
         self.beacon_chain.fork_choice().unwrap()
     }
@@ -252,13 +300,5 @@ impl BeaconChainHarness {
     /// Dump all blocks and states from the canonical beacon chain.
     pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, BeaconChainError> {
         self.beacon_chain.chain_dump()
-    }
-
-    /// Write the output of `chain_dump` to a JSON file.
-    pub fn dump_to_file(&self, filename: String, chain_dump: &[CheckPoint]) {
-        let json = serde_json::to_string(chain_dump).unwrap();
-        let mut file = File::create(filename).unwrap();
-        file.write_all(json.as_bytes())
-            .expect("Failed writing dump to file.");
     }
 }

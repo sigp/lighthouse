@@ -15,9 +15,7 @@ use state_processing::{
 use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
-    AttestationData, BeaconBlock, BeaconBlockBody, BeaconState, BeaconStateError, ChainSpec,
-    Crosslink, Deposit, Epoch, Eth1Data, FreeAttestation, Hash256, PublicKey, RelativeEpoch,
-    Signature, Slot,
+    *,
 };
 
 #[derive(Debug, PartialEq)]
@@ -66,6 +64,9 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
+    pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
+    pub proposer_slashings_for_inclusion: RwLock<Vec<ProposerSlashing>>,
+    pub attester_slashings_for_inclusion: RwLock<Vec<AttesterSlashing>>,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
@@ -132,6 +133,9 @@ where
             state_store,
             slot_clock,
             attestation_aggregator,
+            deposits_for_inclusion: RwLock::new(vec![]),
+            proposer_slashings_for_inclusion: RwLock::new(vec![]),
+            attester_slashings_for_inclusion: RwLock::new(vec![]),
             state: RwLock::new(genesis_state),
             finalized_head,
             canonical_head,
@@ -364,6 +368,128 @@ where
         Ok(aggregation_outcome)
     }
 
+    /// Accept some deposit and queue it for inclusion in an appropriate block.
+    pub fn receive_deposit_for_inclusion(&self, deposit: Deposit) {
+        // TODO: deposits are not check for validity; check them.
+        self.deposits_for_inclusion.write().push(deposit);
+    }
+
+    /// Return a vec of deposits suitable for inclusion in some block.
+    pub fn get_deposits_for_block(&self) -> Vec<Deposit> {
+        // TODO: deposits are indiscriminately included; check them for validity.
+        self.deposits_for_inclusion.read().clone()
+    }
+
+    /// Takes a list of `Deposits` that were included in recent blocks and removes them from the
+    /// inclusion queue.
+    ///
+    /// This ensures that `Deposits` are not included twice in successive blocks.
+    pub fn set_deposits_as_included(&self, included_deposits: &[Deposit]) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_deposits {
+            for (i, for_inclusion) in self.deposits_for_inclusion.read().iter().enumerate() {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let deposits_for_inclusion = &mut self.deposits_for_inclusion.write();
+        for i in indices_to_delete {
+            deposits_for_inclusion.remove(i);
+        }
+    }
+
+    /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
+    pub fn receive_proposer_slashing_for_inclusion(&self, proposer_slashing: ProposerSlashing) {
+        // TODO: proposer_slashings are not check for validity; check them.
+        self.proposer_slashings_for_inclusion
+            .write()
+            .push(proposer_slashing);
+    }
+
+    /// Return a vec of proposer slashings suitable for inclusion in some block.
+    pub fn get_proposer_slashings_for_block(&self) -> Vec<ProposerSlashing> {
+        // TODO: proposer_slashings are indiscriminately included; check them for validity.
+        self.proposer_slashings_for_inclusion.read().clone()
+    }
+
+    /// Takes a list of `ProposerSlashings` that were included in recent blocks and removes them
+    /// from the inclusion queue.
+    ///
+    /// This ensures that `ProposerSlashings` are not included twice in successive blocks.
+    pub fn set_proposer_slashings_as_included(
+        &self,
+        included_proposer_slashings: &[ProposerSlashing],
+    ) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_proposer_slashings {
+            for (i, for_inclusion) in self
+                .proposer_slashings_for_inclusion
+                .read()
+                .iter()
+                .enumerate()
+            {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let proposer_slashings_for_inclusion = &mut self.proposer_slashings_for_inclusion.write();
+        for i in indices_to_delete {
+            proposer_slashings_for_inclusion.remove(i);
+        }
+    }
+
+    /// Accept some attester slashing and queue it for inclusion in an appropriate block.
+    pub fn receive_attester_slashing_for_inclusion(&self, attester_slashing: AttesterSlashing) {
+        // TODO: attester_slashings are not check for validity; check them.
+        self.attester_slashings_for_inclusion
+            .write()
+            .push(attester_slashing);
+    }
+
+    /// Return a vec of attester slashings suitable for inclusion in some block.
+    pub fn get_attester_slashings_for_block(&self) -> Vec<AttesterSlashing> {
+        // TODO: attester_slashings are indiscriminately included; check them for validity.
+        self.attester_slashings_for_inclusion.read().clone()
+    }
+
+    /// Takes a list of `AttesterSlashings` that were included in recent blocks and removes them
+    /// from the inclusion queue.
+    ///
+    /// This ensures that `AttesterSlashings` are not included twice in successive blocks.
+    pub fn set_attester_slashings_as_included(
+        &self,
+        included_attester_slashings: &[AttesterSlashing],
+    ) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_attester_slashings {
+            for (i, for_inclusion) in self
+                .attester_slashings_for_inclusion
+                .read()
+                .iter()
+                .enumerate()
+            {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let attester_slashings_for_inclusion = &mut self.attester_slashings_for_inclusion.write();
+        for i in indices_to_delete {
+            attester_slashings_for_inclusion.remove(i);
+        }
+    }
+
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
@@ -411,6 +537,8 @@ where
             dump.push(slot.clone());
             last_slot = slot;
         }
+
+        dump.reverse();
 
         Ok(dump)
     }
@@ -488,6 +616,11 @@ where
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
+        // Update the inclusion queues so they aren't re-submitted.
+        self.set_deposits_as_included(&block.body.deposits[..]);
+        self.set_proposer_slashings_as_included(&block.body.proposer_slashings[..]);
+        self.set_attester_slashings_as_included(&block.body.attester_slashings[..]);
+
         // run the fork_choice add_block logic
         self.fork_choice
             .write()
@@ -500,7 +633,7 @@ where
         if self.head().beacon_block_root == parent_block_root {
             self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
             // Update the local state variable.
-            *self.state.write() = state.clone();
+            *self.state.write() = state;
         }
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
@@ -541,10 +674,10 @@ where
             },
             signature: self.spec.empty_signature.clone(), // To be completed by a validator.
             body: BeaconBlockBody {
-                proposer_slashings: vec![],
-                attester_slashings: vec![],
+                proposer_slashings: self.get_proposer_slashings_for_block(),
+                attester_slashings: self.get_attester_slashings_for_block(),
                 attestations,
-                deposits: vec![],
+                deposits: self.get_deposits_for_block(),
                 exits: vec![],
             },
         };
@@ -553,7 +686,7 @@ where
 
         let result =
             state.per_block_processing_without_verifying_block_signature(&block, &self.spec);
-        trace!(
+        debug!(
             "BeaconNode::produce_block: state processing result: {:?}",
             result
         );
