@@ -67,7 +67,7 @@ into individual crates wherever possible.
 
 Generally, tests can be kept in the same file, as is typical in Rust.
 Integration tests should be placed in the `tests` directory in the crate's
-root.  Particularity large (line-count) tests should be placed into a separate
+root.  Particularly large (line-count) tests should be placed into a separate
 file.
 
 A function is not considered complete until a test exists for it. We produce
