@@ -4,7 +4,7 @@ use db::ClientDB;
 use exit_future::Exit;
 use fork_choice::ForkChoice;
 use futures::{Future, Stream};
-use slog::{debug, info};
+use slog::{debug, info, o};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -26,7 +26,7 @@ pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exi
     };
 
     // map error and spawn
-    let log = client.logger();
+    let log = client.log.clone();
     let heartbeat_interval = interval
         .map_err(move |e| debug!(log, "Timer error {}", e))
         .for_each(heartbeat);

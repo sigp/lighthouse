@@ -5,6 +5,11 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
-libp2p =  { git = "../libp2p" }
+libp2p =  { path = "../libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
+sync = { path = "../sync" }
+slog = "2.4.1"
+futures = "0.1.25"
+error-chain = "0.12.0"
+crossbeam-channel = "0.3.8"
