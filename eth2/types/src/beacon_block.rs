@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, ProposalSignedData, Slot};
+use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Slot};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;

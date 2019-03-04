@@ -772,7 +772,7 @@ impl BeaconState {
 
     /// Update validator registry, activating/exiting validators if possible.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn update_validator_registry(&mut self, spec: &ChainSpec) {
         let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
@@ -788,8 +788,8 @@ impl BeaconState {
         for index in 0..self.validator_registry.len() {
             let validator = &self.validator_registry[index];
 
-            if (validator.activation_epoch > self.get_entry_exit_effect_epoch(current_epoch, spec))
-                && self.validator_balances[index] >= spec.max_deposit_amount
+            if (validator.activation_epoch == spec.far_future_epoch)
+                & (self.validator_balances[index] == spec.max_deposit_amount)
             {
                 balance_churn += self.get_effective_balance(index, spec);
                 if balance_churn > max_balance_churn {
@@ -803,9 +803,7 @@ impl BeaconState {
         for index in 0..self.validator_registry.len() {
             let validator = &self.validator_registry[index];
 
-            if (validator.exit_epoch > self.get_entry_exit_effect_epoch(current_epoch, spec))
-                && validator.status_flags == Some(StatusFlags::InitiatedExit)
-            {
+            if (validator.exit_epoch == spec.far_future_epoch) & (validator.initiated_exit) {
                 balance_churn += self.get_effective_balance(index, spec);
                 if balance_churn > max_balance_churn {
                     break;
@@ -958,10 +956,9 @@ impl BeaconState {
 
     /// Initiate an exit for the validator of the given `index`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn initiate_validator_exit(&mut self, validator_index: usize) {
-        // TODO: the spec does an `|=` here, ensure this isn't buggy.
-        self.validator_registry[validator_index].status_flags = Some(StatusFlags::InitiatedExit);
+        self.validator_registry[validator_index].initiated_exit = true;
     }
 
     /// Exit the validator of the given `index`.
@@ -1019,9 +1016,10 @@ impl BeaconState {
     /// Initiate an exit for the validator of the given `index`.
     ///
     /// Spec v0.2.0
-    pub fn prepare_validator_for_withdrawal(&mut self, validator_index: usize) {
+    pub fn prepare_validator_for_withdrawal(&mut self, validator_index: usize, spec: &ChainSpec) {
         //TODO: we're not ANDing here, we're setting. Potentially wrong.
-        self.validator_registry[validator_index].status_flags = Some(StatusFlags::Withdrawable);
+        self.validator_registry[validator_index].withdrawable_epoch =
+            self.current_epoch(spec) + spec.min_validator_withdrawability_delay;
     }
 
     /// Iterate through the validator registry and eject active validators with balance below
