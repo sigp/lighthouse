@@ -65,6 +65,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
+    pub exits_for_inclusion: RwLock<Vec<Exit>>,
     pub proposer_slashings_for_inclusion: RwLock<Vec<ProposerSlashing>>,
     pub attester_slashings_for_inclusion: RwLock<Vec<AttesterSlashing>>,
     canonical_head: RwLock<CheckPoint>,
@@ -134,6 +135,7 @@ where
             slot_clock,
             attestation_aggregator,
             deposits_for_inclusion: RwLock::new(vec![]),
+            exits_for_inclusion: RwLock::new(vec![]),
             proposer_slashings_for_inclusion: RwLock::new(vec![]),
             attester_slashings_for_inclusion: RwLock::new(vec![]),
             state: RwLock::new(genesis_state),
@@ -370,13 +372,17 @@ where
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
     pub fn receive_deposit_for_inclusion(&self, deposit: Deposit) {
-        // TODO: deposits are not check for validity; check them.
+        // TODO: deposits are not checked for validity; check them.
+        //
+        // https://github.com/sigp/lighthouse/issues/276
         self.deposits_for_inclusion.write().push(deposit);
     }
 
     /// Return a vec of deposits suitable for inclusion in some block.
     pub fn get_deposits_for_block(&self) -> Vec<Deposit> {
         // TODO: deposits are indiscriminately included; check them for validity.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
         self.deposits_for_inclusion.read().clone()
     }
 
@@ -386,6 +392,8 @@ where
     /// This ensures that `Deposits` are not included twice in successive blocks.
     pub fn set_deposits_as_included(&self, included_deposits: &[Deposit]) {
         // TODO: method does not take forks into account; consider this.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
         let mut indices_to_delete = vec![];
 
         for included in included_deposits {
@@ -402,9 +410,49 @@ where
         }
     }
 
+    /// Accept some exit and queue it for inclusion in an appropriate block.
+    pub fn receive_exit_for_inclusion(&self, exit: Exit) {
+        // TODO: exits are not checked for validity; check them.
+        //
+        // https://github.com/sigp/lighthouse/issues/276
+        self.exits_for_inclusion.write().push(exit);
+    }
+
+    /// Return a vec of exits suitable for inclusion in some block.
+    pub fn get_exits_for_block(&self) -> Vec<Exit> {
+        // TODO: exits are indiscriminately included; check them for validity.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
+        self.exits_for_inclusion.read().clone()
+    }
+
+    /// Takes a list of `Deposits` that were included in recent blocks and removes them from the
+    /// inclusion queue.
+    ///
+    /// This ensures that `Deposits` are not included twice in successive blocks.
+    pub fn set_exits_as_included(&self, included_exits: &[Exit]) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_exits {
+            for (i, for_inclusion) in self.exits_for_inclusion.read().iter().enumerate() {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let exits_for_inclusion = &mut self.exits_for_inclusion.write();
+        for i in indices_to_delete {
+            exits_for_inclusion.remove(i);
+        }
+    }
+
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
     pub fn receive_proposer_slashing_for_inclusion(&self, proposer_slashing: ProposerSlashing) {
-        // TODO: proposer_slashings are not check for validity; check them.
+        // TODO: proposer_slashings are not checked for validity; check them.
+        //
+        // https://github.com/sigp/lighthouse/issues/276
         self.proposer_slashings_for_inclusion
             .write()
             .push(proposer_slashing);
@@ -413,6 +461,8 @@ where
     /// Return a vec of proposer slashings suitable for inclusion in some block.
     pub fn get_proposer_slashings_for_block(&self) -> Vec<ProposerSlashing> {
         // TODO: proposer_slashings are indiscriminately included; check them for validity.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
         self.proposer_slashings_for_inclusion.read().clone()
     }
 
@@ -425,6 +475,8 @@ where
         included_proposer_slashings: &[ProposerSlashing],
     ) {
         // TODO: method does not take forks into account; consider this.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
         let mut indices_to_delete = vec![];
 
         for included in included_proposer_slashings {
@@ -448,7 +500,9 @@ where
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
     pub fn receive_attester_slashing_for_inclusion(&self, attester_slashing: AttesterSlashing) {
-        // TODO: attester_slashings are not check for validity; check them.
+        // TODO: attester_slashings are not checked for validity; check them.
+        //
+        // https://github.com/sigp/lighthouse/issues/276
         self.attester_slashings_for_inclusion
             .write()
             .push(attester_slashing);
@@ -457,6 +511,8 @@ where
     /// Return a vec of attester slashings suitable for inclusion in some block.
     pub fn get_attester_slashings_for_block(&self) -> Vec<AttesterSlashing> {
         // TODO: attester_slashings are indiscriminately included; check them for validity.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
         self.attester_slashings_for_inclusion.read().clone()
     }
 
@@ -469,6 +525,8 @@ where
         included_attester_slashings: &[AttesterSlashing],
     ) {
         // TODO: method does not take forks into account; consider this.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
         let mut indices_to_delete = vec![];
 
         for included in included_attester_slashings {
@@ -678,7 +736,7 @@ where
                 attester_slashings: self.get_attester_slashings_for_block(),
                 attestations,
                 deposits: self.get_deposits_for_block(),
-                exits: vec![],
+                exits: self.get_exits_for_block(),
             },
         };
 

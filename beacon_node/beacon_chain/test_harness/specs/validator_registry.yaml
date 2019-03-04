@@ -18,6 +18,10 @@ test_cases:
           amount: 32
         - slot: 5
           amount: 32
+      exits:
+          # At slot 10, submit an exit for validator #50.
+        - slot: 10
+          validator_index: 50
       proposer_slashings:
           # At slot 2, trigger a proposer slashing for validator #42.
         - slot: 2
@@ -39,4 +43,5 @@ test_cases:
           num_validators: 1003
           slashed_validators: [11, 12, 13, 14, 42]
           exited_validators: []
+          exit_initiated_validators: [50]
 

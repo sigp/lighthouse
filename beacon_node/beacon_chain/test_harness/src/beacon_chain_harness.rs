@@ -280,6 +280,15 @@ impl BeaconChainHarness {
         }
     }
 
+    /// Submit an exit to the `BeaconChain` for inclusion in some block.
+    ///
+    /// Note: the `ValidatorHarness` for this validator continues to exist. Once it is exited it
+    /// will stop receiving duties from the beacon chain and just do nothing when prompted to
+    /// produce/attest.
+    pub fn add_exit(&mut self, exit: Exit) {
+        self.beacon_chain.receive_exit_for_inclusion(exit);
+    }
+
     /// Submit a proposer slashing to the `BeaconChain` for inclusion in some block.
     pub fn add_proposer_slashing(&mut self, proposer_slashing: ProposerSlashing) {
         self.beacon_chain
