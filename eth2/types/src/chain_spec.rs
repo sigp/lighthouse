@@ -61,7 +61,7 @@ pub struct ChainSpec {
      */
     pub latest_block_roots_length: usize,
     pub latest_randao_mixes_length: usize,
-    pub latest_index_roots_length: usize,
+    pub latest_active_index_roots_length: usize,
     pub latest_slashed_exit_length: usize,
 
     /*
@@ -157,7 +157,7 @@ impl ChainSpec {
              */
             latest_block_roots_length: 8_192,
             latest_randao_mixes_length: 8_192,
-            latest_index_roots_length: 8_192,
+            latest_active_index_roots_length: 8_192,
             latest_slashed_exit_length: 8_192,
 
             /*

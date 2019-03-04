@@ -142,11 +142,11 @@ impl BeaconStateBuilder {
         state.slot = slot;
         state.validator_registry_update_epoch = epoch - 1;
 
-        state.previous_calculation_epoch = epoch - 1;
-        state.current_calculation_epoch = epoch;
+        state.previous_shuffling_epoch = epoch - 1;
+        state.current_shuffling_epoch = epoch;
 
-        state.previous_epoch_seed = Hash256::from(&b"previous_seed"[..]);
-        state.current_epoch_seed = Hash256::from(&b"current_seed"[..]);
+        state.previous_shuffling_seed = Hash256::from(&b"previous_seed"[..]);
+        state.current_shuffling_seed = Hash256::from(&b"current_seed"[..]);
 
         state.previous_justified_epoch = epoch - 2;
         state.justified_epoch = epoch - 1;

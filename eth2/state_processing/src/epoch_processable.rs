@@ -555,15 +555,15 @@ impl EpochProcessable for BeaconState {
         /*
          * Validator Registry
          */
-        self.previous_calculation_epoch = self.current_calculation_epoch;
+        self.previous_shuffling_epoch = self.current_shuffling_epoch;
         self.previous_epoch_start_shard = self.current_epoch_start_shard;
 
         debug!(
-            "setting previous_epoch_seed to : {}",
-            self.current_epoch_seed
+            "setting previous_shuffling_seed to : {}",
+            self.current_shuffling_seed
         );
 
-        self.previous_epoch_seed = self.current_epoch_seed;
+        self.previous_shuffling_seed = self.current_shuffling_seed;
 
         let should_update_validator_registy = if self.finalized_epoch
             > self.validator_registry_update_epoch
@@ -580,11 +580,11 @@ impl EpochProcessable for BeaconState {
             trace!("updating validator registry.");
             self.update_validator_registry(spec);
 
-            self.current_calculation_epoch = next_epoch;
+            self.current_shuffling_epoch = next_epoch;
             self.current_epoch_start_shard = (self.current_epoch_start_shard
                 + self.get_current_epoch_committee_count(spec) as u64)
                 % spec.shard_count;
-            self.current_epoch_seed = self.generate_seed(self.current_calculation_epoch, spec)?
+            self.current_shuffling_seed = self.generate_seed(self.current_shuffling_epoch, spec)?
         } else {
             trace!("not updating validator registry.");
             let epochs_since_last_registry_update =
@@ -592,9 +592,9 @@ impl EpochProcessable for BeaconState {
             if (epochs_since_last_registry_update > 1)
                 & epochs_since_last_registry_update.is_power_of_two()
             {
-                self.current_calculation_epoch = next_epoch;
-                self.current_epoch_seed =
-                    self.generate_seed(self.current_calculation_epoch, spec)?
+                self.current_shuffling_epoch = next_epoch;
+                self.current_shuffling_seed =
+                    self.generate_seed(self.current_shuffling_epoch, spec)?
             }
         }
 

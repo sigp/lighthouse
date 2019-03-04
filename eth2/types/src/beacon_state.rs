@@ -39,8 +39,10 @@ pub enum Error {
     EpochOutOfBounds,
     /// The supplied shard is unknown. It may be larger than the maximum shard count, or not in a
     /// committee for the given slot.
+    SlotOutOfBounds,
     ShardOutOfBounds,
     UnableToShuffle,
+    UnknownValidator,
     InsufficientRandaoMixes,
     InsufficientValidators,
     InsufficientBlockRoots,
@@ -172,7 +174,7 @@ impl BeaconState {
                 spec.zero_hash;
                 spec.latest_active_index_roots_length as usize
             ],
-            latest_slashed_balances: vec![0; spec.latest_penalized_exit_length as usize],
+            latest_slashed_balances: vec![0; spec.latest_slashed_exit_length as usize],
             latest_attestations: vec![],
             batched_block_roots: vec![],
 
@@ -711,7 +713,7 @@ impl BeaconState {
     /// Process the penalties and prepare the validators who are eligible to withdrawal.
     ///
     /// Spec v0.2.0
-    pub fn process_penalties_and_exits(&mut self, spec: &ChainSpec) {
+    pub fn process_slashings(&mut self, spec: &ChainSpec) {
         let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, current_epoch);
@@ -721,13 +723,12 @@ impl BeaconState {
             let validator = &self.validator_registry[index];
 
             if current_epoch
-                == validator.penalized_epoch + Epoch::from(spec.latest_penalized_exit_length / 2)
+                == validator.penalized_epoch + Epoch::from(spec.latest_slashed_exit_length / 2)
             {
-                let epoch_index: usize =
-                    current_epoch.as_usize() % spec.latest_penalized_exit_length;
+                let epoch_index: usize = current_epoch.as_usize() % spec.latest_slashed_exit_length;
 
                 let total_at_start = self.latest_slashed_balances
-                    [(epoch_index + 1) % spec.latest_penalized_exit_length];
+                    [(epoch_index + 1) % spec.latest_slashed_exit_length];
                 let total_at_end = self.latest_slashed_balances[epoch_index];
                 let total_penalities = total_at_end.saturating_sub(total_at_start);
                 let penalty = self.get_effective_balance(index, spec)
@@ -736,12 +737,22 @@ impl BeaconState {
                 safe_sub_assign!(self.validator_balances[index], penalty);
             }
         }
+    }
+
+    /// Process the penalties and prepare the validators who are eligible to withdrawal.
+    ///
+    /// Spec v0.2.0
+    pub fn process_exit_queue(&mut self, spec: &ChainSpec) {
+        let current_epoch = self.current_epoch(spec);
+        let active_validator_indices =
+            get_active_validator_indices(&self.validator_registry, current_epoch);
+        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
 
         let eligible = |index: usize| {
             let validator = &self.validator_registry[index];
 
             if validator.penalized_epoch <= current_epoch {
-                let penalized_withdrawal_epochs = spec.latest_penalized_exit_length / 2;
+                let penalized_withdrawal_epochs = spec.latest_slashed_exit_length / 2;
                 current_epoch >= validator.penalized_epoch + penalized_withdrawal_epochs as u64
             } else {
                 current_epoch >= validator.exit_epoch + spec.min_validator_withdrawal_epochs
@@ -881,7 +892,7 @@ impl BeaconState {
     /// this hashmap, each call to `process_deposits` requires an iteration though
     /// `self.validator_registry`. This becomes highly inefficient at scale.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn process_deposit(
         &mut self,
         pubkey: PublicKey,
@@ -893,15 +904,9 @@ impl BeaconState {
     ) -> Result<usize, ()> {
         // TODO: update proof of possession to function written above (
         // requires bls::create_proof_of_possession to be updated
+        //
         // https://github.com/sigp/lighthouse/issues/239
-        if !verify_proof_of_possession(&proof_of_possession, &pubkey)
-        //if !self.validate_proof_of_possession(
-        //    pubkey.clone(),
-        //    proof_of_possession,
-        //    withdrawal_credentials,
-        //    &spec,
-        //    )
-        {
+        if !verify_proof_of_possession(&proof_of_possession, &pubkey) {
             return Err(());
         }
 
@@ -926,9 +931,9 @@ impl BeaconState {
                 withdrawal_credentials,
                 activation_epoch: spec.far_future_epoch,
                 exit_epoch: spec.far_future_epoch,
-                withdrawal_epoch: spec.far_future_epoch,
-                penalized_epoch: spec.far_future_epoch,
-                status_flags: None,
+                withdrawable_epoch: spec.far_future_epoch,
+                initiated_exit: false,
+                slashed: false,
             };
             self.validator_registry.push(validator);
             self.validator_balances.push(amount);
@@ -977,22 +982,32 @@ impl BeaconState {
             self.get_entry_exit_effect_epoch(current_epoch, spec);
     }
 
-    ///  Penalize the validator of the given ``index``.
+    /// Slash the validator with index ``index``.
     ///
-    ///  Exits the validator and assigns its effective balance to the block producer for this
-    ///  state.
-    ///
-    /// Spec v0.2.0
-    pub fn penalize_validator(
+    /// Spec v0.4.0
+    pub fn slash_validator(
         &mut self,
         validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        self.exit_validator(validator_index, spec);
         let current_epoch = self.current_epoch(spec);
 
-        self.latest_slashed_balances
-            [current_epoch.as_usize() % spec.latest_penalized_exit_length] +=
+        let validator = &self
+            .validator_registry
+            .get(validator_index)
+            .ok_or_else(|| Error::UnknownValidator)?;
+
+        if self.slot
+            >= validator
+                .withdrawable_epoch
+                .start_slot(spec.slots_per_epoch)
+        {
+            return Err(Error::SlotOutOfBounds);
+        }
+
+        self.exit_validator(validator_index, spec);
+
+        self.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length] +=
             self.get_effective_balance(validator_index, spec);
 
         let whistleblower_index = self.get_beacon_proposer_index(self.slot, spec)?;
@@ -1005,11 +1020,15 @@ impl BeaconState {
             self.validator_balances[validator_index],
             whistleblower_reward
         );
-        self.validator_registry[validator_index].penalized_epoch = current_epoch;
+        self.validator_registry[validator_index].slashed = true;
+        self.validator_registry[validator_index].withdrawable_epoch =
+            current_epoch + Epoch::from(spec.latest_slashed_exit_length);
+
         debug!(
             "Whistleblower {} penalized validator {}.",
             whistleblower_index, validator_index
         );
+
         Ok(())
     }
 
