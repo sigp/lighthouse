@@ -37,6 +37,7 @@ pub fn run_beacon_node(config: ClientConfig, log: slog::Logger) -> error::Result
 
     runtime.block_on(ctrlc);
 
+    // perform global shutdown operations.
     info!(log, "Shutting down..");
     exit_signal.fire();
     drop(client);

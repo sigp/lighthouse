@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use db::DBType;
 use fork_choice::ForkChoiceAlgorithm;
-use network::NetworkConfiguration;
+use network::NetworkConfig;
 use slog::error;
 use std::fs;
 use std::net::IpAddr;
@@ -13,7 +13,7 @@ use types::ChainSpec;
 pub struct ClientConfig {
     pub data_dir: PathBuf,
     pub spec: ChainSpec,
-    pub net_conf: network::NetworkConfiguration,
+    pub net_conf: network::NetworkConfig,
     pub fork_choice: ForkChoiceAlgorithm,
     pub db_type: DBType,
     pub db_name: PathBuf,
@@ -34,7 +34,7 @@ impl Default for ClientConfig {
             data_dir: data_dir.clone(),
             // default to foundation for chain specs
             spec: ChainSpec::foundation(),
-            net_conf: NetworkConfiguration::default(),
+            net_conf: NetworkConfig::default(),
             // default to bitwise LMD Ghost
             fork_choice: ForkChoiceAlgorithm::BitwiseLMDGhost,
             // default to memory db for now
@@ -53,12 +53,13 @@ impl ClientConfig {
         // Network related args
 
         // Custom listening address ipv4/ipv6
+        // TODO: Handle list of addresses
         if let Some(listen_address_str) = args.value_of("listen_address") {
             if let Ok(listen_address) = listen_address_str.parse::<IpAddr>() {
-                config.net_conf.listen_address = Some(listen_address);
+                config.net_conf.listen_address = Some(Vec::new(listen_address));
             } else {
-                error!(log, "Invalid Ip Address"; "Address" => listen_address_str);
-                return Err("Invalid Ip Address");
+                error!(log, "Invalid IP Address"; "Address" => listen_address_str);
+                return Err("Invalid IP Address");
             }
         }
         // Custom p2p listen port

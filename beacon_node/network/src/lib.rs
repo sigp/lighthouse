@@ -1,4 +1,6 @@
 /// This crate provides the network server for Lighthouse.
-mod network_configuration;
+mod network_config;
+mod service;
 
-pub use network_configuration::NetworkConfiguration;
+pub use network_config::NetworkConfig;
+pub use service::NetworkService;
