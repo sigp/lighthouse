@@ -312,7 +312,7 @@ where
             .state
             .read()
             .get_block_root(
-                justified_epoch.start_slot(self.spec.epoch_length),
+                justified_epoch.start_slot(self.spec.slots_per_epoch),
                 &self.spec,
             )
             .ok_or_else(|| Error::BadRecentBlockRoots)?;
@@ -333,7 +333,7 @@ where
             epoch_boundary_root,
             shard_block_root: Hash256::zero(),
             latest_crosslink: Crosslink {
-                epoch: self.state.read().slot.epoch(self.spec.epoch_length),
+                epoch: self.state.read().slot.epoch(self.spec.slots_per_epoch),
                 shard_block_root: Hash256::zero(),
             },
             justified_epoch,

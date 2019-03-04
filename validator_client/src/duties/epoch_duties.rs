@@ -32,14 +32,14 @@ pub enum EpochDutiesMapError {
 
 /// Maps an `epoch` to some `EpochDuties` for a single validator.
 pub struct EpochDutiesMap {
-    pub epoch_length: u64,
+    pub slots_per_epoch: u64,
     pub map: RwLock<HashMap<Epoch, EpochDuties>>,
 }
 
 impl EpochDutiesMap {
-    pub fn new(epoch_length: u64) -> Self {
+    pub fn new(slots_per_epoch: u64) -> Self {
         Self {
-            epoch_length,
+            slots_per_epoch,
             map: RwLock::new(HashMap::new()),
         }
     }
@@ -67,7 +67,7 @@ impl EpochDutiesMap {
 
 impl DutiesReader for EpochDutiesMap {
     fn is_block_production_slot(&self, slot: Slot) -> Result<bool, DutiesReaderError> {
-        let epoch = slot.epoch(self.epoch_length);
+        let epoch = slot.epoch(self.slots_per_epoch);
 
         let map = self.map.read().map_err(|_| DutiesReaderError::Poisoned)?;
         let duties = map

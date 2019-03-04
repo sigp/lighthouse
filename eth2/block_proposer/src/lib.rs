@@ -132,7 +132,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
         let randao_reveal = {
             // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
-            let message = int_to_bytes32(slot.epoch(self.spec.epoch_length).as_u64());
+            let message = int_to_bytes32(slot.epoch(self.spec.slots_per_epoch).as_u64());
 
             match self
                 .signer
@@ -233,9 +233,9 @@ mod tests {
         let beacon_node = Arc::new(SimulatedBeaconNode::default());
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-        let mut epoch_map = EpochMap::new(spec.epoch_length);
+        let mut epoch_map = EpochMap::new(spec.slots_per_epoch);
         let produce_slot = Slot::new(100);
-        let produce_epoch = produce_slot.epoch(spec.epoch_length);
+        let produce_epoch = produce_slot.epoch(spec.slots_per_epoch);
         epoch_map.map.insert(produce_epoch, produce_slot);
         let epoch_map = Arc::new(epoch_map);
 
@@ -280,7 +280,7 @@ mod tests {
         );
 
         // In an epoch without known duties...
-        let slot = (produce_epoch.as_u64() + 1) * spec.epoch_length;
+        let slot = (produce_epoch.as_u64() + 1) * spec.slots_per_epoch;
         slot_clock.set_slot(slot);
         assert_eq!(
             block_proposer.poll(),

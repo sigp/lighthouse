@@ -36,13 +36,13 @@ impl StateCheck {
     ///
     /// Panics with an error message if any test fails.
     pub fn assert_valid(&self, state: &BeaconState, spec: &ChainSpec) {
-        let state_epoch = state.slot.epoch(spec.epoch_length);
+        let state_epoch = state.slot.epoch(spec.slots_per_epoch);
 
         info!("Running state check for slot height {}.", self.slot);
 
         assert_eq!(
             self.slot,
-            state.slot - spec.genesis_epoch.start_slot(spec.epoch_length),
+            state.slot - spec.genesis_epoch.start_slot(spec.slots_per_epoch),
             "State slot is invalid."
         );
 

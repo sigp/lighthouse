@@ -125,13 +125,13 @@ impl BeaconChainHarness {
 
         let nth_slot = slot
             - slot
-                .epoch(self.spec.epoch_length)
-                .start_slot(self.spec.epoch_length);
-        let nth_epoch = slot.epoch(self.spec.epoch_length) - self.spec.genesis_epoch;
+                .epoch(self.spec.slots_per_epoch)
+                .start_slot(self.spec.slots_per_epoch);
+        let nth_epoch = slot.epoch(self.spec.slots_per_epoch) - self.spec.genesis_epoch;
         debug!(
             "Advancing BeaconChain to slot {}, epoch {} (epoch height: {}, slot {} in epoch.).",
             slot,
-            slot.epoch(self.spec.epoch_length),
+            slot.epoch(self.spec.slots_per_epoch),
             nth_epoch,
             nth_slot
         );

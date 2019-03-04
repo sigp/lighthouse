@@ -23,8 +23,8 @@ impl SlotHeight {
         Slot::from(self.0.saturating_add(genesis_slot.as_u64()))
     }
 
-    pub fn epoch(self, genesis_slot: u64, epoch_length: u64) -> Epoch {
-        Epoch::from(self.0.saturating_add(genesis_slot) / epoch_length)
+    pub fn epoch(self, genesis_slot: u64, slots_per_epoch: u64) -> Epoch {
+        Epoch::from(self.0.saturating_add(genesis_slot) / slots_per_epoch)
     }
 
     pub fn max_value() -> SlotHeight {

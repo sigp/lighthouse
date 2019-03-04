@@ -195,9 +195,9 @@ mod tests {
         let beacon_node = Arc::new(SimulatedBeaconNode::default());
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-        let mut duties = EpochMap::new(spec.epoch_length);
+        let mut duties = EpochMap::new(spec.slots_per_epoch);
         let attest_slot = Slot::new(100);
-        let attest_epoch = attest_slot / spec.epoch_length;
+        let attest_epoch = attest_slot / spec.slots_per_epoch;
         let attest_shard = 12;
         duties.insert_attestation_shard(attest_slot, attest_shard);
         duties.set_validator_index(Some(2));
@@ -243,7 +243,7 @@ mod tests {
         );
 
         // In an epoch without known duties...
-        let slot = (attest_epoch + 1) * spec.epoch_length;
+        let slot = (attest_epoch + 1) * spec.slots_per_epoch;
         slot_clock.set_slot(slot.into());
         assert_eq!(
             attester.poll(),

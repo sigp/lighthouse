@@ -35,8 +35,8 @@ pub fn get_attestation_participants_consistency() {
 
     for slot in state
         .slot
-        .epoch(spec.epoch_length)
-        .slot_iter(spec.epoch_length)
+        .epoch(spec.slots_per_epoch)
+        .slot_iter(spec.slots_per_epoch)
     {
         let committees = state.get_crosslink_committees_at_slot(slot, &spec).unwrap();
 

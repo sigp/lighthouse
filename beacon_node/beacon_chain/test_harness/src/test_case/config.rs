@@ -13,7 +13,7 @@ pub struct Config {
     /// Initial validators.
     pub deposits_for_chain_start: usize,
     /// Number of slots in an epoch.
-    pub epoch_length: Option<u64>,
+    pub slots_per_epoch: Option<u64>,
     /// Number of slots to build before ending execution.
     pub num_slots: u64,
     /// Number of slots that should be skipped due to inactive validator.
@@ -34,7 +34,7 @@ impl Config {
         Self {
             deposits_for_chain_start: as_usize(&yaml, "deposits_for_chain_start")
                 .expect("Must specify validator count"),
-            epoch_length: as_u64(&yaml, "epoch_length"),
+            slots_per_epoch: as_u64(&yaml, "slots_per_epoch"),
             num_slots: as_u64(&yaml, "num_slots").expect("Must specify `config.num_slots`"),
             skip_slots: as_vec_u64(yaml, "skip_slots"),
             deposits: parse_deposits(&yaml),

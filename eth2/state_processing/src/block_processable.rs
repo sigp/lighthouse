@@ -185,7 +185,7 @@ fn per_block_processing_signature_optional(
                     proposer_slashing
                         .proposal_data_1
                         .slot
-                        .epoch(spec.epoch_length),
+                        .epoch(spec.slots_per_epoch),
                     spec.domain_proposal
                 )
             ),
@@ -201,7 +201,7 @@ fn per_block_processing_signature_optional(
                     proposer_slashing
                         .proposal_data_2
                         .slot
-                        .epoch(spec.epoch_length),
+                        .epoch(spec.slots_per_epoch),
                     spec.domain_proposal
                 )
             ),
@@ -341,14 +341,14 @@ fn validate_attestation_signature_optional(
 ) -> Result<(), AttestationValidationError> {
     trace!(
         "validate_attestation_signature_optional: attestation epoch: {}",
-        attestation.data.slot.epoch(spec.epoch_length)
+        attestation.data.slot.epoch(spec.slots_per_epoch)
     );
     ensure!(
         attestation.data.slot + spec.min_attestation_inclusion_delay <= state.slot,
         AttestationValidationError::IncludedTooEarly
     );
     ensure!(
-        attestation.data.slot + spec.epoch_length >= state.slot,
+        attestation.data.slot + spec.slots_per_epoch >= state.slot,
         AttestationValidationError::IncludedTooLate
     );
     if attestation.data.slot >= state.current_epoch_start_slot(spec) {
@@ -369,7 +369,7 @@ fn validate_attestation_signature_optional(
                     attestation
                         .data
                         .justified_epoch
-                        .start_slot(spec.epoch_length),
+                        .start_slot(spec.slots_per_epoch),
                     &spec
                 )
                 .ok_or(AttestationValidationError::NoBlockRoot)?,
@@ -377,7 +377,7 @@ fn validate_attestation_signature_optional(
     );
     let potential_crosslink = Crosslink {
         shard_block_root: attestation.data.shard_block_root,
-        epoch: attestation.data.slot.epoch(spec.epoch_length),
+        epoch: attestation.data.slot.epoch(spec.slots_per_epoch),
     };
     ensure!(
         (attestation.data.latest_crosslink
@@ -407,7 +407,7 @@ fn validate_attestation_signature_optional(
                 PHASE_0_CUSTODY_BIT,
                 get_domain(
                     &state.fork,
-                    attestation.data.slot.epoch(spec.epoch_length),
+                    attestation.data.slot.epoch(spec.slots_per_epoch),
                     spec.domain_attestation,
                 )
             ),

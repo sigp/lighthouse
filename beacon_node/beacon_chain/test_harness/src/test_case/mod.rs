@@ -54,12 +54,12 @@ impl TestCase {
 
     /// Return a `ChainSpec::foundation()`.
     ///
-    /// If specified in `config`, returns it with a modified `epoch_length`.
+    /// If specified in `config`, returns it with a modified `slots_per_epoch`.
     fn spec(&self) -> ChainSpec {
         let mut spec = ChainSpec::foundation();
 
-        if let Some(n) = self.config.epoch_length {
-            spec.epoch_length = n;
+        if let Some(n) = self.config.slots_per_epoch {
+            spec.slots_per_epoch = n;
         }
 
         spec
@@ -174,7 +174,7 @@ impl TestCase {
 
                 for state_check in state_checks {
                     let adjusted_state_slot =
-                        state.slot - spec.genesis_epoch.start_slot(spec.epoch_length);
+                        state.slot - spec.genesis_epoch.start_slot(spec.slots_per_epoch);
 
                     if state_check.slot == adjusted_state_slot {
                         state_check.assert_valid(state, spec);

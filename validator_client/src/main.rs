@@ -111,7 +111,7 @@ fn main() {
 
     for keypair in keypairs {
         info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
-        let duties_map = Arc::new(EpochDutiesMap::new(spec.epoch_length));
+        let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
 
         // Spawn a new thread to maintain the validator's `EpochDuties`.
         let duties_manager_thread = {
