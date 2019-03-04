@@ -1,4 +1,4 @@
-use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
+use libp2p::{GossipsubConfig, GossipsubConfigBuilder};
 use std::net::IpAddr;
 use version;
 

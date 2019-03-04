@@ -11,9 +11,10 @@ pub use client_types::ClientTypes;
 
 //use beacon_chain::BeaconChain;
 use exit_future::{Exit, Signal};
+use network::Service as NetworkService;
+use slog::o;
 use std::marker::PhantomData;
-//use std::sync::Arc;
-use network::NetworkService;
+use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
@@ -39,11 +40,11 @@ impl<T: ClientTypes> Client<T> {
 
         // TODO: generate a beacon_chain service.
 
-        // start the network service, libp2p and syncing threads
+        // Start the network service, libp2p and syncing threads
         // TODO: Add beacon_chain reference to network parameters
-        let network_config = config.net_config;
-        let network_logger = client.log.new(o!("Service" => "Network"));
-        let (network, network_send) = NetworkService::new(network_config, network_logger);
+        let network_config = config.net_conf.clone();
+        let network_logger = log.new(o!("Service" => "Network"));
+        let (network, network_send) = NetworkService::new(network_config, network_logger)?;
 
         Ok(Client {
             config,

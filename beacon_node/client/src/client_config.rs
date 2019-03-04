@@ -56,7 +56,7 @@ impl ClientConfig {
         // TODO: Handle list of addresses
         if let Some(listen_address_str) = args.value_of("listen_address") {
             if let Ok(listen_address) = listen_address_str.parse::<IpAddr>() {
-                config.net_conf.listen_address = Some(Vec::new(listen_address));
+                config.net_conf.listen_addresses = Some(vec![listen_address]);
             } else {
                 error!(log, "Invalid IP Address"; "Address" => listen_address_str);
                 return Err("Invalid IP Address");

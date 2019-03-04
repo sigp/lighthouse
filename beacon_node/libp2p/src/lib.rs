@@ -2,10 +2,11 @@
 /// all required libp2p functionality.
 ///
 /// This crate builds and manages the libp2p services required by the beacon node.
-extern crate libp2p;
+mod service;
 
-mod libp2p_service;
+pub use libp2p::{
+    gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
+    PeerId,
+};
 
-pub use libp2p::{GossipsubConfig, PeerId};
-
-pub use libp2p_service::LibP2PService;
+pub use service::Service;
