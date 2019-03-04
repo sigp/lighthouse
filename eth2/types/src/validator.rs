@@ -68,6 +68,11 @@ impl Validator {
     pub fn is_penalized_at(&self, epoch: Epoch) -> bool {
         self.penalized_epoch <= epoch
     }
+
+    /// Returns `true` if the validator is considered penalized at some epoch.
+    pub fn has_initiated_exit(&self) -> bool {
+        self.status_flags == Some(StatusFlags::InitiatedExit)
+    }
 }
 
 impl Default for Validator {
