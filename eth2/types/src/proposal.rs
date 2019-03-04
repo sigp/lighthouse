@@ -1,22 +1,18 @@
-use super::Proposal;
 use crate::test_utils::TestRandom;
+use crate::{Hash256, Slot};
+use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-mod builder;
-
-pub use builder::ProposerSlashingBuilder;
-
-/// Two conflicting proposals from the same proposer (validator).
-///
-/// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
-pub struct ProposerSlashing {
-    pub proposer_index: u64,
-    pub proposer_1: Proposal,
-    pub proposer_2: Proposal,
+pub struct Proposal {
+    pub slot: Slot,
+    /// Shard number (spec.beacon_chain_shard_number for beacon chain)
+    pub shard: u64,
+    pub block_root: Hash256,
+    pub signature: Signature,
 }
 
 #[cfg(test)]
@@ -28,7 +24,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = ProposerSlashing::random_for_test(&mut rng);
+        let original = Proposal::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -39,7 +35,7 @@ mod tests {
     #[test]
     pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = ProposerSlashing::random_for_test(&mut rng);
+        let original = Proposal::random_for_test(&mut rng);
 
         let result = original.hash_tree_root_internal();
 
