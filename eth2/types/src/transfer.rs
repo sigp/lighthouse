@@ -1,20 +1,23 @@
-use super::{AggregateSignature, AttestationData, Bitfield};
+use super::Slot;
 use crate::test_utils::TestRandom;
+use bls::{PublicKey, Signature};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-/// Details an attestation that can be slashable.
+/// The data submitted to the deposit contract.
 ///
 /// Spec v0.4.0
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
-pub struct Attestation {
-    pub aggregation_bitfield: Bitfield,
-    pub data: AttestationData,
-    pub custody_bitfield: Bitfield,
-    pub aggregate_signature: AggregateSignature,
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
+pub struct Transfer {
+    pub from: u64,
+    pub to: u64,
+    pub amount: u64,
+    pub fee: u64,
+    pub slot: Slot,
+    pub pubkey: PublicKey,
+    pub signature: Signature,
 }
 
 #[cfg(test)]
@@ -26,7 +29,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Attestation::random_for_test(&mut rng);
+        let original = Transfer::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -37,7 +40,7 @@ mod tests {
     #[test]
     pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Attestation::random_for_test(&mut rng);
+        let original = Transfer::random_for_test(&mut rng);
 
         let result = original.hash_tree_root_internal();
 

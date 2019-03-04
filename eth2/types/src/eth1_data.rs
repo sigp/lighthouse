@@ -5,7 +5,9 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-// Note: this is refer to as DepositRootVote in specs
+/// Contains data obtained from the Eth1 chain.
+///
+/// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Eth1Data {
     pub deposit_root: Hash256,

@@ -1,6 +1,6 @@
 use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
-use crate::{validator::StatusFlags, validator_registry::get_active_validator_indices, *};
+use crate::{validator_registry::get_active_validator_indices, *};
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
 use log::{debug, error, trace};
@@ -82,12 +82,12 @@ pub struct BeaconState {
 
     // Randomness and committees
     pub latest_randao_mixes: Vec<Hash256>,
-    pub previous_epoch_start_shard: u64,
-    pub current_epoch_start_shard: u64,
-    pub previous_calculation_epoch: Epoch,
-    pub current_calculation_epoch: Epoch,
-    pub previous_epoch_seed: Hash256,
-    pub current_epoch_seed: Hash256,
+    pub previous_shuffling_start_shard: u64,
+    pub current_shuffling_start_shard: u64,
+    pub previous_shuffling_epoch: Epoch,
+    pub current_shuffling_epoch: Epoch,
+    pub previous_shuffling_seed: Hash256,
+    pub current_shuffling_seed: Hash256,
 
     // Finality
     pub previous_justified_epoch: Epoch,
@@ -98,8 +98,8 @@ pub struct BeaconState {
     // Recent state
     pub latest_crosslinks: Vec<Crosslink>,
     pub latest_block_roots: Vec<Hash256>,
-    pub latest_index_roots: Vec<Hash256>,
-    pub latest_penalized_balances: Vec<u64>,
+    pub latest_active_index_roots: Vec<Hash256>,
+    pub latest_slashed_balances: Vec<u64>,
     pub latest_attestations: Vec<PendingAttestation>,
     pub batched_block_roots: Vec<Hash256>,
 
@@ -107,7 +107,7 @@ pub struct BeaconState {
     pub latest_eth1_data: Eth1Data,
     pub eth1_data_votes: Vec<Eth1DataVote>,
 
-    // Caching
+    // Caching (not in the spec)
     pub cache_index_offset: usize,
     pub caches: Vec<EpochCache>,
 }
@@ -148,12 +148,12 @@ impl BeaconState {
              * Randomness and committees
              */
             latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize],
-            previous_epoch_start_shard: spec.genesis_start_shard,
-            current_epoch_start_shard: spec.genesis_start_shard,
-            previous_calculation_epoch: spec.genesis_epoch,
-            current_calculation_epoch: spec.genesis_epoch,
-            previous_epoch_seed: spec.zero_hash,
-            current_epoch_seed: spec.zero_hash,
+            previous_shuffling_start_shard: spec.genesis_start_shard,
+            current_shuffling_start_shard: spec.genesis_start_shard,
+            previous_shuffling_epoch: spec.genesis_epoch,
+            current_shuffling_epoch: spec.genesis_epoch,
+            previous_shuffling_seed: spec.zero_hash,
+            current_shuffling_seed: spec.zero_hash,
 
             /*
              * Finality
@@ -168,8 +168,11 @@ impl BeaconState {
              */
             latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
             latest_block_roots: vec![spec.zero_hash; spec.latest_block_roots_length as usize],
-            latest_index_roots: vec![spec.zero_hash; spec.latest_index_roots_length as usize],
-            latest_penalized_balances: vec![0; spec.latest_penalized_exit_length as usize],
+            latest_active_index_roots: vec![
+                spec.zero_hash;
+                spec.latest_active_index_roots_length as usize
+            ],
+            latest_slashed_balances: vec![0; spec.latest_penalized_exit_length as usize],
             latest_attestations: vec![],
             batched_block_roots: vec![],
 
@@ -218,9 +221,10 @@ impl BeaconState {
             &genesis_state.validator_registry,
             spec.genesis_epoch,
         ));
-        genesis_state.latest_index_roots =
-            vec![genesis_active_index_root; spec.latest_index_roots_length];
-        genesis_state.current_epoch_seed = genesis_state.generate_seed(spec.genesis_epoch, spec)?;
+        genesis_state.latest_active_index_roots =
+            vec![genesis_active_index_root; spec.latest_active_index_roots_length];
+        genesis_state.current_shuffling_seed =
+            genesis_state.generate_seed(spec.genesis_epoch, spec)?;
 
         Ok(genesis_state)
     }
@@ -440,7 +444,7 @@ impl BeaconState {
     /// Spec v0.2.0
     fn get_previous_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
         let previous_active_validators =
-            get_active_validator_indices(&self.validator_registry, self.previous_calculation_epoch);
+            get_active_validator_indices(&self.validator_registry, self.previous_shuffling_epoch);
         self.get_epoch_committee_count(previous_active_validators.len(), spec)
     }
 
@@ -449,7 +453,7 @@ impl BeaconState {
     /// Spec v0.2.0
     pub fn get_current_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
         let current_active_validators =
-            get_active_validator_indices(&self.validator_registry, self.current_calculation_epoch);
+            get_active_validator_indices(&self.validator_registry, self.current_shuffling_epoch);
         self.get_epoch_committee_count(current_active_validators.len(), spec)
     }
 
@@ -468,13 +472,17 @@ impl BeaconState {
     pub fn get_active_index_root(&self, epoch: Epoch, spec: &ChainSpec) -> Option<Hash256> {
         let current_epoch = self.current_epoch(spec);
 
-        let earliest_index_root = current_epoch - Epoch::from(spec.latest_index_roots_length)
+        let earliest_index_root = current_epoch
+            - Epoch::from(spec.latest_active_index_roots_length)
             + Epoch::from(spec.entry_exit_delay)
             + 1;
         let latest_index_root = current_epoch + spec.entry_exit_delay;
 
         if (epoch >= earliest_index_root) & (epoch <= latest_index_root) {
-            Some(self.latest_index_roots[epoch.as_usize() % spec.latest_index_roots_length])
+            Some(
+                self.latest_active_index_roots
+                    [epoch.as_usize() % spec.latest_active_index_roots_length],
+            )
         } else {
             None
         }
@@ -566,17 +574,17 @@ impl BeaconState {
             trace!("get_committee_params_at_slot: current_epoch");
             Ok((
                 self.get_current_epoch_committee_count(spec),
-                self.current_epoch_seed,
-                self.current_calculation_epoch,
-                self.current_epoch_start_shard,
+                self.current_shuffling_seed,
+                self.current_shuffling_epoch,
+                self.current_shuffling_start_shard,
             ))
         } else if epoch == previous_epoch {
             trace!("get_committee_params_at_slot: previous_epoch");
             Ok((
                 self.get_previous_epoch_committee_count(spec),
-                self.previous_epoch_seed,
-                self.previous_calculation_epoch,
-                self.previous_epoch_start_shard,
+                self.previous_shuffling_seed,
+                self.previous_shuffling_epoch,
+                self.previous_shuffling_start_shard,
             ))
         } else if epoch == next_epoch {
             trace!("get_committee_params_at_slot: next_epoch");
@@ -587,16 +595,19 @@ impl BeaconState {
                 let next_seed = self.generate_seed(next_epoch, spec)?;
                 (
                     next_seed,
-                    (self.current_epoch_start_shard + current_committees_per_epoch)
+                    (self.current_shuffling_start_shard + current_committees_per_epoch)
                         % spec.shard_count,
                 )
             } else if (epochs_since_last_registry_update > 1)
                 & epochs_since_last_registry_update.is_power_of_two()
             {
                 let next_seed = self.generate_seed(next_epoch, spec)?;
-                (next_seed, self.current_epoch_start_shard)
+                (next_seed, self.current_shuffling_start_shard)
             } else {
-                (self.current_epoch_seed, self.current_epoch_start_shard)
+                (
+                    self.current_shuffling_seed,
+                    self.current_shuffling_start_shard,
+                )
             };
             Ok((
                 self.get_next_epoch_committee_count(spec),
@@ -715,9 +726,9 @@ impl BeaconState {
                 let epoch_index: usize =
                     current_epoch.as_usize() % spec.latest_penalized_exit_length;
 
-                let total_at_start = self.latest_penalized_balances
+                let total_at_start = self.latest_slashed_balances
                     [(epoch_index + 1) % spec.latest_penalized_exit_length];
-                let total_at_end = self.latest_penalized_balances[epoch_index];
+                let total_at_end = self.latest_slashed_balances[epoch_index];
                 let total_penalities = total_at_end.saturating_sub(total_at_start);
                 let penalty = self.get_effective_balance(index, spec)
                     * std::cmp::min(total_penalities * 3, total_balance)
@@ -983,7 +994,7 @@ impl BeaconState {
         self.exit_validator(validator_index, spec);
         let current_epoch = self.current_epoch(spec);
 
-        self.latest_penalized_balances
+        self.latest_slashed_balances
             [current_epoch.as_usize() % spec.latest_penalized_exit_length] +=
             self.get_effective_balance(validator_index, spec);
 
@@ -1329,20 +1340,20 @@ impl Encodable for BeaconState {
         s.append(&self.validator_balances);
         s.append(&self.validator_registry_update_epoch);
         s.append(&self.latest_randao_mixes);
-        s.append(&self.previous_epoch_start_shard);
-        s.append(&self.current_epoch_start_shard);
-        s.append(&self.previous_calculation_epoch);
-        s.append(&self.current_calculation_epoch);
-        s.append(&self.previous_epoch_seed);
-        s.append(&self.current_epoch_seed);
+        s.append(&self.previous_shuffling_start_shard);
+        s.append(&self.current_shuffling_start_shard);
+        s.append(&self.previous_shuffling_epoch);
+        s.append(&self.current_shuffling_epoch);
+        s.append(&self.previous_shuffling_seed);
+        s.append(&self.current_shuffling_seed);
         s.append(&self.previous_justified_epoch);
         s.append(&self.justified_epoch);
         s.append(&self.justification_bitfield);
         s.append(&self.finalized_epoch);
         s.append(&self.latest_crosslinks);
         s.append(&self.latest_block_roots);
-        s.append(&self.latest_index_roots);
-        s.append(&self.latest_penalized_balances);
+        s.append(&self.latest_active_index_roots);
+        s.append(&self.latest_slashed_balances);
         s.append(&self.latest_attestations);
         s.append(&self.batched_block_roots);
         s.append(&self.latest_eth1_data);
@@ -1359,20 +1370,20 @@ impl Decodable for BeaconState {
         let (validator_balances, i) = <_>::ssz_decode(bytes, i)?;
         let (validator_registry_update_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_randao_mixes, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_epoch_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_calculation_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_epoch_seed, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_shuffling_start_shard, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_shuffling_start_shard, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_shuffling_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_shuffling_epoch, i) = <_>::ssz_decode(bytes, i)?;
+        let (previous_shuffling_seed, i) = <_>::ssz_decode(bytes, i)?;
+        let (current_shuffling_seed, i) = <_>::ssz_decode(bytes, i)?;
         let (previous_justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (justification_bitfield, i) = <_>::ssz_decode(bytes, i)?;
         let (finalized_epoch, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_crosslinks, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_index_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_penalized_balances, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_active_index_roots, i) = <_>::ssz_decode(bytes, i)?;
+        let (latest_slashed_balances, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_attestations, i) = <_>::ssz_decode(bytes, i)?;
         let (batched_block_roots, i) = <_>::ssz_decode(bytes, i)?;
         let (latest_eth1_data, i) = <_>::ssz_decode(bytes, i)?;
@@ -1387,20 +1398,20 @@ impl Decodable for BeaconState {
                 validator_balances,
                 validator_registry_update_epoch,
                 latest_randao_mixes,
-                previous_epoch_start_shard,
-                current_epoch_start_shard,
-                previous_calculation_epoch,
-                current_calculation_epoch,
-                previous_epoch_seed,
-                current_epoch_seed,
+                previous_shuffling_start_shard,
+                current_shuffling_start_shard,
+                previous_shuffling_epoch,
+                current_shuffling_epoch,
+                previous_shuffling_seed,
+                current_shuffling_seed,
                 previous_justified_epoch,
                 justified_epoch,
                 justification_bitfield,
                 finalized_epoch,
                 latest_crosslinks,
                 latest_block_roots,
-                latest_index_roots,
-                latest_penalized_balances,
+                latest_active_index_roots,
+                latest_slashed_balances,
                 latest_attestations,
                 batched_block_roots,
                 latest_eth1_data,
@@ -1427,20 +1438,24 @@ impl TreeHash for BeaconState {
                 .hash_tree_root_internal(),
         );
         result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
-        result.append(&mut self.previous_epoch_start_shard.hash_tree_root_internal());
-        result.append(&mut self.current_epoch_start_shard.hash_tree_root_internal());
-        result.append(&mut self.previous_calculation_epoch.hash_tree_root_internal());
-        result.append(&mut self.current_calculation_epoch.hash_tree_root_internal());
-        result.append(&mut self.previous_epoch_seed.hash_tree_root_internal());
-        result.append(&mut self.current_epoch_seed.hash_tree_root_internal());
+        result.append(
+            &mut self
+                .previous_shuffling_start_shard
+                .hash_tree_root_internal(),
+        );
+        result.append(&mut self.current_shuffling_start_shard.hash_tree_root_internal());
+        result.append(&mut self.previous_shuffling_epoch.hash_tree_root_internal());
+        result.append(&mut self.current_shuffling_epoch.hash_tree_root_internal());
+        result.append(&mut self.previous_shuffling_seed.hash_tree_root_internal());
+        result.append(&mut self.current_shuffling_seed.hash_tree_root_internal());
         result.append(&mut self.previous_justified_epoch.hash_tree_root_internal());
         result.append(&mut self.justified_epoch.hash_tree_root_internal());
         result.append(&mut self.justification_bitfield.hash_tree_root_internal());
         result.append(&mut self.finalized_epoch.hash_tree_root_internal());
         result.append(&mut self.latest_crosslinks.hash_tree_root_internal());
         result.append(&mut self.latest_block_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_index_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_penalized_balances.hash_tree_root_internal());
+        result.append(&mut self.latest_active_index_roots.hash_tree_root_internal());
+        result.append(&mut self.latest_slashed_balances.hash_tree_root_internal());
         result.append(&mut self.latest_attestations.hash_tree_root_internal());
         result.append(&mut self.batched_block_roots.hash_tree_root_internal());
         result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
@@ -1459,20 +1474,20 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             validator_balances: <_>::random_for_test(rng),
             validator_registry_update_epoch: <_>::random_for_test(rng),
             latest_randao_mixes: <_>::random_for_test(rng),
-            previous_epoch_start_shard: <_>::random_for_test(rng),
-            current_epoch_start_shard: <_>::random_for_test(rng),
-            previous_calculation_epoch: <_>::random_for_test(rng),
-            current_calculation_epoch: <_>::random_for_test(rng),
-            previous_epoch_seed: <_>::random_for_test(rng),
-            current_epoch_seed: <_>::random_for_test(rng),
+            previous_shuffling_start_shard: <_>::random_for_test(rng),
+            current_shuffling_start_shard: <_>::random_for_test(rng),
+            previous_shuffling_epoch: <_>::random_for_test(rng),
+            current_shuffling_epoch: <_>::random_for_test(rng),
+            previous_shuffling_seed: <_>::random_for_test(rng),
+            current_shuffling_seed: <_>::random_for_test(rng),
             previous_justified_epoch: <_>::random_for_test(rng),
             justified_epoch: <_>::random_for_test(rng),
             justification_bitfield: <_>::random_for_test(rng),
             finalized_epoch: <_>::random_for_test(rng),
             latest_crosslinks: <_>::random_for_test(rng),
             latest_block_roots: <_>::random_for_test(rng),
-            latest_index_roots: <_>::random_for_test(rng),
-            latest_penalized_balances: <_>::random_for_test(rng),
+            latest_active_index_roots: <_>::random_for_test(rng),
+            latest_slashed_balances: <_>::random_for_test(rng),
             latest_attestations: <_>::random_for_test(rng),
             batched_block_roots: <_>::random_for_test(rng),
             latest_eth1_data: <_>::random_for_test(rng),

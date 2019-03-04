@@ -1,11 +1,18 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfield, ChainSpec};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz::TreeHash;
+use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
+/// Details an attestation that can be slashable.
+///
+/// To be included in an `AttesterSlashing`.
+///
+/// Spec v0.4.0
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
 pub struct SlashableAttestation {
+    /// Lists validator registry indices, not committee indices.
     pub validator_indices: Vec<u64>,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
@@ -15,21 +22,21 @@ pub struct SlashableAttestation {
 impl SlashableAttestation {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
-    /// Spec v0.3.0
+    /// Spec v0.4.0
     pub fn is_double_vote(&self, other: &SlashableAttestation, spec: &ChainSpec) -> bool {
         self.data.slot.epoch(spec.epoch_length) == other.data.slot.epoch(spec.epoch_length)
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
-    /// Spec v0.3.0
+    /// Spec v0.4.0
     pub fn is_surround_vote(&self, other: &SlashableAttestation, spec: &ChainSpec) -> bool {
         let source_epoch_1 = self.data.justified_epoch;
         let source_epoch_2 = other.data.justified_epoch;
         let target_epoch_1 = self.data.slot.epoch(spec.epoch_length);
         let target_epoch_2 = other.data.slot.epoch(spec.epoch_length);
 
-        (source_epoch_1 < source_epoch_2) && (target_epoch_2 < target_epoch_1)
+        (source_epoch_1 < source_epoch_2) & (target_epoch_2 < target_epoch_1)
     }
 }
 

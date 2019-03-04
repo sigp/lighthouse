@@ -1,5 +1,5 @@
 use crate::*;
-use ssz::TreeHash;
+use ssz::SignedRoot;
 
 /// Builds a `ProposerSlashing`.
 pub struct ProposerSlashingBuilder();
@@ -22,27 +22,29 @@ impl ProposerSlashingBuilder {
         let slot = Slot::new(0);
         let shard = 0;
 
-        let proposal_data_1 = ProposalSignedData {
+        let mut proposal_1 = Proposal {
             slot,
             shard,
             block_root: Hash256::from(&[1][..]),
+            signature: Signature::empty_signature(),
         };
 
-        let proposal_data_2 = ProposalSignedData {
+        let mut proposal_2 = Proposal {
             slot,
             shard,
             block_root: Hash256::from(&[2][..]),
+            signature: Signature::empty_signature(),
         };
 
-        let proposal_signature_1 = {
-            let message = proposal_data_1.hash_tree_root();
+        proposal_1.signature = {
+            let message = proposal_1.signed_root();
             let epoch = slot.epoch(spec.epoch_length);
             let domain = spec.domain_proposal;
             signer(proposer_index, &message[..], epoch, domain)
         };
 
-        let proposal_signature_2 = {
-            let message = proposal_data_2.hash_tree_root();
+        proposal_2.signature = {
+            let message = proposal_2.signed_root();
             let epoch = slot.epoch(spec.epoch_length);
             let domain = spec.domain_proposal;
             signer(proposer_index, &message[..], epoch, domain)
@@ -50,10 +52,8 @@ impl ProposerSlashingBuilder {
 
         ProposerSlashing {
             proposer_index,
-            proposal_data_1,
-            proposal_signature_1,
-            proposal_data_2,
-            proposal_signature_2,
+            proposal_1,
+            proposal_2,
         }
     }
 }

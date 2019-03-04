@@ -15,8 +15,8 @@ pub use builder::ProposerSlashingBuilder;
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
-    pub proposer_1: Proposal,
-    pub proposer_2: Proposal,
+    pub proposal_1: Proposal,
+    pub proposal_2: Proposal,
 }
 
 #[cfg(test)]

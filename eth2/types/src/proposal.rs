@@ -7,6 +7,9 @@ use ssz::TreeHash;
 use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
 
+/// A proposal for some shard or beacon block.
+///
+/// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
 pub struct Proposal {
     pub slot: Slot,
