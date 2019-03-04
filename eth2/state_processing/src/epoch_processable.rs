@@ -76,7 +76,7 @@ impl EpochProcessable for BeaconState {
          */
         let active_validator_indices = get_active_validator_indices(
             &self.validator_registry,
-            self.slot.epoch(spec.epoch_length),
+            self.slot.epoch(spec.slots_per_epoch),
         );
         let current_total_balance = self.get_total_balance(&active_validator_indices[..], spec);
 
@@ -90,7 +90,7 @@ impl EpochProcessable for BeaconState {
             .latest_attestations
             .par_iter()
             .filter(|a| {
-                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
+                (a.data.slot / spec.slots_per_epoch).epoch(spec.slots_per_epoch)
                     == self.current_epoch(spec)
             })
             .collect();
@@ -137,7 +137,7 @@ impl EpochProcessable for BeaconState {
             .par_iter()
             .filter(|a| {
                 //TODO: ensure these saturating subs are correct.
-                (a.data.slot / spec.epoch_length).epoch(spec.epoch_length)
+                (a.data.slot / spec.slots_per_epoch).epoch(spec.slots_per_epoch)
                     == self.previous_epoch(spec)
             })
             .collect();
@@ -320,12 +320,12 @@ impl EpochProcessable for BeaconState {
         let mut winning_root_for_shards: HashMap<u64, Result<WinningRoot, WinningRootError>> =
             HashMap::new();
 
-        // for slot in self.slot.saturating_sub(2 * spec.epoch_length)..self.slot {
-        for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
+        // for slot in self.slot.saturating_sub(2 * spec.slots_per_epoch)..self.slot {
+        for slot in self.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
             trace!(
                 "Finding winning root for slot: {} (epoch: {})",
                 slot,
-                slot.epoch(spec.epoch_length)
+                slot.epoch(spec.slots_per_epoch)
             );
 
             // Clone is used to remove the borrow. It becomes an issue later when trying to mutate
@@ -506,7 +506,7 @@ impl EpochProcessable for BeaconState {
         /*
          * Crosslinks
          */
-        for slot in self.previous_epoch(spec).slot_iter(spec.epoch_length) {
+        for slot in self.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
             // Clone is used to remove the borrow. It becomes an issue later when trying to mutate
             // `self.balances`.
             let crosslink_committees_at_slot =
@@ -615,7 +615,7 @@ impl EpochProcessable for BeaconState {
         self.latest_attestations = self
             .latest_attestations
             .iter()
-            .filter(|a| a.data.slot.epoch(spec.epoch_length) >= current_epoch)
+            .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) >= current_epoch)
             .cloned()
             .collect();
 

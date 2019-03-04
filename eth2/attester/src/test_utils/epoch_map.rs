@@ -3,22 +3,22 @@ use std::collections::HashMap;
 use types::{Epoch, Slot};
 
 pub struct EpochMap {
-    epoch_length: u64,
+    slots_per_epoch: u64,
     validator_index: Option<u64>,
     map: HashMap<Epoch, (Slot, u64)>,
 }
 
 impl EpochMap {
-    pub fn new(epoch_length: u64) -> Self {
+    pub fn new(slots_per_epoch: u64) -> Self {
         Self {
-            epoch_length,
+            slots_per_epoch,
             validator_index: None,
             map: HashMap::new(),
         }
     }
 
     pub fn insert_attestation_shard(&mut self, slot: Slot, shard: u64) {
-        let epoch = slot.epoch(self.epoch_length);
+        let epoch = slot.epoch(self.slots_per_epoch);
         self.map.insert(epoch, (slot, shard));
     }
 
@@ -29,7 +29,7 @@ impl EpochMap {
 
 impl DutiesReader for EpochMap {
     fn attestation_shard(&self, slot: Slot) -> Result<Option<u64>, DutiesReaderError> {
-        let epoch = slot.epoch(self.epoch_length);
+        let epoch = slot.epoch(self.slots_per_epoch);
 
         match self.map.get(&epoch) {
             Some((attest_slot, attest_shard)) if *attest_slot == slot => Ok(Some(*attest_shard)),

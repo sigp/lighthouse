@@ -5,7 +5,7 @@ fork: tchaikovsky
 version: 1.0
 test_cases:
   - config:
-      epoch_length: 64
+      slots_per_epoch: 64
       deposits_for_chain_start: 1000
       num_slots: 64
       skip_slots: [2, 3]

@@ -337,7 +337,7 @@ impl BeaconState {
     ///
     /// Spec v0.2.0
     pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.slot.epoch(spec.epoch_length)
+        self.slot.epoch(spec.slots_per_epoch)
     }
 
     /// The epoch prior to `self.current_epoch()`.
@@ -363,14 +363,14 @@ impl BeaconState {
     ///
     /// Spec v0.2.0
     pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
-        self.current_epoch(spec).start_slot(spec.epoch_length)
+        self.current_epoch(spec).start_slot(spec.slots_per_epoch)
     }
 
     /// The first slot of the epoch preceeding the one corresponding to `self.slot`.
     ///
     /// Spec v0.2.0
     pub fn previous_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
-        self.previous_epoch(spec).start_slot(spec.epoch_length)
+        self.previous_epoch(spec).start_slot(spec.slots_per_epoch)
     }
 
     /// Return the number of committees in one epoch.
@@ -386,10 +386,10 @@ impl BeaconState {
         std::cmp::max(
             1,
             std::cmp::min(
-                spec.shard_count / spec.epoch_length,
-                active_validator_count as u64 / spec.epoch_length / spec.target_committee_size,
+                spec.shard_count / spec.slots_per_epoch,
+                active_validator_count as u64 / spec.slots_per_epoch / spec.target_committee_size,
             ),
-        ) * spec.epoch_length
+        ) * spec.slots_per_epoch
     }
 
     /// Shuffle ``validators`` into crosslink committees seeded by ``seed`` and ``epoch``.
@@ -520,11 +520,11 @@ impl BeaconState {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Result<&CrosslinkCommittees, Error> {
-        let epoch = slot.epoch(spec.epoch_length);
+        let epoch = slot.epoch(spec.slots_per_epoch);
         let relative_epoch = self.relative_epoch(epoch, spec)?;
         let cache = self.cache(relative_epoch)?;
 
-        let slot_offset = slot - epoch.start_slot(spec.epoch_length);
+        let slot_offset = slot - epoch.start_slot(spec.slots_per_epoch);
 
         Ok(&cache.committees[slot_offset.as_usize()])
     }
@@ -565,7 +565,7 @@ impl BeaconState {
         registry_change: bool,
         spec: &ChainSpec,
     ) -> Result<(u64, Hash256, Epoch, u64), Error> {
-        let epoch = slot.epoch(spec.epoch_length);
+        let epoch = slot.epoch(spec.slots_per_epoch);
         let current_epoch = self.current_epoch(spec);
         let previous_epoch = self.previous_epoch(spec);
         let next_epoch = self.next_epoch(spec);
@@ -639,8 +639,8 @@ impl BeaconState {
         let (committees_per_epoch, _seed, _shuffling_epoch, shuffling_start_shard) =
             self.get_committee_params_at_slot(slot, registry_change, spec)?;
 
-        let offset = slot.as_u64() % spec.epoch_length;
-        let committees_per_slot = committees_per_epoch / spec.epoch_length;
+        let offset = slot.as_u64() % spec.slots_per_epoch;
+        let committees_per_slot = committees_per_epoch / spec.slots_per_epoch;
         let slot_start_shard =
             (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
 
@@ -835,7 +835,7 @@ impl BeaconState {
         proof_of_possession.verify(
             &proof_of_possession_data.hash_tree_root(),
             self.fork
-                .get_domain(self.slot.epoch(spec.epoch_length), spec.domain_deposit),
+                .get_domain(self.slot.epoch(spec.slots_per_epoch), spec.domain_deposit),
             &pubkey,
         )
     }
@@ -1296,7 +1296,7 @@ impl BeaconState {
         bitfield: &Bitfield,
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
-        let epoch = attestation_data.slot.epoch(spec.epoch_length);
+        let epoch = attestation_data.slot.epoch(spec.slots_per_epoch);
         let relative_epoch = self.relative_epoch(epoch, spec)?;
         let cache = self.cache(relative_epoch)?;
 

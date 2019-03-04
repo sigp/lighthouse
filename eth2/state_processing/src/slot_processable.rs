@@ -24,7 +24,7 @@ where
         previous_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        if (self.slot + 1) % spec.epoch_length == 0 {
+        if (self.slot + 1) % spec.slots_per_epoch == 0 {
             self.per_epoch_processing(spec)?;
             self.advance_caches();
         }

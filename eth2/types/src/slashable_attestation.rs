@@ -24,7 +24,7 @@ impl SlashableAttestation {
     ///
     /// Spec v0.4.0
     pub fn is_double_vote(&self, other: &SlashableAttestation, spec: &ChainSpec) -> bool {
-        self.data.slot.epoch(spec.epoch_length) == other.data.slot.epoch(spec.epoch_length)
+        self.data.slot.epoch(spec.slots_per_epoch) == other.data.slot.epoch(spec.slots_per_epoch)
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
@@ -33,8 +33,8 @@ impl SlashableAttestation {
     pub fn is_surround_vote(&self, other: &SlashableAttestation, spec: &ChainSpec) -> bool {
         let source_epoch_1 = self.data.justified_epoch;
         let source_epoch_2 = other.data.justified_epoch;
-        let target_epoch_1 = self.data.slot.epoch(spec.epoch_length);
-        let target_epoch_2 = other.data.slot.epoch(spec.epoch_length);
+        let target_epoch_1 = self.data.slot.epoch(spec.slots_per_epoch);
+        let target_epoch_2 = other.data.slot.epoch(spec.slots_per_epoch);
 
         (source_epoch_1 < source_epoch_2) & (target_epoch_2 < target_epoch_1)
     }
@@ -151,7 +151,7 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut slashable_vote = SlashableAttestation::random_for_test(&mut rng);
 
-        slashable_vote.data.slot = Slot::new(slot_factor * spec.epoch_length);
+        slashable_vote.data.slot = Slot::new(slot_factor * spec.slots_per_epoch);
         slashable_vote.data.justified_epoch = Epoch::new(justified_epoch);
         slashable_vote
     }

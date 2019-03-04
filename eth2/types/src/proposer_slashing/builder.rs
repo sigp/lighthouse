@@ -38,14 +38,14 @@ impl ProposerSlashingBuilder {
 
         proposal_1.signature = {
             let message = proposal_1.signed_root();
-            let epoch = slot.epoch(spec.epoch_length);
+            let epoch = slot.epoch(spec.slots_per_epoch);
             let domain = spec.domain_proposal;
             signer(proposer_index, &message[..], epoch, domain)
         };
 
         proposal_2.signature = {
             let message = proposal_2.signed_root();
-            let epoch = slot.epoch(spec.epoch_length);
+            let epoch = slot.epoch(spec.slots_per_epoch);
             let domain = spec.domain_proposal;
             signer(proposer_index, &message[..], epoch, domain)
         };
