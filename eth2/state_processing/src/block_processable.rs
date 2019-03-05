@@ -5,7 +5,11 @@ use int_to_bytes::int_to_bytes32;
 use log::{debug, trace};
 use ssz::{ssz_encode, TreeHash};
 use types::*;
+use validate_attestation::validate_attestations;
 
+pub use validate_attestation::{validate_attestation, validate_attestation_without_signature};
+
+mod validate_attestation;
 mod verify_slashable_attestation;
 
 const PHASE_0_CUSTODY_BIT: bool = false;
@@ -41,7 +45,6 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     SlotProcessingError(SlotProcessingError),
 }
-
 #[derive(Debug, PartialEq)]
 pub enum AttestationValidationError {
     IncludedTooEarly,
@@ -221,19 +224,10 @@ fn per_block_processing_signature_optional(
         verify_slashable_attestation(&mut state, &attester_slashing, spec)?;
     }
 
-    /*
-     * Attestations
-     */
-    ensure!(
-        block.body.attestations.len() as u64 <= spec.max_attestations,
-        Error::MaxAttestationsExceeded
-    );
+    validate_attestations(&mut state, &block, spec);
 
-    debug!("Verifying {} attestations.", block.body.attestations.len());
-
+    // Convert each attestation into a `PendingAttestation` and insert into the state.
     for attestation in &block.body.attestations {
-        validate_attestation(&state, attestation, spec)?;
-
         let pending_attestation = PendingAttestation {
             data: attestation.data.clone(),
             aggregation_bitfield: attestation.aggregation_bitfield.clone(),
@@ -293,7 +287,7 @@ fn per_block_processing_signature_optional(
         );
         ensure!(state.current_epoch(spec) >= exit.epoch, Error::BadExit);
         let exit_message = {
-            let exit_struct = Exit {
+            let exit_struct = VoluntaryExit {
                 epoch: exit.epoch,
                 validator_index: exit.validator_index,
                 signature: spec.empty_signature.clone(),
@@ -314,110 +308,6 @@ fn per_block_processing_signature_optional(
 
     debug!("State transition complete.");
 
-    Ok(())
-}
-
-pub fn validate_attestation(
-    state: &BeaconState,
-    attestation: &Attestation,
-    spec: &ChainSpec,
-) -> Result<(), AttestationValidationError> {
-    validate_attestation_signature_optional(state, attestation, spec, true)
-}
-
-pub fn validate_attestation_without_signature(
-    state: &BeaconState,
-    attestation: &Attestation,
-    spec: &ChainSpec,
-) -> Result<(), AttestationValidationError> {
-    validate_attestation_signature_optional(state, attestation, spec, false)
-}
-
-fn validate_attestation_signature_optional(
-    state: &BeaconState,
-    attestation: &Attestation,
-    spec: &ChainSpec,
-    verify_signature: bool,
-) -> Result<(), AttestationValidationError> {
-    trace!(
-        "validate_attestation_signature_optional: attestation epoch: {}",
-        attestation.data.slot.epoch(spec.slots_per_epoch)
-    );
-    ensure!(
-        attestation.data.slot + spec.min_attestation_inclusion_delay <= state.slot,
-        AttestationValidationError::IncludedTooEarly
-    );
-    ensure!(
-        attestation.data.slot + spec.slots_per_epoch >= state.slot,
-        AttestationValidationError::IncludedTooLate
-    );
-    if attestation.data.slot >= state.current_epoch_start_slot(spec) {
-        ensure!(
-            attestation.data.justified_epoch == state.justified_epoch,
-            AttestationValidationError::WrongJustifiedSlot
-        );
-    } else {
-        ensure!(
-            attestation.data.justified_epoch == state.previous_justified_epoch,
-            AttestationValidationError::WrongJustifiedSlot
-        );
-    }
-    ensure!(
-        attestation.data.justified_block_root
-            == *state
-                .get_block_root(
-                    attestation
-                        .data
-                        .justified_epoch
-                        .start_slot(spec.slots_per_epoch),
-                    &spec
-                )
-                .ok_or(AttestationValidationError::NoBlockRoot)?,
-        AttestationValidationError::WrongJustifiedRoot
-    );
-    let potential_crosslink = Crosslink {
-        shard_block_root: attestation.data.shard_block_root,
-        epoch: attestation.data.slot.epoch(spec.slots_per_epoch),
-    };
-    ensure!(
-        (attestation.data.latest_crosslink
-            == state.latest_crosslinks[attestation.data.shard as usize])
-            | (attestation.data.latest_crosslink == potential_crosslink),
-        AttestationValidationError::BadLatestCrosslinkRoot
-    );
-    if verify_signature {
-        let participants = state.get_attestation_participants(
-            &attestation.data,
-            &attestation.aggregation_bitfield,
-            spec,
-        )?;
-        trace!(
-            "slot: {}, shard: {}, participants: {:?}",
-            attestation.data.slot,
-            attestation.data.shard,
-            participants
-        );
-        let mut group_public_key = AggregatePublicKey::new();
-        for participant in participants {
-            group_public_key.add(&state.validator_registry[participant as usize].pubkey)
-        }
-        ensure!(
-            attestation.verify_signature(
-                &group_public_key,
-                PHASE_0_CUSTODY_BIT,
-                get_domain(
-                    &state.fork,
-                    attestation.data.slot.epoch(spec.slots_per_epoch),
-                    spec.domain_attestation,
-                )
-            ),
-            AttestationValidationError::BadSignature
-        );
-    }
-    ensure!(
-        attestation.data.shard_block_root == spec.zero_hash,
-        AttestationValidationError::ShardBlockRootNotZero
-    );
     Ok(())
 }
 
