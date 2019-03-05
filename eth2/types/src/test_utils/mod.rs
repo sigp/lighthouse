@@ -6,6 +6,8 @@ pub mod address;
 pub mod aggregate_signature;
 pub mod bitfield;
 pub mod hash256;
+#[macro_use]
+mod macros;
 pub mod public_key;
 pub mod secret_key;
 pub mod signature;
