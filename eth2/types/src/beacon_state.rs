@@ -3,6 +3,7 @@ use crate::test_utils::TestRandom;
 use crate::{validator_registry::get_active_validator_indices, *};
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
+use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
 use rand::RngCore;
 use rayon::prelude::*;
@@ -191,6 +192,7 @@ impl BeaconState {
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
         })
     }
+
     /// Produce the first state of the Beacon Chain.
     pub fn genesis(
         genesis_time: u64,
@@ -328,144 +330,116 @@ impl BeaconState {
         }
     }
 
-    /// Return the tree hash root for this `BeaconState`.
-    ///
-    /// Spec v0.2.0
-    pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
-    }
-
     /// The epoch corresponding to `self.slot`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.slot.epoch(spec.slots_per_epoch)
     }
 
     /// The epoch prior to `self.current_epoch()`.
     ///
-    /// Spec v0.2.0
+    /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
+    ///
+    /// Spec v0.4.0
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
         let current_epoch = self.current_epoch(&spec);
-        if current_epoch == spec.genesis_epoch {
-            current_epoch
-        } else {
-            current_epoch - 1
-        }
+        std::cmp::max(current_epoch - 1, spec.genesis_epoch)
     }
 
     /// The epoch following `self.current_epoch()`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.current_epoch(spec).saturating_add(1_u64)
     }
 
     /// The first slot of the epoch corresponding to `self.slot`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
         self.current_epoch(spec).start_slot(spec.slots_per_epoch)
     }
 
-    /// The first slot of the epoch preceeding the one corresponding to `self.slot`.
+    /// The first slot of the epoch preceding the one corresponding to `self.slot`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn previous_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
         self.previous_epoch(spec).start_slot(spec.slots_per_epoch)
     }
 
-    /// Return the number of committees in one epoch.
-    ///
-    /// TODO: this should probably be a method on `ChainSpec`.
-    ///
-    /// Spec v0.2.0
-    pub fn get_epoch_committee_count(
-        &self,
-        active_validator_count: usize,
-        spec: &ChainSpec,
-    ) -> u64 {
-        std::cmp::max(
-            1,
-            std::cmp::min(
-                spec.shard_count / spec.slots_per_epoch,
-                active_validator_count as u64 / spec.slots_per_epoch / spec.target_committee_size,
-            ),
-        ) * spec.slots_per_epoch
-    }
-
-    /// Shuffle ``validators`` into crosslink committees seeded by ``seed`` and ``epoch``.
-    ///
-    /// Return a list of ``committees_per_epoch`` committees where each
-    /// committee is itself a list of validator indices.
-    ///
-    /// Spec v0.2.0
-    pub(crate) fn get_shuffling(
-        &self,
-        seed: Hash256,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<Vec<Vec<usize>>, Error> {
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, epoch);
-
-        if active_validator_indices.is_empty() {
-            error!("get_shuffling: no validators.");
-            return Err(Error::InsufficientValidators);
-        }
-
-        debug!("Shuffling {} validators...", active_validator_indices.len());
-
-        let committees_per_epoch =
-            self.get_epoch_committee_count(active_validator_indices.len(), spec);
-
-        trace!(
-            "get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
-            active_validator_indices.len(),
-            committees_per_epoch
-        );
-
-        let active_validator_indices: Vec<usize> = active_validator_indices.to_vec();
-
-        let shuffled_active_validator_indices = shuffle_list(
-            active_validator_indices,
-            spec.shuffle_round_count,
-            &seed[..],
-            true,
-        )
-        .ok_or_else(|| Error::UnableToShuffle)?;
-
-        Ok(shuffled_active_validator_indices
-            .honey_badger_split(committees_per_epoch as usize)
-            .map(|slice: &[usize]| slice.to_vec())
-            .collect())
-    }
-
     /// Return the number of committees in the previous epoch.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     fn get_previous_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
         let previous_active_validators =
             get_active_validator_indices(&self.validator_registry, self.previous_shuffling_epoch);
-        self.get_epoch_committee_count(previous_active_validators.len(), spec)
+        spec.get_epoch_committee_count(previous_active_validators.len())
     }
 
     /// Return the number of committees in the current epoch.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn get_current_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
         let current_active_validators =
             get_active_validator_indices(&self.validator_registry, self.current_shuffling_epoch);
-        self.get_epoch_committee_count(current_active_validators.len(), spec)
+        spec.get_epoch_committee_count(current_active_validators.len())
     }
 
     /// Return the number of committees in the next epoch.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn get_next_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
-        let current_active_validators =
+        let next_active_validators =
             get_active_validator_indices(&self.validator_registry, self.next_epoch(spec));
-        self.get_epoch_committee_count(current_active_validators.len(), spec)
+        spec.get_epoch_committee_count(next_active_validators.len())
+    }
+
+    /// Returns the crosslink committees for some slot.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.4.0
+    pub fn get_crosslink_committees_at_slot(
+        &self,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<&CrosslinkCommittees, Error> {
+        let epoch = slot.epoch(spec.slots_per_epoch);
+        let relative_epoch = self.relative_epoch(epoch, spec)?;
+        let cache = self.cache(relative_epoch)?;
+
+        let slot_offset = slot - epoch.start_slot(spec.slots_per_epoch);
+
+        Ok(&cache.committees[slot_offset.as_usize()])
+    }
+
+    /// Return the block root at a recent `slot`.
+    ///
+    /// Spec v0.4.0
+    pub fn get_block_root(&self, slot: Slot, spec: &ChainSpec) -> Option<&Hash256> {
+        if (self.slot <= slot + spec.latest_block_roots_length as u64) && (slot < self.slot) {
+            self.latest_block_roots
+                .get(slot.as_usize() % spec.latest_block_roots_length)
+        } else {
+            None
+        }
+    }
+
+    /// Return the randao mix at a recent ``epoch``.
+    ///
+    /// Spec v0.4.0
+    pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Option<&Hash256> {
+        let current_epoch = self.current_epoch(spec);
+
+        if (current_epoch - (spec.latest_randao_mixes_length as u64) < epoch)
+            & (epoch <= current_epoch)
+        {
+            self.latest_randao_mixes
+                .get(epoch.as_usize() % spec.latest_randao_mixes_length)
+        } else {
+            None
+        }
     }
 
     /// Return the index root at a recent `epoch`.
@@ -490,10 +464,10 @@ impl BeaconState {
 
     /// Generate a seed for the given `epoch`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn generate_seed(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
         let mut input = self
-            .get_randao_mix(epoch, spec)
+            .get_randao_mix(epoch - spec.min_seed_lookahead, spec)
             .ok_or_else(|| Error::InsufficientRandaoMixes)?
             .to_vec();
 
@@ -504,190 +478,16 @@ impl BeaconState {
                 .to_vec(),
         );
 
-        // TODO: ensure `Hash256::from(u64)` == `int_to_bytes32`.
-        input.append(&mut Hash256::from(epoch.as_u64()).to_vec());
+        input.append(&mut int_to_bytes32(epoch.as_u64()));
 
         Ok(Hash256::from(&hash(&input[..])[..]))
-    }
-
-    /// Returns the crosslink committees for some slot.
-    ///
-    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.2.0
-    pub fn get_crosslink_committees_at_slot(
-        &self,
-        slot: Slot,
-        spec: &ChainSpec,
-    ) -> Result<&CrosslinkCommittees, Error> {
-        let epoch = slot.epoch(spec.slots_per_epoch);
-        let relative_epoch = self.relative_epoch(epoch, spec)?;
-        let cache = self.cache(relative_epoch)?;
-
-        let slot_offset = slot - epoch.start_slot(spec.slots_per_epoch);
-
-        Ok(&cache.committees[slot_offset.as_usize()])
-    }
-
-    /// Returns the crosslink committees for some slot.
-    ///
-    /// Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.2.0
-    pub(crate) fn get_shuffling_for_slot(
-        &self,
-        slot: Slot,
-        registry_change: bool,
-
-        spec: &ChainSpec,
-    ) -> Result<Vec<Vec<usize>>, Error> {
-        let (_committees_per_epoch, seed, shuffling_epoch, _shuffling_start_shard) =
-            self.get_committee_params_at_slot(slot, registry_change, spec)?;
-
-        self.get_shuffling(seed, shuffling_epoch, spec)
-    }
-
-    /// Returns the following params for the given slot:
-    ///
-    /// - epoch committee count
-    /// - epoch seed
-    /// - calculation epoch
-    /// - start shard
-    ///
-    /// In the spec, this functionality is included in the `get_crosslink_committees_at_slot(..)`
-    /// function. It is separated here to allow the division of shuffling and committee building,
-    /// as is required for efficient operations.
-    ///
-    /// Spec v0.2.0
-    pub(crate) fn get_committee_params_at_slot(
-        &self,
-        slot: Slot,
-        registry_change: bool,
-        spec: &ChainSpec,
-    ) -> Result<(u64, Hash256, Epoch, u64), Error> {
-        let epoch = slot.epoch(spec.slots_per_epoch);
-        let current_epoch = self.current_epoch(spec);
-        let previous_epoch = self.previous_epoch(spec);
-        let next_epoch = self.next_epoch(spec);
-
-        if epoch == current_epoch {
-            trace!("get_committee_params_at_slot: current_epoch");
-            Ok((
-                self.get_current_epoch_committee_count(spec),
-                self.current_shuffling_seed,
-                self.current_shuffling_epoch,
-                self.current_shuffling_start_shard,
-            ))
-        } else if epoch == previous_epoch {
-            trace!("get_committee_params_at_slot: previous_epoch");
-            Ok((
-                self.get_previous_epoch_committee_count(spec),
-                self.previous_shuffling_seed,
-                self.previous_shuffling_epoch,
-                self.previous_shuffling_start_shard,
-            ))
-        } else if epoch == next_epoch {
-            trace!("get_committee_params_at_slot: next_epoch");
-            let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
-            let epochs_since_last_registry_update =
-                current_epoch - self.validator_registry_update_epoch;
-            let (seed, shuffling_start_shard) = if registry_change {
-                let next_seed = self.generate_seed(next_epoch, spec)?;
-                (
-                    next_seed,
-                    (self.current_shuffling_start_shard + current_committees_per_epoch)
-                        % spec.shard_count,
-                )
-            } else if (epochs_since_last_registry_update > 1)
-                & epochs_since_last_registry_update.is_power_of_two()
-            {
-                let next_seed = self.generate_seed(next_epoch, spec)?;
-                (next_seed, self.current_shuffling_start_shard)
-            } else {
-                (
-                    self.current_shuffling_seed,
-                    self.current_shuffling_start_shard,
-                )
-            };
-            Ok((
-                self.get_next_epoch_committee_count(spec),
-                seed,
-                next_epoch,
-                shuffling_start_shard,
-            ))
-        } else {
-            Err(Error::EpochOutOfBounds)
-        }
-    }
-
-    /// Return the list of ``(committee, shard)`` tuples for the ``slot``.
-    ///
-    /// Note: There are two possible shufflings for crosslink committees for a
-    /// `slot` in the next epoch: with and without a `registry_change`
-    ///
-    /// Note: does not utilize the cache, `get_crosslink_committees_at_slot` is an equivalent
-    /// function which uses the cache.
-    ///
-    /// Spec v0.2.0
-    pub(crate) fn calculate_crosslink_committees_at_slot(
-        &self,
-        slot: Slot,
-        registry_change: bool,
-        shuffling: Vec<Vec<usize>>,
-        spec: &ChainSpec,
-    ) -> Result<Vec<(Vec<usize>, u64)>, Error> {
-        let (committees_per_epoch, _seed, _shuffling_epoch, shuffling_start_shard) =
-            self.get_committee_params_at_slot(slot, registry_change, spec)?;
-
-        let offset = slot.as_u64() % spec.slots_per_epoch;
-        let committees_per_slot = committees_per_epoch / spec.slots_per_epoch;
-        let slot_start_shard =
-            (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
-
-        let mut crosslinks_at_slot = vec![];
-        for i in 0..committees_per_slot {
-            let tuple = (
-                shuffling[(committees_per_slot * offset + i) as usize].clone(),
-                (slot_start_shard + i) % spec.shard_count,
-            );
-            crosslinks_at_slot.push(tuple)
-        }
-        Ok(crosslinks_at_slot)
-    }
-
-    /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
-    /// attestation.
-    ///
-    /// Only reads the current epoch.
-    ///
-    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.2.0
-    pub fn attestation_slot_and_shard_for_validator(
-        &self,
-        validator_index: usize,
-        _spec: &ChainSpec,
-    ) -> Result<Option<(Slot, u64, u64)>, Error> {
-        let cache = self.cache(RelativeEpoch::Current)?;
-
-        Ok(cache
-            .attestation_duty_map
-            .get(&(validator_index as u64))
-            .and_then(|tuple| Some(*tuple)))
-    }
-
-    ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
-    ///
-    ///  Spec v0.4.0
-    pub fn get_delayed_activation_exit_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
-        epoch + 1 + spec.activation_exit_delay
     }
 
     /// Returns the beacon proposer index for the `slot`.
     ///
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
         let committees = self.get_crosslink_committees_at_slot(slot, spec)?;
         trace!(
@@ -707,146 +507,166 @@ impl BeaconState {
             })
     }
 
-    /// Process the slashings.
+    /// Returns the list of validator indices which participiated in the attestation.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
     /// Spec v0.4.0
-    pub fn process_slashings(&mut self, spec: &ChainSpec) {
-        let current_epoch = self.current_epoch(spec);
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, current_epoch);
-        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
-
-        for (index, validator) in self.validator_registry.iter().enumerate() {
-            if validator.slashed
-                && (current_epoch
-                    == validator.withdrawable_epoch
-                        - Epoch::from(spec.latest_slashed_exit_length / 2))
-            {
-                let epoch_index: usize = current_epoch.as_usize() % spec.latest_slashed_exit_length;
-
-                let total_at_start = self.latest_slashed_balances
-                    [(epoch_index + 1) % spec.latest_slashed_exit_length];
-                let total_at_end = self.latest_slashed_balances[epoch_index];
-                let total_penalities = total_at_end.saturating_sub(total_at_start);
-                let penalty = std::cmp::max(
-                    self.get_effective_balance(index, spec)
-                        * std::cmp::min(total_penalities * 3, total_balance)
-                        / total_balance,
-                    self.get_effective_balance(index, spec) / spec.min_penalty_quotient,
-                );
-
-                safe_sub_assign!(self.validator_balances[index], penalty);
-            }
-        }
-    }
-
-    /// Process the exit queue.
-    ///
-    /// Spec v0.4.0
-    pub fn process_exit_queue(&mut self, spec: &ChainSpec) {
-        let current_epoch = self.current_epoch(spec);
-
-        let eligible = |index: usize| {
-            let validator = &self.validator_registry[index];
-
-            if validator.withdrawable_epoch != spec.far_future_epoch {
-                false
-            } else {
-                current_epoch >= validator.exit_epoch + spec.min_validator_withdrawability_delay
-            }
-        };
-
-        let mut eligable_indices: Vec<usize> = (0..self.validator_registry.len())
-            .filter(|i| eligible(*i))
-            .collect();
-        eligable_indices.sort_by_key(|i| self.validator_registry[*i].exit_epoch);
-
-        for (withdrawn_so_far, index) in eligable_indices.iter().enumerate() {
-            if withdrawn_so_far as u64 >= spec.max_exit_dequeues_per_epoch {
-                break;
-            }
-            self.prepare_validator_for_withdrawal(*index, spec);
-        }
-    }
-
-    /// Return the randao mix at a recent ``epoch``.
-    ///
-    /// Returns `None` if the epoch is out-of-bounds of `self.latest_randao_mixes`.
-    ///
-    /// Spec v0.2.0
-    pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Option<&Hash256> {
-        self.latest_randao_mixes
-            .get(epoch.as_usize() % spec.latest_randao_mixes_length)
-    }
-
-    /// Update validator registry, activating/exiting validators if possible.
-    ///
-    /// Spec v0.4.0
-    pub fn update_validator_registry(&mut self, spec: &ChainSpec) {
-        let current_epoch = self.current_epoch(spec);
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, current_epoch);
-        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
-
-        let max_balance_churn = std::cmp::max(
-            spec.max_deposit_amount,
-            total_balance / (2 * spec.max_balance_churn_quotient),
-        );
-
-        let mut balance_churn = 0;
-        for index in 0..self.validator_registry.len() {
-            let validator = &self.validator_registry[index];
-
-            if (validator.activation_epoch == spec.far_future_epoch)
-                & (self.validator_balances[index] == spec.max_deposit_amount)
-            {
-                balance_churn += self.get_effective_balance(index, spec);
-                if balance_churn > max_balance_churn {
-                    break;
-                }
-                self.activate_validator(index, false, spec);
-            }
-        }
-
-        let mut balance_churn = 0;
-        for index in 0..self.validator_registry.len() {
-            let validator = &self.validator_registry[index];
-
-            if (validator.exit_epoch == spec.far_future_epoch) & (validator.initiated_exit) {
-                balance_churn += self.get_effective_balance(index, spec);
-                if balance_churn > max_balance_churn {
-                    break;
-                }
-
-                self.exit_validator(index, spec);
-            }
-        }
-
-        self.validator_registry_update_epoch = current_epoch;
-    }
-
-    /// Confirm validator owns PublicKey
-    ///
-    /// Spec v0.2.0
-    pub fn validate_proof_of_possession(
+    pub fn get_attestation_participants(
         &self,
-        pubkey: PublicKey,
-        proof_of_possession: Signature,
-        withdrawal_credentials: Hash256,
+        attestation_data: &AttestationData,
+        bitfield: &Bitfield,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        let epoch = attestation_data.slot.epoch(spec.slots_per_epoch);
+        let relative_epoch = self.relative_epoch(epoch, spec)?;
+        let cache = self.cache(relative_epoch)?;
+
+        let (committee_slot_index, committee_index) = cache
+            .shard_committee_index_map
+            .get(&attestation_data.shard)
+            .ok_or_else(|| Error::ShardOutOfBounds)?;
+        let (committee, shard) = &cache.committees[*committee_slot_index][*committee_index];
+
+        assert_eq!(*shard, attestation_data.shard, "Bad epoch cache build.");
+
+        let mut participants = vec![];
+        for (i, validator_index) in committee.iter().enumerate() {
+            if bitfield.get(i).unwrap() {
+                participants.push(*validator_index);
+            }
+        }
+
+        Ok(participants)
+    }
+
+    /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
+    ///
+    /// Spec v0.4.0
+    pub fn get_effective_balance(&self, validator_index: usize, spec: &ChainSpec) -> u64 {
+        std::cmp::min(
+            self.validator_balances[validator_index],
+            spec.max_deposit_amount,
+        )
+    }
+
+    /// Return the combined effective balance of an array of validators.
+    ///
+    /// Spec v0.4.0
+    pub fn get_total_balance(&self, validator_indices: &[usize], spec: &ChainSpec) -> u64 {
+        validator_indices
+            .iter()
+            .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec))
+    }
+
+    /// Verify ``bitfield`` against the ``committee_size``.
+    ///
+    /// Spec v0.4.0
+    pub fn verify_bitfield(&self, bitfield: &Bitfield, committee_size: usize) -> bool {
+        if bitfield.num_bytes() != ((committee_size + 7) / 8) {
+            return false;
+        }
+
+        for i in committee_size..(bitfield.num_bytes() * 8) {
+            if bitfield.get(i).expect("Impossible due to previous check.") {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Verify validity of ``slashable_attestation`` fields.
+    ///
+    /// Spec v0.4.0
+    pub fn verify_slashable_attestation(
+        &self,
+        slashable_attestation: &SlashableAttestation,
         spec: &ChainSpec,
     ) -> bool {
-        let proof_of_possession_data = DepositInput {
-            pubkey: pubkey.clone(),
-            withdrawal_credentials,
-            proof_of_possession: Signature::empty_signature(),
-        };
+        if slashable_attestation.custody_bitfield.num_set_bits() > 0 {
+            return false;
+        }
 
-        proof_of_possession.verify(
-            &proof_of_possession_data.hash_tree_root(),
-            self.fork
-                .get_domain(self.slot.epoch(spec.slots_per_epoch), spec.domain_deposit),
-            &pubkey,
+        if slashable_attestation.validator_indices.is_empty() {
+            return false;
+        }
+
+        for i in 0..(slashable_attestation.validator_indices.len() - 1) {
+            if slashable_attestation.validator_indices[i]
+                >= slashable_attestation.validator_indices[i + 1]
+            {
+                return false;
+            }
+        }
+
+        if !self.verify_bitfield(
+            &slashable_attestation.custody_bitfield,
+            slashable_attestation.validator_indices.len(),
+        ) {
+            return false;
+        }
+
+        if slashable_attestation.validator_indices.len()
+            > spec.max_indices_per_slashable_vote as usize
+        {
+            return false;
+        }
+
+        let mut aggregate_pubs = vec![AggregatePublicKey::new(); 2];
+        let mut message_exists = vec![false; 2];
+
+        for (i, v) in slashable_attestation.validator_indices.iter().enumerate() {
+            let custody_bit = match slashable_attestation.custody_bitfield.get(i) {
+                Ok(bit) => bit,
+                Err(_) => unreachable!(),
+            };
+
+            message_exists[custody_bit as usize] = true;
+
+            match self.validator_registry.get(*v as usize) {
+                Some(validator) => {
+                    aggregate_pubs[custody_bit as usize].add(&validator.pubkey);
+                }
+                None => return false,
+            };
+        }
+
+        let message_0 = AttestationDataAndCustodyBit {
+            data: slashable_attestation.data.clone(),
+            custody_bit: false,
+        }
+        .hash_tree_root();
+        let message_1 = AttestationDataAndCustodyBit {
+            data: slashable_attestation.data.clone(),
+            custody_bit: true,
+        }
+        .hash_tree_root();
+
+        let mut messages = vec![];
+        let mut keys = vec![];
+
+        if message_exists[0] {
+            messages.push(&message_0[..]);
+            keys.push(&aggregate_pubs[0]);
+        }
+        if message_exists[1] {
+            messages.push(&message_1[..]);
+            keys.push(&aggregate_pubs[1]);
+        }
+
+        slashable_attestation.aggregate_signature.verify_multiple(
+            &messages[..],
+            spec.domain_attestation,
+            &keys[..],
         )
+    }
+
+    ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
+    ///
+    ///  Spec v0.4.0
+    pub fn get_delayed_activation_exit_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
+        epoch + 1 + spec.activation_exit_delay
     }
 
     /// Process multiple deposits in sequence.
@@ -855,7 +675,7 @@ impl BeaconState {
     /// call to `process_deposit(..)`. This requires much less computation than successive calls to
     /// `process_deposits(..)` without the hashmap.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn process_deposits(
         &mut self,
         deposits: Vec<&DepositData>,
@@ -1030,17 +850,339 @@ impl BeaconState {
 
     /// Initiate an exit for the validator of the given `index`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn prepare_validator_for_withdrawal(&mut self, validator_index: usize, spec: &ChainSpec) {
         //TODO: we're not ANDing here, we're setting. Potentially wrong.
         self.validator_registry[validator_index].withdrawable_epoch =
             self.current_epoch(spec) + spec.min_validator_withdrawability_delay;
     }
 
+    /// Returns the crosslink committees for some slot.
+    ///
+    /// Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.4.0
+    pub(crate) fn get_shuffling_for_slot(
+        &self,
+        slot: Slot,
+        registry_change: bool,
+
+        spec: &ChainSpec,
+    ) -> Result<Vec<Vec<usize>>, Error> {
+        let (_committees_per_epoch, seed, shuffling_epoch, _shuffling_start_shard) =
+            self.get_committee_params_at_slot(slot, registry_change, spec)?;
+
+        self.get_shuffling(seed, shuffling_epoch, spec)
+    }
+
+    /// Shuffle ``validators`` into crosslink committees seeded by ``seed`` and ``epoch``.
+    ///
+    /// Return a list of ``committees_per_epoch`` committees where each
+    /// committee is itself a list of validator indices.
+    ///
+    /// Spec v0.4.0
+    pub(crate) fn get_shuffling(
+        &self,
+        seed: Hash256,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Vec<Vec<usize>>, Error> {
+        let active_validator_indices =
+            get_active_validator_indices(&self.validator_registry, epoch);
+
+        if active_validator_indices.is_empty() {
+            error!("get_shuffling: no validators.");
+            return Err(Error::InsufficientValidators);
+        }
+
+        debug!("Shuffling {} validators...", active_validator_indices.len());
+
+        let committees_per_epoch = spec.get_epoch_committee_count(active_validator_indices.len());
+
+        trace!(
+            "get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
+            active_validator_indices.len(),
+            committees_per_epoch
+        );
+
+        let active_validator_indices: Vec<usize> = active_validator_indices.to_vec();
+
+        let shuffled_active_validator_indices = shuffle_list(
+            active_validator_indices,
+            spec.shuffle_round_count,
+            &seed[..],
+            true,
+        )
+        .ok_or_else(|| Error::UnableToShuffle)?;
+
+        Ok(shuffled_active_validator_indices
+            .honey_badger_split(committees_per_epoch as usize)
+            .map(|slice: &[usize]| slice.to_vec())
+            .collect())
+    }
+
+    /// Returns the following params for the given slot:
+    ///
+    /// - epoch committee count
+    /// - epoch seed
+    /// - calculation epoch
+    /// - start shard
+    ///
+    /// In the spec, this functionality is included in the `get_crosslink_committees_at_slot(..)`
+    /// function. It is separated here to allow the division of shuffling and committee building,
+    /// as is required for efficient operations.
+    ///
+    /// Spec v0.4.0
+    pub(crate) fn get_committee_params_at_slot(
+        &self,
+        slot: Slot,
+        registry_change: bool,
+        spec: &ChainSpec,
+    ) -> Result<(u64, Hash256, Epoch, u64), Error> {
+        let epoch = slot.epoch(spec.slots_per_epoch);
+        let current_epoch = self.current_epoch(spec);
+        let previous_epoch = self.previous_epoch(spec);
+        let next_epoch = self.next_epoch(spec);
+
+        if epoch == current_epoch {
+            Ok((
+                self.get_current_epoch_committee_count(spec),
+                self.current_shuffling_seed,
+                self.current_shuffling_epoch,
+                self.current_shuffling_start_shard,
+            ))
+        } else if epoch == previous_epoch {
+            Ok((
+                self.get_previous_epoch_committee_count(spec),
+                self.previous_shuffling_seed,
+                self.previous_shuffling_epoch,
+                self.previous_shuffling_start_shard,
+            ))
+        } else if epoch == next_epoch {
+            let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
+            let epochs_since_last_registry_update =
+                current_epoch - self.validator_registry_update_epoch;
+            let (seed, shuffling_start_shard) = if registry_change {
+                let next_seed = self.generate_seed(next_epoch, spec)?;
+                (
+                    next_seed,
+                    (self.current_shuffling_start_shard + current_committees_per_epoch)
+                        % spec.shard_count,
+                )
+            } else if (epochs_since_last_registry_update > 1)
+                & epochs_since_last_registry_update.is_power_of_two()
+            {
+                let next_seed = self.generate_seed(next_epoch, spec)?;
+                (next_seed, self.current_shuffling_start_shard)
+            } else {
+                (
+                    self.current_shuffling_seed,
+                    self.current_shuffling_start_shard,
+                )
+            };
+            Ok((
+                self.get_next_epoch_committee_count(spec),
+                seed,
+                next_epoch,
+                shuffling_start_shard,
+            ))
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }
+    }
+
+    /// Return the list of ``(committee, shard)`` tuples for the ``slot``.
+    ///
+    /// Note: There are two possible shufflings for crosslink committees for a
+    /// `slot` in the next epoch: with and without a `registry_change`
+    ///
+    /// Note: does not utilize the cache, `get_crosslink_committees_at_slot` is an equivalent
+    /// function which uses the cache.
+    ///
+    /// Spec v0.4.0
+    pub(crate) fn calculate_crosslink_committees_at_slot(
+        &self,
+        slot: Slot,
+        registry_change: bool,
+        shuffling: Vec<Vec<usize>>,
+        spec: &ChainSpec,
+    ) -> Result<Vec<(Vec<usize>, u64)>, Error> {
+        let (committees_per_epoch, _seed, _shuffling_epoch, shuffling_start_shard) =
+            self.get_committee_params_at_slot(slot, registry_change, spec)?;
+
+        let offset = slot.as_u64() % spec.slots_per_epoch;
+        let committees_per_slot = committees_per_epoch / spec.slots_per_epoch;
+        let slot_start_shard =
+            (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
+
+        let mut crosslinks_at_slot = vec![];
+        for i in 0..committees_per_slot {
+            let tuple = (
+                shuffling[(committees_per_slot * offset + i) as usize].clone(),
+                (slot_start_shard + i) % spec.shard_count,
+            );
+            crosslinks_at_slot.push(tuple)
+        }
+        Ok(crosslinks_at_slot)
+    }
+
+    /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
+    /// attestation.
+    ///
+    /// Only reads the current epoch.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.4.0
+    pub fn attestation_slot_and_shard_for_validator(
+        &self,
+        validator_index: usize,
+        _spec: &ChainSpec,
+    ) -> Result<Option<(Slot, u64, u64)>, Error> {
+        let cache = self.cache(RelativeEpoch::Current)?;
+
+        Ok(cache
+            .attestation_duty_map
+            .get(&(validator_index as u64))
+            .and_then(|tuple| Some(*tuple)))
+    }
+
+    /// Process the slashings.
+    ///
+    /// Spec v0.4.0
+    pub fn process_slashings(&mut self, spec: &ChainSpec) {
+        let current_epoch = self.current_epoch(spec);
+        let active_validator_indices =
+            get_active_validator_indices(&self.validator_registry, current_epoch);
+        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
+
+        for (index, validator) in self.validator_registry.iter().enumerate() {
+            if validator.slashed
+                && (current_epoch
+                    == validator.withdrawable_epoch
+                        - Epoch::from(spec.latest_slashed_exit_length / 2))
+            {
+                let epoch_index: usize = current_epoch.as_usize() % spec.latest_slashed_exit_length;
+
+                let total_at_start = self.latest_slashed_balances
+                    [(epoch_index + 1) % spec.latest_slashed_exit_length];
+                let total_at_end = self.latest_slashed_balances[epoch_index];
+                let total_penalities = total_at_end.saturating_sub(total_at_start);
+                let penalty = std::cmp::max(
+                    self.get_effective_balance(index, spec)
+                        * std::cmp::min(total_penalities * 3, total_balance)
+                        / total_balance,
+                    self.get_effective_balance(index, spec) / spec.min_penalty_quotient,
+                );
+
+                safe_sub_assign!(self.validator_balances[index], penalty);
+            }
+        }
+    }
+
+    /// Process the exit queue.
+    ///
+    /// Spec v0.4.0
+    pub fn process_exit_queue(&mut self, spec: &ChainSpec) {
+        let current_epoch = self.current_epoch(spec);
+
+        let eligible = |index: usize| {
+            let validator = &self.validator_registry[index];
+
+            if validator.withdrawable_epoch != spec.far_future_epoch {
+                false
+            } else {
+                current_epoch >= validator.exit_epoch + spec.min_validator_withdrawability_delay
+            }
+        };
+
+        let mut eligable_indices: Vec<usize> = (0..self.validator_registry.len())
+            .filter(|i| eligible(*i))
+            .collect();
+        eligable_indices.sort_by_key(|i| self.validator_registry[*i].exit_epoch);
+
+        for (withdrawn_so_far, index) in eligable_indices.iter().enumerate() {
+            if withdrawn_so_far as u64 >= spec.max_exit_dequeues_per_epoch {
+                break;
+            }
+            self.prepare_validator_for_withdrawal(*index, spec);
+        }
+    }
+
+    /// Update validator registry, activating/exiting validators if possible.
+    ///
+    /// Spec v0.4.0
+    pub fn update_validator_registry(&mut self, spec: &ChainSpec) {
+        let current_epoch = self.current_epoch(spec);
+        let active_validator_indices =
+            get_active_validator_indices(&self.validator_registry, current_epoch);
+        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
+
+        let max_balance_churn = std::cmp::max(
+            spec.max_deposit_amount,
+            total_balance / (2 * spec.max_balance_churn_quotient),
+        );
+
+        let mut balance_churn = 0;
+        for index in 0..self.validator_registry.len() {
+            let validator = &self.validator_registry[index];
+
+            if (validator.activation_epoch == spec.far_future_epoch)
+                & (self.validator_balances[index] == spec.max_deposit_amount)
+            {
+                balance_churn += self.get_effective_balance(index, spec);
+                if balance_churn > max_balance_churn {
+                    break;
+                }
+                self.activate_validator(index, false, spec);
+            }
+        }
+
+        let mut balance_churn = 0;
+        for index in 0..self.validator_registry.len() {
+            let validator = &self.validator_registry[index];
+
+            if (validator.exit_epoch == spec.far_future_epoch) & (validator.initiated_exit) {
+                balance_churn += self.get_effective_balance(index, spec);
+                if balance_churn > max_balance_churn {
+                    break;
+                }
+
+                self.exit_validator(index, spec);
+            }
+        }
+
+        self.validator_registry_update_epoch = current_epoch;
+    }
+
+    /// Confirm validator owns PublicKey
+    ///
+    /// Spec v0.4.0
+    pub fn validate_proof_of_possession(
+        &self,
+        pubkey: PublicKey,
+        proof_of_possession: Signature,
+        withdrawal_credentials: Hash256,
+        spec: &ChainSpec,
+    ) -> bool {
+        let proof_of_possession_data = DepositInput {
+            pubkey: pubkey.clone(),
+            withdrawal_credentials,
+            proof_of_possession: Signature::empty_signature(),
+        };
+
+        proof_of_possession.verify(
+            &proof_of_possession_data.hash_tree_root(),
+            self.fork
+                .get_domain(self.slot.epoch(spec.slots_per_epoch), spec.domain_deposit),
+            &pubkey,
+        )
+    }
+
     /// Iterate through the validator registry and eject active validators with balance below
     /// ``EJECTION_BALANCE``.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn process_ejections(&mut self, spec: &ChainSpec) {
         for validator_index in
             get_active_validator_indices(&self.validator_registry, self.current_epoch(spec))
@@ -1055,7 +1197,7 @@ impl BeaconState {
     ///
     /// Note: this is defined "inline" in the spec, not as a helper function.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn inactivity_penalty(
         &self,
         validator_index: usize,
@@ -1075,7 +1217,7 @@ impl BeaconState {
     ///
     /// Note: In the spec this is defined "inline", not as a helper function.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn inclusion_distance(
         &self,
         attestations: &[&PendingAttestation],
@@ -1091,7 +1233,7 @@ impl BeaconState {
     ///
     /// Note: In the spec this is defined "inline", not as a helper function.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn inclusion_slot(
         &self,
         attestations: &[&PendingAttestation],
@@ -1107,7 +1249,7 @@ impl BeaconState {
     ///
     /// Note: In the spec this is defined "inline", not as a helper function.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     fn earliest_included_attestation(
         &self,
         attestations: &[&PendingAttestation],
@@ -1135,7 +1277,7 @@ impl BeaconState {
     ///
     /// Note: In the spec this is defined "inline", not as a helper function.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn base_reward(
         &self,
         validator_index: usize,
@@ -1145,141 +1287,9 @@ impl BeaconState {
         self.get_effective_balance(validator_index, spec) / base_reward_quotient / 5
     }
 
-    /// Return the combined effective balance of an array of validators.
+    /// Returns the union of all participants in the provided attestations
     ///
-    /// Spec v0.2.0
-    pub fn get_total_balance(&self, validator_indices: &[usize], spec: &ChainSpec) -> u64 {
-        validator_indices
-            .iter()
-            .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec))
-    }
-
-    /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
-    ///
-    /// Spec v0.2.0
-    pub fn get_effective_balance(&self, validator_index: usize, spec: &ChainSpec) -> u64 {
-        std::cmp::min(
-            self.validator_balances[validator_index],
-            spec.max_deposit_amount,
-        )
-    }
-
-    /// Verify ``bitfield`` against the ``committee_size``.
-    ///
-    /// Spec v0.2.0
-    pub fn verify_bitfield(&self, bitfield: &Bitfield, committee_size: usize) -> bool {
-        if bitfield.num_bytes() != ((committee_size + 7) / 8) {
-            return false;
-        }
-
-        for i in committee_size..(bitfield.num_bytes() * 8) {
-            match bitfield.get(i) {
-                Ok(bit) => {
-                    if bit {
-                        return false;
-                    }
-                }
-                Err(_) => unreachable!(),
-            }
-        }
-
-        true
-    }
-
-    /// Verify validity of ``slashable_attestation`` fields.
-    ///
-    /// Spec v0.2.0
-    pub fn verify_slashable_attestation(
-        &self,
-        slashable_attestation: &SlashableAttestation,
-        spec: &ChainSpec,
-    ) -> bool {
-        if slashable_attestation.custody_bitfield.num_set_bits() > 0 {
-            return false;
-        }
-
-        if slashable_attestation.validator_indices.is_empty() {
-            return false;
-        }
-
-        for i in 0..(slashable_attestation.validator_indices.len() - 1) {
-            if slashable_attestation.validator_indices[i]
-                >= slashable_attestation.validator_indices[i + 1]
-            {
-                return false;
-            }
-        }
-
-        if !self.verify_bitfield(
-            &slashable_attestation.custody_bitfield,
-            slashable_attestation.validator_indices.len(),
-        ) {
-            return false;
-        }
-
-        if slashable_attestation.validator_indices.len()
-            > spec.max_indices_per_slashable_vote as usize
-        {
-            return false;
-        }
-
-        let mut aggregate_pubs = vec![AggregatePublicKey::new(); 2];
-        let mut message_exists = vec![false; 2];
-
-        for (i, v) in slashable_attestation.validator_indices.iter().enumerate() {
-            let custody_bit = match slashable_attestation.custody_bitfield.get(i) {
-                Ok(bit) => bit,
-                Err(_) => unreachable!(),
-            };
-
-            message_exists[custody_bit as usize] = true;
-
-            match self.validator_registry.get(*v as usize) {
-                Some(validator) => {
-                    aggregate_pubs[custody_bit as usize].add(&validator.pubkey);
-                }
-                None => return false,
-            };
-        }
-
-        let message_0 = AttestationDataAndCustodyBit {
-            data: slashable_attestation.data.clone(),
-            custody_bit: false,
-        }
-        .hash_tree_root();
-        let message_1 = AttestationDataAndCustodyBit {
-            data: slashable_attestation.data.clone(),
-            custody_bit: true,
-        }
-        .hash_tree_root();
-
-        let mut messages = vec![];
-        let mut keys = vec![];
-
-        if message_exists[0] {
-            messages.push(&message_0[..]);
-            keys.push(&aggregate_pubs[0]);
-        }
-        if message_exists[1] {
-            messages.push(&message_1[..]);
-            keys.push(&aggregate_pubs[1]);
-        }
-
-        slashable_attestation.aggregate_signature.verify_multiple(
-            &messages[..],
-            spec.domain_attestation,
-            &keys[..],
-        )
-    }
-
-    /// Return the block root at a recent `slot`.
-    ///
-    /// Spec v0.2.0
-    pub fn get_block_root(&self, slot: Slot, spec: &ChainSpec) -> Option<&Hash256> {
-        self.latest_block_roots
-            .get(slot.as_usize() % spec.latest_block_roots_length)
-    }
-
+    /// Spec v0.4.0
     pub fn get_attestation_participants_union(
         &self,
         attestations: &[&PendingAttestation],
@@ -1298,39 +1308,6 @@ impl BeaconState {
         all_participants.sort_unstable();
         all_participants.dedup();
         Ok(all_participants)
-    }
-
-    /// Returns the list of validator indices which participiated in the attestation.
-    ///
-    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.2.0
-    pub fn get_attestation_participants(
-        &self,
-        attestation_data: &AttestationData,
-        bitfield: &Bitfield,
-        spec: &ChainSpec,
-    ) -> Result<Vec<usize>, Error> {
-        let epoch = attestation_data.slot.epoch(spec.slots_per_epoch);
-        let relative_epoch = self.relative_epoch(epoch, spec)?;
-        let cache = self.cache(relative_epoch)?;
-
-        let (committee_slot_index, committee_index) = cache
-            .shard_committee_index_map
-            .get(&attestation_data.shard)
-            .ok_or_else(|| Error::ShardOutOfBounds)?;
-        let (committee, shard) = &cache.committees[*committee_slot_index][*committee_index];
-
-        assert_eq!(*shard, attestation_data.shard, "Bad epoch cache build.");
-
-        let mut participants = vec![];
-        for (i, validator_index) in committee.iter().enumerate() {
-            if bitfield.get(i).unwrap() {
-                participants.push(*validator_index);
-            }
-        }
-
-        Ok(participants)
     }
 }
 

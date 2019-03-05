@@ -93,8 +93,20 @@ pub struct ChainSpec {
     pub domain_randao: u64,
     pub domain_transfer: u64,
 }
-
 impl ChainSpec {
+    /// Return the number of committees in one epoch.
+    ///
+    /// Spec v0.4.0
+    pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
+        std::cmp::max(
+            1,
+            std::cmp::min(
+                self.shard_count / self.slots_per_epoch,
+                active_validator_count as u64 / self.slots_per_epoch / self.target_committee_size,
+            ),
+        ) * self.slots_per_epoch
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
     /// Spec v0.4.0
@@ -190,9 +202,7 @@ impl ChainSpec {
             domain_transfer: 5,
         }
     }
-}
 
-impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
     ///
     /// Spec v0.4.0

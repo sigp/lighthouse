@@ -16,6 +16,8 @@ pub struct Fork {
 
 impl Fork {
     /// Return the fork version of the given ``epoch``.
+    ///
+    /// Spec v0.4.0
     pub fn get_fork_version(&self, epoch: Epoch) -> u64 {
         if epoch < self.epoch {
             return self.previous_version;
@@ -24,6 +26,8 @@ impl Fork {
     }
 
     /// Get the domain number that represents the fork meta and signature domain.
+    ///
+    /// Spec v0.4.0
     pub fn get_domain(&self, epoch: Epoch, domain_type: u64) -> u64 {
         let fork_version = self.get_fork_version(epoch);
         fork_version * u64::pow(2, 32) + domain_type
