@@ -37,7 +37,7 @@ impl AttesterSlashingBuilder {
                 shard,
                 beacon_block_root: hash_1,
                 epoch_boundary_root: hash_1,
-                shard_block_root: hash_1,
+                crosslink_data_root: hash_1,
                 latest_crosslink: Crosslink {
                     epoch,
                     shard_block_root: hash_1,
@@ -56,7 +56,7 @@ impl AttesterSlashingBuilder {
                 shard,
                 beacon_block_root: hash_2,
                 epoch_boundary_root: hash_2,
-                shard_block_root: hash_2,
+                crosslink_data_root: hash_2,
                 latest_crosslink: Crosslink {
                     epoch,
                     shard_block_root: hash_2,

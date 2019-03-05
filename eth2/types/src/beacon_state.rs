@@ -745,9 +745,6 @@ impl BeaconState {
     /// Spec v0.4.0
     pub fn process_exit_queue(&mut self, spec: &ChainSpec) {
         let current_epoch = self.current_epoch(spec);
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, current_epoch);
-        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
 
         let eligible = |index: usize| {
             let validator = &self.validator_registry[index];
