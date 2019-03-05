@@ -10,6 +10,7 @@ boolean-bitfield = { path = "../utils/boolean-bitfield" }
 ethereum-types = "0.4.0"
 hashing = { path = "../utils/hashing" }
 honey-badger-split =  { path = "../utils/honey-badger-split" }
+int_to_bytes = { path = "../utils/int_to_bytes" }
 log = "0.4"
 rayon = "1.0"
 rand = "0.5.5"
