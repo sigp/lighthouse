@@ -10,7 +10,7 @@ use test_random_derive::TestRandom;
 ///
 /// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
-pub struct VolutaryExit {
+pub struct VoluntaryExit {
     pub epoch: Epoch,
     pub validator_index: u64,
     pub signature: Signature,
@@ -25,7 +25,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = VolutaryExit::random_for_test(&mut rng);
+        let original = VoluntaryExit::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -36,7 +36,7 @@ mod tests {
     #[test]
     pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = VolutaryExit::random_for_test(&mut rng);
+        let original = VoluntaryExit::random_for_test(&mut rng);
 
         let result = original.hash_tree_root_internal();
 

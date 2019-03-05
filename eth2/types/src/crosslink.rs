@@ -13,7 +13,7 @@ use test_random_derive::TestRandom;
 )]
 pub struct Crosslink {
     pub epoch: Epoch,
-    pub shard_block_root: Hash256,
+    pub crosslink_data_root: Hash256,
 }
 
 #[cfg(test)]

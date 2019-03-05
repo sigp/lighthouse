@@ -1,4 +1,4 @@
-use super::{Attestation, AttesterSlashing, Deposit, ProposerSlashing, Transfer, VolutaryExit};
+use super::{Attestation, AttesterSlashing, Deposit, ProposerSlashing, Transfer, VoluntaryExit};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
@@ -14,7 +14,7 @@ pub struct BeaconBlockBody {
     pub attester_slashings: Vec<AttesterSlashing>,
     pub attestations: Vec<Attestation>,
     pub deposits: Vec<Deposit>,
-    pub voluntary_exits: Vec<VolutaryExit>,
+    pub voluntary_exits: Vec<VoluntaryExit>,
     pub transfers: Vec<Transfer>,
 }
 

@@ -40,7 +40,7 @@ impl AttesterSlashingBuilder {
                 crosslink_data_root: hash_1,
                 latest_crosslink: Crosslink {
                     epoch,
-                    shard_block_root: hash_1,
+                    crosslink_data_root: hash_1,
                 },
                 justified_epoch,
                 justified_block_root: hash_1,
@@ -59,7 +59,7 @@ impl AttesterSlashingBuilder {
                 crosslink_data_root: hash_2,
                 latest_crosslink: Crosslink {
                     epoch,
-                    shard_block_root: hash_2,
+                    crosslink_data_root: hash_2,
                 },
                 justified_epoch,
                 justified_block_root: hash_2,

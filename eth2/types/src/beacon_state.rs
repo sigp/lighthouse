@@ -2,6 +2,7 @@ use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{validator_registry::get_active_validator_indices, *};
 use bls::verify_proof_of_possession;
+use helpers::*;
 use honey_badger_split::SplitExt;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
@@ -16,6 +17,7 @@ pub use builder::BeaconStateBuilder;
 
 mod builder;
 mod epoch_cache;
+pub mod helpers;
 mod tests;
 
 pub type Committee = Vec<usize>;
@@ -44,6 +46,7 @@ pub enum Error {
     ShardOutOfBounds,
     UnableToShuffle,
     UnknownValidator,
+    InvalidBitfield,
     InsufficientRandaoMixes,
     InsufficientValidators,
     InsufficientBlockRoots,
@@ -125,7 +128,7 @@ impl BeaconState {
         debug!("Creating genesis state (without validator processing).");
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
-            shard_block_root: spec.zero_hash,
+            crosslink_data_root: spec.zero_hash,
         };
 
         Ok(BeaconState {
@@ -530,6 +533,10 @@ impl BeaconState {
 
         assert_eq!(*shard, attestation_data.shard, "Bad epoch cache build.");
 
+        if !verify_bitfield_length(&bitfield, committee.len()) {
+            return Err(Error::InvalidBitfield);
+        }
+
         let mut participants = vec![];
         for (i, validator_index) in committee.iter().enumerate() {
             if bitfield.get(i).unwrap() {
@@ -559,23 +566,6 @@ impl BeaconState {
             .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec))
     }
 
-    /// Verify ``bitfield`` against the ``committee_size``.
-    ///
-    /// Spec v0.4.0
-    pub fn verify_bitfield(&self, bitfield: &Bitfield, committee_size: usize) -> bool {
-        if bitfield.num_bytes() != ((committee_size + 7) / 8) {
-            return false;
-        }
-
-        for i in committee_size..(bitfield.num_bytes() * 8) {
-            if bitfield.get(i).expect("Impossible due to previous check.") {
-                return false;
-            }
-        }
-
-        true
-    }
-
     /// Verify validity of ``slashable_attestation`` fields.
     ///
     /// Spec v0.4.0
@@ -600,7 +590,7 @@ impl BeaconState {
             }
         }
 
-        if !self.verify_bitfield(
+        if !verify_bitfield_length(
             &slashable_attestation.custody_bitfield,
             slashable_attestation.validator_indices.len(),
         ) {

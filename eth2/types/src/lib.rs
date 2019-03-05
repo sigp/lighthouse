@@ -60,7 +60,7 @@ pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::slot_height::SlotHeight;
 pub use crate::transfer::Transfer;
 pub use crate::validator::Validator;
-pub use crate::voluntary_exit::VolutaryExit;
+pub use crate::voluntary_exit::VoluntaryExit;
 
 pub type Hash256 = H256;
 pub type Address = H160;
