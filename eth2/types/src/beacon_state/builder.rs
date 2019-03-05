@@ -252,7 +252,7 @@ fn committee_to_pending_attestation(
             crosslink_data_root: Hash256::zero(),
             latest_crosslink: Crosslink {
                 epoch: slot.epoch(spec.slots_per_epoch),
-                shard_block_root: Hash256::zero(),
+                crosslink_data_root: Hash256::zero(),
             },
             justified_epoch,
             justified_block_root,
