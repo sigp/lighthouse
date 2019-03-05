@@ -39,7 +39,8 @@ impl BeaconBlock {
                 attester_slashings: vec![],
                 attestations: vec![],
                 deposits: vec![],
-                exits: vec![],
+                voluntary_exits: vec![],
+                transfers: vec![],
             },
         }
     }
