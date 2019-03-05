@@ -20,7 +20,7 @@ macro_rules! impl_crud_for_store {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! test_crud_for_store {
     ($store: ident, $db_column: expr) => {
         #[test]
