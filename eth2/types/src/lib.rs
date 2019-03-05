@@ -1,3 +1,4 @@
+#[macro_use]
 pub mod test_utils;
 
 pub mod attestation;
