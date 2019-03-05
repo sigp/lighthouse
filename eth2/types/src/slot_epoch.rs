@@ -103,8 +103,6 @@ impl<'a> Iterator for SlotIter<'a> {
 #[cfg(test)]
 mod slot_tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
 
     all_tests!(Slot);
 }
@@ -112,8 +110,6 @@ mod slot_tests {
 #[cfg(test)]
 mod epoch_tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
 
     all_tests!(Epoch);
 
