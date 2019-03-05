@@ -470,17 +470,15 @@ impl BeaconState {
 
     /// Return the index root at a recent `epoch`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn get_active_index_root(&self, epoch: Epoch, spec: &ChainSpec) -> Option<Hash256> {
         let current_epoch = self.current_epoch(spec);
 
-        let earliest_index_root = current_epoch
-            - Epoch::from(spec.latest_active_index_roots_length)
-            + Epoch::from(spec.entry_exit_delay)
-            + 1;
-        let latest_index_root = current_epoch + spec.entry_exit_delay;
-
-        if (epoch >= earliest_index_root) & (epoch <= latest_index_root) {
+        if (current_epoch - spec.latest_active_index_roots_length as u64
+            + spec.activation_exit_delay
+            < epoch)
+            & (epoch <= current_epoch + spec.activation_exit_delay)
+        {
             Some(
                 self.latest_active_index_roots
                     [epoch.as_usize() % spec.latest_active_index_roots_length],
@@ -678,12 +676,11 @@ impl BeaconState {
             .and_then(|tuple| Some(*tuple)))
     }
 
-    /// An entry or exit triggered in the ``epoch`` given by the input takes effect at
-    /// the epoch given by the output.
+    ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
     ///
-    /// Spec v0.2.0
-    pub fn get_entry_exit_effect_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
-        epoch + 1 + spec.entry_exit_delay
+    ///  Spec v0.4.0
+    pub fn get_delayed_activation_exit_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
+        epoch + 1 + spec.activation_exit_delay
     }
 
     /// Returns the beacon proposer index for the `slot`.
@@ -710,20 +707,20 @@ impl BeaconState {
             })
     }
 
-    /// Process the penalties and prepare the validators who are eligible to withdrawal.
+    /// Process the slashings.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn process_slashings(&mut self, spec: &ChainSpec) {
         let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, current_epoch);
         let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
 
-        for index in 0..self.validator_balances.len() {
-            let validator = &self.validator_registry[index];
-
-            if current_epoch
-                == validator.penalized_epoch + Epoch::from(spec.latest_slashed_exit_length / 2)
+        for (index, validator) in self.validator_registry.iter().enumerate() {
+            if validator.slashed
+                && (current_epoch
+                    == validator.withdrawable_epoch
+                        - Epoch::from(spec.latest_slashed_exit_length / 2))
             {
                 let epoch_index: usize = current_epoch.as_usize() % spec.latest_slashed_exit_length;
 
@@ -731,17 +728,21 @@ impl BeaconState {
                     [(epoch_index + 1) % spec.latest_slashed_exit_length];
                 let total_at_end = self.latest_slashed_balances[epoch_index];
                 let total_penalities = total_at_end.saturating_sub(total_at_start);
-                let penalty = self.get_effective_balance(index, spec)
-                    * std::cmp::min(total_penalities * 3, total_balance)
-                    / total_balance;
+                let penalty = std::cmp::max(
+                    self.get_effective_balance(index, spec)
+                        * std::cmp::min(total_penalities * 3, total_balance)
+                        / total_balance,
+                    self.get_effective_balance(index, spec) / spec.min_penalty_quotient,
+                );
+
                 safe_sub_assign!(self.validator_balances[index], penalty);
             }
         }
     }
 
-    /// Process the penalties and prepare the validators who are eligible to withdrawal.
+    /// Process the exit queue.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn process_exit_queue(&mut self, spec: &ChainSpec) {
         let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
@@ -751,11 +752,10 @@ impl BeaconState {
         let eligible = |index: usize| {
             let validator = &self.validator_registry[index];
 
-            if validator.penalized_epoch <= current_epoch {
-                let penalized_withdrawal_epochs = spec.latest_slashed_exit_length / 2;
-                current_epoch >= validator.penalized_epoch + penalized_withdrawal_epochs as u64
+            if validator.withdrawable_epoch != spec.far_future_epoch {
+                false
             } else {
-                current_epoch >= validator.exit_epoch + spec.min_validator_withdrawal_epochs
+                current_epoch >= validator.exit_epoch + spec.min_validator_withdrawability_delay
             }
         };
 
@@ -763,11 +763,12 @@ impl BeaconState {
             .filter(|i| eligible(*i))
             .collect();
         eligable_indices.sort_by_key(|i| self.validator_registry[*i].exit_epoch);
+
         for (withdrawn_so_far, index) in eligable_indices.iter().enumerate() {
-            self.prepare_validator_for_withdrawal(*index);
-            if withdrawn_so_far as u64 >= spec.max_withdrawals_per_epoch {
+            if withdrawn_so_far as u64 >= spec.max_exit_dequeues_per_epoch {
                 break;
             }
+            self.prepare_validator_for_withdrawal(*index, spec);
         }
     }
 
@@ -943,7 +944,7 @@ impl BeaconState {
 
     /// Activate the validator of the given ``index``.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn activate_validator(
         &mut self,
         validator_index: usize,
@@ -955,7 +956,7 @@ impl BeaconState {
         self.validator_registry[validator_index].activation_epoch = if is_genesis {
             spec.genesis_epoch
         } else {
-            self.get_entry_exit_effect_epoch(current_epoch, spec)
+            self.get_delayed_activation_exit_epoch(current_epoch, spec)
         }
     }
 
@@ -968,18 +969,16 @@ impl BeaconState {
 
     /// Exit the validator of the given `index`.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     fn exit_validator(&mut self, validator_index: usize, spec: &ChainSpec) {
         let current_epoch = self.current_epoch(spec);
+        let delayed_epoch = self.get_delayed_activation_exit_epoch(current_epoch, spec);
 
-        if self.validator_registry[validator_index].exit_epoch
-            <= self.get_entry_exit_effect_epoch(current_epoch, spec)
-        {
+        if self.validator_registry[validator_index].exit_epoch <= delayed_epoch {
             return;
         }
 
-        self.validator_registry[validator_index].exit_epoch =
-            self.get_entry_exit_effect_epoch(current_epoch, spec);
+        self.validator_registry[validator_index].exit_epoch = delayed_epoch;
     }
 
     /// Slash the validator with index ``index``.
