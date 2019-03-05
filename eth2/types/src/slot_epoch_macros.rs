@@ -21,6 +21,7 @@ macro_rules! impl_from_into_u64 {
 }
 
 // need to truncate for some fork-choice algorithms
+#[allow(unused_macros)]
 macro_rules! impl_into_u32 {
     ($main: ident) => {
         impl Into<u32> for $main {
@@ -267,7 +268,7 @@ macro_rules! impl_common {
 }
 
 // test macros
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! new_tests {
     ($type: ident) => {
         #[test]
@@ -279,7 +280,7 @@ macro_rules! new_tests {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! from_into_tests {
     ($type: ident, $other: ident) => {
         #[test]
@@ -305,7 +306,7 @@ macro_rules! from_into_tests {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! math_between_tests {
     ($type: ident, $other: ident) => {
         #[test]
@@ -453,7 +454,7 @@ macro_rules! math_between_tests {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! math_tests {
     ($type: ident) => {
         #[test]
@@ -575,7 +576,7 @@ macro_rules! ssz_tests {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! all_tests {
     ($type: ident) => {
         new_tests!($type);
