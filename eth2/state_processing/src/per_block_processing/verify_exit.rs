@@ -7,11 +7,17 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
+/// The `check_future_epoch` argument determines whether the exit's epoch should be checked
+/// against the state's current epoch to ensure it doesn't occur in the future.
+/// It should ordinarily be set to true, except for operations stored for
+/// some time (such as in the OperationPool).
+///
 /// Spec v0.5.0
 pub fn verify_exit(
     state: &BeaconState,
     exit: &VoluntaryExit,
     spec: &ChainSpec,
+    check_future_epoch: bool,
 ) -> Result<(), Error> {
     let validator = state
         .validator_registry
@@ -32,7 +38,7 @@ pub fn verify_exit(
 
     // Exits must specify an epoch when they become valid; they are not valid before then.
     verify!(
-        state.current_epoch(spec) >= exit.epoch,
+        !check_future_epoch || state.current_epoch(spec) >= exit.epoch,
         Invalid::FutureEpoch {
             state: state.current_epoch(spec),
             exit: exit.epoch
