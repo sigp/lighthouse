@@ -8,3 +8,4 @@ edition = "2018"
 # SigP repository until PR is merged
 libp2p =  { git = "https://github.com/SigP/rust-libp2p", branch = "gossipsub" }
 slog = "2.4.1"
+version = { path = "../version" }

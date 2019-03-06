@@ -2,8 +2,7 @@
 pub mod error;
 mod message_handler;
 mod messages;
-mod network_config;
 mod service;
 
-pub use network_config::NetworkConfig;
+pub use libp2p::NetworkConfig;
 pub use service::Service;

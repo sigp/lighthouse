@@ -30,10 +30,9 @@ impl Service {
 
         // launch libp2p service
         let libp2p_log = log.new(o!("Service" => "Libp2p"));
-        let libp2p_service = LibP2PService::new(libp2p_log);
+        let libp2p_service = LibP2PService::new(config, libp2p_log);
 
         // TODO: Spawn thread to handle libp2p messages and pass to message handler thread.
-
         let network = Service {};
 
         Ok((Arc::new(network), network_send))
