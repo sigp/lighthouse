@@ -1,4 +1,4 @@
-use crate::errors::{
+use super::errors::{
     SlashableAttestationInvalid as Invalid, SlashableAttestationValidationError as Error,
 };
 use ssz::TreeHash;

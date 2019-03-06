@@ -1,12 +1,12 @@
 #[macro_use]
 mod macros;
+
 pub mod per_block_processing;
-// mod epoch_processable;
-pub mod errors;
+pub mod per_epoch_processing;
 // mod slot_processable;
 
-pub use errors::{BlockInvalid, BlockProcessingError};
 pub use per_block_processing::{
+    errors::{BlockInvalid, BlockProcessingError},
     per_block_processing, per_block_processing_without_verifying_block_signature,
 };
 // pub use epoch_processable::{EpochProcessable, Error as EpochProcessingError};

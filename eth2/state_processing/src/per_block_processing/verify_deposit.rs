@@ -1,4 +1,4 @@
-use crate::errors::{DepositInvalid as Invalid, DepositValidationError as Error};
+use super::errors::{DepositInvalid as Invalid, DepositValidationError as Error};
 use types::*;
 
 /// Indicates if a `Deposit` is valid to be included in a block in the current epoch of the given

@@ -1,4 +1,4 @@
-use crate::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
+use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
 use ssz::TreeHash;
 use types::beacon_state::helpers::*;
 use types::*;

@@ -1,5 +1,5 @@
+use super::errors::{AttesterSlashingInvalid as Invalid, AttesterSlashingValidationError as Error};
 use super::verify_slashable_attestation::verify_slashable_attestation;
-use crate::errors::{AttesterSlashingInvalid as Invalid, AttesterSlashingValidationError as Error};
 use types::*;
 
 /// Indicates if an `AttesterSlashing` is valid to be included in a block in the current epoch of the given
