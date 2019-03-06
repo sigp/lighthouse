@@ -145,8 +145,8 @@ impl BeaconStateBuilder {
         state.previous_calculation_epoch = epoch - 1;
         state.current_calculation_epoch = epoch;
 
-        state.previous_epoch_seed = Hash256::from(&b"previous_seed"[..]);
-        state.current_epoch_seed = Hash256::from(&b"current_seed"[..]);
+        state.previous_epoch_seed = Hash256::from([0x01; 32]);
+        state.current_epoch_seed = Hash256::from([0x02; 32]);
 
         state.previous_justified_epoch = epoch - 2;
         state.justified_epoch = epoch - 1;

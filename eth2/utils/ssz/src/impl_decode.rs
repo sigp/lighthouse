@@ -59,7 +59,7 @@ impl Decodable for H256 {
         if bytes.len() < 32 || bytes.len() - 32 < index {
             Err(DecodeError::TooShort)
         } else {
-            Ok((H256::from(&bytes[index..(index + 32)]), index + 32))
+            Ok((H256::from_slice(&bytes[index..(index + 32)]), index + 32))
         }
     }
 }
@@ -69,7 +69,7 @@ impl Decodable for Address {
         if bytes.len() < 20 || bytes.len() - 20 < index {
             Err(DecodeError::TooShort)
         } else {
-            Ok((Address::from(&bytes[index..(index + 20)]), index + 20))
+            Ok((Address::from_slice(&bytes[index..(index + 20)]), index + 20))
         }
     }
 }
@@ -95,7 +95,7 @@ mod tests {
          */
         let input = vec![42_u8; 32];
         let (decoded, i) = H256::ssz_decode(&input, 0).unwrap();
-        assert_eq!(decoded.to_vec(), input);
+        assert_eq!(decoded.as_bytes(), &input[..]);
         assert_eq!(i, 32);
 
         /*
@@ -104,7 +104,7 @@ mod tests {
         let mut input = vec![42_u8; 32];
         input.push(12);
         let (decoded, i) = H256::ssz_decode(&input, 0).unwrap();
-        assert_eq!(decoded.to_vec()[..], input[0..32]);
+        assert_eq!(decoded.as_bytes(), &input[0..32]);
         assert_eq!(i, 32);
 
         /*
