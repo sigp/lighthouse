@@ -5,9 +5,10 @@ use ssz::TreeHash;
 use types::beacon_state::helpers::verify_bitfield_length;
 use types::*;
 
-/// Verify validity of ``slashable_attestation`` fields.
+/// Indicates if a `SlashableAttestation` is valid to be included in a block in the current epoch of the given
+/// state.
 ///
-/// Returns `Ok(())` if all fields are valid.
+/// Returns `Ok(())` if the `SlashableAttestation` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.4.0
 pub fn verify_slashable_attestation(
@@ -27,7 +28,7 @@ pub fn verify_slashable_attestation(
         if slashable_attestation.validator_indices[i]
             >= slashable_attestation.validator_indices[i + 1]
         {
-            invalid!(Invalid::BadValidatorIndicesOrdering);
+            invalid!(Invalid::BadValidatorIndicesOrdering(i));
         }
     }
 
@@ -35,12 +36,18 @@ pub fn verify_slashable_attestation(
         &slashable_attestation.custody_bitfield,
         slashable_attestation.validator_indices.len(),
     ) {
-        invalid!(Invalid::BadCustodyBitfieldLength);
+        invalid!(Invalid::BadCustodyBitfieldLength(
+            slashable_attestation.validator_indices.len(),
+            slashable_attestation.custody_bitfield.len()
+        ));
     }
 
     if slashable_attestation.validator_indices.len() > spec.max_indices_per_slashable_vote as usize
     {
-        invalid!(Invalid::MaxIndicesExceed);
+        invalid!(Invalid::MaxIndicesExceed(
+            spec.max_indices_per_slashable_vote as usize,
+            slashable_attestation.validator_indices.len()
+        ));
     }
 
     // TODO: this signature verification could likely be replaced with:
@@ -62,7 +69,7 @@ pub fn verify_slashable_attestation(
             Some(validator) => {
                 aggregate_pubs[custody_bit as usize].add(&validator.pubkey);
             }
-            None => invalid!(Invalid::UnknownValidator),
+            None => invalid!(Invalid::UnknownValidator(*v)),
         };
     }
 

@@ -3,7 +3,10 @@ use ssz::TreeHash;
 use types::beacon_state::helpers::*;
 use types::*;
 
-/// Validate an attestation, checking the aggregate signature.
+/// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
+/// given state.
+///
+/// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.4.0
 pub fn validate_attestation(
@@ -14,7 +17,10 @@ pub fn validate_attestation(
     validate_attestation_signature_optional(state, attestation, spec, true)
 }
 
-/// Validate an attestation, without checking the aggregate signature.
+/// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
+/// given state, without validating the aggregate signature.
+///
+/// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.4.0
 pub fn validate_attestation_without_signature(
@@ -25,7 +31,9 @@ pub fn validate_attestation_without_signature(
     validate_attestation_signature_optional(state, attestation, spec, false)
 }
 
-/// Validate an attestation, optionally checking the aggregate signature.
+/// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
+/// given state, optionally validating the aggregate signature.
+///
 ///
 /// Spec v0.4.0
 fn validate_attestation_signature_optional(
@@ -37,19 +45,23 @@ fn validate_attestation_signature_optional(
     // Verify that `attestation.data.slot >= GENESIS_SLOT`.
     verify!(
         attestation.data.slot >= spec.genesis_slot,
-        Invalid::PreGenesis
+        Invalid::PreGenesis(spec.genesis_slot, attestation.data.slot)
     );
 
     // Verify that `attestation.data.slot + MIN_ATTESTATION_INCLUSION_DELAY <= state.slot`.
     verify!(
         attestation.data.slot + spec.min_attestation_inclusion_delay <= state.slot,
-        Invalid::IncludedTooEarly
+        Invalid::IncludedTooEarly(
+            state.slot,
+            spec.min_attestation_inclusion_delay,
+            attestation.data.slot
+        )
     );
 
     // Verify that `state.slot < attestation.data.slot + SLOTS_PER_EPOCH`.
     verify!(
         state.slot < attestation.data.slot + spec.slots_per_epoch,
-        Invalid::IncludedTooLate
+        Invalid::IncludedTooLate(state.slot, attestation.data.slot)
     );
 
     // Verify that `attestation.data.justified_epoch` is equal to `state.justified_epoch` if
@@ -58,29 +70,37 @@ fn validate_attestation_signature_optional(
     if (attestation.data.slot + 1).epoch(spec.slots_per_epoch) >= state.current_epoch(spec) {
         verify!(
             attestation.data.justified_epoch == state.justified_epoch,
-            Invalid::WrongJustifiedSlot
+            Invalid::WrongJustifiedEpoch(
+                attestation.data.justified_epoch,
+                state.justified_epoch,
+                false
+            )
         );
     } else {
         verify!(
             attestation.data.justified_epoch == state.previous_justified_epoch,
-            Invalid::WrongJustifiedSlot
+            Invalid::WrongJustifiedEpoch(
+                attestation.data.justified_epoch,
+                state.previous_justified_epoch,
+                true
+            )
         );
     }
 
     // Verify that `attestation.data.justified_block_root` is equal to `get_block_root(state,
     // get_epoch_start_slot(attestation.data.justified_epoch))`.
+    let justified_block_root = *state
+        .get_block_root(
+            attestation
+                .data
+                .justified_epoch
+                .start_slot(spec.slots_per_epoch),
+            &spec,
+        )
+        .ok_or(BeaconStateError::InsufficientBlockRoots)?;
     verify!(
-        attestation.data.justified_block_root
-            == *state
-                .get_block_root(
-                    attestation
-                        .data
-                        .justified_epoch
-                        .start_slot(spec.slots_per_epoch),
-                    &spec
-                )
-                .ok_or(BeaconStateError::InsufficientBlockRoots)?,
-        Invalid::WrongJustifiedRoot
+        attestation.data.justified_block_root == justified_block_root,
+        Invalid::WrongJustifiedRoot(justified_block_root, attestation.data.justified_block_root)
     );
 
     // Verify that either:
@@ -106,7 +126,12 @@ fn validate_attestation_signature_optional(
         .get_crosslink_committees_at_slot(attestation.data.slot, spec)?
         .iter()
         .find(|(_committee, shard)| *shard == attestation.data.shard)
-        .ok_or_else(|| Error::Invalid(Invalid::NoCommitteeForShard))?;
+        .ok_or_else(|| {
+            Error::Invalid(Invalid::NoCommitteeForShard(
+                attestation.data.shard,
+                attestation.data.slot,
+            ))
+        })?;
 
     // Custody bitfield is all zeros (phase 0 requirement).
     verify!(
@@ -115,8 +140,8 @@ fn validate_attestation_signature_optional(
     );
     // Custody bitfield length is correct.
     verify!(
-        verify_bitfield_length(&attestation.aggregation_bitfield, committee.len()),
-        Invalid::BadCustodyBitfieldLength
+        verify_bitfield_length(&attestation.custody_bitfield, committee.len()),
+        Invalid::BadCustodyBitfieldLength(committee.len(), attestation.custody_bitfield.len())
     );
     // Aggregation bitfield isn't empty.
     verify!(
@@ -126,7 +151,10 @@ fn validate_attestation_signature_optional(
     // Aggregation bitfield length is correct.
     verify!(
         verify_bitfield_length(&attestation.aggregation_bitfield, committee.len()),
-        Invalid::BadAggregationBitfieldLength
+        Invalid::BadAggregationBitfieldLength(
+            committee.len(),
+            attestation.aggregation_bitfield.len()
+        )
     );
 
     if verify_signature {

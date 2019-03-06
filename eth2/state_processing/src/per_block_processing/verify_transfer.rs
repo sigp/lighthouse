@@ -1,17 +1,18 @@
 use crate::errors::{TransferInvalid as Invalid, TransferValidationError as Error};
-use ssz::TreeHash;
-use types::beacon_state::helpers::verify_bitfield_length;
 use types::*;
 
-/// Verify validity of ``slashable_attestation`` fields.
+/// Indicates if a `Transfer` is valid to be included in a block in the current epoch of the given
+/// state.
 ///
-/// Returns `Ok(())` if all fields are valid.
+/// Returns `Ok(())` if the `Transfer` is valid, otherwise indicates the reason for invalidity.
+///
+/// Note: this function is incomplete.
 ///
 /// Spec v0.4.0
 pub fn verify_transfer(
-    state: &BeaconState,
-    transfer: &Transfer,
-    spec: &ChainSpec,
+    _state: &BeaconState,
+    _transfer: &Transfer,
+    _spec: &ChainSpec,
 ) -> Result<(), Error> {
     // TODO: verify transfer.
 

@@ -2,9 +2,10 @@ use crate::errors::{ExitInvalid as Invalid, ExitValidationError as Error};
 use ssz::SignedRoot;
 use types::*;
 
-/// Verify validity of ``slashable_attestation`` fields.
+/// Indicates if an `Exit` is valid to be included in a block in the current epoch of the given
+/// state.
 ///
-/// Returns `Ok(())` if all fields are valid.
+/// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.4.0
 pub fn verify_exit(
@@ -15,7 +16,9 @@ pub fn verify_exit(
     let validator = state
         .validator_registry
         .get(exit.validator_index as usize)
-        .ok_or(Error::Invalid(Invalid::ValidatorUnknown))?;
+        .ok_or(Error::Invalid(Invalid::ValidatorUnknown(
+            exit.validator_index,
+        )))?;
 
     verify!(
         validator.exit_epoch
@@ -25,7 +28,7 @@ pub fn verify_exit(
 
     verify!(
         state.current_epoch(spec) >= exit.epoch,
-        Invalid::FutureEpoch
+        Invalid::FutureEpoch(state.current_epoch(spec), exit.epoch)
     );
 
     let message = exit.signed_root();

@@ -19,6 +19,12 @@ mod verify_proposer_slashing;
 mod verify_slashable_attestation;
 mod verify_transfer;
 
+/// Updates the state for a new block, whilst validating that the block is valid.
+///
+/// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
+/// returns an error describing why the block was invalid or how the function failed to execute.
+///
+/// Spec v0.4.0
 pub fn per_block_processing(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -27,6 +33,13 @@ pub fn per_block_processing(
     per_block_processing_signature_optional(state, block, true, spec)
 }
 
+/// Updates the state for a new block, whilst validating that the block is valid, without actually
+/// checking the block proposer signature.
+///
+/// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
+/// returns an error describing why the block was invalid or how the function failed to execute.
+///
+/// Spec v0.4.0
 pub fn per_block_processing_without_verifying_block_signature(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -35,6 +48,13 @@ pub fn per_block_processing_without_verifying_block_signature(
     per_block_processing_signature_optional(state, block, false, spec)
 }
 
+/// Updates the state for a new block, whilst validating that the block is valid, optionally
+/// checking the block proposer signature.
+///
+/// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
+/// returns an error describing why the block was invalid or how the function failed to execute.
+///
+/// Spec v0.4.0
 fn per_block_processing_signature_optional(
     mut state: &mut BeaconState,
     block: &BeaconBlock,
