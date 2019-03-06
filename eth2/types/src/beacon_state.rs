@@ -3,6 +3,7 @@ use crate::test_utils::TestRandom;
 use crate::{validator::StatusFlags, validator_registry::get_active_validator_indices, *};
 use bls::verify_proof_of_possession;
 use honey_badger_split::SplitExt;
+use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
 use rand::RngCore;
 use rayon::prelude::*;
@@ -326,7 +327,7 @@ impl BeaconState {
     ///
     /// Spec v0.2.0
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
+        Hash256::from_slice(&self.hash_tree_root()[..])
     }
 
     /// The epoch corresponding to `self.slot`.
@@ -487,19 +488,20 @@ impl BeaconState {
         let mut input = self
             .get_randao_mix(epoch, spec)
             .ok_or_else(|| Error::InsufficientRandaoMixes)?
+            .as_bytes()
             .to_vec();
 
         input.append(
             &mut self
                 .get_active_index_root(epoch, spec)
                 .ok_or_else(|| Error::InsufficientIndexRoots)?
+                .as_bytes()
                 .to_vec(),
         );
 
-        // TODO: ensure `Hash256::from(u64)` == `int_to_bytes32`.
-        input.append(&mut Hash256::from(epoch.as_u64()).to_vec());
+        input.append(&mut int_to_bytes32(epoch.as_u64()));
 
-        Ok(Hash256::from(&hash(&input[..])[..]))
+        Ok(Hash256::from_slice(&hash(&input[..])[..]))
     }
 
     /// Returns the crosslink committees for some slot.
@@ -1311,7 +1313,7 @@ impl BeaconState {
 }
 
 fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from(&input.hash_tree_root()[..])
+    Hash256::from_slice(&input.hash_tree_root()[..])
 }
 
 impl From<Error> for InclusionError {
