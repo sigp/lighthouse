@@ -2,10 +2,10 @@ use super::verify_slashable_attestation::verify_slashable_attestation;
 use crate::errors::{AttesterSlashingInvalid as Invalid, AttesterSlashingValidationError as Error};
 use types::*;
 
-/// Returns `Ok(())` if some `AttesterSlashing` is valid to be included in some `BeaconState`,
-/// otherwise returns an `Err`.
+/// Indicates if an `AttesterSlashing` is valid to be included in a block in the current epoch of the given
+/// state.
 ///
-/// Returns the slashable indices from the `AttesterSlashing`.
+/// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.4.0
 pub fn verify_attester_slashing(
@@ -36,7 +36,7 @@ pub fn verify_attester_slashing(
         let validator = state
             .validator_registry
             .get(*i as usize)
-            .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator))?;
+            .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(*i)))?;
 
         if slashable_attestation_1.validator_indices.contains(&i) & !validator.slashed {
             slashable_indices.push(*i);
