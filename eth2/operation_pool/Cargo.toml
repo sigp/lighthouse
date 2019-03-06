@@ -1,0 +1,9 @@
+[package]
+name = "operation_pool"
+version = "0.1.0"
+authors = ["Michael Sproul <michael@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+types = { path = "../types" }
+state_processing = { path = "../../eth2/state_processing" }

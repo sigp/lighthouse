@@ -3,6 +3,7 @@ members = [
 	"eth2/attester",
 	"eth2/block_proposer",
 	"eth2/fork_choice",
+	"eth2/operation_pool",
 	"eth2/state_processing",
 	"eth2/types",
 	"eth2/utils/bls",

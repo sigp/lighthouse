@@ -16,6 +16,19 @@ pub fn verify_transfer(
     transfer: &Transfer,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    verify_transfer_partial(state, transfer, spec, false)
+}
+
+/// Parametric version of `verify_transfer` that allows some checks to be skipped.
+///
+/// In everywhere except the operation pool, `verify_transfer` should be preferred over this
+/// function.
+pub fn verify_transfer_partial(
+    state: &BeaconState,
+    transfer: &Transfer,
+    spec: &ChainSpec,
+    for_op_pool: bool,
+) -> Result<(), Error> {
     let sender_balance = *state
         .validator_balances
         .get(transfer.sender as usize)
@@ -27,17 +40,18 @@ pub fn verify_transfer(
         .ok_or_else(|| Error::Invalid(Invalid::FeeOverflow(transfer.amount, transfer.fee)))?;
 
     verify!(
-        sender_balance >= transfer.amount,
+        for_op_pool || sender_balance >= transfer.amount,
         Invalid::FromBalanceInsufficient(transfer.amount, sender_balance)
     );
 
     verify!(
-        sender_balance >= transfer.fee,
+        for_op_pool || sender_balance >= transfer.fee,
         Invalid::FromBalanceInsufficient(transfer.fee, sender_balance)
     );
 
     verify!(
-        (sender_balance == total_amount)
+            for_op_pool
+            || (sender_balance == total_amount)
             || (sender_balance >= (total_amount + spec.min_deposit_amount)),
         Invalid::InvalidResultingFromBalance(
             sender_balance - total_amount,
@@ -45,10 +59,17 @@ pub fn verify_transfer(
         )
     );
 
-    verify!(
-        state.slot == transfer.slot,
-        Invalid::StateSlotMismatch(state.slot, transfer.slot)
-    );
+    if for_op_pool {
+        verify!(
+            state.slot <= transfer.slot,
+            Invalid::TransferSlotInPast(state.slot, transfer.slot)
+        );
+    } else {
+        verify!(
+            state.slot == transfer.slot,
+            Invalid::StateSlotMismatch(state.slot, transfer.slot)
+        );
+    }
 
     let sender_validator = state
         .validator_registry
@@ -57,7 +78,8 @@ pub fn verify_transfer(
     let epoch = state.slot.epoch(spec.slots_per_epoch);
 
     verify!(
-        sender_validator.is_withdrawable_at(epoch)
+        for_op_pool
+            || sender_validator.is_withdrawable_at(epoch)
             || sender_validator.activation_epoch == spec.far_future_epoch,
         Invalid::FromValidatorIneligableForTransfer(transfer.sender)
     );

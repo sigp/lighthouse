@@ -1,4 +1,3 @@
-use self::verify_proposer_slashing::verify_proposer_slashing;
 use crate::common::slash_validator;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
@@ -8,11 +7,15 @@ use types::*;
 pub use self::verify_attester_slashing::{
     gather_attester_slashing_indices, verify_attester_slashing,
 };
+pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use validate_attestation::{validate_attestation, validate_attestation_without_signature};
-pub use verify_deposit::{get_existing_validator_index, verify_deposit, verify_deposit_index};
+pub use verify_deposit::{
+    get_existing_validator_index, verify_deposit, verify_deposit_index,
+    verify_deposit_merkle_proof,
+};
 pub use verify_exit::verify_exit;
 pub use verify_slashable_attestation::verify_slashable_attestation;
-pub use verify_transfer::{execute_transfer, verify_transfer};
+pub use verify_transfer::{execute_transfer, verify_transfer, verify_transfer_partial};
 
 pub mod errors;
 mod validate_attestation;
@@ -426,7 +429,7 @@ pub fn process_exits(
         .par_iter()
         .enumerate()
         .try_for_each(|(i, exit)| {
-            verify_exit(&state, exit, spec).map_err(|e| e.into_with_index(i))
+            verify_exit(&state, exit, spec, true).map_err(|e| e.into_with_index(i))
         })?;
 
     // Update the state in series.
