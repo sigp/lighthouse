@@ -1,5 +1,5 @@
 use self::verify_proposer_slashing::verify_proposer_slashing;
-use crate::errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
+use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use hashing::hash;
 use log::debug;
 use ssz::{ssz_encode, SignedRoot, TreeHash};
@@ -11,6 +11,7 @@ pub use verify_deposit::verify_deposit;
 pub use verify_exit::verify_exit;
 pub use verify_transfer::verify_transfer;
 
+pub mod errors;
 mod validate_attestation;
 mod verify_attester_slashing;
 mod verify_deposit;

@@ -1,4 +1,4 @@
-use crate::errors::{ProposerSlashingInvalid as Invalid, ProposerSlashingValidationError as Error};
+use super::errors::{ProposerSlashingInvalid as Invalid, ProposerSlashingValidationError as Error};
 use ssz::SignedRoot;
 use types::*;
 

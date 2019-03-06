@@ -1,4 +1,4 @@
-use crate::errors::{ExitInvalid as Invalid, ExitValidationError as Error};
+use super::errors::{ExitInvalid as Invalid, ExitValidationError as Error};
 use ssz::SignedRoot;
 use types::*;
 

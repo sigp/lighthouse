@@ -1,4 +1,4 @@
-use crate::errors::{TransferInvalid as Invalid, TransferValidationError as Error};
+use super::errors::{TransferInvalid as Invalid, TransferValidationError as Error};
 use types::*;
 
 /// Indicates if a `Transfer` is valid to be included in a block in the current epoch of the given
