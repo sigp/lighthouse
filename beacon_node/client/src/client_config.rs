@@ -56,7 +56,7 @@ impl ClientConfig {
         // TODO: Handle list of addresses
         if let Some(listen_address_str) = args.value_of("listen_address") {
             if let Ok(listen_address) = listen_address_str.parse::<IpAddr>() {
-                config.net_conf.listen_addresses = Some(vec![listen_address]);
+                config.net_conf.listen_addresses = vec![listen_address];
             } else {
                 error!(log, "Invalid IP Address"; "Address" => listen_address_str);
                 return Err("Invalid IP Address");
@@ -65,7 +65,7 @@ impl ClientConfig {
         // Custom p2p listen port
         if let Some(port_str) = args.value_of("port") {
             if let Ok(port) = port_str.parse::<u16>() {
-                config.net_conf.listen_port = Some(port);
+                config.net_conf.listen_port = port;
             } else {
                 error!(log, "Invalid port"; "port" => port_str);
                 return Err("Invalid port");
