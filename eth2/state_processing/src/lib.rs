@@ -1,13 +1,13 @@
 #[macro_use]
 mod macros;
-mod block_processable;
+pub mod per_block_processing;
 // mod epoch_processable;
-mod errors;
+pub mod errors;
 // mod slot_processable;
 
-pub use block_processable::{
-    validate_attestation, validate_attestation_without_signature, BlockProcessable,
-    Error as BlockProcessingError,
+pub use errors::{BlockInvalid, BlockProcessingError};
+pub use per_block_processing::{
+    per_block_processing, per_block_processing_without_verifying_block_signature,
 };
 // pub use epoch_processable::{EpochProcessable, Error as EpochProcessingError};
 // pub use slot_processable::{Error as SlotProcessingError, SlotProcessable};

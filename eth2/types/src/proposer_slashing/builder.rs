@@ -12,12 +12,12 @@ impl ProposerSlashingBuilder {
     /// - `validator_index: u64`
     /// - `message: &[u8]`
     /// - `epoch: Epoch`
-    /// - `domain: u64`
+    /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
     pub fn double_vote<F>(proposer_index: u64, signer: F, spec: &ChainSpec) -> ProposerSlashing
     where
-        F: Fn(u64, &[u8], Epoch, u64) -> Signature,
+        F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
         let slot = Slot::new(0);
         let shard = 0;
@@ -39,15 +39,13 @@ impl ProposerSlashingBuilder {
         proposal_1.signature = {
             let message = proposal_1.signed_root();
             let epoch = slot.epoch(spec.slots_per_epoch);
-            let domain = spec.domain_proposal;
-            signer(proposer_index, &message[..], epoch, domain)
+            signer(proposer_index, &message[..], epoch, Domain::Proposal)
         };
 
         proposal_2.signature = {
             let message = proposal_2.signed_root();
             let epoch = slot.epoch(spec.slots_per_epoch);
-            let domain = spec.domain_proposal;
-            signer(proposer_index, &message[..], epoch, domain)
+            signer(proposer_index, &message[..], epoch, Domain::Proposal)
         };
 
         ProposerSlashing {

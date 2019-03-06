@@ -1,7 +1,16 @@
-use crate::{Address, Epoch, Hash256, Slot};
+use crate::{Address, Epoch, Fork, Hash256, Slot};
 use bls::Signature;
 
 const GWEI: u64 = 1_000_000_000;
+
+pub enum Domain {
+    Deposit,
+    Attestation,
+    Proposal,
+    Exit,
+    Randao,
+    Transfer,
+}
 
 /// Holds all the "constants" for a BeaconChain.
 ///
@@ -85,14 +94,20 @@ pub struct ChainSpec {
 
     /*
      * Signature domains
+     *
+     * Fields should be private to prevent accessing a domain that hasn't been modified to suit
+     * some `Fork`.
+     *
+     * Use `ChainSpec::get_domain(..)` to access these values.
      */
-    pub domain_deposit: u64,
-    pub domain_attestation: u64,
-    pub domain_proposal: u64,
-    pub domain_exit: u64,
-    pub domain_randao: u64,
-    pub domain_transfer: u64,
+    domain_deposit: u64,
+    domain_attestation: u64,
+    domain_proposal: u64,
+    domain_exit: u64,
+    domain_randao: u64,
+    domain_transfer: u64,
 }
+
 impl ChainSpec {
     /// Return the number of committees in one epoch.
     ///
@@ -105,6 +120,23 @@ impl ChainSpec {
                 active_validator_count as u64 / self.slots_per_epoch / self.target_committee_size,
             ),
         ) * self.slots_per_epoch
+    }
+
+    /// Get the domain number that represents the fork meta and signature domain.
+    ///
+    /// Spec v0.4.0
+    pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
+        let domain_constant = match domain {
+            Domain::Deposit => self.domain_deposit,
+            Domain::Attestation => self.domain_attestation,
+            Domain::Proposal => self.domain_proposal,
+            Domain::Exit => self.domain_exit,
+            Domain::Randao => self.domain_randao,
+            Domain::Transfer => self.domain_transfer,
+        };
+
+        let fork_version = fork.get_fork_version(epoch);
+        fork_version * u64::pow(2, 32) + domain_constant
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.

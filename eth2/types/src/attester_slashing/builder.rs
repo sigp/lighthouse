@@ -12,7 +12,7 @@ impl AttesterSlashingBuilder {
     /// - `validator_index: u64`
     /// - `message: &[u8]`
     /// - `epoch: Epoch`
-    /// - `domain: u64`
+    /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
     pub fn double_vote<F>(
@@ -21,7 +21,7 @@ impl AttesterSlashingBuilder {
         spec: &ChainSpec,
     ) -> AttesterSlashing
     where
-        F: Fn(u64, &[u8], Epoch, u64) -> Signature,
+        F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
         let double_voted_slot = Slot::new(0);
         let shard = 0;
@@ -75,12 +75,7 @@ impl AttesterSlashingBuilder {
                     custody_bit: attestation.custody_bitfield.get(i).unwrap(),
                 };
                 let message = attestation_data_and_custody_bit.hash_tree_root();
-                let signature = signer(
-                    *validator_index,
-                    &message[..],
-                    epoch,
-                    spec.domain_attestation,
-                );
+                let signature = signer(*validator_index, &message[..], epoch, Domain::Attestation);
                 attestation.aggregate_signature.add(&signature);
             }
         };

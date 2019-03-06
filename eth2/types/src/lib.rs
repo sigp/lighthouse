@@ -43,7 +43,7 @@ pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_state::{
     BeaconState, Error as BeaconStateError, InclusionError, RelativeEpoch,
 };
-pub use crate::chain_spec::ChainSpec;
+pub use crate::chain_spec::{ChainSpec, Domain};
 pub use crate::crosslink::Crosslink;
 pub use crate::deposit::Deposit;
 pub use crate::deposit_data::DepositData;

@@ -10,7 +10,6 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.2"
-test_harness = { path = "../../beacon_node/beacon_chain/test_harness" }
 env_logger = "0.6.0"
 
 [dependencies]
