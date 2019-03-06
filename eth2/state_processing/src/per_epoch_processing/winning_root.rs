@@ -1,15 +1,16 @@
-use super::WinningRootError;
+use super::errors::WinningRootError;
+use std::collections::HashMap;
 use types::*;
 
 #[derive(Clone)]
 pub struct WinningRoot {
-    pub shard_block_root: Hash256,
+    pub crosslink_data_root: Hash256,
     pub attesting_validator_indices: Vec<usize>,
     pub total_balance: u64,
     pub total_attesting_balance: u64,
 }
 
-fn winning_root(
+pub fn winning_root(
     state: &BeaconState,
     shard: u64,
     current_epoch_attestations: &[&PendingAttestation],
@@ -28,16 +29,16 @@ fn winning_root(
             continue;
         }
 
-        let shard_block_root = &a.data.shard_block_root;
+        let crosslink_data_root = &a.data.crosslink_data_root;
 
-        if candidates.contains_key(shard_block_root) {
+        if candidates.contains_key(crosslink_data_root) {
             continue;
         }
 
         let attesting_validator_indices = attestations
             .iter()
             .try_fold::<_, _, Result<_, BeaconStateError>>(vec![], |mut acc, a| {
-                if (a.data.shard == shard) && (a.data.shard_block_root == *shard_block_root) {
+                if (a.data.shard == shard) && (a.data.crosslink_data_root == *crosslink_data_root) {
                     acc.append(&mut state.get_attestation_participants(
                         &a.data,
                         &a.aggregation_bitfield,
@@ -60,13 +61,13 @@ fn winning_root(
         }
 
         let candidate_root = WinningRoot {
-            shard_block_root: *shard_block_root,
+            crosslink_data_root: *crosslink_data_root,
             attesting_validator_indices,
             total_attesting_balance,
             total_balance,
         };
 
-        candidates.insert(*shard_block_root, candidate_root);
+        candidates.insert(*crosslink_data_root, candidate_root);
     }
 
     Ok(candidates
@@ -78,7 +79,7 @@ fn winning_root(
                 None
             }
         })
-        .min_by_key(|candidate| candidate.shard_block_root)
+        .min_by_key(|candidate| candidate.crosslink_data_root)
         .ok_or_else(|| WinningRootError::NoWinningRoot)?
         // TODO: avoid clone.
         .clone())

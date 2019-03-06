@@ -1,5 +1,5 @@
 #![cfg(test)]
-use crate::EpochProcessable;
+use crate::per_epoch_processing;
 use env_logger::{Builder, Env};
 use types::beacon_state::BeaconStateBuilder;
 use types::*;
@@ -17,5 +17,5 @@ fn runs_without_error() {
     let mut state = builder.cloned_state();
 
     let spec = &builder.spec;
-    state.per_epoch_processing(spec).unwrap();
+    per_epoch_processing(&mut state, spec).unwrap();
 }
