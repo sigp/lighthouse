@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 bls = { path = "../utils/bls" }
 boolean-bitfield = { path = "../utils/boolean-bitfield" }
-ethereum-types = "0.4.0"
+ethereum-types = "0.5"
 hashing = { path = "../utils/hashing" }
 honey-badger-split =  { path = "../utils/honey-badger-split" }
 int_to_bytes = { path = "../utils/int_to_bytes" }

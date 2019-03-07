@@ -1,10 +1,9 @@
 [package]
-name = "ssz"
+name = "merkle_proof"
 version = "0.1.0"
-authors = ["Paul Hauner <paul@paulhauner.com>"]
+authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-bytes = "0.4.9"
 ethereum-types = "0.5"
 hashing = { path = "../hashing" }

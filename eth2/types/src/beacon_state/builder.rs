@@ -145,8 +145,8 @@ impl BeaconStateBuilder {
         state.previous_shuffling_epoch = epoch - 1;
         state.current_shuffling_epoch = epoch;
 
-        state.previous_shuffling_seed = Hash256::from(&b"previous_seed"[..]);
-        state.current_shuffling_seed = Hash256::from(&b"current_seed"[..]);
+        state.previous_shuffling_seed = Hash256::from_low_u64_le(0);
+        state.current_shuffling_seed = Hash256::from_low_u64_le(1);
 
         state.previous_justified_epoch = epoch - 2;
         state.justified_epoch = epoch - 1;

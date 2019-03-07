@@ -4,6 +4,7 @@
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
 use log::{info, warn};
+use ssz::TreeHash;
 use types::*;
 use types::{
     attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
@@ -121,6 +122,20 @@ impl TestCase {
                 }
             }
 
+            // Feed exits to the BeaconChain.
+            if let Some(ref exits) = self.config.exits {
+                for (slot, validator_index) in exits {
+                    if *slot == slot_height {
+                        info!(
+                            "Including exit at slot height {} for validator {}.",
+                            slot_height, validator_index
+                        );
+                        let exit = build_exit(&harness, *validator_index);
+                        harness.add_exit(exit);
+                    }
+                }
+            }
+
             // Build a block or skip a slot.
             match self.config.skip_slots {
                 Some(ref skip_slots) if skip_slots.contains(&slot_height) => {
@@ -183,6 +198,33 @@ impl TestCase {
             }
         }
     }
+}
+
+fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> Exit {
+    let epoch = harness
+        .beacon_chain
+        .state
+        .read()
+        .current_epoch(&harness.spec);
+
+    let mut exit = Exit {
+        epoch,
+        validator_index,
+        signature: Signature::empty_signature(),
+    };
+
+    let message = exit.hash_tree_root();
+
+    exit.signature = harness
+        .validator_sign(
+            validator_index as usize,
+            &message[..],
+            epoch,
+            harness.spec.domain_exit,
+        )
+        .expect("Unable to sign Exit");
+
+    exit
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.
