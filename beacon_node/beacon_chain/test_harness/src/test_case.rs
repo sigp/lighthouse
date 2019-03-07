@@ -69,6 +69,7 @@ impl TestCase {
     }
 
     /// Executes the test case, returning an `ExecutionResult`.
+    #[allow(clippy::cyclomatic_complexity)]
     pub fn execute(&self) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;

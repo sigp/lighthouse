@@ -73,6 +73,7 @@ where
     F: ForkChoice,
 {
     /// Instantiate a new Beacon Chain, from genesis.
+    #[allow(clippy::too_many_arguments)] // Will be re-factored in the coming weeks.
     pub fn genesis(
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,
