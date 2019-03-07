@@ -1,12 +1,12 @@
 use super::yaml_helpers::{as_u64, as_usize, as_vec_u64};
-use bls::create_proof_of_possession;
 use types::*;
 use yaml_rust::Yaml;
 
 pub type ValidatorIndex = u64;
 pub type ValidatorIndices = Vec<u64>;
+pub type GweiAmount = u64;
 
-pub type DepositTuple = (SlotHeight, Deposit, Keypair);
+pub type DepositTuple = (SlotHeight, GweiAmount);
 pub type ExitTuple = (SlotHeight, ValidatorIndex);
 pub type ProposerSlashingTuple = (SlotHeight, ValidatorIndex);
 pub type AttesterSlashingTuple = (SlotHeight, ValidatorIndices);
@@ -101,30 +101,11 @@ fn parse_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
     let mut deposits = vec![];
 
     for deposit in yaml["deposits"].as_vec()? {
-        let keypair = Keypair::random();
-        let proof_of_possession = create_proof_of_possession(&keypair);
-
         let slot = as_u64(deposit, "slot").expect("Incomplete deposit (slot)");
         let amount =
             as_u64(deposit, "amount").expect("Incomplete deposit (amount)") * 1_000_000_000;
 
-        let deposit = Deposit {
-            // Note: `branch` and `index` will need to be updated once the spec defines their
-            // validity.
-            branch: vec![],
-            index: 0,
-            deposit_data: DepositData {
-                amount,
-                timestamp: 1,
-                deposit_input: DepositInput {
-                    pubkey: keypair.pk.clone(),
-                    withdrawal_credentials: Hash256::zero(),
-                    proof_of_possession,
-                },
-            },
-        };
-
-        deposits.push((SlotHeight::from(slot), deposit, keypair));
+        deposits.push((SlotHeight::from(slot), amount))
     }
 
     Some(deposits)

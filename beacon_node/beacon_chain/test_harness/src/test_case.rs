@@ -3,9 +3,11 @@
 
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
+use bls::create_proof_of_possession;
 use log::{info, warn};
-use ssz::TreeHash;
+use ssz::SignedRoot;
 use types::*;
+
 use types::{
     attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
 };
@@ -83,12 +85,18 @@ impl TestCase {
 
         // -1 slots because genesis counts as a slot.
         for slot_height in 0..slots - 1 {
+            // Used to ensure that deposits in the same slot have incremental deposit indices.
+            let mut deposit_index_offset = 0;
+
             // Feed deposits to the BeaconChain.
             if let Some(ref deposits) = self.config.deposits {
-                for (slot, deposit, keypair) in deposits {
+                for (slot, amount) in deposits {
                     if *slot == slot_height {
                         info!("Including deposit at slot height {}.", slot_height);
-                        harness.add_deposit(deposit.clone(), Some(keypair.clone()));
+                        let (deposit, keypair) =
+                            build_deposit(&harness, *amount, deposit_index_offset);
+                        harness.add_deposit(deposit, Some(keypair.clone()));
+                        deposit_index_offset += 1;
                     }
                 }
             }
@@ -200,6 +208,41 @@ impl TestCase {
     }
 }
 
+/// Builds a `Deposit` this is valid for the given `BeaconChainHarness`.
+///
+/// `index_offset` is used to ensure that `deposit.index == state.index` when adding multiple
+/// deposits.
+fn build_deposit(
+    harness: &BeaconChainHarness,
+    amount: u64,
+    index_offset: u64,
+) -> (Deposit, Keypair) {
+    let keypair = Keypair::random();
+    let proof_of_possession = create_proof_of_possession(&keypair);
+    let index = harness.beacon_chain.state.read().deposit_index + index_offset;
+
+    info!("index: {}, index_offset: {}", index, index_offset);
+
+    let deposit = Deposit {
+        // Note: `branch` and `index` will need to be updated once the spec defines their
+        // validity.
+        branch: vec![],
+        index,
+        deposit_data: DepositData {
+            amount,
+            timestamp: 1,
+            deposit_input: DepositInput {
+                pubkey: keypair.pk.clone(),
+                withdrawal_credentials: Hash256::zero(),
+                proof_of_possession,
+            },
+        },
+    };
+
+    (deposit, keypair)
+}
+
+/// Builds a `VoluntaryExit` this is valid for the given `BeaconChainHarness`.
 fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> VoluntaryExit {
     let epoch = harness
         .beacon_chain
@@ -213,7 +256,7 @@ fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> VoluntaryEx
         signature: Signature::empty_signature(),
     };
 
-    let message = exit.hash_tree_root();
+    let message = exit.signed_root();
 
     exit.signature = harness
         .validator_sign(validator_index as usize, &message[..], epoch, Domain::Exit)
