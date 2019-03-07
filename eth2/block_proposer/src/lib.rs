@@ -3,12 +3,16 @@ mod traits;
 
 use int_to_bytes::int_to_bytes32;
 use slot_clock::SlotClock;
+use ssz::SignedRoot;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Slot};
+use types::{BeaconBlock, ChainSpec, Hash256, Proposal, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
 };
+
+//TODO: obtain the correct domain using a `Fork`.
+pub const TEMPORARY_DOMAIN_VALUE: u64 = 0;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -136,7 +140,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
 
             match self
                 .signer
-                .sign_randao_reveal(&message, self.spec.domain_randao)
+                .sign_randao_reveal(&message, TEMPORARY_DOMAIN_VALUE)
             {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
                 Some(signature) => signature,
@@ -169,10 +173,17 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn sign_block(&mut self, mut block: BeaconBlock) -> Option<BeaconBlock> {
         self.store_produce(&block);
 
-        match self.signer.sign_block_proposal(
-            &block.proposal_root(&self.spec)[..],
-            self.spec.domain_proposal,
-        ) {
+        let proposal = Proposal {
+            slot: block.slot,
+            shard: self.spec.beacon_chain_shard_number,
+            block_root: Hash256::from_slice(&block.signed_root()[..]),
+            signature: block.signature.clone(),
+        };
+
+        match self
+            .signer
+            .sign_block_proposal(&proposal.signed_root()[..], TEMPORARY_DOMAIN_VALUE)
+        {
             None => None,
             Some(signature) => {
                 block.signature = signature;

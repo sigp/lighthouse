@@ -2,8 +2,9 @@ pub mod test_utils;
 mod traits;
 
 use slot_clock::SlotClock;
+use ssz::TreeHash;
 use std::sync::Arc;
-use types::{AttestationData, FreeAttestation, Signature, Slot};
+use types::{AttestationData, AttestationDataAndCustodyBit, FreeAttestation, Signature, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -137,10 +138,14 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
     fn sign_attestation_data(&mut self, attestation_data: &AttestationData) -> Option<Signature> {
         self.store_produce(attestation_data);
 
-        self.signer.sign_attestation_message(
-            &attestation_data.signable_message(PHASE_0_CUSTODY_BIT)[..],
-            DOMAIN_ATTESTATION,
-        )
+        let message = AttestationDataAndCustodyBit {
+            data: attestation_data.clone(),
+            custody_bit: PHASE_0_CUSTODY_BIT,
+        }
+        .hash_tree_root();
+
+        self.signer
+            .sign_attestation_message(&message[..], DOMAIN_ATTESTATION)
     }
 
     /// Returns `true` if signing some attestation_data is safe (non-slashable).
