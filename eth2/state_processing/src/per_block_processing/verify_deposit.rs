@@ -16,7 +16,6 @@ pub fn verify_deposit(
 ) -> Result<(), Error> {
     // TODO: verify serialized deposit data.
 
-    // TODO: verify deposit index.
     verify!(
         deposit.index == state.deposit_index,
         Invalid::BadIndex(state.deposit_index, deposit.index)
