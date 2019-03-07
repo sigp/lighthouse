@@ -66,7 +66,7 @@ impl StateCheck {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, validator)| {
-                    if validator.is_penalized_at(state_epoch) {
+                    if validator.slashed {
                         Some(i as u64)
                     } else {
                         None
@@ -108,7 +108,7 @@ impl StateCheck {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, validator)| {
-                    if validator.has_initiated_exit() {
+                    if validator.initiated_exit {
                         Some(i as u64)
                     } else {
                         None

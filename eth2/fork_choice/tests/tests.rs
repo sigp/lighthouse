@@ -81,7 +81,8 @@ fn test_yaml_vectors(
         attester_slashings: vec![],
         attestations: vec![],
         deposits: vec![],
-        exits: vec![],
+        voluntary_exits: vec![],
+        transfers: vec![],
     };
 
     // process the tests
@@ -249,9 +250,9 @@ fn setup_inital_state(
         withdrawal_credentials: zero_hash,
         activation_epoch: Epoch::from(0u64),
         exit_epoch: spec.far_future_epoch,
-        withdrawal_epoch: spec.far_future_epoch,
-        penalized_epoch: spec.far_future_epoch,
-        status_flags: None,
+        withdrawable_epoch: spec.far_future_epoch,
+        initiated_exit: false,
+        slashed: false,
     };
     // activate the validators
     for _ in 0..no_validators {

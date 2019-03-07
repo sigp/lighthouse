@@ -1,6 +1,6 @@
 use super::ValidatorHarness;
 use beacon_chain::{BeaconChain, BlockProcessingOutcome};
-pub use beacon_chain::{CheckPoint, Error as BeaconChainError};
+pub use beacon_chain::{BeaconChainError, CheckPoint};
 use bls::create_proof_of_possession;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -250,16 +250,13 @@ impl BeaconChainHarness {
         validator_index: usize,
         message: &[u8],
         epoch: Epoch,
-        domain_type: u64,
+        domain_type: Domain,
     ) -> Option<Signature> {
         let validator = self.validators.get(validator_index)?;
 
         let domain = self
-            .beacon_chain
-            .state
-            .read()
-            .fork
-            .get_domain(epoch, domain_type);
+            .spec
+            .get_domain(epoch, domain_type, &self.beacon_chain.state.read().fork);
 
         Some(Signature::new(message, domain, &validator.keypair.sk))
     }
@@ -285,7 +282,7 @@ impl BeaconChainHarness {
     /// Note: the `ValidatorHarness` for this validator continues to exist. Once it is exited it
     /// will stop receiving duties from the beacon chain and just do nothing when prompted to
     /// produce/attest.
-    pub fn add_exit(&mut self, exit: Exit) {
+    pub fn add_exit(&mut self, exit: VoluntaryExit) {
         self.beacon_chain.receive_exit_for_inclusion(exit);
     }
 

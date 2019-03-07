@@ -1,5 +1,6 @@
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
 use crate::checkpoint::CheckPoint;
+use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
@@ -18,18 +19,6 @@ use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
     *,
 };
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    InsufficientValidators,
-    BadRecentBlockRoots,
-    BeaconStateError(BeaconStateError),
-    DBInconsistent(String),
-    DBError(String),
-    ForkChoiceError(ForkChoiceError),
-    MissingBeaconBlock(Hash256),
-    MissingBeaconState(Hash256),
-}
 
 #[derive(Debug, PartialEq)]
 pub enum ValidBlock {
@@ -700,7 +689,10 @@ where
     ///
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub fn produce_block(&self, randao_reveal: Signature) -> Option<(BeaconBlock, BeaconState)> {
+    pub fn produce_block(
+        &self,
+        randao_reveal: Signature,
+    ) -> Result<(BeaconBlock, BeaconState), BlockProductionError> {
         debug!("Producing block at slot {}...", self.state.read().slot);
 
         let mut state = self.state.read().clone();
@@ -717,7 +709,9 @@ where
             attestations.len()
         );
 
-        let parent_root = *state.get_block_root(state.slot.saturating_sub(1_u64), &self.spec)?;
+        let parent_root = *state
+            .get_block_root(state.slot.saturating_sub(1_u64), &self.spec)
+            .ok_or_else(|| BlockProductionError::UnableToGetBlockRootFromState)?;
 
         let mut block = BeaconBlock {
             slot: state.slot,
@@ -742,21 +736,13 @@ where
 
         trace!("BeaconChain::produce_block: updating state for new block.",);
 
-        let result =
-            per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec);
-        debug!(
-            "BeaconNode::produce_block: state processing result: {:?}",
-            result
-        );
-        result.ok()?;
+        per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
 
         let state_root = state.canonical_root();
 
         block.state_root = state_root;
 
-        trace!("Block produced.");
-
-        Some((block, state))
+        Ok((block, state))
     }
 
     // TODO: Left this as is, modify later
