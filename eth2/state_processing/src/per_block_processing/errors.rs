@@ -292,6 +292,9 @@ pub enum DepositInvalid {
     ///
     /// (state_index, deposit_index)
     BadIndex(u64, u64),
+    /// The specified `branch` and `index` did not form a valid proof that the deposit is included
+    /// in the eth1 deposit root.
+    BadMerkleProof,
 }
 
 impl_into_with_index_without_beacon_error!(DepositValidationError, DepositInvalid);
