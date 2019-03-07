@@ -10,7 +10,8 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
 use state_processing::{
-    BlockProcessable, BlockProcessingError, SlotProcessable, SlotProcessingError,
+    per_block_processing, per_block_processing_without_verifying_block_signature,
+    per_slot_processing, BlockProcessingError, SlotProcessingError,
 };
 use std::sync::Arc;
 use types::{
@@ -65,7 +66,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
-    pub exits_for_inclusion: RwLock<Vec<Exit>>,
+    pub exits_for_inclusion: RwLock<Vec<VoluntaryExit>>,
     pub proposer_slashings_for_inclusion: RwLock<Vec<ProposerSlashing>>,
     pub attester_slashings_for_inclusion: RwLock<Vec<AttesterSlashing>>,
     canonical_head: RwLock<CheckPoint>,
@@ -214,9 +215,7 @@ where
         let state_slot = self.state.read().slot;
         let head_block_root = self.head().beacon_block_root;
         for _ in state_slot.as_u64()..slot.as_u64() {
-            self.state
-                .write()
-                .per_slot_processing(head_block_root, &self.spec)?;
+            per_slot_processing(&mut *self.state.write(), head_block_root, &self.spec)?;
         }
         Ok(())
     }
@@ -333,10 +332,10 @@ where
             shard,
             beacon_block_root: self.head().beacon_block_root,
             epoch_boundary_root,
-            shard_block_root: Hash256::zero(),
+            crosslink_data_root: Hash256::zero(),
             latest_crosslink: Crosslink {
                 epoch: self.state.read().slot.epoch(self.spec.slots_per_epoch),
-                shard_block_root: Hash256::zero(),
+                crosslink_data_root: Hash256::zero(),
             },
             justified_epoch,
             justified_block_root,
@@ -411,7 +410,7 @@ where
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
-    pub fn receive_exit_for_inclusion(&self, exit: Exit) {
+    pub fn receive_exit_for_inclusion(&self, exit: VoluntaryExit) {
         // TODO: exits are not checked for validity; check them.
         //
         // https://github.com/sigp/lighthouse/issues/276
@@ -419,7 +418,7 @@ where
     }
 
     /// Return a vec of exits suitable for inclusion in some block.
-    pub fn get_exits_for_block(&self) -> Vec<Exit> {
+    pub fn get_exits_for_block(&self) -> Vec<VoluntaryExit> {
         // TODO: exits are indiscriminately included; check them for validity.
         //
         // https://github.com/sigp/lighthouse/issues/275
@@ -430,7 +429,7 @@ where
     /// inclusion queue.
     ///
     /// This ensures that `Deposits` are not included twice in successive blocks.
-    pub fn set_exits_as_included(&self, included_exits: &[Exit]) {
+    pub fn set_exits_as_included(&self, included_exits: &[VoluntaryExit]) {
         // TODO: method does not take forks into account; consider this.
         let mut indices_to_delete = vec![];
 
@@ -647,7 +646,7 @@ where
         // Transition the parent state to the present slot.
         let mut state = parent_state;
         for _ in state.slot.as_u64()..present_slot.as_u64() {
-            if let Err(e) = state.per_slot_processing(parent_block_root, &self.spec) {
+            if let Err(e) = per_slot_processing(&mut state, parent_block_root, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
                 ));
@@ -656,7 +655,7 @@ where
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
-        if let Err(e) = state.per_block_processing(&block, &self.spec) {
+        if let Err(e) = per_block_processing(&mut state, &block, &self.spec) {
             return Ok(BlockProcessingOutcome::InvalidBlock(
                 InvalidBlock::PerBlockProcessingError(e),
             ));
@@ -736,14 +735,15 @@ where
                 attester_slashings: self.get_attester_slashings_for_block(),
                 attestations,
                 deposits: self.get_deposits_for_block(),
-                exits: self.get_exits_for_block(),
+                voluntary_exits: self.get_exits_for_block(),
+                transfers: vec![],
             },
         };
 
         trace!("BeaconChain::produce_block: updating state for new block.",);
 
         let result =
-            state.per_block_processing_without_verifying_block_signature(&block, &self.spec);
+            per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec);
         debug!(
             "BeaconNode::produce_block: state processing result: {:?}",
             result
