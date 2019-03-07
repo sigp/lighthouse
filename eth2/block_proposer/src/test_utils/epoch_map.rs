@@ -1,6 +1,6 @@
 use crate::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
-use types::{Epoch, Slot};
+use types::{Epoch, Fork, Slot};
 
 pub struct EpochMap {
     slots_per_epoch: u64,
@@ -24,5 +24,13 @@ impl DutiesReader for EpochMap {
             Some(s) if *s != slot => Ok(false),
             _ => Err(DutiesReaderError::UnknownEpoch),
         }
+    }
+
+    fn fork(&self) -> Result<Fork, DutiesReaderError> {
+        Ok(Fork {
+            previous_version: 0,
+            current_version: 0,
+            epoch: Epoch::new(0),
+        })
     }
 }

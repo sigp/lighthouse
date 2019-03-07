@@ -1,18 +1,14 @@
 pub mod test_utils;
 mod traits;
 
-use int_to_bytes::int_to_bytes32;
 use slot_clock::SlotClock;
-use ssz::SignedRoot;
+use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Hash256, Proposal, Slot};
+use types::{BeaconBlock, ChainSpec, Domain, Hash256, Proposal, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
 };
-
-//TODO: obtain the correct domain using a `Fork`.
-pub const TEMPORARY_DOMAIN_VALUE: u64 = 0;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -32,6 +28,8 @@ pub enum PollOutcome {
     SignerRejection(Slot),
     /// The public key for this validator is not an active validator.
     ValidatorIsUnknown(Slot),
+    /// Unable to determine a `Fork` for signature domain generation.
+    UnableToGetFork(Slot),
 }
 
 #[derive(Debug, PartialEq)]
@@ -134,14 +132,20 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
     fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
+        let fork = match self.epoch_map.fork() {
+            Ok(fork) => fork,
+            Err(_) => return Ok(PollOutcome::UnableToGetFork(slot)),
+        };
+
         let randao_reveal = {
             // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
-            let message = int_to_bytes32(slot.epoch(self.spec.slots_per_epoch).as_u64());
+            let message = slot.epoch(self.spec.slots_per_epoch).hash_tree_root();
 
-            match self
-                .signer
-                .sign_randao_reveal(&message, TEMPORARY_DOMAIN_VALUE)
-            {
+            match self.signer.sign_randao_reveal(
+                &message,
+                self.spec
+                    .get_domain(slot.epoch(self.spec.slots_per_epoch), Domain::Randao, &fork),
+            ) {
                 None => return Ok(PollOutcome::SignerRejection(slot)),
                 Some(signature) => signature,
             }
@@ -152,7 +156,12 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             .produce_beacon_block(slot, &randao_reveal)?
         {
             if self.safe_to_produce(&block) {
-                if let Some(block) = self.sign_block(block) {
+                let domain = self.spec.get_domain(
+                    slot.epoch(self.spec.slots_per_epoch),
+                    Domain::Proposal,
+                    &fork,
+                );
+                if let Some(block) = self.sign_block(block, domain) {
                     self.beacon_node.publish_beacon_block(block)?;
                     Ok(PollOutcome::BlockProduced(slot))
                 } else {
@@ -170,7 +179,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ///
     /// Important: this function will not check to ensure the block is not slashable. This must be
     /// done upstream.
-    fn sign_block(&mut self, mut block: BeaconBlock) -> Option<BeaconBlock> {
+    fn sign_block(&mut self, mut block: BeaconBlock, domain: u64) -> Option<BeaconBlock> {
         self.store_produce(&block);
 
         let proposal = Proposal {
@@ -182,7 +191,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
 
         match self
             .signer
-            .sign_block_proposal(&proposal.signed_root()[..], TEMPORARY_DOMAIN_VALUE)
+            .sign_block_proposal(&proposal.signed_root()[..], domain)
         {
             None => None,
             Some(signature) => {
