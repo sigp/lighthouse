@@ -1,12 +1,12 @@
 use super::ValidatorHarness;
 use beacon_chain::{BeaconChain, BlockProcessingOutcome};
 pub use beacon_chain::{BeaconChainError, CheckPoint};
-use bls::{create_proof_of_possession, get_withdrawal_credentials};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
 };
 use fork_choice::BitwiseLMDGhost;
+use generate_deposits::generate_deposits_with_random_keypairs;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
@@ -14,6 +14,8 @@ use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::sync::Arc;
 use types::*;
+
+mod generate_deposits;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -47,40 +49,8 @@ impl BeaconChainHarness {
             block_hash: Hash256::zero(),
         };
 
-        debug!("Generating validator keypairs...");
-
-        let keypairs: Vec<Keypair> = (0..validator_count)
-            .collect::<Vec<usize>>()
-            .par_iter()
-            .map(|_| Keypair::random())
-            .collect();
-
-        debug!("Creating validator deposits...");
-
-        let initial_validator_deposits = keypairs
-            .par_iter()
-            .map(|keypair| Deposit {
-                branch: vec![], // branch verification is not specified.
-                index: 0,       // index verification is not specified.
-                deposit_data: DepositData {
-                    amount: 32_000_000_000, // 32 ETH (in Gwei)
-                    timestamp: genesis_time - 1,
-                    deposit_input: DepositInput {
-                        pubkey: keypair.pk.clone(),
-                        // Validator can withdraw using their main keypair.
-                        withdrawal_credentials: Hash256::from_slice(
-                            &get_withdrawal_credentials(
-                                &keypair.pk,
-                                spec.bls_withdrawal_prefix_byte,
-                            )[..],
-                        ),
-                        proof_of_possession: create_proof_of_possession(&keypair),
-                    },
-                },
-            })
-            .collect();
-
-        debug!("Creating the BeaconChain...");
+        let (keypairs, initial_validator_deposits) =
+            generate_deposits_with_random_keypairs(validator_count, genesis_time, &spec);
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
