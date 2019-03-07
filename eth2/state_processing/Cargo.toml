@@ -18,6 +18,8 @@ hashing = { path = "../utils/hashing" }
 int_to_bytes = { path = "../utils/int_to_bytes" }
 integer-sqrt = "0.1"
 log = "0.4"
+merkle_proof = { path = "../utils/merkle_proof" }
 ssz = { path = "../utils/ssz" }
+ssz_derive = { path = "../utils/ssz_derive" }
 types = { path = "../types" }
 rayon = "1.0"

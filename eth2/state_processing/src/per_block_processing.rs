@@ -20,6 +20,11 @@ mod verify_proposer_slashing;
 mod verify_slashable_attestation;
 mod verify_transfer;
 
+// Set to `true` to check the merkle proof that a deposit is in the eth1 deposit root.
+//
+// Presently disabled to make testing easier.
+const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = false;
+
 /// Updates the state for a new block, whilst validating that the block is valid.
 ///
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
@@ -309,7 +314,8 @@ pub fn process_deposits(
         Invalid::MaxDepositsExceeded
     );
     for (i, deposit) in deposits.iter().enumerate() {
-        verify_deposit(state, deposit, spec).map_err(|e| e.into_with_index(i))?;
+        verify_deposit(state, deposit, VERIFY_DEPOSIT_MERKLE_PROOFS, spec)
+            .map_err(|e| e.into_with_index(i))?;
 
         state
             .process_deposit(
