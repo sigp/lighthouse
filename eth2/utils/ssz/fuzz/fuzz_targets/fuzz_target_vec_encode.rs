@@ -6,7 +6,7 @@ extern crate ssz;
 use ethereum_types::{Address, H256};
 use ssz::SszStream;
 
-// Fuzz ssz_decode()
+// Fuzz ssz_encode()
 fuzz_target!(|data: &[u8]| {
 
     let mut ssz = SszStream::new();

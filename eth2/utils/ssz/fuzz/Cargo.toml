@@ -89,5 +89,17 @@ name = "fuzz_target_vec_decode"
 path = "fuzz_targets/fuzz_target_vec_decode.rs"
 
 [[bin]]
+name = "fuzz_target_vec_address_decode"
+path = "fuzz_targets/fuzz_target_vec_address_decode.rs"
+
+[[bin]]
+name = "fuzz_target_vec_u64_decode"
+path = "fuzz_targets/fuzz_target_vec_u64_decode.rs"
+
+[[bin]]
+name = "fuzz_target_vec_bool_decode"
+path = "fuzz_targets/fuzz_target_vec_bool_decode.rs"
+
+[[bin]]
 name = "fuzz_target_vec_encode"
 path = "fuzz_targets/fuzz_target_vec_encode.rs"
