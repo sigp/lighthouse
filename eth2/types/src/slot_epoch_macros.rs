@@ -227,9 +227,9 @@ macro_rules! impl_ssz {
         }
 
         impl TreeHash for $type {
-            fn hash_tree_root_internal(&self) -> Vec<u8> {
+            fn hash_tree_root(&self) -> Vec<u8> {
                 let mut result: Vec<u8> = vec![];
-                result.append(&mut self.0.hash_tree_root_internal());
+                result.append(&mut self.0.hash_tree_root());
                 hash(&result)
             }
         }

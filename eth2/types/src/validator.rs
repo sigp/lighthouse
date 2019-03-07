@@ -137,16 +137,16 @@ impl Decodable for Validator {
 }
 
 impl TreeHash for Validator {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
+    fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.pubkey.hash_tree_root_internal());
-        result.append(&mut self.withdrawal_credentials.hash_tree_root_internal());
-        result.append(&mut self.activation_epoch.hash_tree_root_internal());
-        result.append(&mut self.exit_epoch.hash_tree_root_internal());
-        result.append(&mut self.withdrawal_epoch.hash_tree_root_internal());
-        result.append(&mut self.penalized_epoch.hash_tree_root_internal());
+        result.append(&mut self.pubkey.hash_tree_root());
+        result.append(&mut self.withdrawal_credentials.hash_tree_root());
+        result.append(&mut self.activation_epoch.hash_tree_root());
+        result.append(&mut self.exit_epoch.hash_tree_root());
+        result.append(&mut self.withdrawal_epoch.hash_tree_root());
+        result.append(&mut self.penalized_epoch.hash_tree_root());
         result.append(
-            &mut u64::from(status_flag_to_byte(self.status_flags)).hash_tree_root_internal(),
+            &mut u64::from(status_flag_to_byte(self.status_flags)).hash_tree_root(),
         );
         hash(&result)
     }
