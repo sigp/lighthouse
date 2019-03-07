@@ -17,7 +17,7 @@ impl Attesters {
     }
 }
 
-pub struct GroupedAttesters {
+pub struct AttesterSets {
     pub current_epoch: Attesters,
     pub current_epoch_boundary: Attesters,
     pub previous_epoch: Attesters,
@@ -25,7 +25,7 @@ pub struct GroupedAttesters {
     pub previous_epoch_head: Attesters,
 }
 
-impl GroupedAttesters {
+impl AttesterSets {
     pub fn new(state: &BeaconState, spec: &ChainSpec) -> Result<Self, BeaconStateError> {
         let mut current_epoch = Attesters::default();
         let mut current_epoch_boundary = Attesters::default();

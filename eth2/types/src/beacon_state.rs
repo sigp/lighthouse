@@ -56,13 +56,6 @@ pub enum Error {
     EpochCacheUninitialized(RelativeEpoch),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum InclusionError {
-    /// The validator did not participate in an attestation in this period.
-    NoAttestationsForValidator,
-    Error(Error),
-}
-
 macro_rules! safe_add_assign {
     ($a: expr, $b: expr) => {
         $a = $a.saturating_add($b);
@@ -1123,67 +1116,6 @@ impl BeaconState {
                 / 2
     }
 
-    /// Returns the distance between the first included attestation for some validator and this
-    /// slot.
-    ///
-    /// Note: In the spec this is defined "inline", not as a helper function.
-    ///
-    /// Spec v0.4.0
-    pub fn inclusion_distance(
-        &self,
-        attestations: &[&PendingAttestation],
-        validator_index: usize,
-        spec: &ChainSpec,
-    ) -> Result<u64, InclusionError> {
-        let attestation =
-            self.earliest_included_attestation(attestations, validator_index, spec)?;
-        Ok((attestation.inclusion_slot - attestation.data.slot).as_u64())
-    }
-
-    /// Returns the slot of the earliest included attestation for some validator.
-    ///
-    /// Note: In the spec this is defined "inline", not as a helper function.
-    ///
-    /// Spec v0.4.0
-    pub fn inclusion_slot(
-        &self,
-        attestations: &[&PendingAttestation],
-        validator_index: usize,
-        spec: &ChainSpec,
-    ) -> Result<Slot, InclusionError> {
-        let attestation =
-            self.earliest_included_attestation(attestations, validator_index, spec)?;
-        Ok(attestation.inclusion_slot)
-    }
-
-    /// Finds the earliest included attestation for some validator.
-    ///
-    /// Note: In the spec this is defined "inline", not as a helper function.
-    ///
-    /// Spec v0.4.0
-    fn earliest_included_attestation(
-        &self,
-        attestations: &[&PendingAttestation],
-        validator_index: usize,
-        spec: &ChainSpec,
-    ) -> Result<PendingAttestation, InclusionError> {
-        let mut included_attestations = vec![];
-
-        for (i, a) in attestations.iter().enumerate() {
-            let participants =
-                self.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
-            if participants.iter().any(|i| *i == validator_index) {
-                included_attestations.push(i);
-            }
-        }
-
-        let earliest_attestation_index = included_attestations
-            .iter()
-            .min_by_key(|i| attestations[**i].inclusion_slot)
-            .ok_or_else(|| InclusionError::NoAttestationsForValidator)?;
-        Ok(attestations[*earliest_attestation_index].clone())
-    }
-
     /// Returns the base reward for some validator.
     ///
     /// Note: In the spec this is defined "inline", not as a helper function.
@@ -1224,12 +1156,6 @@ impl BeaconState {
 
 fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
     Hash256::from(&input.hash_tree_root()[..])
-}
-
-impl From<Error> for InclusionError {
-    fn from(e: Error) -> InclusionError {
-        InclusionError::Error(e)
-    }
 }
 
 impl Encodable for BeaconState {
