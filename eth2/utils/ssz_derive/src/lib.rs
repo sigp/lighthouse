@@ -172,7 +172,7 @@ fn type_ident_is_signature(ident: &syn::Ident) -> bool {
 /// the final `Ident` in that path.
 ///
 /// E.g., for `types::Signature` returns `Signature`.
-fn final_type_ident<'a>(field: &'a syn::Field) -> &'a syn::Ident {
+fn final_type_ident(field: &syn::Field) -> &syn::Ident {
     match &field.ty {
         syn::Type::Path(path) => &path.path.segments.last().unwrap().value().ident,
         _ => panic!("ssz_derive only supports Path types."),

@@ -9,7 +9,7 @@ pub use self::verify_attester_slashing::verify_attester_slashing;
 pub use validate_attestation::{validate_attestation, validate_attestation_without_signature};
 pub use verify_deposit::verify_deposit;
 pub use verify_exit::verify_exit;
-pub use verify_transfer::verify_transfer;
+pub use verify_transfer::{execute_transfer, verify_transfer};
 
 pub mod errors;
 mod validate_attestation;
@@ -373,12 +373,7 @@ pub fn process_transfers(
     );
     for (i, transfer) in transfers.iter().enumerate() {
         verify_transfer(&state, transfer, spec).map_err(|e| e.into_with_index(i))?;
-
-        let block_proposer = state.get_beacon_proposer_index(state.slot, spec)?;
-
-        state.validator_balances[transfer.from as usize] -= transfer.amount + transfer.fee;
-        state.validator_balances[transfer.to as usize] += transfer.amount + transfer.fee;
-        state.validator_balances[block_proposer as usize] += transfer.fee;
+        execute_transfer(state, transfer, spec).map_err(|e| e.into_with_index(i))?;
     }
 
     Ok(())
