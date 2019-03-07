@@ -200,14 +200,14 @@ impl TestCase {
     }
 }
 
-fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> Exit {
+fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> VoluntaryExit {
     let epoch = harness
         .beacon_chain
         .state
         .read()
         .current_epoch(&harness.spec);
 
-    let mut exit = Exit {
+    let mut exit = VoluntaryExit {
         epoch,
         validator_index,
         signature: Signature::empty_signature(),
@@ -216,13 +216,8 @@ fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> Exit {
     let message = exit.hash_tree_root();
 
     exit.signature = harness
-        .validator_sign(
-            validator_index as usize,
-            &message[..],
-            epoch,
-            harness.spec.domain_exit,
-        )
-        .expect("Unable to sign Exit");
+        .validator_sign(validator_index as usize, &message[..], epoch, Domain::Exit)
+        .expect("Unable to sign VoluntaryExit");
 
     exit
 }
@@ -234,20 +229,20 @@ fn build_double_vote_attester_slashing(
     harness: &BeaconChainHarness,
     validator_indices: &[u64],
 ) -> AttesterSlashing {
-    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: u64| {
+    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
         harness
             .validator_sign(validator_index as usize, message, epoch, domain)
             .expect("Unable to sign AttesterSlashing")
     };
 
-    AttesterSlashingBuilder::double_vote(validator_indices, signer, &harness.spec)
+    AttesterSlashingBuilder::double_vote(validator_indices, signer)
 }
 
 /// Builds an `ProposerSlashing` for some `validator_index`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
 fn build_proposer_slashing(harness: &BeaconChainHarness, validator_index: u64) -> ProposerSlashing {
-    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: u64| {
+    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
         harness
             .validator_sign(validator_index as usize, message, epoch, domain)
             .expect("Unable to sign AttesterSlashing")

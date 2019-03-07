@@ -15,11 +15,7 @@ impl AttesterSlashingBuilder {
     /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
-    pub fn double_vote<F>(
-        validator_indices: &[u64],
-        signer: F,
-        spec: &ChainSpec,
-    ) -> AttesterSlashing
+    pub fn double_vote<F>(validator_indices: &[u64], signer: F) -> AttesterSlashing
     where
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
