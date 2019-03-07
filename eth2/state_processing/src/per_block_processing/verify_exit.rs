@@ -16,9 +16,7 @@ pub fn verify_exit(
     let validator = state
         .validator_registry
         .get(exit.validator_index as usize)
-        .ok_or(Error::Invalid(Invalid::ValidatorUnknown(
-            exit.validator_index,
-        )))?;
+        .ok_or_else(|| Error::Invalid(Invalid::ValidatorUnknown(exit.validator_index)))?;
 
     verify!(
         validator.exit_epoch

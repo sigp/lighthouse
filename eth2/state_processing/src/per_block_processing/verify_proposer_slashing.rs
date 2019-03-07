@@ -16,9 +16,9 @@ pub fn verify_proposer_slashing(
     let proposer = state
         .validator_registry
         .get(proposer_slashing.proposer_index as usize)
-        .ok_or(Error::Invalid(Invalid::ProposerUnknown(
-            proposer_slashing.proposer_index,
-        )))?;
+        .ok_or_else(|| {
+            Error::Invalid(Invalid::ProposerUnknown(proposer_slashing.proposer_index))
+        })?;
 
     verify!(
         proposer_slashing.proposal_1.slot == proposer_slashing.proposal_2.slot,

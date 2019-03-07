@@ -332,10 +332,51 @@ impl_into_with_index_without_beacon_error!(ExitValidationError, ExitInvalid);
 pub enum TransferValidationError {
     /// Validation completed successfully and the object is invalid.
     Invalid(TransferInvalid),
+    /// Encountered a `BeaconStateError` whilst attempting to determine validity.
+    BeaconStateError(BeaconStateError),
 }
 
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
-pub enum TransferInvalid {}
+pub enum TransferInvalid {
+    /// The validator indicated by `transfer.from` is unknown.
+    FromValidatorUnknown(u64),
+    /// The validator indicated by `transfer.to` is unknown.
+    ToValidatorUnknown(u64),
+    /// The balance of `transfer.from` is insufficient.
+    ///
+    /// (required, available)
+    FromBalanceInsufficient(u64, u64),
+    /// Adding `transfer.fee` to `transfer.amount` causes an overflow.
+    ///
+    /// (transfer_fee, transfer_amount)
+    FeeOverflow(u64, u64),
+    /// This transfer would result in the `transfer.from` account to have `0 < balance <
+    /// min_deposit_amount`
+    ///
+    /// (resulting_amount, min_deposit_amount)
+    InvalidResultingFromBalance(u64, u64),
+    /// The state slot does not match `transfer.slot`.
+    ///
+    /// (state_slot, transfer_slot)
+    StateSlotMismatch(Slot, Slot),
+    /// The `transfer.from` validator has been activated and is not withdrawable.
+    ///
+    /// (from_validator)
+    FromValidatorIneligableForTransfer(u64),
+    /// The validators withdrawal credentials do not match `transfer.pubkey`.
+    WithdrawalCredentialsMismatch,
+    /// The deposit was not signed by `deposit.pubkey`.
+    BadSignature,
+    /// Overflow when adding to `transfer.to` balance.
+    ///
+    /// (to_balance, transfer_amount)
+    ToBalanceOverflow(u64, u64),
+    /// Overflow when adding to beacon proposer balance.
+    ///
+    /// (proposer_balance, transfer_fee)
+    ProposerBalanceOverflow(u64, u64),
+}
 
-impl_into_with_index_without_beacon_error!(TransferValidationError, TransferInvalid);
+impl_from_beacon_state_error!(TransferValidationError);
+impl_into_with_index_with_beacon_error!(TransferValidationError, TransferInvalid);
