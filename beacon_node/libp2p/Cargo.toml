@@ -9,3 +9,4 @@ edition = "2018"
 libp2p =  { git = "https://github.com/SigP/rust-libp2p", branch = "gossipsub" }
 slog = "2.4.1"
 version = { path = "../version" }
+tokio = "0.1.16"
