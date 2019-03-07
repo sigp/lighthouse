@@ -3,7 +3,7 @@
 
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
-use bls::create_proof_of_possession;
+use bls::{create_proof_of_possession, get_withdrawal_credentials};
 use log::{info, warn};
 use ssz::SignedRoot;
 use types::*;
@@ -83,8 +83,8 @@ impl TestCase {
 
         info!("Starting simulation across {} slots...", slots);
 
-        // -1 slots because genesis counts as a slot.
-        for slot_height in 0..slots - 1 {
+        // Start at 1 because genesis counts as a slot.
+        for slot_height in 1..slots {
             // Used to ensure that deposits in the same slot have incremental deposit indices.
             let mut deposit_index_offset = 0;
 
@@ -140,6 +140,20 @@ impl TestCase {
                         );
                         let exit = build_exit(&harness, *validator_index);
                         harness.add_exit(exit);
+                    }
+                }
+            }
+
+            // Feed transfers to the BeaconChain.
+            if let Some(ref transfers) = self.config.transfers {
+                for (slot, from, to, amount) in transfers {
+                    if *slot == slot_height {
+                        info!(
+                            "Including transfer at slot height {} from validator {}.",
+                            slot_height, from
+                        );
+                        let transfer = build_transfer(&harness, *from, *to, *amount);
+                        harness.add_transfer(transfer);
                     }
                 }
             }
@@ -208,6 +222,30 @@ impl TestCase {
     }
 }
 
+/// Builds a `Deposit` this is valid for the given `BeaconChainHarness` at its next slot.
+fn build_transfer(harness: &BeaconChainHarness, from: u64, to: u64, amount: u64) -> Transfer {
+    let slot = harness.beacon_chain.state.read().slot + 1;
+
+    let mut transfer = Transfer {
+        from,
+        to,
+        amount,
+        fee: 0,
+        slot,
+        pubkey: harness.validators[from as usize].keypair.pk.clone(),
+        signature: Signature::empty_signature(),
+    };
+
+    let message = transfer.signed_root();
+    let epoch = slot.epoch(harness.spec.slots_per_epoch);
+
+    transfer.signature = harness
+        .validator_sign(from as usize, &message[..], epoch, Domain::Transfer)
+        .expect("Unable to sign Transfer");
+
+    transfer
+}
+
 /// Builds a `Deposit` this is valid for the given `BeaconChainHarness`.
 ///
 /// `index_offset` is used to ensure that `deposit.index == state.index` when adding multiple
@@ -220,8 +258,9 @@ fn build_deposit(
     let keypair = Keypair::random();
     let proof_of_possession = create_proof_of_possession(&keypair);
     let index = harness.beacon_chain.state.read().deposit_index + index_offset;
-
-    info!("index: {}, index_offset: {}", index, index_offset);
+    let withdrawal_credentials = Hash256::from_slice(
+        &get_withdrawal_credentials(&keypair.pk, harness.spec.bls_withdrawal_prefix_byte)[..],
+    );
 
     let deposit = Deposit {
         // Note: `branch` and `index` will need to be updated once the spec defines their
@@ -233,7 +272,7 @@ fn build_deposit(
             timestamp: 1,
             deposit_input: DepositInput {
                 pubkey: keypair.pk.clone(),
-                withdrawal_credentials: Hash256::zero(),
+                withdrawal_credentials,
                 proof_of_possession,
             },
         },

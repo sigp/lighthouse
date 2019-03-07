@@ -365,7 +365,9 @@ pub enum TransferInvalid {
     /// (from_validator)
     FromValidatorIneligableForTransfer(u64),
     /// The validators withdrawal credentials do not match `transfer.pubkey`.
-    WithdrawalCredentialsMismatch,
+    ///
+    /// (state_credentials, transfer_pubkey_credentials)
+    WithdrawalCredentialsMismatch(Hash256, Hash256),
     /// The deposit was not signed by `deposit.pubkey`.
     BadSignature,
     /// Overflow when adding to `transfer.to` balance.

@@ -64,7 +64,10 @@ pub fn verify_transfer(
     );
     verify!(
         from_validator.withdrawal_credentials == transfer_withdrawal_credentials,
-        Invalid::WithdrawalCredentialsMismatch
+        Invalid::WithdrawalCredentialsMismatch(
+            from_validator.withdrawal_credentials,
+            transfer_withdrawal_credentials
+        )
     );
 
     let message = transfer.signed_root();
