@@ -2,6 +2,7 @@
 /// all required libp2p functionality.
 ///
 /// This crate builds and manages the libp2p services required by the beacon node.
+mod behaviour;
 mod network_config;
 mod service;
 
