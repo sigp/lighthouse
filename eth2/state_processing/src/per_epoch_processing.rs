@@ -1,7 +1,8 @@
-use errors::{EpochProcessingError as Error, WinningRootError};
-use grouped_attesters::GroupedAttesters;
+use attester_sets::AttesterSets;
+use errors::EpochProcessingError as Error;
+use inclusion_distance::{inclusion_distance, inclusion_slot};
 use integer_sqrt::IntegerSquareRoot;
-use log::{debug, trace};
+use log::debug;
 use rayon::prelude::*;
 use ssz::TreeHash;
 use std::collections::{HashMap, HashSet};
@@ -9,21 +10,11 @@ use std::iter::FromIterator;
 use types::{validator_registry::get_active_validator_indices, *};
 use winning_root::{winning_root, WinningRoot};
 
+pub mod attester_sets;
 pub mod errors;
-mod grouped_attesters;
-mod tests;
-mod winning_root;
-
-macro_rules! safe_add_assign {
-    ($a: expr, $b: expr) => {
-        $a = $a.saturating_add($b);
-    };
-}
-macro_rules! safe_sub_assign {
-    ($a: expr, $b: expr) => {
-        $a = $a.saturating_sub($b);
-    };
-}
+pub mod inclusion_distance;
+pub mod tests;
+pub mod winning_root;
 
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
@@ -40,7 +31,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
     state.build_epoch_cache(RelativeEpoch::Next, spec)?;
 
-    let attesters = GroupedAttesters::new(&state, spec)?;
+    let attesters = AttesterSets::new(&state, spec)?;
 
     let active_validator_indices = get_active_validator_indices(
         &state.validator_registry,
@@ -86,12 +77,14 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     process_validator_registry(state, spec)?;
 
     // Final updates
-    state.latest_active_index_roots[(next_epoch.as_usize()
-        + spec.activation_exit_delay as usize)
-        % spec.latest_active_index_roots_length] = hash_tree_root(get_active_validator_indices(
+    let active_tree_root = get_active_validator_indices(
         &state.validator_registry,
         next_epoch + Epoch::from(spec.activation_exit_delay),
-    ));
+    )
+    .hash_tree_root();
+    state.latest_active_index_roots[(next_epoch.as_usize()
+        + spec.activation_exit_delay as usize)
+        % spec.latest_active_index_roots_length] = Hash256::from(&active_tree_root[..]);
 
     state.latest_slashed_balances[next_epoch.as_usize() % spec.latest_slashed_exit_length] =
         state.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length];
@@ -112,10 +105,6 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     debug!("Epoch transition complete.");
 
     Ok(())
-}
-
-fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from(&input.hash_tree_root()[..])
 }
 
 /// Spec v0.4.0
@@ -210,7 +199,7 @@ fn process_justification(
     state.justified_epoch = new_justified_epoch;
 }
 
-pub type WinningRootHashSet = HashMap<u64, Result<WinningRoot, WinningRootError>>;
+pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 
 fn process_crosslinks(
     state: &mut BeaconState,
@@ -219,33 +208,25 @@ fn process_crosslinks(
     let current_epoch_attestations: Vec<&PendingAttestation> = state
         .latest_attestations
         .par_iter()
-        .filter(|a| {
-            (a.data.slot / spec.slots_per_epoch).epoch(spec.slots_per_epoch)
-                == state.current_epoch(spec)
-        })
+        .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) == state.current_epoch(spec))
         .collect();
 
     let previous_epoch_attestations: Vec<&PendingAttestation> = state
         .latest_attestations
         .par_iter()
-        .filter(|a| {
-            (a.data.slot / spec.slots_per_epoch).epoch(spec.slots_per_epoch)
-                == state.previous_epoch(spec)
-        })
+        .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) == state.previous_epoch(spec))
         .collect();
 
-    let mut winning_root_for_shards: HashMap<u64, Result<WinningRoot, WinningRootError>> =
-        HashMap::new();
-    // for slot in state.slot.saturating_sub(2 * spec.slots_per_epoch)..state.slot {
-    for slot in state.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
-        trace!(
-            "Finding winning root for slot: {} (epoch: {})",
-            slot,
-            slot.epoch(spec.slots_per_epoch)
-        );
+    let mut winning_root_for_shards: WinningRootHashSet = HashMap::new();
 
-        // Clone is used to remove the borrow. It becomes an issue later when trying to mutate
-        // `state.balances`.
+    let previous_and_current_epoch_slots: Vec<Slot> = state
+        .previous_epoch(spec)
+        .slot_iter(spec.slots_per_epoch)
+        .chain(state.current_epoch(spec).slot_iter(spec.slots_per_epoch))
+        .collect();
+
+    for slot in previous_and_current_epoch_slots {
+        // Clone removes the borrow which becomes an issue when mutating `state.balances`.
         let crosslink_committees_at_slot =
             state.get_crosslink_committees_at_slot(slot, spec)?.clone();
 
@@ -258,31 +239,33 @@ fn process_crosslinks(
                 &current_epoch_attestations[..],
                 &previous_epoch_attestations[..],
                 spec,
-            );
+            )?;
 
-            if let Ok(winning_root) = &winning_root {
+            if let Some(winning_root) = winning_root {
                 let total_committee_balance = state.get_total_balance(&crosslink_committee, spec);
 
+                // TODO: I think this has a bug.
                 if (3 * winning_root.total_attesting_balance) >= (2 * total_committee_balance) {
                     state.latest_crosslinks[shard as usize] = Crosslink {
                         epoch: state.current_epoch(spec),
                         crosslink_data_root: winning_root.crosslink_data_root,
                     }
                 }
+                winning_root_for_shards.insert(shard, winning_root);
             }
-            winning_root_for_shards.insert(shard, winning_root);
         }
     }
 
     Ok(winning_root_for_shards)
 }
 
+/// Spec v0.4.0
 fn process_rewards_and_penalities(
     state: &mut BeaconState,
     active_validator_indices: HashSet<usize>,
-    attesters: &GroupedAttesters,
+    attesters: &AttesterSets,
     previous_total_balance: u64,
-    winning_root_for_shards: &HashMap<u64, Result<WinningRoot, WinningRootError>>,
+    winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let next_epoch = state.next_epoch(spec);
@@ -290,62 +273,60 @@ fn process_rewards_and_penalities(
     let previous_epoch_attestations: Vec<&PendingAttestation> = state
         .latest_attestations
         .par_iter()
-        .filter(|a| {
-            (a.data.slot / spec.slots_per_epoch).epoch(spec.slots_per_epoch)
-                == state.previous_epoch(spec)
-        })
+        .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) == state.previous_epoch(spec))
         .collect();
 
     let base_reward_quotient = previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
+
     if base_reward_quotient == 0 {
         return Err(Error::BaseRewardQuotientIsZero);
     }
 
-    /*
-     * Justification and finalization
-     */
-    let epochs_since_finality = next_epoch - state.finalized_epoch;
+    // Justification and finalization
 
-    let active_validator_indices_hashset: HashSet<usize> =
-        HashSet::from_iter(active_validator_indices.iter().cloned());
+    let epochs_since_finality = next_epoch - state.finalized_epoch;
 
     if epochs_since_finality <= 4 {
         for index in 0..state.validator_balances.len() {
             let base_reward = state.base_reward(index, base_reward_quotient, spec);
 
+            // Expected FFG source
             if attesters.previous_epoch.indices.contains(&index) {
                 safe_add_assign!(
                     state.validator_balances[index],
                     base_reward * attesters.previous_epoch.balance / previous_total_balance
                 );
-            } else if active_validator_indices_hashset.contains(&index) {
+            } else if active_validator_indices.contains(&index) {
                 safe_sub_assign!(state.validator_balances[index], base_reward);
             }
 
+            // Expected FFG target
             if attesters.previous_epoch_boundary.indices.contains(&index) {
                 safe_add_assign!(
                     state.validator_balances[index],
                     base_reward * attesters.previous_epoch_boundary.balance
                         / previous_total_balance
                 );
-            } else if active_validator_indices_hashset.contains(&index) {
+            } else if active_validator_indices.contains(&index) {
                 safe_sub_assign!(state.validator_balances[index], base_reward);
             }
 
+            // Expected beacon chain head
             if attesters.previous_epoch_head.indices.contains(&index) {
                 safe_add_assign!(
                     state.validator_balances[index],
                     base_reward * attesters.previous_epoch_head.balance / previous_total_balance
                 );
-            } else if active_validator_indices_hashset.contains(&index) {
+            } else if active_validator_indices.contains(&index) {
                 safe_sub_assign!(state.validator_balances[index], base_reward);
             }
         }
 
+        // Inclusion distance
         for &index in &attesters.previous_epoch.indices {
             let base_reward = state.base_reward(index, base_reward_quotient, spec);
             let inclusion_distance =
-                state.inclusion_distance(&previous_epoch_attestations, index, spec)?;
+                inclusion_distance(state, &previous_epoch_attestations, index, spec)?;
 
             safe_add_assign!(
                 state.validator_balances[index],
@@ -356,7 +337,8 @@ fn process_rewards_and_penalities(
         for index in 0..state.validator_balances.len() {
             let inactivity_penalty =
                 state.inactivity_penalty(index, epochs_since_finality, base_reward_quotient, spec);
-            if active_validator_indices_hashset.contains(&index) {
+
+            if active_validator_indices.contains(&index) {
                 if !attesters.previous_epoch.indices.contains(&index) {
                     safe_sub_assign!(state.validator_balances[index], inactivity_penalty);
                 }
@@ -380,7 +362,7 @@ fn process_rewards_and_penalities(
         for &index in &attesters.previous_epoch.indices {
             let base_reward = state.base_reward(index, base_reward_quotient, spec);
             let inclusion_distance =
-                state.inclusion_distance(&previous_epoch_attestations, index, spec)?;
+                inclusion_distance(state, &previous_epoch_attestations, index, spec)?;
 
             safe_sub_assign!(
                 state.validator_balances[index],
@@ -390,61 +372,69 @@ fn process_rewards_and_penalities(
         }
     }
 
-    trace!("Processed validator justification and finalization rewards/penalities.");
+    // Attestation inclusion
 
-    /*
-     * Attestation inclusion
-     */
     for &index in &attesters.previous_epoch.indices {
-        let inclusion_slot = state.inclusion_slot(&previous_epoch_attestations[..], index, spec)?;
+        let inclusion_slot = inclusion_slot(state, &previous_epoch_attestations[..], index, spec)?;
+
         let proposer_index = state
             .get_beacon_proposer_index(inclusion_slot, spec)
             .map_err(|_| Error::UnableToDetermineProducer)?;
+
         let base_reward = state.base_reward(proposer_index, base_reward_quotient, spec);
+
         safe_add_assign!(
             state.validator_balances[proposer_index],
             base_reward / spec.attestation_inclusion_reward_quotient
         );
     }
 
-    /*
-     * Crosslinks
-     */
+    //Crosslinks
+
     for slot in state.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
-        // Clone is used to remove the borrow. It becomes an issue later when trying to mutate
-        // `state.balances`.
+        // Clone removes the borrow which becomes an issue when mutating `state.balances`.
         let crosslink_committees_at_slot =
             state.get_crosslink_committees_at_slot(slot, spec)?.clone();
 
-        for (_crosslink_committee, shard) in crosslink_committees_at_slot {
+        for (crosslink_committee, shard) in crosslink_committees_at_slot {
             let shard = shard as u64;
 
-            if let Some(Ok(winning_root)) = winning_root_for_shards.get(&shard) {
-                // TODO: remove the map.
+            // Note: I'm a little uncertain of the logic here -- I am waiting for spec v0.5.0 to
+            // clear it up.
+            //
+            // What happens here is:
+            //
+            // - If there was some crosslink root elected by the super-majority of this committee,
+            // then we reward all who voted for that root and penalize all that did not.
+            // - However, if there _was not_ some super-majority-voted crosslink root, then penalize
+            // all the validators.
+            //
+            // I'm not quite sure that the second case (no super-majority crosslink) is correct.
+            if let Some(winning_root) = winning_root_for_shards.get(&shard) {
+                // Hash set de-dedups and (hopefully) offers a speed improvement from faster
+                // lookups.
                 let attesting_validator_indices: HashSet<usize> =
                     HashSet::from_iter(winning_root.attesting_validator_indices.iter().cloned());
 
-                for index in 0..state.validator_balances.len() {
+                for &index in &crosslink_committee {
                     let base_reward = state.base_reward(index, base_reward_quotient, spec);
+
+                    let total_balance = state.get_total_balance(&crosslink_committee, spec);
 
                     if attesting_validator_indices.contains(&index) {
                         safe_add_assign!(
                             state.validator_balances[index],
-                            base_reward * winning_root.total_attesting_balance
-                                / winning_root.total_balance
+                            base_reward * winning_root.total_attesting_balance / total_balance
                         );
                     } else {
                         safe_sub_assign!(state.validator_balances[index], base_reward);
                     }
                 }
+            } else {
+                for &index in &crosslink_committee {
+                    let base_reward = state.base_reward(index, base_reward_quotient, spec);
 
-                for index in &winning_root.attesting_validator_indices {
-                    let base_reward = state.base_reward(*index, base_reward_quotient, spec);
-                    safe_add_assign!(
-                        state.validator_balances[*index],
-                        base_reward * winning_root.total_attesting_balance
-                            / winning_root.total_balance
-                    );
+                    safe_sub_assign!(state.validator_balances[index], base_reward);
                 }
             }
         }
@@ -453,17 +443,13 @@ fn process_rewards_and_penalities(
     Ok(())
 }
 
+// Spec v0.4.0
 fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
 
     state.previous_shuffling_epoch = state.current_shuffling_epoch;
     state.previous_shuffling_start_shard = state.current_shuffling_start_shard;
-
-    debug!(
-        "setting previous_shuffling_seed to : {}",
-        state.current_shuffling_seed
-    );
 
     state.previous_shuffling_seed = state.current_shuffling_seed;
 
@@ -479,7 +465,6 @@ fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> Resu
     };
 
     if should_update_validator_registy {
-        trace!("updating validator registry.");
         state.update_validator_registry(spec);
 
         state.current_shuffling_epoch = next_epoch;
@@ -488,7 +473,6 @@ fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> Resu
             % spec.shard_count;
         state.current_shuffling_seed = state.generate_seed(state.current_shuffling_epoch, spec)?
     } else {
-        trace!("not updating validator registry.");
         let epochs_since_last_registry_update =
             current_epoch - state.validator_registry_update_epoch;
         if (epochs_since_last_registry_update > 1)

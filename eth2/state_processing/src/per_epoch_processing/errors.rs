@@ -1,12 +1,6 @@
 use types::*;
 
 #[derive(Debug, PartialEq)]
-pub enum WinningRootError {
-    NoWinningRoot,
-    BeaconStateError(BeaconStateError),
-}
-
-#[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {
     UnableToDetermineProducer,
     NoBlockRoots,
@@ -14,7 +8,6 @@ pub enum EpochProcessingError {
     NoRandaoSeed,
     BeaconStateError(BeaconStateError),
     InclusionError(InclusionError),
-    WinningRootError(WinningRootError),
 }
 
 impl From<InclusionError> for EpochProcessingError {
@@ -29,8 +22,15 @@ impl From<BeaconStateError> for EpochProcessingError {
     }
 }
 
-impl From<BeaconStateError> for WinningRootError {
-    fn from(e: BeaconStateError) -> WinningRootError {
-        WinningRootError::BeaconStateError(e)
+#[derive(Debug, PartialEq)]
+pub enum InclusionError {
+    /// The validator did not participate in an attestation in this period.
+    NoAttestationsForValidator,
+    BeaconStateError(BeaconStateError),
+}
+
+impl From<BeaconStateError> for InclusionError {
+    fn from(e: BeaconStateError) -> InclusionError {
+        InclusionError::BeaconStateError(e)
     }
 }
