@@ -469,18 +469,20 @@ impl BeaconState {
         let mut input = self
             .get_randao_mix(epoch - spec.min_seed_lookahead, spec)
             .ok_or_else(|| Error::InsufficientRandaoMixes)?
+            .as_bytes()
             .to_vec();
 
         input.append(
             &mut self
                 .get_active_index_root(epoch, spec)
                 .ok_or_else(|| Error::InsufficientIndexRoots)?
+                .as_bytes()
                 .to_vec(),
         );
 
         input.append(&mut int_to_bytes32(epoch.as_u64()));
 
-        Ok(Hash256::from(&hash(&input[..])[..]))
+        Ok(Hash256::from_slice(&hash(&input[..])[..]))
     }
 
     /// Returns the beacon proposer index for the `slot`.
@@ -1155,7 +1157,7 @@ impl BeaconState {
 }
 
 fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from(&input.hash_tree_root()[..])
+    Hash256::from_slice(&input.hash_tree_root()[..])
 }
 
 impl Encodable for BeaconState {

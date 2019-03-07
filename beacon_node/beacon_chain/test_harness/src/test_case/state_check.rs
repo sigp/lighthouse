@@ -13,8 +13,10 @@ pub struct StateCheck {
     pub num_validators: Option<usize>,
     /// A list of validator indices which have been penalized. Must be in ascending order.
     pub slashed_validators: Option<Vec<u64>>,
-    /// A list of validator indices which have been exited. Must be in ascending order.
+    /// A list of validator indices which have been fully exited. Must be in ascending order.
     pub exited_validators: Option<Vec<u64>>,
+    /// A list of validator indices which have had an exit initiated. Must be in ascending order.
+    pub exit_initiated_validators: Option<Vec<u64>>,
 }
 
 impl StateCheck {
@@ -27,6 +29,7 @@ impl StateCheck {
             num_validators: as_usize(&yaml, "num_validators"),
             slashed_validators: as_vec_u64(&yaml, "slashed_validators"),
             exited_validators: as_vec_u64(&yaml, "exited_validators"),
+            exit_initiated_validators: as_vec_u64(&yaml, "exit_initiated_validators"),
         }
     }
 
@@ -40,6 +43,7 @@ impl StateCheck {
 
         info!("Running state check for slot height {}.", self.slot);
 
+        // Check the state slot.
         assert_eq!(
             self.slot,
             state.slot - spec.genesis_epoch.start_slot(spec.slots_per_epoch),
@@ -55,6 +59,7 @@ impl StateCheck {
             info!("OK: num_validators = {}.", num_validators);
         }
 
+        // Check for slashed validators.
         if let Some(ref slashed_validators) = self.slashed_validators {
             let actually_slashed_validators: Vec<u64> = state
                 .validator_registry
@@ -75,6 +80,7 @@ impl StateCheck {
             info!("OK: slashed_validators = {:?}.", slashed_validators);
         }
 
+        // Check for exited validators.
         if let Some(ref exited_validators) = self.exited_validators {
             let actually_exited_validators: Vec<u64> = state
                 .validator_registry
@@ -93,6 +99,30 @@ impl StateCheck {
                 "Exited validators != expected."
             );
             info!("OK: exited_validators = {:?}.", exited_validators);
+        }
+
+        // Check for validators that have initiated exit.
+        if let Some(ref exit_initiated_validators) = self.exit_initiated_validators {
+            let actual: Vec<u64> = state
+                .validator_registry
+                .iter()
+                .enumerate()
+                .filter_map(|(i, validator)| {
+                    if validator.has_initiated_exit() {
+                        Some(i as u64)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(
+                actual, *exit_initiated_validators,
+                "Exit initiated validators != expected."
+            );
+            info!(
+                "OK: exit_initiated_validators = {:?}.",
+                exit_initiated_validators
+            );
         }
     }
 }

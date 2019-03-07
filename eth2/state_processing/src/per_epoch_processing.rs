@@ -84,7 +84,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     .hash_tree_root();
     state.latest_active_index_roots[(next_epoch.as_usize()
         + spec.activation_exit_delay as usize)
-        % spec.latest_active_index_roots_length] = Hash256::from(&active_tree_root[..]);
+        % spec.latest_active_index_roots_length] = Hash256::from_slice(&active_tree_root[..]);
 
     state.latest_slashed_balances[next_epoch.as_usize() % spec.latest_slashed_exit_length] =
         state.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length];

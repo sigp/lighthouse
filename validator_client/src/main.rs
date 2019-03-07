@@ -43,6 +43,16 @@ fn main() {
                 .help("Address to connect to BeaconNode.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("spec")
+                .long("spec")
+                .value_name("spec")
+                .short("s")
+                .help("Configuration of Beacon Chain")
+                .takes_value(true)
+                .possible_values(&["foundation", "few_validators"])
+                .default_value("foundation"),
+        )
         .get_matches();
 
     let mut config = ClientConfig::default();
@@ -60,6 +70,17 @@ fn main() {
             error!(log, "Invalid address"; "server" => server_str);
             return;
         }
+    }
+
+    // TODO: Permit loading a custom spec from file.
+    // Custom spec
+    if let Some(spec_str) = matches.value_of("spec") {
+        match spec_str {
+            "foundation" => config.spec = ChainSpec::foundation(),
+            "few_validators" => config.spec = ChainSpec::few_validators(),
+            // Should be impossible due to clap's `possible_values(..)` function.
+            _ => unreachable!(),
+        };
     }
 
     // Log configuration
@@ -81,11 +102,8 @@ fn main() {
         Arc::new(ValidatorServiceClient::new(ch))
     };
 
-    // Ethereum
-    //
-    // TODO: Permit loading a custom spec from file.
-    // https://github.com/sigp/lighthouse/issues/160
-    let spec = Arc::new(ChainSpec::foundation());
+    // Spec
+    let spec = Arc::new(config.spec.clone());
 
     // Clock for determining the present slot.
     // TODO: this shouldn't be a static time, instead it should be pulled from the beacon node.

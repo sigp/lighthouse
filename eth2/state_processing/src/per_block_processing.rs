@@ -99,7 +99,7 @@ pub fn verify_block_signature(
     let proposal = Proposal {
         slot: block.slot,
         shard: spec.beacon_chain_shard_number,
-        block_root: Hash256::from(&block.signed_root()[..]),
+        block_root: Hash256::from_slice(&block.signed_root()[..]),
         signature: block.signature.clone(),
     };
     let domain = spec.get_domain(
@@ -187,7 +187,7 @@ pub fn update_randao(
 ) -> Result<(), BeaconStateError> {
     let hashed_reveal = {
         let encoded_signature = ssz_encode(reveal);
-        Hash256::from(&hash(&encoded_signature[..])[..])
+        Hash256::from_slice(&hash(&encoded_signature[..])[..])
     };
 
     let current_epoch = state.slot.epoch(spec.slots_per_epoch);

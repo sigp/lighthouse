@@ -25,14 +25,14 @@ impl ProposerSlashingBuilder {
         let mut proposal_1 = Proposal {
             slot,
             shard,
-            block_root: Hash256::from(&[1][..]),
+            block_root: Hash256::from_low_u64_le(1),
             signature: Signature::empty_signature(),
         };
 
         let mut proposal_2 = Proposal {
             slot,
             shard,
-            block_root: Hash256::from(&[2][..]),
+            block_root: Hash256::from_low_u64_le(2),
             signature: Signature::empty_signature(),
         };
 
