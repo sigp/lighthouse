@@ -1,7 +1,7 @@
 use block_proposer::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
 use std::sync::RwLock;
-use types::{Epoch, Slot};
+use types::{Epoch, Fork, Slot};
 
 /// The information required for a validator to propose and attest during some epoch.
 ///
@@ -74,6 +74,17 @@ impl DutiesReader for EpochDutiesMap {
             .get(&epoch)
             .ok_or_else(|| DutiesReaderError::UnknownEpoch)?;
         Ok(duties.is_block_production_slot(slot))
+    }
+
+    fn fork(&self) -> Result<Fork, DutiesReaderError> {
+        // TODO: this is garbage data.
+        //
+        // It will almost certainly cause signatures to fail verification.
+        Ok(Fork {
+            previous_version: 0,
+            current_version: 0,
+            epoch: Epoch::new(0),
+        })
     }
 }
 
