@@ -1,7 +1,7 @@
 use super::ValidatorHarness;
 use beacon_chain::{BeaconChain, BlockProcessingOutcome};
 pub use beacon_chain::{BeaconChainError, CheckPoint};
-use bls::create_proof_of_possession;
+use bls::{create_proof_of_possession, get_withdrawal_credentials};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
@@ -67,7 +67,13 @@ impl BeaconChainHarness {
                     timestamp: genesis_time - 1,
                     deposit_input: DepositInput {
                         pubkey: keypair.pk.clone(),
-                        withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
+                        // Validator can withdraw using their main keypair.
+                        withdrawal_credentials: Hash256::from_slice(
+                            &get_withdrawal_credentials(
+                                &keypair.pk,
+                                spec.bls_withdrawal_prefix_byte,
+                            )[..],
+                        ),
                         proof_of_possession: create_proof_of_possession(&keypair),
                     },
                 },
@@ -284,6 +290,11 @@ impl BeaconChainHarness {
     /// produce/attest.
     pub fn add_exit(&mut self, exit: VoluntaryExit) {
         self.beacon_chain.receive_exit_for_inclusion(exit);
+    }
+
+    /// Submit an transfer to the `BeaconChain` for inclusion in some block.
+    pub fn add_transfer(&mut self, transfer: Transfer) {
+        self.beacon_chain.receive_transfer_for_inclusion(transfer);
     }
 
     /// Submit a proposer slashing to the `BeaconChain` for inclusion in some block.

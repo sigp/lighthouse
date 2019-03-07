@@ -56,6 +56,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
     pub exits_for_inclusion: RwLock<Vec<VoluntaryExit>>,
+    pub transfers_for_inclusion: RwLock<Vec<Transfer>>,
     pub proposer_slashings_for_inclusion: RwLock<Vec<ProposerSlashing>>,
     pub attester_slashings_for_inclusion: RwLock<Vec<AttesterSlashing>>,
     canonical_head: RwLock<CheckPoint>,
@@ -126,6 +127,7 @@ where
             attestation_aggregator,
             deposits_for_inclusion: RwLock::new(vec![]),
             exits_for_inclusion: RwLock::new(vec![]),
+            transfers_for_inclusion: RwLock::new(vec![]),
             proposer_slashings_for_inclusion: RwLock::new(vec![]),
             attester_slashings_for_inclusion: RwLock::new(vec![]),
             state: RwLock::new(genesis_state),
@@ -436,6 +438,44 @@ where
         }
     }
 
+    /// Accept some transfer and queue it for inclusion in an appropriate block.
+    pub fn receive_transfer_for_inclusion(&self, transfer: Transfer) {
+        // TODO: transfers are not checked for validity; check them.
+        //
+        // https://github.com/sigp/lighthouse/issues/276
+        self.transfers_for_inclusion.write().push(transfer);
+    }
+
+    /// Return a vec of transfers suitable for inclusion in some block.
+    pub fn get_transfers_for_block(&self) -> Vec<Transfer> {
+        // TODO: transfers are indiscriminately included; check them for validity.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
+        self.transfers_for_inclusion.read().clone()
+    }
+
+    /// Takes a list of `Deposits` that were included in recent blocks and removes them from the
+    /// inclusion queue.
+    ///
+    /// This ensures that `Deposits` are not included twice in successive blocks.
+    pub fn set_transfers_as_included(&self, included_transfers: &[Transfer]) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_transfers {
+            for (i, for_inclusion) in self.transfers_for_inclusion.read().iter().enumerate() {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let transfers_for_inclusion = &mut self.transfers_for_inclusion.write();
+        for i in indices_to_delete {
+            transfers_for_inclusion.remove(i);
+        }
+    }
+
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
     pub fn receive_proposer_slashing_for_inclusion(&self, proposer_slashing: ProposerSlashing) {
         // TODO: proposer_slashings are not checked for validity; check them.
@@ -664,6 +704,8 @@ where
 
         // Update the inclusion queues so they aren't re-submitted.
         self.set_deposits_as_included(&block.body.deposits[..]);
+        self.set_transfers_as_included(&block.body.transfers[..]);
+        self.set_exits_as_included(&block.body.voluntary_exits[..]);
         self.set_proposer_slashings_as_included(&block.body.proposer_slashings[..]);
         self.set_attester_slashings_as_included(&block.body.attester_slashings[..]);
 
@@ -730,7 +772,7 @@ where
                 attestations,
                 deposits: self.get_deposits_for_block(),
                 voluntary_exits: self.get_exits_for_block(),
-                transfers: vec![],
+                transfers: self.get_transfers_for_block(),
             },
         };
 

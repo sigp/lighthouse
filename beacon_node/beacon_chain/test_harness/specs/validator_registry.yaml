@@ -10,18 +10,23 @@ test_cases:
       num_slots: 64
       skip_slots: [2, 3]
       deposits:
-          # At slot 1, create a new validator deposit of 32 ETH.
+          # At slot 1, create a new validator deposit of 5 ETH.
         - slot: 1
-          amount: 32
+          amount: 5000000000
           # Trigger more deposits...
         - slot: 3
-          amount: 32
+          amount: 5000000000
         - slot: 5
-          amount: 32
+          amount: 32000000000
       exits:
           # At slot 10, submit an exit for validator #50.
         - slot: 10
           validator_index: 50
+      transfers:
+        - slot: 6
+          from: 1000
+          to: 1001
+          amount: 5000000000
       proposer_slashings:
           # At slot 2, trigger a proposer slashing for validator #42.
         - slot: 2
@@ -44,4 +49,11 @@ test_cases:
           slashed_validators: [11, 12, 13, 14, 42]
           exited_validators: []
           exit_initiated_validators: [50]
+          balances:
+            - validator_index: 1000
+              comparison: "eq"
+              balance: 0
+            - validator_index: 1001
+              comparison: "eq"
+              balance: 10000000000
 

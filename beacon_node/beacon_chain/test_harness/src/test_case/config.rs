@@ -10,6 +10,8 @@ pub type DepositTuple = (SlotHeight, GweiAmount);
 pub type ExitTuple = (SlotHeight, ValidatorIndex);
 pub type ProposerSlashingTuple = (SlotHeight, ValidatorIndex);
 pub type AttesterSlashingTuple = (SlotHeight, ValidatorIndices);
+/// (slot_height, from, to, amount)
+pub type TransferTuple = (SlotHeight, ValidatorIndex, ValidatorIndex, GweiAmount);
 
 /// Defines the execution of a `BeaconStateHarness` across a series of slots.
 #[derive(Debug)]
@@ -30,6 +32,8 @@ pub struct Config {
     pub attester_slashings: Option<Vec<AttesterSlashingTuple>>,
     /// Exits to be including during execution.
     pub exits: Option<Vec<ExitTuple>>,
+    /// Transfers to be including during execution.
+    pub transfers: Option<Vec<TransferTuple>>,
 }
 
 impl Config {
@@ -47,8 +51,25 @@ impl Config {
             proposer_slashings: parse_proposer_slashings(&yaml),
             attester_slashings: parse_attester_slashings(&yaml),
             exits: parse_exits(&yaml),
+            transfers: parse_transfers(&yaml),
         }
     }
+}
+
+/// Parse the `transfers` section of the YAML document.
+fn parse_transfers(yaml: &Yaml) -> Option<Vec<TransferTuple>> {
+    let mut tuples = vec![];
+
+    for exit in yaml["transfers"].as_vec()? {
+        let slot = as_u64(exit, "slot").expect("Incomplete transfer (slot)");
+        let from = as_u64(exit, "from").expect("Incomplete transfer (from)");
+        let to = as_u64(exit, "to").expect("Incomplete transfer (to)");
+        let amount = as_u64(exit, "amount").expect("Incomplete transfer (amount)");
+
+        tuples.push((SlotHeight::from(slot), from, to, amount));
+    }
+
+    Some(tuples)
 }
 
 /// Parse the `attester_slashings` section of the YAML document.
@@ -102,8 +123,7 @@ fn parse_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
 
     for deposit in yaml["deposits"].as_vec()? {
         let slot = as_u64(deposit, "slot").expect("Incomplete deposit (slot)");
-        let amount =
-            as_u64(deposit, "amount").expect("Incomplete deposit (amount)") * 1_000_000_000;
+        let amount = as_u64(deposit, "amount").expect("Incomplete deposit (amount)");
 
         deposits.push((SlotHeight::from(slot), amount))
     }
