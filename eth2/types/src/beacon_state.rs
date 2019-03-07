@@ -233,6 +233,11 @@ impl BeaconState {
         Ok(genesis_state)
     }
 
+    /// Returns the `hash_tree_root` of the state.
+    pub fn canonical_root(&self) -> Hash256 {
+        Hash256::from_slice(&self.hash_tree_root()[..])
+    }
+
     /// Build an epoch cache, unless it is has already been built.
     pub fn build_epoch_cache(
         &mut self,
