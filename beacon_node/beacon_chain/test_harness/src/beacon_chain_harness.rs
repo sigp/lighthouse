@@ -9,11 +9,12 @@ use fork_choice::BitwiseLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
+use ssz::TreeHash;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::path::Path;
 use std::sync::Arc;
-use types::*;
+use types::{beacon_state::BeaconStateBuilder, *};
 
 mod generate_deposits;
 mod load_deposits_from_file;
@@ -67,15 +68,20 @@ impl BeaconChainHarness {
             (keypairs, deposits)
         };
 
+        let mut state_builder = BeaconStateBuilder::new(genesis_time, latest_eth1_data, &spec);
+        state_builder.process_initial_deposits(&initial_validator_deposits, &spec);
+        let genesis_state = state_builder.build(&spec).unwrap();
+        let state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+        let genesis_block = BeaconBlock::genesis(state_root, &spec);
+
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
-            BeaconChain::genesis(
+            BeaconChain::from_genesis(
                 state_store.clone(),
                 block_store.clone(),
                 slot_clock,
-                genesis_time,
-                latest_eth1_data,
-                initial_validator_deposits,
+                genesis_state,
+                genesis_block,
                 spec.clone(),
                 fork_choice,
             )

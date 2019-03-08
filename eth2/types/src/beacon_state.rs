@@ -114,18 +114,13 @@ pub struct BeaconState {
 
 impl BeaconState {
     /// Produce the first state of the Beacon Chain.
-    pub fn genesis_without_validators(
-        genesis_time: u64,
-        latest_eth1_data: Eth1Data,
-        spec: &ChainSpec,
-    ) -> Result<BeaconState, Error> {
-        debug!("Creating genesis state (without validator processing).");
+    pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             crosslink_data_root: spec.zero_hash,
         };
 
-        Ok(BeaconState {
+        BeaconState {
             /*
              * Misc
              */
@@ -188,19 +183,15 @@ impl BeaconState {
              */
             cache_index_offset: 0,
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
-        })
+        }
     }
 
     /// Produce the first state of the Beacon Chain.
-    pub fn genesis(
-        genesis_time: u64,
+    pub fn process_initial_deposits(
+        &mut self,
         initial_validator_deposits: Vec<Deposit>,
-        latest_eth1_data: Eth1Data,
         spec: &ChainSpec,
-    ) -> Result<BeaconState, Error> {
-        let mut genesis_state =
-            BeaconState::genesis_without_validators(genesis_time, latest_eth1_data, spec)?;
-
+    ) -> Result<(), Error> {
         debug!("Processing genesis deposits...");
 
         let deposit_data = initial_validator_deposits
@@ -208,29 +199,28 @@ impl BeaconState {
             .map(|deposit| &deposit.deposit_data)
             .collect();
 
-        genesis_state.process_deposits(deposit_data, spec);
+        self.process_deposits(deposit_data, spec);
 
         trace!("Processed genesis deposits.");
 
-        for validator_index in 0..genesis_state.validator_registry.len() {
-            if genesis_state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount
-            {
-                genesis_state.activate_validator(validator_index, true, spec);
+        for validator_index in 0..self.validator_registry.len() {
+            if self.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount {
+                self.activate_validator(validator_index, true, spec);
             }
         }
 
-        genesis_state.deposit_index = initial_validator_deposits.len() as u64;
+        self.deposit_index = initial_validator_deposits.len() as u64;
 
         let genesis_active_index_root = hash_tree_root(get_active_validator_indices(
-            &genesis_state.validator_registry,
+            &self.validator_registry,
             spec.genesis_epoch,
         ));
-        genesis_state.latest_active_index_roots =
+        self.latest_active_index_roots =
             vec![genesis_active_index_root; spec.latest_active_index_roots_length];
-        genesis_state.current_shuffling_seed =
-            genesis_state.generate_seed(spec.genesis_epoch, spec)?;
 
-        Ok(genesis_state)
+        self.current_shuffling_seed = self.generate_seed(spec.genesis_epoch, spec)?;
+
+        Ok(())
     }
 
     /// Returns the `hash_tree_root` of the state.
