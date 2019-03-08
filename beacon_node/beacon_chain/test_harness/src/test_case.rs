@@ -81,7 +81,7 @@ impl TestCase {
             validator_count
         );
 
-        let mut harness = BeaconChainHarness::new(spec, validator_count, validators_dir);
+        let mut harness = BeaconChainHarness::new(spec, validator_count, validators_dir, true);
 
         info!("Starting simulation across {} slots...", slots);
 
