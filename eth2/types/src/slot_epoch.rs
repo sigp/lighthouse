@@ -35,8 +35,8 @@ impl Slot {
         Slot(slot)
     }
 
-    pub fn epoch(self, epoch_length: u64) -> Epoch {
-        Epoch::from(self.0 / epoch_length)
+    pub fn epoch(self, slots_per_epoch: u64) -> Epoch {
+        Epoch::from(self.0 / slots_per_epoch)
     }
 
     pub fn height(self, genesis_slot: Slot) -> SlotHeight {
@@ -57,24 +57,24 @@ impl Epoch {
         Epoch(u64::max_value())
     }
 
-    pub fn start_slot(self, epoch_length: u64) -> Slot {
-        Slot::from(self.0.saturating_mul(epoch_length))
+    pub fn start_slot(self, slots_per_epoch: u64) -> Slot {
+        Slot::from(self.0.saturating_mul(slots_per_epoch))
     }
 
-    pub fn end_slot(self, epoch_length: u64) -> Slot {
+    pub fn end_slot(self, slots_per_epoch: u64) -> Slot {
         Slot::from(
             self.0
                 .saturating_add(1)
-                .saturating_mul(epoch_length)
+                .saturating_mul(slots_per_epoch)
                 .saturating_sub(1),
         )
     }
 
-    pub fn slot_iter(&self, epoch_length: u64) -> SlotIter {
+    pub fn slot_iter(&self, slots_per_epoch: u64) -> SlotIter {
         SlotIter {
             current_iteration: 0,
             epoch: self,
-            epoch_length,
+            slots_per_epoch,
         }
     }
 }
@@ -82,17 +82,17 @@ impl Epoch {
 pub struct SlotIter<'a> {
     current_iteration: u64,
     epoch: &'a Epoch,
-    epoch_length: u64,
+    slots_per_epoch: u64,
 }
 
 impl<'a> Iterator for SlotIter<'a> {
     type Item = Slot;
 
     fn next(&mut self) -> Option<Slot> {
-        if self.current_iteration >= self.epoch_length {
+        if self.current_iteration >= self.slots_per_epoch {
             None
         } else {
-            let start_slot = self.epoch.start_slot(self.epoch_length);
+            let start_slot = self.epoch.start_slot(self.slots_per_epoch);
             let previous = self.current_iteration;
             self.current_iteration += 1;
             Some(start_slot + previous)
@@ -103,6 +103,8 @@ impl<'a> Iterator for SlotIter<'a> {
 #[cfg(test)]
 mod slot_tests {
     use super::*;
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     all_tests!(Slot);
 }
@@ -110,23 +112,25 @@ mod slot_tests {
 #[cfg(test)]
 mod epoch_tests {
     use super::*;
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use ssz::ssz_encode;
 
     all_tests!(Epoch);
 
     #[test]
     fn slot_iter() {
-        let epoch_length = 8;
+        let slots_per_epoch = 8;
 
         let epoch = Epoch::new(0);
 
         let mut slots = vec![];
-        for slot in epoch.slot_iter(epoch_length) {
+        for slot in epoch.slot_iter(slots_per_epoch) {
             slots.push(slot);
         }
 
-        assert_eq!(slots.len(), epoch_length as usize);
+        assert_eq!(slots.len(), slots_per_epoch as usize);
 
-        for i in 0..epoch_length {
+        for i in 0..slots_per_epoch {
             assert_eq!(Slot::from(i), slots[i as usize])
         }
     }

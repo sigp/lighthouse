@@ -64,7 +64,7 @@ where
 
         let active_validator_indices = get_active_validator_indices(
             &current_state.validator_registry[..],
-            block_slot.epoch(spec.epoch_length),
+            block_slot.epoch(spec.slots_per_epoch),
         );
 
         for index in active_validator_indices {

@@ -3,9 +3,11 @@
 
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
+use bls::{create_proof_of_possession, get_withdrawal_credentials};
 use log::{info, warn};
-use ssz::TreeHash;
+use ssz::SignedRoot;
 use types::*;
+
 use types::{
     attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
 };
@@ -55,18 +57,19 @@ impl TestCase {
 
     /// Return a `ChainSpec::foundation()`.
     ///
-    /// If specified in `config`, returns it with a modified `epoch_length`.
+    /// If specified in `config`, returns it with a modified `slots_per_epoch`.
     fn spec(&self) -> ChainSpec {
         let mut spec = ChainSpec::foundation();
 
-        if let Some(n) = self.config.epoch_length {
-            spec.epoch_length = n;
+        if let Some(n) = self.config.slots_per_epoch {
+            spec.slots_per_epoch = n;
         }
 
         spec
     }
 
     /// Executes the test case, returning an `ExecutionResult`.
+    #[allow(clippy::cyclomatic_complexity)]
     pub fn execute(&self) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;
@@ -81,14 +84,20 @@ impl TestCase {
 
         info!("Starting simulation across {} slots...", slots);
 
-        // -1 slots because genesis counts as a slot.
-        for slot_height in 0..slots - 1 {
+        // Start at 1 because genesis counts as a slot.
+        for slot_height in 1..slots {
+            // Used to ensure that deposits in the same slot have incremental deposit indices.
+            let mut deposit_index_offset = 0;
+
             // Feed deposits to the BeaconChain.
             if let Some(ref deposits) = self.config.deposits {
-                for (slot, deposit, keypair) in deposits {
+                for (slot, amount) in deposits {
                     if *slot == slot_height {
                         info!("Including deposit at slot height {}.", slot_height);
-                        harness.add_deposit(deposit.clone(), Some(keypair.clone()));
+                        let (deposit, keypair) =
+                            build_deposit(&harness, *amount, deposit_index_offset);
+                        harness.add_deposit(deposit, Some(keypair.clone()));
+                        deposit_index_offset += 1;
                     }
                 }
             }
@@ -132,6 +141,20 @@ impl TestCase {
                         );
                         let exit = build_exit(&harness, *validator_index);
                         harness.add_exit(exit);
+                    }
+                }
+            }
+
+            // Feed transfers to the BeaconChain.
+            if let Some(ref transfers) = self.config.transfers {
+                for (slot, from, to, amount) in transfers {
+                    if *slot == slot_height {
+                        info!(
+                            "Including transfer at slot height {} from validator {}.",
+                            slot_height, from
+                        );
+                        let transfer = build_transfer(&harness, *from, *to, *amount);
+                        harness.add_transfer(transfer);
                     }
                 }
             }
@@ -189,7 +212,7 @@ impl TestCase {
 
                 for state_check in state_checks {
                     let adjusted_state_slot =
-                        state.slot - spec.genesis_epoch.start_slot(spec.epoch_length);
+                        state.slot - spec.genesis_epoch.start_slot(spec.slots_per_epoch);
 
                     if state_check.slot == adjusted_state_slot {
                         state_check.assert_valid(state, spec);
@@ -200,29 +223,84 @@ impl TestCase {
     }
 }
 
-fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> Exit {
+/// Builds a `Deposit` this is valid for the given `BeaconChainHarness` at its next slot.
+fn build_transfer(harness: &BeaconChainHarness, from: u64, to: u64, amount: u64) -> Transfer {
+    let slot = harness.beacon_chain.state.read().slot + 1;
+
+    let mut transfer = Transfer {
+        from,
+        to,
+        amount,
+        fee: 0,
+        slot,
+        pubkey: harness.validators[from as usize].keypair.pk.clone(),
+        signature: Signature::empty_signature(),
+    };
+
+    let message = transfer.signed_root();
+    let epoch = slot.epoch(harness.spec.slots_per_epoch);
+
+    transfer.signature = harness
+        .validator_sign(from as usize, &message[..], epoch, Domain::Transfer)
+        .expect("Unable to sign Transfer");
+
+    transfer
+}
+
+/// Builds a `Deposit` this is valid for the given `BeaconChainHarness`.
+///
+/// `index_offset` is used to ensure that `deposit.index == state.index` when adding multiple
+/// deposits.
+fn build_deposit(
+    harness: &BeaconChainHarness,
+    amount: u64,
+    index_offset: u64,
+) -> (Deposit, Keypair) {
+    let keypair = Keypair::random();
+    let proof_of_possession = create_proof_of_possession(&keypair);
+    let index = harness.beacon_chain.state.read().deposit_index + index_offset;
+    let withdrawal_credentials = Hash256::from_slice(
+        &get_withdrawal_credentials(&keypair.pk, harness.spec.bls_withdrawal_prefix_byte)[..],
+    );
+
+    let deposit = Deposit {
+        // Note: `branch` and `index` will need to be updated once the spec defines their
+        // validity.
+        branch: vec![],
+        index,
+        deposit_data: DepositData {
+            amount,
+            timestamp: 1,
+            deposit_input: DepositInput {
+                pubkey: keypair.pk.clone(),
+                withdrawal_credentials,
+                proof_of_possession,
+            },
+        },
+    };
+
+    (deposit, keypair)
+}
+
+/// Builds a `VoluntaryExit` this is valid for the given `BeaconChainHarness`.
+fn build_exit(harness: &BeaconChainHarness, validator_index: u64) -> VoluntaryExit {
     let epoch = harness
         .beacon_chain
         .state
         .read()
         .current_epoch(&harness.spec);
 
-    let mut exit = Exit {
+    let mut exit = VoluntaryExit {
         epoch,
         validator_index,
         signature: Signature::empty_signature(),
     };
 
-    let message = exit.hash_tree_root();
+    let message = exit.signed_root();
 
     exit.signature = harness
-        .validator_sign(
-            validator_index as usize,
-            &message[..],
-            epoch,
-            harness.spec.domain_exit,
-        )
-        .expect("Unable to sign Exit");
+        .validator_sign(validator_index as usize, &message[..], epoch, Domain::Exit)
+        .expect("Unable to sign VoluntaryExit");
 
     exit
 }
@@ -234,20 +312,20 @@ fn build_double_vote_attester_slashing(
     harness: &BeaconChainHarness,
     validator_indices: &[u64],
 ) -> AttesterSlashing {
-    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: u64| {
+    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
         harness
             .validator_sign(validator_index as usize, message, epoch, domain)
             .expect("Unable to sign AttesterSlashing")
     };
 
-    AttesterSlashingBuilder::double_vote(validator_indices, signer, &harness.spec)
+    AttesterSlashingBuilder::double_vote(validator_indices, signer)
 }
 
 /// Builds an `ProposerSlashing` for some `validator_index`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
 fn build_proposer_slashing(harness: &BeaconChainHarness, validator_index: u64) -> ProposerSlashing {
-    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: u64| {
+    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
         harness
             .validator_sign(validator_index as usize, message, epoch, domain)
             .expect("Unable to sign AttesterSlashing")

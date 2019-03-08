@@ -12,16 +12,12 @@ impl AttesterSlashingBuilder {
     /// - `validator_index: u64`
     /// - `message: &[u8]`
     /// - `epoch: Epoch`
-    /// - `domain: u64`
+    /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
-    pub fn double_vote<F>(
-        validator_indices: &[u64],
-        signer: F,
-        spec: &ChainSpec,
-    ) -> AttesterSlashing
+    pub fn double_vote<F>(validator_indices: &[u64], signer: F) -> AttesterSlashing
     where
-        F: Fn(u64, &[u8], Epoch, u64) -> Signature,
+        F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
         let double_voted_slot = Slot::new(0);
         let shard = 0;
@@ -37,10 +33,10 @@ impl AttesterSlashingBuilder {
                 shard,
                 beacon_block_root: hash_1,
                 epoch_boundary_root: hash_1,
-                shard_block_root: hash_1,
+                crosslink_data_root: hash_1,
                 latest_crosslink: Crosslink {
                     epoch,
-                    shard_block_root: hash_1,
+                    crosslink_data_root: hash_1,
                 },
                 justified_epoch,
                 justified_block_root: hash_1,
@@ -56,10 +52,10 @@ impl AttesterSlashingBuilder {
                 shard,
                 beacon_block_root: hash_2,
                 epoch_boundary_root: hash_2,
-                shard_block_root: hash_2,
+                crosslink_data_root: hash_2,
                 latest_crosslink: Crosslink {
                     epoch,
-                    shard_block_root: hash_2,
+                    crosslink_data_root: hash_2,
                 },
                 justified_epoch,
                 justified_block_root: hash_2,
@@ -75,12 +71,7 @@ impl AttesterSlashingBuilder {
                     custody_bit: attestation.custody_bitfield.get(i).unwrap(),
                 };
                 let message = attestation_data_and_custody_bit.hash_tree_root();
-                let signature = signer(
-                    *validator_index,
-                    &message[..],
-                    epoch,
-                    spec.domain_attestation,
-                );
+                let signature = signer(*validator_index, &message[..], epoch, Domain::Attestation);
                 attestation.aggregate_signature.add(&signature);
             }
         };

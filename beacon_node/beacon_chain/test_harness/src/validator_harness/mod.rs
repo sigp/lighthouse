@@ -28,24 +28,28 @@ pub enum AttestationProduceError {
     PollError(AttestationPollError),
 }
 
+type TestingBlockProducer = BlockProducer<
+    TestingSlotClock,
+    DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
+    DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
+    LocalSigner,
+>;
+
+type TestingAttester = Attester<
+    TestingSlotClock,
+    DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
+    DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
+    LocalSigner,
+>;
+
 /// A `BlockProducer` and `Attester` which sign using a common keypair.
 ///
 /// The test validator connects directly to a borrowed `BeaconChain` struct. It is useful for
 /// testing that the core proposer and attester logic is functioning. Also for supporting beacon
 /// chain tests.
 pub struct ValidatorHarness {
-    pub block_producer: BlockProducer<
-        TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
-        DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
-        LocalSigner,
-    >,
-    pub attester: Attester<
-        TestingSlotClock,
-        DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
-        DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
-        LocalSigner,
-    >,
+    pub block_producer: TestingBlockProducer,
+    pub attester: TestingAttester,
     pub spec: Arc<ChainSpec>,
     pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
     pub keypair: Keypair,

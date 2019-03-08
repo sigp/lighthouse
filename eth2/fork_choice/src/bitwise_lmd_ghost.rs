@@ -95,7 +95,7 @@ where
 
         let active_validator_indices = get_active_validator_indices(
             &current_state.validator_registry[..],
-            block_slot.epoch(spec.epoch_length),
+            block_slot.epoch(spec.slots_per_epoch),
         );
 
         for index in active_validator_indices {
@@ -379,7 +379,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 trace!("Current Step: {}", step);
                 if let Some(clear_winner) = self.get_clear_winner(
                     &latest_votes,
-                    block_height - (block_height % u64::from(step)) + u64::from(step),
+                    block_height - (block_height % step) + step,
                     spec,
                 ) {
                     current_head = clear_winner;

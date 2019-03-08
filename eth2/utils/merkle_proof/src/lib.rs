@@ -25,14 +25,14 @@ fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usi
 
     let mut merkle_root = leaf.as_bytes().to_vec();
 
-    for i in 0..depth {
+    for (i, leaf) in branch.iter().enumerate().take(depth) {
         let ith_bit = (index >> i) & 0x01;
         if ith_bit == 1 {
-            let input = concat(branch[i].as_bytes().to_vec(), merkle_root);
+            let input = concat(leaf.as_bytes().to_vec(), merkle_root);
             merkle_root = hash(&input);
         } else {
             let mut input = merkle_root;
-            input.extend_from_slice(branch[i].as_bytes());
+            input.extend_from_slice(leaf.as_bytes());
             merkle_root = hash(&input);
         }
     }

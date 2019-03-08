@@ -1,4 +1,4 @@
-use crate::{BeaconState, Hash256, Slot};
+use crate::{BeaconState, Slot};
 use std::fmt::Debug;
 
 /// The `BeaconStateReader` provides interfaces for reading a subset of fields of a `BeaconState`.
@@ -11,17 +11,12 @@ use std::fmt::Debug;
 /// "future proofing".
 pub trait BeaconStateReader: Debug + PartialEq {
     fn slot(&self) -> Slot;
-    fn canonical_root(&self) -> Hash256;
     fn into_beacon_state(self) -> Option<BeaconState>;
 }
 
 impl BeaconStateReader for BeaconState {
     fn slot(&self) -> Slot {
         self.slot
-    }
-
-    fn canonical_root(&self) -> Hash256 {
-        self.canonical_root()
     }
 
     fn into_beacon_state(self) -> Option<BeaconState> {

@@ -29,7 +29,7 @@ fn it_can_produce_past_first_epoch_boundary() {
 
     debug!("Harness built, tests starting..");
 
-    let blocks = harness.spec.epoch_length * 2 + 1;
+    let blocks = harness.spec.slots_per_epoch * 2 + 1;
 
     for i in 0..blocks {
         harness.advance_chain_with_block();

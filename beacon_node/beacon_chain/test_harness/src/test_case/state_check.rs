@@ -3,6 +3,11 @@ use log::info;
 use types::*;
 use yaml_rust::Yaml;
 
+type ValidatorIndex = u64;
+type BalanceGwei = u64;
+
+type BalanceCheckTuple = (ValidatorIndex, String, BalanceGwei);
+
 /// Tests to be conducted upon a `BeaconState` object generated during the execution of a
 /// `TestCase`.
 #[derive(Debug)]
@@ -17,6 +22,8 @@ pub struct StateCheck {
     pub exited_validators: Option<Vec<u64>>,
     /// A list of validator indices which have had an exit initiated. Must be in ascending order.
     pub exit_initiated_validators: Option<Vec<u64>>,
+    /// A list of balances to check.
+    pub balances: Option<Vec<BalanceCheckTuple>>,
 }
 
 impl StateCheck {
@@ -30,6 +37,7 @@ impl StateCheck {
             slashed_validators: as_vec_u64(&yaml, "slashed_validators"),
             exited_validators: as_vec_u64(&yaml, "exited_validators"),
             exit_initiated_validators: as_vec_u64(&yaml, "exit_initiated_validators"),
+            balances: parse_balances(&yaml),
         }
     }
 
@@ -39,14 +47,14 @@ impl StateCheck {
     ///
     /// Panics with an error message if any test fails.
     pub fn assert_valid(&self, state: &BeaconState, spec: &ChainSpec) {
-        let state_epoch = state.slot.epoch(spec.epoch_length);
+        let state_epoch = state.slot.epoch(spec.slots_per_epoch);
 
         info!("Running state check for slot height {}.", self.slot);
 
         // Check the state slot.
         assert_eq!(
             self.slot,
-            state.slot - spec.genesis_epoch.start_slot(spec.epoch_length),
+            state.slot - spec.genesis_epoch.start_slot(spec.slots_per_epoch),
             "State slot is invalid."
         );
 
@@ -66,7 +74,7 @@ impl StateCheck {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, validator)| {
-                    if validator.is_penalized_at(state_epoch) {
+                    if validator.slashed {
                         Some(i as u64)
                     } else {
                         None
@@ -108,7 +116,7 @@ impl StateCheck {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, validator)| {
-                    if validator.has_initiated_exit() {
+                    if validator.initiated_exit {
                         Some(i as u64)
                     } else {
                         None
@@ -124,5 +132,47 @@ impl StateCheck {
                 exit_initiated_validators
             );
         }
+
+        // Check validator balances.
+        if let Some(ref balances) = self.balances {
+            for (index, comparison, expected) in balances {
+                let actual = *state
+                    .validator_balances
+                    .get(*index as usize)
+                    .expect("Balance check specifies unknown validator");
+
+                let result = match comparison.as_ref() {
+                    "eq" => actual == *expected,
+                    _ => panic!("Unknown balance comparison (use `eq`)"),
+                };
+                assert!(
+                    result,
+                    format!(
+                        "Validator balance for {}: {} !{} {}.",
+                        index, actual, comparison, expected
+                    )
+                );
+                info!("OK: validator balance for {:?}.", index);
+            }
+        }
     }
+}
+
+/// Parse the `transfers` section of the YAML document.
+fn parse_balances(yaml: &Yaml) -> Option<Vec<BalanceCheckTuple>> {
+    let mut tuples = vec![];
+
+    for exit in yaml["balances"].as_vec()? {
+        let from =
+            as_u64(exit, "validator_index").expect("Incomplete balance check (validator_index)");
+        let comparison = exit["comparison"]
+            .clone()
+            .into_string()
+            .expect("Incomplete balance check (amount)");
+        let balance = as_u64(exit, "balance").expect("Incomplete balance check (balance)");
+
+        tuples.push((from, comparison, balance));
+    }
+
+    Some(tuples)
 }

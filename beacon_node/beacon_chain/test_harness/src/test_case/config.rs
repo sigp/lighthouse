@@ -1,15 +1,17 @@
 use super::yaml_helpers::{as_u64, as_usize, as_vec_u64};
-use bls::create_proof_of_possession;
 use types::*;
 use yaml_rust::Yaml;
 
 pub type ValidatorIndex = u64;
 pub type ValidatorIndices = Vec<u64>;
+pub type GweiAmount = u64;
 
-pub type DepositTuple = (SlotHeight, Deposit, Keypair);
+pub type DepositTuple = (SlotHeight, GweiAmount);
 pub type ExitTuple = (SlotHeight, ValidatorIndex);
 pub type ProposerSlashingTuple = (SlotHeight, ValidatorIndex);
 pub type AttesterSlashingTuple = (SlotHeight, ValidatorIndices);
+/// (slot_height, from, to, amount)
+pub type TransferTuple = (SlotHeight, ValidatorIndex, ValidatorIndex, GweiAmount);
 
 /// Defines the execution of a `BeaconStateHarness` across a series of slots.
 #[derive(Debug)]
@@ -17,7 +19,7 @@ pub struct Config {
     /// Initial validators.
     pub deposits_for_chain_start: usize,
     /// Number of slots in an epoch.
-    pub epoch_length: Option<u64>,
+    pub slots_per_epoch: Option<u64>,
     /// Number of slots to build before ending execution.
     pub num_slots: u64,
     /// Number of slots that should be skipped due to inactive validator.
@@ -30,6 +32,8 @@ pub struct Config {
     pub attester_slashings: Option<Vec<AttesterSlashingTuple>>,
     /// Exits to be including during execution.
     pub exits: Option<Vec<ExitTuple>>,
+    /// Transfers to be including during execution.
+    pub transfers: Option<Vec<TransferTuple>>,
 }
 
 impl Config {
@@ -40,15 +44,32 @@ impl Config {
         Self {
             deposits_for_chain_start: as_usize(&yaml, "deposits_for_chain_start")
                 .expect("Must specify validator count"),
-            epoch_length: as_u64(&yaml, "epoch_length"),
+            slots_per_epoch: as_u64(&yaml, "slots_per_epoch"),
             num_slots: as_u64(&yaml, "num_slots").expect("Must specify `config.num_slots`"),
             skip_slots: as_vec_u64(yaml, "skip_slots"),
             deposits: parse_deposits(&yaml),
             proposer_slashings: parse_proposer_slashings(&yaml),
             attester_slashings: parse_attester_slashings(&yaml),
             exits: parse_exits(&yaml),
+            transfers: parse_transfers(&yaml),
         }
     }
+}
+
+/// Parse the `transfers` section of the YAML document.
+fn parse_transfers(yaml: &Yaml) -> Option<Vec<TransferTuple>> {
+    let mut tuples = vec![];
+
+    for exit in yaml["transfers"].as_vec()? {
+        let slot = as_u64(exit, "slot").expect("Incomplete transfer (slot)");
+        let from = as_u64(exit, "from").expect("Incomplete transfer (from)");
+        let to = as_u64(exit, "to").expect("Incomplete transfer (to)");
+        let amount = as_u64(exit, "amount").expect("Incomplete transfer (amount)");
+
+        tuples.push((SlotHeight::from(slot), from, to, amount));
+    }
+
+    Some(tuples)
 }
 
 /// Parse the `attester_slashings` section of the YAML document.
@@ -101,30 +122,10 @@ fn parse_deposits(yaml: &Yaml) -> Option<Vec<DepositTuple>> {
     let mut deposits = vec![];
 
     for deposit in yaml["deposits"].as_vec()? {
-        let keypair = Keypair::random();
-        let proof_of_possession = create_proof_of_possession(&keypair);
-
         let slot = as_u64(deposit, "slot").expect("Incomplete deposit (slot)");
-        let amount =
-            as_u64(deposit, "amount").expect("Incomplete deposit (amount)") * 1_000_000_000;
+        let amount = as_u64(deposit, "amount").expect("Incomplete deposit (amount)");
 
-        let deposit = Deposit {
-            // Note: `branch` and `index` will need to be updated once the spec defines their
-            // validity.
-            branch: vec![],
-            index: 0,
-            deposit_data: DepositData {
-                amount,
-                timestamp: 1,
-                deposit_input: DepositInput {
-                    pubkey: keypair.pk.clone(),
-                    withdrawal_credentials: Hash256::zero(),
-                    proof_of_possession,
-                },
-            },
-        };
-
-        deposits.push((SlotHeight::from(slot), deposit, keypair));
+        deposits.push((SlotHeight::from(slot), amount))
     }
 
     Some(deposits)
