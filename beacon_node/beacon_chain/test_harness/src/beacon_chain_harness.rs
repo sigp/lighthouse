@@ -6,16 +6,20 @@ use db::{
     MemoryDB,
 };
 use fork_choice::BitwiseLMDGhost;
-use generate_deposits::generate_deposits_with_random_keypairs;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
 use std::collections::HashSet;
 use std::iter::FromIterator;
+use std::path::Path;
 use std::sync::Arc;
 use types::*;
 
 mod generate_deposits;
+mod load_deposits_from_file;
+
+pub use generate_deposits::generate_deposits_with_deterministic_keypairs;
+pub use load_deposits_from_file::load_deposits_from_file;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -37,7 +41,7 @@ impl BeaconChainHarness {
     ///
     /// - A keypair, `BlockProducer` and `Attester` for each validator.
     /// - A new BeaconChain struct where the given validators are in the genesis.
-    pub fn new(spec: ChainSpec, validator_count: usize) -> Self {
+    pub fn new(spec: ChainSpec, validator_count: usize, validators_dir: Option<&Path>) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
@@ -49,8 +53,17 @@ impl BeaconChainHarness {
             block_hash: Hash256::zero(),
         };
 
-        let (keypairs, initial_validator_deposits) =
-            generate_deposits_with_random_keypairs(validator_count, genesis_time, &spec);
+        let (keypairs, initial_validator_deposits) = if let Some(path) = validators_dir {
+            let keypairs_path = path.join("keypairs.yaml");
+            let deposits_path = path.join("deposits.yaml");
+            load_deposits_from_file(
+                validator_count,
+                &keypairs_path.as_path(),
+                &deposits_path.as_path(),
+            )
+        } else {
+            generate_deposits_with_deterministic_keypairs(validator_count, genesis_time, &spec)
+        };
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(

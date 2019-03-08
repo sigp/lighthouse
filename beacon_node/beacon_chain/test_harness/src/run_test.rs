@@ -1,5 +1,6 @@
 use crate::test_case::TestCase;
 use clap::ArgMatches;
+use std::path::Path;
 use std::{fs::File, io::prelude::*};
 use yaml_rust::YamlLoader;
 
@@ -15,6 +16,10 @@ pub fn run_test(matches: &ArgMatches) {
         };
 
         for doc in &docs {
+            let validators_dir = matches
+                .value_of("validators_dir")
+                .and_then(|dir_str| Some(Path::new(dir_str)));
+
             // For each `test_cases` YAML in the document, build a `TestCase`, execute it and
             // assert that the execution result matches the test_case description.
             //
@@ -29,7 +34,7 @@ pub fn run_test(matches: &ArgMatches) {
             // panics with a message.
             for test_case in doc["test_cases"].as_vec().unwrap() {
                 let test_case = TestCase::from_yaml(test_case);
-                test_case.assert_result_valid(test_case.execute())
+                test_case.assert_result_valid(test_case.execute(validators_dir))
             }
         }
     }
