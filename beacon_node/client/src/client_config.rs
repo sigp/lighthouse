@@ -1,13 +1,13 @@
 use clap::ArgMatches;
 use db::DBType;
 use fork_choice::ForkChoiceAlgorithm;
-use libp2p::multiaddr::ToMultiaddr;
 use network::NetworkConfig;
 use slog::error;
 use std::fs;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use types::multiaddr::ToMultiaddr;
 use types::ChainSpec;
 
 /// Stores the client configuration for this Lighthouse instance.
@@ -32,11 +32,15 @@ impl Default for ClientConfig {
         };
         fs::create_dir_all(&data_dir)
             .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
+
+        let default_spec = ChainSpec::lighthouse_testnet();
+        let default_net_conf = NetworkConfig::new(default_spec.boot_nodes.clone());
+
         Self {
             data_dir: data_dir.clone(),
             // default to foundation for chain specs
-            spec: ChainSpec::foundation(),
-            net_conf: NetworkConfig::default(),
+            spec: default_spec,
+            net_conf: default_net_conf,
             // default to bitwise LMD Ghost
             fork_choice: ForkChoiceAlgorithm::BitwiseLMDGhost,
             // default to memory db for now

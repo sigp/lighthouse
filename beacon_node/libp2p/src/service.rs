@@ -1,4 +1,5 @@
 use crate::behaviour::Behaviour;
+use crate::multiaddr::Protocol;
 use crate::NetworkConfig;
 use futures::prelude::*;
 use libp2p::core::{
@@ -7,7 +8,6 @@ use libp2p::core::{
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
-use libp2p::multiaddr::Protocol;
 use libp2p::{core, secio, Transport};
 use libp2p::{PeerId, Swarm};
 use slog::{debug, info, warn};

@@ -1,4 +1,4 @@
-use crate::{Address, Epoch, Fork, Hash256, Slot};
+use crate::{Address, Epoch, Fork, Hash256, Multiaddr, Slot};
 use bls::Signature;
 
 const GWEI: u64 = 1_000_000_000;
@@ -106,6 +106,12 @@ pub struct ChainSpec {
     domain_exit: u64,
     domain_randao: u64,
     domain_transfer: u64,
+
+    /*
+     * Network specific parameters
+     *
+     */
+    pub boot_nodes: Vec<Multiaddr>,
 }
 
 impl ChainSpec {
@@ -232,7 +238,29 @@ impl ChainSpec {
             domain_exit: 3,
             domain_randao: 4,
             domain_transfer: 5,
+
+            /*
+             * Boot nodes
+             */
+            boot_nodes: vec![],
         }
+    }
+
+    /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
+    ///
+    /// Spec v0.4.0
+    pub fn lighthouse_testnet() -> Self {
+        /*
+         * Lighthouse testnet bootnodes
+         */
+        let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
+            .parse()
+            .expect("correct multiaddr")];
+
+        let mut standard_spec = ChainSpec::foundation();
+        standard_spec.boot_nodes = boot_nodes;
+
+        standard_spec
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
