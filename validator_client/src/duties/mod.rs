@@ -61,7 +61,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
             .map_err(|_| Error::SlotClockError)?
             .ok_or(Error::SlotUnknowable)?;
 
-        let epoch = slot.epoch(self.spec.epoch_length);
+        let epoch = slot.epoch(self.spec.slots_per_epoch);
 
         if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkey)? {
             // If these duties were known, check to see if they're updates or identical.
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     pub fn polling() {
         let spec = Arc::new(ChainSpec::foundation());
-        let duties_map = Arc::new(EpochDutiesMap::new(spec.epoch_length));
+        let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
         let keypair = Keypair::random();
         let slot_clock = Arc::new(TestingSlotClock::new(0));
         let beacon_node = Arc::new(TestBeaconNode::default());

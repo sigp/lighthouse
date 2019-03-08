@@ -1,0 +1,59 @@
+title: Validator Registry Tests
+summary: Tests deposit and slashing effects on validator registry.
+test_suite: validator_registry
+fork: tchaikovsky
+version: 1.0
+test_cases:
+  - config:
+      slots_per_epoch: 64
+      deposits_for_chain_start: 1000
+      num_slots: 64
+      skip_slots: [2, 3]
+      deposits:
+          # At slot 1, create a new validator deposit of 5 ETH.
+        - slot: 1
+          amount: 5000000000
+          # Trigger more deposits...
+        - slot: 3
+          amount: 5000000000
+        - slot: 5
+          amount: 32000000000
+      exits:
+          # At slot 10, submit an exit for validator #50.
+        - slot: 10
+          validator_index: 50
+      transfers:
+        - slot: 6
+          from: 1000
+          to: 1001
+          amount: 5000000000
+      proposer_slashings:
+          # At slot 2, trigger a proposer slashing for validator #42.
+        - slot: 2
+          validator_index: 42
+          # Trigger another slashing...
+        - slot: 8
+          validator_index: 13
+      attester_slashings:
+          # At slot 2, trigger an attester slashing for validators #11 and #12.
+        - slot: 2
+          validator_indices: [11, 12]
+          # Trigger another slashing...
+        - slot: 5
+          validator_indices: [14]
+    results:
+      num_skipped_slots: 2
+      states:
+        - slot: 63
+          num_validators: 1003
+          slashed_validators: [11, 12, 13, 14, 42]
+          exited_validators: []
+          exit_initiated_validators: [50]
+          balances:
+            - validator_index: 1000
+              comparison: "eq"
+              balance: 0
+            - validator_index: 1001
+              comparison: "eq"
+              balance: 10000000000
+

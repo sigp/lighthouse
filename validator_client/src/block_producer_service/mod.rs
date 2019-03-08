@@ -50,6 +50,9 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducerServi
                 Ok(BlockProducerPollOutcome::ValidatorIsUnknown(slot)) => {
                     error!(self.log, "The Beacon Node does not recognise the validator"; "slot" => slot)
                 }
+                Ok(BlockProducerPollOutcome::UnableToGetFork(slot)) => {
+                    error!(self.log, "Unable to get a `Fork` struct to generate signature domains"; "slot" => slot)
+                }
             };
 
             std::thread::sleep(Duration::from_millis(self.poll_interval_millis));

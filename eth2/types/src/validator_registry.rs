@@ -4,6 +4,8 @@ use super::validator::*;
 use crate::Epoch;
 
 /// Given an indexed sequence of `validators`, return the indices corresponding to validators that are active at `epoch`.
+///
+/// Spec v0.4.0
 pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
     validators
         .iter()

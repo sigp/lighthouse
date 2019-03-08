@@ -5,7 +5,9 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-// Note: this is refer to as DepositRootVote in specs
+/// A summation of votes for some `Eth1Data`.
+///
+/// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Eth1DataVote {
     pub eth1_data: Eth1Data,

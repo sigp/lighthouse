@@ -63,7 +63,8 @@ impl BeaconNode for BeaconBlockGrpcClient {
                     attester_slashings: vec![],
                     attestations: vec![],
                     deposits: vec![],
-                    exits: vec![],
+                    voluntary_exits: vec![],
+                    transfers: vec![],
                 },
             }))
         } else {
