@@ -1,7 +1,9 @@
 use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
+use crate::attester_service::AttesterService;
 use crate::config::ClientConfig;
-use block_proposer::{test_utils::LocalSigner, BlockProducer};
+use attester::{test_utils::LocalSigner as AttesterLocalSigner, Attester};
+use block_proposer::{test_utils::LocalSigner as BlockProposerLocalSigner, BlockProducer};
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -13,7 +15,9 @@ use std::sync::Arc;
 use std::thread;
 use types::ChainSpec;
 
+mod attester_service;
 mod block_producer_service;
+
 mod config;
 mod duties;
 
@@ -160,7 +164,7 @@ fn main() {
         // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
-            let signer = Arc::new(LocalSigner::new(keypair.clone()));
+            let signer = Arc::new(BlockProposerLocalSigner::new(keypair.clone()));
             let duties_map = duties_map.clone();
             let slot_clock = slot_clock.clone();
             let log = log.clone();
@@ -170,6 +174,27 @@ fn main() {
                     BlockProducer::new(spec, duties_map, slot_clock, client, signer);
                 let mut block_producer_service = BlockProducerService {
                     block_producer,
+                    poll_interval_millis,
+                    log,
+                };
+
+                block_producer_service.run();
+            })
+        };
+
+        //Spawn a new thread for attestation for the validator.
+        let attester_thread = {
+            let signer = Arc::new(AttesterLocalSigner::new(keypair.clone()));
+            let duties_map = duties_map.clone();
+            let slot_clock = slot_clock.clone();
+            let log = log.clone();
+            //TODO: this is wrong, I assume this has to be AttesterGrpcClient, which has to be defined analogous
+            // to beacon_block_grpc_client.rs
+            let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
+            thread::spawn(move || {
+                let attester = Attester::new(duties_map, slot_clock, client, signer);
+                let mut attester_service = AttesterService {
+                    attester,
                     poll_interval_millis,
                     log,
                 };

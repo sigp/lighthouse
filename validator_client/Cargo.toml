@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 block_proposer = { path = "../eth2/block_proposer" }
+attester = { path = "../eth2/attester" }
 bls = { path = "../eth2/utils/bls" }
 clap = "2.32.0"
 dirs = "1.0.3"
