@@ -27,10 +27,14 @@ pub fn prepare(matches: &ArgMatches, spec: &ChainSpec) {
     // Ensure that keypairs is dropped before writing deposits, this provides a big memory saving
     // for large validator_counts.
     let deposits = {
+        debug!("Creating {} keypairs...", validator_count);
         let keypairs = generate_deterministic_keypairs(validator_count);
+        debug!("Writing {} keypairs to file...", validator_count);
         write_keypairs(output_dir, &keypairs);
+        debug!("Creating {} deposits to file...", validator_count);
         generate_deposits_from_keypairs(&keypairs, genesis_time, &spec)
     };
+    debug!("Writing {} deposits to file...", validator_count);
     write_deposits(output_dir, &deposits);
 }
 
