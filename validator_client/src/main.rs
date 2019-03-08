@@ -111,13 +111,13 @@ fn main() {
     let genesis_time = 1_549_935_547;
     let slot_clock = {
         info!(log, "Genesis time"; "unix_epoch_seconds" => genesis_time);
-        let clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
+        let clock = SystemTimeSlotClock::new(genesis_time, spec.seconds_per_slot)
             .expect("Unable to instantiate SystemTimeSlotClock.");
         Arc::new(clock)
     };
 
-    let poll_interval_millis = spec.slot_duration * 1000 / 10; // 10% epoch time precision.
-    info!(log, "Starting block producer service"; "polls_per_epoch" => spec.slot_duration * 1000 / poll_interval_millis);
+    let poll_interval_millis = spec.seconds_per_slot * 1000 / 10; // 10% epoch time precision.
+    info!(log, "Starting block producer service"; "polls_per_epoch" => spec.seconds_per_slot * 1000 / poll_interval_millis);
 
     /*
      * Start threads.
@@ -129,7 +129,7 @@ fn main() {
 
     for keypair in keypairs {
         info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
-        let duties_map = Arc::new(EpochDutiesMap::new(spec.epoch_length));
+        let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
 
         // Spawn a new thread to maintain the validator's `EpochDuties`.
         let duties_manager_thread = {

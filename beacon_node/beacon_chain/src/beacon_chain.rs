@@ -1,5 +1,6 @@
 use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
 use crate::checkpoint::CheckPoint;
+use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB, DBError,
@@ -10,25 +11,14 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
 use state_processing::{
-    BlockProcessable, BlockProcessingError, SlotProcessable, SlotProcessingError,
+    per_block_processing, per_block_processing_without_verifying_block_signature,
+    per_slot_processing, BlockProcessingError, SlotProcessingError,
 };
 use std::sync::Arc;
 use types::{
     readers::{BeaconBlockReader, BeaconStateReader},
     *,
 };
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    InsufficientValidators,
-    BadRecentBlockRoots,
-    BeaconStateError(BeaconStateError),
-    DBInconsistent(String),
-    DBError(String),
-    ForkChoiceError(ForkChoiceError),
-    MissingBeaconBlock(Hash256),
-    MissingBeaconState(Hash256),
-}
 
 #[derive(Debug, PartialEq)]
 pub enum ValidBlock {
@@ -65,7 +55,8 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
     pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
-    pub exits_for_inclusion: RwLock<Vec<Exit>>,
+    pub exits_for_inclusion: RwLock<Vec<VoluntaryExit>>,
+    pub transfers_for_inclusion: RwLock<Vec<Transfer>>,
     pub proposer_slashings_for_inclusion: RwLock<Vec<ProposerSlashing>>,
     pub attester_slashings_for_inclusion: RwLock<Vec<AttesterSlashing>>,
     canonical_head: RwLock<CheckPoint>,
@@ -82,6 +73,7 @@ where
     F: ForkChoice,
 {
     /// Instantiate a new Beacon Chain, from genesis.
+    #[allow(clippy::too_many_arguments)] // Will be re-factored in the coming weeks.
     pub fn genesis(
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,
@@ -136,6 +128,7 @@ where
             attestation_aggregator,
             deposits_for_inclusion: RwLock::new(vec![]),
             exits_for_inclusion: RwLock::new(vec![]),
+            transfers_for_inclusion: RwLock::new(vec![]),
             proposer_slashings_for_inclusion: RwLock::new(vec![]),
             attester_slashings_for_inclusion: RwLock::new(vec![]),
             state: RwLock::new(genesis_state),
@@ -214,9 +207,7 @@ where
         let state_slot = self.state.read().slot;
         let head_block_root = self.head().beacon_block_root;
         for _ in state_slot.as_u64()..slot.as_u64() {
-            self.state
-                .write()
-                .per_slot_processing(head_block_root, &self.spec)?;
+            per_slot_processing(&mut *self.state.write(), head_block_root, &self.spec)?;
         }
         Ok(())
     }
@@ -314,7 +305,7 @@ where
             .state
             .read()
             .get_block_root(
-                justified_epoch.start_slot(self.spec.epoch_length),
+                justified_epoch.start_slot(self.spec.slots_per_epoch),
                 &self.spec,
             )
             .ok_or_else(|| Error::BadRecentBlockRoots)?;
@@ -333,10 +324,10 @@ where
             shard,
             beacon_block_root: self.head().beacon_block_root,
             epoch_boundary_root,
-            shard_block_root: Hash256::zero(),
+            crosslink_data_root: Hash256::zero(),
             latest_crosslink: Crosslink {
-                epoch: self.state.read().slot.epoch(self.spec.epoch_length),
-                shard_block_root: Hash256::zero(),
+                epoch: self.state.read().slot.epoch(self.spec.slots_per_epoch),
+                crosslink_data_root: Hash256::zero(),
             },
             justified_epoch,
             justified_block_root,
@@ -411,7 +402,7 @@ where
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
-    pub fn receive_exit_for_inclusion(&self, exit: Exit) {
+    pub fn receive_exit_for_inclusion(&self, exit: VoluntaryExit) {
         // TODO: exits are not checked for validity; check them.
         //
         // https://github.com/sigp/lighthouse/issues/276
@@ -419,7 +410,7 @@ where
     }
 
     /// Return a vec of exits suitable for inclusion in some block.
-    pub fn get_exits_for_block(&self) -> Vec<Exit> {
+    pub fn get_exits_for_block(&self) -> Vec<VoluntaryExit> {
         // TODO: exits are indiscriminately included; check them for validity.
         //
         // https://github.com/sigp/lighthouse/issues/275
@@ -430,7 +421,7 @@ where
     /// inclusion queue.
     ///
     /// This ensures that `Deposits` are not included twice in successive blocks.
-    pub fn set_exits_as_included(&self, included_exits: &[Exit]) {
+    pub fn set_exits_as_included(&self, included_exits: &[VoluntaryExit]) {
         // TODO: method does not take forks into account; consider this.
         let mut indices_to_delete = vec![];
 
@@ -445,6 +436,44 @@ where
         let exits_for_inclusion = &mut self.exits_for_inclusion.write();
         for i in indices_to_delete {
             exits_for_inclusion.remove(i);
+        }
+    }
+
+    /// Accept some transfer and queue it for inclusion in an appropriate block.
+    pub fn receive_transfer_for_inclusion(&self, transfer: Transfer) {
+        // TODO: transfers are not checked for validity; check them.
+        //
+        // https://github.com/sigp/lighthouse/issues/276
+        self.transfers_for_inclusion.write().push(transfer);
+    }
+
+    /// Return a vec of transfers suitable for inclusion in some block.
+    pub fn get_transfers_for_block(&self) -> Vec<Transfer> {
+        // TODO: transfers are indiscriminately included; check them for validity.
+        //
+        // https://github.com/sigp/lighthouse/issues/275
+        self.transfers_for_inclusion.read().clone()
+    }
+
+    /// Takes a list of `Deposits` that were included in recent blocks and removes them from the
+    /// inclusion queue.
+    ///
+    /// This ensures that `Deposits` are not included twice in successive blocks.
+    pub fn set_transfers_as_included(&self, included_transfers: &[Transfer]) {
+        // TODO: method does not take forks into account; consider this.
+        let mut indices_to_delete = vec![];
+
+        for included in included_transfers {
+            for (i, for_inclusion) in self.transfers_for_inclusion.read().iter().enumerate() {
+                if included == for_inclusion {
+                    indices_to_delete.push(i);
+                }
+            }
+        }
+
+        let transfers_for_inclusion = &mut self.transfers_for_inclusion.write();
+        for i in indices_to_delete {
+            transfers_for_inclusion.remove(i);
         }
     }
 
@@ -647,7 +676,7 @@ where
         // Transition the parent state to the present slot.
         let mut state = parent_state;
         for _ in state.slot.as_u64()..present_slot.as_u64() {
-            if let Err(e) = state.per_slot_processing(parent_block_root, &self.spec) {
+            if let Err(e) = per_slot_processing(&mut state, parent_block_root, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
                 ));
@@ -656,7 +685,7 @@ where
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
-        if let Err(e) = state.per_block_processing(&block, &self.spec) {
+        if let Err(e) = per_block_processing(&mut state, &block, &self.spec) {
             return Ok(BlockProcessingOutcome::InvalidBlock(
                 InvalidBlock::PerBlockProcessingError(e),
             ));
@@ -676,6 +705,8 @@ where
 
         // Update the inclusion queues so they aren't re-submitted.
         self.set_deposits_as_included(&block.body.deposits[..]);
+        self.set_transfers_as_included(&block.body.transfers[..]);
+        self.set_exits_as_included(&block.body.voluntary_exits[..]);
         self.set_proposer_slashings_as_included(&block.body.proposer_slashings[..]);
         self.set_attester_slashings_as_included(&block.body.attester_slashings[..]);
 
@@ -701,7 +732,10 @@ where
     ///
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub fn produce_block(&self, randao_reveal: Signature) -> Option<(BeaconBlock, BeaconState)> {
+    pub fn produce_block(
+        &self,
+        randao_reveal: Signature,
+    ) -> Result<(BeaconBlock, BeaconState), BlockProductionError> {
         debug!("Producing block at slot {}...", self.state.read().slot);
 
         let mut state = self.state.read().clone();
@@ -718,7 +752,9 @@ where
             attestations.len()
         );
 
-        let parent_root = *state.get_block_root(state.slot.saturating_sub(1_u64), &self.spec)?;
+        let parent_root = *state
+            .get_block_root(state.slot.saturating_sub(1_u64), &self.spec)
+            .ok_or_else(|| BlockProductionError::UnableToGetBlockRootFromState)?;
 
         let mut block = BeaconBlock {
             slot: state.slot,
@@ -736,27 +772,20 @@ where
                 attester_slashings: self.get_attester_slashings_for_block(),
                 attestations,
                 deposits: self.get_deposits_for_block(),
-                exits: self.get_exits_for_block(),
+                voluntary_exits: self.get_exits_for_block(),
+                transfers: self.get_transfers_for_block(),
             },
         };
 
         trace!("BeaconChain::produce_block: updating state for new block.",);
 
-        let result =
-            state.per_block_processing_without_verifying_block_signature(&block, &self.spec);
-        debug!(
-            "BeaconNode::produce_block: state processing result: {:?}",
-            result
-        );
-        result.ok()?;
+        per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
 
         let state_root = state.canonical_root();
 
         block.state_root = state_root;
 
-        trace!("Block produced.");
-
-        Some((block, state))
+        Ok((block, state))
     }
 
     // TODO: Left this as is, modify later

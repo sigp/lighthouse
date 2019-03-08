@@ -1,7 +1,7 @@
 use block_proposer::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
 use std::sync::RwLock;
-use types::{Epoch, Slot};
+use types::{Epoch, Fork, Slot};
 
 /// The information required for a validator to propose and attest during some epoch.
 ///
@@ -32,14 +32,14 @@ pub enum EpochDutiesMapError {
 
 /// Maps an `epoch` to some `EpochDuties` for a single validator.
 pub struct EpochDutiesMap {
-    pub epoch_length: u64,
+    pub slots_per_epoch: u64,
     pub map: RwLock<HashMap<Epoch, EpochDuties>>,
 }
 
 impl EpochDutiesMap {
-    pub fn new(epoch_length: u64) -> Self {
+    pub fn new(slots_per_epoch: u64) -> Self {
         Self {
-            epoch_length,
+            slots_per_epoch,
             map: RwLock::new(HashMap::new()),
         }
     }
@@ -67,13 +67,24 @@ impl EpochDutiesMap {
 
 impl DutiesReader for EpochDutiesMap {
     fn is_block_production_slot(&self, slot: Slot) -> Result<bool, DutiesReaderError> {
-        let epoch = slot.epoch(self.epoch_length);
+        let epoch = slot.epoch(self.slots_per_epoch);
 
         let map = self.map.read().map_err(|_| DutiesReaderError::Poisoned)?;
         let duties = map
             .get(&epoch)
             .ok_or_else(|| DutiesReaderError::UnknownEpoch)?;
         Ok(duties.is_block_production_slot(slot))
+    }
+
+    fn fork(&self) -> Result<Fork, DutiesReaderError> {
+        // TODO: this is garbage data.
+        //
+        // It will almost certainly cause signatures to fail verification.
+        Ok(Fork {
+            previous_version: 0,
+            current_version: 0,
+            epoch: Epoch::new(0),
+        })
     }
 }
 

@@ -1,10 +1,8 @@
 use log::trace;
-use state_processing::validate_attestation_without_signature;
+use ssz::TreeHash;
+use state_processing::per_block_processing::validate_attestation_without_signature;
 use std::collections::{HashMap, HashSet};
-use types::{
-    AggregateSignature, Attestation, AttestationData, BeaconState, BeaconStateError, Bitfield,
-    ChainSpec, FreeAttestation, Signature,
-};
+use types::*;
 
 const PHASE_0_CUSTODY_BIT: bool = false;
 
@@ -84,11 +82,11 @@ impl AttestationAggregator {
     ///  - The signature is verified against that of the validator at `validator_index`.
     pub fn process_free_attestation(
         &mut self,
-        cached_state: &BeaconState,
+        state: &BeaconState,
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
     ) -> Result<Outcome, BeaconStateError> {
-        let attestation_duties = match cached_state.attestation_slot_and_shard_for_validator(
+        let attestation_duties = match state.attestation_slot_and_shard_for_validator(
             free_attestation.validator_index as usize,
             spec,
         ) {
@@ -119,9 +117,13 @@ impl AttestationAggregator {
             invalid_outcome!(Message::BadShard);
         }
 
-        let signable_message = free_attestation.data.signable_message(PHASE_0_CUSTODY_BIT);
+        let signable_message = AttestationDataAndCustodyBit {
+            data: free_attestation.data.clone(),
+            custody_bit: PHASE_0_CUSTODY_BIT,
+        }
+        .hash_tree_root();
 
-        let validator_record = match cached_state
+        let validator_record = match state
             .validator_registry
             .get(free_attestation.validator_index as usize)
         {
@@ -131,9 +133,7 @@ impl AttestationAggregator {
 
         if !free_attestation.signature.verify(
             &signable_message,
-            cached_state
-                .fork
-                .get_domain(cached_state.current_epoch(spec), spec.domain_attestation),
+            spec.get_domain(state.current_epoch(spec), Domain::Attestation, &state.fork),
             &validator_record.pubkey,
         ) {
             invalid_outcome!(Message::BadSignature);

@@ -78,7 +78,7 @@ fn main() {
 
     // Slot clock
     let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
-    let slot_clock = SystemTimeSlotClock::new(genesis_time, spec.slot_duration)
+    let slot_clock = SystemTimeSlotClock::new(genesis_time, spec.seconds_per_slot)
         .expect("Unable to load SystemTimeSlotClock");
     // Choose the fork choice
     let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());

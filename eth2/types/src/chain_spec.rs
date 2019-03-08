@@ -1,11 +1,20 @@
-use crate::{Address, Epoch, Hash256, Slot};
+use crate::{Address, Epoch, Fork, Hash256, Slot};
 use bls::Signature;
 
 const GWEI: u64 = 1_000_000_000;
 
+pub enum Domain {
+    Deposit,
+    Attestation,
+    Proposal,
+    Exit,
+    Randao,
+    Transfer,
+}
+
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.2.0
+/// Spec v0.4.0
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
@@ -16,7 +25,7 @@ pub struct ChainSpec {
     pub max_balance_churn_quotient: u64,
     pub beacon_chain_shard_number: u64,
     pub max_indices_per_slashable_vote: u64,
-    pub max_withdrawals_per_epoch: u64,
+    pub max_exit_dequeues_per_epoch: u64,
     pub shuffle_round_count: u8,
 
     /*
@@ -48,29 +57,30 @@ pub struct ChainSpec {
     /*
      * Time parameters
      */
-    pub slot_duration: u64,
+    pub seconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
-    pub epoch_length: u64,
-    pub seed_lookahead: Epoch,
-    pub entry_exit_delay: u64,
-    pub eth1_data_voting_period: u64,
-    pub min_validator_withdrawal_epochs: Epoch,
+    pub slots_per_epoch: u64,
+    pub min_seed_lookahead: Epoch,
+    pub activation_exit_delay: u64,
+    pub epochs_per_eth1_voting_period: u64,
+    pub min_validator_withdrawability_delay: Epoch,
 
     /*
      * State list lengths
      */
     pub latest_block_roots_length: usize,
     pub latest_randao_mixes_length: usize,
-    pub latest_index_roots_length: usize,
-    pub latest_penalized_exit_length: usize,
+    pub latest_active_index_roots_length: usize,
+    pub latest_slashed_exit_length: usize,
 
     /*
      * Reward and penalty quotients
      */
     pub base_reward_quotient: u64,
     pub whistleblower_reward_quotient: u64,
-    pub includer_reward_quotient: u64,
+    pub attestation_inclusion_reward_quotient: u64,
     pub inactivity_penalty_quotient: u64,
+    pub min_penalty_quotient: u64,
 
     /*
      * Max operations per block
@@ -79,29 +89,63 @@ pub struct ChainSpec {
     pub max_attester_slashings: u64,
     pub max_attestations: u64,
     pub max_deposits: u64,
-    pub max_exits: u64,
+    pub max_voluntary_exits: u64,
+    pub max_transfers: u64,
 
     /*
      * Signature domains
+     *
+     * Fields should be private to prevent accessing a domain that hasn't been modified to suit
+     * some `Fork`.
+     *
+     * Use `ChainSpec::get_domain(..)` to access these values.
      */
-    pub domain_deposit: u64,
-    pub domain_attestation: u64,
-    pub domain_proposal: u64,
-    pub domain_exit: u64,
-    pub domain_randao: u64,
+    domain_deposit: u64,
+    domain_attestation: u64,
+    domain_proposal: u64,
+    domain_exit: u64,
+    domain_randao: u64,
+    domain_transfer: u64,
 }
 
 impl ChainSpec {
-    /// Returns a `ChainSpec` compatible with the specification from Ethereum Foundation.
+    /// Return the number of committees in one epoch.
     ///
-    /// Of course, the actual foundation specs are unknown at this point so these are just a rough
-    /// estimate.
+    /// Spec v0.4.0
+    pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
+        std::cmp::max(
+            1,
+            std::cmp::min(
+                self.shard_count / self.slots_per_epoch,
+                active_validator_count as u64 / self.slots_per_epoch / self.target_committee_size,
+            ),
+        ) * self.slots_per_epoch
+    }
+
+    /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
+    pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
+        let domain_constant = match domain {
+            Domain::Deposit => self.domain_deposit,
+            Domain::Attestation => self.domain_attestation,
+            Domain::Proposal => self.domain_proposal,
+            Domain::Exit => self.domain_exit,
+            Domain::Randao => self.domain_randao,
+            Domain::Transfer => self.domain_transfer,
+        };
+
+        let fork_version = fork.get_fork_version(epoch);
+        fork_version * u64::pow(2, 32) + domain_constant
+    }
+
+    /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
+    ///
+    /// Spec v0.4.0
     pub fn foundation() -> Self {
-        let genesis_slot = Slot::new(2_u64.pow(19));
-        let epoch_length = 64;
-        let genesis_epoch = genesis_slot.epoch(epoch_length);
+        let genesis_slot = Slot::new(2_u64.pow(32));
+        let slots_per_epoch = 64;
+        let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
 
         Self {
             /*
@@ -112,7 +156,7 @@ impl ChainSpec {
             max_balance_churn_quotient: 32,
             beacon_chain_shard_number: u64::max_value(),
             max_indices_per_slashable_vote: 4_096,
-            max_withdrawals_per_epoch: 4,
+            max_exit_dequeues_per_epoch: 4,
             shuffle_round_count: 90,
 
             /*
@@ -133,7 +177,7 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: 0,
-            genesis_slot: Slot::new(2_u64.pow(19)),
+            genesis_slot,
             genesis_epoch,
             genesis_start_shard: 0,
             far_future_epoch: Epoch::new(u64::max_value()),
@@ -144,29 +188,30 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            slot_duration: 6,
+            seconds_per_slot: 6,
             min_attestation_inclusion_delay: 4,
-            epoch_length,
-            seed_lookahead: Epoch::new(1),
-            entry_exit_delay: 4,
-            eth1_data_voting_period: 16,
-            min_validator_withdrawal_epochs: Epoch::new(256),
+            slots_per_epoch,
+            min_seed_lookahead: Epoch::new(1),
+            activation_exit_delay: 4,
+            epochs_per_eth1_voting_period: 16,
+            min_validator_withdrawability_delay: Epoch::new(256),
 
             /*
              * State list lengths
              */
             latest_block_roots_length: 8_192,
             latest_randao_mixes_length: 8_192,
-            latest_index_roots_length: 8_192,
-            latest_penalized_exit_length: 8_192,
+            latest_active_index_roots_length: 8_192,
+            latest_slashed_exit_length: 8_192,
 
             /*
              * Reward and penalty quotients
              */
             base_reward_quotient: 32,
             whistleblower_reward_quotient: 512,
-            includer_reward_quotient: 8,
+            attestation_inclusion_reward_quotient: 8,
             inactivity_penalty_quotient: 16_777_216,
+            min_penalty_quotient: 32,
 
             /*
              * Max operations per block
@@ -175,7 +220,8 @@ impl ChainSpec {
             max_attester_slashings: 1,
             max_attestations: 128,
             max_deposits: 16,
-            max_exits: 16,
+            max_voluntary_exits: 16,
+            max_transfers: 16,
 
             /*
              * Signature domains
@@ -185,25 +231,24 @@ impl ChainSpec {
             domain_proposal: 2,
             domain_exit: 3,
             domain_randao: 4,
+            domain_transfer: 5,
         }
     }
-}
 
-impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
     ///
-    /// Spec v0.2.0
+    /// Spec v0.4.0
     pub fn few_validators() -> Self {
-        let genesis_slot = Slot::new(2_u64.pow(19));
-        let epoch_length = 8;
-        let genesis_epoch = genesis_slot.epoch(epoch_length);
+        let genesis_slot = Slot::new(2_u64.pow(32));
+        let slots_per_epoch = 8;
+        let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
 
         Self {
             shard_count: 8,
             target_committee_size: 1,
             genesis_slot,
             genesis_epoch,
-            epoch_length,
+            slots_per_epoch,
             ..ChainSpec::foundation()
         }
     }

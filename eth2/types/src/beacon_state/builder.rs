@@ -137,16 +137,16 @@ impl BeaconStateBuilder {
     pub fn teleport_to_end_of_epoch(&mut self, epoch: Epoch) {
         let state = self.state.as_mut().expect("Genesis required");
 
-        let slot = epoch.end_slot(self.spec.epoch_length);
+        let slot = epoch.end_slot(self.spec.slots_per_epoch);
 
         state.slot = slot;
         state.validator_registry_update_epoch = epoch - 1;
 
-        state.previous_calculation_epoch = epoch - 1;
-        state.current_calculation_epoch = epoch;
+        state.previous_shuffling_epoch = epoch - 1;
+        state.current_shuffling_epoch = epoch;
 
-        state.previous_epoch_seed = Hash256::from([0x01; 32]);
-        state.current_epoch_seed = Hash256::from([0x02; 32]);
+        state.previous_shuffling_seed = Hash256::from_low_u64_le(0);
+        state.current_shuffling_seed = Hash256::from_low_u64_le(1);
 
         state.previous_justified_epoch = epoch - 2;
         state.justified_epoch = epoch - 1;
@@ -171,11 +171,11 @@ impl BeaconStateBuilder {
         let current_epoch = state.current_epoch(&self.spec);
         let previous_epoch = state.previous_epoch(&self.spec);
         let current_epoch_depth =
-            (state.slot - current_epoch.end_slot(self.spec.epoch_length)).as_usize();
+            (state.slot - current_epoch.end_slot(self.spec.slots_per_epoch)).as_usize();
 
-        let previous_epoch_slots = previous_epoch.slot_iter(self.spec.epoch_length);
+        let previous_epoch_slots = previous_epoch.slot_iter(self.spec.slots_per_epoch);
         let current_epoch_slots = current_epoch
-            .slot_iter(self.spec.epoch_length)
+            .slot_iter(self.spec.slots_per_epoch)
             .take(current_epoch_depth);
 
         for slot in previous_epoch_slots.chain(current_epoch_slots) {
@@ -219,7 +219,8 @@ fn committee_to_pending_attestation(
         custody_bitfield.set(i, true);
     }
 
-    let is_previous_epoch = state.slot.epoch(spec.epoch_length) != slot.epoch(spec.epoch_length);
+    let is_previous_epoch =
+        state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
 
     let justified_epoch = if is_previous_epoch {
         state.previous_justified_epoch
@@ -229,16 +230,16 @@ fn committee_to_pending_attestation(
 
     let epoch_boundary_root = if is_previous_epoch {
         *state
-            .get_block_root(previous_epoch.start_slot(spec.epoch_length), spec)
+            .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch), spec)
             .unwrap()
     } else {
         *state
-            .get_block_root(current_epoch.start_slot(spec.epoch_length), spec)
+            .get_block_root(current_epoch.start_slot(spec.slots_per_epoch), spec)
             .unwrap()
     };
 
     let justified_block_root = *state
-        .get_block_root(justified_epoch.start_slot(spec.epoch_length), &spec)
+        .get_block_root(justified_epoch.start_slot(spec.slots_per_epoch), &spec)
         .unwrap();
 
     PendingAttestation {
@@ -248,10 +249,10 @@ fn committee_to_pending_attestation(
             shard,
             beacon_block_root: *state.get_block_root(slot, spec).unwrap(),
             epoch_boundary_root,
-            shard_block_root: Hash256::zero(),
+            crosslink_data_root: Hash256::zero(),
             latest_crosslink: Crosslink {
-                epoch: slot.epoch(spec.epoch_length),
-                shard_block_root: Hash256::zero(),
+                epoch: slot.epoch(spec.slots_per_epoch),
+                crosslink_data_root: Hash256::zero(),
             },
             justified_epoch,
             justified_block_root,

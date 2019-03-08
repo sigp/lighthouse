@@ -10,6 +10,7 @@ boolean-bitfield = { path = "../utils/boolean-bitfield" }
 ethereum-types = "0.5"
 hashing = { path = "../utils/hashing" }
 honey-badger-split =  { path = "../utils/honey-badger-split" }
+int_to_bytes = { path = "../utils/int_to_bytes" }
 log = "0.4"
 rayon = "1.0"
 rand = "0.5.5"
@@ -21,7 +22,6 @@ ssz = { path = "../utils/ssz" }
 ssz_derive = { path = "../utils/ssz_derive" }
 swap_or_not_shuffle = { path = "../utils/swap_or_not_shuffle" }
 test_random_derive = { path = "../utils/test_random_derive" }
-int_to_bytes = { path = "../utils/int_to_bytes" }
 
 [dev-dependencies]
 env_logger = "0.6.0"
