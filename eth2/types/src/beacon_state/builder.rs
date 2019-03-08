@@ -33,7 +33,7 @@ impl BeaconStateBuilder {
         }
     }
 
-    /// Produce the first state of the Beacon Chain.
+    /// Process deposit objects.
     ///
     /// Spec v0.4.0
     pub fn process_initial_deposits(
@@ -48,19 +48,47 @@ impl BeaconStateBuilder {
 
         self.state.process_deposits(deposit_data, spec);
 
+        self.activate_genesis_validators(spec);
+
+        self.state.deposit_index = initial_validator_deposits.len() as u64;
+    }
+
+    fn activate_genesis_validators(&mut self, spec: &ChainSpec) {
         for validator_index in 0..self.state.validator_registry.len() {
             if self.state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount {
                 self.state.activate_validator(validator_index, true, spec);
             }
         }
-
-        self.state.deposit_index = initial_validator_deposits.len() as u64;
     }
 
-    /// Builds a `BeaconState` using the `BeaconState::genesis(..)` function.
+    /// Instantiate the validator registry from a YAML file.
     ///
-    /// Each validator is assigned a unique, randomly-generated keypair and all
-    /// proof-of-possessions are verified during genesis.
+    /// This skips a lot of signing and verification, useful for fast test setups.
+    ///
+    /// Spec v0.4.0
+    pub fn import_existing_validators(
+        &mut self,
+        validators: Vec<Validator>,
+        initial_balances: Vec<u64>,
+        deposit_index: u64,
+        spec: &ChainSpec,
+    ) {
+        self.state.validator_registry = validators;
+
+        assert_eq!(
+            self.state.validator_registry.len(),
+            initial_balances.len(),
+            "Not enough balances for validators"
+        );
+
+        self.state.validator_balances = initial_balances;
+
+        self.activate_genesis_validators(spec);
+
+        self.state.deposit_index = deposit_index;
+    }
+
+    /// Updates the final state variables and returns a fully built genesis state.
     ///
     /// Spec v0.4.0
     pub fn build(mut self, spec: &ChainSpec) -> Result<BeaconState, BeaconStateError> {

@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
 use ssz::TreeHash;
 use std::collections::HashSet;
+use std::fs::File;
 use std::iter::FromIterator;
 use std::path::Path;
 use std::sync::Arc;
@@ -54,22 +55,44 @@ impl BeaconChainHarness {
             block_hash: Hash256::zero(),
         };
 
-        let (keypairs, initial_validator_deposits) = if let Some(path) = validators_dir {
-            let keypairs_path = path.join("keypairs.yaml");
-            let deposits_path = path.join("deposits.yaml");
-            load_deposits_from_file(
-                validator_count,
-                &keypairs_path.as_path(),
-                &deposits_path.as_path(),
-            )
+        let mut state_builder = BeaconStateBuilder::new(genesis_time, latest_eth1_data, &spec);
+
+        // If a `validators_dir` is specified, load the keypairs and validators from YAML files.
+        //
+        // Otherwise, build all the keypairs and initial validator deposits manually.
+        //
+        // It is _much_ faster to load from YAML, however it does skip all the initial processing
+        // and verification of `Deposits`, so it is a slightly less comprehensive test.
+        let keypairs = if let Some(path) = validators_dir {
+            debug!("Loading validator keypairs from file...");
+            let keypairs_file = File::open(path.join("keypairs.yaml")).unwrap();
+            let mut keypairs: Vec<Keypair> = serde_yaml::from_reader(&keypairs_file).unwrap();
+            keypairs.truncate(validator_count);
+
+            debug!("Loading validators from file...");
+            let validators_file = File::open(path.join("validators.yaml")).unwrap();
+            let mut validators: Vec<Validator> = serde_yaml::from_reader(&validators_file).unwrap();
+            validators.truncate(validator_count);
+
+            let balances = vec![32_000_000_000; validator_count];
+
+            state_builder.import_existing_validators(
+                validators,
+                balances,
+                validator_count as u64,
+                &spec,
+            );
+
+            keypairs
         } else {
+            debug!("Generating validator keypairs...");
             let keypairs = generate_deterministic_keypairs(validator_count);
+            debug!("Generating initial validator deposits...");
             let deposits = generate_deposits_from_keypairs(&keypairs, genesis_time, &spec);
-            (keypairs, deposits)
+            state_builder.process_initial_deposits(&deposits, &spec);
+            keypairs
         };
 
-        let mut state_builder = BeaconStateBuilder::new(genesis_time, latest_eth1_data, &spec);
-        state_builder.process_initial_deposits(&initial_validator_deposits, &spec);
         let genesis_state = state_builder.build(&spec).unwrap();
         let state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
         let genesis_block = BeaconBlock::genesis(state_root, &spec);
