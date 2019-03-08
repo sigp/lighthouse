@@ -1,5 +1,9 @@
+use super::serde_vistors::HexVisitor;
 use bls_aggregates::{DecodeError as BlsDecodeError, SecretKey as RawSecretKey};
-use ssz::{decode_ssz_list, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use hex::encode as hex_encode;
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use ssz::{decode_ssz_list, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A single BLS signature.
 ///
@@ -37,6 +41,27 @@ impl Decodable for SecretKey {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
         let raw_sig = RawSecretKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
         Ok((SecretKey(raw_sig), i))
+    }
+}
+
+impl Serialize for SecretKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&hex_encode(ssz_encode(self)))
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_str(HexVisitor)?;
+        let (pubkey, _) = <_>::ssz_decode(&bytes[..], 0)
+            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
+        Ok(pubkey)
     }
 }
 
