@@ -1,6 +1,7 @@
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 // use env_logger::{Builder, Env};
+use state_processing::SlotProcessable;
 use test_harness::BeaconChainHarness;
 use types::{ChainSpec, Hash256};
 
@@ -10,7 +11,7 @@ fn mid_epoch_state_transition(c: &mut Criterion) {
     let validator_count = 1000;
     let mut rig = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
 
-    let epoch_depth = (rig.spec.epoch_length * 2) + (rig.spec.epoch_length / 2);
+    let epoch_depth = (rig.spec.slots_per_epoch * 2) + (rig.spec.slots_per_epoch / 2);
 
     for _ in 0..epoch_depth {
         rig.advance_chain_with_block();
@@ -18,7 +19,7 @@ fn mid_epoch_state_transition(c: &mut Criterion) {
 
     let state = rig.beacon_chain.state.read().clone();
 
-    assert!((state.slot + 1) % rig.spec.epoch_length != 0);
+    assert!((state.slot + 1) % rig.spec.slots_per_epoch != 0);
 
     c.bench_function("mid-epoch state transition 10k validators", move |b| {
         let state = state.clone();
@@ -35,7 +36,7 @@ fn epoch_boundary_state_transition(c: &mut Criterion) {
     let validator_count = 10000;
     let mut rig = BeaconChainHarness::new(ChainSpec::foundation(), validator_count);
 
-    let epoch_depth = rig.spec.epoch_length * 2;
+    let epoch_depth = rig.spec.slots_per_epoch * 2;
 
     for _ in 0..(epoch_depth - 1) {
         rig.advance_chain_with_block();
@@ -43,7 +44,7 @@ fn epoch_boundary_state_transition(c: &mut Criterion) {
 
     let state = rig.beacon_chain.state.read().clone();
 
-    assert_eq!((state.slot + 1) % rig.spec.epoch_length, 0);
+    assert_eq!((state.slot + 1) % rig.spec.slots_per_epoch, 0);
 
     c.bench(
         "routines",

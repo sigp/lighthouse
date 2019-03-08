@@ -80,8 +80,8 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> BeaconBlockNode for DirectBeaconN
         let (block, _state) = self
             .beacon_chain
             .produce_block(randao_reveal.clone())
-            .ok_or_else(|| {
-                BeaconBlockNodeError::RemoteFailure("Did not produce block.".to_string())
+            .map_err(|e| {
+                BeaconBlockNodeError::RemoteFailure(format!("Did not produce block: {:?}", e))
             })?;
 
         if block.slot == slot {

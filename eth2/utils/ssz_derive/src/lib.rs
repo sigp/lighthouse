@@ -147,12 +147,87 @@ pub fn ssz_tree_hash_derive(input: TokenStream) -> TokenStream {
     let output = quote! {
         impl ssz::TreeHash for #name {
             fn hash_tree_root_internal(&self) -> Vec<u8> {
-                let mut result: Vec<u8> = vec![];
+                let mut list: Vec<Vec<u8>> = Vec::new();
                 #(
-                    result.append(&mut self.#field_idents.hash_tree_root_internal());
+                    list.push(self.#field_idents.hash_tree_root_internal());
                 )*
 
-                ssz::hash(&result)
+                ssz::merkle_hash(&mut list)
+            }
+        }
+    };
+    output.into()
+}
+
+/// Returns `true` if some `Ident` should be considered to be a signature type.
+fn type_ident_is_signature(ident: &syn::Ident) -> bool {
+    match ident.to_string().as_ref() {
+        "Signature" => true,
+        "AggregateSignature" => true,
+        _ => false,
+    }
+}
+
+/// Takes a `Field` where the type (`ty`) portion is a path (e.g., `types::Signature`) and returns
+/// the final `Ident` in that path.
+///
+/// E.g., for `types::Signature` returns `Signature`.
+fn final_type_ident(field: &syn::Field) -> &syn::Ident {
+    match &field.ty {
+        syn::Type::Path(path) => &path.path.segments.last().unwrap().value().ident,
+        _ => panic!("ssz_derive only supports Path types."),
+    }
+}
+
+/// Implements `ssz::TreeHash` for some `struct`, whilst excluding any fields following and
+/// including a field that is of type "Signature" or "AggregateSignature".
+///
+/// See:
+/// https://github.com/ethereum/eth2.0-specs/blob/master/specs/simple-serialize.md#signed-roots
+///
+/// This is a rather horrendous macro, it will read the type of the object as a string and decide
+/// if it's a signature by matching that string against "Signature" or "AggregateSignature". So,
+/// it's important that you use those exact words as your type -- don't alias it to something else.
+///
+/// If you can think of a better way to do this, please make an issue!
+///
+/// Fields are processed in the order they are defined.
+#[proc_macro_derive(SignedRoot)]
+pub fn ssz_signed_root_derive(input: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(input as DeriveInput);
+
+    let name = &item.ident;
+
+    let struct_data = match &item.data {
+        syn::Data::Struct(s) => s,
+        _ => panic!("ssz_derive only supports structs."),
+    };
+
+    let mut field_idents: Vec<&syn::Ident> = vec![];
+
+    for field in struct_data.fields.iter() {
+        let final_type_ident = final_type_ident(&field);
+
+        if type_ident_is_signature(final_type_ident) {
+            break;
+        } else {
+            let ident = field
+                .ident
+                .as_ref()
+                .expect("ssz_derive only supports named_struct fields.");
+            field_idents.push(ident);
+        }
+    }
+
+    let output = quote! {
+        impl ssz::SignedRoot for #name {
+            fn signed_root(&self) -> Vec<u8> {
+                let mut list: Vec<Vec<u8>> = Vec::new();
+                #(
+                    list.push(self.#field_idents.hash_tree_root_internal());
+                )*
+
+                ssz::merkle_hash(&mut list)
             }
         }
     };

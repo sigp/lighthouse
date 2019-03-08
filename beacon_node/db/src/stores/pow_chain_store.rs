@@ -37,7 +37,7 @@ mod tests {
         let db = Arc::new(MemoryDB::open());
         let store = PoWChainStore::new(db.clone());
 
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let hash = &Hash256::from([0xAA; 32]).as_bytes().to_vec();
         store.put_block_hash(hash).unwrap();
 
         assert!(db.exists(DB_COLUMN, hash).unwrap());
@@ -48,7 +48,7 @@ mod tests {
         let db = Arc::new(MemoryDB::open());
         let store = PoWChainStore::new(db.clone());
 
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
+        let hash = &Hash256::from([0xAA; 32]).as_bytes().to_vec();
         db.put(DB_COLUMN, hash, &[0]).unwrap();
 
         assert!(store.block_hash_exists(hash).unwrap());
@@ -59,8 +59,8 @@ mod tests {
         let db = Arc::new(MemoryDB::open());
         let store = PoWChainStore::new(db.clone());
 
-        let hash = &Hash256::from("some hash".as_bytes()).to_vec();
-        let other_hash = &Hash256::from("another hash".as_bytes()).to_vec();
+        let hash = &Hash256::from([0xAA; 32]).as_bytes().to_vec();
+        let other_hash = &Hash256::from([0xBB; 32]).as_bytes().to_vec();
         db.put(DB_COLUMN, hash, &[0]).unwrap();
 
         assert!(!store.block_hash_exists(other_hash).unwrap());

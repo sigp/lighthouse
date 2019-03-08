@@ -134,9 +134,9 @@ mod tests {
         let store = BeaconBlockStore::new(db.clone());
 
         let ssz = "definitly not a valid block".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes());
+        let hash = &Hash256::from([0xAA; 32]);
 
-        db.put(DB_COLUMN, hash, ssz).unwrap();
+        db.put(DB_COLUMN, hash.as_bytes(), ssz).unwrap();
         assert_eq!(
             store.block_at_slot(hash, Slot::from(42_u64)),
             Err(BeaconBlockAtSlotError::DBError(
@@ -151,10 +151,10 @@ mod tests {
         let store = BeaconBlockStore::new(db.clone());
 
         let ssz = "some bytes".as_bytes();
-        let hash = &Hash256::from("some hash".as_bytes());
-        let other_hash = &Hash256::from("another hash".as_bytes());
+        let hash = &Hash256::from([0xAA; 32]);
+        let other_hash = &Hash256::from([0xBB; 32]);
 
-        db.put(DB_COLUMN, hash, ssz).unwrap();
+        db.put(DB_COLUMN, hash.as_bytes(), ssz).unwrap();
         assert_eq!(
             store.block_at_slot(other_hash, Slot::from(42_u64)),
             Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*other_hash))
@@ -169,18 +169,15 @@ mod tests {
         let thread_count = 10;
         let write_count = 10;
 
-        // We're expecting the product of these numbers to fit in one byte.
-        assert!(thread_count * write_count <= 255);
-
         let mut handles = vec![];
         for t in 0..thread_count {
             let wc = write_count;
             let bs = bs.clone();
             let handle = thread::spawn(move || {
                 for w in 0..wc {
-                    let key = (t * w) as u8;
+                    let key = t * w;
                     let val = 42;
-                    bs.put(&[key][..].into(), &vec![val]).unwrap();
+                    bs.put(&Hash256::from_low_u64_le(key), &vec![val]).unwrap();
                 }
             });
             handles.push(handle);
@@ -192,9 +189,9 @@ mod tests {
 
         for t in 0..thread_count {
             for w in 0..write_count {
-                let key = (t * w) as u8;
-                assert!(bs.exists(&[key][..].into()).unwrap());
-                let val = bs.get(&[key][..].into()).unwrap().unwrap();
+                let key = t * w;
+                assert!(bs.exists(&Hash256::from_low_u64_le(key)).unwrap());
+                let val = bs.get(&Hash256::from_low_u64_le(key)).unwrap().unwrap();
                 assert_eq!(vec![42], val);
             }
         }
@@ -208,19 +205,20 @@ mod tests {
 
         // Specify test block parameters.
         let hashes = [
-            Hash256::from(&[0; 32][..]),
-            Hash256::from(&[1; 32][..]),
-            Hash256::from(&[2; 32][..]),
-            Hash256::from(&[3; 32][..]),
-            Hash256::from(&[4; 32][..]),
+            Hash256::from([0; 32]),
+            Hash256::from([1; 32]),
+            Hash256::from([2; 32]),
+            Hash256::from([3; 32]),
+            Hash256::from([4; 32]),
         ];
         let parent_hashes = [
-            Hash256::from(&[255; 32][..]), // Genesis block.
-            Hash256::from(&[0; 32][..]),
-            Hash256::from(&[1; 32][..]),
-            Hash256::from(&[2; 32][..]),
-            Hash256::from(&[3; 32][..]),
+            Hash256::from([255; 32]), // Genesis block.
+            Hash256::from([0; 32]),
+            Hash256::from([1; 32]),
+            Hash256::from([2; 32]),
+            Hash256::from([3; 32]),
         ];
+        let unknown_hash = Hash256::from([101; 32]); // different from all above
         let slots: Vec<Slot> = vec![0, 1, 3, 4, 5].iter().map(|x| Slot::new(*x)).collect();
 
         // Generate a vec of random blocks and store them in the DB.
@@ -233,7 +231,7 @@ mod tests {
             block.slot = slots[i];
 
             let ssz = ssz_encode(&block);
-            db.put(DB_COLUMN, &hashes[i], &ssz).unwrap();
+            db.put(DB_COLUMN, hashes[i].as_bytes(), &ssz).unwrap();
 
             blocks.push(block);
         }
@@ -255,11 +253,10 @@ mod tests {
         let ssz = bs.block_at_slot(&hashes[4], Slot::new(6)).unwrap();
         assert_eq!(ssz, None);
 
-        let bad_hash = &Hash256::from("unknown".as_bytes());
-        let ssz = bs.block_at_slot(bad_hash, Slot::new(2));
+        let ssz = bs.block_at_slot(&unknown_hash, Slot::new(2));
         assert_eq!(
             ssz,
-            Err(BeaconBlockAtSlotError::UnknownBeaconBlock(*bad_hash))
+            Err(BeaconBlockAtSlotError::UnknownBeaconBlock(unknown_hash))
         );
     }
 }

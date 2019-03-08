@@ -13,7 +13,6 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssi
 pub struct SlotHeight(u64);
 
 impl_common!(SlotHeight);
-impl_into_u32!(SlotHeight); // SlotHeight can be converted to u32
 
 impl SlotHeight {
     pub fn new(slot: u64) -> SlotHeight {
@@ -24,8 +23,8 @@ impl SlotHeight {
         Slot::from(self.0.saturating_add(genesis_slot.as_u64()))
     }
 
-    pub fn epoch(self, genesis_slot: u64, epoch_length: u64) -> Epoch {
-        Epoch::from(self.0.saturating_add(genesis_slot) / epoch_length)
+    pub fn epoch(self, genesis_slot: u64, slots_per_epoch: u64) -> Epoch {
+        Epoch::from(self.0.saturating_add(genesis_slot) / slots_per_epoch)
     }
 
     pub fn max_value() -> SlotHeight {

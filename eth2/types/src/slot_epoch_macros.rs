@@ -20,25 +20,6 @@ macro_rules! impl_from_into_u64 {
     };
 }
 
-// need to truncate for some fork-choice algorithms
-macro_rules! impl_into_u32 {
-    ($main: ident) => {
-        impl Into<u32> for $main {
-            fn into(self) -> u32 {
-                assert!(self.0 < u64::from(std::u32::MAX), "Lossy conversion to u32");
-                self.0 as u32
-            }
-        }
-
-        impl $main {
-            pub fn as_u32(&self) -> u32 {
-                assert!(self.0 < u64::from(std::u32::MAX), "Lossy conversion to u32");
-                self.0 as u32
-            }
-        }
-    };
-}
-
 macro_rules! impl_from_into_usize {
     ($main: ident) => {
         impl From<usize> for $main {

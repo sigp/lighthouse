@@ -5,6 +5,9 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
+/// A deposit to potentially become a beacon chain validator.
+///
+/// Spec v0.4.0
 #[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Deposit {
     pub branch: Vec<Hash256>,

@@ -1,14 +1,19 @@
-use super::SlashableVoteData;
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, Epoch};
+use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz::TreeHash;
+use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
-pub struct CasperSlashing {
-    pub slashable_vote_data_1: SlashableVoteData,
-    pub slashable_vote_data_2: SlashableVoteData,
+/// An exit voluntarily submitted a validator who wishes to withdraw.
+///
+/// Spec v0.4.0
+#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
+pub struct VoluntaryExit {
+    pub epoch: Epoch,
+    pub validator_index: u64,
+    pub signature: Signature,
 }
 
 #[cfg(test)]
@@ -20,7 +25,7 @@ mod tests {
     #[test]
     pub fn test_ssz_round_trip() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = CasperSlashing::random_for_test(&mut rng);
+        let original = VoluntaryExit::random_for_test(&mut rng);
 
         let bytes = ssz_encode(&original);
         let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
@@ -31,7 +36,7 @@ mod tests {
     #[test]
     pub fn test_hash_tree_root_internal() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = CasperSlashing::random_for_test(&mut rng);
+        let original = VoluntaryExit::random_for_test(&mut rng);
 
         let result = original.hash_tree_root_internal();
 
