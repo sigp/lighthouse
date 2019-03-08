@@ -2,14 +2,14 @@ use super::Hash256;
 use crate::test_utils::TestRandom;
 use bls::{PublicKey, Signature};
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
 /// The data supplied by the user to the deposit contract.
 ///
 /// Spec v0.4.0
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct DepositInput {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
