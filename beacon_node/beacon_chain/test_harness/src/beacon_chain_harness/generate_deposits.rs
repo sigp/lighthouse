@@ -4,19 +4,15 @@ use log::debug;
 use rayon::prelude::*;
 use types::*;
 
-/// Generates `validator_count` deposits using keypairs where the secret key is the index of the
+/// Generates `validator_count` keypairs where the secret key is the index of the
 /// validator.
 ///
 /// For example, the first validator has a secret key of `int_to_bytes48(1)`, the second has
 /// `int_to_bytes48(2)` and so on. (We skip `0` as it generates a weird looking public key and is
 /// probably invalid).
-pub fn generate_deposits_with_deterministic_keypairs(
-    validator_count: usize,
-    genesis_time: u64,
-    spec: &ChainSpec,
-) -> (Vec<Keypair>, Vec<Deposit>) {
+pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
     debug!(
-        "Generating {} random validator keypairs...",
+        "Generating {} deterministic validator keypairs...",
         validator_count
     );
 
@@ -31,9 +27,18 @@ pub fn generate_deposits_with_deterministic_keypairs(
         })
         .collect();
 
+    keypairs
+}
+
+/// Generates a `Deposit` for each keypairs
+pub fn generate_deposits_from_keypairs(
+    keypairs: &[Keypair],
+    genesis_time: u64,
+    spec: &ChainSpec,
+) -> Vec<Deposit> {
     debug!(
         "Generating {} validator deposits from random keypairs...",
-        validator_count
+        keypairs.len()
     );
 
     let initial_validator_deposits =
@@ -60,5 +65,5 @@ pub fn generate_deposits_with_deterministic_keypairs(
             })
             .collect();
 
-    (keypairs, initial_validator_deposits)
+    initial_validator_deposits
 }
