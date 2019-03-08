@@ -6,6 +6,7 @@ mod aggregate_signature;
 mod keypair;
 mod public_key;
 mod secret_key;
+mod serde_vistors;
 mod signature;
 
 pub use crate::aggregate_public_key::AggregatePublicKey;
