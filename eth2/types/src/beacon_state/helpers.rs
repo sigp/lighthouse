@@ -11,7 +11,7 @@ pub fn verify_bitfield_length(bitfield: &Bitfield, committee_size: usize) -> boo
     }
 
     for i in committee_size..(bitfield.num_bytes() * 8) {
-        if bitfield.get(i).expect("Impossible due to previous check.") {
+        if bitfield.get(i).unwrap_or(false) {
             return false;
         }
     }

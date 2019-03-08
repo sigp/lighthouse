@@ -1,0 +1,195 @@
+use bls::get_withdrawal_credentials;
+use int_to_bytes::int_to_bytes48;
+use rayon::prelude::*;
+use types::beacon_state::BeaconStateBuilder;
+use types::*;
+
+pub struct BeaconStateBencher {
+    state: BeaconState,
+}
+
+impl BeaconStateBencher {
+    pub fn new(validator_count: usize, spec: &ChainSpec) -> Self {
+        let keypairs: Vec<Keypair> = (0..validator_count)
+            .collect::<Vec<usize>>()
+            .par_iter()
+            .map(|&i| {
+                let secret = int_to_bytes48(i as u64 + 1);
+                let sk = SecretKey::from_bytes(&secret).unwrap();
+                let pk = PublicKey::from_secret_key(&sk);
+                Keypair { sk, pk }
+            })
+            .collect();
+
+        let validators = keypairs
+            .iter()
+            .map(|keypair| {
+                let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
+                    &keypair.pk,
+                    spec.bls_withdrawal_prefix_byte,
+                ));
+
+                Validator {
+                    pubkey: keypair.pk.clone(),
+                    withdrawal_credentials,
+                    activation_epoch: spec.far_future_epoch,
+                    exit_epoch: spec.far_future_epoch,
+                    withdrawable_epoch: spec.far_future_epoch,
+                    initiated_exit: false,
+                    slashed: false,
+                }
+            })
+            .collect();
+
+        let mut state_builder = BeaconStateBuilder::new(
+            0,
+            Eth1Data {
+                deposit_root: Hash256::zero(),
+                block_hash: Hash256::zero(),
+            },
+            spec,
+        );
+
+        let balances = vec![32_000_000_000; validator_count];
+
+        state_builder.import_existing_validators(
+            validators,
+            balances,
+            validator_count as u64,
+            spec,
+        );
+
+        Self {
+            state: state_builder.build(spec).unwrap(),
+        }
+    }
+
+    pub fn build(self) -> BeaconState {
+        self.state
+    }
+
+    /// Sets the `BeaconState` to be in the last slot of the given epoch.
+    ///
+    /// Sets all justification/finalization parameters to be be as "perfect" as possible (i.e.,
+    /// highest justified and finalized slots, full justification bitfield, etc).
+    pub fn teleport_to_end_of_epoch(&mut self, epoch: Epoch, spec: &ChainSpec) {
+        let state = &mut self.state;
+
+        let slot = epoch.end_slot(spec.slots_per_epoch);
+
+        state.slot = slot;
+        state.validator_registry_update_epoch = epoch - 1;
+
+        state.previous_shuffling_epoch = epoch - 1;
+        state.current_shuffling_epoch = epoch;
+
+        state.previous_shuffling_seed = Hash256::from_low_u64_le(0);
+        state.current_shuffling_seed = Hash256::from_low_u64_le(1);
+
+        state.previous_justified_epoch = epoch - 2;
+        state.justified_epoch = epoch - 1;
+        state.justification_bitfield = u64::max_value();
+        state.finalized_epoch = epoch - 1;
+    }
+
+    /// Creates a full set of attestations for the `BeaconState`. Each attestation has full
+    /// participation from its committee and references the expected beacon_block hashes.
+    ///
+    /// These attestations should be fully conducive to justification and finalization.
+    pub fn insert_attestations(&mut self, spec: &ChainSpec) {
+        let state = &mut self.state;
+
+        state
+            .build_epoch_cache(RelativeEpoch::Previous, spec)
+            .unwrap();
+        state
+            .build_epoch_cache(RelativeEpoch::Current, spec)
+            .unwrap();
+
+        let current_epoch = state.current_epoch(spec);
+        let previous_epoch = state.previous_epoch(spec);
+
+        let first_slot = previous_epoch.start_slot(spec.slots_per_epoch).as_u64();
+        let last_slot = current_epoch.end_slot(spec.slots_per_epoch).as_u64()
+            - spec.min_attestation_inclusion_delay;
+        let last_slot = std::cmp::min(state.slot.as_u64(), last_slot);
+
+        for slot in first_slot..last_slot + 1 {
+            let slot = Slot::from(slot);
+
+            let committees = state
+                .get_crosslink_committees_at_slot(slot, spec)
+                .unwrap()
+                .clone();
+
+            for (committee, shard) in committees {
+                state
+                    .latest_attestations
+                    .push(committee_to_pending_attestation(
+                        state, &committee, shard, slot, spec,
+                    ))
+            }
+        }
+    }
+}
+
+fn committee_to_pending_attestation(
+    state: &BeaconState,
+    committee: &[usize],
+    shard: u64,
+    slot: Slot,
+    spec: &ChainSpec,
+) -> PendingAttestation {
+    let current_epoch = state.current_epoch(spec);
+    let previous_epoch = state.previous_epoch(spec);
+
+    let mut aggregation_bitfield = Bitfield::new();
+    let mut custody_bitfield = Bitfield::new();
+
+    for (i, _) in committee.iter().enumerate() {
+        aggregation_bitfield.set(i, true);
+        custody_bitfield.set(i, true);
+    }
+
+    let is_previous_epoch =
+        state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
+
+    let justified_epoch = if is_previous_epoch {
+        state.previous_justified_epoch
+    } else {
+        state.justified_epoch
+    };
+
+    let epoch_boundary_root = if is_previous_epoch {
+        *state
+            .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch), spec)
+            .unwrap()
+    } else {
+        *state
+            .get_block_root(current_epoch.start_slot(spec.slots_per_epoch), spec)
+            .unwrap()
+    };
+
+    let justified_block_root = *state
+        .get_block_root(justified_epoch.start_slot(spec.slots_per_epoch), spec)
+        .unwrap();
+
+    PendingAttestation {
+        aggregation_bitfield,
+        data: AttestationData {
+            slot,
+            shard,
+            beacon_block_root: *state.get_block_root(slot, spec).unwrap(),
+            epoch_boundary_root,
+            crosslink_data_root: Hash256::zero(),
+            latest_crosslink: Crosslink {
+                epoch: slot.epoch(spec.slots_per_epoch),
+                crosslink_data_root: Hash256::zero(),
+            },
+            justified_epoch,
+            justified_block_root,
+        },
+        custody_bitfield,
+        inclusion_slot: slot + spec.min_attestation_inclusion_delay,
+    }
+}

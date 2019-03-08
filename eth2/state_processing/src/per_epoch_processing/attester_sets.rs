@@ -1,9 +1,9 @@
-use std::collections::HashSet;
+use fnv::FnvHashSet;
 use types::*;
 
 #[derive(Default)]
 pub struct Attesters {
-    pub indices: HashSet<usize>,
+    pub indices: FnvHashSet<usize>,
     pub balance: u64,
 }
 
