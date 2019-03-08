@@ -18,7 +18,7 @@ use types::*;
 mod generate_deposits;
 mod load_deposits_from_file;
 
-pub use generate_deposits::generate_deposits_with_deterministic_keypairs;
+pub use generate_deposits::{generate_deposits_from_keypairs, generate_deterministic_keypairs};
 pub use load_deposits_from_file::load_deposits_from_file;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
@@ -62,7 +62,9 @@ impl BeaconChainHarness {
                 &deposits_path.as_path(),
             )
         } else {
-            generate_deposits_with_deterministic_keypairs(validator_count, genesis_time, &spec)
+            let keypairs = generate_deterministic_keypairs(validator_count);
+            let deposits = generate_deposits_from_keypairs(&keypairs, genesis_time, &spec);
+            (keypairs, deposits)
         };
 
         // Create the Beacon Chain
