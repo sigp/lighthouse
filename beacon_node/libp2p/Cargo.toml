@@ -11,3 +11,4 @@ slog = "2.4.1"
 version = { path = "../version" }
 tokio = "0.1.16"
 futures = "0.1.25"
+parity-multiaddr = "0.2.0"

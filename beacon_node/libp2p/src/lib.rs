@@ -6,6 +6,8 @@ mod behaviour;
 mod network_config;
 mod service;
 
+pub use libp2p::multiaddr;
+pub use libp2p::Multiaddr;
 pub use libp2p::{
     gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
     PeerId,

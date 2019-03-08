@@ -1,10 +1,12 @@
 use clap::ArgMatches;
 use db::DBType;
 use fork_choice::ForkChoiceAlgorithm;
+use libp2p::multiaddr::ToMultiaddr;
 use network::NetworkConfig;
 use slog::error;
 use std::fs;
 use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use types::ChainSpec;
 
@@ -52,16 +54,6 @@ impl ClientConfig {
 
         // Network related args
 
-        // Custom listening address ipv4/ipv6
-        // TODO: Handle list of addresses
-        if let Some(listen_address_str) = args.value_of("listen_address") {
-            if let Ok(listen_address) = listen_address_str.parse::<IpAddr>() {
-                config.net_conf.listen_addresses = vec![listen_address];
-            } else {
-                error!(log, "Invalid IP Address"; "Address" => listen_address_str);
-                return Err("Invalid IP Address");
-            }
-        }
         // Custom p2p listen port
         if let Some(port_str) = args.value_of("port") {
             if let Ok(port) = port_str.parse::<u16>() {
@@ -69,6 +61,19 @@ impl ClientConfig {
             } else {
                 error!(log, "Invalid port"; "port" => port_str);
                 return Err("Invalid port");
+            }
+        }
+        // Custom listening address ipv4/ipv6
+        // TODO: Handle list of addresses
+        if let Some(listen_address_str) = args.value_of("listen_address") {
+            if let Ok(listen_address) = listen_address_str.parse::<IpAddr>() {
+                let multiaddr = SocketAddr::new(listen_address, config.net_conf.listen_port)
+                    .to_multiaddr()
+                    .expect("Invalid listen address format");
+                config.net_conf.listen_addresses = vec![multiaddr];
+            } else {
+                error!(log, "Invalid IP Address"; "Address" => listen_address_str);
+                return Err("Invalid IP Address");
             }
         }
 
