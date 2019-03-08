@@ -1,6 +1,6 @@
+use crate::Multiaddr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use libp2p::secio;
-use libp2p::Multiaddr;
 use std::fmt;
 
 #[derive(Clone)]
@@ -40,8 +40,11 @@ impl Default for NetworkConfig {
 }
 
 impl NetworkConfig {
-    pub fn new() -> Self {
-        NetworkConfig::default()
+    pub fn new(boot_nodes: Vec<Multiaddr>) -> Self {
+        let mut conf = NetworkConfig::default();
+        conf.boot_nodes = boot_nodes;
+
+        conf
     }
 }
 

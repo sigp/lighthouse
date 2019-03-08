@@ -7,13 +7,11 @@ edition = "2018"
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
-libp2p = { path = "../libp2p" }
 sync = { path = "../sync" }
 db = { path = "../db" }
 fork_choice = { path = "../../eth2/fork_choice" }
 types = { path = "../../eth2/types" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
-
 error-chain = "0.12.0"
 slog = "^2.2.3"
 tokio = "0.1.15"
