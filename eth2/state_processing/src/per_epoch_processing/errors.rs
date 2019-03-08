@@ -6,6 +6,8 @@ pub enum EpochProcessingError {
     NoBlockRoots,
     BaseRewardQuotientIsZero,
     NoRandaoSeed,
+    PreviousTotalBalanceIsZero,
+    InclusionDistanceZero,
     BeaconStateError(BeaconStateError),
     InclusionError(InclusionError),
 }
