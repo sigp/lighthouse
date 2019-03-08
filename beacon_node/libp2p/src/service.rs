@@ -5,12 +5,12 @@ use libp2p::core::{
     muxing::StreamMuxerBox,
     nodes::Substream,
     transport::boxed::Boxed,
-    upgrade::{InboundUpgrade, InboundUpgradeExt, OutboundUpgrade, OutboundUpgradeExt},
+    upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
-use libp2p::{build_tcp_ws_secio_mplex_yamux, core, secio, Transport};
+use libp2p::multiaddr::Protocol;
+use libp2p::{core, secio, Transport};
 use libp2p::{PeerId, Swarm};
-use slog::debug;
-use std::error;
+use slog::{debug, info, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
 
@@ -21,9 +21,6 @@ pub struct Service {
     /// This node's PeerId.
     local_peer_id: PeerId,
 }
-//Swarm<impl std::clone::Clone+libp2p_core::transport::Transport, behaviour::Behaviour<libp2p_core::muxing::SubstreamRef<std::sync::Arc<impl std::marker::Send+std::marker::Sync+libp2p_core::muxing::StreamMuxer>>>>
-
-//swarm: Swarm<Boxed<(PeerId, StreamMuxerBox), IoError>, Behaviour<TMessage, Substream<StreamMuxerBox>>>,
 
 impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> Self {
@@ -33,14 +30,37 @@ impl Service {
         let local_peer_id = local_private_key.to_peer_id();
         debug!(log, "Local peer id: {:?}", local_peer_id);
 
-        // Set up the transport
-        let transport = build_transport(local_private_key);
-        // Set up gossipsub routing
-        let behaviour = Behaviour::new(local_peer_id.clone(), config.gs_config);
-        // Set up Topology
-        let topology = local_peer_id.clone();
+        let mut swarm = {
+            // Set up the transport
+            let transport = build_transport(local_private_key);
+            // Set up gossipsub routing
+            let behaviour = Behaviour::new(local_peer_id.clone(), config.gs_config);
+            // Set up Topology
+            let topology = local_peer_id.clone();
+            Swarm::new(transport, behaviour, topology)
+        };
 
-        let swarm = Swarm::new(transport, behaviour, topology);
+        // listen on all addresses
+        for address in &config.listen_addresses {
+            match Swarm::listen_on(&mut swarm, address.clone()) {
+                Ok(mut listen_addr) => {
+                    listen_addr.append(Protocol::P2p(local_peer_id.clone().into()));
+                    info!(log, "Listening on: {}", listen_addr);
+                }
+                Err(err) => warn!(log, "Cannot listen on: {} : {:?}", address, err),
+            };
+        }
+        // connect to boot nodes - these are currently stored as multiadders
+        // Once we have discovery, can set to peerId
+        for bootnode in config.boot_nodes {
+            match Swarm::dial_addr(&mut swarm, bootnode.clone()) {
+                Ok(()) => debug!(log, "Dialing bootnode: {}", bootnode),
+                Err(err) => debug!(
+                    log,
+                    "Could not connect to bootnode: {} error: {:?}", bootnode, err
+                ),
+            };
+        }
 
         Service {
             local_peer_id,

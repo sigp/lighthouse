@@ -1,20 +1,20 @@
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use libp2p::secio;
+use libp2p::Multiaddr;
 use std::fmt;
-use std::net::IpAddr;
 
 #[derive(Clone)]
 /// Network configuration for lighthouse.
 pub struct NetworkConfig {
     //TODO: stubbing networking initial params, change in the future
     /// IP address to listen on.
-    pub listen_addresses: Vec<IpAddr>,
+    pub listen_addresses: Vec<Multiaddr>,
     /// Listen port UDP/TCP.
     pub listen_port: u16,
     /// Gossipsub configuration parameters.
     pub gs_config: GossipsubConfig,
     /// List of nodes to initially connect to.
-    pub boot_nodes: Vec<IpAddr>,
+    pub boot_nodes: Vec<Multiaddr>,
     /// Peer key related to this nodes PeerId.
     pub local_private_key: secio::SecioKeyPair,
     /// Client version
@@ -24,21 +24,15 @@ pub struct NetworkConfig {
 impl Default for NetworkConfig {
     /// Generate a default network configuration.
     fn default() -> Self {
-        // hard-coded defaults
-        let bootnodes = ["127.0.0.1"];
-        let default_port = 9000;
-
         // TODO: Currently using ed25519 key pairs. Wire protocol specifies RSA. Waiting for this
         // PR to be merged to generate RSA keys: https://github.com/briansmith/ring/pull/733
-
         NetworkConfig {
-            listen_addresses: vec!["127.0.0.1".parse().expect("correct IP address")],
-            listen_port: default_port,
+            listen_addresses: vec!["/ip4/127.0.0.1/tcp/9000"
+                .parse()
+                .expect("is a correct multi-address")],
+            listen_port: 9000,
             gs_config: GossipsubConfigBuilder::new().build(),
-            boot_nodes: bootnodes
-                .iter()
-                .map(|s| s.parse().expect("Bootnodes must be IP addresses"))
-                .collect(),
+            boot_nodes: Vec::new(),
             local_private_key: secio::SecioKeyPair::ed25519_generated().unwrap(),
             client_version: version::version(),
         }
