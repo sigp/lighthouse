@@ -17,8 +17,8 @@ pub fn block_processing_16k_validators(c: &mut Criterion) {
 
     let validator_count = 16_384;
 
-    let (state, keypairs) = build_state(validator_count, &spec);
-    let block = build_block(&state, &keypairs, &spec);
+    let (mut state, keypairs) = build_state(validator_count, &spec);
+    let block = build_block(&mut state, &keypairs, &spec);
 
     assert_eq!(
         block.body.proposer_slashings.len(),
@@ -53,6 +53,24 @@ pub fn block_processing_16k_validators(c: &mut Criterion) {
         "The block should have the maximum possible attestations."
     );
 
+    assert_eq!(
+        block.body.deposits.len(),
+        spec.max_deposits as usize,
+        "The block should have the maximum possible deposits."
+    );
+
+    assert_eq!(
+        block.body.voluntary_exits.len(),
+        spec.max_voluntary_exits as usize,
+        "The block should have the maximum possible voluntary exits."
+    );
+
+    assert_eq!(
+        block.body.transfers.len(),
+        spec.max_transfers as usize,
+        "The block should have the maximum possible transfers."
+    );
+
     bench_block_processing(
         c,
         &block,
@@ -75,7 +93,7 @@ fn build_state(validator_count: usize, spec: &ChainSpec) -> (BeaconState, Vec<Ke
     builder.build()
 }
 
-fn build_block(state: &BeaconState, keypairs: &[Keypair], spec: &ChainSpec) -> BeaconBlock {
+fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) -> BeaconBlock {
     let mut builder = BeaconBlockBencher::new(spec);
 
     builder.set_slot(state.slot);
@@ -85,8 +103,13 @@ fn build_block(state: &BeaconState, keypairs: &[Keypair], spec: &ChainSpec) -> B
 
     builder.set_randao_reveal(&keypair.sk, &state.fork, spec);
 
+    // Used as a stream of validator indices for use in slashings, exits, etc.
+    let mut validators_iter = (0..keypairs.len() as u64).into_iter();
+
     // Insert the maximum possible number of `ProposerSlashing` objects.
-    for validator_index in 0..spec.max_proposer_slashings {
+    for _ in 0..spec.max_proposer_slashings {
+        let validator_index = validators_iter.next().expect("Insufficient validators.");
+
         builder.insert_proposer_slashing(
             validator_index,
             &keypairs[validator_index as usize].sk,
@@ -96,26 +119,18 @@ fn build_block(state: &BeaconState, keypairs: &[Keypair], spec: &ChainSpec) -> B
     }
 
     // Insert the maximum possible number of `AttesterSlashing` objects
-    let number_of_slashable_attesters =
-        spec.max_indices_per_slashable_vote * spec.max_attester_slashings;
-    let all_attester_slashing_indices: Vec<u64> = (spec.max_proposer_slashings
-        ..(spec.max_proposer_slashings + number_of_slashable_attesters))
-        .collect();
-    let attester_slashing_groups: Vec<&[u64]> = all_attester_slashing_indices
-        .chunks(spec.max_indices_per_slashable_vote as usize)
-        .collect();
-    for attester_slashing_group in attester_slashing_groups {
-        let attester_slashing_keypairs: Vec<&SecretKey> = attester_slashing_group
-            .iter()
-            .map(|&validator_index| &keypairs[validator_index as usize].sk)
-            .collect();
+    for _ in 0..spec.max_attester_slashings {
+        let mut attesters: Vec<u64> = vec![];
+        let mut secret_keys: Vec<&SecretKey> = vec![];
 
-        builder.insert_attester_slashing(
-            &attester_slashing_group,
-            &attester_slashing_keypairs,
-            &state.fork,
-            spec,
-        );
+        for _ in 0..spec.max_indices_per_slashable_vote {
+            let validator_index = validators_iter.next().expect("Insufficient validators.");
+
+            attesters.push(validator_index);
+            secret_keys.push(&keypairs[validator_index as usize].sk);
+        }
+
+        builder.insert_attester_slashing(&attesters, &secret_keys, &state.fork, spec);
     }
 
     // Insert the maximum possible number of `Attestation` objects.
@@ -123,6 +138,41 @@ fn build_block(state: &BeaconState, keypairs: &[Keypair], spec: &ChainSpec) -> B
     builder
         .fill_with_attestations(state, &all_secret_keys, spec)
         .unwrap();
+
+    // Insert the maximum possible number of `Deposit` objects.
+    for i in 0..spec.max_deposits {
+        builder.insert_deposit(32_000_000_000, state.deposit_index + i, spec);
+    }
+
+    // Insert the maximum possible number of `Exit` objects.
+    for _ in 0..spec.max_voluntary_exits {
+        let validator_index = validators_iter.next().expect("Insufficient validators.");
+
+        builder.insert_exit(
+            state,
+            validator_index,
+            &keypairs[validator_index as usize].sk,
+            spec,
+        );
+    }
+
+    // Insert the maximum possible number of `Transfer` objects.
+    for _ in 0..spec.max_transfers {
+        let validator_index = validators_iter.next().expect("Insufficient validators.");
+
+        // Manually set the validator to be withdrawn.
+        state.validator_registry[validator_index as usize].withdrawable_epoch =
+            state.previous_epoch(spec);
+
+        builder.insert_transfer(
+            state,
+            validator_index,
+            validator_index,
+            1,
+            keypairs[validator_index as usize].clone(),
+            spec,
+        );
+    }
 
     builder.build(&keypair.sk, &state.fork, spec)
 }
