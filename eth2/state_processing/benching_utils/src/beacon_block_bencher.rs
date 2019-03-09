@@ -1,8 +1,13 @@
 use rayon::prelude::*;
 use ssz::{SignedRoot, TreeHash};
 use types::{
-    attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
-    test_utils::TestingAttestationBuilder, *,
+    attester_slashing::AttesterSlashingBuilder,
+    proposer_slashing::ProposerSlashingBuilder,
+    test_utils::{
+        TestingAttestationBuilder, TestingDepositBuilder, TestingTransferBuilder,
+        TestingVoluntaryExitBuilder,
+    },
+    *,
 };
 
 pub struct BeaconBlockBencher {
@@ -143,6 +148,54 @@ impl BeaconBlockBencher {
         self.block.body.attestations.append(&mut attestations);
 
         Ok(())
+    }
+
+    /// Insert a `Valid` deposit into the state.
+    pub fn insert_deposit(&mut self, amount: u64, index: u64, spec: &ChainSpec) {
+        let keypair = Keypair::random();
+
+        let mut builder = TestingDepositBuilder::new(amount);
+        builder.set_index(index);
+        builder.sign(&keypair, spec);
+
+        self.block.body.deposits.push(builder.build())
+    }
+
+    /// Insert a `Valid` exit into the state.
+    pub fn insert_exit(
+        &mut self,
+        state: &BeaconState,
+        validator_index: u64,
+        secret_key: &SecretKey,
+        spec: &ChainSpec,
+    ) {
+        let mut builder = TestingVoluntaryExitBuilder::new(
+            state.slot.epoch(spec.slots_per_epoch),
+            validator_index,
+        );
+
+        builder.sign(secret_key, &state.fork, spec);
+
+        self.block.body.voluntary_exits.push(builder.build())
+    }
+
+    /// Insert a `Valid` transfer into the state.
+    ///
+    /// Note: this will set the validator to be withdrawable by directly modifying the state
+    /// validator registry. This _may_ cause problems historic hashes, etc.
+    pub fn insert_transfer(
+        &mut self,
+        state: &BeaconState,
+        from: u64,
+        to: u64,
+        amount: u64,
+        keypair: Keypair,
+        spec: &ChainSpec,
+    ) {
+        let mut builder = TestingTransferBuilder::new(from, to, amount, state.slot);
+        builder.sign(keypair, &state.fork, spec);
+
+        self.block.body.transfers.push(builder.build())
     }
 
     /// Signs and returns the block, consuming the builder.
