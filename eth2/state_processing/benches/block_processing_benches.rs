@@ -20,6 +20,39 @@ pub fn block_processing_16k_validators(c: &mut Criterion) {
     let (state, keypairs) = build_state(validator_count, &spec);
     let block = build_block(&state, &keypairs, &spec);
 
+    assert_eq!(
+        block.body.proposer_slashings.len(),
+        spec.max_proposer_slashings as usize,
+        "The block should have the maximum possible proposer slashings"
+    );
+
+    assert_eq!(
+        block.body.attester_slashings.len(),
+        spec.max_attester_slashings as usize,
+        "The block should have the maximum possible attester slashings"
+    );
+
+    for attester_slashing in &block.body.attester_slashings {
+        let len_1 = attester_slashing
+            .slashable_attestation_1
+            .validator_indices
+            .len();
+        let len_2 = attester_slashing
+            .slashable_attestation_1
+            .validator_indices
+            .len();
+        assert!(
+            (len_1 == len_2) && (len_2 == spec.max_indices_per_slashable_vote as usize),
+            "Each attester slashing should have the maximum possible validator indices"
+        );
+    }
+
+    assert_eq!(
+        block.body.attestations.len(),
+        spec.max_attestations as usize,
+        "The block should have the maximum possible attestations."
+    );
+
     bench_block_processing(
         c,
         &block,
@@ -51,6 +84,45 @@ fn build_block(state: &BeaconState, keypairs: &[Keypair], spec: &ChainSpec) -> B
     let keypair = &keypairs[proposer_index];
 
     builder.set_randao_reveal(&keypair.sk, &state.fork, spec);
+
+    // Insert the maximum possible number of `ProposerSlashing` objects.
+    for validator_index in 0..spec.max_proposer_slashings {
+        builder.insert_proposer_slashing(
+            validator_index,
+            &keypairs[validator_index as usize].sk,
+            &state.fork,
+            spec,
+        );
+    }
+
+    // Insert the maximum possible number of `AttesterSlashing` objects
+    let number_of_slashable_attesters =
+        spec.max_indices_per_slashable_vote * spec.max_attester_slashings;
+    let all_attester_slashing_indices: Vec<u64> = (spec.max_proposer_slashings
+        ..(spec.max_proposer_slashings + number_of_slashable_attesters))
+        .collect();
+    let attester_slashing_groups: Vec<&[u64]> = all_attester_slashing_indices
+        .chunks(spec.max_indices_per_slashable_vote as usize)
+        .collect();
+    for attester_slashing_group in attester_slashing_groups {
+        let attester_slashing_keypairs: Vec<&SecretKey> = attester_slashing_group
+            .iter()
+            .map(|&validator_index| &keypairs[validator_index as usize].sk)
+            .collect();
+
+        builder.insert_attester_slashing(
+            &attester_slashing_group,
+            &attester_slashing_keypairs,
+            &state.fork,
+            spec,
+        );
+    }
+
+    // Insert the maximum possible number of `Attestation` objects.
+    let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
+    builder
+        .fill_with_attestations(state, &all_secret_keys, spec)
+        .unwrap();
 
     builder.build(&keypair.sk, &state.fork, spec)
 }
@@ -153,7 +225,10 @@ fn bench_block_processing(
     );
 
     let state = initial_state.clone();
-    let block = initial_block.clone();
+    let mut block = initial_block.clone();
+    // Slashings will invalidate the attestations.
+    block.body.proposer_slashings = vec![];
+    block.body.attester_slashings = vec![];
     let spec = initial_spec.clone();
     c.bench(
         &format!("block_processing_{}", desc),
@@ -221,11 +296,14 @@ fn bench_block_processing(
     );
 
     let state = initial_state.clone();
-    let block = initial_block.clone();
+    let mut block = initial_block.clone();
+    // Slashings will invalidate the attestations.
+    block.body.proposer_slashings = vec![];
+    block.body.attester_slashings = vec![];
     let spec = initial_spec.clone();
     c.bench(
         &format!("block_processing_{}", desc),
-        Benchmark::new("per_block_processing", move |b| {
+        Benchmark::new("per_block_processing_no_slashings", move |b| {
             b.iter_with_setup(
                 || state.clone(),
                 |mut state| black_box(per_block_processing(&mut state, &block, &spec).unwrap()),
