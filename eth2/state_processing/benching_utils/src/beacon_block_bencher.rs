@@ -1,7 +1,8 @@
 use rayon::prelude::*;
 use ssz::{SignedRoot, TreeHash};
 use types::{
-    attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder, *,
+    attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
+    test_utils::TestingAttestationBuilder, *,
 };
 
 pub struct BeaconBlockBencher {
@@ -126,16 +127,16 @@ impl BeaconBlockBencher {
         let mut attestations: Vec<Attestation> = committees
             .par_iter()
             .map(|(slot, committee, signing_validators, shard)| {
-                committee_to_attestation(
-                    state,
-                    &committee,
-                    signing_validators,
-                    secret_keys,
-                    *shard,
-                    *slot,
-                    &state.fork,
-                    spec,
-                )
+                let mut builder =
+                    TestingAttestationBuilder::new(state, committee, *slot, *shard, spec);
+
+                let signing_secret_keys: Vec<&SecretKey> = signing_validators
+                    .iter()
+                    .map(|validator_index| secret_keys[*validator_index])
+                    .collect();
+                builder.sign(signing_validators, &signing_secret_keys, &state.fork, spec);
+
+                builder.build()
             })
             .collect();
 
@@ -192,94 +193,4 @@ fn build_double_vote_attester_slashing(
     };
 
     AttesterSlashingBuilder::double_vote(validator_indices, signer)
-}
-
-/// Convert some committee into a valid `Attestation`.
-///
-/// Note: `committee` must be the full committee for the attestation. `signing_validators` is a
-/// list of validator indices that should sign the attestation.
-fn committee_to_attestation(
-    state: &BeaconState,
-    committee: &[usize],
-    signing_validators: &[usize],
-    secret_keys: &[&SecretKey],
-    shard: u64,
-    slot: Slot,
-    fork: &Fork,
-    spec: &ChainSpec,
-) -> Attestation {
-    let current_epoch = state.current_epoch(spec);
-    let previous_epoch = state.previous_epoch(spec);
-
-    let is_previous_epoch =
-        state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
-
-    let justified_epoch = if is_previous_epoch {
-        state.previous_justified_epoch
-    } else {
-        state.justified_epoch
-    };
-
-    let epoch_boundary_root = if is_previous_epoch {
-        *state
-            .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch), spec)
-            .unwrap()
-    } else {
-        *state
-            .get_block_root(current_epoch.start_slot(spec.slots_per_epoch), spec)
-            .unwrap()
-    };
-
-    let justified_block_root = *state
-        .get_block_root(justified_epoch.start_slot(spec.slots_per_epoch), spec)
-        .unwrap();
-
-    let data = AttestationData {
-        slot,
-        shard,
-        beacon_block_root: *state.get_block_root(slot, spec).unwrap(),
-        epoch_boundary_root,
-        crosslink_data_root: Hash256::zero(),
-        latest_crosslink: state.latest_crosslinks[shard as usize].clone(),
-        justified_epoch,
-        justified_block_root,
-    };
-
-    let mut aggregate_signature = AggregateSignature::new();
-    let mut aggregation_bitfield = Bitfield::new();
-    let mut custody_bitfield = Bitfield::new();
-
-    let message = AttestationDataAndCustodyBit {
-        data: data.clone(),
-        custody_bit: false,
-    }
-    .hash_tree_root();
-
-    let domain = spec.get_domain(
-        data.slot.epoch(spec.slots_per_epoch),
-        Domain::Attestation,
-        fork,
-    );
-
-    for (i, validator_index) in committee.iter().enumerate() {
-        custody_bitfield.set(i, false);
-
-        if signing_validators
-            .iter()
-            .any(|&signer| *validator_index == signer)
-        {
-            aggregation_bitfield.set(i, true);
-            let signature = Signature::new(&message, domain, secret_keys[*validator_index]);
-            aggregate_signature.add(&signature);
-        } else {
-            aggregation_bitfield.set(i, false);
-        }
-    }
-
-    Attestation {
-        aggregation_bitfield,
-        data,
-        custody_bitfield,
-        aggregate_signature,
-    }
 }
