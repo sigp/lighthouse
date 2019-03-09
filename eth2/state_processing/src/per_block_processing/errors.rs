@@ -147,6 +147,8 @@ pub enum AttestationInvalid {
     ///
     /// (attestation_data_shard, attestation_data_slot)
     NoCommitteeForShard(u64, Slot),
+    /// The validator index was unknown.
+    UnknownValidator(u64),
     /// The attestation signature verification failed.
     BadSignature,
     /// The shard block root was not set to zero. This is a phase 0 requirement.
