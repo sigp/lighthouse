@@ -294,6 +294,11 @@ pub enum DepositInvalid {
     ///
     /// (state_index, deposit_index)
     BadIndex(u64, u64),
+    /// The proof-of-possession does not match the given pubkey.
+    BadProofOfPossession,
+    /// The withdrawal credentials for the depositing validator did not match the withdrawal
+    /// credentials of an existing validator with the same public key.
+    BadWithdrawalCredentials,
     /// The specified `branch` and `index` did not form a valid proof that the deposit is included
     /// in the eth1 deposit root.
     BadMerkleProof,

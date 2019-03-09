@@ -608,6 +608,9 @@ impl BeaconState {
     /// this hashmap, each call to `process_deposits` requires an iteration though
     /// `self.validator_registry`. This becomes highly inefficient at scale.
     ///
+    /// TODO: this function also exists in a more optimal form in the `state_processing` crate as
+    /// `process_deposits`; unify these two functions.
+    ///
     /// Spec v0.4.0
     pub fn process_deposit(
         &mut self,
@@ -618,10 +621,7 @@ impl BeaconState {
         pubkey_map: Option<&HashMap<PublicKey, usize>>,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-        // TODO: update proof of possession to function written above (
-        // requires bls::create_proof_of_possession to be updated
         //
-        // https://github.com/sigp/lighthouse/issues/239
         if !verify_proof_of_possession(&proof_of_possession, &pubkey) {
             return Err(());
         }

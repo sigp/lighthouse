@@ -12,7 +12,7 @@ pub fn verify_attester_slashing(
     state: &BeaconState,
     attester_slashing: &AttesterSlashing,
     spec: &ChainSpec,
-) -> Result<Vec<u64>, Error> {
+) -> Result<(), Error> {
     let slashable_attestation_1 = &attester_slashing.slashable_attestation_1;
     let slashable_attestation_2 = &attester_slashing.slashable_attestation_2;
 
@@ -31,6 +31,21 @@ pub fn verify_attester_slashing(
     verify_slashable_attestation(state, &slashable_attestation_2, spec)
         .map_err(|e| Error::Invalid(Invalid::SlashableAttestation2Invalid(e.into())))?;
 
+    Ok(())
+}
+
+/// For a given attester slashing, return the indices able to be slashed.
+///
+/// Returns Ok(indices) if `indices.len() > 0`.
+///
+/// Spec v0.4.0
+pub fn gather_attester_slashing_indices(
+    state: &BeaconState,
+    attester_slashing: &AttesterSlashing,
+) -> Result<Vec<u64>, Error> {
+    let slashable_attestation_1 = &attester_slashing.slashable_attestation_1;
+    let slashable_attestation_2 = &attester_slashing.slashable_attestation_2;
+
     let mut slashable_indices = vec![];
     for i in &slashable_attestation_1.validator_indices {
         let validator = state
@@ -38,7 +53,7 @@ pub fn verify_attester_slashing(
             .get(*i as usize)
             .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(*i)))?;
 
-        if slashable_attestation_1.validator_indices.contains(&i) & !validator.slashed {
+        if slashable_attestation_2.validator_indices.contains(&i) & !validator.slashed {
             slashable_indices.push(*i);
         }
     }
