@@ -9,7 +9,7 @@ impl TestingTransferBuilder {
     pub fn new(from: u64, to: u64, amount: u64, slot: Slot) -> Self {
         let keypair = Keypair::random();
 
-        let mut transfer = Transfer {
+        let transfer = Transfer {
             from,
             to,
             amount,

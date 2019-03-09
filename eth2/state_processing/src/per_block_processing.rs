@@ -442,8 +442,15 @@ pub fn process_transfers(
         transfers.len() as u64 <= spec.max_transfers,
         Invalid::MaxTransfersExceed
     );
+
+    transfers
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, transfer)| {
+            verify_transfer(&state, transfer, spec).map_err(|e| e.into_with_index(i))
+        })?;
+
     for (i, transfer) in transfers.iter().enumerate() {
-        verify_transfer(&state, transfer, spec).map_err(|e| e.into_with_index(i))?;
         execute_transfer(state, transfer, spec).map_err(|e| e.into_with_index(i))?;
     }
 
