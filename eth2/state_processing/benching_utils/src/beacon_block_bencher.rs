@@ -92,18 +92,20 @@ impl BeaconBlockBencher {
         // - The slot is too old to be included in a block at this slot.
         // - The `MAX_ATTESTATIONS`.
         loop {
-            if attestations_added == spec.max_attestations {
-                break;
-            }
             if state.slot >= slot + spec.slots_per_epoch {
                 break;
             }
 
             for (committee, shard) in state.get_crosslink_committees_at_slot(slot, spec)? {
-                committees.push((slot, committee.clone(), committee.clone(), *shard))
+                if attestations_added >= spec.max_attestations {
+                    break;
+                }
+
+                committees.push((slot, committee.clone(), committee.clone(), *shard));
+
+                attestations_added += 1;
             }
 
-            attestations_added += 1;
             slot -= 1;
         }
 
