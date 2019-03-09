@@ -1,12 +1,17 @@
 use self::verify_proposer_slashing::verify_proposer_slashing;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use hashing::hash;
+use rayon::prelude::*;
 use ssz::{ssz_encode, SignedRoot, TreeHash};
 use types::*;
 
-pub use self::verify_attester_slashing::verify_attester_slashing;
+pub use self::verify_attester_slashing::{
+    gather_attester_slashing_indices, verify_attester_slashing,
+};
 pub use validate_attestation::{validate_attestation, validate_attestation_without_signature};
-pub use verify_deposit::verify_deposit;
+pub use verify_deposit::{
+    build_public_key_hashmap, get_existing_validator_index, verify_deposit, verify_deposit_index,
+};
 pub use verify_exit::verify_exit;
 pub use verify_transfer::{execute_transfer, verify_transfer};
 
@@ -226,9 +231,17 @@ pub fn process_proposer_slashings(
         proposer_slashings.len() as u64 <= spec.max_proposer_slashings,
         Invalid::MaxProposerSlashingsExceeded
     );
-    for (i, proposer_slashing) in proposer_slashings.iter().enumerate() {
-        verify_proposer_slashing(proposer_slashing, &state, spec)
-            .map_err(|e| e.into_with_index(i))?;
+
+    // Verify proposer slashings in parallel.
+    proposer_slashings
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, proposer_slashing)| {
+            verify_proposer_slashing(proposer_slashing, &state, spec)
+                .map_err(|e| e.into_with_index(i))
+        })?;
+
+    for proposer_slashing in proposer_slashings {
         state.slash_validator(proposer_slashing.proposer_index as usize, spec)?;
     }
 
@@ -250,8 +263,19 @@ pub fn process_attester_slashings(
         attester_slashings.len() as u64 <= spec.max_attester_slashings,
         Invalid::MaxAttesterSlashingsExceed
     );
+
+    // Verify attester slashings in parallel.
+    attester_slashings
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, attester_slashing)| {
+            verify_attester_slashing(&state, &attester_slashing, spec)
+                .map_err(|e| e.into_with_index(i))
+        })?;
+
+    // Gather the slashable indices and update the state in series.
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        let slashable_indices = verify_attester_slashing(&state, &attester_slashing, spec)
+        let slashable_indices = gather_attester_slashing_indices(&state, &attester_slashing)
             .map_err(|e| e.into_with_index(i))?;
         for i in slashable_indices {
             state.slash_validator(i as usize, spec)?;
@@ -276,14 +300,20 @@ pub fn process_attestations(
         attestations.len() as u64 <= spec.max_attestations,
         Invalid::MaxAttestationsExceeded
     );
-    for (i, attestation) in attestations.iter().enumerate() {
-        // Build the previous epoch cache only if required by an attestation.
-        if attestation.data.slot.epoch(spec.slots_per_epoch) == state.previous_epoch(spec) {
-            state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
-        }
 
-        validate_attestation(state, attestation, spec).map_err(|e| e.into_with_index(i))?;
+    // Ensure the previous epoch cache exists.
+    state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
 
+    // Verify attestations in parallel.
+    attestations
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, attestation)| {
+            validate_attestation(state, attestation, spec).map_err(|e| e.into_with_index(i))
+        })?;
+
+    // Update the state in series.
+    for attestation in attestations {
         let pending_attestation = PendingAttestation {
             data: attestation.data.clone(),
             aggregation_bitfield: attestation.aggregation_bitfield.clone(),
@@ -311,24 +341,53 @@ pub fn process_deposits(
         deposits.len() as u64 <= spec.max_deposits,
         Invalid::MaxDepositsExceeded
     );
-    for (i, deposit) in deposits.iter().enumerate() {
-        verify_deposit(state, deposit, VERIFY_DEPOSIT_MERKLE_PROOFS, spec)
-            .map_err(|e| e.into_with_index(i))?;
 
-        state
-            .process_deposit(
-                deposit.deposit_data.deposit_input.pubkey.clone(),
-                deposit.deposit_data.amount,
-                deposit
-                    .deposit_data
-                    .deposit_input
-                    .proof_of_possession
-                    .clone(),
-                deposit.deposit_data.deposit_input.withdrawal_credentials,
-                None,
-                spec,
-            )
-            .map_err(|_| Error::Invalid(Invalid::DepositProcessingFailed(i)))?;
+    // Verify deposits in parallel.
+    deposits
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, deposit)| {
+            verify_deposit(state, deposit, VERIFY_DEPOSIT_MERKLE_PROOFS, spec)
+                .map_err(|e| e.into_with_index(i))
+        })?;
+
+    let public_key_to_index_hashmap = build_public_key_hashmap(&state);
+
+    // Check `state.deposit_index` and update the state in series.
+    for (i, deposit) in deposits.iter().enumerate() {
+        verify_deposit_index(state, deposit).map_err(|e| e.into_with_index(i))?;
+
+        // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
+        // already exists in the beacon_state.
+        //
+        // This function also verifies the withdrawal credentials.
+        let validator_index =
+            get_existing_validator_index(state, deposit, &public_key_to_index_hashmap)
+                .map_err(|e| e.into_with_index(i))?;
+
+        let deposit_data = &deposit.deposit_data;
+        let deposit_input = &deposit.deposit_data.deposit_input;
+
+        if let Some(index) = validator_index {
+            // Update the existing validator balance.
+            safe_add_assign!(
+                state.validator_balances[index as usize],
+                deposit_data.amount
+            );
+        } else {
+            // Create a new validator.
+            let validator = Validator {
+                pubkey: deposit_input.pubkey.clone(),
+                withdrawal_credentials: deposit_input.withdrawal_credentials.clone(),
+                activation_epoch: spec.far_future_epoch,
+                exit_epoch: spec.far_future_epoch,
+                withdrawable_epoch: spec.far_future_epoch,
+                initiated_exit: false,
+                slashed: false,
+            };
+            state.validator_registry.push(validator);
+            state.validator_balances.push(deposit_data.amount);
+        }
 
         state.deposit_index += 1;
     }
@@ -351,9 +410,17 @@ pub fn process_exits(
         voluntary_exits.len() as u64 <= spec.max_voluntary_exits,
         Invalid::MaxExitsExceeded
     );
-    for (i, exit) in voluntary_exits.iter().enumerate() {
-        verify_exit(&state, exit, spec).map_err(|e| e.into_with_index(i))?;
 
+    // Verify exits in parallel.
+    voluntary_exits
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, exit)| {
+            verify_exit(&state, exit, spec).map_err(|e| e.into_with_index(i))
+        })?;
+
+    // Update the state in series.
+    for exit in voluntary_exits {
         state.initiate_validator_exit(exit.validator_index as usize);
     }
 
