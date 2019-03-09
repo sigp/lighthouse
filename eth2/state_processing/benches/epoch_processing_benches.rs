@@ -19,18 +19,19 @@ pub fn epoch_processing_16k_validators(c: &mut Criterion) {
     let validator_count = 16_384;
 
     let mut builder = BeaconStateBencher::new(validator_count, &spec);
-    builder.teleport_to_end_of_epoch(spec.genesis_epoch + 4, &spec);
-    builder.insert_attestations(&spec);
-    let mut state = builder.build();
 
-    // Build all the caches so the following state does _not_ include the cache-building time.
-    state
-        .build_epoch_cache(RelativeEpoch::Previous, &spec)
-        .unwrap();
-    state
-        .build_epoch_cache(RelativeEpoch::Current, &spec)
-        .unwrap();
-    state.build_epoch_cache(RelativeEpoch::Next, &spec).unwrap();
+    // Set the state to be just before an epoch transition.
+    let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
+    builder.teleport_to_slot(target_slot, &spec);
+
+    // Builds all caches; benches will not contain shuffling/committee building times.
+    builder.build_caches(&spec).unwrap();
+
+    // Inserts one attestation with full participation for each committee able to include an
+    // attestation in this state.
+    builder.insert_attestations(&spec);
+
+    let (state, _keypairs) = builder.build();
 
     // Assert that the state has the maximum possible attestations.
     let committees_per_epoch = spec.get_epoch_committee_count(validator_count);

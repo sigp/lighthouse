@@ -11,8 +11,11 @@ fn runs_without_error() {
     let spec = ChainSpec::few_validators();
 
     let mut builder = BeaconStateBencher::new(8, &spec);
-    builder.teleport_to_end_of_epoch(spec.genesis_epoch + 4, &spec);
-    let mut state = builder.build();
+
+    let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
+    builder.teleport_to_slot(target_slot, &spec);
+
+    let (mut state, _keypairs) = builder.build();
 
     per_epoch_processing(&mut state, &spec).unwrap();
 }

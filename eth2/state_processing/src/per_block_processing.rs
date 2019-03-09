@@ -1,7 +1,6 @@
 use self::verify_proposer_slashing::verify_proposer_slashing;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use hashing::hash;
-use log::debug;
 use ssz::{ssz_encode, SignedRoot, TreeHash};
 use types::*;
 
@@ -70,22 +69,21 @@ fn per_block_processing_signature_optional(
     // Verify that `block.slot == state.slot`.
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
-    // Ensure the current epoch cache is built.
+    // Ensure the current and previous epoch cache is built.
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
+    state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
 
     if should_verify_block_signature {
         verify_block_signature(&state, &block, &spec)?;
     }
     process_randao(&mut state, &block, &spec)?;
     process_eth1_data(&mut state, &block.eth1_data)?;
-    process_proposer_slashings(&mut state, &block.body.proposer_slashings[..], spec)?;
-    process_attester_slashings(&mut state, &block.body.attester_slashings[..], spec)?;
-    process_attestations(&mut state, &block.body.attestations[..], spec)?;
-    process_deposits(&mut state, &block.body.deposits[..], spec)?;
-    process_exits(&mut state, &block.body.voluntary_exits[..], spec)?;
-    process_transfers(&mut state, &block.body.transfers[..], spec)?;
-
-    debug!("per_block_processing complete.");
+    process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
+    process_attester_slashings(&mut state, &block.body.attester_slashings, spec)?;
+    process_attestations(&mut state, &block.body.attestations, spec)?;
+    process_deposits(&mut state, &block.body.deposits, spec)?;
+    process_exits(&mut state, &block.body.voluntary_exits, spec)?;
+    process_transfers(&mut state, &block.body.transfers, spec)?;
 
     Ok(())
 }
