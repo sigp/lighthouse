@@ -275,10 +275,7 @@ fn bench_block_processing(
     );
 
     let state = initial_state.clone();
-    let mut block = initial_block.clone();
-    // Slashings will invalidate the attestations.
-    block.body.proposer_slashings = vec![];
-    block.body.attester_slashings = vec![];
+    let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
         &format!("block_processing_{}", desc),
@@ -346,14 +343,11 @@ fn bench_block_processing(
     );
 
     let state = initial_state.clone();
-    let mut block = initial_block.clone();
-    // Slashings will invalidate the attestations.
-    block.body.proposer_slashings = vec![];
-    block.body.attester_slashings = vec![];
+    let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
         &format!("block_processing_{}", desc),
-        Benchmark::new("per_block_processing_no_slashings", move |b| {
+        Benchmark::new("per_block_processing", move |b| {
             b.iter_with_setup(
                 || state.clone(),
                 |mut state| black_box(per_block_processing(&mut state, &block, &spec).unwrap()),
