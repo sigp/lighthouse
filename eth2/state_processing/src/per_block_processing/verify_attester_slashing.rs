@@ -11,6 +11,7 @@ use types::*;
 pub fn verify_attester_slashing(
     state: &BeaconState,
     attester_slashing: &AttesterSlashing,
+    should_verify_slashable_attestations: bool,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let slashable_attestation_1 = &attester_slashing.slashable_attestation_1;
@@ -26,10 +27,12 @@ pub fn verify_attester_slashing(
         Invalid::NotSlashable
     );
 
-    verify_slashable_attestation(state, &slashable_attestation_1, spec)
-        .map_err(|e| Error::Invalid(Invalid::SlashableAttestation1Invalid(e.into())))?;
-    verify_slashable_attestation(state, &slashable_attestation_2, spec)
-        .map_err(|e| Error::Invalid(Invalid::SlashableAttestation2Invalid(e.into())))?;
+    if should_verify_slashable_attestations {
+        verify_slashable_attestation(state, &slashable_attestation_1, spec)
+            .map_err(|e| Error::Invalid(Invalid::SlashableAttestation1Invalid(e.into())))?;
+        verify_slashable_attestation(state, &slashable_attestation_2, spec)
+            .map_err(|e| Error::Invalid(Invalid::SlashableAttestation2Invalid(e.into())))?;
+    }
 
     Ok(())
 }

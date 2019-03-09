@@ -76,6 +76,10 @@ pub enum BlockInvalid {
     MaxExitsExceeded,
     MaxTransfersExceed,
     AttestationInvalid(usize, AttestationInvalid),
+    /// A `SlashableAttestation` inside an `AttesterSlashing` was invalid.
+    ///
+    /// To determine the offending `AttesterSlashing` index, divide the error message `usize` by two.
+    SlashableAttestationInvalid(usize, SlashableAttestationInvalid),
     AttesterSlashingInvalid(usize, AttesterSlashingInvalid),
     ProposerSlashingInvalid(usize, ProposerSlashingInvalid),
     DepositInvalid(usize, DepositInvalid),
@@ -234,6 +238,11 @@ impl Into<SlashableAttestationInvalid> for SlashableAttestationValidationError {
         }
     }
 }
+
+impl_into_with_index_without_beacon_error!(
+    SlashableAttestationValidationError,
+    SlashableAttestationInvalid
+);
 
 /*
  * `ProposerSlashing` Validation

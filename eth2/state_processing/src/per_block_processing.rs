@@ -13,6 +13,7 @@ pub use verify_deposit::{
     build_public_key_hashmap, get_existing_validator_index, verify_deposit, verify_deposit_index,
 };
 pub use verify_exit::verify_exit;
+pub use verify_slashable_attestation::verify_slashable_attestation;
 pub use verify_transfer::{execute_transfer, verify_transfer};
 
 pub mod errors;
@@ -264,19 +265,40 @@ pub fn process_attester_slashings(
         Invalid::MaxAttesterSlashingsExceed
     );
 
-    // Verify attester slashings in parallel.
-    attester_slashings
+    // Verify the `SlashableAttestation`s in parallel (these are the resource-consuming objects, not
+    // the `AttesterSlashing`s themselves).
+    let mut slashable_attestations: Vec<&SlashableAttestation> =
+        Vec::with_capacity(attester_slashings.len() * 2);
+    for attester_slashing in attester_slashings {
+        slashable_attestations.push(&attester_slashing.slashable_attestation_1);
+        slashable_attestations.push(&attester_slashing.slashable_attestation_2);
+    }
+
+    // Verify slashable attestations in parallel.
+    slashable_attestations
         .par_iter()
         .enumerate()
-        .try_for_each(|(i, attester_slashing)| {
-            verify_attester_slashing(&state, &attester_slashing, spec)
+        .try_for_each(|(i, slashable_attestation)| {
+            verify_slashable_attestation(&state, slashable_attestation, spec)
                 .map_err(|e| e.into_with_index(i))
         })?;
+    let all_slashable_attestations_have_been_checked = true;
 
-    // Gather the slashable indices and update the state in series.
+    // Gather the slashable indices and preform the final verification and update the state in series.
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
+        let should_verify_slashable_attestations = !all_slashable_attestations_have_been_checked;
+
+        verify_attester_slashing(
+            &state,
+            &attester_slashing,
+            should_verify_slashable_attestations,
+            spec,
+        )
+        .map_err(|e| e.into_with_index(i))?;
+
         let slashable_indices = gather_attester_slashing_indices(&state, &attester_slashing)
             .map_err(|e| e.into_with_index(i))?;
+
         for i in slashable_indices {
             state.slash_validator(i as usize, spec)?;
         }
