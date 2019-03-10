@@ -13,14 +13,14 @@ use state_processing::{
 };
 use types::{validator_registry::get_active_validator_indices, *};
 
-pub const BENCHING_SAMPLE_SIZE: usize = 100;
+pub const BENCHING_SAMPLE_SIZE: usize = 10;
 pub const SMALL_BENCHING_SAMPLE_SIZE: usize = 10;
 
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
 pub fn epoch_processing_16k_validators(c: &mut Criterion) {
     let spec = ChainSpec::foundation();
 
-    let validator_count = 16_384;
+    let validator_count = 300_032;
 
     let mut builder = BeaconStateBencher::new(validator_count, &spec);
 
@@ -67,7 +67,7 @@ pub fn epoch_processing_16k_validators(c: &mut Criterion) {
         "Epochs since finality should be 4"
     );
 
-    bench_epoch_processing(c, &state, &spec, "16k_validators");
+    bench_epoch_processing(c, &state, &spec, &format!("{}_validators", validator_count));
 }
 
 /// Run the detailed benchmarking suite on the given `BeaconState`.
@@ -79,9 +79,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("calculate_active_validator_indices", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
-                |mut state| black_box(calculate_active_validator_indices(&mut state, &spec_clone)),
+                |mut state| {
+                    calculate_active_validator_indices(&mut state, &spec_clone);
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -93,11 +97,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("calculate_current_total_balance", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
                 |state| {
-                    black_box(state.get_total_balance(&active_validator_indices[..], &spec_clone))
+                    state.get_total_balance(&active_validator_indices[..], &spec_clone);
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -108,17 +114,19 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("calculate_previous_total_balance", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
                 |state| {
-                    black_box(state.get_total_balance(
+                    state.get_total_balance(
                         &get_active_validator_indices(
                             &state.validator_registry,
                             state.previous_epoch(&spec_clone),
                         )[..],
                         &spec_clone,
-                    ))
+                    );
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -129,9 +137,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("process_eth1_data", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
-                |mut state| black_box(process_eth1_data(&mut state, &spec_clone)),
+                |mut state| {
+                    process_eth1_data(&mut state, &spec_clone);
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -142,9 +154,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("calculate_attester_sets", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
-                |mut state| black_box(calculate_attester_sets(&mut state, &spec_clone).unwrap()),
+                |mut state| {
+                    calculate_attester_sets(&mut state, &spec_clone).unwrap();
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -163,18 +179,20 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("process_justification", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
                 |mut state| {
-                    black_box(process_justification(
+                    process_justification(
                         &mut state,
                         current_total_balance,
                         previous_total_balance,
                         attesters.previous_epoch_boundary.balance,
                         attesters.current_epoch_boundary.balance,
                         &spec_clone,
-                    ))
+                    );
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -185,9 +203,10 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("process_crosslinks", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
                 |mut state| black_box(process_crosslinks(&mut state, &spec_clone).unwrap()),
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -206,21 +225,21 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("process_rewards_and_penalties", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
                 |mut state| {
-                    black_box(
-                        process_rewards_and_penalities(
-                            &mut state,
-                            &active_validator_indices,
-                            &attesters,
-                            previous_total_balance,
-                            &winning_root_for_shards,
-                            &spec_clone,
-                        )
-                        .unwrap(),
+                    process_rewards_and_penalities(
+                        &mut state,
+                        &active_validator_indices,
+                        &attesters,
+                        previous_total_balance,
+                        &winning_root_for_shards,
+                        &spec_clone,
                     )
+                    .unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
@@ -231,9 +250,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("process_ejections", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
-                |mut state| black_box(state.process_ejections(&spec_clone)),
+                |mut state| {
+                    state.process_ejections(&spec_clone);
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -268,9 +291,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("process_validator_registry", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
-                |mut state| black_box(process_validator_registry(&mut state, &spec_clone)),
+                |mut state| {
+                    process_validator_registry(&mut state, &spec_clone).unwrap();
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -281,11 +308,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("update_active_tree_index_roots", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
                 |mut state| {
-                    black_box(update_active_tree_index_roots(&mut state, &spec_clone).unwrap())
+                    update_active_tree_index_roots(&mut state, &spec_clone).unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -296,9 +325,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("update_latest_slashed_balances", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
-                |mut state| black_box(update_latest_slashed_balances(&mut state, &spec_clone)),
+                |mut state| {
+                    update_latest_slashed_balances(&mut state, &spec_clone);
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -309,9 +342,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("clean_attestations", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
-                |mut state| black_box(clean_attestations(&mut state, &spec_clone)),
+                |mut state| {
+                    clean_attestations(&mut state, &spec_clone);
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(BENCHING_SAMPLE_SIZE),
@@ -322,9 +359,10 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("per_epoch_processing", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state_clone.clone(),
                 |mut state| black_box(per_epoch_processing(&mut state, &spec_clone).unwrap()),
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
@@ -334,10 +372,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("tree_hash_state", move |b| {
-            b.iter_with_setup(
-                || state_clone.clone(),
-                |state| black_box(state.hash_tree_root()),
-            )
+            b.iter(|| black_box(state_clone.hash_tree_root()))
         })
         .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
     );

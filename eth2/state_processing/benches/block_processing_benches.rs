@@ -16,7 +16,7 @@ use types::*;
 pub fn block_processing_16k_validators(c: &mut Criterion) {
     let spec = ChainSpec::foundation();
 
-    let validator_count = 16_384;
+    let validator_count = 300_032;
 
     let (mut state, keypairs) = build_state(validator_count, &spec);
     let block = build_block(&mut state, &keypairs, &spec);
@@ -199,9 +199,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("verify_block_signature", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
-                |mut state| black_box(verify_block_signature(&mut state, &block, &spec).unwrap()),
+                |mut state| {
+                    verify_block_signature(&mut state, &block, &spec).unwrap();
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -213,9 +217,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_randao", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
-                |mut state| black_box(process_randao(&mut state, &block, &spec).unwrap()),
+                |mut state| {
+                    process_randao(&mut state, &block, &spec).unwrap();
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -226,9 +234,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_eth1_data", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
-                |mut state| black_box(process_eth1_data(&mut state, &block.eth1_data).unwrap()),
+                |mut state| {
+                    process_eth1_data(&mut state, &block.eth1_data).unwrap();
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -240,18 +252,14 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_proposer_slashings", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(
-                        process_proposer_slashings(
-                            &mut state,
-                            &block.body.proposer_slashings,
-                            &spec,
-                        )
-                        .unwrap(),
-                    )
+                    process_proposer_slashings(&mut state, &block.body.proposer_slashings, &spec)
+                        .unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -263,18 +271,14 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_attester_slashings", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(
-                        process_attester_slashings(
-                            &mut state,
-                            &block.body.attester_slashings,
-                            &spec,
-                        )
-                        .unwrap(),
-                    )
+                    process_attester_slashings(&mut state, &block.body.attester_slashings, &spec)
+                        .unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -286,13 +290,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_attestations", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(
-                        process_attestations(&mut state, &block.body.attestations, &spec).unwrap(),
-                    )
+                    process_attestations(&mut state, &block.body.attestations, &spec).unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -304,11 +308,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_deposits", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(process_deposits(&mut state, &block.body.deposits, &spec).unwrap())
+                    process_deposits(&mut state, &block.body.deposits, &spec).unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -320,13 +326,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_exits", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(
-                        process_exits(&mut state, &block.body.voluntary_exits, &spec).unwrap(),
-                    )
+                    process_exits(&mut state, &block.body.voluntary_exits, &spec).unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -338,11 +344,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("process_transfers", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(process_transfers(&mut state, &block.body.transfers, &spec).unwrap())
+                    process_transfers(&mut state, &block.body.transfers, &spec).unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -354,9 +362,13 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("per_block_processing", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
-                |mut state| black_box(per_block_processing(&mut state, &block, &spec).unwrap()),
+                |mut state| {
+                    per_block_processing(&mut state, &block, &spec).unwrap();
+                    state
+                },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -368,15 +380,15 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("build_previous_state_epoch_cache", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(
-                        state
-                            .build_epoch_cache(RelativeEpoch::Previous, &spec)
-                            .unwrap(),
-                    )
+                    state
+                        .build_epoch_cache(RelativeEpoch::Previous, &spec)
+                        .unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
@@ -388,15 +400,15 @@ fn bench_block_processing(
     c.bench(
         &format!("block_processing_{}", desc),
         Benchmark::new("build_current_state_epoch_cache", move |b| {
-            b.iter_with_setup(
+            b.iter_batched(
                 || state.clone(),
                 |mut state| {
-                    black_box(
-                        state
-                            .build_epoch_cache(RelativeEpoch::Current, &spec)
-                            .unwrap(),
-                    )
+                    state
+                        .build_epoch_cache(RelativeEpoch::Current, &spec)
+                        .unwrap();
+                    state
                 },
+                criterion::BatchSize::SmallInput,
             )
         })
         .sample_size(10),
