@@ -531,12 +531,14 @@ impl BeaconState {
             return Err(Error::InvalidBitfield);
         }
 
-        let mut participants = vec![];
+        let mut participants = Vec::with_capacity(committee.len());
         for (i, validator_index) in committee.iter().enumerate() {
-            if bitfield.get(i).unwrap() {
-                participants.push(*validator_index);
+            match bitfield.get(i) {
+                Ok(bit) if bit == true => participants.push(*validator_index),
+                _ => {}
             }
         }
+        participants.shrink_to_fit();
 
         Ok(participants)
     }
