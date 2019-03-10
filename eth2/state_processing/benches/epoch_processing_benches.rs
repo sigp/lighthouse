@@ -1,6 +1,7 @@
 use benching_utils::BeaconStateBencher;
 use criterion::Criterion;
 use criterion::{black_box, Benchmark};
+use ssz::TreeHash;
 use state_processing::{
     per_epoch_processing,
     per_epoch_processing::{
@@ -324,6 +325,18 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
             b.iter_with_setup(
                 || state_clone.clone(),
                 |mut state| black_box(per_epoch_processing(&mut state, &spec_clone).unwrap()),
+            )
+        })
+        .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
+    );
+
+    let state_clone = state.clone();
+    c.bench(
+        &format!("epoch_process_with_caches_{}", desc),
+        Benchmark::new("tree_hash_state", move |b| {
+            b.iter_with_setup(
+                || state_clone.clone(),
+                |state| black_box(state.hash_tree_root()),
             )
         })
         .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
