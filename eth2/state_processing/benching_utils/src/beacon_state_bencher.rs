@@ -96,7 +96,6 @@ impl BeaconStateBencher {
         let slot = epoch.start_slot(spec.slots_per_epoch);
 
         state.slot = slot;
-        state.validator_registry_update_epoch = epoch - 1;
 
         state.previous_shuffling_epoch = epoch - 1;
         state.current_shuffling_epoch = epoch;
@@ -104,10 +103,12 @@ impl BeaconStateBencher {
         state.previous_shuffling_seed = Hash256::from_low_u64_le(0);
         state.current_shuffling_seed = Hash256::from_low_u64_le(1);
 
-        state.previous_justified_epoch = epoch - 2;
-        state.justified_epoch = epoch - 1;
+        state.previous_justified_epoch = epoch - 3;
+        state.justified_epoch = epoch - 2;
         state.justification_bitfield = u64::max_value();
-        state.finalized_epoch = epoch - 1;
+
+        state.finalized_epoch = epoch - 3;
+        state.validator_registry_update_epoch = epoch - 3;
     }
 
     /// Creates a full set of attestations for the `BeaconState`. Each attestation has full
