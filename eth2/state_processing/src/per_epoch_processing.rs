@@ -2,7 +2,6 @@ use attester_sets::AttesterSets;
 use errors::EpochProcessingError as Error;
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
-use inclusion_distance::{inclusion_distance, inclusion_slot};
 use integer_sqrt::IntegerSquareRoot;
 use log::debug;
 use rayon::prelude::*;
@@ -280,6 +279,28 @@ pub fn process_rewards_and_penalities(
         return Err(Error::PreviousTotalBalanceIsZero);
     }
 
+    // Map is ValidatorIndex -> ProposerIndex
+    let mut inclusion_slots: FnvHashMap<usize, (Slot, usize)> = FnvHashMap::default();
+    for a in &previous_epoch_attestations {
+        let participants =
+            state.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
+        let inclusion_distance = (a.inclusion_slot - a.data.slot).as_u64();
+        for participant in participants {
+            if let Some((existing_distance, _)) = inclusion_slots.get(&participant) {
+                if *existing_distance <= inclusion_distance {
+                    continue;
+                }
+            }
+            let proposer_index = state
+                .get_beacon_proposer_index(a.data.slot, spec)
+                .map_err(|_| Error::UnableToDetermineProducer)?;
+            inclusion_slots.insert(
+                participant,
+                (Slot::from(inclusion_distance), proposer_index),
+            );
+        }
+    }
+
     // Justification and finalization
 
     let epochs_since_finality = next_epoch - state.finalized_epoch;
@@ -327,17 +348,17 @@ pub fn process_rewards_and_penalities(
 
                 if attesters.previous_epoch.indices.contains(&index) {
                     let base_reward = state.base_reward(index, base_reward_quotient, spec);
-                    let inclusion_distance =
-                        inclusion_distance(state, &previous_epoch_attestations, index, spec);
 
-                    if let Ok(inclusion_distance) = inclusion_distance {
-                        if inclusion_distance > 0 {
-                            safe_add_assign!(
-                                balance,
-                                base_reward * spec.min_attestation_inclusion_delay
-                                    / inclusion_distance
-                            )
-                        }
+                    let (inclusion_distance, _) = inclusion_slots
+                        .get(&index)
+                        .expect("Inconsistent inclusion_slots.");
+
+                    if *inclusion_distance > 0 {
+                        safe_add_assign!(
+                            balance,
+                            base_reward * spec.min_attestation_inclusion_delay
+                                / inclusion_distance.as_u64()
+                        )
                     }
                 }
 
@@ -378,18 +399,17 @@ pub fn process_rewards_and_penalities(
 
                 if attesters.previous_epoch.indices.contains(&index) {
                     let base_reward = state.base_reward(index, base_reward_quotient, spec);
-                    let inclusion_distance =
-                        inclusion_distance(state, &previous_epoch_attestations, index, spec);
 
-                    if let Ok(inclusion_distance) = inclusion_distance {
-                        if inclusion_distance > 0 {
-                            safe_sub_assign!(
-                                balance,
-                                base_reward
-                                    - base_reward * spec.min_attestation_inclusion_delay
-                                        / inclusion_distance
-                            );
-                        }
+                    let (inclusion_distance, _) = inclusion_slots
+                        .get(&index)
+                        .expect("Inconsistent inclusion_slots.");
+
+                    if *inclusion_distance > 0 {
+                        safe_add_assign!(
+                            balance,
+                            base_reward * spec.min_attestation_inclusion_delay
+                                / inclusion_distance.as_u64()
+                        )
                     }
                 }
 
@@ -399,34 +419,17 @@ pub fn process_rewards_and_penalities(
     }
 
     // Attestation inclusion
-    let mut inclusion_slots: FnvHashMap<usize, (Slot, Slot)> = FnvHashMap::default();
-    for a in previous_epoch_attestations {
-        let participants =
-            state.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
-        let inclusion_distance = (a.inclusion_slot - a.data.slot).as_u64();
-        for participant in participants {
-            if let Some((existing_distance, _)) = inclusion_slots.get(&participant) {
-                if *existing_distance <= inclusion_distance {
-                    continue;
-                }
-            }
-            inclusion_slots.insert(participant, (Slot::from(inclusion_distance), a.data.slot));
-        }
-    }
+    //
 
     for &index in &attesters.previous_epoch.indices {
-        let (_, inclusion_slot) = inclusion_slots
+        let (_, proposer_index) = inclusion_slots
             .get(&index)
             .ok_or_else(|| Error::InclusionSlotsInconsistent(index))?;
 
-        let proposer_index = state
-            .get_beacon_proposer_index(*inclusion_slot, spec)
-            .map_err(|_| Error::UnableToDetermineProducer)?;
-
-        let base_reward = state.base_reward(proposer_index, base_reward_quotient, spec);
+        let base_reward = state.base_reward(*proposer_index, base_reward_quotient, spec);
 
         safe_add_assign!(
-            state.validator_balances[proposer_index],
+            state.validator_balances[*proposer_index],
             base_reward / spec.attestation_inclusion_reward_quotient
         );
     }
