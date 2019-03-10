@@ -12,6 +12,9 @@ use state_processing::{
 };
 use types::{validator_registry::get_active_validator_indices, *};
 
+pub const BENCHING_SAMPLE_SIZE: usize = 100;
+pub const SMALL_BENCHING_SAMPLE_SIZE: usize = 10;
+
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
 pub fn epoch_processing_16k_validators(c: &mut Criterion) {
     let spec = ChainSpec::foundation();
@@ -74,26 +77,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let spec_clone = spec.clone();
     c.bench(
         &format!("epoch_process_with_caches_{}", desc),
-        Benchmark::new("full run", move |b| {
-            b.iter_with_setup(
-                || state_clone.clone(),
-                |mut state| black_box(per_epoch_processing(&mut state, &spec_clone).unwrap()),
-            )
-        })
-        .sample_size(10),
-    );
-
-    let state_clone = state.clone();
-    let spec_clone = spec.clone();
-    c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
         Benchmark::new("calculate_active_validator_indices", move |b| {
             b.iter_with_setup(
                 || state_clone.clone(),
                 |mut state| black_box(calculate_active_validator_indices(&mut state, &spec_clone)),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -109,7 +99,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 },
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -130,7 +120,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 },
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -143,7 +133,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| black_box(process_eth1_data(&mut state, &spec_clone)),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -156,7 +146,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| black_box(calculate_attester_sets(&mut state, &spec_clone).unwrap()),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -199,7 +189,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| black_box(process_crosslinks(&mut state, &spec_clone).unwrap()),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let mut state_clone = state.clone();
@@ -232,7 +222,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 },
             )
         })
-        .sample_size(10),
+        .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -245,7 +235,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| black_box(state.process_ejections(&spec_clone)),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let mut state_clone = state.clone();
@@ -282,7 +272,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| black_box(process_validator_registry(&mut state, &spec_clone)),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -297,7 +287,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 },
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -310,7 +300,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| black_box(update_latest_slashed_balances(&mut state, &spec_clone)),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
     let state_clone = state.clone();
@@ -323,6 +313,19 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| black_box(clean_attestations(&mut state, &spec_clone)),
             )
         })
-        .sample_size(10),
+        .sample_size(BENCHING_SAMPLE_SIZE),
+    );
+
+    let state_clone = state.clone();
+    let spec_clone = spec.clone();
+    c.bench(
+        &format!("epoch_process_with_caches_{}", desc),
+        Benchmark::new("per_epoch_processing", move |b| {
+            b.iter_with_setup(
+                || state_clone.clone(),
+                |mut state| black_box(per_epoch_processing(&mut state, &spec_clone).unwrap()),
+            )
+        })
+        .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
     );
 }
