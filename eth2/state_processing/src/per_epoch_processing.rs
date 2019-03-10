@@ -1,5 +1,6 @@
 use attester_sets::AttesterSets;
 use errors::EpochProcessingError as Error;
+use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use inclusion_distance::{inclusion_distance, inclusion_slot};
 use integer_sqrt::IntegerSquareRoot;
@@ -398,12 +399,28 @@ pub fn process_rewards_and_penalities(
     }
 
     // Attestation inclusion
+    let mut inclusion_slots: FnvHashMap<usize, (Slot, Slot)> = FnvHashMap::default();
+    for a in previous_epoch_attestations {
+        let participants =
+            state.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
+        let inclusion_distance = (a.inclusion_slot - a.data.slot).as_u64();
+        for participant in participants {
+            if let Some((existing_distance, _)) = inclusion_slots.get(&participant) {
+                if *existing_distance <= inclusion_distance {
+                    continue;
+                }
+            }
+            inclusion_slots.insert(participant, (Slot::from(inclusion_distance), a.data.slot));
+        }
+    }
 
     for &index in &attesters.previous_epoch.indices {
-        let inclusion_slot = inclusion_slot(state, &previous_epoch_attestations[..], index, spec)?;
+        let (_, inclusion_slot) = inclusion_slots
+            .get(&index)
+            .ok_or_else(|| Error::InclusionSlotsInconsistent(index))?;
 
         let proposer_index = state
-            .get_beacon_proposer_index(inclusion_slot, spec)
+            .get_beacon_proposer_index(*inclusion_slot, spec)
             .map_err(|_| Error::UnableToDetermineProducer)?;
 
         let base_reward = state.base_reward(proposer_index, base_reward_quotient, spec);
