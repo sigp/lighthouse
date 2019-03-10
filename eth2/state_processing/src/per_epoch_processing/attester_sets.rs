@@ -13,7 +13,7 @@ impl Attesters {
         for i in additional_indices {
             self.indices.insert(*i);
         }
-        self.balance.saturating_add(additional_balance);
+        self.balance = self.balance.saturating_add(additional_balance);
     }
 }
 
