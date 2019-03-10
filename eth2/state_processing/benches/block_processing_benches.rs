@@ -1,6 +1,7 @@
 use benching_utils::{BeaconBlockBencher, BeaconStateBencher};
 use criterion::Criterion;
 use criterion::{black_box, Benchmark};
+use ssz::TreeHash;
 use state_processing::{
     per_block_processing,
     per_block_processing::{
@@ -397,6 +398,15 @@ fn bench_block_processing(
                     )
                 },
             )
+        })
+        .sample_size(10),
+    );
+
+    let block = initial_block.clone();
+    c.bench(
+        &format!("block_processing_{}", desc),
+        Benchmark::new("tree_hash_block", move |b| {
+            b.iter(|| black_box(block.hash_tree_root()))
         })
         .sample_size(10),
     );
