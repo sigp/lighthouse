@@ -174,7 +174,12 @@ fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) 
         );
     }
 
-    builder.build(&keypair.sk, &state.fork, spec)
+    let mut block = builder.build(&keypair.sk, &state.fork, spec);
+
+    // Set the eth1 data to be different from the state.
+    block.eth1_data.block_hash = Hash256::from_slice(&vec![42; 32]);
+
+    block
 }
 
 /// Run the detailed benchmarking suite on the given `BeaconState`.
