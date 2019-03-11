@@ -93,7 +93,11 @@ impl PartialEq for PublicKey {
 
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        ssz_encode(self).hash(state)
+        // Note: this is not necessarily the consensus-ready hash. Instead, it is designed to be
+        // optimally fast for internal usage.
+        //
+        // To hash for consensus purposes, use the SSZ-encoded bytes.
+        self.0.as_bytes().hash(state)
     }
 }
 
