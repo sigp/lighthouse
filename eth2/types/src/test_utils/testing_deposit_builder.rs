@@ -30,10 +30,14 @@ impl TestingDepositBuilder {
         self.deposit.index = index;
     }
 
-    pub fn sign(&mut self, keypair: &Keypair, domain: u64, spec: &ChainSpec) {
+    pub fn sign(&mut self, keypair: &Keypair, state: &BeaconState, spec: &ChainSpec) {
         let withdrawal_credentials = Hash256::from_slice(
             &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],
         );
+
+        let epoch = state.current_epoch(spec);
+        let domain = spec.get_domain(epoch, Domain::Deposit, &state.fork);
+
         self.deposit.deposit_data.deposit_input.pubkey = keypair.pk.clone();
         self.deposit
             .deposit_data
