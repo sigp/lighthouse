@@ -108,7 +108,7 @@ fn main() {
                 deposit_input: DepositInput {
                     pubkey: keypair.pk.clone(),
                     withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
-                    proof_of_possession: create_proof_of_possession(&keypair),
+                    proof_of_possession: create_proof_of_possession(&keypair, Hash256::zero()),
                 },
             },
         })
