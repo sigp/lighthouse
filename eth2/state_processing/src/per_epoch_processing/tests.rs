@@ -1,7 +1,7 @@
 #![cfg(test)]
 use crate::per_epoch_processing;
-use benching_utils::BeaconStateBencher;
 use env_logger::{Builder, Env};
+use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
 
 #[test]
@@ -10,7 +10,7 @@ fn runs_without_error() {
 
     let spec = ChainSpec::few_validators();
 
-    let mut builder = BeaconStateBencher::new(8, &spec);
+    let mut builder = TestingBeaconStateBuilder::new(8, &spec);
 
     let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
     builder.teleport_to_slot(target_slot, &spec);

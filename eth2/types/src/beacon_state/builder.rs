@@ -6,7 +6,7 @@ use ssz::TreeHash;
 
 /// Builds a `BeaconState` for use in production.
 ///
-/// This struct should not be modified for use in testing scenarios. Use `TestingBeaconStateBuilder` for that purpose.
+/// This struct should _not_ be modified for use in testing scenarios. Use `TestingBeaconStateBuilder` for that purpose.
 ///
 /// This struct should remain safe and sensible for production usage.
 pub struct BeaconStateBuilder {

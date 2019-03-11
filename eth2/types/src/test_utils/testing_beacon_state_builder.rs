@@ -1,15 +1,15 @@
+use crate::beacon_state::BeaconStateBuilder;
+use crate::*;
 use bls::get_withdrawal_credentials;
 use int_to_bytes::int_to_bytes48;
 use rayon::prelude::*;
-use types::beacon_state::BeaconStateBuilder;
-use types::*;
 
-pub struct BeaconStateBencher {
+pub struct TestingBeaconStateBuilder {
     state: BeaconState,
     keypairs: Vec<Keypair>,
 }
 
-impl BeaconStateBencher {
+impl TestingBeaconStateBuilder {
     pub fn new(validator_count: usize, spec: &ChainSpec) -> Self {
         let keypairs: Vec<Keypair> = (0..validator_count)
             .collect::<Vec<usize>>()

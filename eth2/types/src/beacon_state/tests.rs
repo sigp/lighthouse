@@ -1,15 +1,10 @@
 #![cfg(test)]
 
 use super::*;
+use crate::test_utils::TestingBeaconStateBuilder;
 use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use crate::{BeaconState, ChainSpec};
 use ssz::{ssz_encode, Decodable};
-
-#[test]
-pub fn can_produce_genesis_block() {
-    let mut builder = BeaconStateBuilder::new(2);
-    builder.build().unwrap();
-}
 
 /// Tests that `get_attestation_participants` is consistent with the result of
 /// get_crosslink_committees_at_slot` with a full bitfield.
@@ -17,13 +12,9 @@ pub fn can_produce_genesis_block() {
 pub fn get_attestation_participants_consistency() {
     let mut rng = XorShiftRng::from_seed([42; 16]);
 
-    let mut builder = BeaconStateBuilder::new(8);
-    builder.spec = ChainSpec::few_validators();
-
-    builder.build().unwrap();
-
-    let mut state = builder.cloned_state();
-    let spec = builder.spec.clone();
+    let spec = ChainSpec::few_validators();
+    let builder = TestingBeaconStateBuilder::new(8, &spec);
+    let (mut state, _keypairs) = builder.build();
 
     state
         .build_epoch_cache(RelativeEpoch::Previous, &spec)

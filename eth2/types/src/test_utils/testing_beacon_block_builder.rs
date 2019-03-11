@@ -1,6 +1,4 @@
-use rayon::prelude::*;
-use ssz::{SignedRoot, TreeHash};
-use types::{
+use crate::{
     attester_slashing::AttesterSlashingBuilder,
     proposer_slashing::ProposerSlashingBuilder,
     test_utils::{
@@ -9,12 +7,14 @@ use types::{
     },
     *,
 };
+use rayon::prelude::*;
+use ssz::{SignedRoot, TreeHash};
 
-pub struct BeaconBlockBencher {
+pub struct TestingBeaconBlockBuilder {
     block: BeaconBlock,
 }
 
-impl BeaconBlockBencher {
+impl TestingBeaconBlockBuilder {
     pub fn new(spec: &ChainSpec) -> Self {
         Self {
             block: BeaconBlock::genesis(spec.zero_hash, spec),

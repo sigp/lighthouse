@@ -1,4 +1,3 @@
-use benching_utils::BeaconStateBencher;
 use criterion::Criterion;
 use criterion::{black_box, Benchmark};
 use ssz::TreeHash;
@@ -11,6 +10,7 @@ use state_processing::{
         update_latest_slashed_balances,
     },
 };
+use types::test_utils::TestingBeaconStateBuilder;
 use types::{validator_registry::get_active_validator_indices, *};
 
 pub const BENCHING_SAMPLE_SIZE: usize = 10;
@@ -22,7 +22,7 @@ pub fn epoch_processing_16k_validators(c: &mut Criterion) {
 
     let validator_count = 300_032;
 
-    let mut builder = BeaconStateBencher::new(validator_count, &spec);
+    let mut builder = TestingBeaconStateBuilder::new(validator_count, &spec);
 
     // Set the state to be just before an epoch transition.
     let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
