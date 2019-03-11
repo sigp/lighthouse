@@ -12,7 +12,7 @@ extern crate types;
 extern crate yaml_rust;
 
 pub use beacon_chain::BeaconChain;
-use bls::{PublicKey, Signature};
+use bls::Signature;
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
 //use env_logger::{Builder, Env};
@@ -21,9 +21,8 @@ use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
-use types::{
-    BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Epoch, Eth1Data, Hash256, Slot, Validator,
-};
+use types::test_utils::TestingBeaconStateBuilder;
+use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Slot};
 use yaml_rust::yaml;
 
 // Note: We Assume the block Id's are hex-encoded.
@@ -207,8 +206,6 @@ fn setup_inital_state(
     fork_choice_algo: &ForkChoiceAlgorithm,
     no_validators: usize,
 ) -> (Box<ForkChoice>, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
-    let zero_hash = Hash256::zero();
-
     let db = Arc::new(MemoryDB::open());
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));
@@ -225,40 +222,10 @@ fn setup_inital_state(
         ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(block_store.clone())),
     };
 
-    // misc vars for setting up the state
-    let genesis_time = 1_550_381_159;
-
-    let latest_eth1_data = Eth1Data {
-        deposit_root: zero_hash.clone(),
-        block_hash: zero_hash.clone(),
-    };
-
-    let initial_validator_deposits = vec![];
     let spec = ChainSpec::foundation();
 
-    // create the state
-    let mut state = BeaconState::genesis(
-        genesis_time,
-        initial_validator_deposits,
-        latest_eth1_data,
-        &spec,
-    )
-    .unwrap();
-
-    let default_validator = Validator {
-        pubkey: PublicKey::default(),
-        withdrawal_credentials: zero_hash,
-        activation_epoch: Epoch::from(0u64),
-        exit_epoch: spec.far_future_epoch,
-        withdrawable_epoch: spec.far_future_epoch,
-        initiated_exit: false,
-        slashed: false,
-    };
-    // activate the validators
-    for _ in 0..no_validators {
-        state.validator_registry.push(default_validator.clone());
-        state.validator_balances.push(32_000_000_000);
-    }
+    let state_builder = TestingBeaconStateBuilder::new(no_validators, &spec);
+    let (state, _keypairs) = state_builder.build();
 
     let state_root = state.canonical_root();
     state_store
