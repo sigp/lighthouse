@@ -29,12 +29,6 @@ pub fn verify_proof_of_possession(sig: &Signature, pubkey: &PublicKey) -> bool {
     sig.verify(&ssz_encode(pubkey), 0, &pubkey)
 }
 
-// TODO: Update this method
-// https://github.com/sigp/lighthouse/issues/239
-pub fn create_proof_of_possession(keypair: &Keypair) -> Signature {
-    Signature::new(&ssz_encode(&keypair.pk), 0, &keypair.sk)
-}
-
 /// Returns the withdrawal credentials for a given public key.
 pub fn get_withdrawal_credentials(pubkey: &PublicKey, prefix_byte: u8) -> Vec<u8> {
     let hashed = hash(&ssz_encode(pubkey));

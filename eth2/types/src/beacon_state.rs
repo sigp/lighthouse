@@ -1,7 +1,6 @@
 use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{validator_registry::get_active_validator_indices, *};
-use bls::verify_proof_of_possession;
 use helpers::*;
 use honey_badger_split::SplitExt;
 use int_to_bytes::int_to_bytes32;
@@ -9,7 +8,7 @@ use log::{debug, error, trace};
 use rand::RngCore;
 use rayon::prelude::*;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, Decodable, DecodeError, Encodable, SignedRoot, SszStream, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::shuffle_list;
 
@@ -590,10 +589,8 @@ impl BeaconState {
 
         for deposit_data in deposits {
             let result = self.process_deposit(
-                deposit_data.deposit_input.pubkey.clone(),
+                deposit_data.deposit_input.clone(),
                 deposit_data.amount,
-                deposit_data.deposit_input.proof_of_possession.clone(),
-                deposit_data.deposit_input.withdrawal_credentials,
                 Some(&pubkey_map),
                 spec,
             );
@@ -616,17 +613,23 @@ impl BeaconState {
     /// Spec v0.4.0
     pub fn process_deposit(
         &mut self,
-        pubkey: PublicKey,
+        deposit_input: DepositInput,
         amount: u64,
-        proof_of_possession: Signature,
-        withdrawal_credentials: Hash256,
         pubkey_map: Option<&HashMap<PublicKey, usize>>,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-        //
-        if !verify_proof_of_possession(&proof_of_possession, &pubkey) {
+        let proof_is_valid = deposit_input.proof_of_possession.verify(
+            &deposit_input.signed_root(),
+            spec.get_domain(self.current_epoch(&spec), Domain::Deposit, &self.fork),
+            &deposit_input.pubkey,
+        );
+
+        if !proof_is_valid {
             return Err(());
         }
+
+        let pubkey = deposit_input.pubkey.clone();
+        let withdrawal_credentials = deposit_input.withdrawal_credentials.clone();
 
         let validator_index = if let Some(pubkey_map) = pubkey_map {
             pubkey_map.get(&pubkey).and_then(|i| Some(*i))
@@ -1053,33 +1056,6 @@ impl BeaconState {
         }
 
         self.validator_registry_update_epoch = current_epoch;
-    }
-
-    /// Confirm validator owns PublicKey
-    ///
-    /// Spec v0.4.0
-    pub fn validate_proof_of_possession(
-        &self,
-        pubkey: PublicKey,
-        proof_of_possession: Signature,
-        withdrawal_credentials: Hash256,
-        spec: &ChainSpec,
-    ) -> bool {
-        let proof_of_possession_data = DepositInput {
-            pubkey: pubkey.clone(),
-            withdrawal_credentials,
-            proof_of_possession: Signature::empty_signature(),
-        };
-
-        proof_of_possession.verify(
-            &proof_of_possession_data.hash_tree_root(),
-            spec.get_domain(
-                self.slot.epoch(spec.slots_per_epoch),
-                Domain::Deposit,
-                &self.fork,
-            ),
-            &pubkey,
-        )
     }
 
     /// Iterate through the validator registry and eject active validators with balance below
