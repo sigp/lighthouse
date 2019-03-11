@@ -153,12 +153,12 @@ impl TestingBeaconBlockBuilder {
     }
 
     /// Insert a `Valid` deposit into the state.
-    pub fn insert_deposit(&mut self, amount: u64, index: u64, spec: &ChainSpec) {
+    pub fn insert_deposit(&mut self, amount: u64, index: u64, domain: u64, spec: &ChainSpec) {
         let keypair = Keypair::random();
 
         let mut builder = TestingDepositBuilder::new(amount);
         builder.set_index(index);
-        builder.sign(&keypair, spec);
+        builder.sign(&keypair, domain, spec);
 
         self.block.body.deposits.push(builder.build())
     }
