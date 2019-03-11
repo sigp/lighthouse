@@ -11,7 +11,6 @@ harness = false
 [dev-dependencies]
 criterion = "0.2"
 env_logger = "0.6.0"
-benching_utils = { path = "./benching_utils" }
 
 [dependencies]
 bls = { path = "../utils/bls" }

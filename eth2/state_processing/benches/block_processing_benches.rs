@@ -1,4 +1,3 @@
-use benching_utils::{BeaconBlockBencher, BeaconStateBencher};
 use criterion::Criterion;
 use criterion::{black_box, Benchmark};
 use ssz::TreeHash;
@@ -10,6 +9,7 @@ use state_processing::{
         verify_block_signature,
     },
 };
+use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::*;
 
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
@@ -82,7 +82,7 @@ pub fn block_processing_16k_validators(c: &mut Criterion) {
 }
 
 fn build_state(validator_count: usize, spec: &ChainSpec) -> (BeaconState, Vec<Keypair>) {
-    let mut builder = BeaconStateBencher::new(validator_count, &spec);
+    let mut builder = TestingBeaconStateBuilder::new(validator_count, &spec);
 
     // Set the state to be just before an epoch transition.
     let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
@@ -95,7 +95,7 @@ fn build_state(validator_count: usize, spec: &ChainSpec) -> (BeaconState, Vec<Ke
 }
 
 fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) -> BeaconBlock {
-    let mut builder = BeaconBlockBencher::new(spec);
+    let mut builder = TestingBeaconBlockBuilder::new(spec);
 
     builder.set_slot(state.slot);
 
