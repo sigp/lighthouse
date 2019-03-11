@@ -29,7 +29,6 @@ pub fn verify_proof_of_possession(sig: &Signature, pubkey: &PublicKey) -> bool {
     sig.verify(&ssz_encode(pubkey), 0, &pubkey)
 }
 
-
 /// Returns the withdrawal credentials for a given public key.
 pub fn get_withdrawal_credentials(pubkey: &PublicKey, prefix_byte: u8) -> Vec<u8> {
     let hashed = hash(&ssz_encode(pubkey));
