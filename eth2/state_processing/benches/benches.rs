@@ -1,14 +1,14 @@
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
 
-mod block_processing_benches;
-mod epoch_processing_benches;
+mod bench_block_processing;
+mod bench_epoch_processing;
 
 pub const VALIDATOR_COUNT: usize = 300_032;
 
 pub fn state_processing(c: &mut Criterion) {
-    block_processing_benches::bench_block_processing_n_validators(c, VALIDATOR_COUNT);
-    epoch_processing_benches::bench_epoch_processing_n_validators(c, VALIDATOR_COUNT);
+    bench_block_processing::bench_block_processing_n_validators(c, VALIDATOR_COUNT);
+    bench_epoch_processing::bench_epoch_processing_n_validators(c, VALIDATOR_COUNT);
 }
 
 criterion_group!(benches, state_processing,);
