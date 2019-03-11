@@ -3,14 +3,25 @@ use crate::test_utils::TestRandom;
 use bls::{Keypair, PublicKey, Signature};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use ssz::{SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
 
 /// The data supplied by the user to the deposit contract.
 ///
 /// Spec v0.4.0
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, SignedRoot, TreeHash, TestRandom)]
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    SignedRoot,
+    TreeHash,
+    TestRandom,
+)]
 pub struct DepositInput {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
@@ -21,7 +32,11 @@ impl DepositInput {
     /// Generate the 'proof_of_posession' signature for a given DepositInput details.
     ///
     /// Spec v0.4.0
-    pub fn create_proof_of_possession(keypair: &Keypair, withdrawal_credentials: &Hash256, domain: u64) -> Signature {
+    pub fn create_proof_of_possession(
+        keypair: &Keypair,
+        withdrawal_credentials: &Hash256,
+        domain: u64,
+    ) -> Signature {
         let signable_deposite_input = DepositInput {
             pubkey: keypair.pk.clone(),
             withdrawal_credentials: withdrawal_credentials.clone(),

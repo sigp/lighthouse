@@ -618,19 +618,14 @@ impl BeaconState {
         pubkey_map: Option<&HashMap<PublicKey, usize>>,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-
         let proof_is_valid = deposit_input.proof_of_possession.verify(
             &deposit_input.signed_root(),
-            spec.get_domain(
-                self.current_epoch(&spec),
-                Domain::Deposit,
-                &self.fork,
-            ),
+            spec.get_domain(self.current_epoch(&spec), Domain::Deposit, &self.fork),
             &deposit_input.pubkey,
         );
 
         if !proof_is_valid {
-            return Err(())
+            return Err(());
         }
 
         let pubkey = deposit_input.pubkey.clone();

@@ -265,10 +265,14 @@ fn build_deposit(
         &keypair,
         &withdrawal_credentials,
         harness.spec.get_domain(
-            harness.beacon_chain.state.read().current_epoch(&harness.spec),
+            harness
+                .beacon_chain
+                .state
+                .read()
+                .current_epoch(&harness.spec),
             Domain::Deposit,
             &harness.beacon_chain.state.read().fork,
-        )
+        ),
     );
     let index = harness.beacon_chain.state.read().deposit_index + index_offset;
 

@@ -19,8 +19,8 @@ use slot_clock::SystemTimeSlotClock;
 use ssz::TreeHash;
 use std::sync::Arc;
 use types::{
-    beacon_state::BeaconStateBuilder, BeaconBlock, ChainSpec, Domain, Deposit, DepositData, DepositInput,
-    Eth1Data, Fork, Hash256, Keypair,
+    beacon_state::BeaconStateBuilder, BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput,
+    Domain, Eth1Data, Fork, Hash256, Keypair,
 };
 
 fn main() {
@@ -123,7 +123,7 @@ fn main() {
                                 previous_version: spec.genesis_fork_version,
                                 current_version: spec.genesis_fork_version,
                                 epoch: spec.genesis_epoch,
-                            }
+                            },
                         ),
                     ),
                 },
