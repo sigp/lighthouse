@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use crate::config::LighthouseConfig;
 use crate::rpc::start_server;
 use beacon_chain::BeaconChain;
-use bls::create_proof_of_possession;
 use clap::{App, Arg};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -21,7 +20,7 @@ use ssz::TreeHash;
 use std::sync::Arc;
 use types::{
     beacon_state::BeaconStateBuilder, BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput,
-    Eth1Data, Hash256, Keypair,
+    Domain, Eth1Data, Fork, Hash256, Keypair,
 };
 
 fn main() {
@@ -113,7 +112,20 @@ fn main() {
                 deposit_input: DepositInput {
                     pubkey: keypair.pk.clone(),
                     withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
-                    proof_of_possession: create_proof_of_possession(&keypair),
+                    proof_of_possession: DepositInput::create_proof_of_possession(
+                        &keypair,
+                        &Hash256::zero(),
+                        spec.get_domain(
+                            // Get domain from genesis fork_version
+                            spec.genesis_epoch,
+                            Domain::Deposit,
+                            &Fork {
+                                previous_version: spec.genesis_fork_version,
+                                current_version: spec.genesis_fork_version,
+                                epoch: spec.genesis_epoch,
+                            },
+                        ),
+                    ),
                 },
             },
         })

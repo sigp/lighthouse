@@ -115,7 +115,20 @@ impl BeaconChainHarness {
             );
         } else {
             debug!("Generating initial validator deposits...");
-            let deposits = generate_deposits_from_keypairs(&keypairs, genesis_time, &spec);
+            let deposits = generate_deposits_from_keypairs(
+                &keypairs,
+                genesis_time,
+                spec.get_domain(
+                    spec.genesis_epoch,
+                    Domain::Deposit,
+                    &Fork {
+                        previous_version: spec.genesis_fork_version,
+                        current_version: spec.genesis_fork_version,
+                        epoch: spec.genesis_epoch,
+                    },
+                ),
+                &spec,
+            );
             state_builder.process_initial_deposits(&deposits, &spec);
         };
 
