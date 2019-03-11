@@ -17,10 +17,8 @@ pub const BENCHING_SAMPLE_SIZE: usize = 10;
 pub const SMALL_BENCHING_SAMPLE_SIZE: usize = 10;
 
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
-pub fn epoch_processing_16k_validators(c: &mut Criterion) {
+pub fn bench_epoch_processing_n_validators(c: &mut Criterion, validator_count: usize) {
     let spec = ChainSpec::foundation();
-
-    let validator_count = 300_032;
 
     let mut builder = TestingBeaconStateBuilder::new(validator_count, &spec);
 

@@ -13,10 +13,8 @@ use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::*;
 
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
-pub fn block_processing_16k_validators(c: &mut Criterion) {
+pub fn bench_block_processing_n_validators(c: &mut Criterion, validator_count: usize) {
     let spec = ChainSpec::foundation();
-
-    let validator_count = 300_032;
 
     let (mut state, keypairs) = build_state(validator_count, &spec);
     let block = build_block(&mut state, &keypairs, &spec);
