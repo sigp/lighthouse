@@ -10,7 +10,7 @@ fn it_can_build_on_genesis_block() {
     let spec = ChainSpec::few_validators();
     let validator_count = 8;
 
-    let mut harness = BeaconChainHarness::new(spec, validator_count as usize);
+    let mut harness = BeaconChainHarness::new(spec, validator_count as usize, None, true);
 
     harness.advance_chain_with_block();
 }
@@ -25,7 +25,7 @@ fn it_can_produce_past_first_epoch_boundary() {
 
     debug!("Starting harness build...");
 
-    let mut harness = BeaconChainHarness::new(spec, validator_count);
+    let mut harness = BeaconChainHarness::new(spec, validator_count, None, true);
 
     debug!("Harness built, tests starting..");
 
