@@ -23,7 +23,7 @@ impl TestingBeaconStateBuilder {
             .collect();
 
         let validators = keypairs
-            .iter()
+            .par_iter()
             .map(|keypair| {
                 let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
                     &keypair.pk,
