@@ -197,7 +197,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("verify_block_signature", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -215,7 +215,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_randao", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -232,7 +232,7 @@ fn bench_block_processing(
     let state = initial_state.clone();
     let block = initial_block.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_eth1_data", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -250,7 +250,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_proposer_slashings", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -269,7 +269,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_attester_slashings", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -288,7 +288,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_attestations", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -306,7 +306,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_deposits", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -324,7 +324,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_exits", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -342,7 +342,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("process_transfers", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -360,7 +360,7 @@ fn bench_block_processing(
     let block = initial_block.clone();
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("per_block_processing", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -378,7 +378,7 @@ fn bench_block_processing(
     state.drop_cache(RelativeEpoch::Previous);
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("build_previous_state_epoch_cache", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -398,7 +398,7 @@ fn bench_block_processing(
     state.drop_cache(RelativeEpoch::Current);
     let spec = initial_spec.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("build_current_state_epoch_cache", move |b| {
             b.iter_batched(
                 || state.clone(),
@@ -416,7 +416,7 @@ fn bench_block_processing(
 
     let block = initial_block.clone();
     c.bench(
-        &format!("block_processing_{}", desc),
+        &format!("{}/block_processing", desc),
         Benchmark::new("tree_hash_block", move |b| {
             b.iter(|| black_box(block.hash_tree_root()))
         })

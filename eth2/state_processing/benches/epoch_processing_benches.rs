@@ -77,7 +77,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("calculate_active_validator_indices", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -95,7 +95,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let spec_clone = spec.clone();
     let active_validator_indices = calculate_active_validator_indices(&state, &spec);
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("calculate_current_total_balance", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -112,7 +112,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("calculate_previous_total_balance", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -135,7 +135,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("process_eth1_data", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -152,7 +152,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("calculate_attester_sets", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -177,7 +177,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
         &spec,
     );
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("process_justification", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -201,7 +201,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("process_crosslinks", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -223,7 +223,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     );
     let winning_root_for_shards = process_crosslinks(&mut state_clone, &spec).unwrap();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("process_rewards_and_penalties", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -248,7 +248,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("process_ejections", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -289,7 +289,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
         "The state should have been finalized."
     );
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("process_validator_registry", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -306,7 +306,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("update_active_tree_index_roots", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -323,7 +323,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("update_latest_slashed_balances", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -340,7 +340,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("clean_attestations", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -357,7 +357,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("per_epoch_processing", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -370,7 +370,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
 
     let state_clone = state.clone();
     c.bench(
-        &format!("epoch_process_with_caches_{}", desc),
+        &format!("{}/epoch_processing", desc),
         Benchmark::new("tree_hash_state", move |b| {
             b.iter(|| black_box(state_clone.hash_tree_root()))
         })
