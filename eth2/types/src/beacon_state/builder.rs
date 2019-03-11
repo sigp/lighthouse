@@ -53,7 +53,8 @@ impl BeaconStateBuilder {
 
     /// Instantiate the validator registry from a YAML file.
     ///
-    /// This skips a lot of signing and verification, useful for fast test setups.
+    /// This skips a lot of signing and verification, useful if signing and verification has been
+    /// completed previously.
     ///
     /// Spec v0.4.0
     pub fn import_existing_validators(
