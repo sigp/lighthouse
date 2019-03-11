@@ -140,7 +140,7 @@ fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) 
 
     // Insert the maximum possible number of `Deposit` objects.
     for i in 0..spec.max_deposits {
-        builder.insert_deposit(32_000_000_000, state.deposit_index + i, spec);
+        builder.insert_deposit(32_000_000_000, state.deposit_index + i, state, spec);
     }
 
     // Insert the maximum possible number of `Exit` objects.

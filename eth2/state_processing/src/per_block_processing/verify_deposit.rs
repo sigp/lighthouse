@@ -1,5 +1,4 @@
 use super::errors::{DepositInvalid as Invalid, DepositValidationError as Error};
-use bls::verify_proof_of_possession;
 use hashing::hash;
 use merkle_proof::verify_merkle_proof;
 use ssz::ssz_encode;
@@ -27,13 +26,14 @@ pub fn verify_deposit(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(
-        // TODO: update proof of possession.
-        //
-        // https://github.com/sigp/lighthouse/issues/239
-        verify_proof_of_possession(
-            &deposit.deposit_data.deposit_input.proof_of_possession,
-            &deposit.deposit_data.deposit_input.pubkey
-        ),
+        deposit
+            .deposit_data
+            .deposit_input
+            .validate_proof_of_possession(
+                state.slot.epoch(spec.slots_per_epoch),
+                &state.fork,
+                spec
+            ),
         Invalid::BadProofOfPossession
     );
 
