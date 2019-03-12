@@ -1,6 +1,7 @@
 use super::{PublicKey, SecretKey};
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Keypair {
     pub sk: SecretKey,
     pub pk: PublicKey,

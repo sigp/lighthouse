@@ -2,9 +2,11 @@ use crate::*;
 use ssz::SignedRoot;
 
 /// Builds a `ProposerSlashing`.
-pub struct ProposerSlashingBuilder();
+///
+/// This struct should **never be used for production purposes.**
+pub struct TestingProposerSlashingBuilder();
 
-impl ProposerSlashingBuilder {
+impl TestingProposerSlashingBuilder {
     /// Builds a `ProposerSlashing` that is a double vote.
     ///
     /// The `signer` function is used to sign the double-vote and accepts:
