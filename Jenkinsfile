@@ -2,18 +2,19 @@ pipeline {
     agent {
 		dockerfile {
 			filename 'Dockerfile'
-			args '-v cargo-cache:/cargocache:rw -e "CARGO_HOME=/cargocache"'
+			args '-v cargo-cache:/cargocache:rw'
 		}
 	}
     stages {
-        stage('Check') {
-            steps {
-                sh 'cargo fmt --all -- --check'
-            }
-        }
         stage('Build') {
             steps {
                 sh 'cargo build'
+            }
+        }
+        stage('Check') {
+            steps {
+                sh 'cargo fmt --all -- --check'
+                sh 'cargo clippy'
             }
         }
         stage('Test') {

@@ -1,7 +1,5 @@
 FROM rust:latest
 
-RUN rustup component add rustfmt
-
 RUN apt-get update && apt-get install -y clang libclang-dev cmake build-essential git unzip autoconf libtool
 
 RUN git clone https://github.com/google/protobuf.git && \
@@ -17,3 +15,7 @@ RUN git clone https://github.com/google/protobuf.git && \
 
 
 RUN mkdir /cargocache && chmod -R ugo+rwX /cargocache
+
+ENV CARGO_HOME /cargocache
+
+RUN rustup component add rustfmt clippy
