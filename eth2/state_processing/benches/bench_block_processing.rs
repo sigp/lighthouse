@@ -9,19 +9,14 @@ use state_processing::{
         verify_block_signature,
     },
 };
-use std::path::Path;
 use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::*;
 
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
-pub fn bench_block_processing_n_validators(
-    c: &mut Criterion,
-    validator_count: usize,
-    keypair_file: Option<&Path>,
-) {
+pub fn bench_block_processing_n_validators(c: &mut Criterion, validator_count: usize) {
     let spec = ChainSpec::foundation();
 
-    let (mut state, keypairs) = build_state(validator_count, keypair_file, &spec);
+    let (mut state, keypairs) = build_state(validator_count, &spec);
     let block = build_block(&mut state, &keypairs, &spec);
 
     assert_eq!(
@@ -84,12 +79,9 @@ pub fn bench_block_processing_n_validators(
     );
 }
 
-fn build_state(
-    validator_count: usize,
-    keypair_file: Option<&Path>,
-    spec: &ChainSpec,
-) -> (BeaconState, Vec<Keypair>) {
-    let mut builder = TestingBeaconStateBuilder::new(validator_count, keypair_file, &spec);
+fn build_state(validator_count: usize, spec: &ChainSpec) -> (BeaconState, Vec<Keypair>) {
+    let mut builder =
+        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
 
     // Set the state to be just before an epoch transition.
     let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);

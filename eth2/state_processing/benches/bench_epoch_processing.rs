@@ -10,7 +10,6 @@ use state_processing::{
         update_latest_slashed_balances,
     },
 };
-use std::path::Path;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{validator_registry::get_active_validator_indices, *};
 
@@ -18,14 +17,11 @@ pub const BENCHING_SAMPLE_SIZE: usize = 10;
 pub const SMALL_BENCHING_SAMPLE_SIZE: usize = 10;
 
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
-pub fn bench_epoch_processing_n_validators(
-    c: &mut Criterion,
-    validator_count: usize,
-    keypair_file: Option<&Path>,
-) {
+pub fn bench_epoch_processing_n_validators(c: &mut Criterion, validator_count: usize) {
     let spec = ChainSpec::foundation();
 
-    let mut builder = TestingBeaconStateBuilder::new(validator_count, keypair_file, &spec);
+    let mut builder =
+        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
 
     // Set the state to be just before an epoch transition.
     let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);

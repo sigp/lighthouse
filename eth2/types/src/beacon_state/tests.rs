@@ -13,7 +13,7 @@ pub fn get_attestation_participants_consistency() {
     let mut rng = XorShiftRng::from_seed([42; 16]);
 
     let spec = ChainSpec::few_validators();
-    let builder = TestingBeaconStateBuilder::new(8, None, &spec);
+    let builder = TestingBeaconStateBuilder::from_deterministic_keypairs(8, &spec);
     let (mut state, _keypairs) = builder.build();
 
     state

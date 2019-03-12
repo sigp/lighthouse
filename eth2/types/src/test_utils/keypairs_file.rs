@@ -1,4 +1,5 @@
 use crate::*;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::path::Path;
@@ -45,19 +46,27 @@ impl KeypairsFile for Vec<Keypair> {
             let mut buf = vec![0; batch.len() * KEYPAIR_BYTES_LEN];
             keypairs_file.read_exact(&mut buf)?;
 
-            for (i, _) in batch.iter().enumerate() {
-                let sk_start = i * KEYPAIR_BYTES_LEN;
-                let sk_end = sk_start + SECRET_KEY_BYTES_LEN;
-                let sk = SecretKey::from_bytes(&buf[sk_start..sk_end])
-                    .map_err(|_| Error::new(ErrorKind::Other, "Invalid SecretKey bytes"))?;
+            let mut keypair_batch = batch
+                .par_iter()
+                .enumerate()
+                .map(|(i, _)| {
+                    let sk_start = i * KEYPAIR_BYTES_LEN;
+                    let sk_end = sk_start + SECRET_KEY_BYTES_LEN;
+                    let sk = SecretKey::from_bytes(&buf[sk_start..sk_end])
+                        .map_err(|_| Error::new(ErrorKind::Other, "Invalid SecretKey bytes"))
+                        .unwrap();
 
-                let pk_start = sk_end;
-                let pk_end = pk_start + PUBLIC_KEY_BYTES_LEN;
-                let pk = PublicKey::from_bytes(&buf[pk_start..pk_end])
-                    .map_err(|_| Error::new(ErrorKind::Other, "Invalid PublicKey bytes"))?;
+                    let pk_start = sk_end;
+                    let pk_end = pk_start + PUBLIC_KEY_BYTES_LEN;
+                    let pk = PublicKey::from_bytes(&buf[pk_start..pk_end])
+                        .map_err(|_| Error::new(ErrorKind::Other, "Invalid PublicKey bytes"))
+                        .unwrap();
 
-                keypairs.push(Keypair { sk, pk });
-            }
+                    Keypair { sk, pk }
+                })
+                .collect();
+
+            keypairs.append(&mut keypair_batch);
         }
 
         Ok(keypairs)
@@ -68,7 +77,6 @@ impl KeypairsFile for Vec<Keypair> {
 mod tests {
     use super::*;
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
-    use rayon::prelude::*;
     use std::fs::remove_file;
 
     fn random_keypairs(n: usize) -> Vec<Keypair> {

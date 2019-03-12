@@ -2,6 +2,8 @@ use clap::{App, Arg, SubCommand};
 use env_logger::{Builder, Env};
 use gen_keys::gen_keys;
 use run_test::run_test;
+use std::fs;
+use types::test_utils::keypairs_path;
 use types::ChainSpec;
 
 mod beacon_chain_harness;
@@ -13,6 +15,10 @@ mod validator_harness;
 use validator_harness::ValidatorHarness;
 
 fn main() {
+    let validator_file_path = keypairs_path();
+
+    fs::create_dir(validator_file_path.parent().unwrap()).unwrap();
+
     let matches = App::new("Lighthouse Test Harness Runner")
         .version("0.0.1")
         .author("Sigma Prime <contact@sigmaprime.io>")
@@ -71,7 +77,7 @@ fn main() {
                         .short("d")
                         .value_name("GENESIS_TIME")
                         .help("Output directory for generated YAML.")
-                        .default_value("keypairs.raw_keypairs"),
+                        .default_value(validator_file_path.to_str().unwrap()),
                 ),
         )
         .get_matches();

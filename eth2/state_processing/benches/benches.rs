@@ -1,7 +1,6 @@
 use criterion::Benchmark;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
-use std::path::Path;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
 
@@ -11,8 +10,8 @@ mod bench_epoch_processing;
 pub const VALIDATOR_COUNT: usize = 300_032;
 
 pub fn state_processing(c: &mut Criterion) {
-    bench_block_processing::bench_block_processing_n_validators(c, VALIDATOR_COUNT, None);
-    bench_epoch_processing::bench_epoch_processing_n_validators(c, VALIDATOR_COUNT, None);
+    bench_block_processing::bench_block_processing_n_validators(c, VALIDATOR_COUNT);
+    bench_epoch_processing::bench_epoch_processing_n_validators(c, VALIDATOR_COUNT);
 }
 
 pub fn key_loading(c: &mut Criterion) {
@@ -23,7 +22,12 @@ pub fn key_loading(c: &mut Criterion) {
         Benchmark::new("generated", move |b| {
             b.iter_batched(
                 || (),
-                |_| TestingBeaconStateBuilder::new(validator_count, None, &ChainSpec::foundation()),
+                |_| {
+                    TestingBeaconStateBuilder::from_deterministic_keypairs(
+                        validator_count,
+                        &ChainSpec::foundation(),
+                    )
+                },
                 criterion::BatchSize::SmallInput,
             )
         })
@@ -31,17 +35,14 @@ pub fn key_loading(c: &mut Criterion) {
     );
 
     // Note: path needs to be relative to where cargo is executed from.
-    let keypair_file =
-        Path::new("../../beacon_node/beacon_chain/test_harness/keypairs.raw_keypairs");
     c.bench(
         &format!("{}_validators", validator_count),
         Benchmark::new("from_file", move |b| {
             b.iter_batched(
                 || (),
                 |_| {
-                    TestingBeaconStateBuilder::new(
+                    TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
                         validator_count,
-                        Some(&keypair_file),
                         &ChainSpec::foundation(),
                     )
                 },

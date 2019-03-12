@@ -2,8 +2,22 @@ use super::{generate_deterministic_keypairs, KeypairsFile};
 use crate::beacon_state::BeaconStateBuilder;
 use crate::*;
 use bls::get_withdrawal_credentials;
+use dirs;
 use rayon::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
+
+/// Returns the directory where the generated keypairs should be stored.
+///
+/// It is either `$HOME/.lighthouse/keypairs.raw_keypairs` or, if `$HOME` is not available,
+/// `./keypairs.raw_keypairs`.
+pub fn keypairs_path() -> PathBuf {
+    let dir = dirs::home_dir()
+        .and_then(|home| Some(home.join(".lighthouse")))
+        .unwrap_or_else(|| PathBuf::from(""));
+    dir.join(KEYPAIRS_FILE)
+}
 
 pub struct TestingBeaconStateBuilder {
     state: BeaconState,
@@ -11,11 +25,52 @@ pub struct TestingBeaconStateBuilder {
 }
 
 impl TestingBeaconStateBuilder {
-    pub fn new(validator_count: usize, keypairs_path: Option<&Path>, spec: &ChainSpec) -> Self {
-        let keypairs = match keypairs_path {
-            None => generate_deterministic_keypairs(validator_count),
-            Some(path) => Vec::from_raw_file(path, validator_count).unwrap(),
-        };
+    /// Attempts to load validators from a file in the `CARGO_MANIFEST_DIR`. If the file is
+    /// unavailable, it generates the keys at runtime.
+    ///
+    /// If the `CARGO_MANIFEST_DIR` environment variable is not set, the local directory is used.
+    ///
+    /// See the `Self::from_keypairs_file` method for more info.
+    ///
+    /// # Panics
+    ///
+    /// If the file does not contain enough keypairs or is invalid.
+    pub fn from_default_keypairs_file_if_exists(validator_count: usize, spec: &ChainSpec) -> Self {
+        let dir = dirs::home_dir()
+            .and_then(|home| Some(home.join(".lighthouse")))
+            .unwrap_or_else(|| PathBuf::from(""));
+        let file = dir.join(KEYPAIRS_FILE);
+
+        if file.exists() {
+            TestingBeaconStateBuilder::from_keypairs_file(validator_count, &file, spec)
+        } else {
+            TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, spec)
+        }
+    }
+
+    /// Loads the initial validator keypairs from a file on disk.
+    ///
+    /// Loading keypairs from file is ~10x faster than generating them. Use the `gen_keys` command
+    /// on the  `test_harness` binary to generate the keys. In the `test_harness` dir, run `cargo
+    /// run -- gen_keys -h` for help.
+    ///
+    /// # Panics
+    ///
+    /// If the file does not exist, is invalid or does not contain enough keypairs.
+    pub fn from_keypairs_file(validator_count: usize, path: &Path, spec: &ChainSpec) -> Self {
+        let keypairs = Vec::from_raw_file(path, validator_count).unwrap();
+        TestingBeaconStateBuilder::from_keypairs(keypairs, spec)
+    }
+
+    /// Generates the validator keypairs deterministically.
+    pub fn from_deterministic_keypairs(validator_count: usize, spec: &ChainSpec) -> Self {
+        let keypairs = generate_deterministic_keypairs(validator_count);
+        TestingBeaconStateBuilder::from_keypairs(keypairs, spec)
+    }
+
+    /// Creates the builder from an existing set of keypairs.
+    pub fn from_keypairs(keypairs: Vec<Keypair>, spec: &ChainSpec) -> Self {
+        let validator_count = keypairs.len();
 
         let validators = keypairs
             .par_iter()
@@ -61,10 +116,15 @@ impl TestingBeaconStateBuilder {
         }
     }
 
+    /// Consume the builder and return the `BeaconState` and the keypairs for each validator.
     pub fn build(self) -> (BeaconState, Vec<Keypair>) {
         (self.state, self.keypairs)
     }
 
+    /// Ensures that the state returned from `Self::build(..)` has all caches pre-built.
+    ///
+    /// Note: this performs the build when called. Ensure that no changes are made that would
+    /// invalidate this cache.
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
         let state = &mut self.state;
 
@@ -147,6 +207,9 @@ impl TestingBeaconStateBuilder {
     }
 }
 
+/// Maps a committee to a `PendingAttestation`.
+///
+/// The committee will be signed by all validators in the committee.
 fn committee_to_pending_attestation(
     state: &BeaconState,
     committee: &[usize],
