@@ -18,3 +18,4 @@ slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
 ssz = { path = "../eth2/utils/ssz" }
+bincode = "^1.1.2"

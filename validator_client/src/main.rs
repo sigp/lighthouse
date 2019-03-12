@@ -6,7 +6,7 @@ use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services_grpc::{BeaconBlockServiceClient, ValidatorServiceClient};
-use slog::{error, info, o, Drain};
+use slog::{debug, error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,6 +16,8 @@ use types::ChainSpec;
 mod block_producer_service;
 mod config;
 mod duties;
+
+const NUMBER_OF_VALIDATOR_TEST_KEYS: u16 = 3;
 
 fn main() {
     // Logging
@@ -55,7 +57,7 @@ fn main() {
         )
         .get_matches();
 
-    let mut config = ClientConfig::default();
+    let mut config = ClientConfig::default().expect("Unable to create a default configuration.");
 
     // Custom datadir
     if let Some(dir) = matches.value_of("datadir") {
@@ -123,9 +125,27 @@ fn main() {
      * Start threads.
      */
     let mut threads = vec![];
-    // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
-    // https://github.com/sigp/lighthouse/issues/160
-    let keypairs = vec![Keypair::random()];
+
+    let keypairs = config
+        .fetch_keys()
+        .expect("Encountered an error while fetching saved keys.")
+        .unwrap_or_else(|| {
+            // TODO: Key generation should occur in a separate binary
+            let mut k = Vec::new();
+            info!(
+                log,
+                "No key pairs found, generating and saving 3 random key pairs."
+            );
+            for _n in 0..NUMBER_OF_VALIDATOR_TEST_KEYS {
+                let keypair = Keypair::random();
+                config
+                    .save_key(&keypair)
+                    .expect("Unable to save newly generated private key.");
+                debug!(log, "Keypair generated {:?}", keypair.identifier());
+                k.push(keypair);
+            }
+            k
+        });
 
     for keypair in keypairs {
         info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
