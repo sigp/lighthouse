@@ -7,9 +7,9 @@ before_install:
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
 script:
+  - cargo fmt --all -- --check
   - cargo build --verbose --all
   - cargo test --verbose --all
-  - cargo fmt --all -- --check
 rust:
   - stable
   - beta
