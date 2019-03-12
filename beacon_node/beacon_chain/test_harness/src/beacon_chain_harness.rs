@@ -16,13 +16,11 @@ use std::fs::File;
 use std::iter::FromIterator;
 use std::path::Path;
 use std::sync::Arc;
-use types::{beacon_state::BeaconStateBuilder, *};
+use types::{beacon_state::BeaconStateBuilder, test_utils::generate_deterministic_keypairs, *};
 
 mod generate_deposits;
-mod load_deposits_from_file;
 
-pub use generate_deposits::{generate_deposits_from_keypairs, generate_deterministic_keypairs};
-pub use load_deposits_from_file::load_deposits_from_file;
+pub use generate_deposits::generate_deposits_from_keypairs;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read

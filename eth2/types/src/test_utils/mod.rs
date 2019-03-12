@@ -1,3 +1,5 @@
+mod generate_deterministic_keypairs;
+mod keypairs_file;
 mod test_random;
 mod testing_attestation_builder;
 mod testing_beacon_block_builder;
@@ -6,6 +8,8 @@ mod testing_deposit_builder;
 mod testing_transfer_builder;
 mod testing_voluntary_exit_builder;
 
+pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
+pub use keypairs_file::KeypairsFile;
 pub use rand::{prng::XorShiftRng, SeedableRng};
 pub use test_random::TestRandom;
 pub use testing_attestation_builder::TestingAttestationBuilder;

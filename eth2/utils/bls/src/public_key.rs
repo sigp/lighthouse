@@ -1,6 +1,6 @@
 use super::serde_vistors::HexVisitor;
 use super::SecretKey;
-use bls_aggregates::PublicKey as RawPublicKey;
+use bls_aggregates::{DecodeError as BlsDecodeError, PublicKey as RawPublicKey};
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -22,7 +22,14 @@ impl PublicKey {
         PublicKey(RawPublicKey::from_secret_key(secret_key.as_raw()))
     }
 
-    /// Returns the underlying signature.
+    /// Instantiate a PublicKey from existing bytes.
+    ///
+    /// Note: this is _not_ SSZ decoding.
+    pub fn from_bytes(bytes: &[u8]) -> Result<PublicKey, BlsDecodeError> {
+        Ok(Self(RawPublicKey::from_bytes(bytes)?))
+    }
+
+    /// Returns the underlying public key.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
     }

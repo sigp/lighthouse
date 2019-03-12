@@ -1,11 +1,11 @@
 use clap::{App, Arg, SubCommand};
 use env_logger::{Builder, Env};
-use prepare::prepare;
+use gen_keys::gen_keys;
 use run_test::run_test;
 use types::ChainSpec;
 
 mod beacon_chain_harness;
-mod prepare;
+mod gen_keys;
 mod run_test;
 mod test_case;
 mod validator_harness;
@@ -55,8 +55,8 @@ fn main() {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("prepare")
-                .about("Builds validator YAML files for faster tests.")
+            SubCommand::with_name("gen_keys")
+                .about("Builds a file of BLS keypairs for faster tests.")
                 .arg(
                     Arg::with_name("validator_count")
                         .long("validator_count")
@@ -66,20 +66,12 @@ fn main() {
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("genesis_time")
-                        .long("genesis_time")
-                        .short("t")
-                        .value_name("GENESIS_TIME")
-                        .help("Time for validator deposits.")
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("output_dir")
-                        .long("output_dir")
+                    Arg::with_name("output_file")
+                        .long("output_file")
                         .short("d")
                         .value_name("GENESIS_TIME")
                         .help("Output directory for generated YAML.")
-                        .default_value("validators"),
+                        .default_value("keypairs.raw_keypairs"),
                 ),
         )
         .get_matches();
@@ -88,7 +80,7 @@ fn main() {
         Builder::from_env(Env::default().default_filter_or(log_level)).init();
     }
 
-    let spec = match matches.value_of("spec") {
+    let _spec = match matches.value_of("spec") {
         Some("foundation") => ChainSpec::foundation(),
         Some("few_validators") => ChainSpec::few_validators(),
         _ => unreachable!(), // Has a default value, should always exist.
@@ -98,7 +90,7 @@ fn main() {
         run_test(matches);
     }
 
-    if let Some(matches) = matches.subcommand_matches("prepare") {
-        prepare(matches, &spec);
+    if let Some(matches) = matches.subcommand_matches("gen_keys") {
+        gen_keys(matches);
     }
 }

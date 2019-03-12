@@ -3,3 +3,4 @@ target/
 Cargo.lock
 *.pk
 *.sk
+*.raw_keypairs

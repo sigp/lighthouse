@@ -1,8 +1,9 @@
+use super::{generate_deterministic_keypairs, KeypairsFile};
 use crate::beacon_state::BeaconStateBuilder;
 use crate::*;
 use bls::get_withdrawal_credentials;
-use int_to_bytes::int_to_bytes48;
 use rayon::prelude::*;
+use std::path::Path;
 
 pub struct TestingBeaconStateBuilder {
     state: BeaconState,
@@ -10,17 +11,11 @@ pub struct TestingBeaconStateBuilder {
 }
 
 impl TestingBeaconStateBuilder {
-    pub fn new(validator_count: usize, spec: &ChainSpec) -> Self {
-        let keypairs: Vec<Keypair> = (0..validator_count)
-            .collect::<Vec<usize>>()
-            .par_iter()
-            .map(|&i| {
-                let secret = int_to_bytes48(i as u64 + 1);
-                let sk = SecretKey::from_bytes(&secret).unwrap();
-                let pk = PublicKey::from_secret_key(&sk);
-                Keypair { sk, pk }
-            })
-            .collect();
+    pub fn new(validator_count: usize, keypairs_path: Option<&Path>, spec: &ChainSpec) -> Self {
+        let keypairs = match keypairs_path {
+            None => generate_deterministic_keypairs(validator_count),
+            Some(path) => Vec::from_raw_file(path, validator_count).unwrap(),
+        };
 
         let validators = keypairs
             .par_iter()

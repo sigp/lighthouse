@@ -10,7 +10,7 @@ fn runs_without_error() {
 
     let spec = ChainSpec::few_validators();
 
-    let mut builder = TestingBeaconStateBuilder::new(8, &spec);
+    let mut builder = TestingBeaconStateBuilder::new(8, None, &spec);
 
     let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
     builder.teleport_to_slot(target_slot, &spec);
