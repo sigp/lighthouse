@@ -3,6 +3,7 @@ use crate::beacon_state::BeaconStateBuilder;
 use crate::*;
 use bls::get_withdrawal_credentials;
 use dirs;
+use log::debug;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
@@ -58,12 +59,14 @@ impl TestingBeaconStateBuilder {
     ///
     /// If the file does not exist, is invalid or does not contain enough keypairs.
     pub fn from_keypairs_file(validator_count: usize, path: &Path, spec: &ChainSpec) -> Self {
+        debug!("Loading {} keypairs from file...", validator_count);
         let keypairs = Vec::from_raw_file(path, validator_count).unwrap();
         TestingBeaconStateBuilder::from_keypairs(keypairs, spec)
     }
 
     /// Generates the validator keypairs deterministically.
     pub fn from_deterministic_keypairs(validator_count: usize, spec: &ChainSpec) -> Self {
+        debug!("Generating {} deterministic keypairs...", validator_count);
         let keypairs = generate_deterministic_keypairs(validator_count);
         TestingBeaconStateBuilder::from_keypairs(keypairs, spec)
     }
@@ -72,6 +75,10 @@ impl TestingBeaconStateBuilder {
     pub fn from_keypairs(keypairs: Vec<Keypair>, spec: &ChainSpec) -> Self {
         let validator_count = keypairs.len();
 
+        debug!(
+            "Building {} Validator objects from keypairs...",
+            validator_count
+        );
         let validators = keypairs
             .par_iter()
             .map(|keypair| {
@@ -103,6 +110,7 @@ impl TestingBeaconStateBuilder {
 
         let balances = vec![32_000_000_000; validator_count];
 
+        debug!("Importing {} existing validators...", validator_count);
         state_builder.import_existing_validators(
             validators,
             balances,
@@ -110,10 +118,11 @@ impl TestingBeaconStateBuilder {
             spec,
         );
 
-        Self {
-            state: state_builder.build(spec).unwrap(),
-            keypairs,
-        }
+        let state = state_builder.build(spec).unwrap();
+
+        debug!("BeaconState built.");
+
+        Self { state, keypairs }
     }
 
     /// Consume the builder and return the `BeaconState` and the keypairs for each validator.

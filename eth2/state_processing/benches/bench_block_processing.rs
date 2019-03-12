@@ -1,5 +1,6 @@
 use criterion::Criterion;
 use criterion::{black_box, Benchmark};
+use log::debug;
 use ssz::TreeHash;
 use state_processing::{
     per_block_processing,
@@ -107,6 +108,10 @@ fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) 
     let mut validators_iter = (0..keypairs.len() as u64).into_iter();
 
     // Insert the maximum possible number of `ProposerSlashing` objects.
+    debug!(
+        "Inserting {} proposer slashings...",
+        spec.max_proposer_slashings
+    );
     for _ in 0..spec.max_proposer_slashings {
         let validator_index = validators_iter.next().expect("Insufficient validators.");
 
@@ -119,6 +124,10 @@ fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) 
     }
 
     // Insert the maximum possible number of `AttesterSlashing` objects
+    debug!(
+        "Inserting {} attester slashings...",
+        spec.max_attester_slashings
+    );
     for _ in 0..spec.max_attester_slashings {
         let mut attesters: Vec<u64> = vec![];
         let mut secret_keys: Vec<&SecretKey> = vec![];
@@ -134,17 +143,20 @@ fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) 
     }
 
     // Insert the maximum possible number of `Attestation` objects.
+    debug!("Inserting {} attestations...", spec.max_attestations);
     let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
     builder
         .fill_with_attestations(state, &all_secret_keys, spec)
         .unwrap();
 
     // Insert the maximum possible number of `Deposit` objects.
+    debug!("Inserting {} deposits...", spec.max_deposits);
     for i in 0..spec.max_deposits {
         builder.insert_deposit(32_000_000_000, state.deposit_index + i, state, spec);
     }
 
     // Insert the maximum possible number of `Exit` objects.
+    debug!("Inserting {} exits...", spec.max_voluntary_exits);
     for _ in 0..spec.max_voluntary_exits {
         let validator_index = validators_iter.next().expect("Insufficient validators.");
 
@@ -157,6 +169,7 @@ fn build_block(state: &mut BeaconState, keypairs: &[Keypair], spec: &ChainSpec) 
     }
 
     // Insert the maximum possible number of `Transfer` objects.
+    debug!("Inserting {} transfers...", spec.max_transfers);
     for _ in 0..spec.max_transfers {
         let validator_index = validators_iter.next().expect("Insufficient validators.");
 
