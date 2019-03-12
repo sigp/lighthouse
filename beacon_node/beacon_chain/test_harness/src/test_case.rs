@@ -9,9 +9,7 @@ use ssz::SignedRoot;
 use std::path::Path;
 use types::*;
 
-use types::{
-    attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
-};
+use types::test_utils::{TestingAttesterSlashingBuilder, TestingProposerSlashingBuilder};
 use yaml_rust::Yaml;
 
 mod config;
@@ -331,7 +329,7 @@ fn build_double_vote_attester_slashing(
             .expect("Unable to sign AttesterSlashing")
     };
 
-    AttesterSlashingBuilder::double_vote(validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(validator_indices, signer)
 }
 
 /// Builds an `ProposerSlashing` for some `validator_index`.
@@ -344,5 +342,5 @@ fn build_proposer_slashing(harness: &BeaconChainHarness, validator_index: u64) -
             .expect("Unable to sign AttesterSlashing")
     };
 
-    ProposerSlashingBuilder::double_vote(validator_index, signer, &harness.spec)
+    TestingProposerSlashingBuilder::double_vote(validator_index, signer, &harness.spec)
 }

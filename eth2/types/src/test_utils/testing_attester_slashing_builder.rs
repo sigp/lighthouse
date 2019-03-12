@@ -2,9 +2,9 @@ use crate::*;
 use ssz::TreeHash;
 
 /// Builds an `AttesterSlashing`.
-pub struct AttesterSlashingBuilder();
+pub struct TestingAttesterSlashingBuilder();
 
-impl AttesterSlashingBuilder {
+impl TestingAttesterSlashingBuilder {
     /// Builds an `AttesterSlashing` that is a double vote.
     ///
     /// The `signer` function is used to sign the double-vote and accepts:

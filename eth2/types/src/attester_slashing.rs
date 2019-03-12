@@ -4,10 +4,6 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-mod builder;
-
-pub use builder::AttesterSlashingBuilder;
-
 /// Two conflicting attestations.
 ///
 /// Spec v0.4.0
