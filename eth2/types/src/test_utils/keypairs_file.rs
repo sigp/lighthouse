@@ -12,12 +12,17 @@ pub const BATCH_SIZE: usize = 1_000; // ~15MB
 pub const KEYPAIR_BYTES_LEN: usize = PUBLIC_KEY_BYTES_LEN + SECRET_KEY_BYTES_LEN;
 pub const BATCH_BYTE_LEN: usize = KEYPAIR_BYTES_LEN * BATCH_SIZE;
 
+/// Defines a trait that allows reading/writing a vec of `Keypair` from/to a file.
 pub trait KeypairsFile {
+    /// Write to file, without guaranteeing interoperability with other clients.
     fn to_raw_file(&self, path: &Path, keypairs: &[Keypair]) -> Result<(), Error>;
+    /// Read from file, without guaranteeing interoperability with other clients.
     fn from_raw_file(path: &Path, count: usize) -> Result<Vec<Keypair>, Error>;
 }
 
 impl KeypairsFile for Vec<Keypair> {
+    /// Write the keypairs to file, using the fastest possible method without guaranteeing
+    /// interoperability with other clients.
     fn to_raw_file(&self, path: &Path, keypairs: &[Keypair]) -> Result<(), Error> {
         let mut keypairs_file = File::create(path)?;
 
@@ -35,6 +40,8 @@ impl KeypairsFile for Vec<Keypair> {
         Ok(())
     }
 
+    /// Read the keypairs from file, using the fastest possible method without guaranteeing
+    /// interoperability with other clients.
     fn from_raw_file(path: &Path, count: usize) -> Result<Vec<Keypair>, Error> {
         let mut keypairs_file = File::open(path)?;
 

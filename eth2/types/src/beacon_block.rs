@@ -23,6 +23,8 @@ pub struct BeaconBlock {
 
 impl BeaconBlock {
     /// Produce the first block of the Beacon Chain.
+    ///
+    /// Spec v0.4.0
     pub fn genesis(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
         BeaconBlock {
             slot: spec.genesis_slot,
@@ -46,11 +48,15 @@ impl BeaconBlock {
     }
 
     /// Returns the `hash_tree_root` of the block.
+    ///
+    /// Spec v0.4.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
 
     /// Returns an unsigned proposal for block.
+    ///
+    /// Spec v0.4.0
     pub fn proposal(&self, spec: &ChainSpec) -> Proposal {
         Proposal {
             slot: self.slot,

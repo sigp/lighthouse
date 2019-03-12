@@ -20,6 +20,9 @@ pub fn keypairs_path() -> PathBuf {
     dir.join(KEYPAIRS_FILE)
 }
 
+/// Builds a beacon state to be used for testing purposes.
+///
+/// This struct should **never be used for production purposes.**
 pub struct TestingBeaconStateBuilder {
     state: BeaconState,
     keypairs: Vec<Keypair>,

@@ -2,6 +2,8 @@ use crate::*;
 use ssz::SignedRoot;
 
 /// Builds a `ProposerSlashing`.
+///
+/// This struct should **never be used for production purposes.**
 pub struct TestingProposerSlashingBuilder();
 
 impl TestingProposerSlashingBuilder {

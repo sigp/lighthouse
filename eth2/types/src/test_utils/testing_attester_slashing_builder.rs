@@ -2,6 +2,8 @@ use crate::*;
 use ssz::TreeHash;
 
 /// Builds an `AttesterSlashing`.
+///
+/// This struct should **never be used for production purposes.**
 pub struct TestingAttesterSlashingBuilder();
 
 impl TestingAttesterSlashingBuilder {
