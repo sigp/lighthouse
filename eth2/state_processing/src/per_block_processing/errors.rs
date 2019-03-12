@@ -76,6 +76,10 @@ pub enum BlockInvalid {
     MaxExitsExceeded,
     MaxTransfersExceed,
     AttestationInvalid(usize, AttestationInvalid),
+    /// A `SlashableAttestation` inside an `AttesterSlashing` was invalid.
+    ///
+    /// To determine the offending `AttesterSlashing` index, divide the error message `usize` by two.
+    SlashableAttestationInvalid(usize, SlashableAttestationInvalid),
     AttesterSlashingInvalid(usize, AttesterSlashingInvalid),
     ProposerSlashingInvalid(usize, ProposerSlashingInvalid),
     DepositInvalid(usize, DepositInvalid),
@@ -147,6 +151,8 @@ pub enum AttestationInvalid {
     ///
     /// (attestation_data_shard, attestation_data_slot)
     NoCommitteeForShard(u64, Slot),
+    /// The validator index was unknown.
+    UnknownValidator(u64),
     /// The attestation signature verification failed.
     BadSignature,
     /// The shard block root was not set to zero. This is a phase 0 requirement.
@@ -233,6 +239,11 @@ impl Into<SlashableAttestationInvalid> for SlashableAttestationValidationError {
     }
 }
 
+impl_into_with_index_without_beacon_error!(
+    SlashableAttestationValidationError,
+    SlashableAttestationInvalid
+);
+
 /*
  * `ProposerSlashing` Validation
  */
@@ -292,6 +303,11 @@ pub enum DepositInvalid {
     ///
     /// (state_index, deposit_index)
     BadIndex(u64, u64),
+    /// The proof-of-possession does not match the given pubkey.
+    BadProofOfPossession,
+    /// The withdrawal credentials for the depositing validator did not match the withdrawal
+    /// credentials of an existing validator with the same public key.
+    BadWithdrawalCredentials,
     /// The specified `branch` and `index` did not form a valid proof that the deposit is included
     /// in the eth1 deposit root.
     BadMerkleProof,

@@ -1,9 +1,9 @@
 use crate::test_utils::TestRandom;
-use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Slot};
+use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Proposal, Slot};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::TreeHash;
+use ssz::{SignedRoot, TreeHash};
 use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
 
@@ -23,6 +23,8 @@ pub struct BeaconBlock {
 
 impl BeaconBlock {
     /// Produce the first block of the Beacon Chain.
+    ///
+    /// Spec v0.4.0
     pub fn genesis(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
         BeaconBlock {
             slot: spec.genesis_slot,
@@ -33,7 +35,6 @@ impl BeaconBlock {
                 deposit_root: spec.zero_hash,
                 block_hash: spec.zero_hash,
             },
-            signature: spec.empty_signature.clone(),
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
                 attester_slashings: vec![],
@@ -42,12 +43,27 @@ impl BeaconBlock {
                 voluntary_exits: vec![],
                 transfers: vec![],
             },
+            signature: spec.empty_signature.clone(),
         }
     }
 
     /// Returns the `hash_tree_root` of the block.
+    ///
+    /// Spec v0.4.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
+    }
+
+    /// Returns an unsigned proposal for block.
+    ///
+    /// Spec v0.4.0
+    pub fn proposal(&self, spec: &ChainSpec) -> Proposal {
+        Proposal {
+            slot: self.slot,
+            shard: spec.beacon_chain_shard_number,
+            block_root: Hash256::from_slice(&self.signed_root()),
+            signature: spec.empty_signature.clone(),
+        }
     }
 }
 

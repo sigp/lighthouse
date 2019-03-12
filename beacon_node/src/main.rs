@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use crate::config::LighthouseConfig;
 use crate::rpc::start_server;
 use beacon_chain::BeaconChain;
-use bls::create_proof_of_possession;
 use clap::{App, Arg};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
@@ -17,8 +16,12 @@ use db::{
 use fork_choice::BitwiseLMDGhost;
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
+use ssz::TreeHash;
 use std::sync::Arc;
-use types::{ChainSpec, Deposit, DepositData, DepositInput, Eth1Data, Hash256, Keypair};
+use types::{
+    beacon_state::BeaconStateBuilder, BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput,
+    Domain, Eth1Data, Fork, Hash256, Keypair,
+};
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -97,7 +100,8 @@ fn main() {
         .iter()
         .map(|_| Keypair::random())
         .collect();
-    let initial_validator_deposits = keypairs
+
+    let initial_validator_deposits: Vec<Deposit> = keypairs
         .iter()
         .map(|keypair| Deposit {
             branch: vec![], // branch verification is not specified.
@@ -108,20 +112,38 @@ fn main() {
                 deposit_input: DepositInput {
                     pubkey: keypair.pk.clone(),
                     withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
-                    proof_of_possession: create_proof_of_possession(&keypair),
+                    proof_of_possession: DepositInput::create_proof_of_possession(
+                        &keypair,
+                        &Hash256::zero(),
+                        spec.get_domain(
+                            // Get domain from genesis fork_version
+                            spec.genesis_epoch,
+                            Domain::Deposit,
+                            &Fork {
+                                previous_version: spec.genesis_fork_version,
+                                current_version: spec.genesis_fork_version,
+                                epoch: spec.genesis_epoch,
+                            },
+                        ),
+                    ),
                 },
             },
         })
         .collect();
 
+    let mut state_builder = BeaconStateBuilder::new(genesis_time, latest_eth1_data, &spec);
+    state_builder.process_initial_deposits(&initial_validator_deposits, &spec);
+    let genesis_state = state_builder.build(&spec).unwrap();
+    let state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+    let genesis_block = BeaconBlock::genesis(state_root, &spec);
+
     // Genesis chain
-    let _chain_result = BeaconChain::genesis(
+    let _chain_result = BeaconChain::from_genesis(
         state_store.clone(),
         block_store.clone(),
         slot_clock,
-        genesis_time,
-        latest_eth1_data,
-        initial_validator_deposits,
+        genesis_state,
+        genesis_block,
         spec,
         fork_choice,
     );

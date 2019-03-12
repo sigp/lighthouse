@@ -1,5 +1,8 @@
+use super::serde_vistors::HexVisitor;
 use super::{PublicKey, SecretKey};
 use bls_aggregates::Signature as RawSignature;
+use hex::encode as hex_encode;
+use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz::{
     decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
@@ -51,9 +54,12 @@ impl Signature {
 
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
+        // Empty Signature is currently being represented as BLS::Signature.point_at_infinity()
+        // However it should be represented as vec![0; 96] but this
+        // would require all signatures to be represented in byte form as opposed to Signature
         let mut empty: Vec<u8> = vec![0; 96];
-        // TODO: Modify the way flags are used (b_flag should not be used for empty_signature in the future)
-        empty[0] += u8::pow(2, 6);
+        // Sets C_flag and B_flag to 1 and all else to 0
+        empty[0] += u8::pow(2, 6) + u8::pow(2, 7);
         Signature(RawSignature::from_bytes(&empty).unwrap())
     }
 }
@@ -83,7 +89,19 @@ impl Serialize for Signature {
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(&ssz_encode(self))
+        serializer.serialize_str(&hex_encode(ssz_encode(self)))
+    }
+}
+
+impl<'de> Deserialize<'de> for Signature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_str(HexVisitor)?;
+        let (pubkey, _) = <_>::ssz_decode(&bytes[..], 0)
+            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
+        Ok(pubkey)
     }
 }
 
@@ -114,7 +132,7 @@ mod tests {
         assert_eq!(sig_as_bytes.len(), 96);
         for (i, one_byte) in sig_as_bytes.iter().enumerate() {
             if i == 0 {
-                assert_eq!(*one_byte, u8::pow(2, 6));
+                assert_eq!(*one_byte, u8::pow(2, 6) + u8::pow(2, 7));
             } else {
                 assert_eq!(*one_byte, 0);
             }
