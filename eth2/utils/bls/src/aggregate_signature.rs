@@ -48,10 +48,8 @@ impl AggregateSignature {
         domain: u64,
         aggregate_public_keys: &[&AggregatePublicKey],
     ) -> bool {
-        let aggregate_public_keys: Vec<&RawAggregatePublicKey> = aggregate_public_keys
-            .iter()
-            .map(|pk| pk.as_raw())
-            .collect();
+        let aggregate_public_keys: Vec<&RawAggregatePublicKey> =
+            aggregate_public_keys.iter().map(|pk| pk.as_raw()).collect();
 
         // Messages are concatenated into one long message.
         let mut msg: Vec<u8> = vec![];
