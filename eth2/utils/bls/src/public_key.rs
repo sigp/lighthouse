@@ -1,6 +1,6 @@
 use super::serde_vistors::HexVisitor;
 use super::SecretKey;
-use bls_aggregates::{DecodeError as BlsDecodeError, PublicKey as RawPublicKey};
+use bls_aggregates::PublicKey as RawPublicKey;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -22,16 +22,20 @@ impl PublicKey {
         PublicKey(RawPublicKey::from_secret_key(secret_key.as_raw()))
     }
 
-    /// Instantiate a PublicKey from existing bytes.
-    ///
-    /// Note: this is _not_ SSZ decoding.
-    pub fn from_bytes(bytes: &[u8]) -> Result<PublicKey, BlsDecodeError> {
-        Ok(Self(RawPublicKey::from_bytes(bytes)?))
-    }
-
-    /// Returns the underlying public key.
+    /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
+    }
+
+    /// Returns the PublicKey as (x, y) bytes
+    pub fn as_uncompressed_bytes(&mut self) -> Vec<u8> {
+        RawPublicKey::as_uncompressed_bytes(&mut self.0)
+    }
+
+    /// Converts (x, y) bytes to PublicKey
+    pub fn from_uncompressed_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let pubkey = RawPublicKey::from_uncompressed_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+        Ok(PublicKey(pubkey))
     }
 
     /// Returns the last 6 bytes of the SSZ encoding of the public key, as a hex string.
@@ -100,11 +104,7 @@ impl PartialEq for PublicKey {
 
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Note: this is not necessarily the consensus-ready hash. Instead, it is designed to be
-        // optimally fast for internal usage.
-        //
-        // To hash for consensus purposes, use the SSZ-encoded bytes.
-        self.0.as_bytes().hash(state)
+        ssz_encode(self).hash(state)
     }
 }
 

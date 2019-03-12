@@ -58,7 +58,7 @@ impl KeypairsFile for Vec<Keypair> {
 
                     let pk_start = sk_end;
                     let pk_end = pk_start + PUBLIC_KEY_BYTES_LEN;
-                    let pk = PublicKey::from_bytes(&buf[pk_start..pk_end])
+                    let pk = PublicKey::from_uncompressed_bytes(&buf[pk_start..pk_end])
                         .map_err(|_| Error::new(ErrorKind::Other, "Invalid PublicKey bytes"))
                         .unwrap();
 
