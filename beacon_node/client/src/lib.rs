@@ -22,9 +22,9 @@ use tokio::runtime::TaskExecutor;
 pub struct Client<T: ClientTypes> {
     config: ClientConfig,
     // beacon_chain: Arc<BeaconChain<T, U, F>>,
-    network: Option<Arc<NetworkService>>,
-    exit: exit_future::Exit,
-    exit_signal: Option<Signal>,
+    pub network: Arc<NetworkService>,
+    pub exit: exit_future::Exit,
+    pub exit_signal: Signal,
     log: slog::Logger,
     phantom: PhantomData<T>,
 }
@@ -44,14 +44,15 @@ impl<T: ClientTypes> Client<T> {
         // TODO: Add beacon_chain reference to network parameters
         let network_config = config.net_conf.clone();
         let network_logger = log.new(o!("Service" => "Network"));
-        let (network, network_send) = NetworkService::new(network_config, network_logger)?;
+        let (network, network_send) =
+            NetworkService::new(network_config, executor, network_logger)?;
 
         Ok(Client {
             config,
             exit,
-            exit_signal: Some(exit_signal),
+            exit_signal: exit_signal,
             log,
-            network: Some(network),
+            network: network,
             phantom: PhantomData,
         })
     }

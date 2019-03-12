@@ -5,4 +5,5 @@ mod messages;
 mod service;
 
 pub use libp2p::NetworkConfig;
+pub use messages::NodeMessage;
 pub use service::Service;
