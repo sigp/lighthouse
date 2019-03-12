@@ -4,6 +4,7 @@ use std::path::Path;
 use std::{fs::File, io::prelude::*};
 use yaml_rust::YamlLoader;
 
+/// Runs a YAML-specified test case.
 pub fn run_test(matches: &ArgMatches) {
     if let Some(yaml_file) = matches.value_of("yaml") {
         let docs = {

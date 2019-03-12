@@ -1,13 +1,17 @@
 use fnv::FnvHashSet;
 use types::*;
 
+/// A set of validator indices, along with the total balance of all those attesters.
 #[derive(Default)]
 pub struct Attesters {
+    /// A set of validator indices.
     pub indices: FnvHashSet<usize>,
+    /// The total balance of all validators in `self.indices`.
     pub balance: u64,
 }
 
 impl Attesters {
+    /// Add the given indices to the set, incrementing the sets balance by the provided balance.
     fn add(&mut self, additional_indices: &[usize], additional_balance: u64) {
         self.indices.reserve(additional_indices.len());
         for i in additional_indices {
@@ -17,15 +21,35 @@ impl Attesters {
     }
 }
 
+/// A collection of `Attester` objects, representing set of attesters that are rewarded/penalized
+/// during an epoch transition.
 pub struct AttesterSets {
+    /// All validators who attested during the state's current epoch.
     pub current_epoch: Attesters,
+    /// All validators who attested that the beacon block root of the first slot of the state's
+    /// current epoch is the same as the one stored in this state.
+    ///
+    /// In short validators who agreed with the state about the first slot of the current epoch.
     pub current_epoch_boundary: Attesters,
+    /// All validators who attested during the state's previous epoch.
     pub previous_epoch: Attesters,
+    /// All validators who attested that the beacon block root of the first slot of the state's
+    /// previous epoch is the same as the one stored in this state.
+    ///
+    /// In short, validators who agreed with the state about the first slot of the previous epoch.
     pub previous_epoch_boundary: Attesters,
+    /// All validators who attested that the beacon block root at the pending attestation's slot is
+    /// the same as the one stored in this state.
+    ///
+    /// In short, validators who agreed with the state about the current beacon block root when
+    /// they attested.
     pub previous_epoch_head: Attesters,
 }
 
 impl AttesterSets {
+    /// Loop through all attestations in the state and instantiate a complete `AttesterSets` struct.
+    ///
+    /// Spec v0.4.0
     pub fn new(state: &BeaconState, spec: &ChainSpec) -> Result<Self, BeaconStateError> {
         let mut current_epoch = Attesters::default();
         let mut current_epoch_boundary = Attesters::default();
@@ -67,10 +91,17 @@ impl AttesterSets {
     }
 }
 
+/// Returns `true` if some `PendingAttestation` is from the supplied `epoch`.
+///
+/// Spec v0.4.0
 fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool {
     a.data.slot.epoch(spec.slots_per_epoch) == epoch
 }
 
+/// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
+/// the first slot of the given epoch.
+///
+/// Spec v0.4.0
 fn has_common_epoch_boundary_root(
     a: &PendingAttestation,
     state: &BeaconState,
@@ -85,6 +116,10 @@ fn has_common_epoch_boundary_root(
     Ok(a.data.epoch_boundary_root == state_boundary_root)
 }
 
+/// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
+/// the current slot of the `PendingAttestation`.
+///
+/// Spec v0.4.0
 fn has_common_beacon_block_root(
     a: &PendingAttestation,
     state: &BeaconState,

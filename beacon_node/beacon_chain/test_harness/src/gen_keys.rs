@@ -3,6 +3,7 @@ use log::debug;
 use std::path::Path;
 use types::test_utils::{generate_deterministic_keypairs, KeypairsFile};
 
+/// Creates a file containing BLS keypairs.
 pub fn gen_keys(matches: &ArgMatches) {
     let validator_count = value_t!(matches.value_of("validator_count"), usize)
         .expect("Validator count is required argument");
