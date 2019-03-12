@@ -17,7 +17,7 @@ use validator_harness::ValidatorHarness;
 fn main() {
     let validator_file_path = keypairs_path();
 
-    fs::create_dir(validator_file_path.parent().unwrap()).unwrap();
+    let _ = fs::create_dir(validator_file_path.parent().unwrap());
 
     let matches = App::new("Lighthouse Test Harness Runner")
         .version("0.0.1")

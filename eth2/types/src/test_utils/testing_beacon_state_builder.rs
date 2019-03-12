@@ -25,10 +25,10 @@ pub struct TestingBeaconStateBuilder {
 }
 
 impl TestingBeaconStateBuilder {
-    /// Attempts to load validators from a file in the `CARGO_MANIFEST_DIR`. If the file is
-    /// unavailable, it generates the keys at runtime.
+    /// Attempts to load validators from a file in `$HOME/.lighthouse/keypairs.raw_keypairs`. If
+    /// the file is unavailable, it generates the keys at runtime.
     ///
-    /// If the `CARGO_MANIFEST_DIR` environment variable is not set, the local directory is used.
+    /// If the `$HOME` environment variable is not set, the local directory is used.
     ///
     /// See the `Self::from_keypairs_file` method for more info.
     ///
