@@ -48,15 +48,9 @@ impl AggregateSignature {
         domain: u64,
         aggregate_public_keys: &[&AggregatePublicKey],
     ) -> bool {
-        // TODO: the API for `RawAggregatePublicKey` shoudn't need to take an owned
-        // `AggregatePublicKey`. There is an issue to fix this, but in the meantime we need to
-        // clone.
-        //
-        // https://github.com/sigp/signature-schemes/issues/10
-        let aggregate_public_keys: Vec<RawAggregatePublicKey> = aggregate_public_keys
+        let aggregate_public_keys: Vec<&RawAggregatePublicKey> = aggregate_public_keys
             .iter()
             .map(|pk| pk.as_raw())
-            .cloned()
             .collect();
 
         // Messages are concatenated into one long message.

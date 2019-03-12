@@ -54,9 +54,12 @@ impl Signature {
 
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
+        // Empty Signature is currently being represented as BLS::Signature.point_at_infinity()
+        // However it should be represented as vec![0; 96] but this
+        // would require all signatures to be represented in byte form as opposed to Signature
         let mut empty: Vec<u8> = vec![0; 96];
-        // TODO: Modify the way flags are used (b_flag should not be used for empty_signature in the future)
-        empty[0] += u8::pow(2, 6);
+        // Sets C_flag and B_flag to 1 and all else to 0
+        empty[0] += u8::pow(2, 6) + u8::pow(2, 7);
         Signature(RawSignature::from_bytes(&empty).unwrap())
     }
 }
@@ -129,7 +132,7 @@ mod tests {
         assert_eq!(sig_as_bytes.len(), 96);
         for (i, one_byte) in sig_as_bytes.iter().enumerate() {
             if i == 0 {
-                assert_eq!(*one_byte, u8::pow(2, 6));
+                assert_eq!(*one_byte, u8::pow(2, 6) + u8::pow(2, 7));
             } else {
                 assert_eq!(*one_byte, 0);
             }
