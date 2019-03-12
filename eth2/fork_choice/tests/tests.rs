@@ -224,7 +224,8 @@ fn setup_inital_state(
 
     let spec = ChainSpec::foundation();
 
-    let state_builder = TestingBeaconStateBuilder::new(no_validators, None, &spec);
+    let state_builder =
+        TestingBeaconStateBuilder::from_deterministic_keypairs(no_validators, &spec);
     let (state, _keypairs) = state_builder.build();
 
     let state_root = state.canonical_root();
