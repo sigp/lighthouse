@@ -4,9 +4,10 @@ use db::ClientDB;
 use exit_future::Exit;
 use fork_choice::ForkChoice;
 use futures::{Future, Stream};
+use network::NodeMessage;
 use slog::{debug, info, o};
 use slot_clock::SlotClock;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
@@ -19,9 +20,21 @@ pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exi
 
     let log = client.log.new(o!("Service" => "Notifier"));
 
+    // TODO: Debugging only
+    let counter = Arc::new(Mutex::new(0));
+    let network = client.network.clone();
+
     // build heartbeat logic here
     let heartbeat = move |_| {
         info!(log, "Temp heartbeat output");
+        let mut count = counter.lock().unwrap();
+        *count += 1;
+
+        if *count % 5 == 0 {
+            debug!(log, "Sending Message");
+            network.send_message(String::from("Testing network channel"))
+        }
+
         Ok(())
     };
 

@@ -1,7 +1,9 @@
-use crate::behaviour::Behaviour;
+use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::error;
 use crate::multiaddr::Protocol;
 use crate::NetworkConfig;
 use futures::prelude::*;
+use futures::Stream;
 use libp2p::core::{
     muxing::StreamMuxerBox,
     nodes::Substream,
@@ -17,13 +19,16 @@ use std::time::Duration;
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
     /// The libp2p Swarm handler.
-    swarm: Swarm<Boxed<(PeerId, StreamMuxerBox), Error>, Behaviour<Substream<StreamMuxerBox>>>,
+    //TODO: Make this private
+    pub swarm: Swarm<Boxed<(PeerId, StreamMuxerBox), Error>, Behaviour<Substream<StreamMuxerBox>>>,
     /// This node's PeerId.
     local_peer_id: PeerId,
+    /// The libp2p logger handle.
+    pub log: slog::Logger,
 }
 
 impl Service {
-    pub fn new(config: NetworkConfig, log: slog::Logger) -> Self {
+    pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         debug!(log, "Libp2p Service starting");
 
         let local_private_key = config.local_private_key;
@@ -50,7 +55,7 @@ impl Service {
                 Err(err) => warn!(log, "Cannot listen on: {} : {:?}", address, err),
             };
         }
-        // connect to boot nodes - these are currently stored as multiadders
+        // connect to boot nodes - these are currently stored as multiaddrs
         // Once we have discovery, can set to peerId
         for bootnode in config.boot_nodes {
             match Swarm::dial_addr(&mut swarm, bootnode.clone()) {
@@ -62,10 +67,36 @@ impl Service {
             };
         }
 
-        Service {
+        Ok(Service {
             local_peer_id,
             swarm,
+            log,
+        })
+    }
+}
+
+impl Stream for Service {
+    type Item = Libp2pEvent;
+    type Error = crate::error::Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        loop {
+            // TODO: Currently only gossipsub events passed here.
+            // Build a type for more generic events
+            match self.swarm.poll() {
+                Ok(Async::Ready(Some(BehaviourEvent::Message(m)))) => {
+                    // TODO: Stub here for debugging
+                    debug!(self.log, "Message received: {}", m);
+                    return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
+                }
+                // TODO: Fill with all behaviour events
+                _ => break,
+                Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
+                Ok(Async::NotReady) => break,
+                _ => break,
+            }
         }
+        Ok(Async::NotReady)
     }
 }
 
@@ -102,4 +133,9 @@ fn build_transport(
         .with_timeout(Duration::from_secs(20))
         .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed()
+}
+
+/// Events that can be obtained from polling the Libp2p Service.
+pub enum Libp2pEvent {
+    Message(String),
 }
