@@ -21,3 +21,4 @@ matrix:
   fast_finish: true
 install:
   - rustup component add rustfmt
+  - rustup component add clippy
