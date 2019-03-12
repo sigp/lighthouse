@@ -8,22 +8,29 @@ use crate::{
 use rayon::prelude::*;
 use ssz::{SignedRoot, TreeHash};
 
+/// Builds a beacon block to be used for testing purposes.
+///
+/// This struct should **never be used for production purposes.**
 pub struct TestingBeaconBlockBuilder {
     block: BeaconBlock,
 }
 
 impl TestingBeaconBlockBuilder {
+    /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
         Self {
             block: BeaconBlock::genesis(spec.zero_hash, spec),
         }
     }
 
+    /// Set the slot of the block.
     pub fn set_slot(&mut self, slot: Slot) {
         self.block.slot = slot;
     }
 
     /// Signs the block.
+    ///
+    /// Modifying the block after signing may invalidate the signature.
     pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let proposal = self.block.proposal(spec);
         let message = proposal.signed_root();
@@ -33,6 +40,8 @@ impl TestingBeaconBlockBuilder {
     }
 
     /// Sets the randao to be a signature across the blocks epoch.
+    ///
+    /// Modifying the block's slot after signing may invalidate the signature.
     pub fn set_randao_reveal(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
         let message = epoch.hash_tree_root();
@@ -65,9 +74,15 @@ impl TestingBeaconBlockBuilder {
         self.block.body.attester_slashings.push(attester_slashing);
     }
 
-    /// Fills the block with as many attestations as possible.
+    /// Fills the block with `MAX_ATTESTATIONS` attestations.
     ///
-    /// Note: this will not perform well when `jepoch_committees_count % slots_per_epoch != 0`
+    /// It will first go and get each committee that is able to include an attestation in this
+    /// block. If there are enough committees, it will produce an attestation for each. If there
+    /// are _not_ enough committees, it will start splitting the committees in half until it
+    /// achieves the target. It will then produce separate attestations for each split committee.
+    ///
+    /// Note: the signed messages of the split committees will be identical -- it would be possible
+    /// to aggregate these split attestations.
     pub fn fill_with_attestations(
         &mut self,
         state: &BeaconState,

@@ -6,7 +6,6 @@ use honey_badger_split::SplitExt;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
 use rand::RngCore;
-use rayon::prelude::*;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SignedRoot, SszStream, TreeHash};
 use std::collections::HashMap;
@@ -113,6 +112,11 @@ pub struct BeaconState {
 
 impl BeaconState {
     /// Produce the first state of the Beacon Chain.
+    ///
+    /// This does not fully build a genesis beacon state, it omits processing of initial validator
+    /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
+    ///
+    /// Spec v0.4.0
     pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
@@ -185,44 +189,9 @@ impl BeaconState {
         }
     }
 
-    /// Produce the first state of the Beacon Chain.
-    pub fn process_initial_deposits(
-        &mut self,
-        initial_validator_deposits: Vec<Deposit>,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        debug!("Processing genesis deposits...");
-
-        let deposit_data = initial_validator_deposits
-            .par_iter()
-            .map(|deposit| &deposit.deposit_data)
-            .collect();
-
-        self.process_deposits(deposit_data, spec);
-
-        trace!("Processed genesis deposits.");
-
-        for validator_index in 0..self.validator_registry.len() {
-            if self.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount {
-                self.activate_validator(validator_index, true, spec);
-            }
-        }
-
-        self.deposit_index = initial_validator_deposits.len() as u64;
-
-        let genesis_active_index_root = hash_tree_root(get_active_validator_indices(
-            &self.validator_registry,
-            spec.genesis_epoch,
-        ));
-        self.latest_active_index_roots =
-            vec![genesis_active_index_root; spec.latest_active_index_roots_length];
-
-        self.current_shuffling_seed = self.generate_seed(spec.genesis_epoch, spec)?;
-
-        Ok(())
-    }
-
     /// Returns the `hash_tree_root` of the state.
+    ///
+    /// Spec v0.4.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
@@ -1127,10 +1096,6 @@ impl BeaconState {
         all_participants.dedup();
         Ok(all_participants)
     }
-}
-
-fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from_slice(&input.hash_tree_root()[..])
 }
 
 impl Encodable for BeaconState {

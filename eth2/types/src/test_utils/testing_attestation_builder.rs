@@ -1,12 +1,16 @@
 use crate::*;
 use ssz::TreeHash;
 
+/// Builds an attestation to be used for testing purposes.
+///
+/// This struct should **never be used for production purposes.**
 pub struct TestingAttestationBuilder {
     committee: Vec<usize>,
     attestation: Attestation,
 }
 
 impl TestingAttestationBuilder {
+    /// Create a new attestation builder.
     pub fn new(
         state: &BeaconState,
         committee: &[usize],
@@ -70,6 +74,10 @@ impl TestingAttestationBuilder {
         }
     }
 
+    /// Signs the attestation with a subset (or all) committee members.
+    ///
+    /// `secret_keys` must be supplied in the same order as `signing_validators`. I.e., the first
+    /// keypair must be that of the first signing validator.
     pub fn sign(
         &mut self,
         signing_validators: &[usize],
@@ -111,6 +119,7 @@ impl TestingAttestationBuilder {
         }
     }
 
+    /// Consume the builder and return the attestation.
     pub fn build(self) -> Attestation {
         self.attestation
     }
