@@ -1,5 +1,7 @@
 FROM rust:latest
 
+RUN rustup component add rustfmt
+
 RUN apt-get update && apt-get install -y clang libclang-dev cmake build-essential git unzip autoconf libtool
 
 RUN git clone https://github.com/google/protobuf.git && \
