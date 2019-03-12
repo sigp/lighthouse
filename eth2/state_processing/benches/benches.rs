@@ -1,6 +1,7 @@
 use criterion::Benchmark;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
+use env_logger::{Builder, Env};
 use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
 
@@ -9,50 +10,17 @@ mod bench_epoch_processing;
 
 pub const VALIDATOR_COUNT: usize = 300_032;
 
+// `LOG_LEVEL == "debug"` gives logs, but they're very noisy and slow down benching.
+pub const LOG_LEVEL: &str = "";
+
 pub fn state_processing(c: &mut Criterion) {
+    if LOG_LEVEL != "" {
+        Builder::from_env(Env::default().default_filter_or(LOG_LEVEL)).init();
+    }
+
     bench_block_processing::bench_block_processing_n_validators(c, VALIDATOR_COUNT);
     bench_epoch_processing::bench_epoch_processing_n_validators(c, VALIDATOR_COUNT);
 }
 
-pub fn key_loading(c: &mut Criterion) {
-    let validator_count = 1000;
-
-    c.bench(
-        &format!("{}_validators", validator_count),
-        Benchmark::new("generated", move |b| {
-            b.iter_batched(
-                || (),
-                |_| {
-                    TestingBeaconStateBuilder::from_deterministic_keypairs(
-                        validator_count,
-                        &ChainSpec::foundation(),
-                    )
-                },
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(10),
-    );
-
-    // Note: path needs to be relative to where cargo is executed from.
-    c.bench(
-        &format!("{}_validators", validator_count),
-        Benchmark::new("from_file", move |b| {
-            b.iter_batched(
-                || (),
-                |_| {
-                    TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
-                        validator_count,
-                        &ChainSpec::foundation(),
-                    )
-                },
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(10),
-    );
-}
-
-// criterion_group!(benches, state_processing, key_loading);
-criterion_group!(benches, key_loading);
+criterion_group!(benches, state_processing);
 criterion_main!(benches);
