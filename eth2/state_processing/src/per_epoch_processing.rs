@@ -3,7 +3,6 @@ use errors::EpochProcessingError as Error;
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use integer_sqrt::IntegerSquareRoot;
-use log::debug;
 use rayon::prelude::*;
 use ssz::TreeHash;
 use std::collections::HashMap;
@@ -17,13 +16,19 @@ pub mod inclusion_distance;
 pub mod tests;
 pub mod winning_root;
 
+/// Maps a shard to a winning root.
+///
+/// It is generated during crosslink processing and later used to reward/penalize validators.
+pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
+
+/// Performs per-epoch processing on some BeaconState.
+///
+/// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
+/// returned, a state might be "half-processed" and therefore in an invalid state.
+///
+/// Spec v0.4.0
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let previous_epoch = state.previous_epoch(spec);
-
-    debug!(
-        "Starting per-epoch processing on epoch {}...",
-        state.current_epoch(spec)
-    );
 
     // Ensure all of the caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
@@ -79,11 +84,12 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
 
-    debug!("Epoch transition complete.");
-
     Ok(())
 }
 
+/// Returns a list of active validator indices for the state's current epoch.
+///
+/// Spec v0.4.0
 pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec) -> Vec<usize> {
     get_active_validator_indices(
         &state.validator_registry,
@@ -91,6 +97,14 @@ pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec)
     )
 }
 
+/// Calculates various sets of attesters, including:
+///
+/// - current epoch attesters
+/// - current epoch boundary attesters
+/// - previous epoch attesters
+/// - etc.
+///
+/// Spec v0.4.0
 pub fn calculate_attester_sets(
     state: &BeaconState,
     spec: &ChainSpec,
@@ -113,6 +127,13 @@ pub fn process_eth1_data(state: &mut BeaconState, spec: &ChainSpec) {
     }
 }
 
+/// Update the following fields on the `BeaconState`:
+///
+/// - `justification_bitfield`.
+/// - `finalized_epoch`
+/// - `justified_epoch`
+/// - `previous_justified_epoch`
+///
 /// Spec v0.4.0
 pub fn process_justification(
     state: &mut BeaconState,
@@ -190,8 +211,13 @@ pub fn process_justification(
     state.justified_epoch = new_justified_epoch;
 }
 
-pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
-
+/// Updates the following fields on the `BeaconState`:
+///
+/// - `latest_crosslinks`
+///
+/// Also returns a `WinningRootHashSet` for later use during epoch processing.
+///
+/// Spec v0.4.0
 pub fn process_crosslinks(
     state: &mut BeaconState,
     spec: &ChainSpec,
@@ -250,6 +276,10 @@ pub fn process_crosslinks(
     Ok(winning_root_for_shards)
 }
 
+/// Updates the following fields on the BeaconState:
+///
+/// - `validator_balances`
+///
 /// Spec v0.4.0
 pub fn process_rewards_and_penalities(
     state: &mut BeaconState,
@@ -488,7 +518,9 @@ pub fn process_rewards_and_penalities(
     Ok(())
 }
 
-// Spec v0.4.0
+/// Peforms a validator registry update, if required.
+///
+/// Spec v0.4.0
 pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
@@ -535,7 +567,10 @@ pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> 
     Ok(())
 }
 
-// Spec v0.4.0
+/// Updates the state's `latest_active_index_roots` field with a tree hash the active validator
+/// indices for the next epoch.
+///
+/// Spec v0.4.0
 pub fn update_active_tree_index_roots(
     state: &mut BeaconState,
     spec: &ChainSpec,
@@ -555,7 +590,9 @@ pub fn update_active_tree_index_roots(
     Ok(())
 }
 
-// Spec v0.4.0
+/// Advances the state's `latest_slashed_balances` field.
+///
+/// Spec v0.4.0
 pub fn update_latest_slashed_balances(state: &mut BeaconState, spec: &ChainSpec) {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
@@ -564,7 +601,9 @@ pub fn update_latest_slashed_balances(state: &mut BeaconState, spec: &ChainSpec)
         state.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length];
 }
 
-// Spec v0.4.0
+/// Removes all pending attestations from the previous epoch.
+///
+/// Spec v0.4.0
 pub fn clean_attestations(state: &mut BeaconState, spec: &ChainSpec) {
     let current_epoch = state.current_epoch(spec);
 
