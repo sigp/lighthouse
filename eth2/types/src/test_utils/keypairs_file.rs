@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::path::Path;
 
-pub const PUBLIC_KEY_BYTES_LEN: usize = 48;
+pub const PUBLIC_KEY_BYTES_LEN: usize = 96;
 pub const SECRET_KEY_BYTES_LEN: usize = 48;
 
 pub const BATCH_SIZE: usize = 1_000; // ~15MB
@@ -26,7 +26,7 @@ impl KeypairsFile for Vec<Keypair> {
 
             for keypair in keypair_batch {
                 buf.append(&mut keypair.sk.as_raw().as_bytes());
-                buf.append(&mut keypair.pk.as_raw().as_bytes());
+                buf.append(&mut keypair.pk.clone().as_uncompressed_bytes());
             }
 
             keypairs_file.write_all(&buf)?;
