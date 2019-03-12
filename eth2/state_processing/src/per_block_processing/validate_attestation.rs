@@ -159,18 +159,16 @@ fn validate_attestation_signature_optional(
 
     if verify_signature {
         let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
-        verify!(
-            verify_attestation_signature(
-                state,
-                committee,
-                attestation_epoch,
-                &attestation.custody_bitfield,
-                &attestation.data,
-                &attestation.aggregate_signature,
-                spec
-            ),
-            Invalid::BadSignature
-        );
+        verify_attestation_signature(
+            state,
+            committee,
+            attestation_epoch,
+            &attestation.aggregation_bitfield,
+            &attestation.custody_bitfield,
+            &attestation.data,
+            &attestation.aggregate_signature,
+            spec,
+        )?;
     }
 
     // [TO BE REMOVED IN PHASE 1] Verify that `attestation.data.crosslink_data_root == ZERO_HASH`.
@@ -195,30 +193,45 @@ fn verify_attestation_signature(
     state: &BeaconState,
     committee: &[usize],
     attestation_epoch: Epoch,
+    aggregation_bitfield: &Bitfield,
     custody_bitfield: &Bitfield,
     attestation_data: &AttestationData,
     aggregate_signature: &AggregateSignature,
     spec: &ChainSpec,
-) -> bool {
+) -> Result<(), Error> {
     let mut aggregate_pubs = vec![AggregatePublicKey::new(); 2];
     let mut message_exists = vec![false; 2];
 
     for (i, v) in committee.iter().enumerate() {
-        let custody_bit = match custody_bitfield.get(i) {
-            Ok(bit) => bit,
-            // Invalidate signature if custody_bitfield.len() < committee
-            Err(_) => return false,
-        };
+        let validator_signed = aggregation_bitfield.get(i).map_err(|_| {
+            Error::Invalid(Invalid::BadAggregationBitfieldLength(
+                committee.len(),
+                aggregation_bitfield.len(),
+            ))
+        })?;
 
-        message_exists[custody_bit as usize] = true;
+        if validator_signed {
+            let custody_bit: bool = match custody_bitfield.get(i) {
+                Ok(bit) => bit,
+                // Invalidate signature if custody_bitfield.len() < committee
+                Err(_) => {
+                    return Err(Error::Invalid(Invalid::BadCustodyBitfieldLength(
+                        committee.len(),
+                        custody_bitfield.len(),
+                    )));
+                }
+            };
 
-        match state.validator_registry.get(*v as usize) {
-            Some(validator) => {
-                aggregate_pubs[custody_bit as usize].add(&validator.pubkey);
-            }
-            // Invalidate signature if validator index is unknown.
-            None => return false,
-        };
+            message_exists[custody_bit as usize] = true;
+
+            match state.validator_registry.get(*v as usize) {
+                Some(validator) => {
+                    aggregate_pubs[custody_bit as usize].add(&validator.pubkey);
+                }
+                // Return error if validator index is unknown.
+                None => return Err(Error::BeaconStateError(BeaconStateError::UnknownValidator)),
+            };
+        }
     }
 
     // Message when custody bitfield is `false`
@@ -251,5 +264,10 @@ fn verify_attestation_signature(
 
     let domain = spec.get_domain(attestation_epoch, Domain::Attestation, &state.fork);
 
-    aggregate_signature.verify_multiple(&messages[..], domain, &keys[..])
+    verify!(
+        aggregate_signature.verify_multiple(&messages[..], domain, &keys[..]),
+        Invalid::BadSignature
+    );
+
+    Ok(())
 }
