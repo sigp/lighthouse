@@ -1,9 +1,7 @@
 use crate::{
-    attester_slashing::AttesterSlashingBuilder,
-    proposer_slashing::ProposerSlashingBuilder,
     test_utils::{
-        TestingAttestationBuilder, TestingDepositBuilder, TestingTransferBuilder,
-        TestingVoluntaryExitBuilder,
+        TestingAttestationBuilder, TestingAttesterSlashingBuilder, TestingDepositBuilder,
+        TestingProposerSlashingBuilder, TestingTransferBuilder, TestingVoluntaryExitBuilder,
     },
     *,
 };
@@ -232,7 +230,7 @@ fn build_proposer_slashing(
         Signature::new(message, domain, secret_key)
     };
 
-    ProposerSlashingBuilder::double_vote(validator_index, signer, spec)
+    TestingProposerSlashingBuilder::double_vote(validator_index, signer, spec)
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.
@@ -253,5 +251,5 @@ fn build_double_vote_attester_slashing(
         Signature::new(message, domain, secret_keys[key_index])
     };
 
-    AttesterSlashingBuilder::double_vote(validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(validator_indices, signer)
 }
