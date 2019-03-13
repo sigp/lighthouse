@@ -322,6 +322,11 @@ impl BeaconState {
         Ok(())
     }
 
+    /// Completely drops the `pubkey_cache`, replacing it with a new, empty cache.
+    pub fn drop_pubkey_cache(&mut self) {
+        self.pubkey_cache = PubkeyCache::empty()
+    }
+
     /// If a validator pubkey exists in the validator registry, returns `Some(i)`, otherwise
     /// returns `None`.
     ///
