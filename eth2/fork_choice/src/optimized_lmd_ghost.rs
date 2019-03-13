@@ -8,6 +8,7 @@ use db::{
 };
 use log::{debug, trace};
 use std::collections::HashMap;
+use std::cmp::Ordering;
 use std::sync::Arc;
 use types::{
     readers::BeaconBlockReader, validator_registry::get_active_validator_indices, BeaconBlock,
@@ -199,19 +200,19 @@ where
         if votes.is_empty() {
             return None;
         }
-        let mut best_child: Hash256 = Hash256::from(0);
-        let mut max_votes: u64 = 0;
-        for (&candidate, &votes) in votes.iter() {
-            // Choose the smaller hash to break ties deterministically
-            if votes == max_votes && candidate < best_child {
-                best_child = candidate;
+
+        // Iterate through hashmap to get child with maximum votes
+        let best_child = votes.iter().max_by(|(child1,v1), (child2, v2)|  {
+            let mut result =  v1.cmp(v2);
+            // If votes are equal, choose smaller hash to break ties deterministically
+            if result == Ordering::Equal {
+                    // Reverse so that max_by chooses smaller hash
+                    result = child1.cmp(child2).reverse();
             }
-            if votes > max_votes {
-                max_votes = votes;
-                best_child = candidate;
-            }
-        }
-        Some(best_child)
+            result
+        });
+
+        Some(*best_child.unwrap().0)
     }
 }
 
