@@ -72,11 +72,12 @@ pub fn build_public_key_hashmap(state: &BeaconState) -> PublicKeyValidatorIndexH
 pub fn get_existing_validator_index(
     state: &BeaconState,
     deposit: &Deposit,
-    pubkey_map: &HashMap<PublicKey, u64>,
 ) -> Result<Option<u64>, Error> {
     let deposit_input = &deposit.deposit_data.deposit_input;
 
-    let validator_index = pubkey_map.get(&deposit_input.pubkey).and_then(|i| Some(*i));
+    let validator_index = state
+        .get_validator_index(&deposit_input.pubkey)?
+        .and_then(|i| Some(i));
 
     match validator_index {
         None => Ok(None),
@@ -86,7 +87,7 @@ pub fn get_existing_validator_index(
                     == state.validator_registry[index as usize].withdrawal_credentials,
                 Invalid::BadWithdrawalCredentials
             );
-            Ok(Some(index))
+            Ok(Some(index as u64))
         }
     }
 }
