@@ -39,11 +39,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_hash_tree_root_internal() {
+    pub fn test_hash_tree_root() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let original = Transfer::random_for_test(&mut rng);
 
-        let result = original.hash_tree_root_internal();
+        let result = original.hash_tree_root();
 
         assert_eq!(result.len(), 32);
         // TODO: Add further tests
