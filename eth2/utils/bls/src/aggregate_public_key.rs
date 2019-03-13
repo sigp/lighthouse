@@ -14,7 +14,7 @@ impl AggregatePublicKey {
     }
 
     pub fn add(&mut self, public_key: &PublicKey) {
-        self.0.add(&public_key.as_raw())
+        self.0.add(public_key.as_raw())
     }
 
     /// Returns the underlying signature.
