@@ -21,7 +21,8 @@ impl ClientConfig {
     /// Build a new configuration from defaults.
     pub fn default() -> Result<Self, Error> {
         let data_dir = {
-            let home = dirs::home_dir().expect("Unable to determine home dir.");
+            let home = dirs::home_dir()
+                .ok_or(Error::new(ErrorKind::NotFound, "Unable to determine home directory."))?;
             home.join(DEFAULT_LIGHTHOUSE_DIR)
         };
         fs::create_dir_all(&data_dir)?;
@@ -39,7 +40,7 @@ impl ClientConfig {
         })
     }
 
-    // Try to load keys from datadir, or fail
+    /// Try to load keys from key_dir, returning None if none are found or an error.
     pub fn fetch_keys(&self) -> Result<Option<Vec<Keypair>>, Error> {
         let mut key_files = fs::read_dir(&self.key_dir)?.peekable();
 
