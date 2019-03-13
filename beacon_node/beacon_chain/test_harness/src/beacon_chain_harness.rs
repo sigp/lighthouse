@@ -1,7 +1,6 @@
 use super::ValidatorHarness;
 use beacon_chain::{BeaconChain, BlockProcessingOutcome};
 pub use beacon_chain::{BeaconChainError, CheckPoint};
-use bls::get_withdrawal_credentials;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
@@ -12,11 +11,10 @@ use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
 use ssz::TreeHash;
 use std::collections::HashSet;
-use std::fs::File;
 use std::iter::FromIterator;
 use std::path::Path;
 use std::sync::Arc;
-use types::{beacon_state::BeaconStateBuilder, test_utils::generate_deterministic_keypairs, *};
+use types::{test_utils::TestingBeaconStateBuilder, *};
 
 mod generate_deposits;
 
@@ -42,95 +40,17 @@ impl BeaconChainHarness {
     ///
     /// - A keypair, `BlockProducer` and `Attester` for each validator.
     /// - A new BeaconChain struct where the given validators are in the genesis.
-    pub fn new(
-        spec: ChainSpec,
-        validator_count: usize,
-        validators_dir: Option<&Path>,
-        skip_deposit_verification: bool,
-    ) -> Self {
+    pub fn new(spec: ChainSpec, validator_count: usize) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
-        let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
         let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
-        let latest_eth1_data = Eth1Data {
-            deposit_root: Hash256::zero(),
-            block_hash: Hash256::zero(),
-        };
 
-        let mut state_builder = BeaconStateBuilder::new(genesis_time, latest_eth1_data, &spec);
+        let state_builder =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+        let (genesis_state, keypairs) = state_builder.build();
 
-        // If a `validators_dir` is specified, load the keypairs a YAML file.
-        //
-        // Otherwise, generate them deterministically where the first validator has a secret key of
-        // `1`, etc.
-        let keypairs = if let Some(path) = validators_dir {
-            debug!("Loading validator keypairs from file...");
-            let keypairs_file = File::open(path.join("keypairs.yaml")).unwrap();
-            let mut keypairs: Vec<Keypair> = serde_yaml::from_reader(&keypairs_file).unwrap();
-            keypairs.truncate(validator_count);
-            keypairs
-        } else {
-            debug!("Generating validator keypairs...");
-            generate_deterministic_keypairs(validator_count)
-        };
-
-        // Skipping deposit verification means directly generating `Validator` records, instead
-        // of generating `Deposit` objects, verifying them and converting them into `Validator`
-        // records.
-        //
-        // It is much faster to skip deposit verification, however it does not test the initial
-        // validator induction part of beacon chain genesis.
-        if skip_deposit_verification {
-            let validators = keypairs
-                .iter()
-                .map(|keypair| {
-                    let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
-                        &keypair.pk,
-                        spec.bls_withdrawal_prefix_byte,
-                    ));
-
-                    Validator {
-                        pubkey: keypair.pk.clone(),
-                        withdrawal_credentials,
-                        activation_epoch: spec.far_future_epoch,
-                        exit_epoch: spec.far_future_epoch,
-                        withdrawable_epoch: spec.far_future_epoch,
-                        initiated_exit: false,
-                        slashed: false,
-                    }
-                })
-                .collect();
-
-            let balances = vec![32_000_000_000; validator_count];
-
-            state_builder.import_existing_validators(
-                validators,
-                balances,
-                validator_count as u64,
-                &spec,
-            );
-        } else {
-            debug!("Generating initial validator deposits...");
-            let deposits = generate_deposits_from_keypairs(
-                &keypairs,
-                genesis_time,
-                spec.get_domain(
-                    spec.genesis_epoch,
-                    Domain::Deposit,
-                    &Fork {
-                        previous_version: spec.genesis_fork_version,
-                        current_version: spec.genesis_fork_version,
-                        epoch: spec.genesis_epoch,
-                    },
-                ),
-                &spec,
-            );
-            state_builder.process_initial_deposits(&deposits, &spec);
-        };
-
-        let genesis_state = state_builder.build(&spec).unwrap();
         let state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
         let genesis_block = BeaconBlock::genesis(state_root, &spec);
 

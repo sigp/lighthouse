@@ -69,7 +69,7 @@ impl TestCase {
 
     /// Executes the test case, returning an `ExecutionResult`.
     #[allow(clippy::cyclomatic_complexity)]
-    pub fn execute(&self, validators_dir: Option<&Path>) -> ExecutionResult {
+    pub fn execute(&self) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;
         let slots = self.config.num_slots;
@@ -79,7 +79,7 @@ impl TestCase {
             validator_count
         );
 
-        let mut harness = BeaconChainHarness::new(spec, validator_count, validators_dir, true);
+        let mut harness = BeaconChainHarness::new(spec, validator_count);
 
         info!("Starting simulation across {} slots...", slots);
 
