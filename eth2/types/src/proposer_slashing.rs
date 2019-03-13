@@ -5,10 +5,6 @@ use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
-mod builder;
-
-pub use builder::ProposerSlashingBuilder;
-
 /// Two conflicting proposals from the same proposer (validator).
 ///
 /// Spec v0.4.0

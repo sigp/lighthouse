@@ -1,15 +1,13 @@
 use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{validator_registry::get_active_validator_indices, *};
-use bls::verify_proof_of_possession;
 use helpers::*;
 use honey_badger_split::SplitExt;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
 use rand::RngCore;
-use rayon::prelude::*;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, Decodable, DecodeError, Encodable, SignedRoot, SszStream, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::shuffle_list;
 
@@ -114,18 +112,18 @@ pub struct BeaconState {
 
 impl BeaconState {
     /// Produce the first state of the Beacon Chain.
-    pub fn genesis_without_validators(
-        genesis_time: u64,
-        latest_eth1_data: Eth1Data,
-        spec: &ChainSpec,
-    ) -> Result<BeaconState, Error> {
-        debug!("Creating genesis state (without validator processing).");
+    ///
+    /// This does not fully build a genesis beacon state, it omits processing of initial validator
+    /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
+    ///
+    /// Spec v0.4.0
+    pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             crosslink_data_root: spec.zero_hash,
         };
 
-        Ok(BeaconState {
+        BeaconState {
             /*
              * Misc
              */
@@ -188,52 +186,12 @@ impl BeaconState {
              */
             cache_index_offset: 0,
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
-        })
-    }
-
-    /// Produce the first state of the Beacon Chain.
-    pub fn genesis(
-        genesis_time: u64,
-        initial_validator_deposits: Vec<Deposit>,
-        latest_eth1_data: Eth1Data,
-        spec: &ChainSpec,
-    ) -> Result<BeaconState, Error> {
-        let mut genesis_state =
-            BeaconState::genesis_without_validators(genesis_time, latest_eth1_data, spec)?;
-
-        debug!("Processing genesis deposits...");
-
-        let deposit_data = initial_validator_deposits
-            .par_iter()
-            .map(|deposit| &deposit.deposit_data)
-            .collect();
-
-        genesis_state.process_deposits(deposit_data, spec);
-
-        trace!("Processed genesis deposits.");
-
-        for validator_index in 0..genesis_state.validator_registry.len() {
-            if genesis_state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount
-            {
-                genesis_state.activate_validator(validator_index, true, spec);
-            }
         }
-
-        genesis_state.deposit_index = initial_validator_deposits.len() as u64;
-
-        let genesis_active_index_root = hash_tree_root(get_active_validator_indices(
-            &genesis_state.validator_registry,
-            spec.genesis_epoch,
-        ));
-        genesis_state.latest_active_index_roots =
-            vec![genesis_active_index_root; spec.latest_active_index_roots_length];
-        genesis_state.current_shuffling_seed =
-            genesis_state.generate_seed(spec.genesis_epoch, spec)?;
-
-        Ok(genesis_state)
     }
 
     /// Returns the `hash_tree_root` of the state.
+    ///
+    /// Spec v0.4.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
@@ -541,12 +499,14 @@ impl BeaconState {
             return Err(Error::InvalidBitfield);
         }
 
-        let mut participants = vec![];
+        let mut participants = Vec::with_capacity(committee.len());
         for (i, validator_index) in committee.iter().enumerate() {
-            if bitfield.get(i).unwrap() {
-                participants.push(*validator_index);
+            match bitfield.get(i) {
+                Ok(bit) if bit == true => participants.push(*validator_index),
+                _ => {}
             }
         }
+        participants.shrink_to_fit();
 
         Ok(participants)
     }
@@ -598,10 +558,8 @@ impl BeaconState {
 
         for deposit_data in deposits {
             let result = self.process_deposit(
-                deposit_data.deposit_input.pubkey.clone(),
+                deposit_data.deposit_input.clone(),
                 deposit_data.amount,
-                deposit_data.deposit_input.proof_of_possession.clone(),
-                deposit_data.deposit_input.withdrawal_credentials,
                 Some(&pubkey_map),
                 spec,
             );
@@ -618,23 +576,29 @@ impl BeaconState {
     /// this hashmap, each call to `process_deposits` requires an iteration though
     /// `self.validator_registry`. This becomes highly inefficient at scale.
     ///
+    /// TODO: this function also exists in a more optimal form in the `state_processing` crate as
+    /// `process_deposits`; unify these two functions.
+    ///
     /// Spec v0.4.0
     pub fn process_deposit(
         &mut self,
-        pubkey: PublicKey,
+        deposit_input: DepositInput,
         amount: u64,
-        proof_of_possession: Signature,
-        withdrawal_credentials: Hash256,
         pubkey_map: Option<&HashMap<PublicKey, usize>>,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-        // TODO: update proof of possession to function written above (
-        // requires bls::create_proof_of_possession to be updated
-        //
-        // https://github.com/sigp/lighthouse/issues/239
-        if !verify_proof_of_possession(&proof_of_possession, &pubkey) {
+        let proof_is_valid = deposit_input.proof_of_possession.verify(
+            &deposit_input.signed_root(),
+            spec.get_domain(self.current_epoch(&spec), Domain::Deposit, &self.fork),
+            &deposit_input.pubkey,
+        );
+
+        if !proof_is_valid {
             return Err(());
         }
+
+        let pubkey = deposit_input.pubkey.clone();
+        let withdrawal_credentials = deposit_input.withdrawal_credentials.clone();
 
         let validator_index = if let Some(pubkey_map) = pubkey_map {
             pubkey_map.get(&pubkey).and_then(|i| Some(*i))
@@ -1063,33 +1027,6 @@ impl BeaconState {
         self.validator_registry_update_epoch = current_epoch;
     }
 
-    /// Confirm validator owns PublicKey
-    ///
-    /// Spec v0.4.0
-    pub fn validate_proof_of_possession(
-        &self,
-        pubkey: PublicKey,
-        proof_of_possession: Signature,
-        withdrawal_credentials: Hash256,
-        spec: &ChainSpec,
-    ) -> bool {
-        let proof_of_possession_data = DepositInput {
-            pubkey: pubkey.clone(),
-            withdrawal_credentials,
-            proof_of_possession: Signature::empty_signature(),
-        };
-
-        proof_of_possession.verify(
-            &proof_of_possession_data.hash_tree_root(),
-            spec.get_domain(
-                self.slot.epoch(spec.slots_per_epoch),
-                Domain::Deposit,
-                &self.fork,
-            ),
-            &pubkey,
-        )
-    }
-
     /// Iterate through the validator registry and eject active validators with balance below
     /// ``EJECTION_BALANCE``.
     ///
@@ -1159,10 +1096,6 @@ impl BeaconState {
         all_participants.dedup();
         Ok(all_participants)
     }
-}
-
-fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from_slice(&input.hash_tree_root()[..])
 }
 
 impl Encodable for BeaconState {

@@ -1,5 +1,5 @@
-use super::super::Bitfield;
 use super::TestRandom;
+use crate::Bitfield;
 use rand::RngCore;
 
 impl<T: RngCore> TestRandom<T> for Bitfield {

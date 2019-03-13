@@ -1,263 +1,99 @@
+use super::BeaconStateError;
+use crate::validator_registry::get_active_validator_indices;
 use crate::*;
-use bls::create_proof_of_possession;
+use rayon::prelude::*;
+use ssz::TreeHash;
 
-/// Builds a `BeaconState` for use in testing or benchmarking.
+/// Builds a `BeaconState` for use in production.
 ///
-/// Building the `BeaconState` is a three step processes:
+/// This struct should _not_ be modified for use in testing scenarios. Use `TestingBeaconStateBuilder` for that purpose.
 ///
-/// 1. Create a new `BeaconStateBuilder`.
-/// 2. Call `Self::build()` or `Self::build_fast()` generate a  `BeaconState`.
-/// 3. (Optional) Use builder functions to modify the `BeaconState`.
-/// 4. Call `Self::cloned_state()` to obtain a `BeaconState` cloned from this struct.
-///
-/// Step (2) happens prior to step (3) because some functionality requires an existing
-/// `BeaconState`.
-///
-/// Step (4) produces a clone of the BeaconState and doesn't consume the `BeaconStateBuilder` to
-/// allow access to `self.keypairs` and `self.spec`.
+/// This struct should remain safe and sensible for production usage.
 pub struct BeaconStateBuilder {
-    pub validator_count: usize,
-    pub state: Option<BeaconState>,
-    pub genesis_time: u64,
-    pub latest_eth1_data: Eth1Data,
-    pub spec: ChainSpec,
-    pub keypairs: Vec<Keypair>,
+    pub state: BeaconState,
 }
 
 impl BeaconStateBuilder {
     /// Create a new builder with the given number of validators.
-    pub fn new(validator_count: usize) -> Self {
-        let genesis_time = 10_000_000;
-
-        let latest_eth1_data = Eth1Data {
-            deposit_root: Hash256::zero(),
-            block_hash: Hash256::zero(),
-        };
-
-        let spec = ChainSpec::foundation();
-
+    ///
+    /// Spec v0.4.0
+    pub fn new(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> Self {
         Self {
-            validator_count,
-            state: None,
-            genesis_time,
-            latest_eth1_data,
-            spec,
-            keypairs: vec![],
+            state: BeaconState::genesis(genesis_time, latest_eth1_data, spec),
         }
     }
 
-    /// Builds a `BeaconState` using the `BeaconState::genesis(..)` function.
+    /// Process deposit objects.
     ///
-    /// Each validator is assigned a unique, randomly-generated keypair and all
-    /// proof-of-possessions are verified during genesis.
-    pub fn build(&mut self) -> Result<(), BeaconStateError> {
-        self.keypairs = (0..self.validator_count)
-            .collect::<Vec<usize>>()
-            .iter()
-            .map(|_| Keypair::random())
+    /// Spec v0.4.0
+    pub fn process_initial_deposits(
+        &mut self,
+        initial_validator_deposits: &[Deposit],
+        spec: &ChainSpec,
+    ) {
+        let deposit_data = initial_validator_deposits
+            .par_iter()
+            .map(|deposit| &deposit.deposit_data)
             .collect();
 
-        let initial_validator_deposits = self
-            .keypairs
-            .iter()
-            .map(|keypair| Deposit {
-                branch: vec![], // branch verification is not specified.
-                index: 0,       // index verification is not specified.
-                deposit_data: DepositData {
-                    amount: 32_000_000_000, // 32 ETH (in Gwei)
-                    timestamp: self.genesis_time - 1,
-                    deposit_input: DepositInput {
-                        pubkey: keypair.pk.clone(),
-                        withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
-                        proof_of_possession: create_proof_of_possession(&keypair),
-                    },
-                },
-            })
-            .collect();
+        self.state.process_deposits(deposit_data, spec);
 
-        let state = BeaconState::genesis(
-            self.genesis_time,
-            initial_validator_deposits,
-            self.latest_eth1_data.clone(),
-            &self.spec,
-        )?;
+        self.activate_genesis_validators(spec);
 
-        self.state = Some(state);
-
-        Ok(())
+        self.state.deposit_index = initial_validator_deposits.len() as u64;
     }
 
-    /// Builds a `BeaconState` using the `BeaconState::genesis(..)` function, without supplying any
-    /// validators. Instead validators are added to the state post-genesis.
-    ///
-    /// One keypair is randomly generated and all validators are assigned this same keypair.
-    /// Proof-of-possessions are not created (or validated).
-    ///
-    /// This function runs orders of magnitude faster than `Self::build()`, however it will be
-    /// erroneous for functions which use a validators public key as an identifier (e.g.,
-    /// deposits).
-    pub fn build_fast(&mut self) -> Result<(), BeaconStateError> {
-        let common_keypair = Keypair::random();
-
-        let mut validator_registry = Vec::with_capacity(self.validator_count);
-        let mut validator_balances = Vec::with_capacity(self.validator_count);
-        self.keypairs = Vec::with_capacity(self.validator_count);
-
-        for _ in 0..self.validator_count {
-            self.keypairs.push(common_keypair.clone());
-            validator_balances.push(32_000_000_000);
-            validator_registry.push(Validator {
-                pubkey: common_keypair.pk.clone(),
-                withdrawal_credentials: Hash256::zero(),
-                activation_epoch: self.spec.genesis_epoch,
-                ..Validator::default()
-            })
-        }
-
-        let state = BeaconState {
-            validator_registry,
-            validator_balances,
-            ..BeaconState::genesis(
-                self.genesis_time,
-                vec![],
-                self.latest_eth1_data.clone(),
-                &self.spec,
-            )?
-        };
-
-        self.state = Some(state);
-
-        Ok(())
-    }
-
-    /// Sets the `BeaconState` to be in the last slot of the given epoch.
-    ///
-    /// Sets all justification/finalization parameters to be be as "perfect" as possible (i.e.,
-    /// highest justified and finalized slots, full justification bitfield, etc).
-    pub fn teleport_to_end_of_epoch(&mut self, epoch: Epoch) {
-        let state = self.state.as_mut().expect("Genesis required");
-
-        let slot = epoch.end_slot(self.spec.slots_per_epoch);
-
-        state.slot = slot;
-        state.validator_registry_update_epoch = epoch - 1;
-
-        state.previous_shuffling_epoch = epoch - 1;
-        state.current_shuffling_epoch = epoch;
-
-        state.previous_shuffling_seed = Hash256::from_low_u64_le(0);
-        state.current_shuffling_seed = Hash256::from_low_u64_le(1);
-
-        state.previous_justified_epoch = epoch - 2;
-        state.justified_epoch = epoch - 1;
-        state.justification_bitfield = u64::max_value();
-        state.finalized_epoch = epoch - 1;
-    }
-
-    /// Creates a full set of attestations for the `BeaconState`. Each attestation has full
-    /// participation from its committee and references the expected beacon_block hashes.
-    ///
-    /// These attestations should be fully conducive to justification and finalization.
-    pub fn insert_attestations(&mut self) {
-        let state = self.state.as_mut().expect("Genesis required");
-
-        state
-            .build_epoch_cache(RelativeEpoch::Previous, &self.spec)
-            .unwrap();
-        state
-            .build_epoch_cache(RelativeEpoch::Current, &self.spec)
-            .unwrap();
-
-        let current_epoch = state.current_epoch(&self.spec);
-        let previous_epoch = state.previous_epoch(&self.spec);
-        let current_epoch_depth =
-            (state.slot - current_epoch.end_slot(self.spec.slots_per_epoch)).as_usize();
-
-        let previous_epoch_slots = previous_epoch.slot_iter(self.spec.slots_per_epoch);
-        let current_epoch_slots = current_epoch
-            .slot_iter(self.spec.slots_per_epoch)
-            .take(current_epoch_depth);
-
-        for slot in previous_epoch_slots.chain(current_epoch_slots) {
-            let committees = state
-                .get_crosslink_committees_at_slot(slot, &self.spec)
-                .unwrap()
-                .clone();
-
-            for (committee, shard) in committees {
-                state
-                    .latest_attestations
-                    .push(committee_to_pending_attestation(
-                        state, &committee, shard, slot, &self.spec,
-                    ))
+    fn activate_genesis_validators(&mut self, spec: &ChainSpec) {
+        for validator_index in 0..self.state.validator_registry.len() {
+            if self.state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount {
+                self.state.activate_validator(validator_index, true, spec);
             }
         }
     }
 
-    /// Returns a cloned `BeaconState`.
-    pub fn cloned_state(&self) -> BeaconState {
-        self.state.as_ref().expect("Genesis required").clone()
+    /// Instantiate the validator registry from a YAML file.
+    ///
+    /// This skips a lot of signing and verification, useful if signing and verification has been
+    /// completed previously.
+    ///
+    /// Spec v0.4.0
+    pub fn import_existing_validators(
+        &mut self,
+        validators: Vec<Validator>,
+        initial_balances: Vec<u64>,
+        deposit_index: u64,
+        spec: &ChainSpec,
+    ) {
+        self.state.validator_registry = validators;
+
+        assert_eq!(
+            self.state.validator_registry.len(),
+            initial_balances.len(),
+            "Not enough balances for validators"
+        );
+
+        self.state.validator_balances = initial_balances;
+
+        self.activate_genesis_validators(spec);
+
+        self.state.deposit_index = deposit_index;
     }
-}
 
-/// Builds a valid PendingAttestation with full participation for some committee.
-fn committee_to_pending_attestation(
-    state: &BeaconState,
-    committee: &[usize],
-    shard: u64,
-    slot: Slot,
-    spec: &ChainSpec,
-) -> PendingAttestation {
-    let current_epoch = state.current_epoch(spec);
-    let previous_epoch = state.previous_epoch(spec);
+    /// Updates the final state variables and returns a fully built genesis state.
+    ///
+    /// Spec v0.4.0
+    pub fn build(mut self, spec: &ChainSpec) -> Result<BeaconState, BeaconStateError> {
+        let genesis_active_index_root =
+            get_active_validator_indices(&self.state.validator_registry, spec.genesis_epoch)
+                .hash_tree_root();
 
-    let mut aggregation_bitfield = Bitfield::new();
-    let mut custody_bitfield = Bitfield::new();
+        self.state.latest_active_index_roots = vec![
+            Hash256::from_slice(&genesis_active_index_root);
+            spec.latest_active_index_roots_length
+        ];
 
-    for (i, _) in committee.iter().enumerate() {
-        aggregation_bitfield.set(i, true);
-        custody_bitfield.set(i, true);
-    }
+        self.state.current_shuffling_seed = self.state.generate_seed(spec.genesis_epoch, spec)?;
 
-    let is_previous_epoch =
-        state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
-
-    let justified_epoch = if is_previous_epoch {
-        state.previous_justified_epoch
-    } else {
-        state.justified_epoch
-    };
-
-    let epoch_boundary_root = if is_previous_epoch {
-        *state
-            .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch), spec)
-            .unwrap()
-    } else {
-        *state
-            .get_block_root(current_epoch.start_slot(spec.slots_per_epoch), spec)
-            .unwrap()
-    };
-
-    let justified_block_root = *state
-        .get_block_root(justified_epoch.start_slot(spec.slots_per_epoch), &spec)
-        .unwrap();
-
-    PendingAttestation {
-        aggregation_bitfield,
-        data: AttestationData {
-            slot,
-            shard,
-            beacon_block_root: *state.get_block_root(slot, spec).unwrap(),
-            epoch_boundary_root,
-            crosslink_data_root: Hash256::zero(),
-            latest_crosslink: Crosslink {
-                epoch: slot.epoch(spec.slots_per_epoch),
-                crosslink_data_root: Hash256::zero(),
-            },
-            justified_epoch,
-            justified_block_root,
-        },
-        custody_bitfield,
-        inclusion_slot: slot,
+        Ok(self.state)
     }
 }

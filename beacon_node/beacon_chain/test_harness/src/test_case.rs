@@ -3,14 +3,13 @@
 
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
-use bls::{create_proof_of_possession, get_withdrawal_credentials};
+use bls::get_withdrawal_credentials;
 use log::{info, warn};
 use ssz::SignedRoot;
+use std::path::Path;
 use types::*;
 
-use types::{
-    attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
-};
+use types::test_utils::{TestingAttesterSlashingBuilder, TestingProposerSlashingBuilder};
 use yaml_rust::Yaml;
 
 mod config;
@@ -70,7 +69,7 @@ impl TestCase {
 
     /// Executes the test case, returning an `ExecutionResult`.
     #[allow(clippy::cyclomatic_complexity)]
-    pub fn execute(&self) -> ExecutionResult {
+    pub fn execute(&self, validators_dir: Option<&Path>) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;
         let slots = self.config.num_slots;
@@ -80,7 +79,7 @@ impl TestCase {
             validator_count
         );
 
-        let mut harness = BeaconChainHarness::new(spec, validator_count);
+        let mut harness = BeaconChainHarness::new(spec, validator_count, validators_dir, true);
 
         info!("Starting simulation across {} slots...", slots);
 
@@ -257,11 +256,23 @@ fn build_deposit(
     index_offset: u64,
 ) -> (Deposit, Keypair) {
     let keypair = Keypair::random();
-    let proof_of_possession = create_proof_of_possession(&keypair);
-    let index = harness.beacon_chain.state.read().deposit_index + index_offset;
     let withdrawal_credentials = Hash256::from_slice(
         &get_withdrawal_credentials(&keypair.pk, harness.spec.bls_withdrawal_prefix_byte)[..],
     );
+    let proof_of_possession = DepositInput::create_proof_of_possession(
+        &keypair,
+        &withdrawal_credentials,
+        harness.spec.get_domain(
+            harness
+                .beacon_chain
+                .state
+                .read()
+                .current_epoch(&harness.spec),
+            Domain::Deposit,
+            &harness.beacon_chain.state.read().fork,
+        ),
+    );
+    let index = harness.beacon_chain.state.read().deposit_index + index_offset;
 
     let deposit = Deposit {
         // Note: `branch` and `index` will need to be updated once the spec defines their
@@ -318,7 +329,7 @@ fn build_double_vote_attester_slashing(
             .expect("Unable to sign AttesterSlashing")
     };
 
-    AttesterSlashingBuilder::double_vote(validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(validator_indices, signer)
 }
 
 /// Builds an `ProposerSlashing` for some `validator_index`.
@@ -331,5 +342,5 @@ fn build_proposer_slashing(harness: &BeaconChainHarness, validator_index: u64) -
             .expect("Unable to sign AttesterSlashing")
     };
 
-    ProposerSlashingBuilder::double_vote(validator_index, signer, &harness.spec)
+    TestingProposerSlashingBuilder::double_vote(validator_index, signer, &harness.spec)
 }
