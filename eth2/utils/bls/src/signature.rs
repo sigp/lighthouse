@@ -33,7 +33,7 @@ impl Signature {
 
     /// Verify the Signature against a PublicKey.
     pub fn verify(&self, msg: &[u8], domain: u64, pk: &PublicKey) -> bool {
-        self.0.verify(msg, domain, pk.as_raw())
+        self.0.verify(msg, domain, &pk.as_raw())
     }
 
     /// Verify the Signature against a PublicKey, where the message has already been hashed.
@@ -44,7 +44,7 @@ impl Signature {
         pk: &PublicKey,
     ) -> bool {
         self.0
-            .verify_hashed(x_real_hashed, x_imaginary_hashed, pk.as_raw())
+            .verify_hashed(x_real_hashed, x_imaginary_hashed, &pk.as_raw())
     }
 
     /// Returns the underlying signature.
