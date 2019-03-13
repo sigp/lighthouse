@@ -66,7 +66,7 @@ impl<'de> Deserialize<'de> for SecretKey {
 }
 
 impl TreeHash for SecretKey {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
+    fn hash_tree_root(&self) -> Vec<u8> {
         self.0.as_bytes().clone()
     }
 }
