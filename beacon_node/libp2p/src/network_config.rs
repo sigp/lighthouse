@@ -2,7 +2,6 @@ use crate::Multiaddr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use libp2p::secio;
 use std::fmt;
-use types::Topic;
 
 #[derive(Clone)]
 /// Network configuration for lighthouse.
@@ -20,6 +19,8 @@ pub struct NetworkConfig {
     pub local_private_key: secio::SecioKeyPair,
     /// Client version
     pub client_version: String,
+    /// List of topics to subscribe to as strings
+    pub topics: Vec<String>,
 }
 
 impl Default for NetworkConfig {
@@ -37,6 +38,7 @@ impl Default for NetworkConfig {
             boot_nodes: Vec::new(),
             local_private_key: secio::SecioKeyPair::secp256k1_generated().unwrap(),
             client_version: version::version(),
+            topics: vec![String::from("beacon_chain")],
         }
     }
 }
