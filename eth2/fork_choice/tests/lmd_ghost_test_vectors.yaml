@@ -35,3 +35,19 @@ test_cases:
     - b3: 3
   heads:
     - id: 'b1'
+# equal weights children. Should choose lower hash b2
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b0'
+  weights:
+    - b1: 5
+    - b2: 6
+    - b3: 6
+  heads:
+    - id: 'b2'
