@@ -5,6 +5,7 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
+use types::Topic;
 
 /// Builds the network behaviour for the libp2p Swarm.
 /// Implements gossipsub message routing.
@@ -57,6 +58,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
+    pub fn subscribe(&mut self, topic: Topic) -> bool {
+        self.gossipsub.subscribe(topic)
+    }
+
     pub fn send_message(&self, message: String) {
         // TODO: Encode and send via gossipsub
 

@@ -12,9 +12,10 @@ use libp2p::core::{
 };
 use libp2p::{core, secio, Transport};
 use libp2p::{PeerId, Swarm};
-use slog::{debug, info, warn};
+use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
+use types::{Topic, TopicBuilder};
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
@@ -33,7 +34,7 @@ impl Service {
 
         let local_private_key = config.local_private_key;
         let local_peer_id = local_private_key.to_peer_id();
-        debug!(log, "Local peer id: {:?}", local_peer_id);
+        info!(log, "Local peer id: {:?}", local_peer_id);
 
         let mut swarm = {
             // Set up the transport
@@ -66,6 +67,20 @@ impl Service {
                 ),
             };
         }
+
+        // subscribe to default gossipsub topics
+        let mut subscribed_topics = vec![];
+        for topic in config.topics {
+            let t = TopicBuilder::new(topic.to_string()).build();
+            match swarm.subscribe(t) {
+                true => {
+                    trace!(log, "Subscribed to topic: {:?}", topic);
+                    subscribed_topics.push(topic);
+                }
+                false => warn!(log, "Could not subscribe to topic: {:?}", topic),
+            };
+        }
+        info!(log, "Subscribed to topics: {:?}", subscribed_topics);
 
         Ok(Service {
             local_peer_id,
