@@ -1,4 +1,4 @@
-pub mod test_utils;
+//! Ethereum 2.0 types
 
 pub mod attestation;
 pub mod attestation_data;
@@ -22,6 +22,7 @@ pub mod proposer_slashing;
 pub mod readers;
 pub mod shard_reassignment_record;
 pub mod slashable_attestation;
+pub mod test_utils;
 pub mod transfer;
 pub mod voluntary_exit;
 #[macro_use]

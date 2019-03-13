@@ -144,6 +144,8 @@ impl TestingBeaconStateBuilder {
         state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
         state.build_epoch_cache(RelativeEpoch::Next, &spec)?;
 
+        state.update_pubkey_cache()?;
+
         Ok(())
     }
 

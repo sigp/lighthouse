@@ -294,6 +294,8 @@ impl_into_with_index_without_beacon_error!(
 pub enum DepositValidationError {
     /// Validation completed successfully and the object is invalid.
     Invalid(DepositInvalid),
+    /// Encountered a `BeaconStateError` whilst attempting to determine validity.
+    BeaconStateError(BeaconStateError),
 }
 
 /// Describes why an object is invalid.
@@ -313,7 +315,8 @@ pub enum DepositInvalid {
     BadMerkleProof,
 }
 
-impl_into_with_index_without_beacon_error!(DepositValidationError, DepositInvalid);
+impl_from_beacon_state_error!(DepositValidationError);
+impl_into_with_index_with_beacon_error!(DepositValidationError, DepositInvalid);
 
 /*
  * `Exit` Validation
