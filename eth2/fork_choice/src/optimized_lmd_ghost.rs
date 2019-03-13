@@ -7,8 +7,8 @@ use db::{
     ClientDB,
 };
 use log::{debug, trace};
-use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
     readers::BeaconBlockReader, validator_registry::get_active_validator_indices, BeaconBlock,
@@ -202,12 +202,12 @@ where
         }
 
         // Iterate through hashmap to get child with maximum votes
-        let best_child = votes.iter().max_by(|(child1,v1), (child2, v2)|  {
-            let mut result =  v1.cmp(v2);
+        let best_child = votes.iter().max_by(|(child1, v1), (child2, v2)| {
+            let mut result = v1.cmp(v2);
             // If votes are equal, choose smaller hash to break ties deterministically
             if result == Ordering::Equal {
-                    // Reverse so that max_by chooses smaller hash
-                    result = child1.cmp(child2).reverse();
+                // Reverse so that max_by chooses smaller hash
+                result = child1.cmp(child2).reverse();
             }
             result
         });

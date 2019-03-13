@@ -16,7 +16,9 @@ use bls::Signature;
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
 // use env_logger::{Builder, Env};
-use fork_choice::{BitwiseLMDGhost, OptimizedLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, SlowLMDGhost};
+use fork_choice::{
+    BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimizedLMDGhost, SlowLMDGhost,
+};
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
