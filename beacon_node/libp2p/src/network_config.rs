@@ -2,6 +2,7 @@ use crate::Multiaddr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use libp2p::secio;
 use std::fmt;
+use types::Topic;
 
 #[derive(Clone)]
 /// Network configuration for lighthouse.
@@ -24,8 +25,9 @@ pub struct NetworkConfig {
 impl Default for NetworkConfig {
     /// Generate a default network configuration.
     fn default() -> Self {
-        // TODO: Currently using ed25519 key pairs. Wire protocol specifies RSA. Waiting for this
+        // TODO: Currently using secp256k1 key pairs. Wire protocol specifies RSA. Waiting for this
         // PR to be merged to generate RSA keys: https://github.com/briansmith/ring/pull/733
+
         NetworkConfig {
             listen_addresses: vec!["/ip4/127.0.0.1/tcp/9000"
                 .parse()
@@ -33,7 +35,7 @@ impl Default for NetworkConfig {
             listen_port: 9000,
             gs_config: GossipsubConfigBuilder::new().build(),
             boot_nodes: Vec::new(),
-            local_private_key: secio::SecioKeyPair::ed25519_generated().unwrap(),
+            local_private_key: secio::SecioKeyPair::secp256k1_generated().unwrap(),
             client_version: version::version(),
         }
     }
