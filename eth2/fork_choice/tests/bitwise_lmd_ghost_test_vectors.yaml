@@ -63,3 +63,69 @@ test_cases:
     - b7: 2
   heads:
     - id: 'b4'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b0'
+    - id: 'b4'
+      parent: 'b1'
+    - id: 'b5'
+      parent: 'b1'
+    - id: 'b6'
+      parent: 'b2'
+    - id: 'b7'
+      parent: 'b2'
+    - id: 'b8'
+      parent: 'b3'
+    - id: 'b9'
+      parent: 'b3'
+  weights:
+    - b1: 2
+    - b2: 1
+    - b3: 1
+    - b4: 7
+    - b5: 5
+    - b6: 2
+    - b7: 4
+    - b8: 4
+    - b9: 2
+  heads:
+    - id: 'b4'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b0'
+    - id: 'b4'
+      parent: 'b1'
+    - id: 'b5'
+      parent: 'b1'
+    - id: 'b6'
+      parent: 'b2'
+    - id: 'b7'
+      parent: 'b2'
+    - id: 'b8'
+      parent: 'b3'
+    - id: 'b9'
+      parent: 'b3'
+  weights:
+    - b1: 1
+    - b2: 1
+    - b3: 1
+    - b4: 7
+    - b5: 5
+    - b6: 2
+    - b7: 4
+    - b8: 4
+    - b9: 2
+  heads:
+    - id: 'b7'
