@@ -74,19 +74,20 @@ impl TestingBeaconBlockBuilder {
         self.block.body.attester_slashings.push(attester_slashing);
     }
 
-    /// Fills the block with `MAX_ATTESTATIONS` attestations.
+    /// Fills the block with `num_attestations` attestations.
     ///
     /// It will first go and get each committee that is able to include an attestation in this
-    /// block. If there are enough committees, it will produce an attestation for each. If there
-    /// are _not_ enough committees, it will start splitting the committees in half until it
+    /// block. If there _are_ enough committees, it will produce an attestation for each. If there
+    /// _are not_ enough committees, it will start splitting the committees in half until it
     /// achieves the target. It will then produce separate attestations for each split committee.
     ///
     /// Note: the signed messages of the split committees will be identical -- it would be possible
     /// to aggregate these split attestations.
-    pub fn fill_with_attestations(
+    pub fn insert_attestations(
         &mut self,
         state: &BeaconState,
         secret_keys: &[&SecretKey],
+        num_attestations: usize,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         let mut slot = self.block.slot - spec.min_attestation_inclusion_delay;
@@ -110,7 +111,7 @@ impl TestingBeaconBlockBuilder {
             }
 
             for (committee, shard) in state.get_crosslink_committees_at_slot(slot, spec)? {
-                if attestations_added >= spec.max_attestations {
+                if attestations_added >= num_attestations {
                     break;
                 }
 
@@ -125,12 +126,12 @@ impl TestingBeaconBlockBuilder {
         // Loop through all the committees, splitting each one in half until we have
         // `MAX_ATTESTATIONS` committees.
         loop {
-            if committees.len() >= spec.max_attestations as usize {
+            if committees.len() >= num_attestations as usize {
                 break;
             }
 
             for index in 0..committees.len() {
-                if committees.len() >= spec.max_attestations as usize {
+                if committees.len() >= num_attestations as usize {
                     break;
                 }
 
