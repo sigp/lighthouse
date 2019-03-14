@@ -7,7 +7,6 @@ edition = "2018"
 [dependencies]
 client = { path = "client" }
 version = { path = "version" }
-
 clap = "2.32.0"
 slog = "^2.2.3"
 slog-term = "^2.4.0"
