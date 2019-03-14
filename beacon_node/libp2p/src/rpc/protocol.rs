@@ -158,6 +158,7 @@ impl Encodable for RpcEvent {
     }
 }
 
+#[derive(Debug)]
 pub enum DecodeError {
     ReadError(upgrade::ReadOneError),
     SSZDecodeError(ssz::DecodeError),

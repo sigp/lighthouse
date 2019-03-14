@@ -1,9 +1,9 @@
-mod handler;
-mod methods;
 /// RPC Protocol over libp2p.
 ///
 /// This is purpose built for Ethereum 2.0 serenity and the protocol listens on
 /// `/eth/serenity/rpc/1.0.0`
+mod handler;
+mod methods;
 mod protocol;
 
 use futures::prelude::*;
@@ -12,8 +12,8 @@ use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-use methods::RPCRequest;
-use protocol::{RPCProtocol, RpcEvent};
+pub use methods::{RPCMethod, RPCRequest, RPCResponse};
+pub use protocol::{RPCProtocol, RpcEvent};
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
