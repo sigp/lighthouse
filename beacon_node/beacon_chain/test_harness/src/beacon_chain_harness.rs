@@ -12,13 +12,8 @@ use slot_clock::TestingSlotClock;
 use ssz::TreeHash;
 use std::collections::HashSet;
 use std::iter::FromIterator;
-use std::path::Path;
 use std::sync::Arc;
 use types::{test_utils::TestingBeaconStateBuilder, *};
-
-mod generate_deposits;
-
-pub use generate_deposits::generate_deposits_from_keypairs;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
