@@ -11,7 +11,7 @@ mod block_benching_builder;
 
 pub const VALIDATOR_COUNT: usize = 16_384;
 
-// `LOG_LEVEL == "debug"` gives logs, but they're very noisy and slow down benching.
+// `LOG_LEVEL == "info"` gives handy messages.
 pub const LOG_LEVEL: &str = "info";
 
 /// Build a worst-case block and benchmark processing it.
@@ -40,10 +40,8 @@ pub fn block_processing_worst_case(c: &mut Criterion) {
     // Build all the state caches so the build times aren't included in the benches.
     bench_builder.build_caches(&spec);
 
-    // Generate the block and state.
+    // Generate the block and state then run benches.
     let (block, state) = bench_builder.build(&spec);
-
-    // Run the benches.
     bench_block_processing::bench_block_processing(
         c,
         &block,
@@ -81,10 +79,8 @@ pub fn block_processing_reasonable_case(c: &mut Criterion) {
     // Build all the state caches so the build times aren't included in the benches.
     bench_builder.build_caches(&spec);
 
-    // Generate the block and state.
+    // Generate the block and state then run benches.
     let (block, state) = bench_builder.build(&spec);
-
-    // Run the benches.
     bench_block_processing::bench_block_processing(
         c,
         &block,
