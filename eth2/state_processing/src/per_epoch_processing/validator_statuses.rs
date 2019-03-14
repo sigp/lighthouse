@@ -74,8 +74,8 @@ impl AttesterStatus {
 
 #[derive(Default, Clone)]
 pub struct TotalBalances {
-    pub current_epoch_total: u64,
-    pub previous_epoch_total: u64,
+    pub current_epoch: u64,
+    pub previous_epoch: u64,
     pub current_epoch_attesters: u64,
     pub current_epoch_boundary_attesters: u64,
     pub previous_epoch_attesters: u64,
@@ -84,33 +84,40 @@ pub struct TotalBalances {
 }
 
 #[derive(Clone)]
-pub struct Attesters {
-    pub statuses: Vec<AttesterStatus>,
-    pub balances: TotalBalances,
+pub struct ValidatorStatuses {
+    statuses: Vec<AttesterStatus>,
+    pub total_balances: TotalBalances,
 }
 
-impl Attesters {
+impl ValidatorStatuses {
     pub fn new(state: &BeaconState, spec: &ChainSpec) -> Self {
         let mut statuses = Vec::with_capacity(state.validator_registry.len());
-        let mut balances = TotalBalances::default();
+        let mut total_balances = TotalBalances::default();
 
         for (i, validator) in state.validator_registry.iter().enumerate() {
             let mut status = AttesterStatus::default();
 
             if validator.is_active_at(state.current_epoch(spec)) {
                 status.is_active_in_current_epoch = true;
-                balances.current_epoch_total += state.get_effective_balance(i, spec);
+                total_balances.current_epoch += state.get_effective_balance(i, spec);
             }
 
             if validator.is_active_at(state.previous_epoch(spec)) {
                 status.is_active_in_previous_epoch = true;
-                balances.previous_epoch_total += state.get_effective_balance(i, spec);
+                total_balances.previous_epoch += state.get_effective_balance(i, spec);
             }
 
             statuses.push(status);
         }
 
-        Self { statuses, balances }
+        Self {
+            statuses,
+            total_balances,
+        }
+    }
+
+    pub fn get(&self, i: usize) -> &AttesterStatus {
+        &self.statuses[i]
     }
 
     pub fn process_attestations(
@@ -129,15 +136,15 @@ impl Attesters {
             // Profile this attestation, updating the total balances and generating an
             // `AttesterStatus` object that applies to all participants in the attestation.
             if is_from_epoch(a, state.current_epoch(spec), spec) {
-                self.balances.current_epoch_attesters += attesting_balance;
+                self.total_balances.current_epoch_attesters += attesting_balance;
                 status.is_current_epoch_attester = true;
 
                 if has_common_epoch_boundary_root(a, state, state.current_epoch(spec), spec)? {
-                    self.balances.current_epoch_boundary_attesters += attesting_balance;
+                    self.total_balances.current_epoch_boundary_attesters += attesting_balance;
                     status.is_current_epoch_boundary_attester = true;
                 }
             } else if is_from_epoch(a, state.previous_epoch(spec), spec) {
-                self.balances.previous_epoch_attesters += attesting_balance;
+                self.total_balances.previous_epoch_attesters += attesting_balance;
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
@@ -148,12 +155,12 @@ impl Attesters {
                 };
 
                 if has_common_epoch_boundary_root(a, state, state.previous_epoch(spec), spec)? {
-                    self.balances.previous_epoch_boundary_attesters += attesting_balance;
+                    self.total_balances.previous_epoch_boundary_attesters += attesting_balance;
                     status.is_previous_epoch_boundary_attester = true;
                 }
 
                 if has_common_beacon_block_root(a, state, spec)? {
-                    self.balances.previous_epoch_head_attesters += attesting_balance;
+                    self.total_balances.previous_epoch_head_attesters += attesting_balance;
                     status.is_previous_epoch_head_attester = true;
                 }
             }

@@ -4,7 +4,7 @@ use ssz::TreeHash;
 use state_processing::{
     per_epoch_processing,
     per_epoch_processing::{
-        calculate_attester_sets, clean_attestations, process_crosslinks, process_eth1_data,
+        clean_attestations, initialize_validator_statuses, process_crosslinks, process_eth1_data,
         process_justification, process_rewards_and_penalities, process_validator_registry,
         update_active_tree_index_roots, update_latest_slashed_balances,
     },
@@ -93,11 +93,11 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let spec_clone = spec.clone();
     c.bench(
         &format!("{}/epoch_processing", desc),
-        Benchmark::new("calculate_attester_sets", move |b| {
+        Benchmark::new("initialize_validator_statuses", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
                 |mut state| {
-                    calculate_attester_sets(&mut state, &spec_clone).unwrap();
+                    initialize_validator_statuses(&mut state, &spec_clone).unwrap();
                     state
                 },
                 criterion::BatchSize::SmallInput,
@@ -108,21 +108,14 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
 
     let state_clone = state.clone();
     let spec_clone = spec.clone();
-    let attesters = calculate_attester_sets(&state, &spec).unwrap();
+    let attesters = initialize_validator_statuses(&state, &spec).unwrap();
     c.bench(
         &format!("{}/epoch_processing", desc),
         Benchmark::new("process_justification", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
                 |mut state| {
-                    process_justification(
-                        &mut state,
-                        attesters.balances.current_epoch_total,
-                        attesters.balances.previous_epoch_total,
-                        attesters.balances.previous_epoch_boundary_attesters,
-                        attesters.balances.current_epoch_boundary_attesters,
-                        &spec_clone,
-                    );
+                    process_justification(&mut state, &attesters.total_balances, &spec_clone);
                     state
                 },
                 criterion::BatchSize::SmallInput,
@@ -147,7 +140,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
 
     let mut state_clone = state.clone();
     let spec_clone = spec.clone();
-    let attesters = calculate_attester_sets(&state, &spec).unwrap();
+    let attesters = initialize_validator_statuses(&state, &spec).unwrap();
     let winning_root_for_shards = process_crosslinks(&mut state_clone, &spec).unwrap();
     c.bench(
         &format!("{}/epoch_processing", desc),
