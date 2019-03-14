@@ -15,7 +15,7 @@ use libp2p::{PeerId, Swarm};
 use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use types::{Topic, TopicBuilder};
+use types::TopicBuilder;
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {

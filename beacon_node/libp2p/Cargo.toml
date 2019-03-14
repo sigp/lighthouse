@@ -8,6 +8,8 @@ edition = "2018"
 # SigP repository until PR is merged
 libp2p =  { git = "https://github.com/SigP/rust-libp2p", branch = "gossipsub" }
 types = { path =  "../../eth2/types" }
+ssz = { path = "../../eth2/utils/ssz" }
+ssz_derive = { path = "../../eth2/utils/ssz_derive" }
 slog = "2.4.1"
 version = { path = "../version" }
 tokio = "0.1.16"

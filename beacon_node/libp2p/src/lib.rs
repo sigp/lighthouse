@@ -5,6 +5,7 @@
 pub mod behaviour;
 pub mod error;
 mod network_config;
+mod rpc;
 mod service;
 
 pub use libp2p::{
