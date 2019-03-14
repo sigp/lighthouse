@@ -409,11 +409,23 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                         *child_votes.entry(child).or_insert_with(|| 0) += vote;
                     }
                 }
-                // given the votes on the children, find the best child
-                current_head = self
-                    .choose_best_child(&child_votes)
-                    .ok_or(ForkChoiceError::CannotFindBestChild)?;
-                trace!("Best child found: {}", current_head);
+                // check if we have votes of children, if not select the smallest hash child
+                if child_votes.is_empty() {
+                    current_head = *children
+                        .iter()
+                        .min_by(|child1, child2| child1.cmp(child2))
+                        .expect("Must be children here");
+                    trace!(
+                        "Children have no votes - smallest hash chosen: {}",
+                        current_head
+                    );
+                } else {
+                    // given the votes on the children, find the best child
+                    current_head = self
+                        .choose_best_child(&child_votes)
+                        .ok_or(ForkChoiceError::CannotFindBestChild)?;
+                    trace!("Best child found: {}", current_head);
+                }
             }
 
             // didn't find head yet, proceed to next iteration
