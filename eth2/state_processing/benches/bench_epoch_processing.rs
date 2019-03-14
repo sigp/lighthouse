@@ -150,13 +150,15 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
 
     let state_clone = state.clone();
     let spec_clone = spec.clone();
+    let active_validator_indices = calculate_active_validator_indices(&state, &spec);
     c.bench(
         &format!("{}/epoch_processing", desc),
         Benchmark::new("calculate_attester_sets", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
                 |mut state| {
-                    calculate_attester_sets(&mut state, &spec_clone).unwrap();
+                    calculate_attester_sets(&mut state, &active_validator_indices, &spec_clone)
+                        .unwrap();
                     state
                 },
                 criterion::BatchSize::SmallInput,
@@ -168,8 +170,8 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let state_clone = state.clone();
     let spec_clone = spec.clone();
     let previous_epoch = state.previous_epoch(&spec);
-    let attesters = calculate_attester_sets(&state, &spec).unwrap();
     let active_validator_indices = calculate_active_validator_indices(&state, &spec);
+    let attesters = calculate_attester_sets(&state, &active_validator_indices, &spec).unwrap();
     let current_total_balance = state.get_total_balance(&active_validator_indices[..], &spec);
     let previous_total_balance = state.get_total_balance(
         &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
@@ -185,8 +187,8 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                         &mut state,
                         current_total_balance,
                         previous_total_balance,
-                        attesters.previous_epoch_boundary.balance,
-                        attesters.current_epoch_boundary.balance,
+                        attesters.balances.previous_epoch_boundary,
+                        attesters.balances.current_epoch_boundary,
                         &spec_clone,
                     );
                     state
@@ -214,8 +216,8 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let mut state_clone = state.clone();
     let spec_clone = spec.clone();
     let previous_epoch = state.previous_epoch(&spec);
-    let attesters = calculate_attester_sets(&state, &spec).unwrap();
     let active_validator_indices = calculate_active_validator_indices(&state, &spec);
+    let attesters = calculate_attester_sets(&state, &active_validator_indices, &spec).unwrap();
     let previous_total_balance = state.get_total_balance(
         &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
         &spec,
@@ -229,7 +231,6 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| {
                     process_rewards_and_penalities(
                         &mut state,
-                        &active_validator_indices,
                         &attesters,
                         previous_total_balance,
                         &winning_root_for_shards,
@@ -264,8 +265,8 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let mut state_clone = state.clone();
     let spec_clone = spec.clone();
     let previous_epoch = state.previous_epoch(&spec);
-    let attesters = calculate_attester_sets(&state, &spec).unwrap();
     let active_validator_indices = calculate_active_validator_indices(&state, &spec);
+    let attesters = calculate_attester_sets(&state, &active_validator_indices, &spec).unwrap();
     let current_total_balance = state.get_total_balance(&active_validator_indices[..], spec);
     let previous_total_balance = state.get_total_balance(
         &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
@@ -279,8 +280,8 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
         &mut state_clone,
         current_total_balance,
         previous_total_balance,
-        attesters.previous_epoch_boundary.balance,
-        attesters.current_epoch_boundary.balance,
+        attesters.balances.previous_epoch_boundary,
+        attesters.balances.current_epoch_boundary,
         spec,
     );
     assert!(
