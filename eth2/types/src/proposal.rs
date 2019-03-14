@@ -23,30 +23,7 @@ pub struct Proposal {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable, SignedRoot, TreeHash};
-
-    #[test]
-    pub fn test_ssz_round_trip() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Proposal::random_for_test(&mut rng);
-
-        let bytes = ssz_encode(&original);
-        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
-
-        assert_eq!(original, decoded);
-    }
-
-    #[test]
-    pub fn test_hash_tree_root() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Proposal::random_for_test(&mut rng);
-
-        let result = original.hash_tree_root();
-
-        assert_eq!(result.len(), 32);
-        // TODO: Add further tests
-        // https://github.com/sigp/lighthouse/issues/170
-    }
+    use ssz::{SignedRoot, TreeHash};
 
     #[derive(TreeHash)]
     struct SignedProposal {
@@ -75,4 +52,5 @@ mod tests {
         assert_eq!(original.signed_root(), other.hash_tree_root());
     }
 
+    ssz_tests!(Proposal);
 }

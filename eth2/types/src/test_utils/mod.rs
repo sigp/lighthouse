@@ -1,3 +1,5 @@
+#[macro_use]
+mod macros;
 mod generate_deterministic_keypairs;
 mod keypairs_file;
 mod test_random;
