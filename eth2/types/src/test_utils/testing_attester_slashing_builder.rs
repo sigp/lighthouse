@@ -67,13 +67,15 @@ impl TestingAttesterSlashingBuilder {
         };
 
         let add_signatures = |attestation: &mut SlashableAttestation| {
+            // All validators sign with a `false` custody bit.
+            let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
+                data: attestation.data.clone(),
+                custody_bit: false,
+            };
+            let message = attestation_data_and_custody_bit.hash_tree_root();
+
             for (i, validator_index) in validator_indices.iter().enumerate() {
                 attestation.custody_bitfield.set(i, false);
-                let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
-                    data: attestation.data.clone(),
-                    custody_bit: attestation.custody_bitfield.get(i).unwrap(),
-                };
-                let message = attestation_data_and_custody_bit.hash_tree_root();
                 let signature = signer(*validator_index, &message[..], epoch, Domain::Attestation);
                 attestation.aggregate_signature.add(&signature);
             }

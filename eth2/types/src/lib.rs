@@ -1,5 +1,7 @@
 //! Ethereum 2.0 types
 
+#[macro_use]
+pub mod test_utils;
 pub mod attestation;
 pub mod attestation_data;
 pub mod attestation_data_and_custody_bit;
