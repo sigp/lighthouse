@@ -12,7 +12,7 @@ use ssz::{SignedRoot, TreeHash};
 ///
 /// This struct should **never be used for production purposes.**
 pub struct TestingBeaconBlockBuilder {
-    block: BeaconBlock,
+    pub block: BeaconBlock,
 }
 
 impl TestingBeaconBlockBuilder {
