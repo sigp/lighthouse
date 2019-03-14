@@ -1,26 +1,40 @@
 use super::WinningRootHashSet;
 use types::*;
 
+/// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`
+/// as is.
 macro_rules! set_self_if_other_is_true {
     ($self_: ident, $other: ident, $var: ident) => {
-        $self_.$var = $other.$var & !$self_.$var;
+        if $other.$var {
+            $self_.$var = true;
+        }
     };
 }
 
+/// The information required to reward some validator for their participation in a "winning"
+/// crosslink root.
 #[derive(Default, Clone)]
 pub struct WinningRootInfo {
+    /// The total balance of the crosslink committee.
     pub total_committee_balance: u64,
+    /// The total balance of the crosslink committee that attested for the "winning" root.
     pub total_attesting_balance: u64,
 }
 
+/// The information required to reward a block producer for including an attestation in a block.
 #[derive(Clone)]
 pub struct InclusionInfo {
+    /// The earliest slot a validator had an attestation included in the previous epoch.
     pub slot: Slot,
+    /// The distance between the attestation slot and the slot that attestation was included in a
+    /// block.
     pub distance: Slot,
+    /// The index of the proposer at the slot where the attestation was included.
     pub proposer_index: usize,
 }
 
 impl Default for InclusionInfo {
+    /// Defaults to `slot` and `distance` at their maximum values and `proposer_index` at zero.
     fn default() -> Self {
         Self {
             slot: Slot::max_value(),
@@ -31,6 +45,8 @@ impl Default for InclusionInfo {
 }
 
 impl InclusionInfo {
+    /// Tests if some `other` `InclusionInfo` has a lower inclusion slot than `self`. If so,
+    /// replaces `self` with `other`.
     pub fn update(&mut self, other: &Self) {
         if other.slot < self.slot {
             self.slot = other.slot;
@@ -40,23 +56,43 @@ impl InclusionInfo {
     }
 }
 
+/// Information required to reward some validator during the current and previous epoch.
 #[derive(Default, Clone)]
 pub struct AttesterStatus {
+    /// True if the validator was active in the state's _current_ epoch.
     pub is_active_in_current_epoch: bool,
+    /// True if the validator was active in the state's _previous_ epoch.
     pub is_active_in_previous_epoch: bool,
 
+    /// True if the validator had an attestation included in the _current_ epoch.
     pub is_current_epoch_attester: bool,
+    /// True if the validator's beacon block root attestation for the first slot of the _current_
+    /// epoch matches the block root known to the state.
     pub is_current_epoch_boundary_attester: bool,
+    /// True if the validator had an attestation included in the _previous_ epoch.
     pub is_previous_epoch_attester: bool,
+    /// True if the validator's beacon block root attestation for the first slot of the _previous_
+    /// epoch matches the block root known to the state.
     pub is_previous_epoch_boundary_attester: bool,
+    /// True if the validator's beacon block root attestation in the _previous_ epoch at the
+    /// attestation's slot (`attestation_data.slot`) matches the block root known to the state.
     pub is_previous_epoch_head_attester: bool,
 
+    /// Information used to reward the block producer of this validators earliest-included
+    /// attestation.
     pub inclusion_info: InclusionInfo,
+    /// Information used to reward/penalize the validator if they voted in the super-majority for
+    /// some shard block.
     pub winning_root_info: Option<WinningRootInfo>,
 }
 
 impl AttesterStatus {
-    /// Note: does not update the winning root info.
+    /// Accepts some `other` `AttesterStatus` and updates `self` if required.
+    ///
+    /// Will never set one of the `bool` fields to `false`, it will only set it to `true` if other
+    /// contains a `true` field.
+    ///
+    /// Note: does not update the winning root info, this is done manually.
     pub fn update(&mut self, other: &Self) {
         // Update all the bool fields, only updating `self` if `other` is true (never setting
         // `self` to false).
@@ -72,24 +108,46 @@ impl AttesterStatus {
     }
 }
 
+/// The total effective balances for different sets of validators during the previous and current
+/// epochs.
 #[derive(Default, Clone)]
 pub struct TotalBalances {
+    /// The total effective balance of all active validators during the _current_ epoch.
     pub current_epoch: u64,
+    /// The total effective balance of all active validators during the _previous_ epoch.
     pub previous_epoch: u64,
+    /// The total effective balance of all validators who attested during the _current_ epoch.
     pub current_epoch_attesters: u64,
+    /// The total effective balance of all validators who attested during the _current_ epoch and
+    /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
     pub current_epoch_boundary_attesters: u64,
+    /// The total effective balance of all validators who attested during the _previous_ epoch.
     pub previous_epoch_attesters: u64,
+    /// The total effective balance of all validators who attested during the _previous_ epoch and
+    /// agreed with the state about the beacon block at the first slot of the _previous_ epoch.
     pub previous_epoch_boundary_attesters: u64,
+    /// The total effective balance of all validators who attested during the _previous_ epoch and
+    /// agreed with the state about the beacon block at the time of attestation.
     pub previous_epoch_head_attesters: u64,
 }
 
+/// Summarised information about validator participation in the _previous and _current_ epochs of
+/// some `BeaconState`.
 #[derive(Clone)]
 pub struct ValidatorStatuses {
-    statuses: Vec<AttesterStatus>,
+    /// Information about each individual validator from the state's validator registy.
+    pub statuses: Vec<AttesterStatus>,
+    /// Summed balances for various sets of validators.
     pub total_balances: TotalBalances,
 }
 
 impl ValidatorStatuses {
+    /// Initializes a new instance, determining:
+    ///
+    /// - Active validators
+    /// - Total balances for the current and previous epochs.
+    ///
+    /// Spec v0.4.0
     pub fn new(state: &BeaconState, spec: &ChainSpec) -> Self {
         let mut statuses = Vec::with_capacity(state.validator_registry.len());
         let mut total_balances = TotalBalances::default();
@@ -116,10 +174,10 @@ impl ValidatorStatuses {
         }
     }
 
-    pub fn get(&self, i: usize) -> &AttesterStatus {
-        &self.statuses[i]
-    }
-
+    /// Process some attestations from the given `state` updating the `statuses` and
+    /// `total_balances` fields.
+    ///
+    /// Spec v0.4.0
     pub fn process_attestations(
         &mut self,
         state: &BeaconState,
@@ -174,6 +232,10 @@ impl ValidatorStatuses {
         Ok(())
     }
 
+    /// Update the `statuses` for each validator based upon whether or not they attested to the
+    /// "winning" shard block root for the previous epoch.
+    ///
+    /// Spec v0.4.0
     pub fn process_winning_roots(
         &mut self,
         state: &BeaconState,
@@ -207,6 +269,10 @@ impl ValidatorStatuses {
     }
 }
 
+/// Returns the distance between when the attestation was created and when it was included in a
+/// block.
+///
+/// Spec v0.4.0
 fn inclusion_distance(a: &PendingAttestation) -> Slot {
     a.inclusion_slot - a.data.slot
 }
