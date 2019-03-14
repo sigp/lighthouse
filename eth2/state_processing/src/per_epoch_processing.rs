@@ -7,7 +7,6 @@ use types::{validator_registry::get_active_validator_indices, *};
 use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
-pub mod attester_sets;
 pub mod errors;
 pub mod inclusion_distance;
 pub mod tests;
@@ -271,11 +270,17 @@ pub fn process_rewards_and_penalities(
     let base_reward_quotient =
         total_balances.previous_epoch.integer_sqrt() / spec.base_reward_quotient;
 
+    // Guard against a divide-by-zero during the validator balance update.
     if base_reward_quotient == 0 {
         return Err(Error::BaseRewardQuotientIsZero);
     }
+    // Guard against a divide-by-zero during the validator balance update.
     if total_balances.previous_epoch == 0 {
         return Err(Error::PreviousTotalBalanceIsZero);
+    }
+    // Guard against an out-of-bounds during the validator balance update.
+    if statuses.statuses.len() != state.validator_balances.len() {
+        return Err(Error::ValidatorStatusesInconsistent);
     }
 
     // Justification and finalization
@@ -288,7 +293,7 @@ pub fn process_rewards_and_penalities(
         .enumerate()
         .map(|(index, &balance)| {
             let mut balance = balance;
-            let status = &statuses.get(index);
+            let status = &statuses.statuses[index];
             let base_reward = state.base_reward(index, base_reward_quotient, spec);
 
             if epochs_since_finality <= 4 {
@@ -367,8 +372,13 @@ pub fn process_rewards_and_penalities(
 
     // Attestation inclusion
 
+    // Guard against an out-of-bounds during the attester inclusion balance update.
+    if statuses.statuses.len() != state.validator_registry.len() {
+        return Err(Error::ValidatorStatusesInconsistent);
+    }
+
     for (index, _validator) in state.validator_registry.iter().enumerate() {
-        let status = &statuses.get(index);
+        let status = &statuses.statuses[index];
 
         if status.is_previous_epoch_attester {
             let proposer_index = status.inclusion_info.proposer_index;
