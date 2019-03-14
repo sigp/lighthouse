@@ -1,17 +1,17 @@
-use attesters::Attesters;
 use errors::EpochProcessingError as Error;
 use integer_sqrt::IntegerSquareRoot;
 use rayon::prelude::*;
 use ssz::TreeHash;
 use std::collections::HashMap;
 use types::{validator_registry::get_active_validator_indices, *};
+use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
 pub mod attester_sets;
-pub mod attesters;
 pub mod errors;
 pub mod inclusion_distance;
 pub mod tests;
+pub mod validator_statuses;
 pub mod winning_root;
 
 /// Maps a shard to a winning root.
@@ -31,24 +31,17 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
     state.build_epoch_cache(RelativeEpoch::Next, spec)?;
 
-    let mut attesters = calculate_attester_sets(&state, spec)?;
+    let mut statuses = initialize_validator_statuses(&state, spec)?;
 
     process_eth1_data(state, spec);
 
-    process_justification(
-        state,
-        attesters.balances.current_epoch_total,
-        attesters.balances.previous_epoch_total,
-        attesters.balances.previous_epoch_boundary_attesters,
-        attesters.balances.current_epoch_boundary_attesters,
-        spec,
-    );
+    process_justification(state, &statuses.total_balances, spec);
 
     // Crosslinks
     let winning_root_for_shards = process_crosslinks(state, spec)?;
 
     // Rewards and Penalities
-    process_rewards_and_penalities(state, &mut attesters, &winning_root_for_shards, spec)?;
+    process_rewards_and_penalities(state, &mut statuses, &winning_root_for_shards, spec)?;
 
     // Ejections
     state.process_ejections(spec);
@@ -85,15 +78,15 @@ pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec)
 /// - etc.
 ///
 /// Spec v0.4.0
-pub fn calculate_attester_sets(
+pub fn initialize_validator_statuses(
     state: &BeaconState,
     spec: &ChainSpec,
-) -> Result<Attesters, BeaconStateError> {
-    let mut attesters = Attesters::new(state, spec);
+) -> Result<ValidatorStatuses, BeaconStateError> {
+    let mut statuses = ValidatorStatuses::new(state, spec);
 
-    attesters.process_attestations(&state, &state.latest_attestations, spec)?;
+    statuses.process_attestations(&state, &state.latest_attestations, spec)?;
 
-    Ok(attesters)
+    Ok(statuses)
 }
 
 /// Spec v0.4.0
@@ -121,10 +114,7 @@ pub fn process_eth1_data(state: &mut BeaconState, spec: &ChainSpec) {
 /// Spec v0.4.0
 pub fn process_justification(
     state: &mut BeaconState,
-    current_total_balance: u64,
-    previous_total_balance: u64,
-    previous_epoch_boundary_attesting_balance: u64,
-    current_epoch_boundary_attesting_balance: u64,
+    total_balances: &TotalBalances,
     spec: &ChainSpec,
 ) {
     let previous_epoch = state.previous_epoch(spec);
@@ -137,7 +127,8 @@ pub fn process_justification(
     //
     // - Set the 2nd bit of the bitfield.
     // - Set the previous epoch to be justified.
-    if (3 * previous_epoch_boundary_attesting_balance) >= (2 * previous_total_balance) {
+    if (3 * total_balances.previous_epoch_boundary_attesters) >= (2 * total_balances.previous_epoch)
+    {
         state.justification_bitfield |= 2;
         new_justified_epoch = previous_epoch;
     }
@@ -145,7 +136,7 @@ pub fn process_justification(
     //
     // - Set the 1st bit of the bitfield.
     // - Set the current epoch to be justified.
-    if (3 * current_epoch_boundary_attesting_balance) >= (2 * current_total_balance) {
+    if (3 * total_balances.current_epoch_boundary_attesters) >= (2 * total_balances.current_epoch) {
         state.justification_bitfield |= 1;
         new_justified_epoch = current_epoch;
     }
@@ -267,24 +258,25 @@ pub fn process_crosslinks(
 /// Spec v0.4.0
 pub fn process_rewards_and_penalities(
     state: &mut BeaconState,
-    attesters: &mut Attesters,
+    statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let next_epoch = state.next_epoch(spec);
 
-    let previous_total_balance = attesters.balances.previous_epoch_total;
+    statuses.process_winning_roots(state, winning_root_for_shards, spec)?;
 
-    let base_reward_quotient = previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
+    let total_balances = &statuses.total_balances;
+
+    let base_reward_quotient =
+        total_balances.previous_epoch.integer_sqrt() / spec.base_reward_quotient;
 
     if base_reward_quotient == 0 {
         return Err(Error::BaseRewardQuotientIsZero);
     }
-    if previous_total_balance == 0 {
+    if total_balances.previous_epoch == 0 {
         return Err(Error::PreviousTotalBalanceIsZero);
     }
-
-    attesters.process_winning_roots(state, winning_root_for_shards, spec)?;
 
     // Justification and finalization
 
@@ -296,7 +288,7 @@ pub fn process_rewards_and_penalities(
         .enumerate()
         .map(|(index, &balance)| {
             let mut balance = balance;
-            let status = &attesters.statuses[index];
+            let status = &statuses.get(index);
             let base_reward = state.base_reward(index, base_reward_quotient, spec);
 
             if epochs_since_finality <= 4 {
@@ -304,8 +296,8 @@ pub fn process_rewards_and_penalities(
                 if status.is_previous_epoch_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.balances.previous_epoch_attesters
-                            / previous_total_balance
+                        base_reward * total_balances.previous_epoch_attesters
+                            / total_balances.previous_epoch
                     );
                 } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
@@ -315,8 +307,8 @@ pub fn process_rewards_and_penalities(
                 if status.is_previous_epoch_boundary_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.balances.previous_epoch_boundary_attesters
-                            / previous_total_balance
+                        base_reward * total_balances.previous_epoch_boundary_attesters
+                            / total_balances.previous_epoch
                     );
                 } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
@@ -326,8 +318,8 @@ pub fn process_rewards_and_penalities(
                 if status.is_previous_epoch_head_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.balances.previous_epoch_head_attesters
-                            / previous_total_balance
+                        base_reward * total_balances.previous_epoch_head_attesters
+                            / total_balances.previous_epoch
                     );
                 } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
@@ -376,7 +368,7 @@ pub fn process_rewards_and_penalities(
     // Attestation inclusion
 
     for (index, _validator) in state.validator_registry.iter().enumerate() {
-        let status = &attesters.statuses[index];
+        let status = &statuses.get(index);
 
         if status.is_previous_epoch_attester {
             let proposer_index = status.inclusion_info.proposer_index;
