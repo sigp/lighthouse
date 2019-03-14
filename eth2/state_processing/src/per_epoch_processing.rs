@@ -26,32 +26,21 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 ///
 /// Spec v0.4.0
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
-    let previous_epoch = state.previous_epoch(spec);
-
     // Ensure all of the caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
     state.build_epoch_cache(RelativeEpoch::Next, spec)?;
 
-    let active_validator_indices = calculate_active_validator_indices(&state, spec);
-
-    let current_total_balance = state.get_total_balance(&active_validator_indices[..], spec);
-
-    let previous_total_balance = state.get_total_balance(
-        &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
-        spec,
-    );
-
-    let mut attesters = calculate_attester_sets(&state, &active_validator_indices, spec)?;
+    let mut attesters = calculate_attester_sets(&state, spec)?;
 
     process_eth1_data(state, spec);
 
     process_justification(
         state,
-        current_total_balance,
-        previous_total_balance,
-        attesters.balances.previous_epoch_boundary,
-        attesters.balances.current_epoch_boundary,
+        attesters.balances.current_epoch_total,
+        attesters.balances.previous_epoch_total,
+        attesters.balances.previous_epoch_boundary_attesters,
+        attesters.balances.current_epoch_boundary_attesters,
         spec,
     );
 
@@ -59,13 +48,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     let winning_root_for_shards = process_crosslinks(state, spec)?;
 
     // Rewards and Penalities
-    process_rewards_and_penalities(
-        state,
-        &mut attesters,
-        previous_total_balance,
-        &winning_root_for_shards,
-        spec,
-    )?;
+    process_rewards_and_penalities(state, &mut attesters, &winning_root_for_shards, spec)?;
 
     // Ejections
     state.process_ejections(spec);
@@ -104,12 +87,12 @@ pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec)
 /// Spec v0.4.0
 pub fn calculate_attester_sets(
     state: &BeaconState,
-    active_validator_indices: &[usize],
     spec: &ChainSpec,
 ) -> Result<Attesters, BeaconStateError> {
-    let mut attesters = Attesters::empty(state.validator_registry.len());
-    attesters.process_active_validator_indices(&active_validator_indices);
+    let mut attesters = Attesters::new(state, spec);
+
     attesters.process_attestations(&state, &state.latest_attestations, spec)?;
+
     Ok(attesters)
 }
 
@@ -285,11 +268,12 @@ pub fn process_crosslinks(
 pub fn process_rewards_and_penalities(
     state: &mut BeaconState,
     attesters: &mut Attesters,
-    previous_total_balance: u64,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let next_epoch = state.next_epoch(spec);
+
+    let previous_total_balance = attesters.balances.previous_epoch_total;
 
     let base_reward_quotient = previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
 
@@ -317,34 +301,35 @@ pub fn process_rewards_and_penalities(
 
             if epochs_since_finality <= 4 {
                 // Expected FFG source
-                if status.is_previous_epoch {
+                if status.is_previous_epoch_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.balances.previous_epoch / previous_total_balance
+                        base_reward * attesters.balances.previous_epoch_attesters
+                            / previous_total_balance
                     );
-                } else if status.is_active {
+                } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
                 }
 
                 // Expected FFG target
-                if status.is_previous_epoch_boundary {
+                if status.is_previous_epoch_boundary_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.balances.previous_epoch_boundary
+                        base_reward * attesters.balances.previous_epoch_boundary_attesters
                             / previous_total_balance
                     );
-                } else if status.is_active {
+                } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
                 }
 
                 // Expected beacon chain head
-                if status.is_previous_epoch_head {
+                if status.is_previous_epoch_head_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.balances.previous_epoch_head
+                        base_reward * attesters.balances.previous_epoch_head_attesters
                             / previous_total_balance
                     );
-                } else if status.is_active {
+                } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
                 };
             } else {
@@ -355,14 +340,14 @@ pub fn process_rewards_and_penalities(
                     spec,
                 );
 
-                if status.is_active {
-                    if !status.is_previous_epoch {
+                if status.is_active_in_previous_epoch {
+                    if !status.is_previous_epoch_attester {
                         safe_sub_assign!(balance, inactivity_penalty);
                     }
-                    if !status.is_previous_epoch_boundary {
+                    if !status.is_previous_epoch_boundary_attester {
                         safe_sub_assign!(balance, inactivity_penalty);
                     }
-                    if !status.is_previous_epoch_head {
+                    if !status.is_previous_epoch_head_attester {
                         safe_sub_assign!(balance, inactivity_penalty);
                     }
 
@@ -393,7 +378,7 @@ pub fn process_rewards_and_penalities(
     for (index, _validator) in state.validator_registry.iter().enumerate() {
         let status = &attesters.statuses[index];
 
-        if status.is_previous_epoch {
+        if status.is_previous_epoch_attester {
             let proposer_index = status.inclusion_info.proposer_index;
             let inclusion_distance = status.inclusion_info.distance;
 
