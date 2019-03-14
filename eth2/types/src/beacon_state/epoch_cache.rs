@@ -1,8 +1,6 @@
-use super::{AttestationDutyMap, BeaconState, CrosslinkCommittees, Error, ShardCommitteeIndexMap};
+use super::{AttestationDuty, BeaconState, CrosslinkCommittees, Error};
 use crate::{ChainSpec, Epoch};
-use log::trace;
 use serde_derive::Serialize;
-use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct EpochCache {
@@ -11,21 +9,23 @@ pub struct EpochCache {
     /// The crosslink committees for an epoch.
     pub committees: Vec<CrosslinkCommittees>,
     /// Maps validator index to a slot, shard and committee index for attestation.
-    pub attestation_duty_map: AttestationDutyMap,
+    pub attestation_duties: Vec<Option<AttestationDuty>>,
     /// Maps a shard to an index of `self.committees`.
-    pub shard_committee_index_map: ShardCommitteeIndexMap,
+    pub shard_committee_indices: Vec<(usize, usize)>,
 }
 
 impl EpochCache {
+    /// Return a new, completely empty cache.
     pub fn empty() -> EpochCache {
         EpochCache {
             initialized: false,
             committees: vec![],
-            attestation_duty_map: AttestationDutyMap::new(),
-            shard_committee_index_map: ShardCommitteeIndexMap::new(),
+            attestation_duties: vec![],
+            shard_committee_indices: vec![],
         }
     }
 
+    /// Return a new, fully initialized cache.
     pub fn initialized(
         state: &BeaconState,
         epoch: Epoch,
@@ -33,42 +33,36 @@ impl EpochCache {
     ) -> Result<EpochCache, Error> {
         let mut epoch_committees: Vec<CrosslinkCommittees> =
             Vec::with_capacity(spec.slots_per_epoch as usize);
-        let mut shard_committee_index_map: ShardCommitteeIndexMap = HashMap::new();
 
-        let shuffling =
+        let mut attestation_duties = vec![None; state.validator_registry.len()];
+
+        let mut shard_committee_indices = vec![(0, 0); spec.shard_count as usize];
+
+        let mut shuffling =
             state.get_shuffling_for_slot(epoch.start_slot(spec.slots_per_epoch), false, spec)?;
 
-        let mut attestation_duty_map: AttestationDutyMap = HashMap::with_capacity(shuffling.len());
+        for (epoch_committees_index, slot) in epoch.slot_iter(spec.slots_per_epoch).enumerate() {
+            let mut slot_committees: Vec<(Vec<usize>, u64)> = vec![];
 
-        for (epoch_committeess_index, slot) in epoch.slot_iter(spec.slots_per_epoch).enumerate() {
-            let slot_committees = state.calculate_crosslink_committees_at_slot(
-                slot,
-                false,
-                shuffling.clone(),
-                spec,
-            )?;
+            let shards = state.get_shards_for_slot(slot, false, spec)?;
+            for shard in shards {
+                let committee = shuffling.remove(0);
+                slot_committees.push((committee, shard));
+            }
 
             for (slot_committees_index, (committee, shard)) in slot_committees.iter().enumerate() {
-                // Empty committees are not permitted.
                 if committee.is_empty() {
                     return Err(Error::InsufficientValidators);
                 }
 
-                trace!(
-                    "shard: {}, epoch_i: {}, slot_i: {}",
-                    shard,
-                    epoch_committeess_index,
-                    slot_committees_index
-                );
+                // Store the slot and committee index for this shard.
+                shard_committee_indices[*shard as usize] =
+                    (epoch_committees_index, slot_committees_index);
 
-                shard_committee_index_map
-                    .insert(*shard, (epoch_committeess_index, slot_committees_index));
-
+                // For each validator, store their attestation duties.
                 for (committee_index, validator_index) in committee.iter().enumerate() {
-                    attestation_duty_map.insert(
-                        *validator_index as u64,
-                        (slot, *shard, committee_index as u64),
-                    );
+                    attestation_duties[*validator_index] =
+                        Some((slot, *shard, committee_index as u64))
                 }
             }
 
@@ -78,8 +72,8 @@ impl EpochCache {
         Ok(EpochCache {
             initialized: true,
             committees: epoch_committees,
-            attestation_duty_map,
-            shard_committee_index_map,
+            attestation_duties,
+            shard_committee_indices,
         })
     }
 }

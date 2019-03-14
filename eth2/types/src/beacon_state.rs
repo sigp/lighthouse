@@ -537,8 +537,8 @@ impl BeaconState {
         let cache = self.cache(relative_epoch)?;
 
         let (committee_slot_index, committee_index) = cache
-            .shard_committee_index_map
-            .get(&attestation_data.shard)
+            .shard_committee_indices
+            .get(attestation_data.shard as usize)
             .ok_or_else(|| Error::ShardOutOfBounds)?;
         let (committee, shard) = &cache.committees[*committee_slot_index][*committee_index];
 
@@ -787,7 +787,6 @@ impl BeaconState {
         &self,
         slot: Slot,
         registry_change: bool,
-
         spec: &ChainSpec,
     ) -> Result<Vec<Vec<usize>>, Error> {
         let (_committees_per_epoch, seed, shuffling_epoch, _shuffling_start_shard) =
@@ -810,7 +809,6 @@ impl BeaconState {
     ) -> Result<Vec<Vec<usize>>, Error> {
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, epoch);
-
         if active_validator_indices.is_empty() {
             error!("get_shuffling: no validators.");
             return Err(Error::InsufficientValidators);
@@ -912,22 +910,18 @@ impl BeaconState {
         }
     }
 
-    /// Return the list of ``(committee, shard)`` tuples for the ``slot``.
+    /// Return the ordered list of shards tuples for the `slot`.
     ///
     /// Note: There are two possible shufflings for crosslink committees for a
     /// `slot` in the next epoch: with and without a `registry_change`
     ///
-    /// Note: does not utilize the cache, `get_crosslink_committees_at_slot` is an equivalent
-    /// function which uses the cache.
-    ///
     /// Spec v0.4.0
-    pub(crate) fn calculate_crosslink_committees_at_slot(
+    pub(crate) fn get_shards_for_slot(
         &self,
         slot: Slot,
         registry_change: bool,
-        shuffling: Vec<Vec<usize>>,
         spec: &ChainSpec,
-    ) -> Result<Vec<(Vec<usize>, u64)>, Error> {
+    ) -> Result<Vec<u64>, Error> {
         let (committees_per_epoch, _seed, _shuffling_epoch, shuffling_start_shard) =
             self.get_committee_params_at_slot(slot, registry_change, spec)?;
 
@@ -936,15 +930,12 @@ impl BeaconState {
         let slot_start_shard =
             (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
 
-        let mut crosslinks_at_slot = vec![];
+        let mut shards_at_slot = vec![];
         for i in 0..committees_per_slot {
-            let tuple = (
-                shuffling[(committees_per_slot * offset + i) as usize].clone(),
-                (slot_start_shard + i) % spec.shard_count,
-            );
-            crosslinks_at_slot.push(tuple)
+            shards_at_slot.push((slot_start_shard + i) % spec.shard_count)
         }
-        Ok(crosslinks_at_slot)
+
+        Ok(shards_at_slot)
     }
 
     /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
@@ -962,10 +953,10 @@ impl BeaconState {
     ) -> Result<Option<(Slot, u64, u64)>, Error> {
         let cache = self.cache(RelativeEpoch::Current)?;
 
-        Ok(cache
-            .attestation_duty_map
-            .get(&(validator_index as u64))
-            .and_then(|tuple| Some(*tuple)))
+        Ok(*cache
+            .attestation_duties
+            .get(validator_index)
+            .ok_or_else(|| Error::UnknownValidator)?)
     }
 
     /// Process the slashings.
