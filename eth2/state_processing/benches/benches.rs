@@ -15,8 +15,8 @@ pub fn state_processing(c: &mut Criterion) {
         Builder::from_env(Env::default().default_filter_or(LOG_LEVEL)).init();
     }
 
-    bench_block_processing::bench_block_processing_n_validators(c, VALIDATOR_COUNT);
     bench_epoch_processing::bench_epoch_processing_n_validators(c, VALIDATOR_COUNT);
+    bench_block_processing::bench_block_processing_n_validators(c, VALIDATOR_COUNT);
 }
 
 criterion_group!(benches, state_processing);
