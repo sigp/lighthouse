@@ -4,14 +4,13 @@ use ssz::TreeHash;
 use state_processing::{
     per_epoch_processing,
     per_epoch_processing::{
-        calculate_active_validator_indices, calculate_attester_sets, clean_attestations,
-        process_crosslinks, process_eth1_data, process_justification,
-        process_rewards_and_penalities, process_validator_registry, update_active_tree_index_roots,
-        update_latest_slashed_balances,
+        calculate_attester_sets, clean_attestations, process_crosslinks, process_eth1_data,
+        process_justification, process_rewards_and_penalities, process_validator_registry,
+        update_active_tree_index_roots, update_latest_slashed_balances,
     },
 };
 use types::test_utils::TestingBeaconStateBuilder;
-use types::{validator_registry::get_active_validator_indices, *};
+use types::*;
 
 pub const BENCHING_SAMPLE_SIZE: usize = 10;
 pub const SMALL_BENCHING_SAMPLE_SIZE: usize = 10;
@@ -77,64 +76,6 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     let spec_clone = spec.clone();
     c.bench(
         &format!("{}/epoch_processing", desc),
-        Benchmark::new("calculate_active_validator_indices", move |b| {
-            b.iter_batched(
-                || state_clone.clone(),
-                |mut state| {
-                    calculate_active_validator_indices(&mut state, &spec_clone);
-                    state
-                },
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(BENCHING_SAMPLE_SIZE),
-    );
-
-    let state_clone = state.clone();
-    let spec_clone = spec.clone();
-    let active_validator_indices = calculate_active_validator_indices(&state, &spec);
-    c.bench(
-        &format!("{}/epoch_processing", desc),
-        Benchmark::new("calculate_current_total_balance", move |b| {
-            b.iter_batched(
-                || state_clone.clone(),
-                |state| {
-                    state.get_total_balance(&active_validator_indices[..], &spec_clone);
-                    state
-                },
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(BENCHING_SAMPLE_SIZE),
-    );
-
-    let state_clone = state.clone();
-    let spec_clone = spec.clone();
-    c.bench(
-        &format!("{}/epoch_processing", desc),
-        Benchmark::new("calculate_previous_total_balance", move |b| {
-            b.iter_batched(
-                || state_clone.clone(),
-                |state| {
-                    state.get_total_balance(
-                        &get_active_validator_indices(
-                            &state.validator_registry,
-                            state.previous_epoch(&spec_clone),
-                        )[..],
-                        &spec_clone,
-                    );
-                    state
-                },
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(BENCHING_SAMPLE_SIZE),
-    );
-
-    let state_clone = state.clone();
-    let spec_clone = spec.clone();
-    c.bench(
-        &format!("{}/epoch_processing", desc),
         Benchmark::new("process_eth1_data", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
@@ -150,15 +91,13 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
 
     let state_clone = state.clone();
     let spec_clone = spec.clone();
-    let active_validator_indices = calculate_active_validator_indices(&state, &spec);
     c.bench(
         &format!("{}/epoch_processing", desc),
         Benchmark::new("calculate_attester_sets", move |b| {
             b.iter_batched(
                 || state_clone.clone(),
                 |mut state| {
-                    calculate_attester_sets(&mut state, &active_validator_indices, &spec_clone)
-                        .unwrap();
+                    calculate_attester_sets(&mut state, &spec_clone).unwrap();
                     state
                 },
                 criterion::BatchSize::SmallInput,
@@ -169,14 +108,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
 
     let state_clone = state.clone();
     let spec_clone = spec.clone();
-    let previous_epoch = state.previous_epoch(&spec);
-    let active_validator_indices = calculate_active_validator_indices(&state, &spec);
-    let attesters = calculate_attester_sets(&state, &active_validator_indices, &spec).unwrap();
-    let current_total_balance = state.get_total_balance(&active_validator_indices[..], &spec);
-    let previous_total_balance = state.get_total_balance(
-        &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
-        &spec,
-    );
+    let attesters = calculate_attester_sets(&state, &spec).unwrap();
     c.bench(
         &format!("{}/epoch_processing", desc),
         Benchmark::new("process_justification", move |b| {
@@ -185,10 +117,10 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                 |mut state| {
                     process_justification(
                         &mut state,
-                        current_total_balance,
-                        previous_total_balance,
-                        attesters.balances.previous_epoch_boundary,
-                        attesters.balances.current_epoch_boundary,
+                        attesters.balances.current_epoch_total,
+                        attesters.balances.previous_epoch_total,
+                        attesters.balances.previous_epoch_boundary_attesters,
+                        attesters.balances.current_epoch_boundary_attesters,
                         &spec_clone,
                     );
                     state
@@ -215,13 +147,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
 
     let mut state_clone = state.clone();
     let spec_clone = spec.clone();
-    let previous_epoch = state.previous_epoch(&spec);
-    let active_validator_indices = calculate_active_validator_indices(&state, &spec);
-    let attesters = calculate_attester_sets(&state, &active_validator_indices, &spec).unwrap();
-    let previous_total_balance = state.get_total_balance(
-        &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
-        &spec,
-    );
+    let attesters = calculate_attester_sets(&state, &spec).unwrap();
     let winning_root_for_shards = process_crosslinks(&mut state_clone, &spec).unwrap();
     c.bench(
         &format!("{}/epoch_processing", desc),
@@ -232,7 +158,6 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
                     process_rewards_and_penalities(
                         &mut state,
                         &mut attesters,
-                        previous_total_balance,
                         &winning_root_for_shards,
                         &spec_clone,
                     )
@@ -262,32 +187,8 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
         .sample_size(BENCHING_SAMPLE_SIZE),
     );
 
-    let mut state_clone = state.clone();
+    let state_clone = state.clone();
     let spec_clone = spec.clone();
-    let previous_epoch = state.previous_epoch(&spec);
-    let active_validator_indices = calculate_active_validator_indices(&state, &spec);
-    let attesters = calculate_attester_sets(&state, &active_validator_indices, &spec).unwrap();
-    let current_total_balance = state.get_total_balance(&active_validator_indices[..], spec);
-    let previous_total_balance = state.get_total_balance(
-        &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
-        &spec,
-    );
-    assert_eq!(
-        state_clone.finalized_epoch, state_clone.validator_registry_update_epoch,
-        "The last registry update should be at the last finalized epoch."
-    );
-    process_justification(
-        &mut state_clone,
-        current_total_balance,
-        previous_total_balance,
-        attesters.balances.previous_epoch_boundary,
-        attesters.balances.current_epoch_boundary,
-        spec,
-    );
-    assert!(
-        state_clone.finalized_epoch > state_clone.validator_registry_update_epoch,
-        "The state should have been finalized."
-    );
     c.bench(
         &format!("{}/epoch_processing", desc),
         Benchmark::new("process_validator_registry", move |b| {
