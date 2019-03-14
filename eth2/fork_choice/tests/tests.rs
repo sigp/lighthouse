@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::test_utils::TestingBeaconStateBuilder;
-use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Slot};
+use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Keypair, Slot};
 use yaml_rust::yaml;
 
 // Note: We Assume the block Id's are hex-encoded.
@@ -218,7 +218,7 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
 // initialise a single validator and state. All blocks will reference this state root.
 fn setup_inital_state(
     fork_choice_algo: &ForkChoiceAlgorithm,
-    no_validators: usize,
+    num_validators: usize,
 ) -> (Box<ForkChoice>, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
     let db = Arc::new(MemoryDB::open());
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
@@ -243,7 +243,7 @@ fn setup_inital_state(
     let spec = ChainSpec::foundation();
 
     let state_builder =
-        TestingBeaconStateBuilder::from_deterministic_keypairs(no_validators, &spec);
+        TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
     let (state, _keypairs) = state_builder.build();
 
     let state_root = state.canonical_root();
