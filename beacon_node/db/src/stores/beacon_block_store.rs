@@ -198,6 +198,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_block_at_slot() {
         let db = Arc::new(MemoryDB::open());
         let bs = Arc::new(BeaconBlockStore::new(db.clone()));

@@ -2,12 +2,12 @@
 extern crate bit_vec;
 
 use crate::{ForkChoice, ForkChoiceError};
-use bit_vec::BitVec;
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB,
 };
 use log::{debug, trace};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
@@ -35,8 +35,8 @@ fn power_of_2_below(x: u64) -> u64 {
     2u64.pow(log2_int(x))
 }
 
-/// Stores the necessary data structures to run the optimised bitwise lmd ghost algorithm.
-pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
+/// Stores the necessary data structures to run the optimised lmd ghost algorithm.
+pub struct OptimizedLMDGhost<T: ClientDB + Sized> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
     cache: HashMap<CacheKey<u64>, Hash256>,
@@ -55,7 +55,7 @@ pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
     max_known_height: SlotHeight,
 }
 
-impl<T> BitwiseLMDGhost<T>
+impl<T> OptimizedLMDGhost<T>
 where
     T: ClientDB + Sized,
 {
@@ -63,7 +63,7 @@ where
         block_store: Arc<BeaconBlockStore<T>>,
         state_store: Arc<BeaconStateStore<T>>,
     ) -> Self {
-        BitwiseLMDGhost {
+        OptimizedLMDGhost {
             cache: HashMap::new(),
             ancestors: vec![HashMap::new(); 16],
             latest_attestation_targets: HashMap::new(),
@@ -195,57 +195,28 @@ where
         None
     }
 
-    // Finds the best child, splitting children into a binary tree, based on their hashes (Bitwise
-    // LMD Ghost)
+    // Finds the best child (one with highest votes)
     fn choose_best_child(&self, votes: &HashMap<Hash256, u64>) -> Option<Hash256> {
         if votes.is_empty() {
             return None;
         }
-        let mut bitmask: BitVec = BitVec::new();
-        // loop through all bits
-        for bit in 0..=256 {
-            let mut zero_votes = 0;
-            let mut one_votes = 0;
-            let mut single_candidate = (None, false);
 
-            trace!("Child vote length: {}", votes.len());
-            for (candidate, votes) in votes.iter() {
-                let candidate_bit: BitVec = BitVec::from_bytes(candidate.as_bytes());
-
-                // if the bitmasks don't match, exclude candidate
-                if !bitmask.iter().eq(candidate_bit.iter().take(bit)) {
-                    trace!(
-                        "Child: {} was removed in bit: {} with the bitmask: {:?}",
-                        candidate,
-                        bit,
-                        bitmask
-                    );
-                    continue;
-                }
-                if candidate_bit.get(bit) == Some(false) {
-                    zero_votes += votes;
-                } else {
-                    one_votes += votes;
-                }
-
-                if single_candidate.0.is_none() {
-                    single_candidate.0 = Some(candidate);
-                    single_candidate.1 = true;
-                } else {
-                    single_candidate.1 = false;
-                }
+        // Iterate through hashmap to get child with maximum votes
+        let best_child = votes.iter().max_by(|(child1, v1), (child2, v2)| {
+            let mut result = v1.cmp(v2);
+            // If votes are equal, choose smaller hash to break ties deterministically
+            if result == Ordering::Equal {
+                // Reverse so that max_by chooses smaller hash
+                result = child1.cmp(child2).reverse();
             }
-            bitmask.push(one_votes > zero_votes);
-            if single_candidate.1 {
-                return Some(*single_candidate.0.expect("Cannot reach this"));
-            }
-        }
-        // should never reach here
-        None
+            result
+        });
+
+        Some(*best_child.unwrap().0)
     }
 }
 
-impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
+impl<T: ClientDB + Sized> ForkChoice for OptimizedLMDGhost<T> {
     fn add_block(
         &mut self,
         block: &BeaconBlock,
