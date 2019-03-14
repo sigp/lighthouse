@@ -22,7 +22,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct Rpc<TSubstream> {
     /// Queue of events to processed.
-    events: Vec<RpcEvent>,
+    events: Vec<NetworkBehaviourAction<RpcEvent, RpcEvent>>,
     /// Pins the generic substream.
     marker: PhantomData<TSubstream>,
 }
@@ -36,13 +36,16 @@ impl<TSubstream> Rpc<TSubstream> {
     }
 
     /// Submits and RPC request.
-    pub fn send_request(&mut self, id: u64, method_id: u16, body: RPCRequest) {
+    pub fn send_request(&mut self, peer_id: PeerId, id: u64, method_id: u16, body: RPCRequest) {
         let request = RpcEvent::Request {
             id,
             method_id,
             body,
         };
-        self.events.push(request);
+        self.events.push(NetworkBehaviourAction::SendEvent {
+            peer_id,
+            event: request,
+        });
     }
 }
 
@@ -67,17 +70,18 @@ where
 
     fn inject_node_event(
         &mut self,
-        source: PeerId,
+        _source: PeerId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // ignore successful sends event
+        // ignore successful send events
         let event = match event {
             OneShotEvent::Rx(event) => event,
             OneShotEvent::Sent => return,
         };
 
         // send the event to the user
-        self.events.push(event);
+        self.events
+            .push(NetworkBehaviourAction::GenerateEvent(event));
     }
 
     fn poll(
@@ -90,7 +94,7 @@ where
         >,
     > {
         if !self.events.is_empty() {
-            return Async::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+            return Async::Ready(self.events.remove(0));
         }
         Async::NotReady
     }
