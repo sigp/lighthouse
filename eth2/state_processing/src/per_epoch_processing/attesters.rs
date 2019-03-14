@@ -1,9 +1,16 @@
+use super::WinningRootHashSet;
 use types::*;
 
 macro_rules! set_self_if_other_is_true {
     ($self_: ident, $other: ident, $var: ident) => {
         $self_.$var = $other.$var & !$self_.$var;
     };
+}
+
+#[derive(Default, Clone)]
+pub struct WinningRootInfo {
+    pub total_committee_balance: u64,
+    pub total_attesting_balance: u64,
 }
 
 #[derive(Clone)]
@@ -44,6 +51,7 @@ pub struct AttesterStatus {
     pub is_previous_epoch_head: bool,
 
     pub inclusion_info: InclusionInfo,
+    pub winning_root_info: Option<WinningRootInfo>,
 }
 
 impl AttesterStatus {
@@ -70,6 +78,7 @@ pub struct TotalBalances {
     pub previous_epoch_head: u64,
 }
 
+#[derive(Clone)]
 pub struct Attesters {
     pub statuses: Vec<AttesterStatus>,
     pub balances: TotalBalances,
@@ -142,6 +151,38 @@ impl Attesters {
             // Loop through the participating validator indices and update the status vec.
             for validator_index in attesting_indices {
                 self.statuses[validator_index].update(&status);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn process_winning_roots(
+        &mut self,
+        state: &BeaconState,
+        winning_roots: &WinningRootHashSet,
+        spec: &ChainSpec,
+    ) -> Result<(), BeaconStateError> {
+        // Loop through each slot in the previous epoch.
+        for slot in state.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
+            let crosslink_committees_at_slot =
+                state.get_crosslink_committees_at_slot(slot, spec)?;
+
+            // Loop through each committee in the slot.
+            for (crosslink_committee, shard) in crosslink_committees_at_slot {
+                // If there was some winning crosslink root for the committee's shard.
+                if let Some(winning_root) = winning_roots.get(&shard) {
+                    let total_committee_balance =
+                        state.get_total_balance(&crosslink_committee, spec);
+                    for &validator_index in &winning_root.attesting_validator_indices {
+                        // Take note of the balance information for the winning root, it will be
+                        // used later to calculate rewards for that validator.
+                        self.statuses[validator_index].winning_root_info = Some(WinningRootInfo {
+                            total_committee_balance,
+                            total_attesting_balance: winning_root.total_attesting_balance,
+                        })
+                    }
+                }
             }
         }
 

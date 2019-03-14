@@ -227,11 +227,11 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
         &format!("{}/epoch_processing", desc),
         Benchmark::new("process_rewards_and_penalties", move |b| {
             b.iter_batched(
-                || state_clone.clone(),
-                |mut state| {
+                || (state_clone.clone(), attesters.clone()),
+                |(mut state, mut attesters)| {
                     process_rewards_and_penalities(
                         &mut state,
-                        &attesters,
+                        &mut attesters,
                         previous_total_balance,
                         &winning_root_for_shards,
                         &spec_clone,
