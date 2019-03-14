@@ -74,6 +74,22 @@ impl TestingBeaconStateBuilder {
         TestingBeaconStateBuilder::from_keypairs(keypairs, spec)
     }
 
+    /// Uses the given keypair for all validators.
+    pub fn from_single_keypair(
+        validator_count: usize,
+        keypair: &Keypair,
+        spec: &ChainSpec,
+    ) -> Self {
+        debug!("Generating {} cloned keypairs...", validator_count);
+
+        let mut keypairs = Vec::with_capacity(validator_count);
+        for _ in 0..validator_count {
+            keypairs.push(keypair.clone())
+        }
+
+        TestingBeaconStateBuilder::from_keypairs(keypairs, spec)
+    }
+
     /// Creates the builder from an existing set of keypairs.
     pub fn from_keypairs(keypairs: Vec<Keypair>, spec: &ChainSpec) -> Self {
         let validator_count = keypairs.len();
