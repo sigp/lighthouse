@@ -48,16 +48,6 @@ pub fn bench_epoch_processing_n_validators(c: &mut Criterion, validator_count: u
         "The state should have an attestation for each committee."
     );
 
-    // Assert that each attestation in the state has full participation.
-    let committee_size = validator_count / committees_per_epoch as usize;
-    for a in &state.latest_attestations {
-        assert_eq!(
-            a.aggregation_bitfield.num_set_bits(),
-            committee_size,
-            "Each attestation in the state should have full participation"
-        );
-    }
-
     // Assert that we will run the first arm of process_rewards_and_penalities
     let epochs_since_finality = state.next_epoch(&spec) - state.finalized_epoch;
     assert_eq!(
