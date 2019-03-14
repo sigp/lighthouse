@@ -6,7 +6,6 @@ use beacon_chain::CheckPoint;
 use bls::get_withdrawal_credentials;
 use log::{info, warn};
 use ssz::SignedRoot;
-use std::path::Path;
 use types::*;
 
 use types::test_utils::{TestingAttesterSlashingBuilder, TestingProposerSlashingBuilder};
