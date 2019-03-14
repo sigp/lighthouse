@@ -1,19 +1,16 @@
-use attester_sets::AttesterSets;
 use errors::EpochProcessingError as Error;
-use fnv::FnvHashMap;
-use fnv::FnvHashSet;
 use integer_sqrt::IntegerSquareRoot;
 use rayon::prelude::*;
 use ssz::TreeHash;
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use types::{validator_registry::get_active_validator_indices, *};
+use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
-pub mod attester_sets;
 pub mod errors;
 pub mod inclusion_distance;
 pub mod tests;
+pub mod validator_statuses;
 pub mod winning_root;
 
 /// Maps a shard to a winning root.
@@ -28,47 +25,22 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 ///
 /// Spec v0.4.0
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
-    let previous_epoch = state.previous_epoch(spec);
-
     // Ensure all of the caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
     state.build_epoch_cache(RelativeEpoch::Next, spec)?;
 
-    let attesters = calculate_attester_sets(&state, spec)?;
-
-    let active_validator_indices = calculate_active_validator_indices(&state, spec);
-
-    let current_total_balance = state.get_total_balance(&active_validator_indices[..], spec);
-
-    let previous_total_balance = state.get_total_balance(
-        &get_active_validator_indices(&state.validator_registry, previous_epoch)[..],
-        spec,
-    );
+    let mut statuses = initialize_validator_statuses(&state, spec)?;
 
     process_eth1_data(state, spec);
 
-    process_justification(
-        state,
-        current_total_balance,
-        previous_total_balance,
-        attesters.previous_epoch_boundary.balance,
-        attesters.current_epoch_boundary.balance,
-        spec,
-    );
+    process_justification(state, &statuses.total_balances, spec);
 
     // Crosslinks
     let winning_root_for_shards = process_crosslinks(state, spec)?;
 
     // Rewards and Penalities
-    process_rewards_and_penalities(
-        state,
-        &active_validator_indices,
-        &attesters,
-        previous_total_balance,
-        &winning_root_for_shards,
-        spec,
-    )?;
+    process_rewards_and_penalities(state, &mut statuses, &winning_root_for_shards, spec)?;
 
     // Ejections
     state.process_ejections(spec);
@@ -105,11 +77,15 @@ pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec)
 /// - etc.
 ///
 /// Spec v0.4.0
-pub fn calculate_attester_sets(
+pub fn initialize_validator_statuses(
     state: &BeaconState,
     spec: &ChainSpec,
-) -> Result<AttesterSets, BeaconStateError> {
-    AttesterSets::new(&state, spec)
+) -> Result<ValidatorStatuses, BeaconStateError> {
+    let mut statuses = ValidatorStatuses::new(state, spec);
+
+    statuses.process_attestations(&state, &state.latest_attestations, spec)?;
+
+    Ok(statuses)
 }
 
 /// Spec v0.4.0
@@ -137,10 +113,7 @@ pub fn process_eth1_data(state: &mut BeaconState, spec: &ChainSpec) {
 /// Spec v0.4.0
 pub fn process_justification(
     state: &mut BeaconState,
-    current_total_balance: u64,
-    previous_total_balance: u64,
-    previous_epoch_boundary_attesting_balance: u64,
-    current_epoch_boundary_attesting_balance: u64,
+    total_balances: &TotalBalances,
     spec: &ChainSpec,
 ) {
     let previous_epoch = state.previous_epoch(spec);
@@ -153,7 +126,8 @@ pub fn process_justification(
     //
     // - Set the 2nd bit of the bitfield.
     // - Set the previous epoch to be justified.
-    if (3 * previous_epoch_boundary_attesting_balance) >= (2 * previous_total_balance) {
+    if (3 * total_balances.previous_epoch_boundary_attesters) >= (2 * total_balances.previous_epoch)
+    {
         state.justification_bitfield |= 2;
         new_justified_epoch = previous_epoch;
     }
@@ -161,7 +135,7 @@ pub fn process_justification(
     //
     // - Set the 1st bit of the bitfield.
     // - Set the current epoch to be justified.
-    if (3 * current_epoch_boundary_attesting_balance) >= (2 * current_total_balance) {
+    if (3 * total_balances.current_epoch_boundary_attesters) >= (2 * total_balances.current_epoch) {
         state.justification_bitfield |= 1;
         new_justified_epoch = current_epoch;
     }
@@ -283,126 +257,79 @@ pub fn process_crosslinks(
 /// Spec v0.4.0
 pub fn process_rewards_and_penalities(
     state: &mut BeaconState,
-    active_validator_indices: &[usize],
-    attesters: &AttesterSets,
-    previous_total_balance: u64,
+    statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let next_epoch = state.next_epoch(spec);
 
-    let active_validator_indices: FnvHashSet<usize> =
-        FnvHashSet::from_iter(active_validator_indices.iter().cloned());
+    statuses.process_winning_roots(state, winning_root_for_shards, spec)?;
 
-    let previous_epoch_attestations: Vec<&PendingAttestation> = state
-        .latest_attestations
-        .par_iter()
-        .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) == state.previous_epoch(spec))
-        .collect();
+    let total_balances = &statuses.total_balances;
 
-    let base_reward_quotient = previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
+    let base_reward_quotient =
+        total_balances.previous_epoch.integer_sqrt() / spec.base_reward_quotient;
 
+    // Guard against a divide-by-zero during the validator balance update.
     if base_reward_quotient == 0 {
         return Err(Error::BaseRewardQuotientIsZero);
     }
-    if previous_total_balance == 0 {
+    // Guard against a divide-by-zero during the validator balance update.
+    if total_balances.previous_epoch == 0 {
         return Err(Error::PreviousTotalBalanceIsZero);
     }
-
-    // Map is ValidatorIndex -> ProposerIndex
-    let mut inclusion_slots: FnvHashMap<usize, (Slot, usize)> = FnvHashMap::default();
-    for a in &previous_epoch_attestations {
-        let participants =
-            state.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
-        let inclusion_distance = (a.inclusion_slot - a.data.slot).as_u64();
-        for participant in participants {
-            if let Some((existing_distance, _)) = inclusion_slots.get(&participant) {
-                if *existing_distance <= inclusion_distance {
-                    continue;
-                }
-            }
-            let proposer_index = state
-                .get_beacon_proposer_index(a.data.slot, spec)
-                .map_err(|_| Error::UnableToDetermineProducer)?;
-            inclusion_slots.insert(
-                participant,
-                (Slot::from(inclusion_distance), proposer_index),
-            );
-        }
+    // Guard against an out-of-bounds during the validator balance update.
+    if statuses.statuses.len() != state.validator_balances.len() {
+        return Err(Error::ValidatorStatusesInconsistent);
     }
 
     // Justification and finalization
 
     let epochs_since_finality = next_epoch - state.finalized_epoch;
 
-    if epochs_since_finality <= 4 {
-        state.validator_balances = state
-            .validator_balances
-            .par_iter()
-            .enumerate()
-            .map(|(index, &balance)| {
-                let mut balance = balance;
-                let base_reward = state.base_reward(index, base_reward_quotient, spec);
+    state.validator_balances = state
+        .validator_balances
+        .par_iter()
+        .enumerate()
+        .map(|(index, &balance)| {
+            let mut balance = balance;
+            let status = &statuses.statuses[index];
+            let base_reward = state.base_reward(index, base_reward_quotient, spec);
 
+            if epochs_since_finality <= 4 {
                 // Expected FFG source
-                if attesters.previous_epoch.indices.contains(&index) {
+                if status.is_previous_epoch_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.previous_epoch.balance / previous_total_balance
+                        base_reward * total_balances.previous_epoch_attesters
+                            / total_balances.previous_epoch
                     );
-                } else if active_validator_indices.contains(&index) {
+                } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
                 }
 
                 // Expected FFG target
-                if attesters.previous_epoch_boundary.indices.contains(&index) {
+                if status.is_previous_epoch_boundary_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.previous_epoch_boundary.balance
-                            / previous_total_balance
+                        base_reward * total_balances.previous_epoch_boundary_attesters
+                            / total_balances.previous_epoch
                     );
-                } else if active_validator_indices.contains(&index) {
+                } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
                 }
 
                 // Expected beacon chain head
-                if attesters.previous_epoch_head.indices.contains(&index) {
+                if status.is_previous_epoch_head_attester {
                     safe_add_assign!(
                         balance,
-                        base_reward * attesters.previous_epoch_head.balance
-                            / previous_total_balance
+                        base_reward * total_balances.previous_epoch_head_attesters
+                            / total_balances.previous_epoch
                     );
-                } else if active_validator_indices.contains(&index) {
+                } else if status.is_active_in_previous_epoch {
                     safe_sub_assign!(balance, base_reward);
                 };
-
-                if attesters.previous_epoch.indices.contains(&index) {
-                    let base_reward = state.base_reward(index, base_reward_quotient, spec);
-
-                    let (inclusion_distance, _) = inclusion_slots
-                        .get(&index)
-                        .expect("Inconsistent inclusion_slots.");
-
-                    if *inclusion_distance > 0 {
-                        safe_add_assign!(
-                            balance,
-                            base_reward * spec.min_attestation_inclusion_delay
-                                / inclusion_distance.as_u64()
-                        )
-                    }
-                }
-
-                balance
-            })
-            .collect();
-    } else {
-        state.validator_balances = state
-            .validator_balances
-            .par_iter()
-            .enumerate()
-            .map(|(index, &balance)| {
-                let mut balance = balance;
-
+            } else {
                 let inactivity_penalty = state.inactivity_penalty(
                     index,
                     epochs_since_finality,
@@ -410,14 +337,14 @@ pub fn process_rewards_and_penalities(
                     spec,
                 );
 
-                if active_validator_indices.contains(&index) {
-                    if !attesters.previous_epoch.indices.contains(&index) {
+                if status.is_active_in_previous_epoch {
+                    if !status.is_previous_epoch_attester {
                         safe_sub_assign!(balance, inactivity_penalty);
                     }
-                    if !attesters.previous_epoch_boundary.indices.contains(&index) {
+                    if !status.is_previous_epoch_boundary_attester {
                         safe_sub_assign!(balance, inactivity_penalty);
                     }
-                    if !attesters.previous_epoch_head.indices.contains(&index) {
+                    if !status.is_previous_epoch_head_attester {
                         safe_sub_assign!(balance, inactivity_penalty);
                     }
 
@@ -426,91 +353,45 @@ pub fn process_rewards_and_penalities(
                         safe_sub_assign!(balance, 2 * inactivity_penalty + base_reward);
                     }
                 }
+            }
 
-                if attesters.previous_epoch.indices.contains(&index) {
-                    let base_reward = state.base_reward(index, base_reward_quotient, spec);
+            // Crosslinks
 
-                    let (inclusion_distance, _) = inclusion_slots
-                        .get(&index)
-                        .expect("Inconsistent inclusion_slots.");
+            if let Some(ref info) = status.winning_root_info {
+                safe_add_assign!(
+                    balance,
+                    base_reward * info.total_attesting_balance / info.total_committee_balance
+                );
+            } else {
+                safe_sub_assign!(balance, base_reward);
+            }
 
-                    if *inclusion_distance > 0 {
-                        safe_add_assign!(
-                            balance,
-                            base_reward * spec.min_attestation_inclusion_delay
-                                / inclusion_distance.as_u64()
-                        )
-                    }
-                }
-
-                balance
-            })
-            .collect();
-    }
+            balance
+        })
+        .collect();
 
     // Attestation inclusion
-    //
 
-    for &index in &attesters.previous_epoch.indices {
-        let (_, proposer_index) = inclusion_slots
-            .get(&index)
-            .ok_or_else(|| Error::InclusionSlotsInconsistent(index))?;
-
-        let base_reward = state.base_reward(*proposer_index, base_reward_quotient, spec);
-
-        safe_add_assign!(
-            state.validator_balances[*proposer_index],
-            base_reward / spec.attestation_inclusion_reward_quotient
-        );
+    // Guard against an out-of-bounds during the attester inclusion balance update.
+    if statuses.statuses.len() != state.validator_registry.len() {
+        return Err(Error::ValidatorStatusesInconsistent);
     }
 
-    //Crosslinks
+    for (index, _validator) in state.validator_registry.iter().enumerate() {
+        let status = &statuses.statuses[index];
 
-    for slot in state.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
-        // Clone removes the borrow which becomes an issue when mutating `state.balances`.
-        let crosslink_committees_at_slot =
-            state.get_crosslink_committees_at_slot(slot, spec)?.clone();
+        if status.is_previous_epoch_attester {
+            let proposer_index = status.inclusion_info.proposer_index;
+            let inclusion_distance = status.inclusion_info.distance;
 
-        for (crosslink_committee, shard) in crosslink_committees_at_slot {
-            let shard = shard as u64;
+            let base_reward = state.base_reward(proposer_index, base_reward_quotient, spec);
 
-            // Note: I'm a little uncertain of the logic here -- I am waiting for spec v0.5.0 to
-            // clear it up.
-            //
-            // What happens here is:
-            //
-            // - If there was some crosslink root elected by the super-majority of this committee,
-            // then we reward all who voted for that root and penalize all that did not.
-            // - However, if there _was not_ some super-majority-voted crosslink root, then penalize
-            // all the validators.
-            //
-            // I'm not quite sure that the second case (no super-majority crosslink) is correct.
-            if let Some(winning_root) = winning_root_for_shards.get(&shard) {
-                // Hash set de-dedups and (hopefully) offers a speed improvement from faster
-                // lookups.
-                let attesting_validator_indices: FnvHashSet<usize> =
-                    FnvHashSet::from_iter(winning_root.attesting_validator_indices.iter().cloned());
-
-                for &index in &crosslink_committee {
-                    let base_reward = state.base_reward(index, base_reward_quotient, spec);
-
-                    let total_balance = state.get_total_balance(&crosslink_committee, spec);
-
-                    if attesting_validator_indices.contains(&index) {
-                        safe_add_assign!(
-                            state.validator_balances[index],
-                            base_reward * winning_root.total_attesting_balance / total_balance
-                        );
-                    } else {
-                        safe_sub_assign!(state.validator_balances[index], base_reward);
-                    }
-                }
-            } else {
-                for &index in &crosslink_committee {
-                    let base_reward = state.base_reward(index, base_reward_quotient, spec);
-
-                    safe_sub_assign!(state.validator_balances[index], base_reward);
-                }
+            if inclusion_distance > 0 && inclusion_distance < Slot::max_value() {
+                safe_add_assign!(
+                    state.validator_balances[proposer_index],
+                    base_reward * spec.min_attestation_inclusion_delay
+                        / inclusion_distance.as_u64()
+                )
             }
         }
     }

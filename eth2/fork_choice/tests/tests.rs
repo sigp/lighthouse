@@ -3,7 +3,7 @@
 extern crate beacon_chain;
 extern crate bls;
 extern crate db;
-//extern crate env_logger; // for debugging
+// extern crate env_logger; // for debugging
 extern crate fork_choice;
 extern crate hex;
 extern crate log;
@@ -15,17 +15,31 @@ pub use beacon_chain::BeaconChain;
 use bls::Signature;
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
-//use env_logger::{Builder, Env};
-use fork_choice::{BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, SlowLMDGhost};
+// use env_logger::{Builder, Env};
+use fork_choice::{
+    BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimizedLMDGhost, SlowLMDGhost,
+};
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::test_utils::TestingBeaconStateBuilder;
-use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Slot};
+use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Keypair, Slot};
 use yaml_rust::yaml;
 
 // Note: We Assume the block Id's are hex-encoded.
+
+#[test]
+fn test_optimized_lmd_ghost() {
+    // set up logging
+    // Builder::from_env(Env::default().default_filter_or("trace")).init();
+
+    test_yaml_vectors(
+        ForkChoiceAlgorithm::OptimizedLMDGhost,
+        "tests/lmd_ghost_test_vectors.yaml",
+        100,
+    );
+}
 
 #[test]
 fn test_bitwise_lmd_ghost() {
@@ -204,7 +218,7 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
 // initialise a single validator and state. All blocks will reference this state root.
 fn setup_inital_state(
     fork_choice_algo: &ForkChoiceAlgorithm,
-    no_validators: usize,
+    num_validators: usize,
 ) -> (Box<ForkChoice>, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
     let db = Arc::new(MemoryDB::open());
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
@@ -212,6 +226,10 @@ fn setup_inital_state(
 
     // the fork choice instantiation
     let fork_choice: Box<ForkChoice> = match fork_choice_algo {
+        ForkChoiceAlgorithm::OptimizedLMDGhost => Box::new(OptimizedLMDGhost::new(
+            block_store.clone(),
+            state_store.clone(),
+        )),
         ForkChoiceAlgorithm::BitwiseLMDGhost => Box::new(BitwiseLMDGhost::new(
             block_store.clone(),
             state_store.clone(),
@@ -225,7 +243,7 @@ fn setup_inital_state(
     let spec = ChainSpec::foundation();
 
     let state_builder =
-        TestingBeaconStateBuilder::from_deterministic_keypairs(no_validators, &spec);
+        TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
     let (state, _keypairs) = state_builder.build();
 
     let state_root = state.canonical_root();

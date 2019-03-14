@@ -210,6 +210,7 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
             trace!("Children found: {:?}", children);
 
             let mut head_vote_count = 0;
+            head_hash = children[0];
             for child_hash in children {
                 let vote_count = self.get_vote_count(&latest_votes, &child_hash)?;
                 trace!("Vote count for child: {} is: {}", child_hash, vote_count);
@@ -217,6 +218,12 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                 if vote_count > head_vote_count {
                     head_hash = *child_hash;
                     head_vote_count = vote_count;
+                }
+                // resolve ties - choose smaller hash
+                else if vote_count == head_vote_count {
+                    if *child_hash < head_hash {
+                        head_hash = *child_hash;
+                    }
                 }
             }
         }
