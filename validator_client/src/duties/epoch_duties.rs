@@ -81,8 +81,8 @@ impl DutiesReader for EpochDutiesMap {
         //
         // It will almost certainly cause signatures to fail verification.
         Ok(Fork {
-            previous_version: 0,
-            current_version: 0,
+            previous_version: [0; 4],
+            current_version: [0; 4],
             epoch: Epoch::new(0),
         })
     }
