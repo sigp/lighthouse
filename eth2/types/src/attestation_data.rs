@@ -8,7 +8,7 @@ use test_random_derive::TestRandom;
 
 /// The data upon which an attestation is based.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug,
     Clone,
@@ -24,14 +24,19 @@ use test_random_derive::TestRandom;
     SignedRoot,
 )]
 pub struct AttestationData {
+    // LMD GHOST vote
     pub slot: Slot,
-    pub shard: u64,
     pub beacon_block_root: Hash256,
-    pub epoch_boundary_root: Hash256,
+
+    // FFG Vote
+    pub source_epoch: Epoch,
+    pub source_root: Hash256,
+    pub target_root: Hash256,
+
+    // Crosslink Vote
+    pub shard: u64,
+    pub previous_crosslink: Crosslink,
     pub crosslink_data_root: Hash256,
-    pub latest_crosslink: Crosslink,
-    pub justified_epoch: Epoch,
-    pub justified_block_root: Hash256,
 }
 
 impl Eq for AttestationData {}
