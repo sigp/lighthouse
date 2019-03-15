@@ -7,7 +7,7 @@ use test_random_derive::TestRandom;
 
 /// A summation of votes for some `Eth1Data`.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug, PartialEq, Clone, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]

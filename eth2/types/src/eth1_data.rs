@@ -7,7 +7,7 @@ use test_random_derive::TestRandom;
 
 /// Contains data obtained from the Eth1 chain.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug, PartialEq, Clone, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
