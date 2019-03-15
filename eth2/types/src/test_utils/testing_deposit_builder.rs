@@ -46,15 +46,18 @@ impl TestingDepositBuilder {
         );
 
         let epoch = state.current_epoch(spec);
-        let domain = spec.get_domain(epoch, Domain::Deposit, &state.fork);
 
         self.deposit.deposit_data.deposit_input.pubkey = keypair.pk.clone();
         self.deposit
             .deposit_data
             .deposit_input
             .withdrawal_credentials = withdrawal_credentials.clone();
-        self.deposit.deposit_data.deposit_input.proof_of_possession =
-            DepositInput::create_proof_of_possession(&keypair, &withdrawal_credentials, domain);
+
+        self.deposit.deposit_data.deposit_input.proof_of_possession = self
+            .deposit
+            .deposit_data
+            .deposit_input
+            .create_proof_of_possession(&keypair.sk, epoch, &state.fork, spec);
     }
 
     /// Builds the deposit, consuming the builder.
