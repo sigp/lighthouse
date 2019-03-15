@@ -5,18 +5,21 @@ use serde_derive::Deserialize;
 
 const GWEI: u64 = 1_000_000_000;
 
+/// Each of the BLS signature domains.
+///
+/// Spec v0.5.0
 pub enum Domain {
-    Deposit,
-    Attestation,
-    Proposal,
-    Exit,
+    BeaconBlock,
     Randao,
+    Attestation,
+    Deposit,
+    Exit,
     Transfer,
 }
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(PartialEq, Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -26,7 +29,6 @@ pub struct ChainSpec {
     pub shard_count: u64,
     pub target_committee_size: u64,
     pub max_balance_churn_quotient: u64,
-    pub beacon_chain_shard_number: u64,
     pub max_indices_per_slashable_vote: u64,
     pub max_exit_dequeues_per_epoch: u64,
     pub shuffle_round_count: u8,
@@ -66,12 +68,13 @@ pub struct ChainSpec {
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
     pub epochs_per_eth1_voting_period: u64,
+    pub slots_per_historical_root: usize,
     pub min_validator_withdrawability_delay: Epoch,
+    pub persistent_committee_period: u64,
 
     /*
      * State list lengths
      */
-    pub latest_block_roots_length: usize,
     pub latest_randao_mixes_length: usize,
     pub latest_active_index_roots_length: usize,
     pub latest_slashed_exit_length: usize,
@@ -103,11 +106,11 @@ pub struct ChainSpec {
      *
      * Use `ChainSpec::get_domain(..)` to access these values.
      */
-    domain_deposit: u32,
-    domain_attestation: u32,
-    domain_proposal: u32,
-    domain_exit: u32,
+    domain_beacon_block: u32,
     domain_randao: u32,
+    domain_attestation: u32,
+    domain_deposit: u32,
+    domain_exit: u32,
     domain_transfer: u32,
 }
 
@@ -130,11 +133,11 @@ impl ChainSpec {
     /// Spec v0.5.0
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = match domain {
-            Domain::Deposit => self.domain_deposit,
-            Domain::Attestation => self.domain_attestation,
-            Domain::Proposal => self.domain_proposal,
-            Domain::Exit => self.domain_exit,
+            Domain::BeaconBlock => self.domain_beacon_block,
             Domain::Randao => self.domain_randao,
+            Domain::Attestation => self.domain_attestation,
+            Domain::Deposit => self.domain_deposit,
+            Domain::Exit => self.domain_exit,
             Domain::Transfer => self.domain_transfer,
         };
 
@@ -149,7 +152,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn foundation() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 64;
@@ -162,7 +165,6 @@ impl ChainSpec {
             shard_count: 1_024,
             target_committee_size: 128,
             max_balance_churn_quotient: 32,
-            beacon_chain_shard_number: u64::max_value(),
             max_indices_per_slashable_vote: 4_096,
             max_exit_dequeues_per_epoch: 4,
             shuffle_round_count: 90,
@@ -202,12 +204,13 @@ impl ChainSpec {
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             epochs_per_eth1_voting_period: 16,
+            slots_per_historical_root: 8_192,
             min_validator_withdrawability_delay: Epoch::new(256),
+            persistent_committee_period: 2_048,
 
             /*
              * State list lengths
              */
-            latest_block_roots_length: 8_192,
             latest_randao_mixes_length: 8_192,
             latest_active_index_roots_length: 8_192,
             latest_slashed_exit_length: 8_192,
@@ -234,18 +237,16 @@ impl ChainSpec {
             /*
              * Signature domains
              */
-            domain_deposit: 0,
-            domain_attestation: 1,
-            domain_proposal: 2,
-            domain_exit: 3,
-            domain_randao: 4,
+            domain_beacon_block: 0,
+            domain_randao: 1,
+            domain_attestation: 2,
+            domain_deposit: 3,
+            domain_exit: 4,
             domain_transfer: 5,
         }
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    ///
-    /// Spec v0.4.0
     pub fn few_validators() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 8;
@@ -294,11 +295,11 @@ mod tests {
     fn test_get_domain() {
         let spec = ChainSpec::foundation();
 
-        test_domain(Domain::Deposit, spec.domain_deposit, &spec);
-        test_domain(Domain::Attestation, spec.domain_attestation, &spec);
-        test_domain(Domain::Proposal, spec.domain_proposal, &spec);
-        test_domain(Domain::Exit, spec.domain_exit, &spec);
+        test_domain(Domain::BeaconBlock, spec.domain_beacon_block, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);
+        test_domain(Domain::Attestation, spec.domain_attestation, &spec);
+        test_domain(Domain::Deposit, spec.domain_deposit, &spec);
+        test_domain(Domain::Exit, spec.domain_exit, &spec);
         test_domain(Domain::Transfer, spec.domain_transfer, &spec);
     }
 }
