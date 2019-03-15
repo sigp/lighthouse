@@ -7,7 +7,7 @@ use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz::{hash, Decodable, DecodeError, Encodable, SignedRoot, SszStream, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::shuffle_list;
@@ -72,7 +72,7 @@ macro_rules! safe_sub_assign {
     };
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
 pub struct BeaconState {
     // Misc
     pub slot: Slot,
@@ -114,7 +114,9 @@ pub struct BeaconState {
 
     // Caching (not in the spec)
     pub cache_index_offset: usize,
+    #[serde(default)]
     pub caches: Vec<EpochCache>,
+    #[serde(default)]
     pub pubkey_cache: PubkeyCache,
 }
 
@@ -137,11 +139,7 @@ impl BeaconState {
              */
             slot: spec.genesis_slot,
             genesis_time,
-            fork: Fork {
-                previous_version: spec.genesis_fork_version,
-                current_version: spec.genesis_fork_version,
-                epoch: spec.genesis_epoch,
-            },
+            fork: Fork::genesis(spec),
 
             /*
              * Validator registry
@@ -193,8 +191,8 @@ impl BeaconState {
              * Caching (not in spec)
              */
             cache_index_offset: 0,
-            caches: vec![EpochCache::empty(); CACHED_EPOCHS],
-            pubkey_cache: PubkeyCache::empty(),
+            caches: vec![EpochCache::default(); CACHED_EPOCHS],
+            pubkey_cache: PubkeyCache::default(),
         }
     }
 
@@ -276,7 +274,7 @@ impl BeaconState {
     /// Removes the specified cache and sets it to uninitialized.
     pub fn drop_cache(&mut self, relative_epoch: RelativeEpoch) {
         let previous_cache_index = self.cache_index(relative_epoch);
-        self.caches[previous_cache_index] = EpochCache::empty();
+        self.caches[previous_cache_index] = EpochCache::default();
     }
 
     /// Returns the index of `self.caches` for some `RelativeEpoch`.
@@ -324,7 +322,7 @@ impl BeaconState {
 
     /// Completely drops the `pubkey_cache`, replacing it with a new, empty cache.
     pub fn drop_pubkey_cache(&mut self) {
-        self.pubkey_cache = PubkeyCache::empty()
+        self.pubkey_cache = PubkeyCache::default()
     }
 
     /// If a validator pubkey exists in the validator registry, returns `Some(i)`, otherwise
@@ -1227,8 +1225,8 @@ impl Decodable for BeaconState {
                 eth1_data_votes,
                 deposit_index,
                 cache_index_offset: 0,
-                caches: vec![EpochCache::empty(); CACHED_EPOCHS],
-                pubkey_cache: PubkeyCache::empty(),
+                caches: vec![EpochCache::default(); CACHED_EPOCHS],
+                pubkey_cache: PubkeyCache::default(),
             },
             i,
         ))
@@ -1298,8 +1296,8 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             eth1_data_votes: <_>::random_for_test(rng),
             deposit_index: <_>::random_for_test(rng),
             cache_index_offset: 0,
-            caches: vec![EpochCache::empty(); CACHED_EPOCHS],
-            pubkey_cache: PubkeyCache::empty(),
+            caches: vec![EpochCache::default(); CACHED_EPOCHS],
+            pubkey_cache: PubkeyCache::default(),
         }
     }
 }
