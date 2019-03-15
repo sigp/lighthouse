@@ -1,5 +1,7 @@
 use super::{AttestationDuty, BeaconState, CrosslinkCommittees, Error};
+use crate::test_utils::TestRandom;
 use crate::{ChainSpec, Epoch};
+use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -65,5 +67,16 @@ impl EpochCache {
             attestation_duties,
             shard_committee_indices,
         })
+    }
+}
+
+impl<T: RngCore> TestRandom<T> for [EpochCache; 3] {
+    /// Test random should generate an empty cache.
+    fn random_for_test(rng: &mut T) -> Self {
+        [
+            EpochCache::default(),
+            EpochCache::default(),
+            EpochCache::default(),
+        ]
     }
 }
