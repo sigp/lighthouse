@@ -129,6 +129,7 @@ pub struct BeaconState {
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     pub cache_index_offset: usize,
+    #[serde(default)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
