@@ -8,9 +8,11 @@ use log::{debug, error, trace};
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{hash, Decodable, DecodeError, Encodable, SignedRoot, SszStream, TreeHash};
+use ssz::{hash, Decodable, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::shuffle_list;
+use test_random_derive::TestRandom;
 
 pub use builder::BeaconStateBuilder;
 
@@ -72,7 +74,10 @@ macro_rules! safe_sub_assign {
     };
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
+/// The state of the `BeaconChain` at some slot.
+///
+/// Spec v0.5.0
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, TestRandom, Encode, Decode, TreeHash)]
 pub struct BeaconState {
     // Misc
     pub slot: Slot,
@@ -94,18 +99,24 @@ pub struct BeaconState {
     pub current_shuffling_seed: Hash256,
 
     // Finality
+    pub previous_epoch_attestations: Vec<PendingAttestation>,
+    pub current_epoch_attestations: Vec<PendingAttestation>,
     pub previous_justified_epoch: Epoch,
-    pub justified_epoch: Epoch,
+    pub current_justified_epoch: Epoch,
+    pub previous_justified_root: Hash256,
+    pub current_justified_root: Hash256,
     pub justification_bitfield: u64,
     pub finalized_epoch: Epoch,
+    pub finalized_root: Hash256,
 
     // Recent state
     pub latest_crosslinks: Vec<Crosslink>,
     pub latest_block_roots: Vec<Hash256>,
+    pub latest_state_roots: Vec<Hash256>,
     pub latest_active_index_roots: Vec<Hash256>,
     pub latest_slashed_balances: Vec<u64>,
-    pub latest_attestations: Vec<PendingAttestation>,
-    pub batched_block_roots: Vec<Hash256>,
+    pub latest_block_header: BeaconBlockHeader,
+    pub historical_roots: Vec<Hash256>,
 
     // Ethereum 1.0 chain data
     pub latest_eth1_data: Eth1Data,
@@ -113,10 +124,19 @@ pub struct BeaconState {
     pub deposit_index: u64,
 
     // Caching (not in the spec)
+    #[serde(default)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
     pub cache_index_offset: usize,
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    pub caches: [EpochCache; CACHED_EPOCHS],
     #[serde(default)]
-    pub caches: Vec<EpochCache>,
-    #[serde(default)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
     pub pubkey_cache: PubkeyCache,
 }
 
@@ -126,7 +146,7 @@ impl BeaconState {
     /// This does not fully build a genesis beacon state, it omits processing of initial validator
     /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
@@ -134,23 +154,17 @@ impl BeaconState {
         };
 
         BeaconState {
-            /*
-             * Misc
-             */
+            // Misc
             slot: spec.genesis_slot,
             genesis_time,
             fork: Fork::genesis(spec),
 
-            /*
-             * Validator registry
-             */
+            // Validator registry
             validator_registry: vec![], // Set later in the function.
             validator_balances: vec![], // Set later in the function.
             validator_registry_update_epoch: spec.genesis_epoch,
 
-            /*
-             * Randomness and committees
-             */
+            // Randomness and committees
             latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize],
             previous_shuffling_start_shard: spec.genesis_start_shard,
             current_shuffling_start_shard: spec.genesis_start_shard,
@@ -159,26 +173,25 @@ impl BeaconState {
             previous_shuffling_seed: spec.zero_hash,
             current_shuffling_seed: spec.zero_hash,
 
-            /*
-             * Finality
-             */
+            // Finality
+            previous_epoch_attestations: vec![],
+            current_epoch_attestations: vec![],
             previous_justified_epoch: spec.genesis_epoch,
-            justified_epoch: spec.genesis_epoch,
+            current_justified_epoch: spec.genesis_epoch,
+            previous_justified_root: spec.zero_hash,
+            current_justified_root: spec.zero_hash,
             justification_bitfield: 0,
             finalized_epoch: spec.genesis_epoch,
+            finalized_root: spec.zero_hash,
 
-            /*
-             * Recent state
-             */
+            // Recent state
             latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
-            latest_block_roots: vec![spec.zero_hash; spec.latest_block_roots_length as usize],
-            latest_active_index_roots: vec![
-                spec.zero_hash;
-                spec.latest_active_index_roots_length as usize
-            ],
-            latest_slashed_balances: vec![0; spec.latest_slashed_exit_length as usize],
-            latest_attestations: vec![],
-            batched_block_roots: vec![],
+            latest_block_roots: vec![spec.zero_hash; spec.slots_per_historical_root],
+            latest_state_roots: vec![spec.zero_hash; spec.slots_per_historical_root],
+            latest_active_index_roots: vec![spec.zero_hash; spec.latest_active_index_roots_length],
+            latest_slashed_balances: vec![0; spec.latest_slashed_exit_length],
+            latest_block_header: BeaconBlock::empty(spec).into_temporary_header(spec),
+            historical_roots: vec![],
 
             /*
              * PoW receipt root
@@ -191,17 +204,25 @@ impl BeaconState {
              * Caching (not in spec)
              */
             cache_index_offset: 0,
-            caches: vec![EpochCache::default(); CACHED_EPOCHS],
+            caches: [
+                EpochCache::default(),
+                EpochCache::default(),
+                EpochCache::default(),
+            ],
             pubkey_cache: PubkeyCache::default(),
         }
     }
 
+    /*
+
     /// Returns the `hash_tree_root` of the state.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
+
+    */
 
     /// Build an epoch cache, unless it is has already been built.
     pub fn build_epoch_cache(
@@ -426,11 +447,11 @@ impl BeaconState {
 
     /// Return the block root at a recent `slot`.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_block_root(&self, slot: Slot, spec: &ChainSpec) -> Option<&Hash256> {
-        if (self.slot <= slot + spec.latest_block_roots_length as u64) && (slot < self.slot) {
+        if (self.slot <= slot + spec.slots_per_historical_root as u64) && (slot < self.slot) {
             self.latest_block_roots
-                .get(slot.as_usize() % spec.latest_block_roots_length)
+                .get(slot.as_usize() % spec.slots_per_historical_root)
         } else {
             None
         }
@@ -1133,171 +1154,5 @@ impl BeaconState {
         all_participants.sort_unstable();
         all_participants.dedup();
         Ok(all_participants)
-    }
-}
-
-impl Encodable for BeaconState {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append(&self.slot);
-        s.append(&self.genesis_time);
-        s.append(&self.fork);
-        s.append(&self.validator_registry);
-        s.append(&self.validator_balances);
-        s.append(&self.validator_registry_update_epoch);
-        s.append(&self.latest_randao_mixes);
-        s.append(&self.previous_shuffling_start_shard);
-        s.append(&self.current_shuffling_start_shard);
-        s.append(&self.previous_shuffling_epoch);
-        s.append(&self.current_shuffling_epoch);
-        s.append(&self.previous_shuffling_seed);
-        s.append(&self.current_shuffling_seed);
-        s.append(&self.previous_justified_epoch);
-        s.append(&self.justified_epoch);
-        s.append(&self.justification_bitfield);
-        s.append(&self.finalized_epoch);
-        s.append(&self.latest_crosslinks);
-        s.append(&self.latest_block_roots);
-        s.append(&self.latest_active_index_roots);
-        s.append(&self.latest_slashed_balances);
-        s.append(&self.latest_attestations);
-        s.append(&self.batched_block_roots);
-        s.append(&self.latest_eth1_data);
-        s.append(&self.eth1_data_votes);
-        s.append(&self.deposit_index);
-    }
-}
-
-impl Decodable for BeaconState {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (slot, i) = <_>::ssz_decode(bytes, i)?;
-        let (genesis_time, i) = <_>::ssz_decode(bytes, i)?;
-        let (fork, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_balances, i) = <_>::ssz_decode(bytes, i)?;
-        let (validator_registry_update_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_randao_mixes, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_shuffling_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_shuffling_start_shard, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_shuffling_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_shuffling_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_shuffling_seed, i) = <_>::ssz_decode(bytes, i)?;
-        let (current_shuffling_seed, i) = <_>::ssz_decode(bytes, i)?;
-        let (previous_justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (justified_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (justification_bitfield, i) = <_>::ssz_decode(bytes, i)?;
-        let (finalized_epoch, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_crosslinks, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_active_index_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_slashed_balances, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_attestations, i) = <_>::ssz_decode(bytes, i)?;
-        let (batched_block_roots, i) = <_>::ssz_decode(bytes, i)?;
-        let (latest_eth1_data, i) = <_>::ssz_decode(bytes, i)?;
-        let (eth1_data_votes, i) = <_>::ssz_decode(bytes, i)?;
-        let (deposit_index, i) = <_>::ssz_decode(bytes, i)?;
-
-        Ok((
-            Self {
-                slot,
-                genesis_time,
-                fork,
-                validator_registry,
-                validator_balances,
-                validator_registry_update_epoch,
-                latest_randao_mixes,
-                previous_shuffling_start_shard,
-                current_shuffling_start_shard,
-                previous_shuffling_epoch,
-                current_shuffling_epoch,
-                previous_shuffling_seed,
-                current_shuffling_seed,
-                previous_justified_epoch,
-                justified_epoch,
-                justification_bitfield,
-                finalized_epoch,
-                latest_crosslinks,
-                latest_block_roots,
-                latest_active_index_roots,
-                latest_slashed_balances,
-                latest_attestations,
-                batched_block_roots,
-                latest_eth1_data,
-                eth1_data_votes,
-                deposit_index,
-                cache_index_offset: 0,
-                caches: vec![EpochCache::default(); CACHED_EPOCHS],
-                pubkey_cache: PubkeyCache::default(),
-            },
-            i,
-        ))
-    }
-}
-
-impl TreeHash for BeaconState {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root());
-        result.append(&mut self.genesis_time.hash_tree_root());
-        result.append(&mut self.fork.hash_tree_root());
-        result.append(&mut self.validator_registry.hash_tree_root());
-        result.append(&mut self.validator_balances.hash_tree_root());
-        result.append(&mut self.validator_registry_update_epoch.hash_tree_root());
-        result.append(&mut self.latest_randao_mixes.hash_tree_root());
-        result.append(&mut self.previous_shuffling_start_shard.hash_tree_root());
-        result.append(&mut self.current_shuffling_start_shard.hash_tree_root());
-        result.append(&mut self.previous_shuffling_epoch.hash_tree_root());
-        result.append(&mut self.current_shuffling_epoch.hash_tree_root());
-        result.append(&mut self.previous_shuffling_seed.hash_tree_root());
-        result.append(&mut self.current_shuffling_seed.hash_tree_root());
-        result.append(&mut self.previous_justified_epoch.hash_tree_root());
-        result.append(&mut self.justified_epoch.hash_tree_root());
-        result.append(&mut self.justification_bitfield.hash_tree_root());
-        result.append(&mut self.finalized_epoch.hash_tree_root());
-        result.append(&mut self.latest_crosslinks.hash_tree_root());
-        result.append(&mut self.latest_block_roots.hash_tree_root());
-        result.append(&mut self.latest_active_index_roots.hash_tree_root());
-        result.append(&mut self.latest_slashed_balances.hash_tree_root());
-        result.append(&mut self.latest_attestations.hash_tree_root());
-        result.append(&mut self.batched_block_roots.hash_tree_root());
-        result.append(&mut self.latest_eth1_data.hash_tree_root());
-        result.append(&mut self.eth1_data_votes.hash_tree_root());
-        result.append(&mut self.deposit_index.hash_tree_root());
-        hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for BeaconState {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            slot: <_>::random_for_test(rng),
-            genesis_time: <_>::random_for_test(rng),
-            fork: <_>::random_for_test(rng),
-            validator_registry: <_>::random_for_test(rng),
-            validator_balances: <_>::random_for_test(rng),
-            validator_registry_update_epoch: <_>::random_for_test(rng),
-            latest_randao_mixes: <_>::random_for_test(rng),
-            previous_shuffling_start_shard: <_>::random_for_test(rng),
-            current_shuffling_start_shard: <_>::random_for_test(rng),
-            previous_shuffling_epoch: <_>::random_for_test(rng),
-            current_shuffling_epoch: <_>::random_for_test(rng),
-            previous_shuffling_seed: <_>::random_for_test(rng),
-            current_shuffling_seed: <_>::random_for_test(rng),
-            previous_justified_epoch: <_>::random_for_test(rng),
-            justified_epoch: <_>::random_for_test(rng),
-            justification_bitfield: <_>::random_for_test(rng),
-            finalized_epoch: <_>::random_for_test(rng),
-            latest_crosslinks: <_>::random_for_test(rng),
-            latest_block_roots: <_>::random_for_test(rng),
-            latest_active_index_roots: <_>::random_for_test(rng),
-            latest_slashed_balances: <_>::random_for_test(rng),
-            latest_attestations: <_>::random_for_test(rng),
-            batched_block_roots: <_>::random_for_test(rng),
-            latest_eth1_data: <_>::random_for_test(rng),
-            eth1_data_votes: <_>::random_for_test(rng),
-            deposit_index: <_>::random_for_test(rng),
-            cache_index_offset: 0,
-            caches: vec![EpochCache::default(); CACHED_EPOCHS],
-            pubkey_cache: PubkeyCache::default(),
-        }
     }
 }
