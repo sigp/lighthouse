@@ -23,45 +23,39 @@ impl TestingAttesterSlashingBuilder {
     {
         let double_voted_slot = Slot::new(0);
         let shard = 0;
-        let justified_epoch = Epoch::new(0);
         let epoch = Epoch::new(0);
         let hash_1 = Hash256::from_low_u64_le(1);
         let hash_2 = Hash256::from_low_u64_le(2);
 
+        let data_1 = AttestationData {
+            slot: double_voted_slot,
+            beacon_block_root: hash_1,
+            source_epoch: epoch,
+            source_root: hash_1,
+            target_root: hash_1,
+            shard,
+            previous_crosslink: Crosslink {
+                epoch,
+                crosslink_data_root: hash_1,
+            },
+            crosslink_data_root: hash_1,
+        };
+
+        let data_2 = AttestationData {
+            beacon_block_root: hash_2,
+            ..data_1.clone()
+        };
+
         let mut slashable_attestation_1 = SlashableAttestation {
             validator_indices: validator_indices.to_vec(),
-            data: AttestationData {
-                slot: double_voted_slot,
-                shard,
-                beacon_block_root: hash_1,
-                epoch_boundary_root: hash_1,
-                crosslink_data_root: hash_1,
-                latest_crosslink: Crosslink {
-                    epoch,
-                    crosslink_data_root: hash_1,
-                },
-                justified_epoch,
-                justified_block_root: hash_1,
-            },
+            data: data_1,
             custody_bitfield: Bitfield::new(),
             aggregate_signature: AggregateSignature::new(),
         };
 
         let mut slashable_attestation_2 = SlashableAttestation {
             validator_indices: validator_indices.to_vec(),
-            data: AttestationData {
-                slot: double_voted_slot,
-                shard,
-                beacon_block_root: hash_2,
-                epoch_boundary_root: hash_2,
-                crosslink_data_root: hash_2,
-                latest_crosslink: Crosslink {
-                    epoch,
-                    crosslink_data_root: hash_2,
-                },
-                justified_epoch,
-                justified_block_root: hash_2,
-            },
+            data: data_2,
             custody_bitfield: Bitfield::new(),
             aggregate_signature: AggregateSignature::new(),
         };
