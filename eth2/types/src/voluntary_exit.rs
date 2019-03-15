@@ -8,7 +8,7 @@ use test_random_derive::TestRandom;
 
 /// An exit voluntarily submitted a validator who wishes to withdraw.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug,
     PartialEq,
