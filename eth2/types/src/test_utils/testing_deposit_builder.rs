@@ -14,7 +14,7 @@ impl TestingDepositBuilder {
         let keypair = Keypair::random();
 
         let deposit = Deposit {
-            branch: vec![],
+            proof: vec![],
             index: 0,
             deposit_data: DepositData {
                 amount,
