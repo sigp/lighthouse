@@ -7,7 +7,7 @@ use test_random_derive::TestRandom;
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct PendingAttestation {
     pub aggregation_bitfield: Bitfield,
