@@ -119,11 +119,7 @@ fn main() {
                             // Get domain from genesis fork_version
                             spec.genesis_epoch,
                             Domain::Deposit,
-                            &Fork {
-                                previous_version: spec.genesis_fork_version,
-                                current_version: spec.genesis_fork_version,
-                                epoch: spec.genesis_epoch,
-                            },
+                            &Fork::genesis(&spec),
                         ),
                     ),
                 },

@@ -48,4 +48,49 @@ mod tests {
     use super::*;
 
     ssz_tests!(Fork);
+
+    fn test_genesis(version: u32, epoch: Epoch) {
+        let mut spec = ChainSpec::foundation();
+
+        spec.genesis_fork_version = version;
+        spec.genesis_epoch = epoch;
+
+        let fork = Fork::genesis(&spec);
+
+        assert_eq!(fork.epoch, spec.genesis_epoch, "epoch incorrect");
+        assert_eq!(
+            fork.previous_version, fork.current_version,
+            "previous and current are not identical"
+        );
+        assert_eq!(
+            fork.current_version,
+            version.to_le_bytes(),
+            "current version incorrect"
+        );
+    }
+
+    #[test]
+    fn genesis() {
+        test_genesis(0, Epoch::new(0));
+        test_genesis(9, Epoch::new(11));
+        test_genesis(2_u32.pow(31), Epoch::new(2_u64.pow(63)));
+        test_genesis(u32::max_value(), Epoch::max_value());
+    }
+
+    #[test]
+    fn get_fork_version() {
+        let previous_version = [1; 4];
+        let current_version = [2; 4];
+        let epoch = Epoch::new(10);
+
+        let fork = Fork {
+            previous_version,
+            current_version,
+            epoch,
+        };
+
+        assert_eq!(fork.get_fork_version(epoch - 1), previous_version);
+        assert_eq!(fork.get_fork_version(epoch), current_version);
+        assert_eq!(fork.get_fork_version(epoch + 1), current_version);
+    }
 }

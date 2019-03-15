@@ -1,4 +1,4 @@
-use crate::{Address, Epoch, Fork, Hash256, Slot};
+use crate::*;
 use bls::Signature;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::Deserialize;
@@ -127,7 +127,7 @@ impl ChainSpec {
 
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = match domain {
             Domain::Deposit => self.domain_deposit,
@@ -138,9 +138,11 @@ impl ChainSpec {
             Domain::Transfer => self.domain_transfer,
         };
 
+        let mut bytes: Vec<u8> = fork.get_fork_version(epoch).to_vec();
+        bytes.append(&mut int_to_bytes4(domain_constant));
+
         let mut fork_and_domain = [0; 8];
-        fork_and_domain.copy_from_slice(&fork.get_fork_version(epoch));
-        fork_and_domain.copy_from_slice(&int_to_bytes4(domain_constant));
+        fork_and_domain.copy_from_slice(&bytes);
 
         u64::from_le_bytes(fork_and_domain)
     }
@@ -269,9 +271,34 @@ impl Default for ChainSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use int_to_bytes::int_to_bytes8;
 
     #[test]
     fn test_foundation_spec_can_be_constructed() {
         let _ = ChainSpec::foundation();
+    }
+
+    fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
+        let fork = Fork::genesis(&spec);
+        let epoch = Epoch::new(0);
+
+        let domain = spec.get_domain(epoch, domain_type, &fork);
+
+        let mut expected = fork.get_fork_version(epoch).to_vec();
+        expected.append(&mut int_to_bytes4(raw_domain));
+
+        assert_eq!(int_to_bytes8(domain), expected);
+    }
+
+    #[test]
+    fn test_get_domain() {
+        let spec = ChainSpec::foundation();
+
+        test_domain(Domain::Deposit, spec.domain_deposit, &spec);
+        test_domain(Domain::Attestation, spec.domain_attestation, &spec);
+        test_domain(Domain::Proposal, spec.domain_proposal, &spec);
+        test_domain(Domain::Exit, spec.domain_exit, &spec);
+        test_domain(Domain::Randao, spec.domain_randao, &spec);
+        test_domain(Domain::Transfer, spec.domain_transfer, &spec);
     }
 }
