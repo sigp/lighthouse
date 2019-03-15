@@ -9,7 +9,7 @@ use test_random_derive::TestRandom;
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug,
     PartialEq,
@@ -31,25 +31,23 @@ pub struct DepositInput {
 impl DepositInput {
     /// Generate the 'proof_of_posession' signature for a given DepositInput details.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn create_proof_of_possession(
-        keypair: &Keypair,
-        withdrawal_credentials: &Hash256,
-        domain: u64,
+        &self,
+        secret_key: &SecretKey,
+        epoch: Epoch,
+        fork: &Fork,
+        spec: &ChainSpec,
     ) -> Signature {
-        let signable_deposit_input = DepositInput {
-            pubkey: keypair.pk.clone(),
-            withdrawal_credentials: withdrawal_credentials.clone(),
-            proof_of_possession: Signature::empty_signature(),
-        };
-        let msg = signable_deposit_input.signed_root();
+        let msg = self.signed_root();
+        let domain = spec.get_domain(epoch, Domain::Deposit, fork);
 
-        Signature::new(msg.as_slice(), domain, &keypair.sk)
+        Signature::new(msg.as_slice(), domain, secret_key)
     }
 
     /// Verify that proof-of-possession is valid.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn validate_proof_of_possession(
         &self,
         epoch: Epoch,
@@ -68,4 +66,23 @@ mod tests {
     use super::*;
 
     ssz_tests!(DepositInput);
+
+    #[test]
+    fn can_create_and_validate() {
+        let spec = ChainSpec::foundation();
+        let fork = Fork::genesis(&spec);
+        let keypair = Keypair::random();
+        let epoch = Epoch::new(0);
+
+        let mut deposit_input = DepositInput {
+            pubkey: keypair.pk.clone(),
+            withdrawal_credentials: Hash256::zero(),
+            proof_of_possession: Signature::empty_signature(),
+        };
+
+        deposit_input.proof_of_possession =
+            deposit_input.create_proof_of_possession(&keypair.sk, epoch, &fork, &spec);
+
+        assert!(deposit_input.validate_proof_of_possession(epoch, &fork, &spec));
+    }
 }
