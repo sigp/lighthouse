@@ -7,7 +7,7 @@ use test_random_derive::TestRandom;
 
 /// Specifies the block hash for a shard at an epoch.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug,
     Clone,
