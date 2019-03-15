@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Slot};
+use crate::*;
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
@@ -31,14 +31,14 @@ pub struct BeaconBlock {
 }
 
 impl BeaconBlock {
-    /// The first block of the Beacon Chain.
+    /// Returns an empty block to be used during genesis.
     ///
     /// Spec v0.5.0
-    pub fn genesis(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
+    pub fn empty(spec: &ChainSpec) -> BeaconBlock {
         BeaconBlock {
             slot: spec.genesis_slot,
             previous_block_root: spec.zero_hash,
-            state_root,
+            state_root: spec.zero_hash,
             body: BeaconBlockBody {
                 randao_reveal: spec.empty_signature.clone(),
                 eth1_data: Eth1Data {
@@ -61,6 +61,19 @@ impl BeaconBlock {
     /// Spec v0.5.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
+    }
+
+    /// Returns a "temporary" header, where the `state_root` is `spec.zero_hash`.
+    ///
+    /// Spec v0.5.0
+    pub fn into_temporary_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
+        BeaconBlockHeader {
+            slot: self.slot,
+            previous_block_root: self.previous_block_root,
+            state_root: spec.zero_hash,
+            block_body_root: Hash256::from_slice(&self.hash_tree_root()),
+            signature: self.signature,
+        }
     }
 }
 
