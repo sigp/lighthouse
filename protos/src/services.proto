@@ -23,11 +23,40 @@ service ValidatorService {
 	rpc ValidatorIndex(PublicKey) returns (IndexResponse);
 }
 
+service AttestationService {
+	rpc ProduceAttestationData (ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
+	rpc PublishAttestationData (PublishAttestationDataRequest) returns (PublishAttestationDataResponse);
+}
+
 message BeaconBlock {
 	uint64 slot = 1;
 	bytes block_root = 2;
 	bytes randao_reveal = 3;
 	bytes signature = 4;
+}
+
+message Crosslink {
+	uint64 epoch = 1;
+	bytes crosslink_data_root = 2;
+
+}
+
+message AttestationData {
+	uint64 slot = 1;
+	uint64 shard = 2;
+	bytes beacon_block_root = 3;
+	bytes epoch_boundary_root = 4;
+	bytes crosslink_data_root = 5;
+	Crosslink latest_crosslink = 6;
+	uint64 justified_epoch = 7;
+	bytes justified_block_root = 8;
+
+}
+
+message FreeAttestation {
+	AttestationData attestation_data = 1;
+	bytes signature = 2;
+	uint64 validator_index = 3;
 }
 
 // Validator requests an unsigned proposal.
@@ -49,6 +78,24 @@ message PublishBeaconBlockRequest {
 message PublishBeaconBlockResponse {
     bool success = 1;
     bytes msg = 2;
+}
+
+message ProduceAttestationDataRequest {
+	uint64 slot = 1;
+	uint64 shard = 2;
+}
+
+message ProduceAttestationDataResponse {
+	AttestationData attestation_data = 1;
+}
+
+message PublishAttestationDataRequest {
+	FreeAttestation free_attestation = 1;
+}
+
+message PublishAttestationDataResponse {
+	bool success = 1;
+	bytes msg = 2;
 }
 
 // A validators duties for some epoch.

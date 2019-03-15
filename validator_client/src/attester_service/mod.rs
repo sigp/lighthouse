@@ -1,7 +1,10 @@
+mod attestation_grpc_client;
 use attester::{Attester, BeaconNode, DutiesReader, PollOutcome as AttesterPollOutcome, Signer};
-use slog::Logger;
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::time::Duration;
+
+pub use self::attestation_grpc_client::AttestationGrpcClient;
 
 pub struct AttesterService<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
     pub attester: Attester<T, U, V, W>,
