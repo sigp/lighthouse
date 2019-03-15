@@ -2,7 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Proposal, Slot};
 use bls::Signature;
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz::{SignedRoot, TreeHash};
 use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
@@ -10,7 +10,18 @@ use test_random_derive::TestRandom;
 /// A block of the `BeaconChain`.
 ///
 /// Spec v0.4.0
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    SignedRoot,
+)]
 pub struct BeaconBlock {
     pub slot: Slot,
     pub parent_root: Hash256,

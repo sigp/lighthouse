@@ -1,6 +1,6 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfield, ChainSpec};
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz::TreeHash;
 use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
@@ -10,7 +10,18 @@ use test_random_derive::TestRandom;
 /// To be included in an `AttesterSlashing`.
 ///
 /// Spec v0.4.0
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    SignedRoot,
+)]
 pub struct SlashableAttestation {
     /// Lists validator registry indices, not committee indices.
     pub validator_indices: Vec<u64>,

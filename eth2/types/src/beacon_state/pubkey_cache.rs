@@ -1,22 +1,15 @@
 use crate::*;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 type ValidatorIndex = usize;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize)]
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
 pub struct PubkeyCache {
     map: HashMap<PublicKey, ValidatorIndex>,
 }
 
 impl PubkeyCache {
-    /// Instantiates a new, empty cache.
-    pub fn empty() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
-    }
-
     /// Returns the number of validator indices already in the map.
     pub fn len(&self) -> ValidatorIndex {
         self.map.len()

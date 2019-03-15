@@ -1,8 +1,8 @@
 use super::{AttestationDuty, BeaconState, CrosslinkCommittees, Error};
 use crate::{ChainSpec, Epoch};
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct EpochCache {
     /// True if this cache has been initialized.
     pub initialized: bool,
@@ -15,16 +15,6 @@ pub struct EpochCache {
 }
 
 impl EpochCache {
-    /// Return a new, completely empty cache.
-    pub fn empty() -> EpochCache {
-        EpochCache {
-            initialized: false,
-            committees: vec![],
-            attestation_duties: vec![],
-            shard_committee_indices: vec![],
-        }
-    }
-
     /// Return a new, fully initialized cache.
     pub fn initialized(
         state: &BeaconState,

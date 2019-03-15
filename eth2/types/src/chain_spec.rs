@@ -1,5 +1,7 @@
 use crate::{Address, Epoch, Fork, Hash256, Slot};
 use bls::Signature;
+use int_to_bytes::int_to_bytes4;
+use serde_derive::Deserialize;
 
 const GWEI: u64 = 1_000_000_000;
 
@@ -15,7 +17,8 @@ pub enum Domain {
 /// Holds all the "constants" for a BeaconChain.
 ///
 /// Spec v0.4.0
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct ChainSpec {
     /*
      * Misc
@@ -45,7 +48,7 @@ pub struct ChainSpec {
     /*
      * Initial Values
      */
-    pub genesis_fork_version: u64,
+    pub genesis_fork_version: u32,
     pub genesis_slot: Slot,
     pub genesis_epoch: Epoch,
     pub genesis_start_shard: u64,
@@ -100,12 +103,12 @@ pub struct ChainSpec {
      *
      * Use `ChainSpec::get_domain(..)` to access these values.
      */
-    domain_deposit: u64,
-    domain_attestation: u64,
-    domain_proposal: u64,
-    domain_exit: u64,
-    domain_randao: u64,
-    domain_transfer: u64,
+    domain_deposit: u32,
+    domain_attestation: u32,
+    domain_proposal: u32,
+    domain_exit: u32,
+    domain_randao: u32,
+    domain_transfer: u32,
 }
 
 impl ChainSpec {
@@ -135,8 +138,11 @@ impl ChainSpec {
             Domain::Transfer => self.domain_transfer,
         };
 
-        let fork_version = fork.get_fork_version(epoch);
-        fork_version * u64::pow(2, 32) + domain_constant
+        let mut fork_and_domain = [0; 8];
+        fork_and_domain.copy_from_slice(&fork.get_fork_version(epoch));
+        fork_and_domain.copy_from_slice(&int_to_bytes4(domain_constant));
+
+        u64::from_le_bytes(fork_and_domain)
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -251,6 +257,12 @@ impl ChainSpec {
             slots_per_epoch,
             ..ChainSpec::foundation()
         }
+    }
+}
+
+impl Default for ChainSpec {
+    fn default() -> Self {
+        Self::foundation()
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{Crosslink, Epoch, Hash256, Slot};
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz::TreeHash;
 use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
@@ -15,6 +15,7 @@ use test_random_derive::TestRandom;
     PartialEq,
     Default,
     Serialize,
+    Deserialize,
     Hash,
     Encode,
     Decode,
