@@ -1,9 +1,9 @@
 use crate::test_utils::TestRandom;
-use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Slot};
+use crate::{BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Proposal, Slot};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::TreeHash;
+use ssz::{SignedRoot, TreeHash};
 use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
 
@@ -23,6 +23,8 @@ pub struct BeaconBlock {
 
 impl BeaconBlock {
     /// Produce the first block of the Beacon Chain.
+    ///
+    /// Spec v0.4.0
     pub fn genesis(state_root: Hash256, spec: &ChainSpec) -> BeaconBlock {
         BeaconBlock {
             slot: spec.genesis_slot,
@@ -33,7 +35,6 @@ impl BeaconBlock {
                 deposit_root: spec.zero_hash,
                 block_hash: spec.zero_hash,
             },
-            signature: spec.empty_signature.clone(),
             body: BeaconBlockBody {
                 proposer_slashings: vec![],
                 attester_slashings: vec![],
@@ -42,41 +43,33 @@ impl BeaconBlock {
                 voluntary_exits: vec![],
                 transfers: vec![],
             },
+            signature: spec.empty_signature.clone(),
         }
     }
 
     /// Returns the `hash_tree_root` of the block.
+    ///
+    /// Spec v0.4.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
+    }
+
+    /// Returns an unsigned proposal for block.
+    ///
+    /// Spec v0.4.0
+    pub fn proposal(&self, spec: &ChainSpec) -> Proposal {
+        Proposal {
+            slot: self.slot,
+            shard: spec.beacon_chain_shard_number,
+            block_root: Hash256::from_slice(&self.signed_root()),
+            signature: spec.empty_signature.clone(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable, TreeHash};
 
-    #[test]
-    pub fn test_ssz_round_trip() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = BeaconBlock::random_for_test(&mut rng);
-
-        let bytes = ssz_encode(&original);
-        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
-
-        assert_eq!(original, decoded);
-    }
-
-    #[test]
-    pub fn test_hash_tree_root_internal() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = BeaconBlock::random_for_test(&mut rng);
-
-        let result = original.hash_tree_root_internal();
-
-        assert_eq!(result.len(), 32);
-        // TODO: Add further tests
-        // https://github.com/sigp/lighthouse/issues/170
-    }
+    ssz_tests!(BeaconBlock);
 }

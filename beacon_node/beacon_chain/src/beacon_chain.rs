@@ -73,31 +73,18 @@ where
     F: ForkChoice,
 {
     /// Instantiate a new Beacon Chain, from genesis.
-    #[allow(clippy::too_many_arguments)] // Will be re-factored in the coming weeks.
-    pub fn genesis(
+    pub fn from_genesis(
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,
         slot_clock: U,
-        genesis_time: u64,
-        latest_eth1_data: Eth1Data,
-        initial_validator_deposits: Vec<Deposit>,
+        mut genesis_state: BeaconState,
+        genesis_block: BeaconBlock,
         spec: ChainSpec,
         fork_choice: F,
     ) -> Result<Self, Error> {
-        if initial_validator_deposits.is_empty() {
-            return Err(Error::InsufficientValidators);
-        }
-
-        let mut genesis_state = BeaconState::genesis(
-            genesis_time,
-            initial_validator_deposits,
-            latest_eth1_data,
-            &spec,
-        )?;
         let state_root = genesis_state.canonical_root();
         state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
 
-        let genesis_block = BeaconBlock::genesis(state_root, &spec);
         let block_root = genesis_block.canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
