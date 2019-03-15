@@ -48,16 +48,8 @@ impl AggregateSignature {
         domain: u64,
         aggregate_public_keys: &[&AggregatePublicKey],
     ) -> bool {
-        // TODO: the API for `RawAggregatePublicKey` shoudn't need to take an owned
-        // `AggregatePublicKey`. There is an issue to fix this, but in the meantime we need to
-        // clone.
-        //
-        // https://github.com/sigp/signature-schemes/issues/10
-        let aggregate_public_keys: Vec<RawAggregatePublicKey> = aggregate_public_keys
-            .iter()
-            .map(|pk| pk.as_raw())
-            .cloned()
-            .collect();
+        let aggregate_public_keys: Vec<&RawAggregatePublicKey> =
+            aggregate_public_keys.iter().map(|pk| pk.as_raw()).collect();
 
         // Messages are concatenated into one long message.
         let mut msg: Vec<u8> = vec![];
@@ -95,7 +87,7 @@ impl Serialize for AggregateSignature {
 }
 
 impl TreeHash for AggregateSignature {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
+    fn hash_tree_root(&self) -> Vec<u8> {
         hash(&self.0.as_bytes())
     }
 }

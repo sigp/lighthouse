@@ -3,12 +3,18 @@ use hashing::hash;
 use merkle_proof::verify_merkle_proof;
 use ssz::ssz_encode;
 use ssz_derive::Encode;
+use std::collections::HashMap;
 use types::*;
+
+pub type PublicKeyValidatorIndexHashmap = HashMap<PublicKey, u64>;
 
 /// Indicates if a `Deposit` is valid to be included in a block in the current epoch of the given
 /// state.
 ///
 /// Returns `Ok(())` if the `Deposit` is valid, otherwise indicates the reason for invalidity.
+///
+/// This function _does not_ check `state.deposit_index` so this function may be run in parallel.
+/// See the `verify_deposit_index` function for this.
 ///
 /// Note: this function is incomplete.
 ///
@@ -20,8 +26,15 @@ pub fn verify_deposit(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(
-        deposit.index == state.deposit_index,
-        Invalid::BadIndex(state.deposit_index, deposit.index)
+        deposit
+            .deposit_data
+            .deposit_input
+            .validate_proof_of_possession(
+                state.slot.epoch(spec.slots_per_epoch),
+                &state.fork,
+                spec
+            ),
+        Invalid::BadProofOfPossession
     );
 
     if verify_merkle_branch {
@@ -32,6 +45,50 @@ pub fn verify_deposit(
     }
 
     Ok(())
+}
+
+/// Verify that the `Deposit` index is correct.
+///
+/// Spec v0.4.0
+pub fn verify_deposit_index(state: &BeaconState, deposit: &Deposit) -> Result<(), Error> {
+    verify!(
+        deposit.index == state.deposit_index,
+        Invalid::BadIndex(state.deposit_index, deposit.index)
+    );
+
+    Ok(())
+}
+
+pub fn build_public_key_hashmap(state: &BeaconState) -> PublicKeyValidatorIndexHashmap {
+    let mut hashmap = HashMap::with_capacity(state.validator_registry.len());
+
+    for (i, validator) in state.validator_registry.iter().enumerate() {
+        hashmap.insert(validator.pubkey.clone(), i as u64);
+    }
+
+    hashmap
+}
+
+pub fn get_existing_validator_index(
+    state: &BeaconState,
+    deposit: &Deposit,
+    pubkey_map: &HashMap<PublicKey, u64>,
+) -> Result<Option<u64>, Error> {
+    let deposit_input = &deposit.deposit_data.deposit_input;
+
+    let validator_index = pubkey_map.get(&deposit_input.pubkey).and_then(|i| Some(*i));
+
+    match validator_index {
+        None => Ok(None),
+        Some(index) => {
+            verify!(
+                deposit_input.withdrawal_credentials
+                    == state.validator_registry[index as usize].withdrawal_credentials,
+                Invalid::BadWithdrawalCredentials
+            );
+            Ok(Some(index))
+        }
+    }
 }
 
 /// Verify that a deposit is included in the state's eth1 deposit root.

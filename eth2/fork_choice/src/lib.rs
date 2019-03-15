@@ -22,6 +22,7 @@ extern crate types;
 
 pub mod bitwise_lmd_ghost;
 pub mod longest_chain;
+pub mod optimized_lmd_ghost;
 pub mod slow_lmd_ghost;
 
 use db::stores::BeaconBlockAtSlotError;
@@ -30,6 +31,7 @@ use types::{BeaconBlock, ChainSpec, Hash256};
 
 pub use bitwise_lmd_ghost::BitwiseLMDGhost;
 pub use longest_chain::LongestChain;
+pub use optimized_lmd_ghost::OptimizedLMDGhost;
 pub use slow_lmd_ghost::SlowLMDGhost;
 
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
@@ -101,4 +103,6 @@ pub enum ForkChoiceAlgorithm {
     SlowLMDGhost,
     /// An optimised version of bitwise LMD-GHOST by Vitalik.
     BitwiseLMDGhost,
+    /// An optimised implementation of LMD ghost.
+    OptimizedLMDGhost,
 }
