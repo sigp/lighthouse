@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
-use bls::{Keypair, PublicKey, Signature};
+use bls::{PublicKey, Signature};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{SignedRoot, TreeHash};
