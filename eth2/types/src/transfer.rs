@@ -23,8 +23,8 @@ use test_random_derive::TestRandom;
     SignedRoot,
 )]
 pub struct Transfer {
-    pub from: u64,
-    pub to: u64,
+    pub sender: u64,
+    pub recipient: u64,
     pub amount: u64,
     pub fee: u64,
     pub slot: Slot,
