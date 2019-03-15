@@ -8,7 +8,7 @@ use test_random_derive::TestRandom;
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug,
     Clone,

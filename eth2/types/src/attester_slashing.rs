@@ -6,7 +6,7 @@ use test_random_derive::TestRandom;
 
 /// Two conflicting attestations.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct AttesterSlashing {
     pub slashable_attestation_1: SlashableAttestation,
