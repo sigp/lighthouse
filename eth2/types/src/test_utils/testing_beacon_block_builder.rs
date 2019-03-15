@@ -32,8 +32,7 @@ impl TestingBeaconBlockBuilder {
     ///
     /// Modifying the block after signing may invalidate the signature.
     pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
-        let proposal = self.block.proposal(spec);
-        let message = proposal.signed_root();
+        let message = self.block.signed_root();
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
         let domain = spec.get_domain(epoch, Domain::Proposal, fork);
         self.block.signature = Signature::new(&message, domain, sk);
@@ -46,7 +45,7 @@ impl TestingBeaconBlockBuilder {
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
         let message = epoch.hash_tree_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
-        self.block.randao_reveal = Signature::new(&message, domain, sk);
+        self.block.body.randao_reveal = Signature::new(&message, domain, sk);
     }
 
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
