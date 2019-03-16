@@ -19,7 +19,7 @@ impl TestingBeaconBlockBuilder {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
         Self {
-            block: BeaconBlock::genesis(spec.zero_hash, spec),
+            block: BeaconBlock::empty(spec),
         }
     }
 
@@ -34,7 +34,7 @@ impl TestingBeaconBlockBuilder {
     pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.block.signed_root();
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
-        let domain = spec.get_domain(epoch, Domain::Proposal, fork);
+        let domain = spec.get_domain(epoch, Domain::BeaconBlock, fork);
         self.block.signature = Signature::new(&message, domain, sk);
     }
 

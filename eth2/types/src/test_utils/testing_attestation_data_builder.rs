@@ -20,7 +20,7 @@ impl TestingAttestationDataBuilder {
         let source_epoch = if is_previous_epoch {
             state.previous_justified_epoch
         } else {
-            state.justified_epoch
+            state.current_justified_epoch
         };
 
         let target_root = if is_previous_epoch {
