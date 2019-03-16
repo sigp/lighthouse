@@ -23,7 +23,6 @@ pub mod free_attestation;
 pub mod historical_batch;
 pub mod pending_attestation;
 pub mod proposer_slashing;
-pub mod shard_reassignment_record;
 pub mod slashable_attestation;
 pub mod transfer;
 pub mod voluntary_exit;
