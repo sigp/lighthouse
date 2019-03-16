@@ -190,7 +190,7 @@ impl TestingBeaconStateBuilder {
         state.current_shuffling_seed = Hash256::from_low_u64_le(1);
 
         state.previous_justified_epoch = epoch - 3;
-        state.justified_epoch = epoch - 2;
+        state.current_justified_epoch = epoch - 2;
         state.justification_bitfield = u64::max_value();
 
         state.finalized_epoch = epoch - 3;
@@ -232,8 +232,13 @@ impl TestingBeaconStateBuilder {
                 // The entire committee should have signed the pending attestation.
                 let signers = vec![true; committee.len()];
                 builder.add_committee_participation(signers);
+                let attestation = builder.build();
 
-                state.latest_attestations.push(builder.build())
+                if attestation.data.slot.epoch(spec.slots_per_epoch) < state.current_epoch(spec) {
+                    state.previous_epoch_attestations.push(attestation)
+                } else {
+                    state.current_epoch_attestations.push(attestation)
+                }
             }
         }
     }
