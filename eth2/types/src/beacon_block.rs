@@ -72,7 +72,7 @@ impl BeaconBlock {
             previous_block_root: self.previous_block_root,
             state_root: spec.zero_hash,
             block_body_root: Hash256::from_slice(&self.hash_tree_root()),
-            signature: self.signature,
+            signature: self.signature.clone(),
         }
     }
 }
