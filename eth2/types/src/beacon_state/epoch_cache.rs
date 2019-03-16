@@ -1,69 +1,283 @@
-use super::{AttestationDuty, BeaconState, CrosslinkCommittees, Error};
-use crate::{ChainSpec, Epoch};
+use super::{BeaconState, Error};
+use crate::*;
+use honey_badger_split::SplitExt;
 use serde_derive::{Deserialize, Serialize};
+use swap_or_not_shuffle::shuffle_list;
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct EpochCache {
-    /// True if this cache has been initialized.
-    pub initialized: bool,
-    /// The crosslink committees for an epoch.
-    pub committees: Vec<CrosslinkCommittees>,
+    /// `Some(epoch)` if the cache is initialized, where `epoch` is the cache it holds.
+    pub initialized_epoch: Option<Epoch>,
+    /// All crosslink committees for an epoch.
+    pub epoch_crosslink_committees: EpochCrosslinkCommittees,
     /// Maps validator index to a slot, shard and committee index for attestation.
     pub attestation_duties: Vec<Option<AttestationDuty>>,
     /// Maps a shard to an index of `self.committees`.
-    pub shard_committee_indices: Vec<(usize, usize)>,
+    pub shard_committee_indices: Vec<(Slot, usize)>,
 }
 
 impl EpochCache {
     /// Return a new, fully initialized cache.
     pub fn initialized(
         state: &BeaconState,
-        epoch: Epoch,
+        relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<EpochCache, Error> {
-        let mut epoch_committees: Vec<CrosslinkCommittees> =
-            Vec::with_capacity(spec.slots_per_epoch as usize);
+        let epoch = relative_epoch.into_epoch(state.slot.epoch(spec.slots_per_epoch));
 
+        let active_validator_indices =
+            get_active_validator_indices(&state.validator_registry, epoch);
+
+        let builder = match relative_epoch {
+            RelativeEpoch::Previous => EpochCrosslinkCommitteesBuilder::for_previous_epoch(
+                state,
+                active_validator_indices,
+                spec,
+            ),
+            RelativeEpoch::Current => EpochCrosslinkCommitteesBuilder::for_current_epoch(
+                state,
+                active_validator_indices,
+                spec,
+            ),
+            RelativeEpoch::NextWithRegistryChange => {
+                EpochCrosslinkCommitteesBuilder::for_next_epoch(
+                    state,
+                    active_validator_indices,
+                    true,
+                    spec,
+                )?
+            }
+            RelativeEpoch::NextWithoutRegistryChange => {
+                EpochCrosslinkCommitteesBuilder::for_next_epoch(
+                    state,
+                    active_validator_indices,
+                    false,
+                    spec,
+                )?
+            }
+        };
+        let epoch_crosslink_committees = builder.build(spec)?;
+
+        // Loop through all the validators in the committees and create the following maps:
+        //
+        // 1. `attestation_duties`: maps `ValidatorIndex` to `AttestationDuty`.
+        // 2. `shard_committee_indices`: maps `Shard` into a `CrosslinkCommittee` in
+        //    `EpochCrosslinkCommittees`.
         let mut attestation_duties = vec![None; state.validator_registry.len()];
+        let mut shard_committee_indices = vec![(Slot::default(), 0); spec.shard_count as usize];
+        for (i, slot_committees) in epoch_crosslink_committees
+            .crosslink_committees
+            .iter()
+            .enumerate()
+        {
+            let slot = epoch.start_slot(spec.slots_per_epoch) + i as u64;
 
-        let mut shard_committee_indices = vec![(0, 0); spec.shard_count as usize];
+            for (j, crosslink_committee) in slot_committees.iter().enumerate() {
+                let shard = crosslink_committee.shard;
 
-        let mut shuffling =
-            state.get_shuffling_for_slot(epoch.start_slot(spec.slots_per_epoch), false, spec)?;
+                shard_committee_indices[shard as usize] = (slot, j);
 
-        for (epoch_committees_index, slot) in epoch.slot_iter(spec.slots_per_epoch).enumerate() {
-            let mut slot_committees: Vec<(Vec<usize>, u64)> = vec![];
-
-            let shards = state.get_shards_for_slot(slot, false, spec)?;
-            for shard in shards {
-                let committee = shuffling.remove(0);
-                slot_committees.push((committee, shard));
-            }
-
-            for (slot_committees_index, (committee, shard)) in slot_committees.iter().enumerate() {
-                if committee.is_empty() {
-                    return Err(Error::InsufficientValidators);
-                }
-
-                // Store the slot and committee index for this shard.
-                shard_committee_indices[*shard as usize] =
-                    (epoch_committees_index, slot_committees_index);
-
-                // For each validator, store their attestation duties.
-                for (committee_index, validator_index) in committee.iter().enumerate() {
-                    attestation_duties[*validator_index] =
-                        Some((slot, *shard, committee_index as u64))
+                for (k, validator_index) in crosslink_committee.committee.iter().enumerate() {
+                    let attestation_duty = AttestationDuty {
+                        slot,
+                        shard,
+                        committee_index: k,
+                    };
+                    attestation_duties[*validator_index] = Some(attestation_duty)
                 }
             }
-
-            epoch_committees.push(slot_committees)
         }
 
         Ok(EpochCache {
-            initialized: true,
-            committees: epoch_committees,
+            initialized_epoch: Some(epoch),
+            epoch_crosslink_committees,
             attestation_duties,
             shard_committee_indices,
         })
+    }
+
+    pub fn get_crosslink_committees_at_slot(
+        &self,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Option<&Vec<CrosslinkCommittee>> {
+        self.epoch_crosslink_committees
+            .get_crosslink_committees_at_slot(slot, spec)
+    }
+
+    pub fn get_crosslink_committee_for_shard(
+        &self,
+        shard: Shard,
+        spec: &ChainSpec,
+    ) -> Option<&CrosslinkCommittee> {
+        let (slot, committee) = self.shard_committee_indices.get(shard as usize)?;
+        let slot_committees = self.get_crosslink_committees_at_slot(*slot, spec)?;
+        slot_committees.get(*committee)
+    }
+}
+
+pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
+    let mut active = Vec::with_capacity(validators.len());
+
+    for (index, validator) in validators.iter().enumerate() {
+        if validator.is_active_at(epoch) {
+            active.push(index)
+        }
+    }
+
+    active.shrink_to_fit();
+
+    active
+}
+
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+pub struct EpochCrosslinkCommittees {
+    epoch: Epoch,
+    pub crosslink_committees: Vec<Vec<CrosslinkCommittee>>,
+}
+
+impl EpochCrosslinkCommittees {
+    fn new(epoch: Epoch, spec: &ChainSpec) -> Self {
+        Self {
+            epoch,
+            crosslink_committees: vec![vec![]; spec.slots_per_epoch as usize],
+        }
+    }
+
+    fn get_crosslink_committees_at_slot(
+        &self,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Option<&Vec<CrosslinkCommittee>> {
+        let epoch_start_slot = self.epoch.start_slot(spec.slots_per_epoch);
+        let epoch_end_slot = self.epoch.end_slot(spec.slots_per_epoch);
+
+        if (epoch_start_slot < slot) && (slot <= epoch_end_slot) {
+            let index = slot - epoch_start_slot;
+            self.crosslink_committees.get(index.as_usize())
+        } else {
+            None
+        }
+    }
+}
+
+pub struct EpochCrosslinkCommitteesBuilder {
+    epoch: Epoch,
+    shuffling_start_shard: Shard,
+    shuffling_seed: Hash256,
+    active_validator_indices: Vec<usize>,
+    committees_per_epoch: u64,
+}
+
+impl EpochCrosslinkCommitteesBuilder {
+    pub fn for_previous_epoch(
+        state: &BeaconState,
+        active_validator_indices: Vec<usize>,
+        spec: &ChainSpec,
+    ) -> Self {
+        Self {
+            epoch: state.previous_epoch(spec),
+            shuffling_start_shard: state.previous_shuffling_start_shard,
+            shuffling_seed: state.previous_shuffling_seed,
+            committees_per_epoch: spec.get_epoch_committee_count(active_validator_indices.len()),
+            active_validator_indices,
+        }
+    }
+
+    pub fn for_current_epoch(
+        state: &BeaconState,
+        active_validator_indices: Vec<usize>,
+        spec: &ChainSpec,
+    ) -> Self {
+        Self {
+            epoch: state.current_epoch(spec),
+            shuffling_start_shard: state.current_shuffling_start_shard,
+            shuffling_seed: state.current_shuffling_seed,
+            committees_per_epoch: spec.get_epoch_committee_count(active_validator_indices.len()),
+            active_validator_indices,
+        }
+    }
+
+    pub fn for_next_epoch(
+        state: &BeaconState,
+        active_validator_indices: Vec<usize>,
+        registry_change: bool,
+        spec: &ChainSpec,
+    ) -> Result<Self, BeaconStateError> {
+        let current_epoch = state.current_epoch(spec);
+        let next_epoch = state.next_epoch(spec);
+        let committees_per_epoch = spec.get_epoch_committee_count(active_validator_indices.len());
+
+        let epochs_since_last_registry_update =
+            current_epoch - state.validator_registry_update_epoch;
+
+        let (seed, shuffling_start_shard) = if registry_change {
+            let next_seed = state.generate_seed(next_epoch, spec)?;
+            (
+                next_seed,
+                (state.current_shuffling_start_shard + committees_per_epoch) % spec.shard_count,
+            )
+        } else if (epochs_since_last_registry_update > 1)
+            & epochs_since_last_registry_update.is_power_of_two()
+        {
+            let next_seed = state.generate_seed(next_epoch, spec)?;
+            (next_seed, state.current_shuffling_start_shard)
+        } else {
+            (
+                state.current_shuffling_seed,
+                state.current_shuffling_start_shard,
+            )
+        };
+
+        Ok(Self {
+            epoch: state.next_epoch(spec),
+            shuffling_start_shard,
+            shuffling_seed: seed,
+            active_validator_indices,
+            committees_per_epoch,
+        })
+    }
+
+    pub fn build(self, spec: &ChainSpec) -> Result<EpochCrosslinkCommittees, BeaconStateError> {
+        if self.active_validator_indices.is_empty() {
+            return Err(Error::InsufficientValidators);
+        }
+
+        let shuffled_active_validator_indices = shuffle_list(
+            self.active_validator_indices,
+            spec.shuffle_round_count,
+            &self.shuffling_seed[..],
+            true,
+        )
+        .ok_or_else(|| Error::UnableToShuffle)?;
+
+        let mut committees: Vec<Vec<usize>> = shuffled_active_validator_indices
+            .honey_badger_split(self.committees_per_epoch as usize)
+            .map(|slice: &[usize]| slice.to_vec())
+            .collect();
+
+        let mut epoch_crosslink_committees = EpochCrosslinkCommittees::new(self.epoch, spec);
+        let mut shard = self.shuffling_start_shard;
+
+        let committees_per_slot = (self.committees_per_epoch / spec.slots_per_epoch) as usize;
+
+        for i in 0..spec.slots_per_epoch as usize {
+            for j in (0..committees.len())
+                .into_iter()
+                .skip(i * committees_per_slot)
+                .take(committees_per_slot)
+            {
+                let crosslink_committee = CrosslinkCommittee {
+                    shard,
+                    committee: committees.remove(j),
+                };
+                epoch_crosslink_committees.crosslink_committees[i].push(crosslink_committee);
+
+                shard += 1;
+                shard %= spec.shard_count;
+            }
+        }
+
+        Ok(epoch_crosslink_committees)
     }
 }
