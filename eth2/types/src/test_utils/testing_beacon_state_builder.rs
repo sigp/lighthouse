@@ -159,7 +159,8 @@ impl TestingBeaconStateBuilder {
 
         state.build_epoch_cache(RelativeEpoch::Previous, &spec)?;
         state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
-        state.build_epoch_cache(RelativeEpoch::Next, &spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)?;
 
         state.update_pubkey_cache()?;
 
@@ -222,15 +223,21 @@ impl TestingBeaconStateBuilder {
         for slot in first_slot..last_slot + 1 {
             let slot = Slot::from(slot);
 
+            let relative_epoch = RelativeEpoch::from_slot(state.slot, slot, spec).unwrap();
             let committees = state
-                .get_crosslink_committees_at_slot(slot, spec)
+                .get_crosslink_committees_at_slot(slot, relative_epoch, spec)
                 .unwrap()
                 .clone();
 
-            for (committee, shard) in committees {
-                let mut builder = TestingPendingAttestationBuilder::new(state, shard, slot, spec);
+            for crosslink_committee in committees {
+                let mut builder = TestingPendingAttestationBuilder::new(
+                    state,
+                    crosslink_committee.shard,
+                    slot,
+                    spec,
+                );
                 // The entire committee should have signed the pending attestation.
-                let signers = vec![true; committee.len()];
+                let signers = vec![true; crosslink_committee.committee.len()];
                 builder.add_committee_participation(signers);
                 let attestation = builder.build();
 

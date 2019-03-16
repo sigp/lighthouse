@@ -1,17 +1,14 @@
 use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{validator_registry::get_active_validator_indices, *};
-use helpers::*;
-use honey_badger_split::SplitExt;
 use int_to_bytes::int_to_bytes32;
-use log::{debug, error, trace};
+use log::{debug, trace};
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{hash, SignedRoot};
+use ssz::{hash, SignedRoot, TreeHash};
 use ssz_derive::{Decode, Encode, TreeHash};
 use std::collections::HashMap;
-use swap_or_not_shuffle::shuffle_list;
 use test_random_derive::TestRandom;
 
 pub use builder::BeaconStateBuilder;
@@ -22,22 +19,7 @@ pub mod helpers;
 mod pubkey_cache;
 mod tests;
 
-pub type Committee = Vec<usize>;
-pub type CrosslinkCommittees = Vec<(Committee, u64)>;
-pub type Shard = u64;
-pub type CommitteeIndex = u64;
-pub type AttestationDuty = (Slot, Shard, CommitteeIndex);
-pub type AttestationDutyMap = HashMap<u64, AttestationDuty>;
-pub type ShardCommitteeIndexMap = HashMap<Shard, (usize, usize)>;
-
-pub const CACHED_EPOCHS: usize = 3;
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum RelativeEpoch {
-    Previous,
-    Current,
-    Next,
-}
+pub const CACHED_EPOCHS: usize = 4;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -61,6 +43,7 @@ pub enum Error {
         cache_len: usize,
         registry_len: usize,
     },
+    RelativeEpochError(RelativeEpochError),
 }
 
 macro_rules! safe_add_assign {
@@ -212,12 +195,11 @@ impl BeaconState {
                 EpochCache::default(),
                 EpochCache::default(),
                 EpochCache::default(),
+                EpochCache::default(),
             ],
             pubkey_cache: PubkeyCache::default(),
         }
     }
-
-    /*
 
     /// Returns the `hash_tree_root` of the state.
     ///
@@ -225,8 +207,6 @@ impl BeaconState {
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
-
-    */
 
     /// Build an epoch cache, unless it is has already been built.
     pub fn build_epoch_cache(
@@ -236,7 +216,8 @@ impl BeaconState {
     ) -> Result<(), Error> {
         let cache_index = self.cache_index(relative_epoch);
 
-        if self.caches[cache_index].initialized {
+        if self.caches[cache_index].initialized_epoch == Some(self.slot.epoch(spec.slots_per_epoch))
+        {
             Ok(())
         } else {
             self.force_build_epoch_cache(relative_epoch, spec)
@@ -249,34 +230,11 @@ impl BeaconState {
         relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let epoch = self.absolute_epoch(relative_epoch, spec);
         let cache_index = self.cache_index(relative_epoch);
 
-        self.caches[cache_index] = EpochCache::initialized(&self, epoch, spec)?;
+        self.caches[cache_index] = EpochCache::initialized(&self, relative_epoch, spec)?;
 
         Ok(())
-    }
-
-    /// Converts a `RelativeEpoch` into an `Epoch` with respect to the epoch of this state.
-    fn absolute_epoch(&self, relative_epoch: RelativeEpoch, spec: &ChainSpec) -> Epoch {
-        match relative_epoch {
-            RelativeEpoch::Previous => self.previous_epoch(spec),
-            RelativeEpoch::Current => self.current_epoch(spec),
-            RelativeEpoch::Next => self.next_epoch(spec),
-        }
-    }
-
-    /// Converts an `Epoch` into a `RelativeEpoch` with respect to the epoch of this state.
-    ///
-    /// Returns an error if the given `epoch` not "previous", "current" or "next" compared to the
-    /// epoch of this tate.
-    fn relative_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Result<RelativeEpoch, Error> {
-        match epoch {
-            e if e == self.current_epoch(spec) => Ok(RelativeEpoch::Current),
-            e if e == self.previous_epoch(spec) => Ok(RelativeEpoch::Previous),
-            e if e == self.next_epoch(spec) => Ok(RelativeEpoch::Next),
-            _ => Err(Error::EpochOutOfBounds),
-        }
     }
 
     /// Advances the cache for this state into the next epoch.
@@ -305,9 +263,10 @@ impl BeaconState {
     /// Returns the index of `self.caches` for some `RelativeEpoch`.
     fn cache_index(&self, relative_epoch: RelativeEpoch) -> usize {
         let base_index = match relative_epoch {
-            RelativeEpoch::Current => 1,
             RelativeEpoch::Previous => 0,
-            RelativeEpoch::Next => 2,
+            RelativeEpoch::Current => 1,
+            RelativeEpoch::NextWithoutRegistryChange => 2,
+            RelativeEpoch::NextWithRegistryChange => 3,
         };
 
         (base_index + self.cache_index_offset) % CACHED_EPOCHS
@@ -315,10 +274,10 @@ impl BeaconState {
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
-    fn cache(&self, relative_epoch: RelativeEpoch) -> Result<&EpochCache, Error> {
+    fn cache(&self, relative_epoch: RelativeEpoch, spec: &ChainSpec) -> Result<&EpochCache, Error> {
         let cache = &self.caches[self.cache_index(relative_epoch)];
 
-        if cache.initialized {
+        if cache.initialized_epoch == Some(self.slot.epoch(spec.slots_per_epoch)) {
             Ok(cache)
         } else {
             Err(Error::EpochCacheUninitialized(relative_epoch))
@@ -367,7 +326,7 @@ impl BeaconState {
 
     /// The epoch corresponding to `self.slot`.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.slot.epoch(spec.slots_per_epoch)
     }
@@ -376,58 +335,16 @@ impl BeaconState {
     ///
     /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
-        let current_epoch = self.current_epoch(&spec);
-        std::cmp::max(current_epoch - 1, spec.genesis_epoch)
+        self.current_epoch(&spec) - 1
     }
 
     /// The epoch following `self.current_epoch()`.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.current_epoch(spec).saturating_add(1_u64)
-    }
-
-    /// The first slot of the epoch corresponding to `self.slot`.
-    ///
-    /// Spec v0.4.0
-    pub fn current_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
-        self.current_epoch(spec).start_slot(spec.slots_per_epoch)
-    }
-
-    /// The first slot of the epoch preceding the one corresponding to `self.slot`.
-    ///
-    /// Spec v0.4.0
-    pub fn previous_epoch_start_slot(&self, spec: &ChainSpec) -> Slot {
-        self.previous_epoch(spec).start_slot(spec.slots_per_epoch)
-    }
-
-    /// Return the number of committees in the previous epoch.
-    ///
-    /// Spec v0.4.0
-    fn get_previous_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
-        let previous_active_validators =
-            get_active_validator_indices(&self.validator_registry, self.previous_shuffling_epoch);
-        spec.get_epoch_committee_count(previous_active_validators.len())
-    }
-
-    /// Return the number of committees in the current epoch.
-    ///
-    /// Spec v0.4.0
-    pub fn get_current_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
-        let current_active_validators =
-            get_active_validator_indices(&self.validator_registry, self.current_shuffling_epoch);
-        spec.get_epoch_committee_count(current_active_validators.len())
-    }
-
-    /// Return the number of committees in the next epoch.
-    ///
-    /// Spec v0.4.0
-    pub fn get_next_epoch_committee_count(&self, spec: &ChainSpec) -> u64 {
-        let next_active_validators =
-            get_active_validator_indices(&self.validator_registry, self.next_epoch(spec));
-        spec.get_epoch_committee_count(next_active_validators.len())
+        self.current_epoch(spec) + 1
     }
 
     /// Returns the crosslink committees for some slot.
@@ -438,15 +355,14 @@ impl BeaconState {
     pub fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
+        relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
-    ) -> Result<&CrosslinkCommittees, Error> {
-        let epoch = slot.epoch(spec.slots_per_epoch);
-        let relative_epoch = self.relative_epoch(epoch, spec)?;
-        let cache = self.cache(relative_epoch)?;
+    ) -> Result<&Vec<CrosslinkCommittee>, Error> {
+        let cache = self.cache(relative_epoch, spec)?;
 
-        let slot_offset = slot - epoch.start_slot(spec.slots_per_epoch);
-
-        Ok(&cache.committees[slot_offset.as_usize()])
+        Ok(cache
+            .get_crosslink_committees_at_slot(slot, spec)
+            .ok_or_else(|| Error::SlotOutOfBounds)?)
     }
 
     /// Return the block root at a recent `slot`.
@@ -525,8 +441,13 @@ impl BeaconState {
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     ///
     /// Spec v0.4.0
-    pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
-        let committees = self.get_crosslink_committees_at_slot(slot, spec)?;
+    pub fn get_beacon_proposer_index(
+        &self,
+        slot: Slot,
+        relative_epoch: RelativeEpoch,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
+        let committees = self.get_crosslink_committees_at_slot(slot, relative_epoch, spec)?;
         trace!(
             "get_beacon_proposer_index: slot: {}, committees_count: {}",
             slot,
@@ -535,71 +456,28 @@ impl BeaconState {
         committees
             .first()
             .ok_or(Error::InsufficientValidators)
-            .and_then(|(first_committee, _)| {
+            .and_then(|first| {
                 let index = slot
                     .as_usize()
-                    .checked_rem(first_committee.len())
+                    .checked_rem(first.committee.len())
                     .ok_or(Error::InsufficientValidators)?;
-                Ok(first_committee[index])
+                Ok(first.committee[index])
             })
-    }
-
-    /// Returns the list of validator indices which participiated in the attestation.
-    ///
-    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.4.0
-    pub fn get_attestation_participants(
-        &self,
-        attestation_data: &AttestationData,
-        bitfield: &Bitfield,
-        spec: &ChainSpec,
-    ) -> Result<Vec<usize>, Error> {
-        let epoch = attestation_data.slot.epoch(spec.slots_per_epoch);
-        let relative_epoch = self.relative_epoch(epoch, spec)?;
-        let cache = self.cache(relative_epoch)?;
-
-        let (committee_slot_index, committee_index) = cache
-            .shard_committee_indices
-            .get(attestation_data.shard as usize)
-            .ok_or_else(|| Error::ShardOutOfBounds)?;
-        let (committee, shard) = &cache.committees[*committee_slot_index][*committee_index];
-
-        assert_eq!(*shard, attestation_data.shard, "Bad epoch cache build.");
-
-        if !verify_bitfield_length(&bitfield, committee.len()) {
-            return Err(Error::InvalidBitfield);
-        }
-
-        let mut participants = Vec::with_capacity(committee.len());
-        for (i, validator_index) in committee.iter().enumerate() {
-            match bitfield.get(i) {
-                Ok(bit) if bit == true => participants.push(*validator_index),
-                _ => {}
-            }
-        }
-        participants.shrink_to_fit();
-
-        Ok(participants)
     }
 
     /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
     ///
     /// Spec v0.4.0
-    pub fn get_effective_balance(&self, validator_index: usize, spec: &ChainSpec) -> u64 {
-        std::cmp::min(
-            self.validator_balances[validator_index],
-            spec.max_deposit_amount,
-        )
-    }
-
-    /// Return the combined effective balance of an array of validators.
-    ///
-    /// Spec v0.4.0
-    pub fn get_total_balance(&self, validator_indices: &[usize], spec: &ChainSpec) -> u64 {
-        validator_indices
-            .iter()
-            .fold(0, |acc, i| acc + self.get_effective_balance(*i, spec))
+    pub fn get_effective_balance(
+        &self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<u64, Error> {
+        let balance = self
+            .validator_balances
+            .get(validator_index)
+            .ok_or_else(|| Error::UnknownValidator)?;
+        Ok(std::cmp::min(*balance, spec.max_deposit_amount))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -767,11 +645,15 @@ impl BeaconState {
 
         self.exit_validator(validator_index, spec);
 
-        self.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length] +=
-            self.get_effective_balance(validator_index, spec);
+        let effective_balance = self.get_effective_balance(validator_index, spec)?;
 
-        let whistleblower_index = self.get_beacon_proposer_index(self.slot, spec)?;
-        let whistleblower_reward = self.get_effective_balance(validator_index, spec);
+        self.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length] +=
+            effective_balance;
+
+        let whistleblower_index =
+            self.get_beacon_proposer_index(self.slot, RelativeEpoch::Current, spec)?;
+
+        let whistleblower_reward = effective_balance;
         safe_add_assign!(
             self.validator_balances[whistleblower_index as usize],
             whistleblower_reward
@@ -801,166 +683,6 @@ impl BeaconState {
             self.current_epoch(spec) + spec.min_validator_withdrawability_delay;
     }
 
-    /// Returns the crosslink committees for some slot.
-    ///
-    /// Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.4.0
-    pub(crate) fn get_shuffling_for_slot(
-        &self,
-        slot: Slot,
-        registry_change: bool,
-        spec: &ChainSpec,
-    ) -> Result<Vec<Vec<usize>>, Error> {
-        let (_committees_per_epoch, seed, shuffling_epoch, _shuffling_start_shard) =
-            self.get_committee_params_at_slot(slot, registry_change, spec)?;
-
-        self.get_shuffling(seed, shuffling_epoch, spec)
-    }
-
-    /// Shuffle ``validators`` into crosslink committees seeded by ``seed`` and ``epoch``.
-    ///
-    /// Return a list of ``committees_per_epoch`` committees where each
-    /// committee is itself a list of validator indices.
-    ///
-    /// Spec v0.4.0
-    pub(crate) fn get_shuffling(
-        &self,
-        seed: Hash256,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<Vec<Vec<usize>>, Error> {
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, epoch);
-        if active_validator_indices.is_empty() {
-            error!("get_shuffling: no validators.");
-            return Err(Error::InsufficientValidators);
-        }
-
-        debug!("Shuffling {} validators...", active_validator_indices.len());
-
-        let committees_per_epoch = spec.get_epoch_committee_count(active_validator_indices.len());
-
-        trace!(
-            "get_shuffling: active_validator_indices.len() == {}, committees_per_epoch: {}",
-            active_validator_indices.len(),
-            committees_per_epoch
-        );
-
-        let active_validator_indices: Vec<usize> = active_validator_indices.to_vec();
-
-        let shuffled_active_validator_indices = shuffle_list(
-            active_validator_indices,
-            spec.shuffle_round_count,
-            &seed[..],
-            true,
-        )
-        .ok_or_else(|| Error::UnableToShuffle)?;
-
-        Ok(shuffled_active_validator_indices
-            .honey_badger_split(committees_per_epoch as usize)
-            .map(|slice: &[usize]| slice.to_vec())
-            .collect())
-    }
-
-    /// Returns the following params for the given slot:
-    ///
-    /// - epoch committee count
-    /// - epoch seed
-    /// - calculation epoch
-    /// - start shard
-    ///
-    /// In the spec, this functionality is included in the `get_crosslink_committees_at_slot(..)`
-    /// function. It is separated here to allow the division of shuffling and committee building,
-    /// as is required for efficient operations.
-    ///
-    /// Spec v0.4.0
-    pub(crate) fn get_committee_params_at_slot(
-        &self,
-        slot: Slot,
-        registry_change: bool,
-        spec: &ChainSpec,
-    ) -> Result<(u64, Hash256, Epoch, u64), Error> {
-        let epoch = slot.epoch(spec.slots_per_epoch);
-        let current_epoch = self.current_epoch(spec);
-        let previous_epoch = self.previous_epoch(spec);
-        let next_epoch = self.next_epoch(spec);
-
-        if epoch == current_epoch {
-            Ok((
-                self.get_current_epoch_committee_count(spec),
-                self.current_shuffling_seed,
-                self.current_shuffling_epoch,
-                self.current_shuffling_start_shard,
-            ))
-        } else if epoch == previous_epoch {
-            Ok((
-                self.get_previous_epoch_committee_count(spec),
-                self.previous_shuffling_seed,
-                self.previous_shuffling_epoch,
-                self.previous_shuffling_start_shard,
-            ))
-        } else if epoch == next_epoch {
-            let current_committees_per_epoch = self.get_current_epoch_committee_count(spec);
-            let epochs_since_last_registry_update =
-                current_epoch - self.validator_registry_update_epoch;
-            let (seed, shuffling_start_shard) = if registry_change {
-                let next_seed = self.generate_seed(next_epoch, spec)?;
-                (
-                    next_seed,
-                    (self.current_shuffling_start_shard + current_committees_per_epoch)
-                        % spec.shard_count,
-                )
-            } else if (epochs_since_last_registry_update > 1)
-                & epochs_since_last_registry_update.is_power_of_two()
-            {
-                let next_seed = self.generate_seed(next_epoch, spec)?;
-                (next_seed, self.current_shuffling_start_shard)
-            } else {
-                (
-                    self.current_shuffling_seed,
-                    self.current_shuffling_start_shard,
-                )
-            };
-            Ok((
-                self.get_next_epoch_committee_count(spec),
-                seed,
-                next_epoch,
-                shuffling_start_shard,
-            ))
-        } else {
-            Err(Error::EpochOutOfBounds)
-        }
-    }
-
-    /// Return the ordered list of shards tuples for the `slot`.
-    ///
-    /// Note: There are two possible shufflings for crosslink committees for a
-    /// `slot` in the next epoch: with and without a `registry_change`
-    ///
-    /// Spec v0.4.0
-    pub(crate) fn get_shards_for_slot(
-        &self,
-        slot: Slot,
-        registry_change: bool,
-        spec: &ChainSpec,
-    ) -> Result<Vec<u64>, Error> {
-        let (committees_per_epoch, _seed, _shuffling_epoch, shuffling_start_shard) =
-            self.get_committee_params_at_slot(slot, registry_change, spec)?;
-
-        let offset = slot.as_u64() % spec.slots_per_epoch;
-        let committees_per_slot = committees_per_epoch / spec.slots_per_epoch;
-        let slot_start_shard =
-            (shuffling_start_shard + committees_per_slot * offset) % spec.shard_count;
-
-        let mut shards_at_slot = vec![];
-        for i in 0..committees_per_slot {
-            shards_at_slot.push((slot_start_shard + i) % spec.shard_count)
-        }
-
-        Ok(shards_at_slot)
-    }
-
     /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
     /// attestation.
     ///
@@ -969,14 +691,14 @@ impl BeaconState {
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
     /// Spec v0.4.0
-    pub fn attestation_slot_and_shard_for_validator(
+    pub fn get_attestation_duties(
         &self,
         validator_index: usize,
-        _spec: &ChainSpec,
-    ) -> Result<Option<(Slot, u64, u64)>, Error> {
-        let cache = self.cache(RelativeEpoch::Current)?;
+        spec: &ChainSpec,
+    ) -> Result<&Option<AttestationDuty>, Error> {
+        let cache = self.cache(RelativeEpoch::Current, spec)?;
 
-        Ok(*cache
+        Ok(cache
             .attestation_duties
             .get(validator_index)
             .ok_or_else(|| Error::UnknownValidator)?)
@@ -985,11 +707,11 @@ impl BeaconState {
     /// Process the slashings.
     ///
     /// Spec v0.4.0
-    pub fn process_slashings(&mut self, spec: &ChainSpec) {
+    pub fn process_slashings(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, current_epoch);
-        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
+        let total_balance = self.get_total_balance(&active_validator_indices[..], spec)?;
 
         for (index, validator) in self.validator_registry.iter().enumerate() {
             if validator.slashed
@@ -1003,16 +725,19 @@ impl BeaconState {
                     [(epoch_index + 1) % spec.latest_slashed_exit_length];
                 let total_at_end = self.latest_slashed_balances[epoch_index];
                 let total_penalities = total_at_end.saturating_sub(total_at_start);
+
+                let effective_balance = self.get_effective_balance(index, spec)?;
                 let penalty = std::cmp::max(
-                    self.get_effective_balance(index, spec)
-                        * std::cmp::min(total_penalities * 3, total_balance)
+                    effective_balance * std::cmp::min(total_penalities * 3, total_balance)
                         / total_balance,
-                    self.get_effective_balance(index, spec) / spec.min_penalty_quotient,
+                    effective_balance / spec.min_penalty_quotient,
                 );
 
                 safe_sub_assign!(self.validator_balances[index], penalty);
             }
         }
+
+        Ok(())
     }
 
     /// Process the exit queue.
@@ -1047,11 +772,11 @@ impl BeaconState {
     /// Update validator registry, activating/exiting validators if possible.
     ///
     /// Spec v0.4.0
-    pub fn update_validator_registry(&mut self, spec: &ChainSpec) {
+    pub fn update_validator_registry(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         let current_epoch = self.current_epoch(spec);
         let active_validator_indices =
             get_active_validator_indices(&self.validator_registry, current_epoch);
-        let total_balance = self.get_total_balance(&active_validator_indices[..], spec);
+        let total_balance = self.get_total_balance(&active_validator_indices[..], spec)?;
 
         let max_balance_churn = std::cmp::max(
             spec.max_deposit_amount,
@@ -1065,7 +790,7 @@ impl BeaconState {
             if (validator.activation_epoch == spec.far_future_epoch)
                 & (self.validator_balances[index] == spec.max_deposit_amount)
             {
-                balance_churn += self.get_effective_balance(index, spec);
+                balance_churn += self.get_effective_balance(index, spec)?;
                 if balance_churn > max_balance_churn {
                     break;
                 }
@@ -1078,7 +803,7 @@ impl BeaconState {
             let validator = &self.validator_registry[index];
 
             if (validator.exit_epoch == spec.far_future_epoch) & (validator.initiated_exit) {
-                balance_churn += self.get_effective_balance(index, spec);
+                balance_churn += self.get_effective_balance(index, spec)?;
                 if balance_churn > max_balance_churn {
                     break;
                 }
@@ -1088,6 +813,8 @@ impl BeaconState {
         }
 
         self.validator_registry_update_epoch = current_epoch;
+
+        Ok(())
     }
 
     /// Iterate through the validator registry and eject active validators with balance below
@@ -1115,12 +842,13 @@ impl BeaconState {
         epochs_since_finality: Epoch,
         base_reward_quotient: u64,
         spec: &ChainSpec,
-    ) -> u64 {
-        let effective_balance = self.get_effective_balance(validator_index, spec);
-        self.base_reward(validator_index, base_reward_quotient, spec)
+    ) -> Result<u64, Error> {
+        let effective_balance = self.get_effective_balance(validator_index, spec)?;
+        let base_reward = self.base_reward(validator_index, base_reward_quotient, spec)?;
+        Ok(base_reward
             + effective_balance * epochs_since_finality.as_u64()
                 / spec.inactivity_penalty_quotient
-                / 2
+                / 2)
     }
 
     /// Returns the base reward for some validator.
@@ -1133,30 +861,27 @@ impl BeaconState {
         validator_index: usize,
         base_reward_quotient: u64,
         spec: &ChainSpec,
-    ) -> u64 {
-        self.get_effective_balance(validator_index, spec) / base_reward_quotient / 5
+    ) -> Result<u64, Error> {
+        Ok(self.get_effective_balance(validator_index, spec)? / base_reward_quotient / 5)
     }
 
-    /// Returns the union of all participants in the provided attestations
+    /// Return the combined effective balance of an array of validators.
     ///
     /// Spec v0.4.0
-    pub fn get_attestation_participants_union(
+    pub fn get_total_balance(
         &self,
-        attestations: &[&PendingAttestation],
+        validator_indices: &[usize],
         spec: &ChainSpec,
-    ) -> Result<Vec<usize>, Error> {
-        let mut all_participants = attestations
-            .iter()
-            .try_fold::<_, _, Result<Vec<usize>, Error>>(vec![], |mut acc, a| {
-                acc.append(&mut self.get_attestation_participants(
-                    &a.data,
-                    &a.aggregation_bitfield,
-                    spec,
-                )?);
-                Ok(acc)
-            })?;
-        all_participants.sort_unstable();
-        all_participants.dedup();
-        Ok(all_participants)
+    ) -> Result<u64, Error> {
+        validator_indices.iter().try_fold(0_u64, |acc, i| {
+            self.get_effective_balance(*i, spec)
+                .and_then(|bal| Ok(bal + acc))
+        })
+    }
+}
+
+impl From<RelativeEpochError> for Error {
+    fn from(e: RelativeEpochError) -> Error {
+        Error::RelativeEpochError(e)
     }
 }

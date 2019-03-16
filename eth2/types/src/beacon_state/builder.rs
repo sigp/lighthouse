@@ -43,12 +43,14 @@ impl BeaconStateBuilder {
         self.state.deposit_index = initial_validator_deposits.len() as u64;
     }
 
-    fn activate_genesis_validators(&mut self, spec: &ChainSpec) {
+    fn activate_genesis_validators(&mut self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
         for validator_index in 0..self.state.validator_registry.len() {
-            if self.state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount {
+            if self.state.get_effective_balance(validator_index, spec)? >= spec.max_deposit_amount {
                 self.state.activate_validator(validator_index, true, spec);
             }
         }
+
+        Ok(())
     }
 
     /// Instantiate the validator registry from a YAML file.
