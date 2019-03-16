@@ -1,6 +1,4 @@
-use crate::test_utils::TestRandom;
 use crate::*;
-use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -36,12 +34,5 @@ impl PubkeyCache {
     /// that an index is never skipped.
     pub fn get(&self, pubkey: &PublicKey) -> Option<ValidatorIndex> {
         self.map.get(pubkey).cloned()
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for PubkeyCache {
-    /// Test random should generate an empty cache.
-    fn random_for_test(rng: &mut T) -> Self {
-        Self::default()
     }
 }

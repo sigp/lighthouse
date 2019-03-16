@@ -8,7 +8,7 @@ use log::{debug, error, trace};
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{hash, Decodable, SignedRoot, TreeHash};
+use ssz::{hash, SignedRoot};
 use ssz_derive::{Decode, Encode, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::shuffle_list;
@@ -128,16 +128,19 @@ pub struct BeaconState {
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
+    #[test_random(default)]
     pub cache_index_offset: usize,
     #[serde(default)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
+    #[test_random(default)]
     pub caches: [EpochCache; CACHED_EPOCHS],
     #[serde(default)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
+    #[test_random(default)]
     pub pubkey_cache: PubkeyCache,
 }
 
