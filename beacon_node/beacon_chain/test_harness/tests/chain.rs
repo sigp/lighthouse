@@ -29,15 +29,16 @@ fn it_can_produce_past_first_epoch_boundary() {
 
     debug!("Harness built, tests starting..");
 
-    let blocks = harness.spec.epoch_length * 2 + 1;
+    let blocks = harness.spec.slots_per_epoch * 2 + 1;
 
     for i in 0..blocks {
         harness.advance_chain_with_block();
         debug!("Produced block {}/{}.", i + 1, blocks);
     }
+
+    harness.run_fork_choice();
+
     let dump = harness.chain_dump().expect("Chain dump failed.");
 
     assert_eq!(dump.len() as u64, blocks + 1); // + 1 for genesis block.
-
-    harness.dump_to_file("/tmp/chaindump.json".to_string(), &dump);
 }

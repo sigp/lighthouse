@@ -55,13 +55,13 @@ impl Encodable for bool {
 
 impl Encodable for H256 {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.to_vec());
+        s.append_encoded_raw(self.as_bytes());
     }
 }
 
 impl Encodable for Address {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.to_vec());
+        s.append_encoded_raw(self.as_bytes());
     }
 }
 

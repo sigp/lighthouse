@@ -1,48 +1,28 @@
-use super::{Attestation, AttesterSlashing, Deposit, Exit, ProposerSlashing};
+use super::{Attestation, AttesterSlashing, Deposit, ProposerSlashing, Transfer, VoluntaryExit};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode)]
+/// The body of a `BeaconChain` block, containing operations.
+///
+/// Spec v0.4.0
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlockBody {
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub attester_slashings: Vec<AttesterSlashing>,
     pub attestations: Vec<Attestation>,
     pub deposits: Vec<Deposit>,
-    pub exits: Vec<Exit>,
-}
-
-impl TreeHash for BeaconBlockBody {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.proposer_slashings.hash_tree_root_internal());
-        result.append(&mut self.attester_slashings.hash_tree_root_internal());
-        result.append(&mut self.attestations.hash_tree_root_internal());
-        result.append(&mut self.deposits.hash_tree_root_internal());
-        result.append(&mut self.exits.hash_tree_root_internal());
-        hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for BeaconBlockBody {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            proposer_slashings: <_>::random_for_test(rng),
-            attester_slashings: <_>::random_for_test(rng),
-            attestations: <_>::random_for_test(rng),
-            deposits: <_>::random_for_test(rng),
-            exits: <_>::random_for_test(rng),
-        }
-    }
+    pub voluntary_exits: Vec<VoluntaryExit>,
+    pub transfers: Vec<Transfer>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {

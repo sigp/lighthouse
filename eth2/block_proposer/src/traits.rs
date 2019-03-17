@@ -1,4 +1,4 @@
-use types::{BeaconBlock, Signature, Slot};
+use types::{BeaconBlock, Fork, Signature, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
@@ -40,10 +40,11 @@ pub enum DutiesReaderError {
 /// Informs a validator of their duties (e.g., block production).
 pub trait DutiesReader: Send + Sync {
     fn is_block_production_slot(&self, slot: Slot) -> Result<bool, DutiesReaderError>;
+    fn fork(&self) -> Result<Fork, DutiesReaderError>;
 }
 
 /// Signs message using an internally-maintained private key.
 pub trait Signer {
-    fn sign_block_proposal(&self, message: &[u8]) -> Option<Signature>;
-    fn sign_randao_reveal(&self, message: &[u8]) -> Option<Signature>;
+    fn sign_block_proposal(&self, message: &[u8], domain: u64) -> Option<Signature>;
+    fn sign_randao_reveal(&self, message: &[u8], domain: u64) -> Option<Signature>;
 }

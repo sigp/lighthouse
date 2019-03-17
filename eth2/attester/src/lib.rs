@@ -2,14 +2,16 @@ pub mod test_utils;
 mod traits;
 
 use slot_clock::SlotClock;
+use ssz::TreeHash;
 use std::sync::Arc;
-use types::{AttestationData, FreeAttestation, Signature, Slot};
+use types::{AttestationData, AttestationDataAndCustodyBit, FreeAttestation, Signature, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
 };
 
 const PHASE_0_CUSTODY_BIT: bool = false;
+const DOMAIN_ATTESTATION: u64 = 1;
 
 #[derive(Debug, PartialEq)]
 pub enum PollOutcome {
@@ -136,8 +138,14 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
     fn sign_attestation_data(&mut self, attestation_data: &AttestationData) -> Option<Signature> {
         self.store_produce(attestation_data);
 
+        let message = AttestationDataAndCustodyBit {
+            data: attestation_data.clone(),
+            custody_bit: PHASE_0_CUSTODY_BIT,
+        }
+        .hash_tree_root();
+
         self.signer
-            .sign_attestation_message(&attestation_data.signable_message(PHASE_0_CUSTODY_BIT)[..])
+            .sign_attestation_message(&message[..], DOMAIN_ATTESTATION)
     }
 
     /// Returns `true` if signing some attestation_data is safe (non-slashable).
@@ -192,9 +200,9 @@ mod tests {
         let beacon_node = Arc::new(SimulatedBeaconNode::default());
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-        let mut duties = EpochMap::new(spec.epoch_length);
+        let mut duties = EpochMap::new(spec.slots_per_epoch);
         let attest_slot = Slot::new(100);
-        let attest_epoch = attest_slot / spec.epoch_length;
+        let attest_epoch = attest_slot / spec.slots_per_epoch;
         let attest_shard = 12;
         duties.insert_attestation_shard(attest_slot, attest_shard);
         duties.set_validator_index(Some(2));
@@ -240,7 +248,7 @@ mod tests {
         );
 
         // In an epoch without known duties...
-        let slot = (attest_epoch + 1) * spec.epoch_length;
+        let slot = (attest_epoch + 1) * spec.slots_per_epoch;
         slot_clock.set_slot(slot.into());
         assert_eq!(
             attester.poll(),

@@ -1,11 +1,15 @@
-use super::{AggregatePublicKey, AggregateSignature, AttestationData, Bitfield, Hash256};
+use super::{AggregateSignature, AttestationData, Bitfield};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz::TreeHash;
+use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode)]
+/// Details an attestation that can be slashable.
+///
+/// Spec v0.4.0
+#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
 pub struct Attestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
@@ -13,54 +17,11 @@ pub struct Attestation {
     pub aggregate_signature: AggregateSignature,
 }
 
-impl Attestation {
-    pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from(&self.hash_tree_root()[..])
-    }
-
-    pub fn signable_message(&self, custody_bit: bool) -> Vec<u8> {
-        self.data.signable_message(custody_bit)
-    }
-
-    pub fn verify_signature(
-        &self,
-        group_public_key: &AggregatePublicKey,
-        custody_bit: bool,
-        // TODO: use domain.
-        _domain: u64,
-    ) -> bool {
-        self.aggregate_signature
-            .verify(&self.signable_message(custody_bit), group_public_key)
-    }
-}
-
-impl TreeHash for Attestation {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.aggregation_bitfield.hash_tree_root_internal());
-        result.append(&mut self.data.hash_tree_root_internal());
-        result.append(&mut self.custody_bitfield.hash_tree_root_internal());
-        result.append(&mut self.aggregate_signature.hash_tree_root_internal());
-        hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Attestation {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            data: <_>::random_for_test(rng),
-            aggregation_bitfield: <_>::random_for_test(rng),
-            custody_bitfield: <_>::random_for_test(rng),
-            aggregate_signature: <_>::random_for_test(rng),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {

@@ -32,6 +32,12 @@ impl TreeHash for usize {
     }
 }
 
+impl TreeHash for bool {
+    fn hash_tree_root_internal(&self) -> Vec<u8> {
+        ssz_encode(self)
+    }
+}
+
 impl TreeHash for Address {
     fn hash_tree_root_internal(&self) -> Vec<u8> {
         ssz_encode(self)

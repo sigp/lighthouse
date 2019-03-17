@@ -122,7 +122,7 @@ project.
 * **Module**: A collection of items: functions, structs, traits, and even other
 modules. Modules allow you to hierarchically split code into logical units
 and manage visibility.
-* **Attribute**: Metadaata applied to some module, crate or item.
+* **Attribute**: Metadata applied to some module, crate or item.
 * **Macros**: Macros are powerful meta-programming statements that get expanded
 into source code that gets compiled with the rest of the code (Unlike `C`
 macros that are pre-processed, Rust macros form an Abstract Syntax Tree).
@@ -185,7 +185,7 @@ check your code.
 | Function / Method   | ``snake_case``                 |
 | Macro Names         | ``snake_case``                 |
 | Constants           | ``SCREAMING_SNAKE_CASE``       |
-| Forbidden name      | Trialing Underscore: ``name_`` |
+| Forbidden name      | Trailing Underscore: ``name_`` |
 
 Other general rust docs:
 

@@ -8,6 +8,6 @@ impl<T: RngCore> TestRandom<T> for Signature {
         let mut message = vec![0; 32];
         rng.fill_bytes(&mut message);
 
-        Signature::new(&message, &secret_key)
+        Signature::new(&message, 0, &secret_key)
     }
 }

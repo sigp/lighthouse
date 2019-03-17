@@ -29,6 +29,19 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
 [company website](https://sigmaprime.io).
 
+### Directory Structure
+
+- [`beacon_node/`](beacon_node/): the "Beacon Node" binary and crates exclusively
+	associated with it.
+- [`docs/`](docs/): documentation related to the repository. This includes contributor
+	guides, etc. (It does not include code documentation, which can be produced with `cargo doc`).
+- [`eth2/`](eth2/): Crates containing common logic across the Lighthouse project. For
+	example: Ethereum 2.0 types ([`BeaconBlock`](eth2/types/src/beacon_block.rs), [`BeaconState`](eth2/types/src/beacon_state.rs), etc) and
+	SimpleSerialize (SSZ).
+- [`protos/`](protos/): protobuf/gRPC definitions that are common across the Lighthouse project.
+- [`validator_client/`](validator_client/): the "Validator Client" binary and crates exclusively
+	associated with it.
+
 ### Components
 
 The following list describes some of the components actively under development
@@ -61,7 +74,7 @@ by the team:
   from the Ethereum Foundation to develop *simpleserialize* (SSZ), a
   purpose-built serialization format for sending information across a network.
   Check out the [SSZ
-implementation](https://github.com/sigp/lighthouse/tree/master/beacon_chain/utils/ssz)
+implementation](https://github.com/ethereum/eth2.0-specs/blob/00aa553fee95963b74fbec84dbd274d7247b8a0e/specs/simple-serialize.md)
 and this
 [research](https://github.com/sigp/serialization_sandbox/blob/report/report/serialization_report.md)
 on serialization formats for more information.
@@ -78,16 +91,6 @@ validators, rotates validators across shards, and implements other core tasks.
 In addition to these components we are also working on database schemas, RPC
 frameworks, specification development, database optimizations (e.g.,
 bloom-filters), and tons of other interesting stuff (at least we think so).
-
-### Directory Structure
-
-Here we provide an overview of the directory structure:
-
-- `beacon_chain/`: contains logic derived directly from the specification.
-  E.g., shuffling algorithms, state transition logic and structs, block
-validation, BLS crypto, etc.
-- `lighthouse/`: contains logic specific to this client implementation. E.g.,
-  CLI parsing, RPC end-points, databases, etc.
 
 ### Running
 
