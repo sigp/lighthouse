@@ -180,9 +180,14 @@ impl TestingBeaconBlockBuilder {
     ) {
         let keypair = Keypair::random();
 
-        let mut builder = TestingDepositBuilder::new(amount);
+        let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
         builder.set_index(index);
-        builder.sign(&keypair, state, spec);
+        builder.sign(
+            &keypair,
+            state.slot.epoch(spec.slots_per_epoch),
+            &state.fork,
+            spec,
+        );
 
         self.block.body.deposits.push(builder.build())
     }

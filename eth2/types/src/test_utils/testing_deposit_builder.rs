@@ -10,9 +10,7 @@ pub struct TestingDepositBuilder {
 
 impl TestingDepositBuilder {
     /// Instantiates a new builder.
-    pub fn new(amount: u64) -> Self {
-        let keypair = Keypair::random();
-
+    pub fn new(pubkey: PublicKey, amount: u64) -> Self {
         let deposit = Deposit {
             proof: vec![],
             index: 0,
@@ -20,7 +18,7 @@ impl TestingDepositBuilder {
                 amount,
                 timestamp: 1,
                 deposit_input: DepositInput {
-                    pubkey: keypair.pk,
+                    pubkey,
                     withdrawal_credentials: Hash256::zero(),
                     proof_of_possession: Signature::empty_signature(),
                 },
@@ -40,12 +38,10 @@ impl TestingDepositBuilder {
     /// - `pubkey` to the signing pubkey.
     /// - `withdrawal_credentials` to the signing pubkey.
     /// - `proof_of_possesssion`
-    pub fn sign(&mut self, keypair: &Keypair, state: &BeaconState, spec: &ChainSpec) {
+    pub fn sign(&mut self, keypair: &Keypair, epoch: Epoch, fork: &Fork, spec: &ChainSpec) {
         let withdrawal_credentials = Hash256::from_slice(
             &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],
         );
-
-        let epoch = state.current_epoch(spec);
 
         self.deposit.deposit_data.deposit_input.pubkey = keypair.pk.clone();
         self.deposit
@@ -57,7 +53,7 @@ impl TestingDepositBuilder {
             .deposit
             .deposit_data
             .deposit_input
-            .create_proof_of_possession(&keypair.sk, epoch, &state.fork, spec);
+            .create_proof_of_possession(&keypair.sk, epoch, fork, spec);
     }
 
     /// Builds the deposit, consuming the builder.
