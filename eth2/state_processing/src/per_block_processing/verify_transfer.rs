@@ -94,7 +94,7 @@ pub fn verify_transfer(
 ///
 /// Does not check that the transfer is valid, however checks for overflow in all actions.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn execute_transfer(
     state: &mut BeaconState,
     transfer: &Transfer,

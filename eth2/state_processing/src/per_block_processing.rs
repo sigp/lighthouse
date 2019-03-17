@@ -32,7 +32,7 @@ const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = false;
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn per_block_processing(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -47,7 +47,7 @@ pub fn per_block_processing(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn per_block_processing_without_verifying_block_signature(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -62,7 +62,7 @@ pub fn per_block_processing_without_verifying_block_signature(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 fn per_block_processing_signature_optional(
     mut state: &mut BeaconState,
     block: &BeaconBlock,
