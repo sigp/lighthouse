@@ -11,7 +11,7 @@ use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{RPCMethod, RPCRequest, RPCResponse};
+pub use methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
 pub use protocol::{RPCProtocol, RpcEvent};
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};

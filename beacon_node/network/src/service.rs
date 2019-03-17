@@ -28,12 +28,12 @@ pub struct Service {
 impl Service {
     pub fn new(
         config: NetworkConfig,
-        executor: TaskExecutor,
+        executor: &TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<(Arc<Self>, Sender<NetworkMessage>)> {
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
-        let message_handler_send = MessageHandler::new(message_handler_log)?;
+        let message_handler_send = MessageHandler::new(executor, message_handler_log)?;
 
         // launch libp2p service
         let libp2p_log = log.new(o!("Service" => "Libp2p"));
@@ -61,7 +61,7 @@ impl Service {
 fn spawn_service(
     libp2p_service: LibP2PService,
     message_handler_send: crossbeam_channel::Sender<HandlerMessage>,
-    executor: TaskExecutor,
+    executor: &TaskExecutor,
     log: slog::Logger,
 ) -> error::Result<(
     crossbeam_channel::Sender<NetworkMessage>,
@@ -99,6 +99,15 @@ fn network_service(
         // poll the swarm
         loop {
             match libp2p_service.poll() {
+                Ok(Async::Ready(Some(Libp2pEvent::RPC(rpc_event)))) => {
+                    debug!(
+                        libp2p_service.log,
+                        "RPC Event: Rpc message received: {:?}", rpc_event
+                    );
+                    message_handler_send
+                        .send(HandlerMessage::RPC(rpc_event))
+                        .map_err(|_| "failed to send rpc to handler");
+                }
                 Ok(Async::Ready(Some(Libp2pEvent::Message(m)))) => debug!(
                     libp2p_service.log,
                     "Network Service: Message received: {}", m

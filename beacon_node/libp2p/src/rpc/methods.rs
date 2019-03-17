@@ -19,17 +19,17 @@ impl From<u16> for RPCMethod {
 
 #[derive(Debug, Clone)]
 pub enum RPCRequest {
-    Hello(HelloBody),
+    Hello(HelloMessage),
 }
 
 #[derive(Debug, Clone)]
 pub enum RPCResponse {
-    Hello(HelloBody),
+    Hello(HelloMessage),
 }
 
 // request/response structs for RPC methods
 #[derive(Encode, Decode, Clone, Debug)]
-pub struct HelloBody {
+pub struct HelloMessage {
     pub network_id: u8,
     pub latest_finalized_root: Hash256,
     pub latest_finalized_epoch: Epoch,
