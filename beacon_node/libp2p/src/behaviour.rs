@@ -1,4 +1,4 @@
-use crate::rpc::{Rpc, RpcEvent};
+use crate::rpc::{RPCEvent, RPCMessage, Rpc};
 use futures::prelude::*;
 use libp2p::{
     core::swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
@@ -38,19 +38,24 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RpcEvent>
+impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RPCMessage>
     for Behaviour<TSubstream>
 {
-    fn inject_event(&mut self, event: RpcEvent) {
-        self.events.push(BehaviourEvent::RPC(event));
+    fn inject_event(&mut self, event: RPCMessage) {
+        match event {
+            RPCMessage::PeerDialed(peer_id) => {
+                self.events.push(BehaviourEvent::PeerDialed(peer_id))
+            }
+            RPCMessage::RPC(rpc_event) => self.events.push(BehaviourEvent::RPC(rpc_event)),
+        }
     }
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
-    pub fn new(local_peer_id: PeerId, gs_config: GossipsubConfig) -> Self {
+    pub fn new(local_peer_id: PeerId, gs_config: GossipsubConfig, log: &slog::Logger) -> Self {
         Behaviour {
             gossipsub: Gossipsub::new(local_peer_id, gs_config),
-            serenity_rpc: Rpc::new(),
+            serenity_rpc: Rpc::new(log),
             events: Vec::new(),
         }
     }
@@ -80,7 +85,8 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
 /// The types of events than can be obtained from polling the behaviour.
 pub enum BehaviourEvent {
-    RPC(RpcEvent),
+    RPC(RPCEvent),
+    PeerDialed(PeerId),
     // TODO: This is a stub at the moment
     Message(String),
 }

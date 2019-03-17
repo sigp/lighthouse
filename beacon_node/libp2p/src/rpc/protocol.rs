@@ -31,7 +31,7 @@ impl Default for RPCProtocol {
 
 /// The RPC types which are sent/received in this protocol.
 #[derive(Debug, Clone)]
-pub enum RpcEvent {
+pub enum RPCEvent {
     Request {
         id: u64,
         method_id: u16,
@@ -44,7 +44,7 @@ pub enum RpcEvent {
     },
 }
 
-impl UpgradeInfo for RpcEvent {
+impl UpgradeInfo for RPCEvent {
     type Info = &'static [u8];
     type InfoIter = iter::Once<Self::Info>;
 
@@ -58,17 +58,17 @@ impl<TSocket> InboundUpgrade<TSocket> for RPCProtocol
 where
     TSocket: AsyncRead + AsyncWrite,
 {
-    type Output = RpcEvent;
+    type Output = RPCEvent;
     type Error = DecodeError;
     type Future =
-        upgrade::ReadOneThen<TSocket, (), fn(Vec<u8>, ()) -> Result<RpcEvent, DecodeError>>;
+        upgrade::ReadOneThen<TSocket, (), fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>>;
 
     fn upgrade_inbound(self, socket: TSocket, _: Self::Info) -> Self::Future {
         upgrade::read_one_then(socket, MAX_READ_SIZE, (), |packet, ()| Ok(decode(packet)?))
     }
 }
 
-fn decode(packet: Vec<u8>) -> Result<RpcEvent, DecodeError> {
+fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
     // decode the header of the rpc
     // request/response
     let (request, index) = bool::ssz_decode(&packet, 0)?;
@@ -84,7 +84,7 @@ fn decode(packet: Vec<u8>) -> Result<RpcEvent, DecodeError> {
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
 
-        return Ok(RpcEvent::Request {
+        return Ok(RPCEvent::Request {
             id,
             method_id,
             body,
@@ -99,7 +99,7 @@ fn decode(packet: Vec<u8>) -> Result<RpcEvent, DecodeError> {
             }
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
-        return Ok(RpcEvent::Response {
+        return Ok(RPCEvent::Response {
             id,
             method_id,
             result,
@@ -107,7 +107,7 @@ fn decode(packet: Vec<u8>) -> Result<RpcEvent, DecodeError> {
     }
 }
 
-impl<TSocket> OutboundUpgrade<TSocket> for RpcEvent
+impl<TSocket> OutboundUpgrade<TSocket> for RPCEvent
 where
     TSocket: AsyncWrite,
 {
@@ -122,10 +122,10 @@ where
     }
 }
 
-impl Encodable for RpcEvent {
+impl Encodable for RPCEvent {
     fn ssz_append(&self, s: &mut SszStream) {
         match self {
-            RpcEvent::Request {
+            RPCEvent::Request {
                 id,
                 method_id,
                 body,
@@ -137,7 +137,7 @@ impl Encodable for RpcEvent {
                     RPCRequest::Hello(body) => s.append(body),
                 };
             }
-            RpcEvent::Response {
+            RPCEvent::Response {
                 id,
                 method_id,
                 result,
