@@ -12,12 +12,7 @@ path = "src/bin.rs"
 name = "test_harness"
 path = "src/lib.rs"
 
-[[bench]]
-name = "state_transition"
-harness = false
-
 [dev-dependencies]
-criterion = "0.2"
 state_processing = { path = "../../../eth2/state_processing" }
 
 [dependencies]

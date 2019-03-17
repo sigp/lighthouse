@@ -5,6 +5,7 @@ use env_logger::{Builder, Env};
 use log::info;
 use types::*;
 
+
 mod bench_block_processing;
 mod bench_epoch_processing;
 mod block_benching_builder;

@@ -15,7 +15,7 @@
 //! let validator_count = 8;
 //! let spec = ChainSpec::few_validators();
 //!
-//! let mut harness = BeaconChainHarness::new(spec, validator_count, None, true);
+//! let mut harness = BeaconChainHarness::new(spec, validator_count);
 //!
 //! harness.advance_chain_with_block();
 //!
