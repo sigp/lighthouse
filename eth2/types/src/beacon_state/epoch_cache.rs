@@ -1,8 +1,15 @@
-use super::{BeaconState, Error};
+use super::BeaconState;
 use crate::*;
 use honey_badger_split::SplitExt;
 use serde_derive::{Deserialize, Serialize};
 use swap_or_not_shuffle::shuffle_list;
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    UnableToShuffle,
+    NoValidators { epoch: Epoch },
+    UnableToGenerateSeed,
+}
 
 mod tests;
 
@@ -212,7 +219,7 @@ impl EpochCrosslinkCommitteesBuilder {
         active_validator_indices: Vec<usize>,
         registry_change: bool,
         spec: &ChainSpec,
-    ) -> Result<Self, BeaconStateError> {
+    ) -> Result<Self, Error> {
         let current_epoch = state.current_epoch(spec);
         let next_epoch = state.next_epoch(spec);
         let committees_per_epoch = spec.get_epoch_committee_count(active_validator_indices.len());
@@ -221,7 +228,9 @@ impl EpochCrosslinkCommitteesBuilder {
             current_epoch - state.validator_registry_update_epoch;
 
         let (seed, shuffling_start_shard) = if registry_change {
-            let next_seed = state.generate_seed(next_epoch, spec)?;
+            let next_seed = state
+                .generate_seed(next_epoch, spec)
+                .map_err(|_| Error::UnableToGenerateSeed)?;
             (
                 next_seed,
                 (state.current_shuffling_start_shard + committees_per_epoch) % spec.shard_count,
@@ -229,7 +238,9 @@ impl EpochCrosslinkCommitteesBuilder {
         } else if (epochs_since_last_registry_update > 1)
             & epochs_since_last_registry_update.is_power_of_two()
         {
-            let next_seed = state.generate_seed(next_epoch, spec)?;
+            let next_seed = state
+                .generate_seed(next_epoch, spec)
+                .map_err(|_| Error::UnableToGenerateSeed)?;
             (next_seed, state.current_shuffling_start_shard)
         } else {
             (
@@ -247,9 +258,9 @@ impl EpochCrosslinkCommitteesBuilder {
         })
     }
 
-    pub fn build(self, spec: &ChainSpec) -> Result<EpochCrosslinkCommittees, BeaconStateError> {
+    pub fn build(self, spec: &ChainSpec) -> Result<EpochCrosslinkCommittees, Error> {
         if self.active_validator_indices.is_empty() {
-            return Err(Error::NoValidators);
+            return Err(Error::NoValidators { epoch: self.epoch });
         }
 
         let shuffled_active_validator_indices = shuffle_list(
