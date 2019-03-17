@@ -1,13 +1,12 @@
-use self::epoch_cache::EpochCache;
+use self::epoch_cache::{EpochCache, Error as EpochCacheError};
 use crate::test_utils::TestRandom;
 use crate::*;
 use int_to_bytes::int_to_bytes32;
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{hash, ssz_encode, SignedRoot, TreeHash};
+use ssz::{hash, ssz_encode, TreeHash};
 use ssz_derive::{Decode, Encode, TreeHash};
-use std::collections::HashMap;
 use test_random_derive::TestRandom;
 
 mod epoch_cache;
@@ -44,6 +43,7 @@ pub enum Error {
         registry_len: usize,
     },
     RelativeEpochError(RelativeEpochError),
+    EpochCacheError(EpochCacheError),
 }
 
 macro_rules! safe_add_assign {
@@ -881,5 +881,11 @@ impl BeaconState {
 impl From<RelativeEpochError> for Error {
     fn from(e: RelativeEpochError) -> Error {
         Error::RelativeEpochError(e)
+    }
+}
+
+impl From<EpochCacheError> for Error {
+    fn from(e: EpochCacheError) -> Error {
+        Error::EpochCacheError(e)
     }
 }
