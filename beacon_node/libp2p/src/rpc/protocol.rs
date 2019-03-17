@@ -1,4 +1,4 @@
-use super::methods::{HelloBody, RPCMethod, RPCRequest, RPCResponse};
+use super::methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use ssz::{ssz_encode, Decodable, Encodable, SszStream};
 use std::io;
@@ -78,7 +78,7 @@ fn decode(packet: Vec<u8>) -> Result<RpcEvent, DecodeError> {
     if request {
         let body = match RPCMethod::from(method_id) {
             RPCMethod::Hello => {
-                let (hello_body, _index) = HelloBody::ssz_decode(&packet, index)?;
+                let (hello_body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCRequest::Hello(hello_body)
             }
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
@@ -94,7 +94,7 @@ fn decode(packet: Vec<u8>) -> Result<RpcEvent, DecodeError> {
     else {
         let result = match RPCMethod::from(method_id) {
             RPCMethod::Hello => {
-                let (body, _index) = HelloBody::ssz_decode(&packet, index)?;
+                let (body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCResponse::Hello(body)
             }
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),

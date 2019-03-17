@@ -5,7 +5,7 @@
 pub mod behaviour;
 pub mod error;
 mod network_config;
-mod rpc;
+pub mod rpc;
 mod service;
 
 pub use libp2p::{
@@ -13,6 +13,8 @@ pub use libp2p::{
     PeerId,
 };
 pub use network_config::NetworkConfig;
+pub use rpc::HelloMessage;
+pub use rpc::RpcEvent;
 pub use service::Libp2pEvent;
 pub use service::Service;
 pub use types::multiaddr;

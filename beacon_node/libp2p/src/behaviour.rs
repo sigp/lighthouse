@@ -1,4 +1,4 @@
-use crate::rpc::{RPCMethod, RPCRequest, RPCResponse, Rpc, RpcEvent};
+use crate::rpc::{Rpc, RpcEvent};
 use futures::prelude::*;
 use libp2p::{
     core::swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
@@ -42,22 +42,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RpcEvent>
     for Behaviour<TSubstream>
 {
     fn inject_event(&mut self, event: RpcEvent) {
-        match event {
-            RpcEvent::Request {
-                id,
-                method_id,
-                body,
-            } => self.events.push(BehaviourEvent::RPCRequest {
-                id,
-                method: RPCMethod::from(method_id),
-                body,
-            }),
-            RpcEvent::Response {
-                id,
-                method_id,
-                result,
-            } => self.events.push(BehaviourEvent::RPCResponse { id, result }),
-        }
+        self.events.push(BehaviourEvent::RPC(event));
     }
 }
 
@@ -95,15 +80,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
 /// The types of events than can be obtained from polling the behaviour.
 pub enum BehaviourEvent {
-    RPCRequest {
-        id: u64,
-        method: RPCMethod,
-        body: RPCRequest,
-    },
-    RPCResponse {
-        id: u64,
-        result: RPCResponse,
-    },
+    RPC(RpcEvent),
     // TODO: This is a stub at the moment
     Message(String),
 }

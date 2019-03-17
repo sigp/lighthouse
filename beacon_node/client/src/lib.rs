@@ -34,7 +34,7 @@ impl<T: ClientTypes> Client<T> {
     pub fn new(
         config: ClientConfig,
         log: slog::Logger,
-        executor: TaskExecutor,
+        executor: &TaskExecutor,
     ) -> error::Result<Self> {
         let (exit_signal, exit) = exit_future::signal();
 

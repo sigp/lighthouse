@@ -1,6 +1,7 @@
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::error;
 use crate::multiaddr::Protocol;
+use crate::rpc::RpcEvent;
 use crate::NetworkConfig;
 use futures::prelude::*;
 use futures::Stream;
@@ -104,8 +105,9 @@ impl Stream for Service {
                     debug!(self.log, "Message received: {}", m);
                     return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
                 }
-                // TODO: Fill with all behaviour events
-                _ => break,
+                Ok(Async::Ready(Some(BehaviourEvent::RPC(event)))) => {
+                    return Ok(Async::Ready(Some(Libp2pEvent::RPC(event))));
+                }
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
                 _ => break,
@@ -152,5 +154,7 @@ fn build_transport(
 
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent {
+    // We have received an RPC event on the swarm
+    RPC(RpcEvent),
     Message(String),
 }
