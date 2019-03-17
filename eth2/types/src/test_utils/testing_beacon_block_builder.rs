@@ -109,10 +109,7 @@ impl TestingBeaconBlockBuilder {
                 break;
             }
 
-            let relative_epoch = RelativeEpoch::from_slot(state.slot, slot, spec).unwrap();
-            for crosslink_committee in
-                state.get_crosslink_committees_at_slot(slot, relative_epoch, spec)?
-            {
+            for crosslink_committee in state.get_crosslink_committees_at_slot(slot, spec)? {
                 if attestations_added >= num_attestations {
                     break;
                 }

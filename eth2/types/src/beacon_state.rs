@@ -1,8 +1,7 @@
 use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
-use crate::{validator_registry::get_active_validator_indices, *};
+use crate::*;
 use int_to_bytes::int_to_bytes32;
-use log::trace;
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
@@ -39,6 +38,7 @@ pub enum Error {
     InsufficientAttestations,
     InsufficientCommittees,
     InsufficientSlashedBalances,
+    NoCommitteeForShard,
     EpochCacheUninitialized(RelativeEpoch),
     PubkeyCacheInconsistent,
     PubkeyCacheIncomplete {
@@ -349,17 +349,49 @@ impl BeaconState {
         self.current_epoch(spec) + 1
     }
 
+    /// Returns the active validator indices for the given epoch, assuming there is no validator
+    /// registry update in the next epoch.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.5.0
+    pub fn get_active_validator_indices(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<&[usize], Error> {
+        // If the slot is in the next epoch, assume there was no validator registry update.
+        let relative_epoch =
+            match RelativeEpoch::from_epoch(self.slot.epoch(spec.slots_per_epoch), epoch) {
+                Err(RelativeEpochError::AmbiguiousNextEpoch) => {
+                    Ok(RelativeEpoch::NextWithoutRegistryChange)
+                }
+                e => e,
+            }?;
+
+        let cache = self.cache(relative_epoch, spec)?;
+
+        Ok(&cache.active_validator_indices)
+    }
+
     /// Returns the crosslink committees for some slot.
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
-        relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<&Vec<CrosslinkCommittee>, Error> {
+        // If the slot is in the next epoch, assume there was no validator registry update.
+        let relative_epoch = match RelativeEpoch::from_slot(self.slot, slot, spec) {
+            Err(RelativeEpochError::AmbiguiousNextEpoch) => {
+                Ok(RelativeEpoch::NextWithoutRegistryChange)
+            }
+            e => e,
+        }?;
+
         let cache = self.cache(relative_epoch, spec)?;
 
         Ok(cache
@@ -367,15 +399,46 @@ impl BeaconState {
             .ok_or_else(|| Error::SlotOutOfBounds)?)
     }
 
+    /// Returns the crosslink committees for some shard in an epoch.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.4.0
+    pub fn get_crosslink_committee_for_shard(
+        &self,
+        epoch: Epoch,
+        shard: Shard,
+        spec: &ChainSpec,
+    ) -> Result<&CrosslinkCommittee, Error> {
+        // If the slot is in the next epoch, assume there was no validator registry update.
+        let relative_epoch = match RelativeEpoch::from_epoch(self.current_epoch(spec), epoch) {
+            Err(RelativeEpochError::AmbiguiousNextEpoch) => {
+                Ok(RelativeEpoch::NextWithoutRegistryChange)
+            }
+            e => e,
+        }?;
+
+        let cache = self.cache(relative_epoch, spec)?;
+
+        Ok(cache
+            .get_crosslink_committee_for_shard(shard, spec)
+            .ok_or_else(|| Error::NoCommitteeForShard)?)
+    }
+
     /// Return the block root at a recent `slot`.
     ///
     /// Spec v0.5.0
-    pub fn get_block_root(&self, slot: Slot, spec: &ChainSpec) -> Option<&Hash256> {
+    pub fn get_block_root(
+        &self,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<&Hash256, BeaconStateError> {
         if (self.slot <= slot + spec.slots_per_historical_root as u64) && (slot < self.slot) {
             self.latest_block_roots
                 .get(slot.as_usize() % spec.slots_per_historical_root)
+                .ok_or_else(|| Error::InsufficientBlockRoots)
         } else {
-            None
+            Err(Error::EpochOutOfBounds)
         }
     }
 
@@ -476,12 +539,12 @@ impl BeaconState {
         relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<usize, Error> {
-        let committees = self.get_crosslink_committees_at_slot(slot, relative_epoch, spec)?;
-        trace!(
-            "get_beacon_proposer_index: slot: {}, committees_count: {}",
-            slot,
-            committees.len()
-        );
+        let cache = self.cache(relative_epoch, spec)?;
+
+        let committees = cache
+            .get_crosslink_committees_at_slot(slot, spec)
+            .ok_or_else(|| Error::SlotOutOfBounds)?;
+
         committees
             .first()
             .ok_or(Error::InsufficientValidators)
@@ -751,13 +814,14 @@ impl BeaconState {
             .ok_or_else(|| Error::UnknownValidator)?)
     }
 
-    /// Process the slashings.
+    /// Process slashings.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
     /// Spec v0.4.0
     pub fn process_slashings(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         let current_epoch = self.current_epoch(spec);
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, current_epoch);
+        let active_validator_indices = self.get_active_validator_indices(current_epoch, spec)?;
         let total_balance = self.get_total_balance(&active_validator_indices[..], spec)?;
 
         for (index, validator) in self.validator_registry.iter().enumerate() {
@@ -818,11 +882,12 @@ impl BeaconState {
 
     /// Update validator registry, activating/exiting validators if possible.
     ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
     /// Spec v0.4.0
     pub fn update_validator_registry(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         let current_epoch = self.current_epoch(spec);
-        let active_validator_indices =
-            get_active_validator_indices(&self.validator_registry, current_epoch);
+        let active_validator_indices = self.get_active_validator_indices(current_epoch, spec)?;
         let total_balance = self.get_total_balance(&active_validator_indices[..], spec)?;
 
         let max_balance_churn = std::cmp::max(
@@ -867,54 +932,32 @@ impl BeaconState {
     /// Iterate through the validator registry and eject active validators with balance below
     /// ``EJECTION_BALANCE``.
     ///
-    /// Spec v0.4.0
-    pub fn process_ejections(&mut self, spec: &ChainSpec) {
-        for validator_index in
-            get_active_validator_indices(&self.validator_registry, self.current_epoch(spec))
-        {
-            if self.validator_balances[validator_index] < spec.ejection_balance {
-                self.exit_validator(validator_index, spec)
-            }
+    /// Spec v0.5.0
+    pub fn process_ejections(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        // There is an awkward double (triple?) loop here because we can't loop across the borrowed
+        // active validator indices and mutate state in the one loop.
+        let exitable: Vec<usize> = self
+            .get_active_validator_indices(self.current_epoch(spec), spec)?
+            .iter()
+            .filter_map(|&i| {
+                if self.validator_balances[i as usize] < spec.ejection_balance {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for validator_index in exitable {
+            self.exit_validator(validator_index, spec)
         }
-    }
 
-    /// Returns the penality that should be applied to some validator for inactivity.
-    ///
-    /// Note: this is defined "inline" in the spec, not as a helper function.
-    ///
-    /// Spec v0.4.0
-    pub fn inactivity_penalty(
-        &self,
-        validator_index: usize,
-        epochs_since_finality: Epoch,
-        base_reward_quotient: u64,
-        spec: &ChainSpec,
-    ) -> Result<u64, Error> {
-        let effective_balance = self.get_effective_balance(validator_index, spec)?;
-        let base_reward = self.base_reward(validator_index, base_reward_quotient, spec)?;
-        Ok(base_reward
-            + effective_balance * epochs_since_finality.as_u64()
-                / spec.inactivity_penalty_quotient
-                / 2)
-    }
-
-    /// Returns the base reward for some validator.
-    ///
-    /// Note: In the spec this is defined "inline", not as a helper function.
-    ///
-    /// Spec v0.4.0
-    pub fn base_reward(
-        &self,
-        validator_index: usize,
-        base_reward_quotient: u64,
-        spec: &ChainSpec,
-    ) -> Result<u64, Error> {
-        Ok(self.get_effective_balance(validator_index, spec)? / base_reward_quotient / 5)
+        Ok(())
     }
 
     /// Return the combined effective balance of an array of validators.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_total_balance(
         &self,
         validator_indices: &[usize],

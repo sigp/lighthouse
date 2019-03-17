@@ -13,7 +13,9 @@ pub struct EpochCache {
     /// Maps validator index to a slot, shard and committee index for attestation.
     pub attestation_duties: Vec<Option<AttestationDuty>>,
     /// Maps a shard to an index of `self.committees`.
-    pub shard_committee_indices: Vec<(Slot, usize)>,
+    pub shard_committee_indices: Vec<Option<(Slot, usize)>>,
+    /// Indices of all active validators in the epoch
+    pub active_validator_indices: Vec<usize>,
 }
 
 impl EpochCache {
@@ -31,18 +33,18 @@ impl EpochCache {
         let builder = match relative_epoch {
             RelativeEpoch::Previous => EpochCrosslinkCommitteesBuilder::for_previous_epoch(
                 state,
-                active_validator_indices,
+                active_validator_indices.clone(),
                 spec,
             ),
             RelativeEpoch::Current => EpochCrosslinkCommitteesBuilder::for_current_epoch(
                 state,
-                active_validator_indices,
+                active_validator_indices.clone(),
                 spec,
             ),
             RelativeEpoch::NextWithRegistryChange => {
                 EpochCrosslinkCommitteesBuilder::for_next_epoch(
                     state,
-                    active_validator_indices,
+                    active_validator_indices.clone(),
                     true,
                     spec,
                 )?
@@ -50,7 +52,7 @@ impl EpochCache {
             RelativeEpoch::NextWithoutRegistryChange => {
                 EpochCrosslinkCommitteesBuilder::for_next_epoch(
                     state,
-                    active_validator_indices,
+                    active_validator_indices.clone(),
                     false,
                     spec,
                 )?
@@ -64,7 +66,7 @@ impl EpochCache {
         // 2. `shard_committee_indices`: maps `Shard` into a `CrosslinkCommittee` in
         //    `EpochCrosslinkCommittees`.
         let mut attestation_duties = vec![None; state.validator_registry.len()];
-        let mut shard_committee_indices = vec![(Slot::default(), 0); spec.shard_count as usize];
+        let mut shard_committee_indices = vec![None; spec.shard_count as usize];
         for (i, slot_committees) in epoch_crosslink_committees
             .crosslink_committees
             .iter()
@@ -75,7 +77,7 @@ impl EpochCache {
             for (j, crosslink_committee) in slot_committees.iter().enumerate() {
                 let shard = crosslink_committee.shard;
 
-                shard_committee_indices[shard as usize] = (slot, j);
+                shard_committee_indices[shard as usize] = Some((slot, j));
 
                 for (k, validator_index) in crosslink_committee.committee.iter().enumerate() {
                     let attestation_duty = AttestationDuty {
@@ -93,6 +95,7 @@ impl EpochCache {
             epoch_crosslink_committees,
             attestation_duties,
             shard_committee_indices,
+            active_validator_indices,
         })
     }
 
@@ -110,9 +113,13 @@ impl EpochCache {
         shard: Shard,
         spec: &ChainSpec,
     ) -> Option<&CrosslinkCommittee> {
-        let (slot, committee) = self.shard_committee_indices.get(shard as usize)?;
-        let slot_committees = self.get_crosslink_committees_at_slot(*slot, spec)?;
-        slot_committees.get(*committee)
+        if shard > self.shard_committee_indices.len() as u64 {
+            None
+        } else {
+            let (slot, committee) = self.shard_committee_indices[shard as usize]?;
+            let slot_committees = self.get_crosslink_committees_at_slot(slot, spec)?;
+            slot_committees.get(committee)
+        }
     }
 }
 
@@ -261,13 +268,14 @@ impl EpochCrosslinkCommitteesBuilder {
 
         let committees_per_slot = (self.committees_per_epoch / spec.slots_per_epoch) as usize;
 
-        for i in 0..spec.slots_per_epoch as usize {
+        for (i, slot) in self.epoch.slot_iter(spec.slots_per_epoch).enumerate() {
             for j in (0..committees.len())
                 .into_iter()
                 .skip(i * committees_per_slot)
                 .take(committees_per_slot)
             {
                 let crosslink_committee = CrosslinkCommittee {
+                    slot,
                     shard,
                     committee: committees.remove(j),
                 };

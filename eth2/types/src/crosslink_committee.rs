@@ -4,6 +4,7 @@ use ssz_derive::{Decode, Encode, TreeHash};
 
 #[derive(Default, Clone, Debug, PartialEq, Serialize, Deserialize, Decode, Encode, TreeHash)]
 pub struct CrosslinkCommittee {
+    pub slot: Slot,
     pub shard: Shard,
     pub committee: Vec<usize>,
 }

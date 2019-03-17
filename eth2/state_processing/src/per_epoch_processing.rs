@@ -1,5 +1,6 @@
 use errors::EpochProcessingError as Error;
 use integer_sqrt::IntegerSquareRoot;
+use process_validator_registry::process_validator_registry;
 use rayon::prelude::*;
 use ssz::TreeHash;
 use std::collections::HashMap;
@@ -8,7 +9,9 @@ use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
 pub mod errors;
+pub mod get_attestation_participants;
 pub mod inclusion_distance;
+pub mod process_validator_registry;
 pub mod tests;
 pub mod validator_statuses;
 pub mod winning_root;
@@ -25,10 +28,9 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 ///
 /// Spec v0.4.0
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
-    // Ensure all of the caches are built.
+    // Ensure the previous and next epoch caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
-    state.build_epoch_cache(RelativeEpoch::Next, spec)?;
 
     let mut statuses = initialize_validator_statuses(&state, spec)?;
 
@@ -61,7 +63,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
 
 /// Returns a list of active validator indices for the state's current epoch.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec) -> Vec<usize> {
     get_active_validator_indices(
         &state.validator_registry,
@@ -76,26 +78,28 @@ pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec)
 /// - previous epoch attesters
 /// - etc.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn initialize_validator_statuses(
     state: &BeaconState,
     spec: &ChainSpec,
 ) -> Result<ValidatorStatuses, BeaconStateError> {
-    let mut statuses = ValidatorStatuses::new(state, spec);
+    let mut statuses = ValidatorStatuses::new(state, spec)?;
 
-    statuses.process_attestations(&state, &state.latest_attestations, spec)?;
+    statuses.process_attestations(&state, spec)?;
 
     Ok(statuses)
 }
 
-/// Spec v0.4.0
+/// Maybe resets the eth1 period.
+///
+/// Spec v0.5.0
 pub fn process_eth1_data(state: &mut BeaconState, spec: &ChainSpec) {
     let next_epoch = state.next_epoch(spec);
     let voting_period = spec.epochs_per_eth1_voting_period;
 
     if next_epoch % voting_period == 0 {
         for eth1_data_vote in &state.eth1_data_votes {
-            if eth1_data_vote.vote_count * 2 > voting_period {
+            if eth1_data_vote.vote_count * 2 > voting_period * spec.slots_per_epoch {
                 state.latest_eth1_data = eth1_data_vote.eth1_data.clone();
             }
         }
@@ -119,7 +123,7 @@ pub fn process_justification(
     let previous_epoch = state.previous_epoch(spec);
     let current_epoch = state.current_epoch(spec);
 
-    let mut new_justified_epoch = state.justified_epoch;
+    let mut new_justified_epoch = state.current_justified_epoch;
     state.justification_bitfield <<= 1;
 
     // If > 2/3 of the total balance attested to the previous epoch boundary
@@ -168,8 +172,10 @@ pub fn process_justification(
     // - The presently justified epoch was two epochs ago.
     //
     // Then, set the finalized epoch to two epochs ago.
-    if (state.justification_bitfield % 8 == 0b111) & (state.justified_epoch == previous_epoch - 1) {
-        state.finalized_epoch = state.justified_epoch;
+    if (state.justification_bitfield % 8 == 0b111)
+        & (state.current_justified_epoch == previous_epoch - 1)
+    {
+        state.finalized_epoch = state.current_justified_epoch;
     }
     // If:
     //
@@ -177,12 +183,14 @@ pub fn process_justification(
     // - Set the previous epoch to be justified.
     //
     // Then, set the finalized epoch to be the previous epoch.
-    if (state.justification_bitfield % 4 == 0b11) & (state.justified_epoch == previous_epoch) {
-        state.finalized_epoch = state.justified_epoch;
+    if (state.justification_bitfield % 4 == 0b11)
+        & (state.current_justified_epoch == previous_epoch)
+    {
+        state.finalized_epoch = state.current_justified_epoch;
     }
 
-    state.previous_justified_epoch = state.justified_epoch;
-    state.justified_epoch = new_justified_epoch;
+    state.previous_justified_epoch = state.current_justified_epoch;
+    state.current_justified_epoch = new_justified_epoch;
 }
 
 /// Updates the following fields on the `BeaconState`:
@@ -191,23 +199,11 @@ pub fn process_justification(
 ///
 /// Also returns a `WinningRootHashSet` for later use during epoch processing.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn process_crosslinks(
     state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<WinningRootHashSet, Error> {
-    let current_epoch_attestations: Vec<&PendingAttestation> = state
-        .latest_attestations
-        .par_iter()
-        .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) == state.current_epoch(spec))
-        .collect();
-
-    let previous_epoch_attestations: Vec<&PendingAttestation> = state
-        .latest_attestations
-        .par_iter()
-        .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) == state.previous_epoch(spec))
-        .collect();
-
     let mut winning_root_for_shards: WinningRootHashSet = HashMap::new();
 
     let previous_and_current_epoch_slots: Vec<Slot> = state
@@ -221,24 +217,18 @@ pub fn process_crosslinks(
         let crosslink_committees_at_slot =
             state.get_crosslink_committees_at_slot(slot, spec)?.clone();
 
-        for (crosslink_committee, shard) in crosslink_committees_at_slot {
-            let shard = shard as u64;
+        for c in crosslink_committees_at_slot {
+            let shard = c.shard as u64;
 
-            let winning_root = winning_root(
-                state,
-                shard,
-                &current_epoch_attestations[..],
-                &previous_epoch_attestations[..],
-                spec,
-            )?;
+            let winning_root = winning_root(state, shard, spec)?;
 
             if let Some(winning_root) = winning_root {
-                let total_committee_balance = state.get_total_balance(&crosslink_committee, spec);
+                let total_committee_balance = state.get_total_balance(&c.committee, spec)?;
 
                 // TODO: I think this has a bug.
                 if (3 * winning_root.total_attesting_balance) >= (2 * total_committee_balance) {
                     state.latest_crosslinks[shard as usize] = Crosslink {
-                        epoch: state.current_epoch(spec),
+                        epoch: slot.epoch(spec.slots_per_epoch),
                         crosslink_data_root: winning_root.crosslink_data_root,
                     }
                 }
@@ -294,7 +284,10 @@ pub fn process_rewards_and_penalities(
         .map(|(index, &balance)| {
             let mut balance = balance;
             let status = &statuses.statuses[index];
-            let base_reward = state.base_reward(index, base_reward_quotient, spec);
+            let base_reward = get_base_reward(state, index, total_balances.previous_epoch, spec)
+                .expect(
+                    "Cannot fail to access a validator balance when iterating validator balances.",
+                );
 
             if epochs_since_finality <= 4 {
                 // Expected FFG source
@@ -330,11 +323,15 @@ pub fn process_rewards_and_penalities(
                     safe_sub_assign!(balance, base_reward);
                 };
             } else {
-                let inactivity_penalty = state.inactivity_penalty(
+                let inactivity_penalty = get_inactivity_penalty(
+                    state,
                     index,
-                    epochs_since_finality,
-                    base_reward_quotient,
+                    epochs_since_finality.as_u64(),
+                    total_balances.previous_epoch,
                     spec,
+                )
+                .expect(
+                    "Cannot fail to access a validator balance when iterating validator balances.",
                 );
 
                 if status.is_active_in_previous_epoch {
@@ -349,7 +346,10 @@ pub fn process_rewards_and_penalities(
                     }
 
                     if state.validator_registry[index].slashed {
-                        let base_reward = state.base_reward(index, base_reward_quotient, spec);
+                        let base_reward =
+                            get_base_reward(state, index, total_balances.previous_epoch, spec).expect(
+                                "Cannot fail to access a validator balance when iterating validator balances.",
+                            );
                         safe_sub_assign!(balance, 2 * inactivity_penalty + base_reward);
                     }
                 }
@@ -384,7 +384,10 @@ pub fn process_rewards_and_penalities(
             let proposer_index = status.inclusion_info.proposer_index;
             let inclusion_distance = status.inclusion_info.distance;
 
-            let base_reward = state.base_reward(proposer_index, base_reward_quotient, spec);
+            let base_reward =
+                get_base_reward(state, proposer_index, total_balances.previous_epoch, spec).expect(
+                    "Cannot fail to access a validator balance when iterating validator balances.",
+                );
 
             if inclusion_distance > 0 && inclusion_distance < Slot::max_value() {
                 safe_add_assign!(
@@ -399,53 +402,37 @@ pub fn process_rewards_and_penalities(
     Ok(())
 }
 
-/// Peforms a validator registry update, if required.
+/// Returns the base reward for some validator.
 ///
-/// Spec v0.4.0
-pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
-    let current_epoch = state.current_epoch(spec);
-    let next_epoch = state.next_epoch(spec);
-
-    state.previous_shuffling_epoch = state.current_shuffling_epoch;
-    state.previous_shuffling_start_shard = state.current_shuffling_start_shard;
-
-    state.previous_shuffling_seed = state.current_shuffling_seed;
-
-    let should_update_validator_registy = if state.finalized_epoch
-        > state.validator_registry_update_epoch
-    {
-        (0..state.get_current_epoch_committee_count(spec)).all(|i| {
-            let shard = (state.current_shuffling_start_shard + i as u64) % spec.shard_count;
-            state.latest_crosslinks[shard as usize].epoch > state.validator_registry_update_epoch
-        })
+/// Spec v0.5.0
+pub fn get_base_reward(
+    state: &BeaconState,
+    index: usize,
+    previous_total_balance: u64,
+    spec: &ChainSpec,
+) -> Result<u64, BeaconStateError> {
+    if previous_total_balance == 0 {
+        Ok(0)
     } else {
-        false
-    };
-
-    if should_update_validator_registy {
-        state.update_validator_registry(spec);
-
-        state.current_shuffling_epoch = next_epoch;
-        state.current_shuffling_start_shard = (state.current_shuffling_start_shard
-            + state.get_current_epoch_committee_count(spec) as u64)
-            % spec.shard_count;
-        state.current_shuffling_seed = state.generate_seed(state.current_shuffling_epoch, spec)?
-    } else {
-        let epochs_since_last_registry_update =
-            current_epoch - state.validator_registry_update_epoch;
-        if (epochs_since_last_registry_update > 1)
-            & epochs_since_last_registry_update.is_power_of_two()
-        {
-            state.current_shuffling_epoch = next_epoch;
-            state.current_shuffling_seed =
-                state.generate_seed(state.current_shuffling_epoch, spec)?
-        }
+        let adjusted_quotient = previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
+        Ok(state.get_effective_balance(index, spec)? / adjusted_quotient / 5)
     }
+}
 
-    state.process_slashings(spec);
-    state.process_exit_queue(spec);
-
-    Ok(())
+/// Returns the inactivity penalty for some validator.
+///
+/// Spec v0.5.0
+pub fn get_inactivity_penalty(
+    state: &BeaconState,
+    index: usize,
+    epochs_since_finality: u64,
+    previous_total_balance: u64,
+    spec: &ChainSpec,
+) -> Result<u64, BeaconStateError> {
+    Ok(get_base_reward(state, index, previous_total_balance, spec)?
+        + state.get_effective_balance(index, spec)? * epochs_since_finality
+            / spec.inactivity_penalty_quotient
+            / 2)
 }
 
 /// Updates the state's `latest_active_index_roots` field with a tree hash the active validator
@@ -486,12 +473,5 @@ pub fn update_latest_slashed_balances(state: &mut BeaconState, spec: &ChainSpec)
 ///
 /// Spec v0.4.0
 pub fn clean_attestations(state: &mut BeaconState, spec: &ChainSpec) {
-    let current_epoch = state.current_epoch(spec);
-
-    state.latest_attestations = state
-        .latest_attestations
-        .iter()
-        .filter(|a| a.data.slot.epoch(spec.slots_per_epoch) >= current_epoch)
-        .cloned()
-        .collect();
+    state.previous_epoch_attestations = vec![];
 }
