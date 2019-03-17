@@ -11,8 +11,8 @@ use test_random_derive::TestRandom;
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,
-    pub proposal_1: BeaconBlockHeader,
-    pub proposal_2: BeaconBlockHeader,
+    pub header_1: BeaconBlockHeader,
+    pub header_2: BeaconBlockHeader,
 }
 
 #[cfg(test)]

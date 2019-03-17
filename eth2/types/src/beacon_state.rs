@@ -2,11 +2,11 @@ use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{validator_registry::get_active_validator_indices, *};
 use int_to_bytes::int_to_bytes32;
-use log::{debug, trace};
+use log::trace;
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{hash, SignedRoot, TreeHash};
+use ssz::{hash, ssz_encode, SignedRoot, TreeHash};
 use ssz_derive::{Decode, Encode, TreeHash};
 use std::collections::HashMap;
 use test_random_derive::TestRandom;
@@ -31,12 +31,14 @@ pub enum Error {
     UnableToShuffle,
     UnknownValidator,
     InvalidBitfield,
+    ValidatorIsWithdrawable,
     InsufficientRandaoMixes,
     InsufficientValidators,
     InsufficientBlockRoots,
     InsufficientIndexRoots,
     InsufficientAttestations,
     InsufficientCommittees,
+    InsufficientSlashedBalances,
     EpochCacheUninitialized(RelativeEpoch),
     PubkeyCacheInconsistent,
     PubkeyCacheIncomplete {
@@ -377,10 +379,37 @@ impl BeaconState {
         }
     }
 
+    /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
+    ///
+    /// # Errors:
+    ///
+    /// See `Self::get_randao_mix`.
+    ///
+    /// Spec v0.5.0
+    pub fn update_randao_mix(
+        &mut self,
+        epoch: Epoch,
+        signature: &Signature,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let i = epoch.as_usize() % spec.latest_randao_mixes_length;
+
+        let signature_hash = Hash256::from_slice(&hash(&ssz_encode(signature)));
+
+        self.latest_randao_mixes[i] = *self.get_randao_mix(epoch, spec)? ^ signature_hash;
+
+        Ok(())
+    }
+
     /// Return the randao mix at a recent ``epoch``.
     ///
-    /// Spec v0.4.0
-    pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Option<&Hash256> {
+    /// # Errors:
+    /// - `InsufficientRandaoMixes` if `self.latest_randao_mixes` is shorter than
+    /// `spec.latest_randao_mixes_length`.
+    /// - `EpochOutOfBounds` if the state no longer stores randao mixes for the given `epoch`.
+    ///
+    /// Spec v0.5.0
+    pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Result<&Hash256, Error> {
         let current_epoch = self.current_epoch(spec);
 
         if (current_epoch - (spec.latest_randao_mixes_length as u64) < epoch)
@@ -388,8 +417,9 @@ impl BeaconState {
         {
             self.latest_randao_mixes
                 .get(epoch.as_usize() % spec.latest_randao_mixes_length)
+                .ok_or_else(|| Error::InsufficientRandaoMixes)
         } else {
-            None
+            Err(Error::EpochOutOfBounds)
         }
     }
 
@@ -418,8 +448,7 @@ impl BeaconState {
     /// Spec v0.4.0
     pub fn generate_seed(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
         let mut input = self
-            .get_randao_mix(epoch - spec.min_seed_lookahead, spec)
-            .ok_or_else(|| Error::InsufficientRandaoMixes)?
+            .get_randao_mix(epoch - spec.min_seed_lookahead, spec)?
             .as_bytes()
             .to_vec();
 
@@ -601,7 +630,7 @@ impl BeaconState {
 
     /// Initiate an exit for the validator of the given `index`.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn initiate_validator_exit(&mut self, validator_index: usize) {
         self.validator_registry[validator_index].initiated_exit = true;
     }
@@ -622,7 +651,7 @@ impl BeaconState {
 
     /// Slash the validator with index ``index``.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn slash_validator(
         &mut self,
         validator_index: usize,
@@ -634,26 +663,27 @@ impl BeaconState {
             .validator_registry
             .get(validator_index)
             .ok_or_else(|| Error::UnknownValidator)?;
+        let effective_balance = self.get_effective_balance(validator_index, spec)?;
 
+        // A validator that is withdrawn cannot be slashed.
+        //
+        // This constraint will be lifted in Phase 0.
         if self.slot
             >= validator
                 .withdrawable_epoch
                 .start_slot(spec.slots_per_epoch)
         {
-            return Err(Error::SlotOutOfBounds);
+            return Err(Error::ValidatorIsWithdrawable);
         }
 
         self.exit_validator(validator_index, spec);
 
-        let effective_balance = self.get_effective_balance(validator_index, spec)?;
-
-        self.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length] +=
-            effective_balance;
+        self.increment_current_epoch_slashed_balances(effective_balance, spec)?;
 
         let whistleblower_index =
             self.get_beacon_proposer_index(self.slot, RelativeEpoch::Current, spec)?;
+        let whistleblower_reward = effective_balance / spec.whistleblower_reward_quotient;
 
-        let whistleblower_reward = effective_balance;
         safe_add_assign!(
             self.validator_balances[whistleblower_index as usize],
             whistleblower_reward
@@ -662,14 +692,31 @@ impl BeaconState {
             self.validator_balances[validator_index],
             whistleblower_reward
         );
+
         self.validator_registry[validator_index].slashed = true;
+
         self.validator_registry[validator_index].withdrawable_epoch =
             current_epoch + Epoch::from(spec.latest_slashed_exit_length);
 
-        debug!(
-            "Whistleblower {} penalized validator {}.",
-            whistleblower_index, validator_index
-        );
+        Ok(())
+    }
+
+    /// Increment `self.latest_slashed_balances` with a slashing from the current epoch.
+    ///
+    /// Spec v0.5.0.
+    fn increment_current_epoch_slashed_balances(
+        &mut self,
+        increment: u64,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let current_epoch = self.current_epoch(spec);
+
+        let slashed_balances_index = current_epoch.as_usize() % spec.latest_slashed_exit_length;
+        if slashed_balances_index >= self.latest_slashed_balances.len() {
+            return Err(Error::InsufficientSlashedBalances);
+        }
+
+        self.latest_slashed_balances[slashed_balances_index] += increment;
 
         Ok(())
     }
