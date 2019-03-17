@@ -72,8 +72,8 @@ fn per_block_processing_signature_optional(
     process_block_header(state, block, spec)?;
 
     // Ensure the current and previous epoch cache is built.
-    state.build_epoch_cache(RelativeEpoch::Current, spec)?;
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
+    state.build_epoch_cache(RelativeEpoch::Current, spec)?;
 
     if should_verify_block_signature {
         verify_block_signature(&state, &block, &spec)?;
@@ -94,7 +94,7 @@ fn per_block_processing_signature_optional(
 ///
 /// Spec v0.5.0
 pub fn process_block_header(
-    state: &BeaconState,
+    state: &mut BeaconState,
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

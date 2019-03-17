@@ -142,10 +142,8 @@ fn validate_attestation_signature_optional(
     );
 
     // Get the committee for the specific shard that this attestation is for.
-    let relative_epoch = RelativeEpoch::from_slot(state.slot, attestation.data.slot, spec)
-        .map_err(|_| BeaconStateError::EpochOutOfBounds)?; // Should not fail due to previous checks.
     let crosslink_committee = state
-        .get_crosslink_committees_at_slot(attestation.data.slot, relative_epoch, spec)?
+        .get_crosslink_committees_at_slot(attestation.data.slot, spec)?
         .iter()
         .find(|c| c.shard == attestation.data.shard)
         .ok_or_else(|| {

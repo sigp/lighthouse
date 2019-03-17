@@ -223,9 +223,8 @@ impl TestingBeaconStateBuilder {
         for slot in first_slot..last_slot + 1 {
             let slot = Slot::from(slot);
 
-            let relative_epoch = RelativeEpoch::from_slot(state.slot, slot, spec).unwrap();
             let committees = state
-                .get_crosslink_committees_at_slot(slot, relative_epoch, spec)
+                .get_crosslink_committees_at_slot(slot, spec)
                 .unwrap()
                 .clone();
 
