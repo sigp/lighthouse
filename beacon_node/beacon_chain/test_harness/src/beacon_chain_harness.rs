@@ -46,8 +46,8 @@ impl BeaconChainHarness {
             TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
         let (genesis_state, keypairs) = state_builder.build();
 
-        let state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
-        let genesis_block = BeaconBlock::genesis(state_root, &spec);
+        let mut genesis_block = BeaconBlock::empty(&spec);
+        genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
@@ -127,8 +127,8 @@ impl BeaconChainHarness {
             .get_crosslink_committees_at_slot(present_slot, &self.spec)
             .unwrap()
             .iter()
-            .fold(vec![], |mut acc, (committee, _slot)| {
-                acc.append(&mut committee.clone());
+            .fold(vec![], |mut acc, c| {
+                acc.append(&mut c.committee.clone());
                 acc
             });
         let attesting_validators: HashSet<usize> =
@@ -231,6 +231,27 @@ impl BeaconChainHarness {
             .get_domain(epoch, domain_type, &self.beacon_chain.state.read().fork);
 
         Some(Signature::new(message, domain, &validator.keypair.sk))
+    }
+
+    /// Returns the current `Fork` of the `beacon_chain`.
+    pub fn fork(&self) -> Fork {
+        self.beacon_chain.state.read().fork.clone()
+    }
+
+    /// Returns the current `epoch` of the `beacon_chain`.
+    pub fn epoch(&self) -> Epoch {
+        self.beacon_chain
+            .state
+            .read()
+            .slot
+            .epoch(self.spec.slots_per_epoch)
+    }
+
+    /// Returns the keypair for some validator index.
+    pub fn validator_keypair(&self, validator_index: usize) -> Option<&Keypair> {
+        self.validators
+            .get(validator_index)
+            .and_then(|v| Some(&v.keypair))
     }
 
     /// Submit a deposit to the `BeaconChain` and, if given a keypair, create a new
