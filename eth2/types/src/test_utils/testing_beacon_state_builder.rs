@@ -1,5 +1,4 @@
 use super::{generate_deterministic_keypairs, KeypairsFile};
-use crate::beacon_state::BeaconStateBuilder;
 use crate::test_utils::TestingPendingAttestationBuilder;
 use crate::*;
 use bls::get_withdrawal_credentials;
@@ -110,7 +109,8 @@ impl TestingBeaconStateBuilder {
                 Validator {
                     pubkey: keypair.pk.clone(),
                     withdrawal_credentials,
-                    activation_epoch: spec.far_future_epoch,
+                    // All validators start active.
+                    activation_epoch: spec.genesis_epoch,
                     exit_epoch: spec.far_future_epoch,
                     withdrawable_epoch: spec.far_future_epoch,
                     initiated_exit: false,
@@ -119,7 +119,7 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
-        let mut state_builder = BeaconStateBuilder::new(
+        let mut state = BeaconState::genesis(
             0,
             Eth1Data {
                 deposit_root: Hash256::zero(),
@@ -131,14 +131,8 @@ impl TestingBeaconStateBuilder {
         let balances = vec![32_000_000_000; validator_count];
 
         debug!("Importing {} existing validators...", validator_count);
-        state_builder.import_existing_validators(
-            validators,
-            balances,
-            validator_count as u64,
-            spec,
-        );
-
-        let state = state_builder.build(spec).unwrap();
+        state.validator_registry = validators;
+        state.validator_balances = balances;
 
         debug!("BeaconState built.");
 
