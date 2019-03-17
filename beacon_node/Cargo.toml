@@ -5,6 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [dependencies]
+types = { path = "../eth2/types" }
 client = { path = "client" }
 version = { path = "version" }
 clap = "2.32.0"

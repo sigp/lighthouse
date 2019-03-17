@@ -7,6 +7,7 @@ use std::fs;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use types::multiaddr::Protocol;
 use types::multiaddr::ToMultiaddr;
 use types::ChainSpec;
 
@@ -62,6 +63,11 @@ impl ClientConfig {
         if let Some(port_str) = args.value_of("port") {
             if let Ok(port) = port_str.parse::<u16>() {
                 config.net_conf.listen_port = port;
+                // update the listening multiaddrs
+                for address in &mut config.net_conf.listen_addresses {
+                    address.pop();
+                    address.append(Protocol::Tcp(port));
+                }
             } else {
                 error!(log, "Invalid port"; "port" => port_str);
                 return Err("Invalid port");
