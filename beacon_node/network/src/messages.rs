@@ -1,11 +1,11 @@
 use libp2p::PeerId;
-use libp2p::{HelloMessage, RpcEvent};
+use libp2p::{HelloMessage, RPCEvent};
 use types::{Hash256, Slot};
 
 /// Messages between nodes across the network.
 #[derive(Debug, Clone)]
 pub enum NodeMessage {
-    RPC(RpcEvent),
+    RPC(RPCEvent),
     BlockRequest,
     // TODO: only for testing - remove
     Message(String),

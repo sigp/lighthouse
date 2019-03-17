@@ -13,8 +13,7 @@ pub use libp2p::{
     PeerId,
 };
 pub use network_config::NetworkConfig;
-pub use rpc::HelloMessage;
-pub use rpc::RpcEvent;
+pub use rpc::{HelloMessage, RPCEvent};
 pub use service::Libp2pEvent;
 pub use service::Service;
 pub use types::multiaddr;

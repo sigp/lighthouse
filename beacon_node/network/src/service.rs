@@ -108,6 +108,12 @@ fn network_service(
                         .send(HandlerMessage::RPC(rpc_event))
                         .map_err(|_| "failed to send rpc to handler");
                 }
+                Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id)))) => {
+                    debug!(libp2p_service.log, "Peer Dialed: {:?}", peer_id);
+                    message_handler_send
+                        .send(HandlerMessage::PeerDialed(peer_id))
+                        .map_err(|_| "failed to send rpc to handler");
+                }
                 Ok(Async::Ready(Some(Libp2pEvent::Message(m)))) => debug!(
                     libp2p_service.log,
                     "Network Service: Message received: {}", m

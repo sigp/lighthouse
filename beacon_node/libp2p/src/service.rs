@@ -1,7 +1,7 @@
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::error;
 use crate::multiaddr::Protocol;
-use crate::rpc::RpcEvent;
+use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
 use futures::prelude::*;
 use futures::Stream;
@@ -41,7 +41,7 @@ impl Service {
             // Set up the transport
             let transport = build_transport(local_private_key);
             // Set up gossipsub routing
-            let behaviour = Behaviour::new(local_peer_id.clone(), config.gs_config);
+            let behaviour = Behaviour::new(local_peer_id.clone(), config.gs_config, &log);
             // Set up Topology
             let topology = local_peer_id.clone();
             Swarm::new(transport, behaviour, topology)
@@ -108,6 +108,9 @@ impl Stream for Service {
                 Ok(Async::Ready(Some(BehaviourEvent::RPC(event)))) => {
                     return Ok(Async::Ready(Some(Libp2pEvent::RPC(event))));
                 }
+                Ok(Async::Ready(Some(BehaviourEvent::PeerDialed(peer_id)))) => {
+                    return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
+                }
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
                 _ => break,
@@ -155,6 +158,7 @@ fn build_transport(
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent {
     // We have received an RPC event on the swarm
-    RPC(RpcEvent),
+    RPC(RPCEvent),
+    PeerDialed(PeerId),
     Message(String),
 }

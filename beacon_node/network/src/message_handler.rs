@@ -4,30 +4,37 @@ use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use futures::future;
 use futures::prelude::*;
 use libp2p::rpc;
-use libp2p::{PeerId, RpcEvent};
+use libp2p::{PeerId, RPCEvent};
 use slog::debug;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use sync::SimpleSync;
 use types::Hash256;
+
+/// Timeout for establishing a HELLO handshake.
+const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
 pub struct MessageHandler {
     sync: SimpleSync,
     //TODO: Implement beacon chain
     //chain: BeaconChain
+    /// A mapping of peers we have sent a HELLO rpc request to
+    hello_requests: HashMap<PeerId, Instant>,
     log: slog::Logger,
 }
 
 /// Types of messages the handler can receive.
 #[derive(Debug, Clone)]
 pub enum HandlerMessage {
-    /// Peer has connected.
-    PeerConnected(PeerId),
+    /// We have initiated a connection to a new peer.
+    PeerDialed(PeerId),
     /// Peer has disconnected,
     PeerDisconnected(PeerId),
     /// A Node message has been received.
     Message(PeerId, NodeMessage),
     /// An RPC response/request has been received.
-    RPC(RpcEvent),
+    RPC(RPCEvent),
 }
 
 impl MessageHandler {
@@ -49,6 +56,7 @@ impl MessageHandler {
         //TODO: Initialise beacon chain
         let mut handler = MessageHandler {
             sync,
+            hello_requests: HashMap::new(),
             log: log.clone(),
         };
 

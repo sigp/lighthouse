@@ -12,7 +12,8 @@ use libp2p::core::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
-pub use protocol::{RPCProtocol, RpcEvent};
+pub use protocol::{RPCEvent, RPCProtocol};
+use slog::{debug, o, Logger};
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -21,22 +22,26 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct Rpc<TSubstream> {
     /// Queue of events to processed.
-    events: Vec<NetworkBehaviourAction<RpcEvent, RpcEvent>>,
+    events: Vec<NetworkBehaviourAction<RPCEvent, RPCMessage>>,
     /// Pins the generic substream.
     marker: PhantomData<TSubstream>,
+    /// Slog logger for RPC behaviour.
+    log: slog::Logger,
 }
 
 impl<TSubstream> Rpc<TSubstream> {
-    pub fn new() -> Self {
+    pub fn new(log: &slog::Logger) -> Self {
+        let log = log.new(o!("Service" => "Libp2p-RPC"));
         Rpc {
             events: Vec::new(),
             marker: PhantomData,
+            log,
         }
     }
 
     /// Submits and RPC request.
     pub fn send_request(&mut self, peer_id: PeerId, id: u64, method_id: u16, body: RPCRequest) {
-        let request = RpcEvent::Request {
+        let request = RPCEvent::Request {
             id,
             method_id,
             body,
@@ -52,8 +57,8 @@ impl<TSubstream> NetworkBehaviour for Rpc<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
-    type ProtocolsHandler = OneShotHandler<TSubstream, RPCProtocol, RpcEvent, OneShotEvent>;
-    type OutEvent = RpcEvent;
+    type ProtocolsHandler = OneShotHandler<TSubstream, RPCProtocol, RPCEvent, OneShotEvent>;
+    type OutEvent = RPCMessage;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         Default::default()
@@ -63,7 +68,14 @@ where
         Vec::new()
     }
 
-    fn inject_connected(&mut self, _: PeerId, _: ConnectedPoint) {}
+    fn inject_connected(&mut self, peer_id: PeerId, connected_point: ConnectedPoint) {
+        // if initialised the connection, report this upwards to send the HELLO request
+        if let ConnectedPoint::Dialer { address } = connected_point {
+            self.events.push(NetworkBehaviourAction::GenerateEvent(
+                RPCMessage::PeerDialed(peer_id),
+            ));
+        }
+    }
 
     fn inject_disconnected(&mut self, _: &PeerId, _: ConnectedPoint) {}
 
@@ -80,7 +92,9 @@ where
 
         // send the event to the user
         self.events
-            .push(NetworkBehaviourAction::GenerateEvent(event));
+            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage::RPC(
+                event,
+            )));
     }
 
     fn poll(
@@ -99,18 +113,24 @@ where
     }
 }
 
-/// Transmission between the `OneShotHandler` and the `RpcEvent`.
+/// Messages sent to the user from the RPC protocol.
+pub enum RPCMessage {
+    RPC(RPCEvent),
+    PeerDialed(PeerId),
+}
+
+/// Transmission between the `OneShotHandler` and the `RPCEvent`.
 #[derive(Debug)]
 pub enum OneShotEvent {
     /// We received an RPC from a remote.
-    Rx(RpcEvent),
+    Rx(RPCEvent),
     /// We successfully sent an RPC request.
     Sent,
 }
 
-impl From<RpcEvent> for OneShotEvent {
+impl From<RPCEvent> for OneShotEvent {
     #[inline]
-    fn from(rpc: RpcEvent) -> OneShotEvent {
+    fn from(rpc: RPCEvent) -> OneShotEvent {
         OneShotEvent::Rx(rpc)
     }
 }
