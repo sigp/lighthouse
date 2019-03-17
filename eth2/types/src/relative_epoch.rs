@@ -74,3 +74,61 @@ impl RelativeEpoch {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_into_epoch() {
+        let base = Epoch::new(10);
+
+        assert_eq!(RelativeEpoch::Current.into_epoch(base), base);
+        assert_eq!(RelativeEpoch::Previous.into_epoch(base), base - 1);
+        assert_eq!(
+            RelativeEpoch::NextWithRegistryChange.into_epoch(base),
+            base + 1
+        );
+        assert_eq!(
+            RelativeEpoch::NextWithoutRegistryChange.into_epoch(base),
+            base + 1
+        );
+    }
+
+    #[test]
+    fn from_epoch() {
+        let base = Epoch::new(10);
+
+        assert_eq!(
+            RelativeEpoch::from_epoch(base, base - 1),
+            Ok(RelativeEpoch::Previous)
+        );
+        assert_eq!(
+            RelativeEpoch::from_epoch(base, base),
+            Ok(RelativeEpoch::Current)
+        );
+        assert_eq!(
+            RelativeEpoch::from_epoch(base, base + 1),
+            Err(RelativeEpochError::AmbiguiousNextEpoch)
+        );
+    }
+
+    #[test]
+    fn from_slot() {
+        let spec = ChainSpec::foundation();
+        let base = Epoch::new(10).start_slot(spec.slots_per_epoch);
+
+        assert_eq!(
+            RelativeEpoch::from_slot(base, base - 1, &spec),
+            Ok(RelativeEpoch::Previous)
+        );
+        assert_eq!(
+            RelativeEpoch::from_slot(base, base, &spec),
+            Ok(RelativeEpoch::Current)
+        );
+        assert_eq!(
+            RelativeEpoch::from_slot(base, base + spec.slots_per_epoch, &spec),
+            Err(RelativeEpochError::AmbiguiousNextEpoch)
+        );
+    }
+}

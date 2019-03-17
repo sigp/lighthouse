@@ -279,7 +279,9 @@ impl BeaconState {
     fn cache(&self, relative_epoch: RelativeEpoch, spec: &ChainSpec) -> Result<&EpochCache, Error> {
         let cache = &self.caches[self.cache_index(relative_epoch)];
 
-        if cache.initialized_epoch == Some(self.slot.epoch(spec.slots_per_epoch)) {
+        let epoch = relative_epoch.into_epoch(self.slot.epoch(spec.slots_per_epoch));
+
+        if cache.initialized_epoch == Some(epoch) {
             Ok(cache)
         } else {
             Err(Error::EpochCacheUninitialized(relative_epoch))

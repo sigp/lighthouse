@@ -159,7 +159,7 @@ impl EpochCrosslinkCommittees {
         let epoch_start_slot = self.epoch.start_slot(spec.slots_per_epoch);
         let epoch_end_slot = self.epoch.end_slot(spec.slots_per_epoch);
 
-        if (epoch_start_slot < slot) && (slot <= epoch_end_slot) {
+        if (epoch_start_slot <= slot) && (slot <= epoch_end_slot) {
             let index = slot - epoch_start_slot;
             self.crosslink_committees.get(index.as_usize())
         } else {
