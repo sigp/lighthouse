@@ -5,6 +5,7 @@ use helpers::*;
 use honey_badger_split::SplitExt;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
+use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{hash, Decodable, DecodeError, Encodable, SignedRoot, SszStream, TreeHash};
@@ -16,6 +17,7 @@ pub use builder::BeaconStateBuilder;
 mod builder;
 mod epoch_cache;
 pub mod helpers;
+mod pubkey_cache;
 mod tests;
 
 pub type Committee = Vec<usize>;
@@ -52,6 +54,11 @@ pub enum Error {
     InsufficientAttestations,
     InsufficientCommittees,
     EpochCacheUninitialized(RelativeEpoch),
+    PubkeyCacheInconsistent,
+    PubkeyCacheIncomplete {
+        cache_len: usize,
+        registry_len: usize,
+    },
 }
 
 macro_rules! safe_add_assign {
@@ -108,6 +115,7 @@ pub struct BeaconState {
     // Caching (not in the spec)
     pub cache_index_offset: usize,
     pub caches: Vec<EpochCache>,
+    pub pubkey_cache: PubkeyCache,
 }
 
 impl BeaconState {
@@ -186,6 +194,7 @@ impl BeaconState {
              */
             cache_index_offset: 0,
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
+            pubkey_cache: PubkeyCache::empty(),
         }
     }
 
@@ -290,6 +299,46 @@ impl BeaconState {
             Ok(cache)
         } else {
             Err(Error::EpochCacheUninitialized(relative_epoch))
+        }
+    }
+
+    /// Updates the pubkey cache, if required.
+    ///
+    /// Adds all `pubkeys` from the `validator_registry` which are not already in the cache. Will
+    /// never re-add a pubkey.
+    pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
+        for (i, validator) in self
+            .validator_registry
+            .iter()
+            .enumerate()
+            .skip(self.pubkey_cache.len())
+        {
+            let success = self.pubkey_cache.insert(validator.pubkey.clone(), i);
+            if !success {
+                return Err(Error::PubkeyCacheInconsistent);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Completely drops the `pubkey_cache`, replacing it with a new, empty cache.
+    pub fn drop_pubkey_cache(&mut self) {
+        self.pubkey_cache = PubkeyCache::empty()
+    }
+
+    /// If a validator pubkey exists in the validator registry, returns `Some(i)`, otherwise
+    /// returns `None`.
+    ///
+    /// Requires a fully up-to-date `pubkey_cache`, returns an error if this is not the case.
+    pub fn get_validator_index(&self, pubkey: &PublicKey) -> Result<Option<usize>, Error> {
+        if self.pubkey_cache.len() == self.validator_registry.len() {
+            Ok(self.pubkey_cache.get(pubkey))
+        } else {
+            Err(Error::PubkeyCacheIncomplete {
+                cache_len: self.pubkey_cache.len(),
+                registry_len: self.validator_registry.len(),
+            })
         }
     }
 
@@ -1188,6 +1237,7 @@ impl Decodable for BeaconState {
                 deposit_index,
                 cache_index_offset: 0,
                 caches: vec![EpochCache::empty(); CACHED_EPOCHS],
+                pubkey_cache: PubkeyCache::empty(),
             },
             i,
         ))
@@ -1258,6 +1308,7 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             deposit_index: <_>::random_for_test(rng),
             cache_index_offset: 0,
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
+            pubkey_cache: PubkeyCache::empty(),
         }
     }
 }

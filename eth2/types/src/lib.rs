@@ -1,3 +1,5 @@
+//! Ethereum 2.0 types
+
 #[macro_use]
 pub mod test_utils;
 

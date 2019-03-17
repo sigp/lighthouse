@@ -426,6 +426,23 @@ fn bench_block_processing(
         .sample_size(10),
     );
 
+    let mut state = initial_state.clone();
+    state.drop_pubkey_cache();
+    c.bench(
+        &format!("{}/block_processing", desc),
+        Benchmark::new("build_pubkey_cache", move |b| {
+            b.iter_batched(
+                || state.clone(),
+                |mut state| {
+                    state.update_pubkey_cache().unwrap();
+                    state
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
     let block = initial_block.clone();
     c.bench(
         &format!("{}/block_processing", desc),
