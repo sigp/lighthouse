@@ -90,6 +90,8 @@ fn test_yaml_vectors(
     let randao_reveal = Signature::empty_signature();
     let signature = Signature::empty_signature();
     let body = BeaconBlockBody {
+        eth1_data,
+        randao_reveal,
         proposer_slashings: vec![],
         attester_slashings: vec![],
         attestations: vec![],
@@ -117,14 +119,14 @@ fn test_yaml_vectors(
             // default params for genesis
             let block_hash = id_to_hash(&block_id);
             let mut slot = spec.genesis_slot;
-            let parent_root = id_to_hash(&parent_id);
+            let previous_block_root = id_to_hash(&parent_id);
 
             // set the slot and parent based off the YAML. Start with genesis;
             // if not the genesis, update slot
             if parent_id != block_id {
                 // find parent slot
                 slot = *(block_slot
-                    .get(&parent_root)
+                    .get(&previous_block_root)
                     .expect("Parent should have a slot number"))
                     + 1;
             } else {
@@ -137,10 +139,8 @@ fn test_yaml_vectors(
             // build the BeaconBlock
             let beacon_block = BeaconBlock {
                 slot,
-                parent_root,
+                previous_block_root,
                 state_root: state_root.clone(),
-                randao_reveal: randao_reveal.clone(),
-                eth1_data: eth1_data.clone(),
                 signature: signature.clone(),
                 body: body.clone(),
             };
