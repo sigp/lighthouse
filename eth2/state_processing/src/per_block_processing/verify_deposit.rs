@@ -3,10 +3,7 @@ use hashing::hash;
 use merkle_proof::verify_merkle_proof;
 use ssz::ssz_encode;
 use ssz_derive::Encode;
-use std::collections::HashMap;
 use types::*;
-
-pub type PublicKeyValidatorIndexHashmap = HashMap<PublicKey, u64>;
 
 /// Indicates if a `Deposit` is valid to be included in a block in the current epoch of the given
 /// state.

@@ -134,7 +134,7 @@ impl TestingBeaconStateBuilder {
         state.validator_registry = validators;
         state.validator_balances = balances;
 
-        debug!("BeaconState built.");
+        debug!("BeaconState initialized.");
 
         Self { state, keypairs }
     }

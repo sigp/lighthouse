@@ -7,7 +7,6 @@ use swap_or_not_shuffle::shuffle_list;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     UnableToShuffle,
-    NoValidators { epoch: Epoch },
     UnableToGenerateSeed,
 }
 
@@ -259,17 +258,19 @@ impl EpochCrosslinkCommitteesBuilder {
     }
 
     pub fn build(self, spec: &ChainSpec) -> Result<EpochCrosslinkCommittees, Error> {
-        if self.active_validator_indices.is_empty() {
-            return Err(Error::NoValidators { epoch: self.epoch });
-        }
-
-        let shuffled_active_validator_indices = shuffle_list(
-            self.active_validator_indices,
-            spec.shuffle_round_count,
-            &self.shuffling_seed[..],
-            true,
-        )
-        .ok_or_else(|| Error::UnableToShuffle)?;
+        // The shuffler fails on a empty list, so if there are no active validator indices, simply
+        // return an empty list.
+        let shuffled_active_validator_indices = if self.active_validator_indices.is_empty() {
+            vec![]
+        } else {
+            shuffle_list(
+                self.active_validator_indices,
+                spec.shuffle_round_count,
+                &self.shuffling_seed[..],
+                true,
+            )
+            .ok_or_else(|| Error::UnableToShuffle)?
+        };
 
         let mut committees: Vec<Vec<usize>> = shuffled_active_validator_indices
             .honey_badger_split(self.committees_per_epoch as usize)
