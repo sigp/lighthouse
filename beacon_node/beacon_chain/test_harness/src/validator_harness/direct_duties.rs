@@ -9,7 +9,7 @@ use db::ClientDB;
 use fork_choice::ForkChoice;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{PublicKey, Slot};
+use types::{Fork, PublicKey, Slot};
 
 /// Connects directly to a borrowed `BeaconChain` and reads attester/proposer duties directly from
 /// it.
@@ -39,6 +39,10 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> ProducerDutiesReader for DirectDu
             Ok(_) => Ok(false),
             Err(_) => Err(ProducerDutiesReaderError::UnknownEpoch),
         }
+    }
+
+    fn fork(&self) -> Result<Fork, ProducerDutiesReaderError> {
+        Ok(self.beacon_chain.state.read().fork.clone())
     }
 }
 

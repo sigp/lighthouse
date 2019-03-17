@@ -17,6 +17,12 @@ where
     fn random_for_test(rng: &mut T) -> Self;
 }
 
+impl<T: RngCore> TestRandom<T> for bool {
+    fn random_for_test(rng: &mut T) -> Self {
+        (rng.next_u32() % 2) == 1
+    }
+}
+
 impl<T: RngCore> TestRandom<T> for u64 {
     fn random_for_test(rng: &mut T) -> Self {
         rng.next_u64()

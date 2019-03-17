@@ -1,5 +1,5 @@
+//! The optimised bitwise LMD-GHOST fork choice rule.
 extern crate bit_vec;
-extern crate fast_math;
 
 use crate::{ForkChoice, ForkChoiceError};
 use bit_vec::BitVec;
@@ -7,7 +7,6 @@ use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     ClientDB,
 };
-use fast_math::log2_raw;
 use log::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,33 +18,28 @@ use types::{
 //TODO: Pruning - Children
 //TODO: Handle Syncing
 
-/// The optimised bitwise LMD-GHOST fork choice rule.
-/// NOTE: This uses u32 to represent difference between block heights. Thus this is only
-/// applicable for block height differences in the range of a u32.
-/// This can potentially be parallelized in some parts.
-// we use fast log2, a log2 lookup table is implemented in Vitaliks code, potentially do
-// the comparison. Log2_raw takes 2ns according to the documentation.
+// NOTE: This uses u32 to represent difference between block heights. Thus this is only
+// applicable for block height differences in the range of a u32.
+// This can potentially be parallelized in some parts.
+
+/// Compute the base-2 logarithm of an integer, floored (rounded down)
 #[inline]
-fn log2_int(x: u32) -> u32 {
+fn log2_int(x: u64) -> u32 {
     if x == 0 {
         return 0;
     }
-    assert!(
-        x <= std::f32::MAX as u32,
-        "Height too large for fast log in bitwise fork choice"
-    );
-    log2_raw(x as f32) as u32
+    63 - x.leading_zeros()
 }
 
-fn power_of_2_below(x: u32) -> u32 {
-    2u32.pow(log2_int(x))
+fn power_of_2_below(x: u64) -> u64 {
+    2u64.pow(log2_int(x))
 }
 
 /// Stores the necessary data structures to run the optimised bitwise lmd ghost algorithm.
 pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
-    cache: HashMap<CacheKey<u32>, Hash256>,
+    cache: HashMap<CacheKey<u64>, Hash256>,
     /// Log lookup table for blocks to their ancestors.
     //TODO: Verify we only want/need a size 16 log lookup
     ancestors: Vec<HashMap<Hash256, Hash256>>,
@@ -101,7 +95,7 @@ where
 
         let active_validator_indices = get_active_validator_indices(
             &current_state.validator_registry[..],
-            block_slot.epoch(spec.epoch_length),
+            block_slot.epoch(spec.slots_per_epoch),
         );
 
         for index in active_validator_indices {
@@ -147,7 +141,7 @@ where
             }
         }
         // check if the result is stored in our cache
-        let cache_key = CacheKey::new(&block_hash, target_height.as_u32());
+        let cache_key = CacheKey::new(&block_hash, target_height.as_u64());
         if let Some(ancestor) = self.cache.get(&cache_key) {
             return Some(*ancestor);
         }
@@ -155,7 +149,7 @@ where
         // not in the cache recursively search for ancestors using a log-lookup
         if let Some(ancestor) = {
             let ancestor_lookup = self.ancestors
-                [log2_int((block_height - target_height - 1u64).as_u32()) as usize]
+                [log2_int((block_height - target_height - 1u64).as_u64()) as usize]
                 .get(&block_hash)
                 //TODO: Panic if we can't lookup and fork choice fails
                 .expect("All blocks should be added to the ancestor log lookup table");
@@ -192,7 +186,7 @@ where
         }
         // Check if there is a clear block winner at this height. If so return it.
         for (hash, votes) in current_votes.iter() {
-            if *votes >= total_vote_count / 2 {
+            if *votes > total_vote_count / 2 {
                 // we have a clear winner, return it
                 return Some(*hash);
             }
@@ -216,7 +210,7 @@ where
 
             trace!("Child vote length: {}", votes.len());
             for (candidate, votes) in votes.iter() {
-                let candidate_bit: BitVec = BitVec::from_bytes(&candidate);
+                let candidate_bit: BitVec = BitVec::from_bytes(candidate.as_bytes());
 
                 // if the bitmasks don't match, exclude candidate
                 if !bitmask.iter().eq(candidate_bit.iter().take(bit)) {
@@ -371,18 +365,21 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
             // if there are no children, we are done, return the current_head
             let children = match self.children.get(&current_head) {
                 Some(children) => children.clone(),
-                None => return Ok(current_head),
+                None => {
+                    debug!("Head found: {}", current_head);
+                    return Ok(current_head);
+                }
             };
 
             // logarithmic lookup blocks to see if there are obvious winners, if so,
             // progress to the next iteration.
             let mut step =
-                power_of_2_below(self.max_known_height.saturating_sub(block_height).as_u32()) / 2;
+                power_of_2_below(self.max_known_height.saturating_sub(block_height).as_u64()) / 2;
             while step > 0 {
                 trace!("Current Step: {}", step);
                 if let Some(clear_winner) = self.get_clear_winner(
                     &latest_votes,
-                    block_height - (block_height % u64::from(step)) + u64::from(step),
+                    block_height - (block_height % step) + step,
                     spec,
                 ) {
                     current_head = clear_winner;
@@ -391,7 +388,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 step /= 2;
             }
             if step > 0 {
-                trace!("Found clear winner in log lookup");
+                trace!("Found clear winner: {}", current_head);
             }
             // if our skip lookup failed and we only have one child, progress to that child
             else if children.len() == 1 {
@@ -466,7 +463,6 @@ mod tests {
 
     #[test]
     pub fn test_power_of_2_below() {
-        println!("{:?}", std::f32::MAX);
         assert_eq!(power_of_2_below(4), 4);
         assert_eq!(power_of_2_below(5), 4);
         assert_eq!(power_of_2_below(7), 4);
@@ -474,5 +470,13 @@ mod tests {
         assert_eq!(power_of_2_below(32), 32);
         assert_eq!(power_of_2_below(33), 32);
         assert_eq!(power_of_2_below(63), 32);
+    }
+
+    #[test]
+    pub fn test_power_of_2_below_large() {
+        let pow: u64 = 1 << 24;
+        for x in (pow - 20)..(pow + 20) {
+            assert!(power_of_2_below(x) <= x, "{}", x);
+        }
     }
 }

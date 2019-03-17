@@ -2,48 +2,25 @@ use crate::test_utils::TestRandom;
 use crate::{Epoch, Hash256};
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, TreeHash};
-use ssz_derive::{Decode, Encode};
+use ssz_derive::{Decode, Encode, TreeHash};
+use test_random_derive::TestRandom;
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode)]
+/// Specifies the block hash for a shard at an epoch.
+///
+/// Spec v0.4.0
+#[derive(
+    Debug, Clone, PartialEq, Default, Serialize, Hash, Encode, Decode, TreeHash, TestRandom,
+)]
 pub struct Crosslink {
     pub epoch: Epoch,
-    pub shard_block_root: Hash256,
-}
-
-impl Crosslink {
-    /// Generates a new instance where `dynasty` and `hash` are both zero.
-    pub fn zero() -> Self {
-        Self {
-            epoch: Epoch::new(0),
-            shard_block_root: Hash256::zero(),
-        }
-    }
-}
-
-impl TreeHash for Crosslink {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-        result.append(&mut self.epoch.hash_tree_root_internal());
-        result.append(&mut self.shard_block_root.hash_tree_root_internal());
-        hash(&result)
-    }
-}
-
-impl<T: RngCore> TestRandom<T> for Crosslink {
-    fn random_for_test(rng: &mut T) -> Self {
-        Self {
-            epoch: <_>::random_for_test(rng),
-            shard_block_root: <_>::random_for_test(rng),
-        }
-    }
+    pub crosslink_data_root: Hash256,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable};
+    use ssz::{ssz_encode, Decodable, TreeHash};
 
     #[test]
     pub fn test_ssz_round_trip() {

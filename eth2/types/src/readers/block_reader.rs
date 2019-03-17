@@ -13,7 +13,6 @@ pub trait BeaconBlockReader: Debug + PartialEq {
     fn slot(&self) -> Slot;
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
-    fn canonical_root(&self) -> Hash256;
     fn into_beacon_block(self) -> Option<BeaconBlock>;
 }
 
@@ -28,10 +27,6 @@ impl BeaconBlockReader for BeaconBlock {
 
     fn state_root(&self) -> Hash256 {
         self.state_root
-    }
-
-    fn canonical_root(&self) -> Hash256 {
-        self.canonical_root()
     }
 
     fn into_beacon_block(self) -> Option<BeaconBlock> {
