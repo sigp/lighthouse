@@ -20,7 +20,7 @@ use ssz::TreeHash;
 use std::sync::Arc;
 use types::{
     beacon_state::BeaconStateBuilder, BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput,
-    Domain, Eth1Data, Fork, Hash256, Keypair,
+    Eth1Data, Fork, Hash256, Keypair,
 };
 
 fn main() {
@@ -103,35 +103,36 @@ fn main() {
 
     let initial_validator_deposits: Vec<Deposit> = keypairs
         .iter()
-        .map(|keypair| Deposit {
-            branch: vec![], // branch verification is not specified.
-            index: 0,       // index verification is not specified.
-            deposit_data: DepositData {
-                amount: 32_000_000_000, // 32 ETH (in Gwei)
-                timestamp: genesis_time - 1,
-                deposit_input: DepositInput {
-                    pubkey: keypair.pk.clone(),
-                    withdrawal_credentials: Hash256::zero(), // Withdrawal not possible.
-                    proof_of_possession: DepositInput::create_proof_of_possession(
-                        &keypair,
-                        &Hash256::zero(),
-                        spec.get_domain(
-                            // Get domain from genesis fork_version
-                            spec.genesis_epoch,
-                            Domain::Deposit,
-                            &Fork::genesis(&spec),
-                        ),
-                    ),
+        .map(|keypair| {
+            let mut deposit_input = DepositInput {
+                pubkey: keypair.pk.clone(),
+                withdrawal_credentials: Hash256::zero(),
+                proof_of_possession: spec.empty_signature.clone(),
+            };
+            deposit_input.proof_of_possession = deposit_input.create_proof_of_possession(
+                &keypair.sk,
+                spec.genesis_epoch,
+                &Fork::genesis(&spec),
+                &spec,
+            );
+
+            Deposit {
+                proof: vec![], // branch verification is not specified.
+                index: 0,      // index verification is not specified.
+                deposit_data: DepositData {
+                    amount: 32_000_000_000, // 32 ETH (in Gwei)
+                    timestamp: genesis_time - 1,
+                    deposit_input,
                 },
-            },
+            }
         })
         .collect();
 
     let mut state_builder = BeaconStateBuilder::new(genesis_time, latest_eth1_data, &spec);
     state_builder.process_initial_deposits(&initial_validator_deposits, &spec);
     let genesis_state = state_builder.build(&spec).unwrap();
-    let state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
-    let genesis_block = BeaconBlock::genesis(state_root, &spec);
+    let mut genesis_block = BeaconBlock::empty(&spec);
+    genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
 
     // Genesis chain
     let _chain_result = BeaconChain::from_genesis(
