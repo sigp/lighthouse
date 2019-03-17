@@ -18,10 +18,8 @@ use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use ssz::TreeHash;
 use std::sync::Arc;
-use types::{
-    beacon_state::BeaconStateBuilder, BeaconBlock, ChainSpec, Deposit, DepositData, DepositInput,
-    Eth1Data, Fork, Hash256, Keypair,
-};
+use types::test_utils::TestingBeaconStateBuilder;
+use types::*;
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -79,60 +77,17 @@ fn main() {
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
+    let state_builder = TestingBeaconStateBuilder::from_deterministic_keypairs(8, &spec);
+    let (genesis_state, _keypairs) = state_builder.build();
+
+    let mut genesis_block = BeaconBlock::empty(&spec);
+    genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+
     // Slot clock
-    let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
-    let slot_clock = SystemTimeSlotClock::new(genesis_time, spec.seconds_per_slot)
+    let slot_clock = SystemTimeSlotClock::new(genesis_state.genesis_time, spec.seconds_per_slot)
         .expect("Unable to load SystemTimeSlotClock");
     // Choose the fork choice
     let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
-
-    /*
-     * Generate some random data to start a chain with.
-     *
-     * This is will need to be replace for production usage.
-     */
-    let latest_eth1_data = Eth1Data {
-        deposit_root: Hash256::zero(),
-        block_hash: Hash256::zero(),
-    };
-    let keypairs: Vec<Keypair> = (0..10)
-        .collect::<Vec<usize>>()
-        .iter()
-        .map(|_| Keypair::random())
-        .collect();
-
-    let initial_validator_deposits: Vec<Deposit> = keypairs
-        .iter()
-        .map(|keypair| {
-            let mut deposit_input = DepositInput {
-                pubkey: keypair.pk.clone(),
-                withdrawal_credentials: Hash256::zero(),
-                proof_of_possession: spec.empty_signature.clone(),
-            };
-            deposit_input.proof_of_possession = deposit_input.create_proof_of_possession(
-                &keypair.sk,
-                spec.genesis_epoch,
-                &Fork::genesis(&spec),
-                &spec,
-            );
-
-            Deposit {
-                proof: vec![], // branch verification is not specified.
-                index: 0,      // index verification is not specified.
-                deposit_data: DepositData {
-                    amount: 32_000_000_000, // 32 ETH (in Gwei)
-                    timestamp: genesis_time - 1,
-                    deposit_input,
-                },
-            }
-        })
-        .collect();
-
-    let mut state_builder = BeaconStateBuilder::new(genesis_time, latest_eth1_data, &spec);
-    state_builder.process_initial_deposits(&initial_validator_deposits, &spec);
-    let genesis_state = state_builder.build(&spec).unwrap();
-    let mut genesis_block = BeaconBlock::empty(&spec);
-    genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
 
     // Genesis chain
     let _chain_result = BeaconChain::from_genesis(

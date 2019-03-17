@@ -45,7 +45,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     process_rewards_and_penalities(state, &mut statuses, &winning_root_for_shards, spec)?;
 
     // Ejections
-    state.process_ejections(spec);
+    state.process_ejections(spec)?;
 
     // Validator Registry
     process_validator_registry(state, spec)?;
@@ -53,7 +53,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     // Final updates
     update_active_tree_index_roots(state, spec)?;
     update_latest_slashed_balances(state, spec);
-    clean_attestations(state, spec);
+    clean_attestations(state);
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
@@ -472,6 +472,6 @@ pub fn update_latest_slashed_balances(state: &mut BeaconState, spec: &ChainSpec)
 /// Removes all pending attestations from the previous epoch.
 ///
 /// Spec v0.4.0
-pub fn clean_attestations(state: &mut BeaconState, spec: &ChainSpec) {
+pub fn clean_attestations(state: &mut BeaconState) {
     state.previous_epoch_attestations = vec![];
 }

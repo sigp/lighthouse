@@ -4,6 +4,8 @@ use honey_badger_split::SplitExt;
 use serde_derive::{Deserialize, Serialize};
 use swap_or_not_shuffle::shuffle_list;
 
+mod tests;
+
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct EpochCache {
     /// `Some(epoch)` if the cache is initialized, where `epoch` is the cache it holds.
@@ -247,7 +249,7 @@ impl EpochCrosslinkCommitteesBuilder {
 
     pub fn build(self, spec: &ChainSpec) -> Result<EpochCrosslinkCommittees, BeaconStateError> {
         if self.active_validator_indices.is_empty() {
-            return Err(Error::InsufficientValidators);
+            return Err(Error::NoValidators);
         }
 
         let shuffled_active_validator_indices = shuffle_list(
@@ -277,7 +279,7 @@ impl EpochCrosslinkCommitteesBuilder {
                 let crosslink_committee = CrosslinkCommittee {
                     slot,
                     shard,
-                    committee: committees.remove(j),
+                    committee: committees[j].drain(..).collect(),
                 };
                 epoch_crosslink_committees.crosslink_committees[i].push(crosslink_committee);
 

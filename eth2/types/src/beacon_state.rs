@@ -10,9 +10,6 @@ use ssz_derive::{Decode, Encode, TreeHash};
 use std::collections::HashMap;
 use test_random_derive::TestRandom;
 
-pub use builder::BeaconStateBuilder;
-
-mod builder;
 mod epoch_cache;
 pub mod helpers;
 mod pubkey_cache;
@@ -32,7 +29,8 @@ pub enum Error {
     InvalidBitfield,
     ValidatorIsWithdrawable,
     InsufficientRandaoMixes,
-    InsufficientValidators,
+    NoValidators,
+    UnableToDetermineProducer,
     InsufficientBlockRoots,
     InsufficientIndexRoots,
     InsufficientAttestations,
@@ -534,7 +532,7 @@ impl BeaconState {
     ///
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_beacon_proposer_index(
         &self,
         slot: Slot,
@@ -547,14 +545,16 @@ impl BeaconState {
             .get_crosslink_committees_at_slot(slot, spec)
             .ok_or_else(|| Error::SlotOutOfBounds)?;
 
+        let epoch = slot.epoch(spec.slots_per_epoch);
+
         committees
             .first()
-            .ok_or(Error::InsufficientValidators)
+            .ok_or(Error::UnableToDetermineProducer)
             .and_then(|first| {
-                let index = slot
+                let index = epoch
                     .as_usize()
                     .checked_rem(first.committee.len())
-                    .ok_or(Error::InsufficientValidators)?;
+                    .ok_or(Error::UnableToDetermineProducer)?;
                 Ok(first.committee[index])
             })
     }
@@ -581,103 +581,9 @@ impl BeaconState {
         epoch + 1 + spec.activation_exit_delay
     }
 
-    /// Process multiple deposits in sequence.
-    ///
-    /// Builds a hashmap of validator pubkeys to validator index and passes it to each successive
-    /// call to `process_deposit(..)`. This requires much less computation than successive calls to
-    /// `process_deposits(..)` without the hashmap.
-    ///
-    /// Spec v0.4.0
-    pub fn process_deposits(
-        &mut self,
-        deposits: Vec<&DepositData>,
-        spec: &ChainSpec,
-    ) -> Vec<usize> {
-        let mut added_indices = vec![];
-        let mut pubkey_map: HashMap<PublicKey, usize> = HashMap::new();
-
-        for (i, validator) in self.validator_registry.iter().enumerate() {
-            pubkey_map.insert(validator.pubkey.clone(), i);
-        }
-
-        for deposit_data in deposits {
-            let result = self.process_deposit(
-                deposit_data.deposit_input.clone(),
-                deposit_data.amount,
-                Some(&pubkey_map),
-                spec,
-            );
-            if let Ok(index) = result {
-                added_indices.push(index);
-            }
-        }
-        added_indices
-    }
-
-    /// Process a validator deposit, returning the validator index if the deposit is valid.
-    ///
-    /// Optionally accepts a hashmap of all validator pubkeys to their validator index. Without
-    /// this hashmap, each call to `process_deposits` requires an iteration though
-    /// `self.validator_registry`. This becomes highly inefficient at scale.
-    ///
-    /// TODO: this function also exists in a more optimal form in the `state_processing` crate as
-    /// `process_deposits`; unify these two functions.
-    ///
-    /// Spec v0.4.0
-    pub fn process_deposit(
-        &mut self,
-        deposit_input: DepositInput,
-        amount: u64,
-        pubkey_map: Option<&HashMap<PublicKey, usize>>,
-        spec: &ChainSpec,
-    ) -> Result<usize, ()> {
-        let proof_is_valid = deposit_input.proof_of_possession.verify(
-            &deposit_input.signed_root(),
-            spec.get_domain(self.current_epoch(&spec), Domain::Deposit, &self.fork),
-            &deposit_input.pubkey,
-        );
-
-        if !proof_is_valid {
-            return Err(());
-        }
-
-        let pubkey = deposit_input.pubkey.clone();
-        let withdrawal_credentials = deposit_input.withdrawal_credentials.clone();
-
-        let validator_index = if let Some(pubkey_map) = pubkey_map {
-            pubkey_map.get(&pubkey).and_then(|i| Some(*i))
-        } else {
-            self.validator_registry
-                .iter()
-                .position(|v| v.pubkey == pubkey)
-        };
-
-        if let Some(index) = validator_index {
-            if self.validator_registry[index].withdrawal_credentials == withdrawal_credentials {
-                safe_add_assign!(self.validator_balances[index], amount);
-                Ok(index)
-            } else {
-                Err(())
-            }
-        } else {
-            let validator = Validator {
-                pubkey,
-                withdrawal_credentials,
-                activation_epoch: spec.far_future_epoch,
-                exit_epoch: spec.far_future_epoch,
-                withdrawable_epoch: spec.far_future_epoch,
-                initiated_exit: false,
-                slashed: false,
-            };
-            self.validator_registry.push(validator);
-            self.validator_balances.push(amount);
-            Ok(self.validator_registry.len() - 1)
-        }
-    }
-
     /// Activate the validator of the given ``index``.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn activate_validator(
         &mut self,
         validator_index: usize,
