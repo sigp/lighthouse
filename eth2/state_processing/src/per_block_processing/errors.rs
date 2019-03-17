@@ -67,6 +67,7 @@ impl_from_beacon_state_error!(BlockProcessingError);
 #[derive(Debug, PartialEq)]
 pub enum BlockInvalid {
     StateSlotMismatch,
+    ParentBlockRootMismatch,
     BadSignature,
     BadRandaoSignature,
     MaxAttestationsExceeded,
@@ -112,45 +113,53 @@ pub enum AttestationValidationError {
 #[derive(Debug, PartialEq)]
 pub enum AttestationInvalid {
     /// Attestation references a pre-genesis slot.
-    ///
-    /// (genesis_slot, attestation_slot)
-    PreGenesis(Slot, Slot),
+    PreGenesis { genesis: Slot, attestation: Slot },
     /// Attestation included before the inclusion delay.
-    ///
-    /// (state_slot, inclusion_delay, attestation_slot)
-    IncludedTooEarly(Slot, u64, Slot),
+    IncludedTooEarly {
+        state: Slot,
+        delay: u64,
+        attestation: Slot,
+    },
     /// Attestation slot is too far in the past to be included in a block.
-    ///
-    /// (state_slot, attestation_slot)
-    IncludedTooLate(Slot, Slot),
+    IncludedTooLate { state: Slot, attestation: Slot },
     /// Attestation justified epoch does not match the states current or previous justified epoch.
     ///
-    /// (attestation_justified_epoch, state_epoch, used_previous_epoch)
-    WrongJustifiedEpoch(Epoch, Epoch, bool),
+    /// `is_current` is `true` if the attestation was compared to the
+    /// `state.current_justified_epoch`, `false` if compared to `state.previous_justified_epoch`.
+    WrongJustifiedEpoch {
+        state: Epoch,
+        attestation: Epoch,
+        is_current: bool,
+    },
     /// Attestation justified epoch root does not match root known to the state.
     ///
-    /// (state_justified_root, attestation_justified_root)
-    WrongJustifiedRoot(Hash256, Hash256),
+    /// `is_current` is `true` if the attestation was compared to the
+    /// `state.current_justified_epoch`, `false` if compared to `state.previous_justified_epoch`.
+    WrongJustifiedRoot {
+        state: Hash256,
+        attestation: Hash256,
+        is_current: bool,
+    },
     /// Attestation crosslink root does not match the state crosslink root for the attestations
     /// slot.
-    BadLatestCrosslinkRoot,
+    BadPreviousCrosslink,
     /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
     CustodyBitfieldHasSetBits,
     /// There are no set bits on the attestation -- an attestation must be signed by at least one
     /// validator.
     AggregationBitfieldIsEmpty,
     /// The custody bitfield length is not the smallest possible size to represent the committee.
-    ///
-    /// (committee_len, bitfield_len)
-    BadCustodyBitfieldLength(usize, usize),
+    BadCustodyBitfieldLength {
+        committee_len: usize,
+        bitfield_len: usize,
+    },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.
-    ///
-    /// (committee_len, bitfield_len)
-    BadAggregationBitfieldLength(usize, usize),
-    /// There was no known committee for the given shard in the given slot.
-    ///
-    /// (attestation_data_shard, attestation_data_slot)
-    NoCommitteeForShard(u64, Slot),
+    BadAggregationBitfieldLength {
+        committee_len: usize,
+        bitfield_len: usize,
+    },
+    /// There was no known committee in this `epoch` for the given shard and slot.
+    NoCommitteeForShard { shard: u64, slot: Slot },
     /// The validator index was unknown.
     UnknownValidator(u64),
     /// The attestation signature verification failed.
@@ -188,6 +197,8 @@ pub enum AttesterSlashingInvalid {
     SlashableAttestation2Invalid(SlashableAttestationInvalid),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
+    /// The specified validator has already been withdrawn.
+    ValidatorAlreadyWithdrawn(u64),
     /// There were no indices able to be slashed.
     NoSlashableIndices,
 }
@@ -264,16 +275,12 @@ pub enum ProposerSlashingInvalid {
     ///
     /// (proposal_1_slot, proposal_2_slot)
     ProposalSlotMismatch(Slot, Slot),
-    /// The two proposal have different shards.
-    ///
-    /// (proposal_1_shard, proposal_2_shard)
-    ProposalShardMismatch(u64, u64),
-    /// The two proposal have different block roots.
-    ///
-    /// (proposal_1_root, proposal_2_root)
-    ProposalBlockRootMismatch(Hash256, Hash256),
+    /// The proposals are identical and therefore not slashable.
+    ProposalsIdentical,
     /// The specified proposer has already been slashed.
     ProposerAlreadySlashed,
+    /// The specified proposer has already been withdrawn.
+    ProposerAlreadyWithdrawn(u64),
     /// The first proposal signature was invalid.
     BadProposal1Signature,
     /// The second proposal signature was invalid.
@@ -302,9 +309,7 @@ pub enum DepositValidationError {
 #[derive(Debug, PartialEq)]
 pub enum DepositInvalid {
     /// The deposit index does not match the state index.
-    ///
-    /// (state_index, deposit_index)
-    BadIndex(u64, u64),
+    BadIndex { state: u64, deposit: u64 },
     /// The proof-of-possession does not match the given pubkey.
     BadProofOfPossession,
     /// The withdrawal credentials for the depositing validator did not match the withdrawal
@@ -334,11 +339,14 @@ pub enum ExitValidationError {
 pub enum ExitInvalid {
     /// The specified validator is not in the state's validator registry.
     ValidatorUnknown(u64),
-    AlreadyExited,
+    /// The specified validator has a non-maximum exit epoch.
+    AlreadyExited(u64),
+    /// The specified validator has already initiated exit.
+    AlreadyInitiatedExited(u64),
     /// The exit is for a future epoch.
-    ///
-    /// (state_epoch, exit_epoch)
-    FutureEpoch(Epoch, Epoch),
+    FutureEpoch { state: Epoch, exit: Epoch },
+    /// The validator has not been active for long enough.
+    TooYoungToLeave { lifespan: Epoch, expected: u64 },
     /// The exit signature was not signed by the validator.
     BadSignature,
 }

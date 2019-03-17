@@ -29,7 +29,7 @@ pub struct ChainSpec {
     pub shard_count: u64,
     pub target_committee_size: u64,
     pub max_balance_churn_quotient: u64,
-    pub max_indices_per_slashable_vote: u64,
+    pub max_indices_per_slashable_vote: usize,
     pub max_exit_dequeues_per_epoch: u64,
     pub shuffle_round_count: u8,
 
