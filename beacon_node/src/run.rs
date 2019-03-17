@@ -14,7 +14,7 @@ pub fn run_beacon_node(config: ClientConfig, log: slog::Logger) -> error::Result
         .map_err(|e| format!("{:?}", e))?;
 
     // Log configuration
-    info!(log, "";
+    info!(log, "Listening on {:?}", &config.net_conf.listen_addresses;
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.net_conf.listen_port);
 
