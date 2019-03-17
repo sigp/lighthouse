@@ -14,7 +14,7 @@ pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> 
     state.previous_shuffling_seed = state.current_shuffling_seed;
 
     if should_update_validator_registry(state, spec)? {
-        state.update_validator_registry(spec);
+        state.update_validator_registry(spec)?;
 
         state.current_shuffling_epoch = next_epoch;
         state.current_shuffling_start_shard = (state.current_shuffling_start_shard
@@ -37,7 +37,7 @@ pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> 
         }
     }
 
-    state.process_slashings(spec);
+    state.process_slashings(spec)?;
     state.process_exit_queue(spec);
 
     Ok(())
