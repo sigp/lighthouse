@@ -35,6 +35,7 @@ pub enum Error {
     InsufficientAttestations,
     InsufficientCommittees,
     InsufficientSlashedBalances,
+    InsufficientStateRoots,
     NoCommitteeForShard,
     EpochCacheUninitialized(RelativeEpoch),
     PubkeyCacheInconsistent,
@@ -425,6 +426,22 @@ impl BeaconState {
             .ok_or_else(|| Error::NoCommitteeForShard)?)
     }
 
+    /// Safely obtains the index for latest block roots, given some `slot`.
+    ///
+    /// Spec v0.5.0
+    fn get_latest_block_roots_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
+        if (slot < self.slot) && (self.slot <= slot + spec.slots_per_historical_root as u64) {
+            let i = slot.as_usize() % spec.slots_per_historical_root;
+            if i >= self.latest_block_roots.len() {
+                Err(Error::InsufficientStateRoots)
+            } else {
+                Ok(i)
+            }
+        } else {
+            Err(BeaconStateError::SlotOutOfBounds)
+        }
+    }
+
     /// Return the block root at a recent `slot`.
     ///
     /// Spec v0.5.0
@@ -433,13 +450,21 @@ impl BeaconState {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Result<&Hash256, BeaconStateError> {
-        if (self.slot <= slot + spec.slots_per_historical_root as u64) && (slot < self.slot) {
-            self.latest_block_roots
-                .get(slot.as_usize() % spec.slots_per_historical_root)
-                .ok_or_else(|| Error::InsufficientBlockRoots)
-        } else {
-            Err(Error::EpochOutOfBounds)
-        }
+        let i = self.get_latest_block_roots_index(slot, spec)?;
+        Ok(&self.latest_block_roots[i])
+    }
+
+    /// Sets the block root for some given slot.
+    ///
+    /// Spec v0.5.0
+    pub fn set_block_root(
+        &mut self,
+        slot: Slot,
+        block_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<(), BeaconStateError> {
+        let i = self.get_latest_block_roots_index(slot, spec)?;
+        Ok(self.latest_block_roots[i] = block_root)
     }
 
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
@@ -504,6 +529,43 @@ impl BeaconState {
         } else {
             None
         }
+    }
+
+    /// Safely obtains the index for latest state roots, given some `slot`.
+    ///
+    /// Spec v0.5.0
+    fn get_latest_state_roots_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
+        if (slot < self.slot) && (self.slot <= slot + spec.slots_per_historical_root as u64) {
+            let i = slot.as_usize() % spec.slots_per_historical_root;
+            if i >= self.latest_state_roots.len() {
+                Err(Error::InsufficientStateRoots)
+            } else {
+                Ok(i)
+            }
+        } else {
+            Err(BeaconStateError::SlotOutOfBounds)
+        }
+    }
+
+    /// Gets the state root for some slot.
+    ///
+    /// Spec v0.5.0
+    pub fn get_state_root(&mut self, slot: Slot, spec: &ChainSpec) -> Result<&Hash256, Error> {
+        let i = self.get_latest_state_roots_index(slot, spec)?;
+        Ok(&self.latest_state_roots[i])
+    }
+
+    /// Sets the latest state root for slot.
+    ///
+    /// Spec v0.5.0
+    pub fn set_state_root(
+        &mut self,
+        slot: Slot,
+        state_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let i = self.get_latest_state_roots_index(slot, spec)?;
+        Ok(self.latest_state_roots[i] = state_root)
     }
 
     /// Generate a seed for the given `epoch`.
