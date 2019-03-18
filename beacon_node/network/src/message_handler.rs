@@ -71,7 +71,7 @@ impl MessageHandler {
         executor.spawn(future::poll_fn(move || -> Result<_, _> {
             loop {
                 handler.handle_message(handler_recv.recv().map_err(|_| {
-                    debug!(log, "Handler channel closed. Handler terminating");
+                    debug!(log, "Network message handler terminated.");
                 })?);
             }
         }));

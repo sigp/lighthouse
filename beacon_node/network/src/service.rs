@@ -9,7 +9,7 @@ use futures::sync::oneshot;
 use futures::Stream;
 use libp2p::Service as LibP2PService;
 use libp2p::{Libp2pEvent, PeerId};
-use slog::{debug, o};
+use slog::{debug, info, o};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
@@ -80,7 +80,7 @@ fn spawn_service(
         // allow for manual termination
         .select(exit_rx.then(|_| Ok(())))
         .then(move |_| {
-            debug!(log.clone(), "Network service ended");
+            info!(log.clone(), "Network service shutdown");
             Ok(())
         }),
     );
