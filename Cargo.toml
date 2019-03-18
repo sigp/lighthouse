@@ -23,7 +23,6 @@ members = [
 	"beacon_node/client",
 	"beacon_node/network",
     "beacon_node/rpc",
-	"beacon_node/sync",
 	"beacon_node/version",
 	"beacon_node/beacon_chain",
 	"beacon_node/beacon_chain/test_harness",
