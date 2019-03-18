@@ -1,7 +1,7 @@
 use crate::beacon_chain::BeaconChain;
 use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
-use crate::messages::{NetworkMessage, NodeMessage};
+use crate::messages::NodeMessage;
 use crate::NetworkConfig;
 use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use futures::prelude::*;
@@ -29,18 +29,29 @@ impl Service {
         executor: &TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<(Arc<Self>, Sender<NetworkMessage>)> {
+        // build the network channel
+        let (network_send, network_recv) = channel::<NetworkMessage>();
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
-        let message_handler_send =
-            MessageHandler::new(beacon_chain, executor, message_handler_log)?;
+        let message_handler_send = MessageHandler::new(
+            beacon_chain,
+            network_send.clone(),
+            executor,
+            message_handler_log,
+        )?;
 
         // launch libp2p service
         let libp2p_log = log.new(o!("Service" => "Libp2p"));
         let libp2p_service = LibP2PService::new(config.clone(), libp2p_log)?;
 
         // TODO: Spawn thread to handle libp2p messages and pass to message handler thread.
-        let (network_send, libp2p_exit) =
-            spawn_service(libp2p_service, message_handler_send, executor, log)?;
+        let libp2p_exit = spawn_service(
+            libp2p_service,
+            network_recv,
+            message_handler_send,
+            executor,
+            log,
+        )?;
         let network = Service {
             libp2p_exit,
             network_send: network_send.clone(),
@@ -59,15 +70,12 @@ impl Service {
 
 fn spawn_service(
     libp2p_service: LibP2PService,
+    network_recv: crossbeam_channel::Receiver<NetworkMessage>,
     message_handler_send: crossbeam_channel::Sender<HandlerMessage>,
     executor: &TaskExecutor,
     log: slog::Logger,
-) -> error::Result<(
-    crossbeam_channel::Sender<NetworkMessage>,
-    oneshot::Sender<()>,
-)> {
+) -> error::Result<oneshot::Sender<()>> {
     let (network_exit, exit_rx) = oneshot::channel();
-    let (network_send, network_recv) = channel::<NetworkMessage>();
 
     // spawn on the current executor
     executor.spawn(
@@ -85,7 +93,7 @@ fn spawn_service(
         }),
     );
 
-    Ok((network_send, network_exit))
+    Ok(network_exit)
 }
 
 fn network_service(
@@ -147,4 +155,12 @@ fn network_service(
         }
         Ok(Async::NotReady)
     })
+}
+
+/// Types of messages that the network service can receive.
+#[derive(Debug, Clone)]
+pub enum NetworkMessage {
+    /// Send a message to libp2p service.
+    //TODO: Define typing for messages across the wire
+    Send(PeerId, NodeMessage),
 }

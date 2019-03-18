@@ -1,6 +1,7 @@
 use crate::beacon_chain::BeaconChain;
 use crate::error;
 use crate::messages::NodeMessage;
+use crate::service::NetworkMessage;
 use crossbeam_channel::{unbounded as channel, Sender};
 use futures::future;
 use futures::prelude::*;
@@ -22,6 +23,8 @@ pub struct MessageHandler {
     chain: Arc<BeaconChain>,
     /// The syncing framework.
     sync: SimpleSync,
+    /// The network channel to relay messages to the Network service.
+    network_send: crossbeam_channel::Sender<NetworkMessage>,
     /// A mapping of peers we have sent a HELLO rpc request to.
     hello_requests: HashMap<PeerId, Instant>,
     /// The `MessageHandler` logger.
@@ -45,6 +48,7 @@ impl MessageHandler {
     /// Initializes and runs the MessageHandler.
     pub fn new(
         beacon_chain: Arc<BeaconChain>,
+        network_send: crossbeam_channel::Sender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<Sender<HandlerMessage>> {
@@ -62,6 +66,7 @@ impl MessageHandler {
         let mut handler = MessageHandler {
             chain: beacon_chain.clone(),
             sync,
+            network_send,
             hello_requests: HashMap::new(),
             log: log.clone(),
         };
@@ -81,12 +86,19 @@ impl MessageHandler {
 
     fn handle_message(&mut self, message: HandlerMessage) {
         match message {
-            HandlerMessage::PeerDialed(peer_id) => self.send_hello(peer_id),
+            HandlerMessage::PeerDialed(peer_id) => {
+                // register RPC request
+                self.hello_requests.insert(peer_id.clone(), Instant::now());
+                self.send_hello(peer_id);
+            }
             //TODO: Handle all messages
             _ => {}
         }
     }
 
     /// Sends a HELLO RPC request to a newly connected peer.
-    fn send_hello(&self, peer_id: PeerId) {}
+    fn send_hello(&self, peer_id: PeerId) {
+        // send the hello request to the network
+        //sync.hello()
+    }
 }
