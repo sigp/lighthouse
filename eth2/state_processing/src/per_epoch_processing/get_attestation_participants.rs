@@ -1,4 +1,5 @@
-use types::{beacon_state::helpers::verify_bitfield_length, *};
+use crate::common::verify_bitfield_length;
+use types::*;
 
 /// Returns validator indices which participated in the attestation.
 ///

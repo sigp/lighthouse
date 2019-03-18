@@ -1,5 +1,8 @@
 use errors::EpochProcessingError as Error;
 use integer_sqrt::IntegerSquareRoot;
+use process_ejections::process_ejections;
+use process_exit_queue::process_exit_queue;
+use process_slashings::process_slashings;
 use process_validator_registry::process_validator_registry;
 use rayon::prelude::*;
 use ssz::TreeHash;
@@ -11,8 +14,12 @@ use winning_root::{winning_root, WinningRoot};
 pub mod errors;
 pub mod get_attestation_participants;
 pub mod inclusion_distance;
+pub mod process_ejections;
+pub mod process_exit_queue;
+pub mod process_slashings;
 pub mod process_validator_registry;
 pub mod tests;
+pub mod update_validator_registry;
 pub mod validator_statuses;
 pub mod winning_root;
 
@@ -45,14 +52,16 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     process_rewards_and_penalities(state, &mut statuses, &winning_root_for_shards, spec)?;
 
     // Ejections
-    state.process_ejections(spec)?;
+    process_ejections(state, spec)?;
 
     // Validator Registry
     process_validator_registry(state, spec)?;
+    process_slashings(state, spec)?;
+    process_exit_queue(state, spec);
 
     // Final updates
     update_active_tree_index_roots(state, spec)?;
-    update_latest_slashed_balances(state, spec);
+    update_latest_slashed_balances(state, spec)?;
     clean_attestations(state);
 
     // Rotate the epoch caches to suit the epoch transition.
@@ -451,9 +460,7 @@ pub fn update_active_tree_index_roots(
     )
     .hash_tree_root();
 
-    state.latest_active_index_roots[(next_epoch.as_usize()
-        + spec.activation_exit_delay as usize)
-        % spec.latest_active_index_roots_length] = Hash256::from_slice(&active_tree_root[..]);
+    state.set_active_index_root(next_epoch, Hash256::from_slice(&active_tree_root[..]), spec)?;
 
     Ok(())
 }
@@ -461,12 +468,20 @@ pub fn update_active_tree_index_roots(
 /// Advances the state's `latest_slashed_balances` field.
 ///
 /// Spec v0.4.0
-pub fn update_latest_slashed_balances(state: &mut BeaconState, spec: &ChainSpec) {
+pub fn update_latest_slashed_balances(
+    state: &mut BeaconState,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
 
-    state.latest_slashed_balances[next_epoch.as_usize() % spec.latest_slashed_exit_length] =
-        state.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length];
+    state.set_slashed_balance(
+        next_epoch,
+        state.get_slashed_balance(current_epoch, spec)?,
+        spec,
+    )?;
+
+    Ok(())
 }
 
 /// Removes all pending attestations from the previous epoch.

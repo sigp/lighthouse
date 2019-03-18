@@ -37,8 +37,7 @@ pub fn get_genesis_state(
         .get_active_validator_indices(spec.genesis_epoch, spec)?
         .to_vec();
     let genesis_active_index_root = Hash256::from_slice(&active_validator_indices.hash_tree_root());
-    state.latest_active_index_roots =
-        vec![genesis_active_index_root; spec.latest_active_index_roots_length as usize];
+    state.fill_active_index_roots_with(genesis_active_index_root, spec);
 
     // Generate the current shuffling seed.
     state.current_shuffling_seed = state.generate_seed(spec.genesis_epoch, spec)?;

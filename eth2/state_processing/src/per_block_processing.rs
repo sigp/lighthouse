@@ -1,4 +1,5 @@
 use self::verify_proposer_slashing::verify_proposer_slashing;
+use crate::common::slash_validator;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
 use ssz::{SignedRoot, TreeHash};
@@ -222,7 +223,7 @@ pub fn process_proposer_slashings(
 
     // Update the state.
     for proposer_slashing in proposer_slashings {
-        state.slash_validator(proposer_slashing.proposer_index as usize, spec)?;
+        slash_validator(state, proposer_slashing.proposer_index as usize, spec)?;
     }
 
     Ok(())
@@ -279,7 +280,7 @@ pub fn process_attester_slashings(
             .map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
-            state.slash_validator(i as usize, spec)?;
+            slash_validator(state, i as usize, spec)?;
         }
     }
 

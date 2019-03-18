@@ -1,3 +1,4 @@
+use super::update_validator_registry::update_validator_registry;
 use super::Error;
 use types::*;
 
@@ -14,7 +15,7 @@ pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> 
     state.previous_shuffling_seed = state.current_shuffling_seed;
 
     if should_update_validator_registry(state, spec)? {
-        state.update_validator_registry(spec)?;
+        update_validator_registry(state, spec)?;
 
         state.current_shuffling_epoch = next_epoch;
         state.current_shuffling_start_shard = (state.current_shuffling_start_shard
@@ -36,9 +37,6 @@ pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> 
                 state.generate_seed(state.current_shuffling_epoch, spec)?
         }
     }
-
-    state.process_slashings(spec)?;
-    state.process_exit_queue(spec);
 
     Ok(())
 }
