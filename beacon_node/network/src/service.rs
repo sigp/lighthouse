@@ -15,25 +15,28 @@ use libp2p::{Libp2pEvent, PeerId};
 use slog::{debug, info, o, trace, warn, Logger};
 use std::sync::{Arc, Mutex};
 use tokio::runtime::TaskExecutor;
+use client::ClientTypes;
 
 /// Service that handles communication between internal services and the libp2p network service.
-pub struct Service {
+pub struct Service<T: ClientTypes> {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
     //message_handler: MessageHandler,
     //message_handler_send: Sender<HandlerMessage>,
+    PhantomData: T,
 }
 
-impl Service {
+impl<T: ClientTypes> Service<T> {
     pub fn new(
-        config: NetworkConfig,
+        beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>,
+        config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<(Arc<Self>, Sender<NetworkMessage>)> {
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
-        let message_handler_send = MessageHandler::new(executor, message_handler_log)?;
+        let message_handler_send = MessageHandler::new(beacon_chain, executor, message_handler_log)?;
 
         // launch libp2p service
         let libp2p_log = log.new(o!("Service" => "Libp2p"));

@@ -1,5 +1,6 @@
 use crate::error;
 use crate::messages::NodeMessage;
+use beacon_chain::BeaconChain;
 use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use futures::future;
 use futures::prelude::*;
@@ -7,6 +8,7 @@ use libp2p::rpc;
 use libp2p::{PeerId, RPCEvent};
 use slog::debug;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use sync::SimpleSync;
 use types::Hash256;
@@ -15,12 +17,14 @@ use types::Hash256;
 const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
-pub struct MessageHandler {
+pub struct MessageHandler<T: ClientTypes> {
+    /// Currently loaded and initialised beacon chain.
+    chain: BeaconChain<T::DB, T::SlotClock, T::ForkChoice>,
+    /// The syncing framework.
     sync: SimpleSync,
-    //TODO: Implement beacon chain
-    //chain: BeaconChain
-    /// A mapping of peers we have sent a HELLO rpc request to
+    /// A mapping of peers we have sent a HELLO rpc request to.
     hello_requests: HashMap<PeerId, Instant>,
+    /// The `MessageHandler` logger.
     log: slog::Logger,
 }
 
@@ -37,9 +41,10 @@ pub enum HandlerMessage {
     RPC(RPCEvent),
 }
 
-impl MessageHandler {
+impl<T: ClientTypes> MessageHandler<T> {
     /// Initializes and runs the MessageHandler.
     pub fn new(
+        beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<Sender<HandlerMessage>> {
@@ -49,12 +54,13 @@ impl MessageHandler {
 
         // Initialise sync and begin processing in thread
         //TODO: Load genesis from BeaconChain
+        //TODO: Initialise beacon chain
         let temp_genesis = Hash256::zero();
 
         // generate the Message handler
         let sync = SimpleSync::new(temp_genesis);
-        //TODO: Initialise beacon chain
         let mut handler = MessageHandler {
+            chain: beacon_chain,
             sync,
             hello_requests: HashMap::new(),
             log: log.clone(),
@@ -74,6 +80,13 @@ impl MessageHandler {
     }
 
     fn handle_message(&mut self, message: HandlerMessage) {
-        debug!(self.log, "Message received {:?}", message);
+        match message {
+            HandlerMessage::PeerDialed(peer_id) => self.send_hello(peer_id),
+            //TODO: Handle all messages
+            _ => {}
+        }
     }
+
+    /// Sends a HELLO RPC request to a newly connected peer.
+    fn send_hello(&self, peer_id: PeerId) {}
 }

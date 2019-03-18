@@ -31,7 +31,7 @@ pub fn run_beacon_node(config: ClientConfig, log: slog::Logger) -> error::Result
 
     let executor = runtime.executor();
 
-    // currently testing - using TestingNode type
+    // currently testing - using TestingClientType
     let client: Client<TestingClientType> = Client::new(config, log.clone(), &executor)?;
     notifier::run(&client, executor, exit);
 
