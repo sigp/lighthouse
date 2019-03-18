@@ -373,19 +373,20 @@ pub fn process_deposits(
                 .map_err(|e| e.into_with_index(i))
         })?;
 
-    let public_key_to_index_hashmap = build_public_key_hashmap(&state);
-
     // Check `state.deposit_index` and update the state in series.
     for (i, deposit) in deposits.iter().enumerate() {
         verify_deposit_index(state, deposit).map_err(|e| e.into_with_index(i))?;
+
+        // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
+        // depositing validator already exists in the registry.
+        state.update_pubkey_cache()?;
 
         // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
         // already exists in the beacon_state.
         //
         // This function also verifies the withdrawal credentials.
         let validator_index =
-            get_existing_validator_index(state, deposit, &public_key_to_index_hashmap)
-                .map_err(|e| e.into_with_index(i))?;
+            get_existing_validator_index(state, deposit).map_err(|e| e.into_with_index(i))?;
 
         let deposit_data = &deposit.deposit_data;
         let deposit_input = &deposit.deposit_data.deposit_input;
