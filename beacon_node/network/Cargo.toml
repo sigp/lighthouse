@@ -9,7 +9,6 @@ beacon_chain =  { path = "../beacon_chain" }
 libp2p =  { path = "../libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
-sync = { path = "../sync" }
 slog = "2.4.1"
 futures = "0.1.25"
 error-chain = "0.12.0"

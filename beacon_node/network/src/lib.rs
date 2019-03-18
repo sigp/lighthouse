@@ -4,6 +4,7 @@ pub mod error;
 mod message_handler;
 mod messages;
 mod service;
+pub mod sync;
 
 pub use libp2p::NetworkConfig;
 pub use messages::NodeMessage;

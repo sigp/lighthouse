@@ -1,9 +1,0 @@
-[package]
-name = "sync"
-version = "0.1.0"
-authors = ["Age Manning <Age@AgeManning.com>"]
-edition = "2018"
-
-[dependencies]
-types = { path = "../../eth2/types" }
-libp2p =  { path = "../libp2p" }
