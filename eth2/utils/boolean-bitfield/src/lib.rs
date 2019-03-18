@@ -4,6 +4,7 @@ extern crate ssz;
 use bit_vec::BitVec;
 
 use serde::ser::{Serialize, Serializer};
+use ssz::{Decodable, Encodable};
 use std::cmp;
 use std::default;
 
@@ -141,14 +142,14 @@ impl std::ops::BitAnd for BooleanBitfield {
     }
 }
 
-impl ssz::Encodable for BooleanBitfield {
+impl Encodable for BooleanBitfield {
     // ssz_append encodes Self according to the `ssz` spec.
     fn ssz_append(&self, s: &mut ssz::SszStream) {
         s.append_vec(&self.to_bytes())
     }
 }
 
-impl ssz::Decodable for BooleanBitfield {
+impl Decodable for BooleanBitfield {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), ssz::DecodeError> {
         let len = ssz::decode::decode_length(bytes, index, ssz::LENGTH_BYTES)?;
         if (ssz::LENGTH_BYTES + len) > bytes.len() {
@@ -195,7 +196,7 @@ impl ssz::TreeHash for BooleanBitfield {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz::{ssz_encode, Decodable, SszStream};
+    use ssz::{decode, ssz_encode, SszStream};
 
     #[test]
     fn test_new_bitfield() {
@@ -385,12 +386,12 @@ mod tests {
     #[test]
     fn test_ssz_decode() {
         let encoded = vec![2, 0, 0, 0, 225, 192];
-        let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
+        let field = decode::<BooleanBitfield>(&encoded).unwrap();
         let expected = create_test_bitfield();
         assert_eq!(field, expected);
 
         let encoded = vec![3, 0, 0, 0, 255, 255, 3];
-        let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
+        let field = decode::<BooleanBitfield>(&encoded).unwrap();
         let expected = BooleanBitfield::from_bytes(&[255, 255, 3]);
         assert_eq!(field, expected);
     }
@@ -399,7 +400,7 @@ mod tests {
     fn test_ssz_round_trip() {
         let original = BooleanBitfield::from_bytes(&vec![18; 12][..]);
         let ssz = ssz_encode(&original);
-        let (decoded, _) = BooleanBitfield::ssz_decode(&ssz, 0).unwrap();
+        let decoded = decode::<BooleanBitfield>(&ssz).unwrap();
         assert_eq!(original, decoded);
     }
 
