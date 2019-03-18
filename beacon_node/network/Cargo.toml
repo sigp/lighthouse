@@ -5,6 +5,7 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
+beacon_chain =  { path = "../beacon_chain" }
 libp2p =  { path = "../libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }

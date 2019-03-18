@@ -257,10 +257,10 @@ impl ChainSpec {
             .parse()
             .expect("correct multiaddr")];
 
-        let mut standard_spec = ChainSpec::foundation();
-        standard_spec.boot_nodes = boot_nodes;
-
-        standard_spec
+        Self {
+            boot_nodes,
+            ..ChainSpec::foundation()
+        }
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
