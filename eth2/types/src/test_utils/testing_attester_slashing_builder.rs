@@ -2,9 +2,11 @@ use crate::*;
 use ssz::TreeHash;
 
 /// Builds an `AttesterSlashing`.
-pub struct AttesterSlashingBuilder();
+///
+/// This struct should **never be used for production purposes.**
+pub struct TestingAttesterSlashingBuilder();
 
-impl AttesterSlashingBuilder {
+impl TestingAttesterSlashingBuilder {
     /// Builds an `AttesterSlashing` that is a double vote.
     ///
     /// The `signer` function is used to sign the double-vote and accepts:
@@ -65,12 +67,15 @@ impl AttesterSlashingBuilder {
         };
 
         let add_signatures = |attestation: &mut SlashableAttestation| {
+            // All validators sign with a `false` custody bit.
+            let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
+                data: attestation.data.clone(),
+                custody_bit: false,
+            };
+            let message = attestation_data_and_custody_bit.hash_tree_root();
+
             for (i, validator_index) in validator_indices.iter().enumerate() {
-                let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
-                    data: attestation.data.clone(),
-                    custody_bit: attestation.custody_bitfield.get(i).unwrap(),
-                };
-                let message = attestation_data_and_custody_bit.hash_tree_root();
+                attestation.custody_bitfield.set(i, false);
                 let signature = signer(*validator_index, &message[..], epoch, Domain::Attestation);
                 attestation.aggregate_signature.add(&signature);
             }

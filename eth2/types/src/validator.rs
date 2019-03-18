@@ -1,13 +1,13 @@
 use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKey};
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.4.0
-#[derive(Debug, Clone, PartialEq, Serialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
@@ -54,18 +54,6 @@ impl Default for Validator {
 mod tests {
     use super::*;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable, TreeHash};
-
-    #[test]
-    pub fn test_ssz_round_trip() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Validator::random_for_test(&mut rng);
-
-        let bytes = ssz_encode(&original);
-        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
-
-        assert_eq!(original, decoded);
-    }
 
     #[test]
     fn test_validator_can_be_active() {
@@ -90,15 +78,5 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn test_hash_tree_root_internal() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Validator::random_for_test(&mut rng);
-
-        let result = original.hash_tree_root_internal();
-
-        assert_eq!(result.len(), 32);
-        // TODO: Add further tests
-        // https://github.com/sigp/lighthouse/issues/170
-    }
+    ssz_tests!(Validator);
 }

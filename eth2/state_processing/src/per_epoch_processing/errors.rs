@@ -6,6 +6,14 @@ pub enum EpochProcessingError {
     NoBlockRoots,
     BaseRewardQuotientIsZero,
     NoRandaoSeed,
+    PreviousTotalBalanceIsZero,
+    InclusionDistanceZero,
+    ValidatorStatusesInconsistent,
+    /// Unable to get the inclusion distance for a validator that should have an inclusion
+    /// distance. This indicates an internal inconsistency.
+    ///
+    /// (validator_index)
+    InclusionSlotsInconsistent(usize),
     BeaconStateError(BeaconStateError),
     InclusionError(InclusionError),
 }

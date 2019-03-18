@@ -146,10 +146,10 @@ pub fn ssz_tree_hash_derive(input: TokenStream) -> TokenStream {
 
     let output = quote! {
         impl ssz::TreeHash for #name {
-            fn hash_tree_root_internal(&self) -> Vec<u8> {
+            fn hash_tree_root(&self) -> Vec<u8> {
                 let mut list: Vec<Vec<u8>> = Vec::new();
                 #(
-                    list.push(self.#field_idents.hash_tree_root_internal());
+                    list.push(self.#field_idents.hash_tree_root());
                 )*
 
                 ssz::merkle_hash(&mut list)
@@ -224,7 +224,7 @@ pub fn ssz_signed_root_derive(input: TokenStream) -> TokenStream {
             fn signed_root(&self) -> Vec<u8> {
                 let mut list: Vec<Vec<u8>> = Vec::new();
                 #(
-                    list.push(self.#field_idents.hash_tree_root_internal());
+                    list.push(self.#field_idents.hash_tree_root());
                 )*
 
                 ssz::merkle_hash(&mut list)

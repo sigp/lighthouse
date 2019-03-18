@@ -1,65 +1,23 @@
 use criterion::Criterion;
-use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-// use env_logger::{Builder, Env};
-use state_processing::SlotProcessable;
-use types::beacon_state::BeaconStateBuilder;
-use types::*;
+use criterion::{criterion_group, criterion_main};
+use env_logger::{Builder, Env};
 
-fn epoch_processing(c: &mut Criterion) {
-    // Builder::from_env(Env::default().default_filter_or("debug")).init();
+mod bench_block_processing;
+mod bench_epoch_processing;
 
-    let mut builder = BeaconStateBuilder::new(16_384);
+pub const VALIDATOR_COUNT: usize = 16_384;
 
-    builder.build_fast().unwrap();
-    builder.teleport_to_end_of_epoch(builder.spec.genesis_epoch + 4);
+// `LOG_LEVEL == "debug"` gives logs, but they're very noisy and slow down benching.
+pub const LOG_LEVEL: &str = "";
 
-    let mut state = builder.cloned_state();
+pub fn state_processing(c: &mut Criterion) {
+    if LOG_LEVEL != "" {
+        Builder::from_env(Env::default().default_filter_or(LOG_LEVEL)).init();
+    }
 
-    // Build all the caches so the following state does _not_ include the cache-building time.
-    state
-        .build_epoch_cache(RelativeEpoch::Previous, &builder.spec)
-        .unwrap();
-    state
-        .build_epoch_cache(RelativeEpoch::Current, &builder.spec)
-        .unwrap();
-    state
-        .build_epoch_cache(RelativeEpoch::Next, &builder.spec)
-        .unwrap();
-
-    let cached_state = state.clone();
-
-    // Drop all the caches so the following state includes the cache-building time.
-    state.drop_cache(RelativeEpoch::Previous);
-    state.drop_cache(RelativeEpoch::Current);
-    state.drop_cache(RelativeEpoch::Next);
-
-    let cacheless_state = state;
-
-    let spec_a = builder.spec.clone();
-    let spec_b = builder.spec.clone();
-
-    c.bench(
-        "epoch processing",
-        Benchmark::new("with pre-built caches", move |b| {
-            b.iter_with_setup(
-                || cached_state.clone(),
-                |mut state| black_box(state.per_slot_processing(Hash256::zero(), &spec_a).unwrap()),
-            )
-        })
-        .sample_size(10),
-    );
-
-    c.bench(
-        "epoch processing",
-        Benchmark::new("without pre-built caches", move |b| {
-            b.iter_with_setup(
-                || cacheless_state.clone(),
-                |mut state| black_box(state.per_slot_processing(Hash256::zero(), &spec_b).unwrap()),
-            )
-        })
-        .sample_size(10),
-    );
+    bench_epoch_processing::bench_epoch_processing_n_validators(c, VALIDATOR_COUNT);
+    bench_block_processing::bench_block_processing_n_validators(c, VALIDATOR_COUNT);
 }
 
-criterion_group!(benches, epoch_processing,);
+criterion_group!(benches, state_processing);
 criterion_main!(benches);

@@ -1,15 +1,14 @@
 use self::epoch_cache::EpochCache;
 use crate::test_utils::TestRandom;
 use crate::{validator_registry::get_active_validator_indices, *};
-use bls::verify_proof_of_possession;
 use helpers::*;
 use honey_badger_split::SplitExt;
 use int_to_bytes::int_to_bytes32;
 use log::{debug, error, trace};
+use pubkey_cache::PubkeyCache;
 use rand::RngCore;
-use rayon::prelude::*;
 use serde_derive::Serialize;
-use ssz::{hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{hash, Decodable, DecodeError, Encodable, SignedRoot, SszStream, TreeHash};
 use std::collections::HashMap;
 use swap_or_not_shuffle::shuffle_list;
 
@@ -18,6 +17,7 @@ pub use builder::BeaconStateBuilder;
 mod builder;
 mod epoch_cache;
 pub mod helpers;
+mod pubkey_cache;
 mod tests;
 
 pub type Committee = Vec<usize>;
@@ -54,6 +54,11 @@ pub enum Error {
     InsufficientAttestations,
     InsufficientCommittees,
     EpochCacheUninitialized(RelativeEpoch),
+    PubkeyCacheInconsistent,
+    PubkeyCacheIncomplete {
+        cache_len: usize,
+        registry_len: usize,
+    },
 }
 
 macro_rules! safe_add_assign {
@@ -110,22 +115,23 @@ pub struct BeaconState {
     // Caching (not in the spec)
     pub cache_index_offset: usize,
     pub caches: Vec<EpochCache>,
+    pub pubkey_cache: PubkeyCache,
 }
 
 impl BeaconState {
     /// Produce the first state of the Beacon Chain.
-    pub fn genesis_without_validators(
-        genesis_time: u64,
-        latest_eth1_data: Eth1Data,
-        spec: &ChainSpec,
-    ) -> Result<BeaconState, Error> {
-        debug!("Creating genesis state (without validator processing).");
+    ///
+    /// This does not fully build a genesis beacon state, it omits processing of initial validator
+    /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
+    ///
+    /// Spec v0.4.0
+    pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             crosslink_data_root: spec.zero_hash,
         };
 
-        Ok(BeaconState {
+        BeaconState {
             /*
              * Misc
              */
@@ -188,52 +194,13 @@ impl BeaconState {
              */
             cache_index_offset: 0,
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
-        })
-    }
-
-    /// Produce the first state of the Beacon Chain.
-    pub fn genesis(
-        genesis_time: u64,
-        initial_validator_deposits: Vec<Deposit>,
-        latest_eth1_data: Eth1Data,
-        spec: &ChainSpec,
-    ) -> Result<BeaconState, Error> {
-        let mut genesis_state =
-            BeaconState::genesis_without_validators(genesis_time, latest_eth1_data, spec)?;
-
-        debug!("Processing genesis deposits...");
-
-        let deposit_data = initial_validator_deposits
-            .par_iter()
-            .map(|deposit| &deposit.deposit_data)
-            .collect();
-
-        genesis_state.process_deposits(deposit_data, spec);
-
-        trace!("Processed genesis deposits.");
-
-        for validator_index in 0..genesis_state.validator_registry.len() {
-            if genesis_state.get_effective_balance(validator_index, spec) >= spec.max_deposit_amount
-            {
-                genesis_state.activate_validator(validator_index, true, spec);
-            }
+            pubkey_cache: PubkeyCache::empty(),
         }
-
-        genesis_state.deposit_index = initial_validator_deposits.len() as u64;
-
-        let genesis_active_index_root = hash_tree_root(get_active_validator_indices(
-            &genesis_state.validator_registry,
-            spec.genesis_epoch,
-        ));
-        genesis_state.latest_active_index_roots =
-            vec![genesis_active_index_root; spec.latest_active_index_roots_length];
-        genesis_state.current_shuffling_seed =
-            genesis_state.generate_seed(spec.genesis_epoch, spec)?;
-
-        Ok(genesis_state)
     }
 
     /// Returns the `hash_tree_root` of the state.
+    ///
+    /// Spec v0.4.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
@@ -332,6 +299,46 @@ impl BeaconState {
             Ok(cache)
         } else {
             Err(Error::EpochCacheUninitialized(relative_epoch))
+        }
+    }
+
+    /// Updates the pubkey cache, if required.
+    ///
+    /// Adds all `pubkeys` from the `validator_registry` which are not already in the cache. Will
+    /// never re-add a pubkey.
+    pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
+        for (i, validator) in self
+            .validator_registry
+            .iter()
+            .enumerate()
+            .skip(self.pubkey_cache.len())
+        {
+            let success = self.pubkey_cache.insert(validator.pubkey.clone(), i);
+            if !success {
+                return Err(Error::PubkeyCacheInconsistent);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Completely drops the `pubkey_cache`, replacing it with a new, empty cache.
+    pub fn drop_pubkey_cache(&mut self) {
+        self.pubkey_cache = PubkeyCache::empty()
+    }
+
+    /// If a validator pubkey exists in the validator registry, returns `Some(i)`, otherwise
+    /// returns `None`.
+    ///
+    /// Requires a fully up-to-date `pubkey_cache`, returns an error if this is not the case.
+    pub fn get_validator_index(&self, pubkey: &PublicKey) -> Result<Option<usize>, Error> {
+        if self.pubkey_cache.len() == self.validator_registry.len() {
+            Ok(self.pubkey_cache.get(pubkey))
+        } else {
+            Err(Error::PubkeyCacheIncomplete {
+                cache_len: self.pubkey_cache.len(),
+                registry_len: self.validator_registry.len(),
+            })
         }
     }
 
@@ -541,12 +548,14 @@ impl BeaconState {
             return Err(Error::InvalidBitfield);
         }
 
-        let mut participants = vec![];
+        let mut participants = Vec::with_capacity(committee.len());
         for (i, validator_index) in committee.iter().enumerate() {
-            if bitfield.get(i).unwrap() {
-                participants.push(*validator_index);
+            match bitfield.get(i) {
+                Ok(bit) if bit == true => participants.push(*validator_index),
+                _ => {}
             }
         }
+        participants.shrink_to_fit();
 
         Ok(participants)
     }
@@ -598,10 +607,8 @@ impl BeaconState {
 
         for deposit_data in deposits {
             let result = self.process_deposit(
-                deposit_data.deposit_input.pubkey.clone(),
+                deposit_data.deposit_input.clone(),
                 deposit_data.amount,
-                deposit_data.deposit_input.proof_of_possession.clone(),
-                deposit_data.deposit_input.withdrawal_credentials,
                 Some(&pubkey_map),
                 spec,
             );
@@ -618,23 +625,29 @@ impl BeaconState {
     /// this hashmap, each call to `process_deposits` requires an iteration though
     /// `self.validator_registry`. This becomes highly inefficient at scale.
     ///
+    /// TODO: this function also exists in a more optimal form in the `state_processing` crate as
+    /// `process_deposits`; unify these two functions.
+    ///
     /// Spec v0.4.0
     pub fn process_deposit(
         &mut self,
-        pubkey: PublicKey,
+        deposit_input: DepositInput,
         amount: u64,
-        proof_of_possession: Signature,
-        withdrawal_credentials: Hash256,
         pubkey_map: Option<&HashMap<PublicKey, usize>>,
         spec: &ChainSpec,
     ) -> Result<usize, ()> {
-        // TODO: update proof of possession to function written above (
-        // requires bls::create_proof_of_possession to be updated
-        //
-        // https://github.com/sigp/lighthouse/issues/239
-        if !verify_proof_of_possession(&proof_of_possession, &pubkey) {
+        let proof_is_valid = deposit_input.proof_of_possession.verify(
+            &deposit_input.signed_root(),
+            spec.get_domain(self.current_epoch(&spec), Domain::Deposit, &self.fork),
+            &deposit_input.pubkey,
+        );
+
+        if !proof_is_valid {
             return Err(());
         }
+
+        let pubkey = deposit_input.pubkey.clone();
+        let withdrawal_credentials = deposit_input.withdrawal_credentials.clone();
 
         let validator_index = if let Some(pubkey_map) = pubkey_map {
             pubkey_map.get(&pubkey).and_then(|i| Some(*i))
@@ -1063,33 +1076,6 @@ impl BeaconState {
         self.validator_registry_update_epoch = current_epoch;
     }
 
-    /// Confirm validator owns PublicKey
-    ///
-    /// Spec v0.4.0
-    pub fn validate_proof_of_possession(
-        &self,
-        pubkey: PublicKey,
-        proof_of_possession: Signature,
-        withdrawal_credentials: Hash256,
-        spec: &ChainSpec,
-    ) -> bool {
-        let proof_of_possession_data = DepositInput {
-            pubkey: pubkey.clone(),
-            withdrawal_credentials,
-            proof_of_possession: Signature::empty_signature(),
-        };
-
-        proof_of_possession.verify(
-            &proof_of_possession_data.hash_tree_root(),
-            spec.get_domain(
-                self.slot.epoch(spec.slots_per_epoch),
-                Domain::Deposit,
-                &self.fork,
-            ),
-            &pubkey,
-        )
-    }
-
     /// Iterate through the validator registry and eject active validators with balance below
     /// ``EJECTION_BALANCE``.
     ///
@@ -1159,10 +1145,6 @@ impl BeaconState {
         all_participants.dedup();
         Ok(all_participants)
     }
-}
-
-fn hash_tree_root<T: TreeHash>(input: Vec<T>) -> Hash256 {
-    Hash256::from_slice(&input.hash_tree_root()[..])
 }
 
 impl Encodable for BeaconState {
@@ -1255,6 +1237,7 @@ impl Decodable for BeaconState {
                 deposit_index,
                 cache_index_offset: 0,
                 caches: vec![EpochCache::empty(); CACHED_EPOCHS],
+                pubkey_cache: PubkeyCache::empty(),
             },
             i,
         ))
@@ -1262,42 +1245,34 @@ impl Decodable for BeaconState {
 }
 
 impl TreeHash for BeaconState {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
+    fn hash_tree_root(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
-        result.append(&mut self.slot.hash_tree_root_internal());
-        result.append(&mut self.genesis_time.hash_tree_root_internal());
-        result.append(&mut self.fork.hash_tree_root_internal());
-        result.append(&mut self.validator_registry.hash_tree_root_internal());
-        result.append(&mut self.validator_balances.hash_tree_root_internal());
-        result.append(
-            &mut self
-                .validator_registry_update_epoch
-                .hash_tree_root_internal(),
-        );
-        result.append(&mut self.latest_randao_mixes.hash_tree_root_internal());
-        result.append(
-            &mut self
-                .previous_shuffling_start_shard
-                .hash_tree_root_internal(),
-        );
-        result.append(&mut self.current_shuffling_start_shard.hash_tree_root_internal());
-        result.append(&mut self.previous_shuffling_epoch.hash_tree_root_internal());
-        result.append(&mut self.current_shuffling_epoch.hash_tree_root_internal());
-        result.append(&mut self.previous_shuffling_seed.hash_tree_root_internal());
-        result.append(&mut self.current_shuffling_seed.hash_tree_root_internal());
-        result.append(&mut self.previous_justified_epoch.hash_tree_root_internal());
-        result.append(&mut self.justified_epoch.hash_tree_root_internal());
-        result.append(&mut self.justification_bitfield.hash_tree_root_internal());
-        result.append(&mut self.finalized_epoch.hash_tree_root_internal());
-        result.append(&mut self.latest_crosslinks.hash_tree_root_internal());
-        result.append(&mut self.latest_block_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_active_index_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_slashed_balances.hash_tree_root_internal());
-        result.append(&mut self.latest_attestations.hash_tree_root_internal());
-        result.append(&mut self.batched_block_roots.hash_tree_root_internal());
-        result.append(&mut self.latest_eth1_data.hash_tree_root_internal());
-        result.append(&mut self.eth1_data_votes.hash_tree_root_internal());
-        result.append(&mut self.deposit_index.hash_tree_root_internal());
+        result.append(&mut self.slot.hash_tree_root());
+        result.append(&mut self.genesis_time.hash_tree_root());
+        result.append(&mut self.fork.hash_tree_root());
+        result.append(&mut self.validator_registry.hash_tree_root());
+        result.append(&mut self.validator_balances.hash_tree_root());
+        result.append(&mut self.validator_registry_update_epoch.hash_tree_root());
+        result.append(&mut self.latest_randao_mixes.hash_tree_root());
+        result.append(&mut self.previous_shuffling_start_shard.hash_tree_root());
+        result.append(&mut self.current_shuffling_start_shard.hash_tree_root());
+        result.append(&mut self.previous_shuffling_epoch.hash_tree_root());
+        result.append(&mut self.current_shuffling_epoch.hash_tree_root());
+        result.append(&mut self.previous_shuffling_seed.hash_tree_root());
+        result.append(&mut self.current_shuffling_seed.hash_tree_root());
+        result.append(&mut self.previous_justified_epoch.hash_tree_root());
+        result.append(&mut self.justified_epoch.hash_tree_root());
+        result.append(&mut self.justification_bitfield.hash_tree_root());
+        result.append(&mut self.finalized_epoch.hash_tree_root());
+        result.append(&mut self.latest_crosslinks.hash_tree_root());
+        result.append(&mut self.latest_block_roots.hash_tree_root());
+        result.append(&mut self.latest_active_index_roots.hash_tree_root());
+        result.append(&mut self.latest_slashed_balances.hash_tree_root());
+        result.append(&mut self.latest_attestations.hash_tree_root());
+        result.append(&mut self.batched_block_roots.hash_tree_root());
+        result.append(&mut self.latest_eth1_data.hash_tree_root());
+        result.append(&mut self.eth1_data_votes.hash_tree_root());
+        result.append(&mut self.deposit_index.hash_tree_root());
         hash(&result)
     }
 }
@@ -1333,6 +1308,7 @@ impl<T: RngCore> TestRandom<T> for BeaconState {
             deposit_index: <_>::random_for_test(rng),
             cache_index_offset: 0,
             caches: vec![EpochCache::empty(); CACHED_EPOCHS],
+            pubkey_cache: PubkeyCache::empty(),
         }
     }
 }

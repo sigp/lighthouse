@@ -12,7 +12,7 @@ use crate::slot_height::SlotHeight;
 /// may lead to programming errors which are not detected by the compiler.
 use crate::test_utils::TestRandom;
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use slog;
 use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::cmp::{Ord, Ordering};
@@ -21,10 +21,10 @@ use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
+#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Slot(u64);
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize)]
+#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);
@@ -103,8 +103,6 @@ impl<'a> Iterator for SlotIter<'a> {
 #[cfg(test)]
 mod slot_tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
 
     all_tests!(Slot);
 }
@@ -112,8 +110,6 @@ mod slot_tests {
 #[cfg(test)]
 mod epoch_tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::ssz_encode;
 
     all_tests!(Epoch);
 
