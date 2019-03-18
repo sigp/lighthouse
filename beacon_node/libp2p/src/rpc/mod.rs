@@ -13,7 +13,7 @@ use libp2p::core::swarm::{
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
 pub use protocol::{RPCEvent, RPCProtocol};
-use slog::{debug, o, Logger};
+use slog::{debug, o};
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -40,15 +40,10 @@ impl<TSubstream> Rpc<TSubstream> {
     }
 
     /// Submits and RPC request.
-    pub fn send_request(&mut self, peer_id: PeerId, id: u64, method_id: u16, body: RPCRequest) {
-        let request = RPCEvent::Request {
-            id,
-            method_id,
-            body,
-        };
+    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.events.push(NetworkBehaviourAction::SendEvent {
             peer_id,
-            event: request,
+            event: rpc_event,
         });
     }
 }
