@@ -1,21 +1,21 @@
 #![cfg(test)]
 use crate::per_epoch_processing;
 use env_logger::{Builder, Env};
-use types::beacon_state::BeaconStateBuilder;
+use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
 
 #[test]
 fn runs_without_error() {
     Builder::from_env(Env::default().default_filter_or("error")).init();
 
-    let mut builder = BeaconStateBuilder::new(8);
-    builder.spec = ChainSpec::few_validators();
+    let spec = ChainSpec::few_validators();
 
-    builder.build().unwrap();
-    builder.teleport_to_end_of_epoch(builder.spec.genesis_epoch + 4);
+    let mut builder = TestingBeaconStateBuilder::from_deterministic_keypairs(8, &spec);
 
-    let mut state = builder.cloned_state();
+    let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
+    builder.teleport_to_slot(target_slot, &spec);
 
-    let spec = &builder.spec;
-    per_epoch_processing(&mut state, spec).unwrap();
+    let (mut state, _keypairs) = builder.build();
+
+    per_epoch_processing(&mut state, &spec).unwrap();
 }
