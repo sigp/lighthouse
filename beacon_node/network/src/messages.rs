@@ -2,19 +2,14 @@ use libp2p::PeerId;
 use libp2p::{HelloMessage, RPCEvent};
 use types::{Hash256, Slot};
 
+//TODO: This module can be entirely replaced in the RPC rewrite
+
 /// Messages between nodes across the network.
+//TODO: Remove this in the RPC rewrite
 #[derive(Debug, Clone)]
 pub enum NodeMessage {
     RPC(RPCEvent),
     BlockRequest,
     // TODO: only for testing - remove
     Message(String),
-}
-
-/// Types of messages that the network service can receive.
-#[derive(Debug, Clone)]
-pub enum NetworkMessage {
-    /// Send a message to libp2p service.
-    //TODO: Define typing for messages across the wire
-    Send(PeerId, NodeMessage),
 }
