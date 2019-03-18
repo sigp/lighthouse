@@ -118,6 +118,7 @@ pub struct ChainSpec {
      *
      */
     pub boot_nodes: Vec<Multiaddr>,
+    pub network_id: u8,
 }
 
 impl ChainSpec {
@@ -254,6 +255,7 @@ impl ChainSpec {
              * Boot nodes
              */
             boot_nodes: vec![],
+            network_id: 1, // foundation network id
         }
     }
 
@@ -270,6 +272,7 @@ impl ChainSpec {
 
         Self {
             boot_nodes,
+            network_id: 2, // lighthouse testnet network id
             ..ChainSpec::few_validators()
         }
     }
