@@ -48,7 +48,7 @@ impl_encodable_for_uint!(usize, 64);
 
 impl Encodable for bool {
     fn ssz_append(&self, s: &mut SszStream) {
-        let byte = if *self { 0b1000_0000 } else { 0b0000_0000 };
+        let byte = if *self { 0b0000_0001 } else { 0b0000_0000 };
         s.append_encoded_raw(&[byte]);
     }
 }
@@ -245,6 +245,6 @@ mod tests {
         let x: bool = true;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0b1000_0000]);
+        assert_eq!(ssz.drain(), vec![0b0000_0001]);
     }
 }

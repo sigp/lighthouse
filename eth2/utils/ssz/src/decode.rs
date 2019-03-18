@@ -13,16 +13,22 @@ pub trait Decodable: Sized {
 
 /// Decode the given bytes for the given type
 ///
-/// The single ssz encoded value will be decoded as the given type at the
-/// given index.
-pub fn decode_ssz<T>(ssz_bytes: &[u8], index: usize) -> Result<(T, usize), DecodeError>
+/// The single ssz encoded value/container/list will be decoded as the given type,
+/// by recursively calling `ssz_decode`.
+pub fn decode<T>(ssz_bytes: &[u8]) -> Result<(T), DecodeError>
 where
     T: Decodable,
 {
-    if index >= ssz_bytes.len() {
-        return Err(DecodeError::TooShort);
+    let (decoded, i): (T, usize) = match T::ssz_decode(ssz_bytes, 0) {
+        Err(e) => return Err(e),
+        Ok(v) => v,
+    };
+
+    if i < ssz_bytes.len() {
+        return Err(DecodeError::TooLong);
     }
-    T::ssz_decode(ssz_bytes, index)
+
+    Ok(decoded)
 }
 
 /// Decode a vector (list) of encoded bytes.
@@ -82,7 +88,7 @@ pub fn decode_length(
         .take(index + length_bytes)
         .skip(index)
     {
-        let offset = (length_bytes - (length_bytes - (i - index))) * 8;
+        let offset = (i - index) * 8;
         len |= (*byte as usize) << offset;
     }
     Ok(len)

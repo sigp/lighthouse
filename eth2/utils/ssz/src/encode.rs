@@ -76,7 +76,7 @@ pub fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
     assert!((len as usize) < 2usize.pow(length_bytes as u32 * 8));
     let mut header: Vec<u8> = vec![0; length_bytes];
     for (i, header_byte) in header.iter_mut().enumerate() {
-        let offset = (length_bytes - (length_bytes - i)) * 8;
+        let offset = i * 8;
         *header_byte = ((len >> offset) & 0xff) as u8;
     }
     header

@@ -3,7 +3,7 @@ use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
 use protos::services_grpc::BeaconBlockServiceClient;
-use ssz::{ssz_encode, Decodable};
+use ssz::{decode, ssz_encode};
 use std::sync::Arc;
 use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, Signature, Slot};
 
@@ -41,10 +41,10 @@ impl BeaconNode for BeaconBlockGrpcClient {
         if reply.has_block() {
             let block = reply.get_block();
 
-            let (signature, _) = Signature::ssz_decode(block.get_signature(), 0)
+            let signature = decode::<Signature>(block.get_signature())
                 .map_err(|_| BeaconNodeError::DecodeFailure)?;
 
-            let (randao_reveal, _) = Signature::ssz_decode(block.get_randao_reveal(), 0)
+            let randao_reveal = decode::<Signature>(block.get_randao_reveal())
                 .map_err(|_| BeaconNodeError::DecodeFailure)?;
 
             // TODO: this conversion is incomplete; fix it.
