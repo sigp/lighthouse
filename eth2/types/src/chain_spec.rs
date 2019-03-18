@@ -259,7 +259,7 @@ impl ChainSpec {
 
         Self {
             boot_nodes,
-            ..ChainSpec::foundation()
+            ..ChainSpec::few_validators()
         }
     }
 
