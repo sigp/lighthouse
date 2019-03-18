@@ -8,9 +8,7 @@ use db::{
 use log::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{
-    validator_registry::get_active_validator_indices, BeaconBlock, ChainSpec, Hash256, Slot,
-};
+use types::{BeaconBlock, ChainSpec, Hash256, Slot};
 
 //TODO: Pruning and syncing
 
@@ -61,10 +59,8 @@ where
             .get_deserialized(&state_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
-        let active_validator_indices = get_active_validator_indices(
-            &current_state.validator_registry[..],
-            block_slot.epoch(spec.slots_per_epoch),
-        );
+        let active_validator_indices =
+            current_state.get_active_validator_indices(block_slot.epoch(spec.slots_per_epoch));
 
         for index in active_validator_indices {
             let balance = std::cmp::min(

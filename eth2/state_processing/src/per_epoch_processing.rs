@@ -7,7 +7,7 @@ use process_validator_registry::process_validator_registry;
 use rayon::prelude::*;
 use ssz::TreeHash;
 use std::collections::HashMap;
-use types::{validator_registry::get_active_validator_indices, *};
+use types::*;
 use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
@@ -68,16 +68,6 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     state.advance_caches();
 
     Ok(())
-}
-
-/// Returns a list of active validator indices for the state's current epoch.
-///
-/// Spec v0.5.0
-pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec) -> Vec<usize> {
-    get_active_validator_indices(
-        &state.validator_registry,
-        state.slot.epoch(spec.slots_per_epoch),
-    )
 }
 
 /// Calculates various sets of attesters, including:
@@ -454,11 +444,10 @@ pub fn update_active_tree_index_roots(
 ) -> Result<(), Error> {
     let next_epoch = state.next_epoch(spec);
 
-    let active_tree_root = get_active_validator_indices(
-        &state.validator_registry,
-        next_epoch + Epoch::from(spec.activation_exit_delay),
-    )
-    .hash_tree_root();
+    let active_tree_root = state
+        .get_active_validator_indices(next_epoch + Epoch::from(spec.activation_exit_delay))
+        .to_vec()
+        .hash_tree_root();
 
     state.set_active_index_root(next_epoch, Hash256::from_slice(&active_tree_root[..]), spec)?;
 

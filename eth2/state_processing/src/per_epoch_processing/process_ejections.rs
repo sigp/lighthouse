@@ -9,7 +9,7 @@ pub fn process_ejections(state: &mut BeaconState, spec: &ChainSpec) -> Result<()
     // There is an awkward double (triple?) loop here because we can't loop across the borrowed
     // active validator indices and mutate state in the one loop.
     let exitable: Vec<usize> = state
-        .get_active_validator_indices(state.current_epoch(spec), spec)?
+        .get_cached_active_validator_indices(RelativeEpoch::Current, spec)?
         .iter()
         .filter_map(|&i| {
             if state.validator_balances[i as usize] < spec.ejection_balance {
