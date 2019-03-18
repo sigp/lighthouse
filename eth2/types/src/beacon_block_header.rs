@@ -30,6 +30,15 @@ pub struct BeaconBlockHeader {
     pub signature: Signature,
 }
 
+impl BeaconBlockHeader {
+    /// Returns the `hash_tree_root` of the header.
+    ///
+    /// Spec v0.5.0
+    pub fn canonical_root(&self) -> Hash256 {
+        Hash256::from_slice(&self.hash_tree_root()[..])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

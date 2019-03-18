@@ -82,20 +82,18 @@ where
         let state_root = genesis_state.canonical_root();
         state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
 
-        let block_root = genesis_block.canonical_root();
+        let block_root = genesis_block.into_header().canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
-            // TODO: this is a memory waste; remove full clone.
             genesis_state.clone(),
             state_root,
         ));
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
-            // TODO: this is a memory waste; remove full clone.
             genesis_state.clone(),
             state_root,
         ));
@@ -190,10 +188,13 @@ where
     /// processing applied to it.
     pub fn advance_state(&self, slot: Slot) -> Result<(), SlotProcessingError> {
         let state_slot = self.state.read().slot;
-        let head_block_root = self.head().beacon_block_root;
+
+        let latest_block_header = self.head().beacon_block.into_header();
+
         for _ in state_slot.as_u64()..slot.as_u64() {
-            per_slot_processing(&mut *self.state.write(), head_block_root, &self.spec)?;
+            per_slot_processing(&mut *self.state.write(), &latest_block_header, &self.spec)?;
         }
+
         Ok(())
     }
 
@@ -554,66 +555,13 @@ where
         }
     }
 
-    /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
-    ///
-    /// This could be a very expensive operation and should only be done in testing/analysis
-    /// activities.
-    pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, Error> {
-        let mut dump = vec![];
-
-        let mut last_slot = CheckPoint {
-            beacon_block: self.head().beacon_block.clone(),
-            beacon_block_root: self.head().beacon_block_root,
-            beacon_state: self.head().beacon_state.clone(),
-            beacon_state_root: self.head().beacon_state_root,
-        };
-
-        dump.push(last_slot.clone());
-
-        loop {
-            let beacon_block_root = last_slot.beacon_block.previous_block_root;
-
-            if beacon_block_root == self.spec.zero_hash {
-                break; // Genesis has been reached.
-            }
-
-            let beacon_block = self
-                .block_store
-                .get_deserialized(&beacon_block_root)?
-                .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
-                })?;
-            let beacon_state_root = beacon_block.state_root;
-            let beacon_state = self
-                .state_store
-                .get_deserialized(&beacon_state_root)?
-                .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
-                })?;
-
-            let slot = CheckPoint {
-                beacon_block,
-                beacon_block_root,
-                beacon_state,
-                beacon_state_root,
-            };
-
-            dump.push(slot.clone());
-            last_slot = slot;
-        }
-
-        dump.reverse();
-
-        Ok(dump)
-    }
-
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
     pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot);
 
-        let block_root = block.canonical_root();
+        let block_root = block.into_header().canonical_root();
 
         let present_slot = self.present_slot();
 
@@ -648,8 +596,10 @@ where
 
         // Transition the parent state to the present slot.
         let mut state = parent_state;
+        println!("parent process state: {:?}", state.latest_block_header);
+        let previous_block_header = parent_block.into_header();
         for _ in state.slot.as_u64()..present_slot.as_u64() {
-            if let Err(e) = per_slot_processing(&mut state, parent_block_root, &self.spec) {
+            if let Err(e) = per_slot_processing(&mut state, &previous_block_header, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
                 ));
@@ -663,6 +613,8 @@ where
                 InvalidBlock::PerBlockProcessingError(e),
             ));
         }
+
+        println!("process state: {:?}", state.latest_block_header);
 
         let state_root = state.canonical_root();
 
@@ -726,7 +678,7 @@ where
         );
 
         let previous_block_root = *state
-            .get_block_root(state.slot.saturating_sub(1_u64), &self.spec)
+            .get_block_root(state.slot - 1, &self.spec)
             .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?;
 
         let mut block = BeaconBlock {
@@ -753,6 +705,8 @@ where
         trace!("BeaconChain::produce_block: updating state for new block.",);
 
         per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
+
+        println!("produce state: {:?}", state.latest_block_header);
 
         let state_root = state.canonical_root();
 
@@ -787,6 +741,59 @@ where
         }
 
         Ok(())
+    }
+
+    /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
+    ///
+    /// This could be a very expensive operation and should only be done in testing/analysis
+    /// activities.
+    pub fn chain_dump(&self) -> Result<Vec<CheckPoint>, Error> {
+        let mut dump = vec![];
+
+        let mut last_slot = CheckPoint {
+            beacon_block: self.head().beacon_block.clone(),
+            beacon_block_root: self.head().beacon_block_root,
+            beacon_state: self.head().beacon_state.clone(),
+            beacon_state_root: self.head().beacon_state_root,
+        };
+
+        dump.push(last_slot.clone());
+
+        loop {
+            let beacon_block_root = last_slot.beacon_block.previous_block_root;
+
+            if beacon_block_root == self.spec.zero_hash {
+                break; // Genesis has been reached.
+            }
+
+            let beacon_block = self
+                .block_store
+                .get_deserialized(&beacon_block_root)?
+                .ok_or_else(|| {
+                    Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
+                })?;
+            let beacon_state_root = beacon_block.state_root;
+            let beacon_state = self
+                .state_store
+                .get_deserialized(&beacon_state_root)?
+                .ok_or_else(|| {
+                    Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
+                })?;
+
+            let slot = CheckPoint {
+                beacon_block,
+                beacon_block_root,
+                beacon_state,
+                beacon_state_root,
+            };
+
+            dump.push(slot.clone());
+            last_slot = slot;
+        }
+
+        dump.reverse();
+
+        Ok(dump)
     }
 }
 

@@ -63,16 +63,32 @@ impl BeaconBlock {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
 
+    /// Returns a full `BeaconBlockHeader` of this block.
+    ///
+    /// Note: This method is used instead of an `Into` impl to avoid a `Clone` of an entire block
+    /// when you want to have the block _and_ the header.
+    ///
+    /// Note: performs a full tree-hash of `self.body`.
+    ///
+    /// Spec v0.5.0
+    pub fn into_header(&self) -> BeaconBlockHeader {
+        BeaconBlockHeader {
+            slot: self.slot,
+            previous_block_root: self.previous_block_root,
+            state_root: self.state_root,
+            block_body_root: Hash256::from_slice(&self.body.hash_tree_root()[..]),
+            signature: self.signature.clone(),
+        }
+    }
+
     /// Returns a "temporary" header, where the `state_root` is `spec.zero_hash`.
     ///
     /// Spec v0.5.0
     pub fn into_temporary_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
         BeaconBlockHeader {
-            slot: self.slot,
-            previous_block_root: self.previous_block_root,
             state_root: spec.zero_hash,
-            block_body_root: Hash256::from_slice(&self.hash_tree_root()),
-            signature: self.signature.clone(),
+            signature: spec.empty_signature.clone(),
+            ..self.into_header()
         }
     }
 }
