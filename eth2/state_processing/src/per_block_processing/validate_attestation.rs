@@ -1,6 +1,6 @@
 use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
+use crate::common::verify_bitfield_length;
 use ssz::TreeHash;
-use types::beacon_state::helpers::*;
 use types::*;
 
 /// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the

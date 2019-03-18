@@ -1,4 +1,4 @@
-use crate::*;
+use types::*;
 
 /// Verify ``bitfield`` against the ``committee_size``.
 ///
