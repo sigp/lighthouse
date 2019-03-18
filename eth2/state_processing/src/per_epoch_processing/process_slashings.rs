@@ -7,7 +7,8 @@ use types::{BeaconStateError as Error, *};
 /// Spec v0.4.0
 pub fn process_slashings(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
-    let active_validator_indices = state.get_active_validator_indices(current_epoch, spec)?;
+    let active_validator_indices =
+        state.get_cached_active_validator_indices(RelativeEpoch::Current, spec)?;
     let total_balance = state.get_total_balance(&active_validator_indices[..], spec)?;
 
     for (index, validator) in state.validator_registry.iter().enumerate() {

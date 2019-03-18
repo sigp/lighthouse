@@ -1,4 +1,4 @@
-use self::epoch_cache::{EpochCache, Error as EpochCacheError};
+use self::epoch_cache::{get_active_validator_indices, EpochCache, Error as EpochCacheError};
 use crate::test_utils::TestRandom;
 use crate::*;
 use int_to_bytes::int_to_bytes32;
@@ -234,26 +234,29 @@ impl BeaconState {
     /// Returns the active validator indices for the given epoch, assuming there is no validator
     /// registry update in the next epoch.
     ///
+    /// This uses the cache, so it saves an iteration over the validator registry, however it can
+    /// not return a result for any epoch before the previous epoch.
+    ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
     /// Spec v0.5.0
-    pub fn get_active_validator_indices(
+    pub fn get_cached_active_validator_indices(
         &self,
-        epoch: Epoch,
+        relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<&[usize], Error> {
-        // If the slot is in the next epoch, assume there was no validator registry update.
-        let relative_epoch =
-            match RelativeEpoch::from_epoch(self.slot.epoch(spec.slots_per_epoch), epoch) {
-                Err(RelativeEpochError::AmbiguiousNextEpoch) => {
-                    Ok(RelativeEpoch::NextWithoutRegistryChange)
-                }
-                e => e,
-            }?;
-
         let cache = self.cache(relative_epoch, spec)?;
 
         Ok(&cache.active_validator_indices)
+    }
+
+    /// Returns the active validator indices for the given epoch.
+    ///
+    /// Does not utilize the cache, performs a full iteration over the validator registry.
+    ///
+    /// Spec v0.5.0
+    pub fn get_active_validator_indices(&self, epoch: Epoch) -> Vec<usize> {
+        get_active_validator_indices(&self.validator_registry, epoch)
     }
 
     /// Returns the crosslink committees for some slot.

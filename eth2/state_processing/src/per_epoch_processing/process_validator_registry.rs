@@ -21,7 +21,7 @@ pub fn process_validator_registry(state: &mut BeaconState, spec: &ChainSpec) -> 
         state.current_shuffling_start_shard = (state.current_shuffling_start_shard
             + spec.get_epoch_committee_count(
                 state
-                    .get_active_validator_indices(current_epoch, spec)?
+                    .get_cached_active_validator_indices(RelativeEpoch::Current, spec)?
                     .len(),
             ) as u64)
             % spec.shard_count;
@@ -53,7 +53,7 @@ pub fn should_update_validator_registry(
     }
 
     let num_active_validators = state
-        .get_active_validator_indices(state.current_epoch(spec), spec)?
+        .get_cached_active_validator_indices(RelativeEpoch::Current, spec)?
         .len();
     let current_epoch_committee_count = spec.get_epoch_committee_count(num_active_validators);
 
