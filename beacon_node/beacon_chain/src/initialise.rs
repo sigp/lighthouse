@@ -106,7 +106,7 @@ pub fn initialise_test_beacon_chain(
         deposit_root: Hash256::zero(),
         block_hash: Hash256::zero(),
     };
-    let keypairs: Vec<Keypair> = (0..50)
+    let keypairs: Vec<Keypair> = (0..8)
         .collect::<Vec<usize>>()
         .iter()
         .map(|_| Keypair::random())
