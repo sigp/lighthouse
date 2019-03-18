@@ -100,8 +100,11 @@ pub fn process_block_header(
 ) -> Result<(), Error> {
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
+    // NOTE: this is not to spec. I think spec is broken. See:
+    //
+    // https://github.com/ethereum/eth2.0-specs/issues/797
     verify!(
-        block.previous_block_root.as_bytes() == &state.latest_block_header.hash_tree_root()[..],
+        block.previous_block_root == *state.get_block_root(state.slot - 1, spec)?,
         Invalid::ParentBlockRootMismatch
     );
 
