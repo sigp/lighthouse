@@ -72,14 +72,16 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     }
 }
 
+/// Implements the combined behaviour for the libp2p service.
 impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
+    /// Subscribes to a gossipsub topic.
     pub fn subscribe(&mut self, topic: Topic) -> bool {
         self.gossipsub.subscribe(topic)
     }
 
-    pub fn send_message(&self, message: String) {
-        // TODO: Encode and send via gossipsub
-
+    /// Sends an RPC Request/Response via the RPC protocol.
+    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+        self.serenity_rpc.send_rpc(peer_id, rpc_event);
     }
 }
 
