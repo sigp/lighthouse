@@ -1,24 +1,41 @@
-use crate::{test_utils::TestRandom, Epoch};
+use crate::{test_utils::TestRandom, ChainSpec, Epoch};
+use int_to_bytes::int_to_bytes4;
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode, TreeHash};
 use test_random_derive::TestRandom;
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
-/// Spec v0.4.0
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TreeHash, TestRandom)]
+/// Spec v0.5.0
+#[derive(
+    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 pub struct Fork {
-    pub previous_version: u64,
-    pub current_version: u64,
+    pub previous_version: [u8; 4],
+    pub current_version: [u8; 4],
     pub epoch: Epoch,
 }
 
 impl Fork {
+    /// Initialize the `Fork` from the genesis parameters in the `spec`.
+    ///
+    /// Spec v0.5.0
+    pub fn genesis(spec: &ChainSpec) -> Self {
+        let mut current_version: [u8; 4] = [0; 4];
+        current_version.copy_from_slice(&int_to_bytes4(spec.genesis_fork_version));
+
+        Self {
+            previous_version: current_version,
+            current_version,
+            epoch: spec.genesis_epoch,
+        }
+    }
+
     /// Return the fork version of the given ``epoch``.
     ///
-    /// Spec v0.4.0
-    pub fn get_fork_version(&self, epoch: Epoch) -> u64 {
+    /// Spec v0.5.0
+    pub fn get_fork_version(&self, epoch: Epoch) -> [u8; 4] {
         if epoch < self.epoch {
             return self.previous_version;
         }
@@ -29,29 +46,51 @@ impl Fork {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable, TreeHash};
 
-    #[test]
-    pub fn test_ssz_round_trip() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Fork::random_for_test(&mut rng);
+    ssz_tests!(Fork);
 
-        let bytes = ssz_encode(&original);
-        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
+    fn test_genesis(version: u32, epoch: Epoch) {
+        let mut spec = ChainSpec::foundation();
 
-        assert_eq!(original, decoded);
+        spec.genesis_fork_version = version;
+        spec.genesis_epoch = epoch;
+
+        let fork = Fork::genesis(&spec);
+
+        assert_eq!(fork.epoch, spec.genesis_epoch, "epoch incorrect");
+        assert_eq!(
+            fork.previous_version, fork.current_version,
+            "previous and current are not identical"
+        );
+        assert_eq!(
+            fork.current_version,
+            version.to_le_bytes(),
+            "current version incorrect"
+        );
     }
 
     #[test]
-    pub fn test_hash_tree_root_internal() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = Fork::random_for_test(&mut rng);
+    fn genesis() {
+        test_genesis(0, Epoch::new(0));
+        test_genesis(9, Epoch::new(11));
+        test_genesis(2_u32.pow(31), Epoch::new(2_u64.pow(63)));
+        test_genesis(u32::max_value(), Epoch::max_value());
+    }
 
-        let result = original.hash_tree_root_internal();
+    #[test]
+    fn get_fork_version() {
+        let previous_version = [1; 4];
+        let current_version = [2; 4];
+        let epoch = Epoch::new(10);
 
-        assert_eq!(result.len(), 32);
-        // TODO: Add further tests
-        // https://github.com/sigp/lighthouse/issues/170
+        let fork = Fork {
+            previous_version,
+            current_version,
+            epoch,
+        };
+
+        assert_eq!(fork.get_fork_version(epoch - 1), previous_version);
+        assert_eq!(fork.get_fork_version(epoch), current_version);
+        assert_eq!(fork.get_fork_version(epoch + 1), current_version);
     }
 }

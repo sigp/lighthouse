@@ -3,7 +3,7 @@
 extern crate beacon_chain;
 extern crate bls;
 extern crate db;
-//extern crate env_logger; // for debugging
+// extern crate env_logger; // for debugging
 extern crate fork_choice;
 extern crate hex;
 extern crate log;
@@ -12,21 +12,34 @@ extern crate types;
 extern crate yaml_rust;
 
 pub use beacon_chain::BeaconChain;
-use bls::{PublicKey, Signature};
+use bls::Signature;
 use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
-//use env_logger::{Builder, Env};
-use fork_choice::{BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, SlowLMDGhost};
+// use env_logger::{Builder, Env};
+use fork_choice::{
+    BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimizedLMDGhost, SlowLMDGhost,
+};
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
-use types::{
-    BeaconBlock, BeaconBlockBody, BeaconState, ChainSpec, Epoch, Eth1Data, Hash256, Slot, Validator,
-};
+use types::test_utils::TestingBeaconStateBuilder;
+use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Keypair, Slot};
 use yaml_rust::yaml;
 
 // Note: We Assume the block Id's are hex-encoded.
+
+#[test]
+fn test_optimized_lmd_ghost() {
+    // set up logging
+    // Builder::from_env(Env::default().default_filter_or("trace")).init();
+
+    test_yaml_vectors(
+        ForkChoiceAlgorithm::OptimizedLMDGhost,
+        "tests/lmd_ghost_test_vectors.yaml",
+        100,
+    );
+}
 
 #[test]
 fn test_bitwise_lmd_ghost() {
@@ -77,6 +90,8 @@ fn test_yaml_vectors(
     let randao_reveal = Signature::empty_signature();
     let signature = Signature::empty_signature();
     let body = BeaconBlockBody {
+        eth1_data,
+        randao_reveal,
         proposer_slashings: vec![],
         attester_slashings: vec![],
         attestations: vec![],
@@ -104,14 +119,14 @@ fn test_yaml_vectors(
             // default params for genesis
             let block_hash = id_to_hash(&block_id);
             let mut slot = spec.genesis_slot;
-            let parent_root = id_to_hash(&parent_id);
+            let previous_block_root = id_to_hash(&parent_id);
 
             // set the slot and parent based off the YAML. Start with genesis;
             // if not the genesis, update slot
             if parent_id != block_id {
                 // find parent slot
                 slot = *(block_slot
-                    .get(&parent_root)
+                    .get(&previous_block_root)
                     .expect("Parent should have a slot number"))
                     + 1;
             } else {
@@ -124,10 +139,8 @@ fn test_yaml_vectors(
             // build the BeaconBlock
             let beacon_block = BeaconBlock {
                 slot,
-                parent_root,
+                previous_block_root,
                 state_root: state_root.clone(),
-                randao_reveal: randao_reveal.clone(),
-                eth1_data: eth1_data.clone(),
                 signature: signature.clone(),
                 body: body.clone(),
             };
@@ -205,16 +218,18 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
 // initialise a single validator and state. All blocks will reference this state root.
 fn setup_inital_state(
     fork_choice_algo: &ForkChoiceAlgorithm,
-    no_validators: usize,
+    num_validators: usize,
 ) -> (Box<ForkChoice>, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
-    let zero_hash = Hash256::zero();
-
     let db = Arc::new(MemoryDB::open());
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
     // the fork choice instantiation
     let fork_choice: Box<ForkChoice> = match fork_choice_algo {
+        ForkChoiceAlgorithm::OptimizedLMDGhost => Box::new(OptimizedLMDGhost::new(
+            block_store.clone(),
+            state_store.clone(),
+        )),
         ForkChoiceAlgorithm::BitwiseLMDGhost => Box::new(BitwiseLMDGhost::new(
             block_store.clone(),
             state_store.clone(),
@@ -225,40 +240,11 @@ fn setup_inital_state(
         ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(block_store.clone())),
     };
 
-    // misc vars for setting up the state
-    let genesis_time = 1_550_381_159;
-
-    let latest_eth1_data = Eth1Data {
-        deposit_root: zero_hash.clone(),
-        block_hash: zero_hash.clone(),
-    };
-
-    let initial_validator_deposits = vec![];
     let spec = ChainSpec::foundation();
 
-    // create the state
-    let mut state = BeaconState::genesis(
-        genesis_time,
-        initial_validator_deposits,
-        latest_eth1_data,
-        &spec,
-    )
-    .unwrap();
-
-    let default_validator = Validator {
-        pubkey: PublicKey::default(),
-        withdrawal_credentials: zero_hash,
-        activation_epoch: Epoch::from(0u64),
-        exit_epoch: spec.far_future_epoch,
-        withdrawable_epoch: spec.far_future_epoch,
-        initiated_exit: false,
-        slashed: false,
-    };
-    // activate the validators
-    for _ in 0..no_validators {
-        state.validator_registry.push(default_validator.clone());
-        state.validator_balances.push(32_000_000_000);
-    }
+    let state_builder =
+        TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
+    let (state, _keypairs) = state_builder.build();
 
     let state_root = state.canonical_root();
     state_store

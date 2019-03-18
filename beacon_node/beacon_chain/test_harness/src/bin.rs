@@ -1,35 +1,84 @@
-use clap::{App, Arg};
+use clap::{App, Arg, SubCommand};
 use env_logger::{Builder, Env};
-use std::{fs::File, io::prelude::*};
-use test_case::TestCase;
-use yaml_rust::YamlLoader;
+use gen_keys::gen_keys;
+use run_test::run_test;
+use std::fs;
+use types::test_utils::keypairs_path;
+use types::ChainSpec;
 
 mod beacon_chain_harness;
+mod gen_keys;
+mod run_test;
 mod test_case;
 mod validator_harness;
 
 use validator_harness::ValidatorHarness;
 
 fn main() {
+    let validator_file_path = keypairs_path();
+
+    let _ = fs::create_dir(validator_file_path.parent().unwrap());
+
     let matches = App::new("Lighthouse Test Harness Runner")
         .version("0.0.1")
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Runs `test_harness` using a YAML test_case.")
         .arg(
-            Arg::with_name("yaml")
-                .long("yaml")
-                .value_name("FILE")
-                .help("YAML file test_case.")
-                .required(true),
-        )
-        .arg(
             Arg::with_name("log")
                 .long("log-level")
+                .short("l")
                 .value_name("LOG_LEVEL")
                 .help("Logging level.")
                 .possible_values(&["error", "warn", "info", "debug", "trace"])
                 .default_value("debug")
                 .required(true),
+        )
+        .arg(
+            Arg::with_name("spec")
+                .long("spec")
+                .short("s")
+                .value_name("SPECIFICATION")
+                .help("ChainSpec instantiation.")
+                .possible_values(&["foundation", "few_validators"])
+                .default_value("foundation"),
+        )
+        .subcommand(
+            SubCommand::with_name("run_test")
+                .about("Executes a YAML test specification")
+                .arg(
+                    Arg::with_name("yaml")
+                        .long("yaml")
+                        .value_name("FILE")
+                        .help("YAML file test_case.")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("validators_dir")
+                        .long("validators-dir")
+                        .short("v")
+                        .value_name("VALIDATORS_DIR")
+                        .help("A directory with validator deposits and keypair YAML."),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("gen_keys")
+                .about("Builds a file of BLS keypairs for faster tests.")
+                .arg(
+                    Arg::with_name("validator_count")
+                        .long("validator_count")
+                        .short("n")
+                        .value_name("VALIDATOR_COUNT")
+                        .help("Number of validators to generate.")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("output_file")
+                        .long("output_file")
+                        .short("d")
+                        .value_name("GENESIS_TIME")
+                        .help("Output directory for generated YAML.")
+                        .default_value(validator_file_path.to_str().unwrap()),
+                ),
         )
         .get_matches();
 
@@ -37,33 +86,17 @@ fn main() {
         Builder::from_env(Env::default().default_filter_or(log_level)).init();
     }
 
-    if let Some(yaml_file) = matches.value_of("yaml") {
-        let docs = {
-            let mut file = File::open(yaml_file).unwrap();
+    let _spec = match matches.value_of("spec") {
+        Some("foundation") => ChainSpec::foundation(),
+        Some("few_validators") => ChainSpec::few_validators(),
+        _ => unreachable!(), // Has a default value, should always exist.
+    };
 
-            let mut yaml_str = String::new();
-            file.read_to_string(&mut yaml_str).unwrap();
+    if let Some(matches) = matches.subcommand_matches("run_test") {
+        run_test(matches);
+    }
 
-            YamlLoader::load_from_str(&yaml_str).unwrap()
-        };
-
-        for doc in &docs {
-            // For each `test_cases` YAML in the document, build a `TestCase`, execute it and
-            // assert that the execution result matches the test_case description.
-            //
-            // In effect, for each `test_case` a new `BeaconChainHarness` is created from genesis
-            // and a new `BeaconChain` is built as per the test_case.
-            //
-            // After the `BeaconChain` has been built out as per the test_case, a dump of all blocks
-            // and states in the chain is obtained and checked against the `results` specified in
-            // the `test_case`.
-            //
-            // If any of the expectations in the results are not met, the process
-            // panics with a message.
-            for test_case in doc["test_cases"].as_vec().unwrap() {
-                let test_case = TestCase::from_yaml(test_case);
-                test_case.assert_result_valid(test_case.execute())
-            }
-        }
+    if let Some(matches) = matches.subcommand_matches("gen_keys") {
+        gen_keys(matches);
     }
 }
