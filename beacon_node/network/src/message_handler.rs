@@ -1,14 +1,14 @@
+use crate::beacon_chain::BeaconChain;
 use crate::error;
 use crate::messages::NodeMessage;
-use beacon_chain::BeaconChain;
-use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
+use crossbeam_channel::{unbounded as channel, Sender};
 use futures::future;
 use futures::prelude::*;
 use libp2p::rpc;
 use libp2p::{PeerId, RPCEvent};
 use slog::debug;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use sync::SimpleSync;
 use types::Hash256;
@@ -17,9 +17,9 @@ use types::Hash256;
 const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
-pub struct MessageHandler<T: ClientTypes> {
+pub struct MessageHandler {
     /// Currently loaded and initialised beacon chain.
-    chain: BeaconChain<T::DB, T::SlotClock, T::ForkChoice>,
+    chain: Arc<BeaconChain>,
     /// The syncing framework.
     sync: SimpleSync,
     /// A mapping of peers we have sent a HELLO rpc request to.
@@ -41,10 +41,10 @@ pub enum HandlerMessage {
     RPC(RPCEvent),
 }
 
-impl<T: ClientTypes> MessageHandler<T> {
+impl MessageHandler {
     /// Initializes and runs the MessageHandler.
     pub fn new(
-        beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>>,
+        beacon_chain: Arc<BeaconChain>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<Sender<HandlerMessage>> {
@@ -60,7 +60,7 @@ impl<T: ClientTypes> MessageHandler<T> {
         // generate the Message handler
         let sync = SimpleSync::new(temp_genesis);
         let mut handler = MessageHandler {
-            chain: beacon_chain,
+            chain: beacon_chain.clone(),
             sync,
             hello_requests: HashMap::new(),
             log: log.clone(),

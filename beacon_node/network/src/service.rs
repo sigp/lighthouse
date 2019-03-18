@@ -1,46 +1,42 @@
+use crate::beacon_chain::BeaconChain;
 use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::messages::{NetworkMessage, NodeMessage};
 use crate::NetworkConfig;
 use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
-use futures::future::lazy;
-use futures::future::poll_fn;
 use futures::prelude::*;
 use futures::sync::oneshot;
 use futures::Stream;
-use libp2p::behaviour::BehaviourEvent;
-use libp2p::error::Error as libp2pError;
 use libp2p::Service as LibP2PService;
 use libp2p::{Libp2pEvent, PeerId};
-use slog::{debug, info, o, trace, warn, Logger};
-use std::sync::{Arc, Mutex};
+use slog::{debug, o};
+use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use client::ClientTypes;
 
 /// Service that handles communication between internal services and the libp2p network service.
-pub struct Service<T: ClientTypes> {
+pub struct Service {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
     //message_handler: MessageHandler,
     //message_handler_send: Sender<HandlerMessage>,
-    PhantomData: T,
 }
 
-impl<T: ClientTypes> Service<T> {
+impl Service {
     pub fn new(
-        beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>,
+        beacon_chain: Arc<BeaconChain>,
         config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<(Arc<Self>, Sender<NetworkMessage>)> {
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
-        let message_handler_send = MessageHandler::new(beacon_chain, executor, message_handler_log)?;
+        let message_handler_send =
+            MessageHandler::new(beacon_chain, executor, message_handler_log)?;
 
         // launch libp2p service
         let libp2p_log = log.new(o!("Service" => "Libp2p"));
-        let libp2p_service = LibP2PService::new(config, libp2p_log)?;
+        let libp2p_service = LibP2PService::new(config.clone(), libp2p_log)?;
 
         // TODO: Spawn thread to handle libp2p messages and pass to message handler thread.
         let (network_send, libp2p_exit) =
