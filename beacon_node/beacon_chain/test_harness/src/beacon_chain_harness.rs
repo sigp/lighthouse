@@ -1,7 +1,6 @@
 use super::ValidatorHarness;
 use beacon_chain::{BeaconChain, BlockProcessingOutcome};
 pub use beacon_chain::{BeaconChainError, CheckPoint};
-use bls::{create_proof_of_possession, get_withdrawal_credentials};
 use db::{
     stores::{BeaconBlockStore, BeaconStateStore},
     MemoryDB,
@@ -10,10 +9,11 @@ use fork_choice::BitwiseLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
+use ssz::TreeHash;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::sync::Arc;
-use types::*;
+use types::{test_utils::TestingBeaconStateBuilder, *};
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -39,58 +39,24 @@ impl BeaconChainHarness {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
-        let genesis_time = 1_549_935_547; // 12th Feb 2018 (arbitrary value in the past).
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
         let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
-        let latest_eth1_data = Eth1Data {
-            deposit_root: Hash256::zero(),
-            block_hash: Hash256::zero(),
-        };
 
-        debug!("Generating validator keypairs...");
+        let state_builder =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+        let (genesis_state, keypairs) = state_builder.build();
 
-        let keypairs: Vec<Keypair> = (0..validator_count)
-            .collect::<Vec<usize>>()
-            .par_iter()
-            .map(|_| Keypair::random())
-            .collect();
-
-        debug!("Creating validator deposits...");
-
-        let initial_validator_deposits = keypairs
-            .par_iter()
-            .map(|keypair| Deposit {
-                branch: vec![], // branch verification is not specified.
-                index: 0,       // index verification is not specified.
-                deposit_data: DepositData {
-                    amount: 32_000_000_000, // 32 ETH (in Gwei)
-                    timestamp: genesis_time - 1,
-                    deposit_input: DepositInput {
-                        pubkey: keypair.pk.clone(),
-                        // Validator can withdraw using their main keypair.
-                        withdrawal_credentials: Hash256::from_slice(
-                            &get_withdrawal_credentials(
-                                &keypair.pk,
-                                spec.bls_withdrawal_prefix_byte,
-                            )[..],
-                        ),
-                        proof_of_possession: create_proof_of_possession(&keypair),
-                    },
-                },
-            })
-            .collect();
-
-        debug!("Creating the BeaconChain...");
+        let mut genesis_block = BeaconBlock::empty(&spec);
+        genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
-            BeaconChain::genesis(
+            BeaconChain::from_genesis(
                 state_store.clone(),
                 block_store.clone(),
                 slot_clock,
-                genesis_time,
-                latest_eth1_data,
-                initial_validator_deposits,
+                genesis_state,
+                genesis_block,
                 spec.clone(),
                 fork_choice,
             )
@@ -161,8 +127,8 @@ impl BeaconChainHarness {
             .get_crosslink_committees_at_slot(present_slot, &self.spec)
             .unwrap()
             .iter()
-            .fold(vec![], |mut acc, (committee, _slot)| {
-                acc.append(&mut committee.clone());
+            .fold(vec![], |mut acc, c| {
+                acc.append(&mut c.committee.clone());
                 acc
             });
         let attesting_validators: HashSet<usize> =
@@ -265,6 +231,27 @@ impl BeaconChainHarness {
             .get_domain(epoch, domain_type, &self.beacon_chain.state.read().fork);
 
         Some(Signature::new(message, domain, &validator.keypair.sk))
+    }
+
+    /// Returns the current `Fork` of the `beacon_chain`.
+    pub fn fork(&self) -> Fork {
+        self.beacon_chain.state.read().fork.clone()
+    }
+
+    /// Returns the current `epoch` of the `beacon_chain`.
+    pub fn epoch(&self) -> Epoch {
+        self.beacon_chain
+            .state
+            .read()
+            .slot
+            .epoch(self.spec.slots_per_epoch)
+    }
+
+    /// Returns the keypair for some validator index.
+    pub fn validator_keypair(&self, validator_index: usize) -> Option<&Keypair> {
+        self.validators
+            .get(validator_index)
+            .and_then(|v| Some(&v.keypair))
     }
 
     /// Submit a deposit to the `BeaconChain` and, if given a keypair, create a new

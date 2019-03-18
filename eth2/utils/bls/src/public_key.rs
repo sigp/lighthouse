@@ -1,7 +1,8 @@
 use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
-use hex::encode as hex_encode;
+use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{
     decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
 };
@@ -23,6 +24,24 @@ impl PublicKey {
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
+    }
+
+    /// Converts compressed bytes to PublicKey
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let pubkey = RawPublicKey::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+        Ok(PublicKey(pubkey))
+    }
+
+    /// Returns the PublicKey as (x, y) bytes
+    pub fn as_uncompressed_bytes(&self) -> Vec<u8> {
+        RawPublicKey::as_uncompressed_bytes(&mut self.0.clone())
+    }
+
+    /// Converts (x, y) bytes to PublicKey
+    pub fn from_uncompressed_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let pubkey =
+            RawPublicKey::from_uncompressed_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+        Ok(PublicKey(pubkey))
     }
 
     /// Returns the last 6 bytes of the SSZ encoding of the public key, as a hex string.
@@ -61,12 +80,24 @@ impl Serialize for PublicKey {
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(&ssz_encode(self))
+        serializer.serialize_str(&hex_encode(self.as_raw().as_bytes()))
+    }
+}
+
+impl<'de> Deserialize<'de> for PublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+        let obj = PublicKey::from_bytes(&bytes[..])
+            .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))?;
+        Ok(obj)
     }
 }
 
 impl TreeHash for PublicKey {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
+    fn hash_tree_root(&self) -> Vec<u8> {
         hash(&self.0.as_bytes())
     }
 }
@@ -78,8 +109,14 @@ impl PartialEq for PublicKey {
 }
 
 impl Hash for PublicKey {
+    /// Note: this is distinct from consensus serialization, it will produce a different hash.
+    ///
+    /// This method uses the uncompressed bytes, which are much faster to obtain than the
+    /// compressed bytes required for consensus serialization.
+    ///
+    /// Use `ssz::Encode` to obtain the bytes required for consensus hashing.
     fn hash<H: Hasher>(&self, state: &mut H) {
-        ssz_encode(self).hash(state)
+        self.as_uncompressed_bytes().hash(state)
     }
 }
 

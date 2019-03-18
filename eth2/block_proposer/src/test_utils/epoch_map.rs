@@ -28,8 +28,8 @@ impl DutiesReader for EpochMap {
 
     fn fork(&self) -> Result<Fork, DutiesReaderError> {
         Ok(Fork {
-            previous_version: 0,
-            current_version: 0,
+            previous_version: [0; 4],
+            current_version: [0; 4],
             epoch: Epoch::new(0),
         })
     }

@@ -7,17 +7,17 @@ use crate::Epoch;
 ///
 /// Spec v0.4.0
 pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
-    validators
-        .iter()
-        .enumerate()
-        .filter_map(|(index, validator)| {
-            if validator.is_active_at(epoch) {
-                Some(index)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
+    let mut active = Vec::with_capacity(validators.len());
+
+    for (index, validator) in validators.iter().enumerate() {
+        if validator.is_active_at(epoch) {
+            active.push(index)
+        }
+    }
+
+    active.shrink_to_fit();
+
+    active
 }
 
 #[cfg(test)]

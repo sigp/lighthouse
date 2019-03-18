@@ -1,84 +1,57 @@
 #![cfg(test)]
-
 use super::*;
-use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use crate::{BeaconState, ChainSpec};
-use ssz::{ssz_encode, Decodable};
+use crate::test_utils::*;
 
-#[test]
-pub fn can_produce_genesis_block() {
-    let mut builder = BeaconStateBuilder::new(2);
-    builder.build().unwrap();
-}
+ssz_tests!(BeaconState);
 
-/// Tests that `get_attestation_participants` is consistent with the result of
-/// get_crosslink_committees_at_slot` with a full bitfield.
-#[test]
-pub fn get_attestation_participants_consistency() {
-    let mut rng = XorShiftRng::from_seed([42; 16]);
+/// Test that
+///
+/// 1. Using the cache before it's built fails.
+/// 2. Using the cache after it's build passes.
+/// 3. Using the cache after it's dropped fails.
+fn test_cache_initialization<'a>(
+    state: &'a mut BeaconState,
+    relative_epoch: RelativeEpoch,
+    spec: &ChainSpec,
+) {
+    let slot = relative_epoch
+        .into_epoch(state.slot.epoch(spec.slots_per_epoch))
+        .start_slot(spec.slots_per_epoch);
 
-    let mut builder = BeaconStateBuilder::new(8);
-    builder.spec = ChainSpec::few_validators();
+    // Assuming the cache isn't already built, assert that a call to a cache-using function fails.
+    assert_eq!(
+        state.get_beacon_proposer_index(slot, relative_epoch, spec),
+        Err(BeaconStateError::EpochCacheUninitialized(relative_epoch))
+    );
 
-    builder.build().unwrap();
+    // Build the cache.
+    state.build_epoch_cache(relative_epoch, spec).unwrap();
 
-    let mut state = builder.cloned_state();
-    let spec = builder.spec.clone();
-
-    state
-        .build_epoch_cache(RelativeEpoch::Previous, &spec)
+    // Assert a call to a cache-using function passes.
+    let _ = state
+        .get_beacon_proposer_index(slot, relative_epoch, spec)
         .unwrap();
-    state
-        .build_epoch_cache(RelativeEpoch::Current, &spec)
-        .unwrap();
-    state.build_epoch_cache(RelativeEpoch::Next, &spec).unwrap();
 
-    for slot in state
-        .slot
-        .epoch(spec.slots_per_epoch)
-        .slot_iter(spec.slots_per_epoch)
-    {
-        let committees = state.get_crosslink_committees_at_slot(slot, &spec).unwrap();
+    // Drop the cache.
+    state.drop_cache(relative_epoch);
 
-        for (committee, shard) in committees {
-            let mut attestation_data = AttestationData::random_for_test(&mut rng);
-            attestation_data.slot = slot;
-            attestation_data.shard = *shard;
-
-            let mut bitfield = Bitfield::new();
-            for (i, _) in committee.iter().enumerate() {
-                bitfield.set(i, true);
-            }
-
-            assert_eq!(
-                state
-                    .get_attestation_participants(&attestation_data, &bitfield, &spec)
-                    .unwrap(),
-                *committee
-            );
-        }
-    }
+    // Assert a call to a cache-using function fail.
+    assert_eq!(
+        state.get_beacon_proposer_index(slot, relative_epoch, spec),
+        Err(BeaconStateError::EpochCacheUninitialized(relative_epoch))
+    );
 }
 
 #[test]
-pub fn test_ssz_round_trip() {
-    let mut rng = XorShiftRng::from_seed([42; 16]);
-    let original = BeaconState::random_for_test(&mut rng);
+fn cache_initialization() {
+    let spec = ChainSpec::few_validators();
+    let (mut state, _keypairs) =
+        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec).build();
 
-    let bytes = ssz_encode(&original);
-    let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
+    state.slot = (spec.genesis_epoch + 1).start_slot(spec.slots_per_epoch);
 
-    assert_eq!(original, decoded);
-}
-
-#[test]
-pub fn test_hash_tree_root_internal() {
-    let mut rng = XorShiftRng::from_seed([42; 16]);
-    let original = BeaconState::random_for_test(&mut rng);
-
-    let result = original.hash_tree_root_internal();
-
-    assert_eq!(result.len(), 32);
-    // TODO: Add further tests
-    // https://github.com/sigp/lighthouse/issues/170
+    test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
+    test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
+    test_cache_initialization(&mut state, RelativeEpoch::NextWithRegistryChange, &spec);
+    test_cache_initialization(&mut state, RelativeEpoch::NextWithoutRegistryChange, &spec);
 }

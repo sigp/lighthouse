@@ -2,7 +2,9 @@ use super::{AggregatePublicKey, Signature};
 use bls_aggregates::{
     AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
 };
+use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{
     decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
 };
@@ -48,16 +50,8 @@ impl AggregateSignature {
         domain: u64,
         aggregate_public_keys: &[&AggregatePublicKey],
     ) -> bool {
-        // TODO: the API for `RawAggregatePublicKey` shoudn't need to take an owned
-        // `AggregatePublicKey`. There is an issue to fix this, but in the meantime we need to
-        // clone.
-        //
-        // https://github.com/sigp/signature-schemes/issues/10
-        let aggregate_public_keys: Vec<RawAggregatePublicKey> = aggregate_public_keys
-            .iter()
-            .map(|pk| pk.as_raw())
-            .cloned()
-            .collect();
+        let aggregate_public_keys: Vec<&RawAggregatePublicKey> =
+            aggregate_public_keys.iter().map(|pk| pk.as_raw()).collect();
 
         // Messages are concatenated into one long message.
         let mut msg: Vec<u8> = vec![];
@@ -90,12 +84,24 @@ impl Serialize for AggregateSignature {
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(&ssz_encode(self))
+        serializer.serialize_str(&hex_encode(ssz_encode(self)))
+    }
+}
+
+impl<'de> Deserialize<'de> for AggregateSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+        let (obj, _) = <_>::ssz_decode(&bytes[..], 0)
+            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
+        Ok(obj)
     }
 }
 
 impl TreeHash for AggregateSignature {
-    fn hash_tree_root_internal(&self) -> Vec<u8> {
+    fn hash_tree_root(&self) -> Vec<u8> {
         hash(&self.0.as_bytes())
     }
 }

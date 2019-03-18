@@ -11,8 +11,8 @@ use log::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{
-    readers::BeaconBlockReader, validator_registry::get_active_validator_indices, BeaconBlock,
-    ChainSpec, Hash256, Slot, SlotHeight,
+    validator_registry::get_active_validator_indices, BeaconBlock, ChainSpec, Hash256, Slot,
+    SlotHeight,
 };
 
 //TODO: Pruning - Children
@@ -255,17 +255,17 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
         // get the height of the parent
         let parent_height = self
             .block_store
-            .get_deserialized(&block.parent_root)?
-            .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.parent_root))?
-            .slot()
+            .get_deserialized(&block.previous_block_root)?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.previous_block_root))?
+            .slot
             .height(spec.genesis_slot);
 
-        let parent_hash = &block.parent_root;
+        let parent_hash = &block.previous_block_root;
 
         // add the new block to the children of parent
         (*self
             .children
-            .entry(block.parent_root)
+            .entry(block.previous_block_root)
             .or_insert_with(|| vec![]))
         .push(block_hash.clone());
 
@@ -309,7 +309,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 .block_store
                 .get_deserialized(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
-                .slot()
+                .slot
                 .height(spec.genesis_slot);
 
             // get the height of the past target block
@@ -317,7 +317,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 .block_store
                 .get_deserialized(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
-                .slot()
+                .slot
                 .height(spec.genesis_slot);
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
@@ -343,8 +343,8 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
             .get_deserialized(&justified_block_start)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
 
-        let block_slot = block.slot();
-        let state_root = block.state_root();
+        let block_slot = block.slot;
+        let state_root = block.state_root;
         let mut block_height = block_slot.height(spec.genesis_slot);
 
         let mut current_head = *justified_block_start;
@@ -409,11 +409,23 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                         *child_votes.entry(child).or_insert_with(|| 0) += vote;
                     }
                 }
-                // given the votes on the children, find the best child
-                current_head = self
-                    .choose_best_child(&child_votes)
-                    .ok_or(ForkChoiceError::CannotFindBestChild)?;
-                trace!("Best child found: {}", current_head);
+                // check if we have votes of children, if not select the smallest hash child
+                if child_votes.is_empty() {
+                    current_head = *children
+                        .iter()
+                        .min_by(|child1, child2| child1.cmp(child2))
+                        .expect("Must be children here");
+                    trace!(
+                        "Children have no votes - smallest hash chosen: {}",
+                        current_head
+                    );
+                } else {
+                    // given the votes on the children, find the best child
+                    current_head = self
+                        .choose_best_child(&child_votes)
+                        .ok_or(ForkChoiceError::CannotFindBestChild)?;
+                    trace!("Best child found: {}", current_head);
+                }
             }
 
             // didn't find head yet, proceed to next iteration
@@ -422,7 +434,7 @@ impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
                 .block_store
                 .get_deserialized(&current_head)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(current_head))?
-                .slot()
+                .slot
                 .height(spec.genesis_slot);
             // prune the latest votes for votes that are not part of current chosen chain
             // more specifically, only keep votes that have head as an ancestor

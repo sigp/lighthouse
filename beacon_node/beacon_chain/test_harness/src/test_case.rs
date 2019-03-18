@@ -3,14 +3,11 @@
 
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
-use bls::{create_proof_of_possession, get_withdrawal_credentials};
 use log::{info, warn};
 use ssz::SignedRoot;
 use types::*;
 
-use types::{
-    attester_slashing::AttesterSlashingBuilder, proposer_slashing::ProposerSlashingBuilder,
-};
+use types::test_utils::*;
 use yaml_rust::Yaml;
 
 mod config;
@@ -224,27 +221,20 @@ impl TestCase {
 }
 
 /// Builds a `Deposit` this is valid for the given `BeaconChainHarness` at its next slot.
-fn build_transfer(harness: &BeaconChainHarness, from: u64, to: u64, amount: u64) -> Transfer {
+fn build_transfer(
+    harness: &BeaconChainHarness,
+    sender: u64,
+    recipient: u64,
+    amount: u64,
+) -> Transfer {
     let slot = harness.beacon_chain.state.read().slot + 1;
 
-    let mut transfer = Transfer {
-        from,
-        to,
-        amount,
-        fee: 0,
-        slot,
-        pubkey: harness.validators[from as usize].keypair.pk.clone(),
-        signature: Signature::empty_signature(),
-    };
+    let mut builder = TestingTransferBuilder::new(sender, recipient, amount, slot);
 
-    let message = transfer.signed_root();
-    let epoch = slot.epoch(harness.spec.slots_per_epoch);
+    let keypair = harness.validator_keypair(sender as usize).unwrap();
+    builder.sign(keypair.clone(), &harness.fork(), &harness.spec);
 
-    transfer.signature = harness
-        .validator_sign(from as usize, &message[..], epoch, Domain::Transfer)
-        .expect("Unable to sign Transfer");
-
-    transfer
+    builder.build()
 }
 
 /// Builds a `Deposit` this is valid for the given `BeaconChainHarness`.
@@ -257,29 +247,12 @@ fn build_deposit(
     index_offset: u64,
 ) -> (Deposit, Keypair) {
     let keypair = Keypair::random();
-    let proof_of_possession = create_proof_of_possession(&keypair);
-    let index = harness.beacon_chain.state.read().deposit_index + index_offset;
-    let withdrawal_credentials = Hash256::from_slice(
-        &get_withdrawal_credentials(&keypair.pk, harness.spec.bls_withdrawal_prefix_byte)[..],
-    );
 
-    let deposit = Deposit {
-        // Note: `branch` and `index` will need to be updated once the spec defines their
-        // validity.
-        branch: vec![],
-        index,
-        deposit_data: DepositData {
-            amount,
-            timestamp: 1,
-            deposit_input: DepositInput {
-                pubkey: keypair.pk.clone(),
-                withdrawal_credentials,
-                proof_of_possession,
-            },
-        },
-    };
+    let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
+    builder.set_index(harness.beacon_chain.state.read().deposit_index + index_offset);
+    builder.sign(&keypair, harness.epoch(), &harness.fork(), &harness.spec);
 
-    (deposit, keypair)
+    (builder.build(), keypair)
 }
 
 /// Builds a `VoluntaryExit` this is valid for the given `BeaconChainHarness`.
@@ -318,7 +291,7 @@ fn build_double_vote_attester_slashing(
             .expect("Unable to sign AttesterSlashing")
     };
 
-    AttesterSlashingBuilder::double_vote(validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(validator_indices, signer)
 }
 
 /// Builds an `ProposerSlashing` for some `validator_index`.
@@ -331,5 +304,5 @@ fn build_proposer_slashing(harness: &BeaconChainHarness, validator_index: u64) -
             .expect("Unable to sign AttesterSlashing")
     };
 
-    ProposerSlashingBuilder::double_vote(validator_index, signer, &harness.spec)
+    TestingProposerSlashingBuilder::double_vote(validator_index, signer, &harness.spec)
 }
