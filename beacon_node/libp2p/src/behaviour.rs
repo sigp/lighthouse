@@ -46,7 +46,9 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RPCMessage
             RPCMessage::PeerDialed(peer_id) => {
                 self.events.push(BehaviourEvent::PeerDialed(peer_id))
             }
-            RPCMessage::RPC(rpc_event) => self.events.push(BehaviourEvent::RPC(rpc_event)),
+            RPCMessage::RPC(peer_id, rpc_event) => {
+                self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
+            }
         }
     }
 }
@@ -87,7 +89,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
 /// The types of events than can be obtained from polling the behaviour.
 pub enum BehaviourEvent {
-    RPC(RPCEvent),
+    RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
     // TODO: This is a stub at the moment
     Message(String),

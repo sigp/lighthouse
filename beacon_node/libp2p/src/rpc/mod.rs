@@ -76,7 +76,7 @@ where
 
     fn inject_node_event(
         &mut self,
-        _source: PeerId,
+        source: PeerId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         // ignore successful send events
@@ -88,7 +88,7 @@ where
         // send the event to the user
         self.events
             .push(NetworkBehaviourAction::GenerateEvent(RPCMessage::RPC(
-                event,
+                source, event,
             )));
     }
 
@@ -110,7 +110,7 @@ where
 
 /// Messages sent to the user from the RPC protocol.
 pub enum RPCMessage {
-    RPC(RPCEvent),
+    RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
 }
 
