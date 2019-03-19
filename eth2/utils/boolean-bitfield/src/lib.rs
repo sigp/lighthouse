@@ -168,10 +168,11 @@ impl cmp::PartialEq for BooleanBitfield {
 /// Create a new bitfield that is a union of two other bitfields.
 ///
 /// For example `union(0101, 1000) == 1101`
-impl std::ops::BitAnd for BooleanBitfield {
+// TODO: length-independent intersection for BitAnd
+impl std::ops::BitOr for BooleanBitfield {
     type Output = Self;
 
-    fn bitand(self, other: Self) -> Self {
+    fn bitor(self, other: Self) -> Self {
         let (biggest, smallest) = if self.len() > other.len() {
             (&self, &other)
         } else {
@@ -464,11 +465,11 @@ mod tests {
     }
 
     #[test]
-    fn test_bitand() {
+    fn test_bitor() {
         let a = BooleanBitfield::from_bytes(&vec![2, 8, 1][..]);
         let b = BooleanBitfield::from_bytes(&vec![4, 8, 16][..]);
         let c = BooleanBitfield::from_bytes(&vec![6, 8, 17][..]);
-        assert_eq!(c, a & b);
+        assert_eq!(c, a | b);
     }
 
     #[test]
