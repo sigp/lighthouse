@@ -161,8 +161,18 @@ impl OperationPool {
             .collect()
     }
 
-    pub fn prune_attestations(&self, _finalized_state: &BeaconState, _spec: &ChainSpec) {
-        // TODO
+    /// Remove attestations which are too old to be included in a block.
+    // TODO: we could probably prune other attestations here:
+    // - ones that are completely covered by attestations included in the state
+    // - maybe ones invalidated by the confirmation of one fork over another
+    pub fn prune_attestations(&mut self, finalized_state: &BeaconState, spec: &ChainSpec) {
+        self.attestations.retain(|_, attestations| {
+            // All the attestations in this bucket have the same data, so we only need to
+            // check the first one.
+            attestations.first().map_or(false, |att| {
+                finalized_state.slot < att.data.slot + spec.slots_per_epoch
+            })
+        });
     }
 
     /// Add a deposit to the pool.
