@@ -162,7 +162,7 @@ impl BeaconState {
             latest_state_roots: vec![spec.zero_hash; spec.slots_per_historical_root],
             latest_active_index_roots: vec![spec.zero_hash; spec.latest_active_index_roots_length],
             latest_slashed_balances: vec![0; spec.latest_slashed_exit_length],
-            latest_block_header: BeaconBlock::empty(spec).into_temporary_header(spec),
+            latest_block_header: BeaconBlock::empty(spec).temporary_block_header(spec),
             historical_roots: vec![],
 
             /*
@@ -386,7 +386,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         let i = self.get_latest_block_roots_index(slot, spec)?;
-        Ok(self.latest_block_roots[i] = block_root)
+        self.latest_block_roots[i] = block_root;
+        Ok(())
     }
 
     /// Safely obtains the index for `latest_randao_mixes`
@@ -449,7 +450,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_randao_mix_index(epoch, spec)?;
-        Ok(self.latest_randao_mixes[i] = mix)
+        self.latest_randao_mixes[i] = mix;
+        Ok(())
     }
 
     /// Safely obtains the index for `latest_active_index_roots`, given some `epoch`.
@@ -492,7 +494,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_active_index_root_index(epoch, spec)?;
-        Ok(self.latest_active_index_roots[i] = index_root)
+        self.latest_active_index_roots[i] = index_root;
+        Ok(())
     }
 
     /// Replace `active_index_roots` with clones of `index_root`.
@@ -537,7 +540,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_latest_state_roots_index(slot, spec)?;
-        Ok(self.latest_state_roots[i] = state_root)
+        self.latest_state_roots[i] = state_root;
+        Ok(())
     }
 
     /// Safely obtains the index for `latest_slashed_balances`, given some `epoch`.
@@ -573,7 +577,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_slashed_balance_index(epoch, spec)?;
-        Ok(self.latest_slashed_balances[i] = balance)
+        self.latest_slashed_balances[i] = balance;
+        Ok(())
     }
 
     /// Generate a seed for the given `epoch`.

@@ -304,7 +304,6 @@ impl EpochCrosslinkCommitteesBuilder {
 
         for (i, slot) in self.epoch.slot_iter(spec.slots_per_epoch).enumerate() {
             for j in (0..committees.len())
-                .into_iter()
                 .skip(i * committees_per_slot)
                 .take(committees_per_slot)
             {
