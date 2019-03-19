@@ -91,6 +91,7 @@ impl MessageHandler {
         Ok(handler_send)
     }
 
+    /// Handle all messages incoming from the network service.
     fn handle_message(&mut self, message: HandlerMessage) {
         match message {
             // we have initiated a connection to a peer
@@ -107,6 +108,9 @@ impl MessageHandler {
         }
     }
 
+    /* RPC - Related functionality */
+
+    /// Handle RPC messages
     fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent) {
         match rpc_message {
             RPCEvent::Request {
@@ -140,6 +144,7 @@ impl MessageHandler {
         }
     }
 
+    /// Handle a HELLO RPC request message.
     fn handle_hello_request(&mut self, peer_id: PeerId, id: u64, hello_message: HelloMessage) {
         // send back a HELLO message
         self.send_hello(peer_id.clone(), id, false);
@@ -153,11 +158,14 @@ impl MessageHandler {
         }
     }
 
+    /// Handle a HELLO RPC response message.
     fn handle_hello_response(&mut self, peer_id: PeerId, id: u64, response: HelloMessage) {
         debug!(self.log, "Hello response received from peer: {:?}", peer_id);
         // validate peer - decide whether to drop/ban or add to sync
         // TODO: Peer validation
     }
+
+    /* General RPC helper functions */
 
     /// Generates a new request id for a peer.
     fn generate_request_id(&mut self, peer_id: &PeerId) -> u64 {
