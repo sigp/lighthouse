@@ -6,11 +6,9 @@ pub mod client_types;
 pub mod error;
 pub mod notifier;
 
+use beacon_chain::BeaconChain;
 pub use client_config::ClientConfig;
 pub use client_types::ClientTypes;
-
-//use beacon_chain::BeaconChain;
-use beacon_chain::BeaconChain;
 use exit_future::Signal;
 use network::Service as NetworkService;
 use slog::o;
@@ -61,6 +59,9 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             executor,
             network_logger,
         )?;
+
+        // spawn the RPC server
+        rpc::start_server(&config.rpc_conf, &log);
 
         Ok(Client {
             config,

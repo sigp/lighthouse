@@ -20,7 +20,7 @@ pub struct ClientConfig {
     pub fork_choice: ForkChoiceAlgorithm,
     pub db_type: DBType,
     pub db_name: PathBuf,
-    //pub rpc_conf:
+    pub rpc_conf: rpc::RPCConfig,
     //pub ipc_conf:
 }
 
@@ -48,6 +48,7 @@ impl Default for ClientConfig {
             db_type: DBType::Memory,
             // default db name for disk-based dbs
             db_name: data_dir.join("chain.db"),
+            rpc_conf: rpc::RPCConfig::default(),
         }
     }
 }
