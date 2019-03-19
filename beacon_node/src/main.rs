@@ -37,6 +37,27 @@ fn main() {
                 .help("Network listen port for p2p connections.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("rpc")
+                .long("Enable RPC")
+                .value_name("RPC")
+                .help("Enable the RPC server.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("rpc-address")
+                .long("rpc address")
+                .value_name("RPCADDRESS")
+                .help("Listen address for RPC endpoint.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("rpc-port")
+                .long("rpc port")
+                .value_name("RPCPORT")
+                .help("Listen port for RPC endpoint.")
+                .takes_value(true),
+        )
         .get_matches();
 
     // invalid arguments, panic
