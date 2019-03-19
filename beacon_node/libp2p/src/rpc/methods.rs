@@ -9,6 +9,7 @@ pub enum RPCMethod {
     BeaconBlockRoots,
     BeaconBlockHeaders,
     BeaconBlockBodies,
+    BeaconChainState, // Note: experimental, not complete.
     Unknown,
 }
 
@@ -20,6 +21,8 @@ impl From<u16> for RPCMethod {
             10 => RPCMethod::BeaconBlockRoots,
             11 => RPCMethod::BeaconBlockHeaders,
             12 => RPCMethod::BeaconBlockBodies,
+            13 => RPCMethod::BeaconChainState,
+
             _ => RPCMethod::Unknown,
         }
     }
@@ -33,6 +36,7 @@ impl Into<u16> for RPCMethod {
             RPCMethod::BeaconBlockRoots => 10,
             RPCMethod::BeaconBlockHeaders => 11,
             RPCMethod::BeaconBlockBodies => 12,
+            RPCMethod::BeaconChainState => 13,
             _ => 0,
         }
     }
@@ -45,6 +49,7 @@ pub enum RPCRequest {
     BeaconBlockRoots(BeaconBlockRootsRequest),
     BeaconBlockHeaders(BeaconBlockHeadersRequest),
     BeaconBlockBodies(BeaconBlockBodiesRequest),
+    BeaconChainState(BeaconChainStateRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +58,7 @@ pub enum RPCResponse {
     BeaconBlockRoots(BeaconBlockRootsResponse),
     BeaconBlockHeaders(BeaconBlockHeadersResponse),
     BeaconBlockBodies(BeaconBlockBodiesResponse),
+    BeaconChainState(BeaconChainStateResponse),
 }
 
 /* Request/Response data structures for RPC methods */
@@ -129,4 +135,19 @@ pub struct BeaconBlockBodiesRequest {
 pub struct BeaconBlockBodiesResponse {
     /// The list of beacon block bodies being requested.
     block_bodies: Vec<BeaconBlockBody>,
+}
+
+/// Request values for tree hashes which yield a blocks `state_root`.
+#[derive(Encode, Decode, Clone, Debug)]
+pub struct BeaconChainStateRequest {
+    /// The tree hashes that a value is requested for.
+    hashes: Vec<Hash256>,
+}
+
+/// Request values for tree hashes which yield a blocks `state_root`.
+// Note: TBD
+#[derive(Encode, Decode, Clone, Debug)]
+pub struct BeaconChainStateResponse {
+    /// The values corresponding the to the requested tree hashes.
+    values: bool, //TBD - stubbed with encodeable bool
 }
