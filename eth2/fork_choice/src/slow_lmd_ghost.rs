@@ -215,10 +215,8 @@ impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
                     head_vote_count = vote_count;
                 }
                 // resolve ties - choose smaller hash
-                else if vote_count == head_vote_count {
-                    if *child_hash < head_hash {
-                        head_hash = *child_hash;
-                    }
+                else if vote_count == head_vote_count && *child_hash < head_hash {
+                    head_hash = *child_hash;
                 }
             }
         }

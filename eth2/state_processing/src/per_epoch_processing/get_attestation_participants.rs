@@ -28,7 +28,7 @@ pub fn get_attestation_participants(
     let mut participants = Vec::with_capacity(committee.len());
     for (i, validator_index) in committee.iter().enumerate() {
         match bitfield.get(i) {
-            Ok(bit) if bit == true => participants.push(*validator_index),
+            Ok(bit) if bit => participants.push(*validator_index),
             _ => {}
         }
     }

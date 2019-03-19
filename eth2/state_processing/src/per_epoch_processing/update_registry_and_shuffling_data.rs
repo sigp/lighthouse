@@ -64,7 +64,6 @@ pub fn should_update_validator_registry(
     let current_epoch_committee_count = spec.get_epoch_committee_count(num_active_validators);
 
     for shard in (0..current_epoch_committee_count)
-        .into_iter()
         .map(|i| (state.current_shuffling_start_shard + i as u64) % spec.shard_count)
     {
         if state.latest_crosslinks[shard as usize].epoch <= state.validator_registry_update_epoch {

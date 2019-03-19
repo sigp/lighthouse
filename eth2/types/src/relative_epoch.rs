@@ -33,7 +33,7 @@ impl RelativeEpoch {
     /// Returns the `epoch` that `self` refers to, with respect to the `base` epoch.
     ///
     /// Spec v0.5.0
-    pub fn into_epoch(&self, base: Epoch) -> Epoch {
+    pub fn into_epoch(self, base: Epoch) -> Epoch {
         match self {
             RelativeEpoch::Previous => base - 1,
             RelativeEpoch::Current => base,

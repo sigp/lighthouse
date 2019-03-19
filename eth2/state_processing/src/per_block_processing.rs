@@ -109,7 +109,7 @@ pub fn process_block_header(
         Invalid::ParentBlockRootMismatch
     );
 
-    state.latest_block_header = block.into_temporary_header(spec);
+    state.latest_block_header = block.temporary_block_header(spec);
 
     Ok(())
 }
@@ -388,7 +388,7 @@ pub fn process_deposits(
             // Create a new validator.
             let validator = Validator {
                 pubkey: deposit_input.pubkey.clone(),
-                withdrawal_credentials: deposit_input.withdrawal_credentials.clone(),
+                withdrawal_credentials: deposit_input.withdrawal_credentials,
                 activation_epoch: spec.far_future_epoch,
                 exit_epoch: spec.far_future_epoch,
                 withdrawable_epoch: spec.far_future_epoch,
