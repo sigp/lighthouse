@@ -8,7 +8,7 @@ use futures::future;
 use futures::prelude::*;
 use libp2p::{
     rpc::{RPCMethod, RPCRequest, RPCResponse},
-    PeerId, RPCEvent,
+    HelloMessage, PeerId, RPCEvent,
 };
 use slog::warn;
 use slog::{debug, trace};
@@ -115,7 +115,7 @@ impl MessageHandler {
         match rpc_message {
             RPCEvent::Request {
                 id,
-                method_id: _,
+                method_id: _, // TODO: Clean up RPC Message types, have a cleaner type by this point.
                 body,
             } => self.handle_rpc_request(peer_id, id, body),
             RPCEvent::Response {
@@ -126,10 +126,30 @@ impl MessageHandler {
         }
     }
 
-    fn handle_rpc_request(&mut self, peer_id: PeerId, id: u64, request: RPCRequest) {}
+    /// A new RPC request has been received from the network.
+    fn handle_rpc_request(&mut self, peer_id: PeerId, id: u64, request: RPCRequest) {
+        match request {
+            RPCRequest::Hello(hello_message) => {
+                self.handle_hello_response(peer_id, id, hello_message)
+            }
+        }
+    }
 
+    /// An RPC response has been received from the network.
     // we match on id and ignore responses past the timeout.
     fn handle_rpc_response(&mut self, peer_id: PeerId, id: u64, response: RPCResponse) {}
+
+    fn handle_hello_response(&mut self, peer_id: PeerId, id: u64, response: HelloMessage) {
+        /*
+                // if response id is not in our list, ignore (likely RPC timeout)
+                match self.requests.get(peer_id) {
+                    None => return;
+                    Some(rpc_info) => {
+                        if rpc_info.con
+
+        */
+
+    }
 
     /// Sends a HELLO RPC request to a newly connected peer.
     fn send_hello_request(&mut self, peer_id: PeerId) {
