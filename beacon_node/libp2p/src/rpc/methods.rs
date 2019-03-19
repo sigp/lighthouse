@@ -1,6 +1,6 @@
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum RPCMethod {
@@ -8,6 +8,7 @@ pub enum RPCMethod {
     Goodbye,
     BeaconBlockRoots,
     BeaconBlockHeaders,
+    BeaconBlockBodies,
     Unknown,
 }
 
@@ -18,6 +19,7 @@ impl From<u16> for RPCMethod {
             1 => RPCMethod::Goodbye,
             10 => RPCMethod::BeaconBlockRoots,
             11 => RPCMethod::BeaconBlockHeaders,
+            12 => RPCMethod::BeaconBlockBodies,
             _ => RPCMethod::Unknown,
         }
     }
@@ -30,6 +32,7 @@ impl Into<u16> for RPCMethod {
             RPCMethod::Goodbye => 1,
             RPCMethod::BeaconBlockRoots => 10,
             RPCMethod::BeaconBlockHeaders => 11,
+            RPCMethod::BeaconBlockBodies => 12,
             _ => 0,
         }
     }
@@ -41,6 +44,7 @@ pub enum RPCRequest {
     Goodbye(u64),
     BeaconBlockRoots(BeaconBlockRootsRequest),
     BeaconBlockHeaders(BeaconBlockHeadersRequest),
+    BeaconBlockBodies(BeaconBlockBodiesRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +52,7 @@ pub enum RPCResponse {
     Hello(HelloMessage),
     BeaconBlockRoots(BeaconBlockRootsResponse),
     BeaconBlockHeaders(BeaconBlockHeadersResponse),
+    BeaconBlockBodies(BeaconBlockBodiesResponse),
 }
 
 /* Request/Response data structures for RPC methods */
@@ -110,4 +115,18 @@ pub struct BeaconBlockHeadersRequest {
 pub struct BeaconBlockHeadersResponse {
     /// The list of requested beacon block headers.
     headers: Vec<BeaconBlockHeader>,
+}
+
+/// Request a number of beacon block bodies from a peer.
+#[derive(Encode, Decode, Clone, Debug)]
+pub struct BeaconBlockBodiesRequest {
+    /// The list of beacon block bodies being requested.
+    block_roots: Hash256,
+}
+
+/// Response containing the list of requested beacon block bodies.
+#[derive(Encode, Decode, Clone, Debug)]
+pub struct BeaconBlockBodiesResponse {
+    /// The list of beacon block bodies being requested.
+    block_bodies: Vec<BeaconBlockBody>,
 }
