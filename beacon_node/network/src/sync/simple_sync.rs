@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{Epoch, Hash256, Slot};
 
+/// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
+const SLOT_IMPORT_TOLERANCE: u64 = 100;
+
 /// Keeps track of syncing information for known connected peers.
 pub struct PeerSyncInfo {
     latest_finalized_root: Hash256,
@@ -15,6 +18,7 @@ pub struct PeerSyncInfo {
 }
 
 /// The current syncing state.
+#[derive(PartialEq)]
 pub enum SyncState {
     Idle,
     Downloading,
@@ -36,7 +40,7 @@ pub struct SimpleSync {
     /// The latest epoch of the syncing chain.
     latest_finalized_epoch: Epoch,
     /// The latest block of the syncing chain.
-    latest_block: Hash256,
+    latest_slot: Slot,
     /// Sync logger.
     log: slog::Logger,
 }
@@ -51,7 +55,7 @@ impl SimpleSync {
             state: SyncState::Idle,
             network_id: beacon_chain.get_spec().network_id,
             latest_finalized_epoch: state.finalized_epoch,
-            latest_block: state.finalized_root, //TODO: Build latest block function into Beacon chain and correct this
+            latest_slot: state.slot - 1, //TODO: Build latest block function into Beacon chain and correct this
             log: sync_logger,
         }
     }
@@ -95,7 +99,13 @@ impl SimpleSync {
         debug!(self.log, "Handshake successful. Peer: {:?}", peer_id);
         self.known_peers.insert(peer_id, peer_info);
 
-        //TODO: Start syncing
+        // set state to sync
+        if self.state == SyncState::Idle
+            && hello_message.best_slot > self.latest_slot + SLOT_IMPORT_TOLERANCE
+        {
+            self.state = SyncState::Downloading;
+            //TODO: Start requesting blocks from known peers. Ideally in batches
+        }
 
         true
     }
