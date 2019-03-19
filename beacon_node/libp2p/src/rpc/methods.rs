@@ -3,13 +3,21 @@ use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 #[derive(Debug)]
+/// Available Serenity Libp2p RPC methods
 pub enum RPCMethod {
+    /// Initialise handshake between connecting peers.
     Hello,
+    /// Terminate a connection providing a reason.
     Goodbye,
+    /// Requests a number of beacon block roots.
     BeaconBlockRoots,
+    /// Requests a number of beacon block headers.
     BeaconBlockHeaders,
+    /// Requests a number of beacon block bodies.
     BeaconBlockBodies,
+    /// Requests values for a merkle proof for the current blocks state root.
     BeaconChainState, // Note: experimental, not complete.
+    /// Unknown method received.
     Unknown,
 }
 
