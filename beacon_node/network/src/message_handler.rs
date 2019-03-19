@@ -139,8 +139,19 @@ impl MessageHandler {
     // we match on id and ignore responses past the timeout.
     fn handle_rpc_response(&mut self, peer_id: PeerId, id: u64, response: RPCResponse) {
         // if response id is related to a request, ignore (likely RPC timeout)
-        if self.requests.remove(&(peer_id, id)).is_none() {
+        if self
+            .requests
+            .remove(&(peer_id.clone(), id.clone()))
+            .is_none()
+        {
+            debug!(self.log, "Unrecognized response from peer: {:?}", peer_id);
             return;
+        }
+        match response {
+            RPCResponse::Hello(hello_message) => {
+                debug!(self.log, "Hello response received from peer: {:?}", peer_id);
+                self.validate_hello(peer_id, hello_message);
+            }
         }
     }
 
@@ -149,20 +160,19 @@ impl MessageHandler {
         // send back a HELLO message
         self.send_hello(peer_id.clone(), id, false);
         // validate the peer
-        if !self.sync.validate_peer(peer_id.clone(), hello_message) {
+        self.validate_hello(peer_id, hello_message);
+    }
+
+    /// Validate a HELLO RPC message.
+    fn validate_hello(&mut self, peer_id: PeerId, message: HelloMessage) {
+        // validate the peer
+        if !self.sync.validate_peer(peer_id.clone(), message) {
             debug!(
                 self.log,
                 "Peer dropped due to mismatching HELLO messages: {:?}", peer_id
             );
             //TODO: block/ban the peer
         }
-    }
-
-    /// Handle a HELLO RPC response message.
-    fn handle_hello_response(&mut self, peer_id: PeerId, id: u64, response: HelloMessage) {
-        debug!(self.log, "Hello response received from peer: {:?}", peer_id);
-        // validate peer - decide whether to drop/ban or add to sync
-        // TODO: Peer validation
     }
 
     /* General RPC helper functions */
