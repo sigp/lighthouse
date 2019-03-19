@@ -6,7 +6,7 @@ use types::{Epoch, Hash256, Slot};
 pub enum RPCMethod {
     Hello,
     Goodbye,
-    RequestBeaconBlockRoots,
+    BeaconBlockRoots,
     Unknown,
 }
 
@@ -15,7 +15,7 @@ impl From<u16> for RPCMethod {
         match method_id {
             0 => RPCMethod::Hello,
             1 => RPCMethod::Goodbye,
-            10 => RPCMethod::RequestBeaconBlockRoots,
+            10 => RPCMethod::BeaconBlockRoots,
             _ => RPCMethod::Unknown,
         }
     }
@@ -26,7 +26,7 @@ impl Into<u16> for RPCMethod {
         match self {
             RPCMethod::Hello => 0,
             RPCMethod::Goodbye => 1,
-            RPCMethod::RequestBeaconBlockRoots => 10,
+            RPCMethod::BeaconBlockRoots => 10,
             _ => 0,
         }
     }
@@ -36,13 +36,13 @@ impl Into<u16> for RPCMethod {
 pub enum RPCRequest {
     Hello(HelloMessage),
     Goodbye(u64),
-    RequestBeaconBlockRoots(BeaconBlockRootsRequest),
+    BeaconBlockRoots(BeaconBlockRootsRequest),
 }
 
 #[derive(Debug, Clone)]
 pub enum RPCResponse {
     Hello(HelloMessage),
-    RequestBeaconBlockRoots(BeaconBlockRootsResponse),
+    BeaconBlockRoots(BeaconBlockRootsResponse),
 }
 
 /* Request/Response data structures for RPC methods */
