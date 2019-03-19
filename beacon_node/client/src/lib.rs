@@ -1,7 +1,6 @@
 extern crate slog;
 
 mod client_config;
-
 pub mod client_types;
 pub mod error;
 pub mod notifier;
@@ -61,7 +60,9 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         )?;
 
         // spawn the RPC server
-        rpc::start_server(&config.rpc_conf, &log);
+        if config.rpc_conf.enabled {
+            rpc::start_server(&config.rpc_conf, &log);
+        }
 
         Ok(Client {
             config,

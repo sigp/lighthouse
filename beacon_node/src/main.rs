@@ -25,7 +25,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("listen_address")
-                .long("listen_address")
+                .long("listen-address")
                 .value_name("Listen Address")
                 .help("The Network address to listen for p2p connections.")
                 .takes_value(true),
@@ -39,21 +39,21 @@ fn main() {
         )
         .arg(
             Arg::with_name("rpc")
-                .long("Enable RPC")
+                .long("rpc")
                 .value_name("RPC")
                 .help("Enable the RPC server.")
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("rpc-address")
-                .long("rpc address")
+                .long("rpc-address")
                 .value_name("RPCADDRESS")
                 .help("Listen address for RPC endpoint.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("rpc-port")
-                .long("rpc port")
+                .long("rpc-port")
                 .value_name("RPCPORT")
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
