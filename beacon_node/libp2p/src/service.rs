@@ -105,8 +105,8 @@ impl Stream for Service {
                     debug!(self.log, "Message received: {}", m);
                     return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
                 }
-                Ok(Async::Ready(Some(BehaviourEvent::RPC(event)))) => {
-                    return Ok(Async::Ready(Some(Libp2pEvent::RPC(event))));
+                Ok(Async::Ready(Some(BehaviourEvent::RPC(peer_id, event)))) => {
+                    return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
                 }
                 Ok(Async::Ready(Some(BehaviourEvent::PeerDialed(peer_id)))) => {
                     return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
@@ -158,7 +158,7 @@ fn build_transport(
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent {
     // We have received an RPC event on the swarm
-    RPC(RPCEvent),
+    RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
     Message(String),
 }

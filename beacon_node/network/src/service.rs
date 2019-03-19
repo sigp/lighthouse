@@ -109,13 +109,13 @@ fn network_service(
         // poll the swarm
         loop {
             match libp2p_service.poll() {
-                Ok(Async::Ready(Some(Libp2pEvent::RPC(rpc_event)))) => {
+                Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, rpc_event)))) => {
                     debug!(
                         libp2p_service.log,
-                        "RPC Event: Rpc message received: {:?}", rpc_event
+                        "RPC Event: RPC message received: {:?}", rpc_event
                     );
                     message_handler_send
-                        .send(HandlerMessage::RPC(rpc_event))
+                        .send(HandlerMessage::RPC(peer_id, rpc_event))
                         .map_err(|_| "failed to send rpc to handler")?;
                 }
                 Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id)))) => {

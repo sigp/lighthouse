@@ -10,8 +10,8 @@ use libp2p::{
     rpc::{RPCMethod, RPCRequest, RPCResponse},
     PeerId, RPCEvent,
 };
-use slog::debug;
 use slog::warn;
+use slog::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -54,7 +54,7 @@ pub enum HandlerMessage {
     /// A Node message has been received.
     Message(PeerId, NodeMessage),
     /// An RPC response/request has been received.
-    RPC(RPCEvent),
+    RPC(PeerId, RPCEvent),
 }
 
 impl MessageHandler {
@@ -98,13 +98,38 @@ impl MessageHandler {
 
     fn handle_message(&mut self, message: HandlerMessage) {
         match message {
+            // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
                 self.send_hello_request(peer_id);
+            }
+            // we have received an RPC message request/response
+            HandlerMessage::RPC(peer_id, rpc_event) => {
+                self.handle_rpc_message(peer_id, rpc_event);
             }
             //TODO: Handle all messages
             _ => {}
         }
     }
+
+    fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent) {
+        match rpc_message {
+            RPCEvent::Request {
+                id,
+                method_id: _,
+                body,
+            } => self.handle_rpc_request(peer_id, id, body),
+            RPCEvent::Response {
+                id,
+                method_id: _,
+                result,
+            } => self.handle_rpc_response(peer_id, id, result),
+        }
+    }
+
+    fn handle_rpc_request(&mut self, peer_id: PeerId, id: u64, request: RPCRequest) {}
+
+    // we match on id and ignore responses past the timeout.
+    fn handle_rpc_response(&mut self, peer_id: PeerId, id: u64, response: RPCResponse) {}
 
     /// Sends a HELLO RPC request to a newly connected peer.
     fn send_hello_request(&mut self, peer_id: PeerId) {
@@ -136,10 +161,11 @@ impl MessageHandler {
         };
 
         // send the hello request to the network
+        trace!(self.log, "Sending HELLO message to peer {:?}", peer_id);
         self.send_rpc(peer_id, rpc_event);
     }
 
-    /// Sends and RPC response
+    /// Sends an RPC request/response to the network server.
     fn send_rpc(&self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.network_send
             .send(NetworkMessage::Send(
