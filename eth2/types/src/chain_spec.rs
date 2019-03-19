@@ -2,6 +2,7 @@ use crate::*;
 use bls::Signature;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::Deserialize;
+use test_utils::u8_from_hex_str;
 
 const GWEI: u64 = 1_000_000_000;
 
@@ -57,6 +58,7 @@ pub struct ChainSpec {
     pub far_future_epoch: Epoch,
     pub zero_hash: Hash256,
     pub empty_signature: Signature,
+    #[serde(deserialize_with = "u8_from_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
