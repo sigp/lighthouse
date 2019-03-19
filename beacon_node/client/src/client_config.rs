@@ -97,6 +97,10 @@ impl ClientConfig {
 
         /* RPC related arguments */
 
+        if args.is_present("rpc") {
+            config.rpc_conf.enabled = true;
+        }
+
         if let Some(rpc_address) = args.value_of("rpc-address") {
             if let Ok(listen_address) = rpc_address.parse::<Ipv4Addr>() {
                 config.rpc_conf.listen_address = listen_address;
