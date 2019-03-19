@@ -122,6 +122,8 @@ impl MessageHandler {
             RPCRequest::Hello(hello_message) => {
                 self.handle_hello_request(peer_id, id, hello_message)
             }
+            // TODO: Handle all requests
+            _ => {}
         }
     }
 
@@ -138,6 +140,8 @@ impl MessageHandler {
                 debug!(self.log, "Hello response received from peer: {:?}", peer_id);
                 self.validate_hello(peer_id, hello_message);
             }
+            // TODO: Handle all responses
+            _ => {}
         }
     }
 

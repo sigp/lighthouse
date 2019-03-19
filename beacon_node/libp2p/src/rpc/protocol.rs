@@ -81,7 +81,7 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                 let (hello_body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCRequest::Hello(hello_body)
             }
-            RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
+            RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
         };
 
         Ok(RPCEvent::Request {
@@ -97,7 +97,7 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                 let (body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCResponse::Hello(body)
             }
-            RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
+            RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
         };
         Ok(RPCEvent::Response {
             id,
@@ -134,8 +134,11 @@ impl Encodable for RPCEvent {
                 s.append(id);
                 s.append(method_id);
                 match body {
-                    RPCRequest::Hello(body) => s.append(body),
-                };
+                    RPCRequest::Hello(body) => {
+                        s.append(body);
+                    }
+                    _ => {}
+                }
             }
             RPCEvent::Response {
                 id,
@@ -149,6 +152,7 @@ impl Encodable for RPCEvent {
                     RPCResponse::Hello(response) => {
                         s.append(response);
                     }
+                    _ => {}
                 }
             }
         }
