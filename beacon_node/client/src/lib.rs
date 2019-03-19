@@ -11,7 +11,7 @@ pub use client_types::ClientTypes;
 
 //use beacon_chain::BeaconChain;
 use beacon_chain::BeaconChain;
-use exit_future::{Exit, Signal};
+use exit_future::Signal;
 use network::Service as NetworkService;
 use slog::o;
 use std::marker::PhantomData;
@@ -55,7 +55,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         // TODO: Add beacon_chain reference to network parameters
         let network_config = &config.net_conf;
         let network_logger = log.new(o!("Service" => "Network"));
-        let (network, network_send) = NetworkService::new(
+        let (network, _network_send) = NetworkService::new(
             beacon_chain.clone(),
             network_config,
             executor,

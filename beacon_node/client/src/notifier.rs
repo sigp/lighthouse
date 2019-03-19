@@ -1,12 +1,8 @@
 use crate::Client;
 use crate::ClientTypes;
-use db::ClientDB;
 use exit_future::Exit;
-use fork_choice::ForkChoice;
 use futures::{Future, Stream};
-use network::NodeMessage;
 use slog::{debug, info, o};
-use slot_clock::SlotClock;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
@@ -27,12 +23,13 @@ pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exi
     // build heartbeat logic here
     let heartbeat = move |_| {
         info!(log, "Temp heartbeat output");
+        //TODO: Remove this logic. Testing only
         let mut count = counter.lock().unwrap();
         *count += 1;
 
         if *count % 5 == 0 {
             debug!(log, "Sending Message");
-            network.send_message(String::from("Testing network channel"))
+            network.send_message();
         }
 
         Ok(())
