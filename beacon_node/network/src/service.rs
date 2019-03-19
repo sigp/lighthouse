@@ -1,7 +1,6 @@
 use crate::beacon_chain::BeaconChain;
 use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
-use crate::messages::NodeMessage;
 use crate::NetworkConfig;
 use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use futures::prelude::*;
@@ -53,21 +52,22 @@ impl Service {
             executor,
             log,
         )?;
-        let network = Service {
+        let network_service = Service {
             libp2p_exit,
             network_send: network_send.clone(),
         };
 
-        Ok((Arc::new(network), network_send))
+        Ok((Arc::new(network_service), network_send))
     }
 
     // TODO: Testing only
-    pub fn send_message(&self, message: String) {
-        let node_message = NodeMessage::Message(message);
-        self.network_send.send(NetworkMessage::Send(
-            PeerId::random(),
-            OutgoingMessage::NotifierTest,
-        ));
+    pub fn send_message(&self) {
+        self.network_send
+            .send(NetworkMessage::Send(
+                PeerId::random(),
+                OutgoingMessage::NotifierTest,
+            ))
+            .unwrap();
     }
 }
 

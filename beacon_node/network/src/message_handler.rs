@@ -1,11 +1,9 @@
 use crate::beacon_chain::BeaconChain;
 use crate::error;
-use crate::messages::NodeMessage;
 use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use crossbeam_channel::{unbounded as channel, Sender};
 use futures::future;
-use futures::prelude::*;
 use libp2p::{
     rpc::{RPCMethod, RPCRequest, RPCResponse},
     HelloMessage, PeerId, RPCEvent,
@@ -15,7 +13,6 @@ use slog::{debug, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use types::Hash256;
 
 /// Timeout for RPC requests.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -45,8 +42,6 @@ pub enum HandlerMessage {
     PeerDialed(PeerId),
     /// Peer has disconnected,
     PeerDisconnected(PeerId),
-    /// A Node message has been received.
-    Message(PeerId, NodeMessage),
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
 }

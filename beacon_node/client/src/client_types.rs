@@ -3,7 +3,7 @@ use beacon_chain::{
     db::{ClientDB, DiskDB, MemoryDB},
     fork_choice::BitwiseLMDGhost,
     initialise,
-    slot_clock::{SlotClock, SystemTimeSlotClock, TestingSlotClock},
+    slot_clock::{SlotClock, SystemTimeSlotClock},
     BeaconChain,
 };
 use fork_choice::ForkChoice;

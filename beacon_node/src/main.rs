@@ -4,7 +4,7 @@ mod run;
 
 use clap::{App, Arg};
 use client::ClientConfig;
-use slog::{o, Drain};
+use slog::{error, o, Drain};
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -42,5 +42,8 @@ fn main() {
     // invalid arguments, panic
     let config = ClientConfig::parse_args(matches, &logger).unwrap();
 
-    run::run_beacon_node(config, logger);
+    match run::run_beacon_node(config, &logger) {
+        Ok(_) => {}
+        Err(e) => error!(logger, "Beacon node failed because {:?}", e),
+    }
 }
