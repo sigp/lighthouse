@@ -33,7 +33,7 @@ impl Service {
         let (network_send, network_recv) = channel::<NetworkMessage>();
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
-        let message_handler_send = MessageHandler::new(
+        let message_handler_send = MessageHandler::spawn(
             beacon_chain,
             network_send.clone(),
             executor,
