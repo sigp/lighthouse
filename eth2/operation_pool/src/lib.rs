@@ -351,6 +351,16 @@ impl OperationPool {
             .filter(|transfer| transfer.slot > finalized_state.slot)
             .collect();
     }
+
+    /// Prune all types of transactions given the latest finalized state.
+    pub fn prune_all(&mut self, finalized_state: &BeaconState, spec: &ChainSpec) {
+        self.prune_attestations(finalized_state, spec);
+        self.prune_deposits(finalized_state);
+        self.prune_proposer_slashings(finalized_state, spec);
+        // FIXME: add attester slashings
+        self.prune_voluntary_exits(finalized_state, spec);
+        self.prune_transfers(finalized_state);
+    }
 }
 
 /// Filter up to a maximum number of operations out of a slice.
