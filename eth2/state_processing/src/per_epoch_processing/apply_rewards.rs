@@ -3,10 +3,23 @@ use super::{Error, WinningRootHashSet};
 use integer_sqrt::IntegerSquareRoot;
 use types::*;
 
+/// Use to track the changes to a validators balance.
 #[derive(Default, Clone)]
 pub struct Delta {
-    pub rewards: u64,
-    pub penalties: u64,
+    rewards: u64,
+    penalties: u64,
+}
+
+impl Delta {
+    /// Reward the validator with the `reward`.
+    pub fn reward(&mut self, reward: u64) {
+        self.rewards += reward;
+    }
+
+    /// Penalize the validator with the `penalty`.
+    pub fn penalize(&mut self, penalty: u64) {
+        self.penalties += penalty;
+    }
 }
 
 impl std::ops::AddAssign for Delta {
@@ -96,7 +109,7 @@ fn get_proposer_deltas(
                 return Err(Error::ValidatorStatusesInconsistent);
             }
 
-            delta.rewards += base_reward / spec.attestation_inclusion_reward_quotient;
+            delta.reward(base_reward / spec.attestation_inclusion_reward_quotient);
         }
 
         deltas[index] += delta;
@@ -166,29 +179,30 @@ fn compute_normal_justification_and_finalization_delta(
 
     // Expected FFG source.
     if validator.is_previous_epoch_attester {
-        delta.rewards += base_reward * total_attesting_balance / total_balance;
+        delta.reward(base_reward * total_attesting_balance / total_balance);
         // Inclusion speed bonus
         let inclusion = validator
             .inclusion_info
             .expect("It is a logic error for an attester not to have an inclusion distance.");
-        delta.rewards +=
-            base_reward * spec.min_attestation_inclusion_delay / inclusion.distance.as_u64();
+        delta.reward(
+            base_reward * spec.min_attestation_inclusion_delay / inclusion.distance.as_u64(),
+        );
     } else if validator.is_active_in_previous_epoch {
-        delta.penalties += base_reward;
+        delta.penalize(base_reward);
     }
 
     // Expected FFG target.
     if validator.is_previous_epoch_boundary_attester {
-        delta.rewards += base_reward / boundary_attesting_balance / total_balance;
+        delta.reward(base_reward / boundary_attesting_balance / total_balance);
     } else if validator.is_active_in_previous_epoch {
-        delta.penalties += base_reward;
+        delta.penalize(base_reward);
     }
 
     // Expected head.
     if validator.is_previous_epoch_head_attester {
-        delta.rewards += base_reward * matching_head_balance / total_balance;
+        delta.reward(base_reward * matching_head_balance / total_balance);
     } else if validator.is_active_in_previous_epoch {
-        delta.penalties += base_reward;
+        delta.penalize(base_reward);
     };
 
     // Proposer bonus is handled in `apply_proposer_deltas`.
@@ -212,24 +226,25 @@ fn compute_inactivity_leak_delta(
 
     if validator.is_active_in_previous_epoch {
         if !validator.is_previous_epoch_attester {
-            delta.penalties += inactivity_penalty;
+            delta.penalize(inactivity_penalty);
         } else {
             // If a validator did attest, apply a small penalty for getting attestations included
             // late.
             let inclusion = validator
                 .inclusion_info
                 .expect("It is a logic error for an attester not to have an inclusion distance.");
-            delta.rewards +=
-                base_reward * spec.min_attestation_inclusion_delay / inclusion.distance.as_u64();
-            delta.penalties += base_reward;
+            delta.reward(
+                base_reward * spec.min_attestation_inclusion_delay / inclusion.distance.as_u64(),
+            );
+            delta.penalize(base_reward);
         }
 
         if !validator.is_previous_epoch_boundary_attester {
-            delta.penalties += inactivity_penalty;
+            delta.reward(inactivity_penalty);
         }
 
         if !validator.is_previous_epoch_head_attester {
-            delta.penalties += inactivity_penalty;
+            delta.penalize(inactivity_penalty);
         }
     }
 
@@ -238,7 +253,7 @@ fn compute_inactivity_leak_delta(
         & validator.is_slashed
         & !validator.is_withdrawable_in_current_epoch
     {
-        delta.penalties += 2 * inactivity_penalty + base_reward;
+        delta.penalize(2 * inactivity_penalty + base_reward);
     }
 
     delta
@@ -264,10 +279,12 @@ fn get_crosslink_deltas(
         )?;
 
         if let Some(ref winning_root) = validator.winning_root_info {
-            delta.rewards += base_reward * winning_root.total_attesting_balance
-                / winning_root.total_committee_balance
+            delta.reward(
+                base_reward * winning_root.total_attesting_balance
+                    / winning_root.total_committee_balance,
+            );
         } else {
-            delta.penalties += base_reward;
+            delta.penalize(base_reward);
         }
 
         deltas[index] += delta;
