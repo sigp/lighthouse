@@ -44,6 +44,8 @@ pub enum HandlerMessage {
     PeerDisconnected(PeerId),
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
+    /// A block has been imported.
+    BlockImported(), //TODO: This comes from pub-sub - decide its contents
 }
 
 impl MessageHandler {
