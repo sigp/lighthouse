@@ -3,10 +3,10 @@ use errors::EpochProcessingError as Error;
 use process_ejections::process_ejections;
 use process_exit_queue::process_exit_queue;
 use process_slashings::process_slashings;
-use process_validator_registry::process_validator_registry;
 use ssz::TreeHash;
 use std::collections::HashMap;
 use types::*;
+use update_registry_and_shuffling_data::update_registry_and_shuffling_data;
 use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
@@ -17,9 +17,8 @@ pub mod inclusion_distance;
 pub mod process_ejections;
 pub mod process_exit_queue;
 pub mod process_slashings;
-pub mod process_validator_registry;
 pub mod tests;
-pub mod update_validator_registry;
+pub mod update_registry_and_shuffling_data;
 pub mod validator_statuses;
 pub mod winning_root;
 
@@ -39,54 +38,39 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
 
-    let mut statuses = initialize_validator_statuses(&state, spec)?;
+    // Load the struct we use to assign validators into sets based on their participation.
+    //
+    // E.g., attestation in the previous epoch, attested to the head, etc.
+    let mut statuses = ValidatorStatuses::new(state, spec)?;
+    statuses.process_attestations(&state, spec)?;
 
     process_eth1_data(state, spec);
 
     update_justification_and_finalization(state, &statuses.total_balances, spec)?;
 
-    // Crosslinks
+    // Crosslinks.
     let winning_root_for_shards = process_crosslinks(state, spec)?;
 
-    // Rewards and Penalities
+    // Rewards and Penalities.
     apply_rewards(state, &mut statuses, &winning_root_for_shards, spec)?;
 
-    // Ejections
+    // Ejections.
     process_ejections(state, spec)?;
 
-    // Validator Registry
-    process_validator_registry(state, spec)?;
+    // Validator Registry.
+    update_registry_and_shuffling_data(state, statuses.total_balances.current_epoch, spec)?;
+
+    // Slashings and exit queue.
     process_slashings(state, spec)?;
     process_exit_queue(state, spec);
 
-    // Final updates
-    update_active_tree_index_roots(state, spec)?;
-    update_latest_slashed_balances(state, spec)?;
-    state.previous_epoch_attestations = vec![];
+    // Final updates.
+    finish_epoch_update(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
 
     Ok(())
-}
-
-/// Calculates various sets of attesters, including:
-///
-/// - current epoch attesters
-/// - current epoch boundary attesters
-/// - previous epoch attesters
-/// - etc.
-///
-/// Spec v0.5.0
-pub fn initialize_validator_statuses(
-    state: &BeaconState,
-    spec: &ChainSpec,
-) -> Result<ValidatorStatuses, BeaconStateError> {
-    let mut statuses = ValidatorStatuses::new(state, spec)?;
-
-    statuses.process_attestations(&state, spec)?;
-
-    Ok(statuses)
 }
 
 /// Maybe resets the eth1 period.
@@ -224,41 +208,53 @@ pub fn process_crosslinks(
     Ok(winning_root_for_shards)
 }
 
-/// Updates the state's `latest_active_index_roots` field with a tree hash the active validator
-/// indices for the next epoch.
+/// Finish up an epoch update.
 ///
-/// Spec v0.4.0
-pub fn update_active_tree_index_roots(
-    state: &mut BeaconState,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let next_epoch = state.next_epoch(spec);
-
-    let active_tree_root = state
-        .get_active_validator_indices(next_epoch + Epoch::from(spec.activation_exit_delay))
-        .to_vec()
-        .hash_tree_root();
-
-    state.set_active_index_root(next_epoch, Hash256::from_slice(&active_tree_root[..]), spec)?;
-
-    Ok(())
-}
-
-/// Advances the state's `latest_slashed_balances` field.
-///
-/// Spec v0.4.0
-pub fn update_latest_slashed_balances(
-    state: &mut BeaconState,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+/// Spec v0.5.0
+pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
 
-    state.set_slashed_balance(
-        next_epoch,
-        state.get_slashed_balance(current_epoch, spec)?,
-        spec,
-    )?;
+    // This is a hack to allow us to update index roots and slashed balances for the next epoch.
+    //
+    // The indentation here is to make it obvious where the weird stuff happens.
+    {
+        state.slot += 1;
+
+        // Set active index root
+        let active_index_root = Hash256::from_slice(
+            &state
+                .get_active_validator_indices(next_epoch + spec.activation_exit_delay)
+                .hash_tree_root()[..],
+        );
+        state.set_active_index_root(next_epoch, active_index_root, spec)?;
+
+        // Set total slashed balances
+        state.set_slashed_balance(
+            next_epoch,
+            state.get_slashed_balance(current_epoch, spec)?,
+            spec,
+        )?;
+
+        // Set randao mix
+        state.set_randao_mix(
+            next_epoch,
+            *state.get_randao_mix(current_epoch, spec)?,
+            spec,
+        )?;
+
+        state.slot -= 1;
+    }
+
+    if next_epoch.as_u64() % (spec.slots_per_historical_root as u64 / spec.slots_per_epoch) == 0 {
+        let historical_batch: HistoricalBatch = state.historical_batch();
+        state
+            .historical_roots
+            .push(Hash256::from_slice(&historical_batch.hash_tree_root()[..]));
+    }
+
+    state.previous_epoch_attestations = state.current_epoch_attestations.clone();
+    state.current_epoch_attestations = vec![];
 
     Ok(())
 }

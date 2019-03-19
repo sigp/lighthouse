@@ -193,6 +193,13 @@ impl BeaconState {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
 
+    pub fn historical_batch(&self) -> HistoricalBatch {
+        HistoricalBatch {
+            block_roots: self.latest_block_roots.clone(),
+            state_roots: self.latest_state_roots.clone(),
+        }
+    }
+
     /// If a validator pubkey exists in the validator registry, returns `Some(i)`, otherwise
     /// returns `None`.
     ///
@@ -382,6 +389,26 @@ impl BeaconState {
         Ok(self.latest_block_roots[i] = block_root)
     }
 
+    /// Safely obtains the index for `latest_randao_mixes`
+    ///
+    /// Spec v0.5.0
+    fn get_randao_mix_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
+        let current_epoch = self.current_epoch(spec);
+
+        if (current_epoch - (spec.latest_randao_mixes_length as u64) < epoch)
+            & (epoch <= current_epoch)
+        {
+            let i = epoch.as_usize() % spec.latest_randao_mixes_length;
+            if i < self.latest_randao_mixes.len() {
+                Ok(i)
+            } else {
+                Err(Error::InsufficientRandaoMixes)
+            }
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }
+    }
+
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
     ///
     /// # Errors:
@@ -406,24 +433,23 @@ impl BeaconState {
 
     /// Return the randao mix at a recent ``epoch``.
     ///
-    /// # Errors:
-    /// - `InsufficientRandaoMixes` if `self.latest_randao_mixes` is shorter than
-    /// `spec.latest_randao_mixes_length`.
-    /// - `EpochOutOfBounds` if the state no longer stores randao mixes for the given `epoch`.
-    ///
     /// Spec v0.5.0
     pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Result<&Hash256, Error> {
-        let current_epoch = self.current_epoch(spec);
+        let i = self.get_randao_mix_index(epoch, spec)?;
+        Ok(&self.latest_randao_mixes[i])
+    }
 
-        if (current_epoch - (spec.latest_randao_mixes_length as u64) < epoch)
-            & (epoch <= current_epoch)
-        {
-            self.latest_randao_mixes
-                .get(epoch.as_usize() % spec.latest_randao_mixes_length)
-                .ok_or_else(|| Error::InsufficientRandaoMixes)
-        } else {
-            Err(Error::EpochOutOfBounds)
-        }
+    /// Set the randao mix at a recent ``epoch``.
+    ///
+    /// Spec v0.5.0
+    pub fn set_randao_mix(
+        &mut self,
+        epoch: Epoch,
+        mix: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let i = self.get_randao_mix_index(epoch, spec)?;
+        Ok(self.latest_randao_mixes[i] = mix)
     }
 
     /// Safely obtains the index for `latest_active_index_roots`, given some `epoch`.
@@ -586,24 +612,6 @@ impl BeaconState {
     ///  Spec v0.5.0
     pub fn get_delayed_activation_exit_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
         epoch + 1 + spec.activation_exit_delay
-    }
-
-    /// Activate the validator of the given ``index``.
-    ///
-    /// Spec v0.5.0
-    pub fn activate_validator(
-        &mut self,
-        validator_index: usize,
-        is_genesis: bool,
-        spec: &ChainSpec,
-    ) {
-        let current_epoch = self.current_epoch(spec);
-
-        self.validator_registry[validator_index].activation_epoch = if is_genesis {
-            spec.genesis_epoch
-        } else {
-            self.get_delayed_activation_exit_epoch(current_epoch, spec)
-        }
     }
 
     /// Initiate an exit for the validator of the given `index`.
