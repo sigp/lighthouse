@@ -73,7 +73,7 @@ impl Encodable for Signature {
 impl Decodable for Signature {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let raw_sig = RawSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
+        let raw_sig = RawSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::Invalid)?;
         Ok((Signature(raw_sig), i))
     }
 }

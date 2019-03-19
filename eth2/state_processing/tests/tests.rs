@@ -20,7 +20,6 @@ pub struct TestDoc {
 }
 
 #[test]
-#[ignore]
 fn yaml() {
     use serde_yaml;
     use std::{fs::File, io::prelude::*, path::PathBuf};
