@@ -4,8 +4,8 @@ use fork_choice::ForkChoiceAlgorithm;
 use network::NetworkConfig;
 use slog::error;
 use std::fs;
-use std::net::IpAddr;
 use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use types::multiaddr::Protocol;
 use types::multiaddr::ToMultiaddr;
@@ -58,7 +58,7 @@ impl ClientConfig {
     pub fn parse_args(args: ArgMatches, log: &slog::Logger) -> Result<Self, &'static str> {
         let mut config = ClientConfig::default();
 
-        // Network related args
+        /* Network related arguments */
 
         // Custom p2p listen port
         if let Some(port_str) = args.value_of("port") {
@@ -88,12 +88,32 @@ impl ClientConfig {
             }
         }
 
-        // filesystem args
+        /* Filesystem related arguments */
 
         // Custom datadir
         if let Some(dir) = args.value_of("datadir") {
             config.data_dir = PathBuf::from(dir.to_string());
         };
+
+        /* RPC related arguments */
+
+        if let Some(rpc_address) = args.value_of("rpc-address") {
+            if let Ok(listen_address) = rpc_address.parse::<Ipv4Addr>() {
+                config.rpc_conf.listen_address = listen_address;
+            } else {
+                error!(log, "Invalid RPC listen address"; "Address" => rpc_address);
+                return Err("Invalid RPC listen address");
+            }
+        }
+
+        if let Some(rpc_port) = args.value_of("rpc-port") {
+            if let Ok(port) = rpc_port.parse::<u16>() {
+                config.rpc_conf.port = port;
+            } else {
+                error!(log, "Invalid RPC port"; "port" => rpc_port);
+                return Err("Invalid RPC port");
+            }
+        }
 
         Ok(config)
     }
