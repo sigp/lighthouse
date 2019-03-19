@@ -6,7 +6,7 @@ extern crate target_info;
 
 use target_info::Target;
 
-const TRACK: &'static str = "unstable";
+const TRACK: &str = "unstable";
 
 /// Provides the current platform
 pub fn platform() -> String {

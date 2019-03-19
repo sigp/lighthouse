@@ -84,11 +84,11 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
 
-        return Ok(RPCEvent::Request {
+        Ok(RPCEvent::Request {
             id,
             method_id,
             body,
-        });
+        })
     }
     // we have received a response
     else {
@@ -99,11 +99,11 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
             }
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
-        return Ok(RPCEvent::Response {
+        Ok(RPCEvent::Response {
             id,
             method_id,
             result,
-        });
+        })
     }
 }
 

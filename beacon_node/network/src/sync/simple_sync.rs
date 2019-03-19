@@ -66,7 +66,7 @@ impl SimpleSync {
         //TODO: Paul to verify the logic of these fields.
         HelloMessage {
             network_id: self.network_id,
-            latest_finalized_root: state.finalized_root.clone(),
+            latest_finalized_root: state.finalized_root,
             latest_finalized_epoch: state.finalized_epoch,
             best_root: state.latest_block_roots[0], //TODO: build correct value as a beacon chain function
             best_slot: state.slot - 1,

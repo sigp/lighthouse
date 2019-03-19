@@ -66,9 +66,9 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             config,
             beacon_chain,
             exit,
-            exit_signal: exit_signal,
+            exit_signal,
             log,
-            network: network,
+            network,
             phantom: PhantomData,
         })
     }

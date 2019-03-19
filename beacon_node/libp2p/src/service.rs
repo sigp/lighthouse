@@ -73,13 +73,12 @@ impl Service {
         let mut subscribed_topics = vec![];
         for topic in config.topics {
             let t = TopicBuilder::new(topic.to_string()).build();
-            match swarm.subscribe(t) {
-                true => {
-                    trace!(log, "Subscribed to topic: {:?}", topic);
-                    subscribed_topics.push(topic);
-                }
-                false => warn!(log, "Could not subscribe to topic: {:?}", topic),
-            };
+            if swarm.subscribe(t) {
+                trace!(log, "Subscribed to topic: {:?}", topic);
+                subscribed_topics.push(topic);
+            } else {
+                warn!(log, "Could not subscribe to topic: {:?}", topic)
+            }
         }
         info!(log, "Subscribed to topics: {:?}", subscribed_topics);
 
