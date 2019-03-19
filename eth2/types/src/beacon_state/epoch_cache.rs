@@ -107,6 +107,7 @@ impl EpochCache {
         })
     }
 
+    /// Return a vec of `CrosslinkCommittee` for a given slot.
     pub fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
@@ -116,6 +117,8 @@ impl EpochCache {
             .get_crosslink_committees_at_slot(slot, spec)
     }
 
+    /// Return `Some(CrosslinkCommittee)` if the given shard has a committee during the given
+    /// `epoch`.
     pub fn get_crosslink_committee_for_shard(
         &self,
         shard: Shard,
@@ -131,6 +134,10 @@ impl EpochCache {
     }
 }
 
+/// Returns a list of all `validator_registry` indices where the validator is active at the given
+/// `epoch`.
+///
+/// Spec v0.5.0
 pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
     let mut active = Vec::with_capacity(validators.len());
 
@@ -145,13 +152,17 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
     active
 }
 
+/// Contains all `CrosslinkCommittees` for an epoch.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct EpochCrosslinkCommittees {
+    /// The epoch the committees are present in.
     epoch: Epoch,
+    /// Each commitee for each slot of the epoch.
     pub crosslink_committees: Vec<Vec<CrosslinkCommittee>>,
 }
 
 impl EpochCrosslinkCommittees {
+    /// Return a new instances where all slots have zero committees.
     fn new(epoch: Epoch, spec: &ChainSpec) -> Self {
         Self {
             epoch,
@@ -159,6 +170,7 @@ impl EpochCrosslinkCommittees {
         }
     }
 
+    /// Return a vec of `CrosslinkCommittee` for a given slot.
     fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
@@ -176,6 +188,7 @@ impl EpochCrosslinkCommittees {
     }
 }
 
+/// Builds an `EpochCrosslinkCommittees` object.
 pub struct EpochCrosslinkCommitteesBuilder {
     epoch: Epoch,
     shuffling_start_shard: Shard,
@@ -185,6 +198,7 @@ pub struct EpochCrosslinkCommitteesBuilder {
 }
 
 impl EpochCrosslinkCommitteesBuilder {
+    /// Instantiates a builder that will build for the `state`'s previous epoch.
     pub fn for_previous_epoch(
         state: &BeaconState,
         active_validator_indices: Vec<usize>,
@@ -199,6 +213,7 @@ impl EpochCrosslinkCommitteesBuilder {
         }
     }
 
+    /// Instantiates a builder that will build for the `state`'s next epoch.
     pub fn for_current_epoch(
         state: &BeaconState,
         active_validator_indices: Vec<usize>,
@@ -213,6 +228,10 @@ impl EpochCrosslinkCommitteesBuilder {
         }
     }
 
+    /// Instantiates a builder that will build for the `state`'s next epoch.
+    ///
+    /// Note: there are two possible epoch builds for the next epoch, one where there is a registry
+    /// change and one where there is not.
     pub fn for_next_epoch(
         state: &BeaconState,
         active_validator_indices: Vec<usize>,
@@ -257,6 +276,7 @@ impl EpochCrosslinkCommitteesBuilder {
         })
     }
 
+    /// Consumes the builder, returning a fully-build `EpochCrosslinkCommittee`.
     pub fn build(self, spec: &ChainSpec) -> Result<EpochCrosslinkCommittees, Error> {
         // The shuffler fails on a empty list, so if there are no active validator indices, simply
         // return an empty list.
