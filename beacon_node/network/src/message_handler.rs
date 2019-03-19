@@ -129,7 +129,7 @@ impl MessageHandler {
     fn handle_rpc_request(&mut self, peer_id: PeerId, id: u64, request: RPCRequest) {
         match request {
             RPCRequest::Hello(hello_message) => {
-                self.handle_hello_response(peer_id, id, hello_message)
+                //  self.handle_hello_request(peer_id, id, hello_message)
             }
         }
     }
@@ -146,6 +146,7 @@ impl MessageHandler {
 
         debug!(self.log, "Hello response received from peer: {:?}", peer_id);
         // validate peer - decide whether to drop/ban or add to sync
+        // TODO: Peer validation
     }
 
     /// Sends a HELLO RPC request to a newly connected peer.
