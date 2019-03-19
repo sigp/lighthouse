@@ -32,15 +32,22 @@ pub struct SimpleSync {
     state: SyncState,
     /// The network id, for quick HELLO RPC message lookup.
     network_id: u8,
+    /// The latest epoch of the syncing chain.
+    latest_finalized_epoch: Epoch,
+    /// The latest block of the syncing chain.
+    latest_block: Hash256,
 }
 
 impl SimpleSync {
     pub fn new(beacon_chain: Arc<BeaconChain>) -> Self {
+        let state = beacon_chain.get_state();
         SimpleSync {
+            chain: beacon_chain.clone(),
             known_peers: HashMap::new(),
             state: SyncState::Idle,
             network_id: beacon_chain.get_spec().network_id,
-            chain: beacon_chain,
+            latest_finalized_epoch: state.finalized_epoch,
+            latest_block: state.finalized_root, //TODO: Build latest block function into Beacon chain and correct this
         }
     }
 
@@ -52,8 +59,37 @@ impl SimpleSync {
             network_id: self.network_id,
             latest_finalized_root: state.finalized_root.clone(),
             latest_finalized_epoch: state.finalized_epoch,
-            best_root: state.latest_block_roots[0], // 0 or len of vec?
-            best_slot: state.slot,
+            best_root: state.latest_block_roots[0], //TODO: build correct value as a beacon chain function
+            best_slot: state.slot - 1,
         }
+    }
+
+    pub fn validate_peer(&mut self, peer_id: PeerId, hello_message: HelloMessage) -> bool {
+        // network id must match
+        if hello_message.network_id != self.network_id {
+            return false;
+        }
+        // compare latest epoch and finalized root to see if they exist in our chain
+        if hello_message.latest_finalized_epoch <= self.latest_finalized_epoch {
+            // ensure their finalized root is in our chain
+            // TODO: Get the finalized root at hello_message.latest_epoch and ensure they match
+            //if (hello_message.latest_finalized_root == self.chain.get_state() {
+            //    return false;
+            //    }
+        }
+
+        // the client is valid, add it to our list of known_peers and request sync if required
+        // update peer list if peer already exists
+        let peer_info = PeerSyncInfo {
+            latest_finalized_root: hello_message.latest_finalized_root,
+            latest_finalized_epoch: hello_message.latest_finalized_epoch,
+            best_root: hello_message.best_root,
+            best_slot: hello_message.best_slot,
+        };
+
+        self.known_peers.insert(peer_id, peer_info);
+        //TODO: Start syncing
+
+        true
     }
 }

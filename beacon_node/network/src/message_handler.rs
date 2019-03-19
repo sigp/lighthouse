@@ -32,9 +32,6 @@ pub struct MessageHandler {
     network_send: crossbeam_channel::Sender<NetworkMessage>,
     /// A mapping of peers and the RPC id we have sent an RPC request to.
     requests: HashMap<(PeerId, u64), Instant>,
-    /// A mapping of HELLO requests we have sent. We drop/ban peers if they do not response
-    /// within the timeout
-    hello_requests: HashMap<PeerId, Instant>,
     /// A counter of request id for each peer.
     request_ids: HashMap<PeerId, u64>,
     /// The `MessageHandler` logger.
@@ -76,7 +73,6 @@ impl MessageHandler {
             sync,
             network_send,
             requests: HashMap::new(),
-            hello_requests: HashMap::new(),
             request_ids: HashMap::new(),
 
             log: log.clone(),
@@ -99,7 +95,8 @@ impl MessageHandler {
         match message {
             // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
-                self.send_hello_request(peer_id);
+                let id = self.generate_request_id(&peer_id);
+                self.send_hello(peer_id, id, true);
             }
             // we have received an RPC message request/response
             HandlerMessage::RPC(peer_id, rpc_event) => {
@@ -129,28 +126,41 @@ impl MessageHandler {
     fn handle_rpc_request(&mut self, peer_id: PeerId, id: u64, request: RPCRequest) {
         match request {
             RPCRequest::Hello(hello_message) => {
-                //  self.handle_hello_request(peer_id, id, hello_message)
+                self.handle_hello_request(peer_id, id, hello_message)
             }
         }
     }
 
     /// An RPC response has been received from the network.
     // we match on id and ignore responses past the timeout.
-    fn handle_rpc_response(&mut self, peer_id: PeerId, id: u64, response: RPCResponse) {}
-
-    fn handle_hello_response(&mut self, peer_id: PeerId, id: u64, response: HelloMessage) {
-        if self.hello_requests.remove(&peer_id).is_none() {
-            // if response id is not in our list, ignore (likely RPC timeout)
+    fn handle_rpc_response(&mut self, peer_id: PeerId, id: u64, response: RPCResponse) {
+        // if response id is related to a request, ignore (likely RPC timeout)
+        if self.requests.remove(&(peer_id, id)).is_none() {
             return;
         }
+    }
 
+    fn handle_hello_request(&mut self, peer_id: PeerId, id: u64, hello_message: HelloMessage) {
+        // send back a HELLO message
+        self.send_hello(peer_id.clone(), id, false);
+        // validate the peer
+        if !self.sync.validate_peer(peer_id.clone(), hello_message) {
+            debug!(
+                self.log,
+                "Peer dropped due to mismatching HELLO messages: {:?}", peer_id
+            );
+            //TODO: block/ban the peer
+        }
+    }
+
+    fn handle_hello_response(&mut self, peer_id: PeerId, id: u64, response: HelloMessage) {
         debug!(self.log, "Hello response received from peer: {:?}", peer_id);
         // validate peer - decide whether to drop/ban or add to sync
         // TODO: Peer validation
     }
 
-    /// Sends a HELLO RPC request to a newly connected peer.
-    fn send_hello_request(&mut self, peer_id: PeerId) {
+    /// Generates a new request id for a peer.
+    fn generate_request_id(&mut self, peer_id: &PeerId) -> u64 {
         // generate a unique id for the peer
         let id = {
             let borrowed_id = self.request_ids.entry(peer_id.clone()).or_insert_with(|| 0);
@@ -159,18 +169,29 @@ impl MessageHandler {
             *borrowed_id += 1;
             id
         };
-        // register RPC Hello request
+        // register RPC request
         self.requests.insert((peer_id.clone(), id), Instant::now());
         debug!(
             self.log,
             "Hello request registered with peer: {:?}", peer_id
         );
+        id
+    }
 
-        // build the rpc request
-        let rpc_event = RPCEvent::Request {
-            id,
-            method_id: RPCMethod::Hello.into(),
-            body: RPCRequest::Hello(self.sync.generate_hello()),
+    /// Sends a HELLO RPC request or response to a newly connected peer.
+    //TODO: The boolean determines if sending request/respond, will be cleaner in the RPC re-write
+    fn send_hello(&mut self, peer_id: PeerId, id: u64, request: bool) {
+        let rpc_event = match request {
+            true => RPCEvent::Request {
+                id,
+                method_id: RPCMethod::Hello.into(),
+                body: RPCRequest::Hello(self.sync.generate_hello()),
+            },
+            false => RPCEvent::Response {
+                id,
+                method_id: RPCMethod::Hello.into(),
+                result: RPCResponse::Hello(self.sync.generate_hello()),
+            },
         };
 
         // send the hello request to the network
