@@ -21,8 +21,8 @@ pub fn process_exit_queue(state: &mut BeaconState, spec: &ChainSpec) {
         .collect();
     eligable_indices.sort_by_key(|i| state.validator_registry[*i].exit_epoch);
 
-    for (withdrawn_so_far, index) in eligable_indices.iter().enumerate() {
-        if withdrawn_so_far as u64 >= spec.max_exit_dequeues_per_epoch {
+    for (dequeues, index) in eligable_indices.iter().enumerate() {
+        if dequeues as u64 >= spec.max_exit_dequeues_per_epoch {
             break;
         }
         prepare_validator_for_withdrawal(state, *index, spec);

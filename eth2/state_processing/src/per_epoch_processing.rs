@@ -32,7 +32,7 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     // Ensure the previous and next epoch caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
@@ -41,27 +41,38 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     // Load the struct we use to assign validators into sets based on their participation.
     //
     // E.g., attestation in the previous epoch, attested to the head, etc.
-    let mut statuses = ValidatorStatuses::new(state, spec)?;
-    statuses.process_attestations(&state, spec)?;
+    let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
+    validator_statuses.process_attestations(&state, spec)?;
 
-    process_eth1_data(state, spec);
-
-    update_justification_and_finalization(state, &statuses.total_balances, spec)?;
+    // Justification.
+    update_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
 
     // Crosslinks.
     let winning_root_for_shards = process_crosslinks(state, spec)?;
 
+    // Eth1 data.
+    maybe_reset_eth1_period(state, spec);
+
     // Rewards and Penalities.
-    apply_rewards(state, &mut statuses, &winning_root_for_shards, spec)?;
+    apply_rewards(
+        state,
+        &mut validator_statuses,
+        &winning_root_for_shards,
+        spec,
+    )?;
 
     // Ejections.
     process_ejections(state, spec)?;
 
     // Validator Registry.
-    update_registry_and_shuffling_data(state, statuses.total_balances.current_epoch, spec)?;
+    update_registry_and_shuffling_data(
+        state,
+        validator_statuses.total_balances.current_epoch,
+        spec,
+    )?;
 
     // Slashings and exit queue.
-    process_slashings(state, spec)?;
+    process_slashings(state, validator_statuses.total_balances.current_epoch, spec)?;
     process_exit_queue(state, spec);
 
     // Final updates.
@@ -76,7 +87,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
 /// Maybe resets the eth1 period.
 ///
 /// Spec v0.5.0
-pub fn process_eth1_data(state: &mut BeaconState, spec: &ChainSpec) {
+pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
     let next_epoch = state.next_epoch(spec);
     let voting_period = spec.epochs_per_eth1_voting_period;
 
