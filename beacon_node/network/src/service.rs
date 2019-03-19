@@ -110,9 +110,10 @@ fn network_service(
         loop {
             match libp2p_service.poll() {
                 Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, rpc_event)))) => {
-                    debug!(
+                    trace!(
                         libp2p_service.log,
-                        "RPC Event: RPC message received: {:?}", rpc_event
+                        "RPC Event: RPC message received: {:?}",
+                        rpc_event
                     );
                     message_handler_send
                         .send(HandlerMessage::RPC(peer_id, rpc_event))
