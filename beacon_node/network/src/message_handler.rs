@@ -65,7 +65,7 @@ impl MessageHandler {
 
         // Initialise sync and begin processing in thread
         // generate the Message handler
-        let sync = SimpleSync::new(beacon_chain.clone());
+        let sync = SimpleSync::new(beacon_chain.clone(), &log);
 
         let mut handler = MessageHandler {
             // TODO: The handler may not need a chain, perhaps only sync?
