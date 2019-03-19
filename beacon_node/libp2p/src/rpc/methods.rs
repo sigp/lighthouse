@@ -17,6 +17,15 @@ impl From<u16> for RPCMethod {
     }
 }
 
+impl Into<u16> for RPCMethod {
+    fn into(self) -> u16 {
+        match self {
+            RPCMethod::Hello => 0,
+            _ => 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RPCRequest {
     Hello(HelloMessage),
