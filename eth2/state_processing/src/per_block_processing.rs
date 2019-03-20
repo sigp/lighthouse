@@ -9,12 +9,12 @@ pub use self::verify_attester_slashing::{
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use validate_attestation::{validate_attestation, validate_attestation_without_signature};
-pub use verify_deposit::{
-    get_existing_validator_index, verify_deposit, verify_deposit_index,
-};
+pub use verify_deposit::{get_existing_validator_index, verify_deposit, verify_deposit_index};
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
 pub use verify_slashable_attestation::verify_slashable_attestation;
-pub use verify_transfer::{execute_transfer, verify_transfer, verify_transfer_partial};
+pub use verify_transfer::{
+    execute_transfer, verify_transfer, verify_transfer_time_independent_only,
+};
 
 pub mod errors;
 mod validate_attestation;

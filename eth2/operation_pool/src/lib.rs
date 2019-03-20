@@ -4,7 +4,7 @@ use ssz::ssz_encode;
 use state_processing::per_block_processing::errors::ProposerSlashingValidationError;
 use state_processing::per_block_processing::{
     validate_attestation, verify_deposit, verify_exit, verify_exit_time_independent_only,
-    verify_proposer_slashing, verify_transfer, verify_transfer_partial,
+    verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use types::chain_spec::Domain;
@@ -322,7 +322,7 @@ impl OperationPool {
         // The signature of the transfer isn't hashed, but because we check
         // it before we insert into the HashSet, we can't end up with duplicate
         // transactions.
-        verify_transfer_partial(state, &transfer, spec, true).map_err(|_| ())?;
+        verify_transfer_time_independent_only(state, &transfer, spec).map_err(|_| ())?;
         self.transfers.insert(transfer);
         Ok(())
     }
