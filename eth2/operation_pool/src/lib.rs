@@ -10,7 +10,7 @@ use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use types::chain_spec::Domain;
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconState, ChainSpec, Deposit, Epoch,
-    ProposerSlashing, Transfer, VoluntaryExit,
+    ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
 #[cfg(test)]
@@ -29,11 +29,11 @@ pub struct OperationPool {
     // longer than an epoch
     deposits: BTreeMap<u64, Deposit>,
     /// Map from attester index to slashing.
-    attester_slashings: BTreeMap<u64, AttesterSlashing>,
+    attester_slashings: HashMap<u64, AttesterSlashing>,
     /// Map from proposer index to slashing.
-    proposer_slashings: BTreeMap<u64, ProposerSlashing>,
+    proposer_slashings: HashMap<u64, ProposerSlashing>,
     /// Map from exiting validator to their exit data.
-    voluntary_exits: BTreeMap<u64, VoluntaryExit>,
+    voluntary_exits: HashMap<u64, VoluntaryExit>,
     /// Set of transfers.
     transfers: HashSet<Transfer>,
 }
@@ -268,24 +268,14 @@ impl OperationPool {
 
     /// Prune slashings for all slashed or withdrawn validators.
     pub fn prune_proposer_slashings(&mut self, finalized_state: &BeaconState, spec: &ChainSpec) {
-        let to_prune = self
-            .proposer_slashings
-            .keys()
-            .flat_map(|&validator_index| {
-                finalized_state
-                    .validator_registry
-                    .get(validator_index as usize)
-                    .filter(|validator| {
-                        validator.slashed
-                            || validator.is_withdrawable_at(finalized_state.current_epoch(spec))
-                    })
-                    .map(|_| validator_index)
-            })
-            .collect::<Vec<_>>();
-
-        for validator_index in to_prune {
-            self.proposer_slashings.remove(&validator_index);
-        }
+        prune_validator_hash_map(
+            &mut self.proposer_slashings,
+            |validator| {
+                validator.slashed
+                    || validator.is_withdrawable_at(finalized_state.current_epoch(spec))
+            },
+            finalized_state,
+        );
     }
 
     // TODO: copy ProposerSlashing code for AttesterSlashing
@@ -314,21 +304,11 @@ impl OperationPool {
 
     /// Prune if validator has already exited at the last finalized state.
     pub fn prune_voluntary_exits(&mut self, finalized_state: &BeaconState, spec: &ChainSpec) {
-        let to_prune = self
-            .voluntary_exits
-            .keys()
-            .flat_map(|&validator_index| {
-                finalized_state
-                    .validator_registry
-                    .get(validator_index as usize)
-                    .filter(|validator| validator.is_exited_at(finalized_state.current_epoch(spec)))
-                    .map(|_| validator_index)
-            })
-            .collect::<Vec<_>>();
-
-        for validator_index in to_prune {
-            self.voluntary_exits.remove(&validator_index);
-        }
+        prune_validator_hash_map(
+            &mut self.voluntary_exits,
+            |validator| validator.is_exited_at(finalized_state.current_epoch(spec)),
+            finalized_state,
+        );
     }
 
     /// Insert a transfer into the pool, checking it for validity in the process.
@@ -391,6 +371,26 @@ where
         .take(limit as usize)
         .cloned()
         .collect()
+}
+
+/// Remove all entries from the given hash map for which `prune_if` returns true.
+///
+/// The keys in the map should be validator indices, which will be looked up
+/// in the state's validator registry and then passed to `prune_if`.
+/// Entries for unknown validators will be kept.
+fn prune_validator_hash_map<T, F>(
+    map: &mut HashMap<u64, T>,
+    prune_if: F,
+    finalized_state: &BeaconState,
+) where
+    F: Fn(&Validator) -> bool,
+{
+    map.retain(|&validator_index, _| {
+        finalized_state
+            .validator_registry
+            .get(validator_index as usize)
+            .map_or(true, |validator| !prune_if(validator))
+    });
 }
 
 #[cfg(test)]
@@ -459,7 +459,6 @@ mod tests {
     fn prune_deposits() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
         let mut op_pool = OperationPool::new();
-        let spec = ChainSpec::foundation();
 
         let start1 = 100;
         let count = 100;
