@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[[bin]]
+name = "validator_client"
+path = "src/main.rs"
+
+[lib]
+name = "validator_client"
+path = "src/lib.rs"
+
+
 [dependencies]
 block_proposer = { path = "../eth2/block_proposer" }
 bls = { path = "../eth2/utils/bls" }

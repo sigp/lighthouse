@@ -57,10 +57,31 @@ complete and return a block from the BN.
 
 ### Configuration
 
-Presently the validator specifics (pubkey, etc.) are randomly generated and the
-chain specification (slot length, BLS domain, etc.) are fixed to foundation
-parameters. This is temporary and will be upgrade so these parameters can be
-read from file (or initialized on first-boot).
+Validator configurations are stored in a separate data directory from the main Beacon Node
+binary. The validator data directory defaults to:
+`$HOME/.lighthouse-validator`, however an alternative can be specified on the command line
+with `--datadir`.
+
+The configuration directory structure looks like:
+```
+~/.lighthouse-validator
+└── validators
+    ├── 3cf4210d58ec
+    │   └── private.key
+    ├── 9b5d8b5be4e7
+    │   └── private.key
+    └── cf6e07188f48
+        └── private.key
+```
+
+Where the hex value of the directory is a portion of the validator public key.
+
+Validator keys must be generated using the separate `accounts_manager` binary, which will
+place the keys into this directory structure in a format compatible with the validator client.
+
+The chain specification (slot length, BLS domain, etc.) defaults to foundation
+parameters, however is temporary and an upgrade will allow these parameters to be
+read from a file (or initialized on first-boot).
 
 ## BN Communication
 
