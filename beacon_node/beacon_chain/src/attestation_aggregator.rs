@@ -1,4 +1,3 @@
-use log::trace;
 use ssz::TreeHash;
 use state_processing::per_block_processing::validate_attestation_without_signature;
 use std::collections::{HashMap, HashSet};
@@ -86,34 +85,22 @@ impl AttestationAggregator {
         free_attestation: &FreeAttestation,
         spec: &ChainSpec,
     ) -> Result<Outcome, BeaconStateError> {
-        let attestation_duties = match state.attestation_slot_and_shard_for_validator(
-            free_attestation.validator_index as usize,
-            spec,
-        ) {
-            Err(BeaconStateError::EpochCacheUninitialized(e)) => {
-                panic!("Attempted to access unbuilt cache {:?}.", e)
-            }
-            Err(BeaconStateError::EpochOutOfBounds) => invalid_outcome!(Message::TooOld),
-            Err(BeaconStateError::ShardOutOfBounds) => invalid_outcome!(Message::BadShard),
-            Err(e) => return Err(e),
-            Ok(None) => invalid_outcome!(Message::BadValidatorIndex),
-            Ok(Some(attestation_duties)) => attestation_duties,
-        };
+        let duties =
+            match state.get_attestation_duties(free_attestation.validator_index as usize, spec) {
+                Err(BeaconStateError::EpochCacheUninitialized(e)) => {
+                    panic!("Attempted to access unbuilt cache {:?}.", e)
+                }
+                Err(BeaconStateError::EpochOutOfBounds) => invalid_outcome!(Message::TooOld),
+                Err(BeaconStateError::ShardOutOfBounds) => invalid_outcome!(Message::BadShard),
+                Err(e) => return Err(e),
+                Ok(None) => invalid_outcome!(Message::BadValidatorIndex),
+                Ok(Some(attestation_duties)) => attestation_duties,
+            };
 
-        let (slot, shard, committee_index) = attestation_duties;
-
-        trace!(
-            "slot: {}, shard: {}, committee_index: {}, val_index: {}",
-            slot,
-            shard,
-            committee_index,
-            free_attestation.validator_index
-        );
-
-        if free_attestation.data.slot != slot {
+        if free_attestation.data.slot != duties.slot {
             invalid_outcome!(Message::BadSlot);
         }
-        if free_attestation.data.shard != shard {
+        if free_attestation.data.shard != duties.shard {
             invalid_outcome!(Message::BadShard);
         }
 
@@ -143,7 +130,7 @@ impl AttestationAggregator {
             if let Some(updated_attestation) = aggregate_attestation(
                 existing_attestation,
                 &free_attestation.signature,
-                committee_index as usize,
+                duties.committee_index as usize,
             ) {
                 self.store.insert(signable_message, updated_attestation);
                 valid_outcome!(Message::Aggregated);
@@ -154,7 +141,7 @@ impl AttestationAggregator {
             let mut aggregate_signature = AggregateSignature::new();
             aggregate_signature.add(&free_attestation.signature);
             let mut aggregation_bitfield = Bitfield::new();
-            aggregation_bitfield.set(committee_index as usize, true);
+            aggregation_bitfield.set(duties.committee_index as usize, true);
             let new_attestation = Attestation {
                 data: free_attestation.data.clone(),
                 aggregation_bitfield,
@@ -177,9 +164,13 @@ impl AttestationAggregator {
     ) -> Vec<Attestation> {
         let mut known_attestation_data: HashSet<AttestationData> = HashSet::new();
 
-        state.latest_attestations.iter().for_each(|attestation| {
-            known_attestation_data.insert(attestation.data.clone());
-        });
+        state
+            .previous_epoch_attestations
+            .iter()
+            .chain(state.current_epoch_attestations.iter())
+            .for_each(|attestation| {
+                known_attestation_data.insert(attestation.data.clone());
+            });
 
         self.store
             .values()

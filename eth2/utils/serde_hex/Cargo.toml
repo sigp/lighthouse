@@ -1,0 +1,9 @@
+[package]
+name = "serde_hex"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+serde = "1.0"
+hex = "0.3"

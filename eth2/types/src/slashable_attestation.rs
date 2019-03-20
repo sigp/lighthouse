@@ -1,6 +1,6 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfield, ChainSpec};
 use rand::RngCore;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz::TreeHash;
 use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
 use test_random_derive::TestRandom;
@@ -9,8 +9,19 @@ use test_random_derive::TestRandom;
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.4.0
-#[derive(Debug, PartialEq, Clone, Serialize, Encode, Decode, TreeHash, TestRandom, SignedRoot)]
+/// Spec v0.5.0
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    SignedRoot,
+)]
 pub struct SlashableAttestation {
     /// Lists validator registry indices, not committee indices.
     pub validator_indices: Vec<u64>,
@@ -22,17 +33,17 @@ pub struct SlashableAttestation {
 impl SlashableAttestation {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn is_double_vote(&self, other: &SlashableAttestation, spec: &ChainSpec) -> bool {
         self.data.slot.epoch(spec.slots_per_epoch) == other.data.slot.epoch(spec.slots_per_epoch)
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn is_surround_vote(&self, other: &SlashableAttestation, spec: &ChainSpec) -> bool {
-        let source_epoch_1 = self.data.justified_epoch;
-        let source_epoch_2 = other.data.justified_epoch;
+        let source_epoch_1 = self.data.source_epoch;
+        let source_epoch_2 = other.data.source_epoch;
         let target_epoch_1 = self.data.slot.epoch(spec.slots_per_epoch);
         let target_epoch_2 = other.data.slot.epoch(spec.slots_per_epoch);
 
@@ -123,14 +134,14 @@ mod tests {
 
     fn create_slashable_attestation(
         slot_factor: u64,
-        justified_epoch: u64,
+        source_epoch: u64,
         spec: &ChainSpec,
     ) -> SlashableAttestation {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut slashable_vote = SlashableAttestation::random_for_test(&mut rng);
 
         slashable_vote.data.slot = Slot::new(slot_factor * spec.slots_per_epoch);
-        slashable_vote.data.justified_epoch = Epoch::new(justified_epoch);
+        slashable_vote.data.source_epoch = Epoch::new(source_epoch);
         slashable_vote
     }
 }
