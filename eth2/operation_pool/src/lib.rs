@@ -3,8 +3,8 @@ use itertools::Itertools;
 use ssz::ssz_encode;
 use state_processing::per_block_processing::errors::ProposerSlashingValidationError;
 use state_processing::per_block_processing::{
-    validate_attestation, verify_deposit_merkle_proof, verify_exit, verify_proposer_slashing,
-    verify_transfer, verify_transfer_partial,
+    validate_attestation, verify_deposit, verify_exit, verify_exit_time_independent_only,
+    verify_proposer_slashing, verify_transfer, verify_transfer_partial,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use types::chain_spec::Domain;
@@ -179,19 +179,27 @@ impl OperationPool {
     /// Add a deposit to the pool.
     ///
     /// No two distinct deposits should be added with the same index.
-    pub fn insert_deposit(&mut self, deposit: Deposit) -> DepositInsertStatus {
+    pub fn insert_deposit(
+        &mut self,
+        deposit: Deposit,
+        state: &BeaconState,
+        spec: &ChainSpec,
+    ) -> Result<DepositInsertStatus, ()> {
         use DepositInsertStatus::*;
 
         match self.deposits.entry(deposit.index) {
             Entry::Vacant(entry) => {
+                // FIXME: error prop
+                verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec).map_err(|_| ())?;
                 entry.insert(deposit);
-                Fresh
+                Ok(Fresh)
             }
             Entry::Occupied(mut entry) => {
                 if entry.get() == &deposit {
-                    Duplicate
+                    Ok(Duplicate)
                 } else {
-                    Replaced(Box::new(entry.insert(deposit)))
+                    verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec).map_err(|_| ())?;
+                    Ok(Replaced(Box::new(entry.insert(deposit))))
                 }
             }
         }
@@ -204,14 +212,7 @@ impl OperationPool {
         let start_idx = state.deposit_index;
         (start_idx..start_idx + spec.max_deposits)
             .map(|idx| self.deposits.get(&idx))
-            .take_while(|deposit| {
-                // NOTE: we don't use verify_deposit, because it requires the
-                // deposit's index to match the state's, and we would like to return
-                // a batch with increasing indices
-                deposit.map_or(false, |deposit| {
-                    !VERIFY_DEPOSIT_PROOFS || verify_deposit_merkle_proof(state, deposit, spec)
-                })
-            })
+            .take_while(Option::is_some)
             .flatten()
             .cloned()
             .collect()
@@ -287,7 +288,7 @@ impl OperationPool {
         state: &BeaconState,
         spec: &ChainSpec,
     ) -> Result<(), ()> {
-        verify_exit(state, &exit, spec, false).map_err(|_| ())?;
+        verify_exit_time_independent_only(state, &exit, spec).map_err(|_| ())?;
         self.voluntary_exits.insert(exit.validator_index, exit);
         Ok(())
     }
@@ -297,7 +298,7 @@ impl OperationPool {
     pub fn get_voluntary_exits(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<VoluntaryExit> {
         filter_limit_operations(
             self.voluntary_exits.values(),
-            |exit| verify_exit(state, exit, spec, true).is_ok(),
+            |exit| verify_exit(state, exit, spec).is_ok(),
             spec.max_voluntary_exits,
         )
     }
@@ -398,53 +399,51 @@ mod tests {
     use super::DepositInsertStatus::*;
     use super::*;
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use types::*;
 
     #[test]
     fn insert_deposit() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let (ref spec, ref state) = test_state(rng);
         let mut op_pool = OperationPool::new();
-        let deposit1 = Deposit::random_for_test(&mut rng);
-        let mut deposit2 = Deposit::random_for_test(&mut rng);
+        let deposit1 = make_deposit(rng, state, spec);
+        let mut deposit2 = make_deposit(rng, state, spec);
         deposit2.index = deposit1.index;
 
-        assert_eq!(op_pool.insert_deposit(deposit1.clone()), Fresh);
-        assert_eq!(op_pool.insert_deposit(deposit1.clone()), Duplicate);
         assert_eq!(
-            op_pool.insert_deposit(deposit2),
-            Replaced(Box::new(deposit1))
+            op_pool.insert_deposit(deposit1.clone(), state, spec),
+            Ok(Fresh)
         );
-    }
-
-    // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
-    fn dummy_deposits(rng: &mut XorShiftRng, start: u64, count: u64) -> Vec<Deposit> {
-        let proto_deposit = Deposit::random_for_test(rng);
-        (start..start + count)
-            .map(|index| {
-                let mut deposit = proto_deposit.clone();
-                deposit.index = index;
-                deposit
-            })
-            .collect()
+        assert_eq!(
+            op_pool.insert_deposit(deposit1.clone(), state, spec),
+            Ok(Duplicate)
+        );
+        assert_eq!(
+            op_pool.insert_deposit(deposit2, state, spec),
+            Ok(Replaced(Box::new(deposit1)))
+        );
     }
 
     #[test]
     fn get_deposits_max() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let (spec, mut state) = test_state(rng);
         let mut op_pool = OperationPool::new();
-        let spec = ChainSpec::foundation();
         let start = 10000;
         let max_deposits = spec.max_deposits;
         let extra = 5;
         let offset = 1;
         assert!(offset <= extra);
 
-        let deposits = dummy_deposits(&mut rng, start, max_deposits + extra);
+        let deposits = dummy_deposits(rng, &state, &spec, start, max_deposits + extra);
 
         for deposit in &deposits {
-            assert_eq!(op_pool.insert_deposit(deposit.clone()), Fresh);
+            assert_eq!(
+                op_pool.insert_deposit(deposit.clone(), &state, &spec),
+                Ok(Fresh)
+            );
         }
 
-        let mut state = BeaconState::random_for_test(&mut rng);
         state.deposit_index = start + offset;
         let deposits_for_block = op_pool.get_deposits(&state, &spec);
 
@@ -458,18 +457,20 @@ mod tests {
     #[test]
     fn prune_deposits() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let (spec, state) = test_state(rng);
         let mut op_pool = OperationPool::new();
 
         let start1 = 100;
-        let count = 100;
+        // test is super slow in debug mode if this parameter is too high
+        let count = 5;
         let gap = 25;
         let start2 = start1 + count + gap;
 
-        let deposits1 = dummy_deposits(rng, start1, count);
-        let deposits2 = dummy_deposits(rng, start2, count);
+        let deposits1 = dummy_deposits(rng, &state, &spec, start1, count);
+        let deposits2 = dummy_deposits(rng, &state, &spec, start2, count);
 
         for d in deposits1.into_iter().chain(deposits2) {
-            op_pool.insert_deposit(d);
+            assert!(op_pool.insert_deposit(d, &state, &spec).is_ok());
         }
 
         assert_eq!(op_pool.num_deposits(), 2 * count as usize);
@@ -502,6 +503,51 @@ mod tests {
             assert_eq!(op_pool.num_deposits(), pool_size);
         }
         assert_eq!(op_pool.num_deposits(), 0);
+    }
+
+    // Create a random deposit (with a valid proof of posession)
+    fn make_deposit(rng: &mut XorShiftRng, state: &BeaconState, spec: &ChainSpec) -> Deposit {
+        let keypair = Keypair::random();
+        let mut deposit = Deposit::random_for_test(rng);
+        let mut deposit_input = DepositInput {
+            pubkey: keypair.pk.clone(),
+            withdrawal_credentials: Hash256::zero(),
+            proof_of_possession: Signature::empty_signature(),
+        };
+        deposit_input.proof_of_possession = deposit_input.create_proof_of_possession(
+            &keypair.sk,
+            state.slot.epoch(spec.slots_per_epoch),
+            &state.fork,
+            spec,
+        );
+        deposit.deposit_data.deposit_input = deposit_input;
+        deposit
+    }
+
+    // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
+    fn dummy_deposits(
+        rng: &mut XorShiftRng,
+        state: &BeaconState,
+        spec: &ChainSpec,
+        start: u64,
+        count: u64,
+    ) -> Vec<Deposit> {
+        let proto_deposit = make_deposit(rng, state, spec);
+        (start..start + count)
+            .map(|index| {
+                let mut deposit = proto_deposit.clone();
+                deposit.index = index;
+                deposit
+            })
+            .collect()
+    }
+
+    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState) {
+        let spec = ChainSpec::foundation();
+        let mut state = BeaconState::random_for_test(rng);
+        state.fork = Fork::genesis(&spec);
+
+        (spec, state)
     }
 
     // TODO: more tests

@@ -31,7 +31,9 @@ pub struct Attestation {
 impl Attestation {
     /// Are the aggregation bitfields of these attestations disjoint?
     pub fn signers_disjoint_from(&self, other: &Attestation) -> bool {
-        self.aggregation_bitfield.intersection(&other.aggregation_bitfield).is_zero()
+        self.aggregation_bitfield
+            .intersection(&other.aggregation_bitfield)
+            .is_zero()
     }
 
     /// Aggregate another Attestation into this one.
@@ -41,7 +43,8 @@ impl Attestation {
         debug_assert_eq!(self.data, other.data);
         debug_assert!(self.signers_disjoint_from(other));
 
-        self.aggregation_bitfield.union_inplace(&other.aggregation_bitfield);
+        self.aggregation_bitfield
+            .union_inplace(&other.aggregation_bitfield);
         self.custody_bitfield.union_inplace(&other.custody_bitfield);
         // FIXME: signature aggregation once our BLS library wraps it
     }
