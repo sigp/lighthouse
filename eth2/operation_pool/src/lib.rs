@@ -1,7 +1,10 @@
 use int_to_bytes::int_to_bytes8;
 use itertools::Itertools;
 use ssz::ssz_encode;
-use state_processing::per_block_processing::errors::ProposerSlashingValidationError;
+use state_processing::per_block_processing::errors::{
+    AttestationValidationError, DepositValidationError, ExitValidationError,
+    ProposerSlashingValidationError, TransferValidationError,
+};
 use state_processing::per_block_processing::{
     validate_attestation, verify_deposit, verify_exit, verify_exit_time_independent_only,
     verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
@@ -108,10 +111,10 @@ impl OperationPool {
         attestation: Attestation,
         state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<(), ()> {
+    ) -> Result<(), AttestationValidationError> {
         // Check that attestation signatures are valid.
         // FIXME: should disable the time-dependent checks.
-        validate_attestation(state, &attestation, spec).map_err(|_| ())?;
+        validate_attestation(state, &attestation, spec)?;
 
         let id = AttestationId::from_data(&attestation.data, state, spec);
 
@@ -143,7 +146,7 @@ impl OperationPool {
     /// Get a list of attestations for inclusion in a block.
     pub fn get_attestations(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<Attestation> {
         // Attestations for the current fork...
-        // TODO: should we also check domain bytes for the previous epoch?
+        // FIXME: should we also check domain bytes for the previous epoch?
         let current_epoch = state.slot.epoch(spec.slots_per_epoch);
         let domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
         self.attestations
@@ -184,13 +187,12 @@ impl OperationPool {
         deposit: Deposit,
         state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<DepositInsertStatus, ()> {
+    ) -> Result<DepositInsertStatus, DepositValidationError> {
         use DepositInsertStatus::*;
 
         match self.deposits.entry(deposit.index) {
             Entry::Vacant(entry) => {
-                // FIXME: error prop
-                verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec).map_err(|_| ())?;
+                verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec)?;
                 entry.insert(deposit);
                 Ok(Fresh)
             }
@@ -198,7 +200,7 @@ impl OperationPool {
                 if entry.get() == &deposit {
                     Ok(Duplicate)
                 } else {
-                    verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec).map_err(|_| ())?;
+                    verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec)?;
                     Ok(Replaced(Box::new(entry.insert(deposit))))
                 }
             }
@@ -279,7 +281,7 @@ impl OperationPool {
         );
     }
 
-    // TODO: copy ProposerSlashing code for AttesterSlashing
+    // FIXME: copy ProposerSlashing code for AttesterSlashing
 
     /// Insert a voluntary exit, validating it almost-entirely (future exits are permitted).
     pub fn insert_voluntary_exit(
@@ -287,14 +289,13 @@ impl OperationPool {
         exit: VoluntaryExit,
         state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<(), ()> {
-        verify_exit_time_independent_only(state, &exit, spec).map_err(|_| ())?;
+    ) -> Result<(), ExitValidationError> {
+        verify_exit_time_independent_only(state, &exit, spec)?;
         self.voluntary_exits.insert(exit.validator_index, exit);
         Ok(())
     }
 
     /// Get a list of voluntary exits for inclusion in a block.
-    // TODO: could optimise this by eliding the checks that have already been done on insert
     pub fn get_voluntary_exits(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<VoluntaryExit> {
         filter_limit_operations(
             self.voluntary_exits.values(),
@@ -318,25 +319,26 @@ impl OperationPool {
         transfer: Transfer,
         state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<(), ()> {
+    ) -> Result<(), TransferValidationError> {
         // The signature of the transfer isn't hashed, but because we check
         // it before we insert into the HashSet, we can't end up with duplicate
         // transactions.
-        verify_transfer_time_independent_only(state, &transfer, spec).map_err(|_| ())?;
+        verify_transfer_time_independent_only(state, &transfer, spec)?;
         self.transfers.insert(transfer);
         Ok(())
     }
 
     /// Get a list of transfers for inclusion in a block.
-    // TODO: improve the economic optimality of this function by taking the transfer
-    // fees into account, and dependencies between transfers in the same block
-    // e.g. A pays B, B pays C
+    // TODO: improve the economic optimality of this function by accounting for
+    // dependencies between transfers in the same block e.g. A pays B, B pays C
     pub fn get_transfers(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<Transfer> {
-        filter_limit_operations(
-            &self.transfers,
-            |transfer| verify_transfer(state, transfer, spec).is_ok(),
-            spec.max_transfers,
-        )
+        self.transfers
+            .iter()
+            .filter(|transfer| verify_transfer(state, transfer, spec).is_ok())
+            .sorted_by_key(|transfer| std::cmp::Reverse(transfer.fee))
+            .take(spec.max_transfers as usize)
+            .cloned()
+            .collect()
     }
 
     /// Prune the set of transfers by removing all those whose slot has already passed.
