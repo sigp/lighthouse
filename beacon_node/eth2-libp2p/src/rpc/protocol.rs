@@ -6,7 +6,7 @@ use std::iter;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// The maximum bytes that can be sent across the RPC.
-const MAX_READ_SIZE: usize = 2048;
+const MAX_READ_SIZE: usize = 4_194_304; // 4M
 
 /// Implementation of the `ConnectionUpgrade` for the rpc protocol.
 
