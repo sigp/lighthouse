@@ -5,5 +5,5 @@ mod message_handler;
 mod service;
 pub mod sync;
 
-pub use libp2p::NetworkConfig;
+pub use eth2_libp2p::NetworkConfig;
 pub use service::Service;
