@@ -96,6 +96,7 @@ impl From<BeaconBlockAtSlotError> for ForkChoiceError {
 }
 
 /// Fork choice options that are currently implemented.
+#[derive(Debug, Clone)]
 pub enum ForkChoiceAlgorithm {
     /// Chooses the longest chain becomes the head. Not for production.
     LongestChain,
