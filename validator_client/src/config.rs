@@ -1,3 +1,4 @@
+use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
 use std::fs;
@@ -5,7 +6,6 @@ use std::fs::File;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
 use types::ChainSpec;
-use bincode;
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone)]
@@ -31,10 +31,9 @@ impl ValidatorClientConfig {
         let data_dir: PathBuf = match arguments.value_of("datadir") {
             Some(path) => PathBuf::from(path.to_string()),
             None => {
-                let home = dirs::home_dir().ok_or_else(|| Error::new(
-                    ErrorKind::NotFound,
-                    "Unable to determine home directory.",
-                ))?;
+                let home = dirs::home_dir().ok_or_else(|| {
+                    Error::new(ErrorKind::NotFound, "Unable to determine home directory.")
+                })?;
                 home.join(DEFAULT_VALIDATOR_DATADIR)
             }
         };
@@ -96,13 +95,14 @@ impl ValidatorClientConfig {
                 .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
 
             // TODO skip keyfile if it's not matched, and log the error instead of returning it.
-            let validator_directory_name = validator_dir.file_name().into_string().map_err(|_| {
+            let validator_directory_name =
+                validator_dir.file_name().into_string().map_err(|_| {
                     Error::new(
                         ErrorKind::InvalidData,
                         "The filename cannot be parsed to a string.",
                     )
                 })?;
-            if key.identifier() !=  validator_directory_name {
+            if key.identifier() != validator_directory_name {
                 return Err(Error::new(
                     ErrorKind::InvalidData,
                     "The validator directory ID did not match the key found inside.",

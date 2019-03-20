@@ -8,7 +8,7 @@ use protos::services_grpc::{BeaconBlockServiceClient, ValidatorServiceClient};
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use std::sync::Arc;
-use std::{thread, process, time};
+use std::{process, thread, time};
 
 mod block_producer_service;
 mod config;
@@ -105,7 +105,6 @@ fn main() {
      * Start threads.
      */
     let mut threads = vec![];
-
 
     for keypair in keypairs {
         info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
