@@ -124,7 +124,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Return the number of committees in one epoch.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
         std::cmp::max(
             1,

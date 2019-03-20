@@ -34,7 +34,6 @@ pub mod relative_epoch;
 pub mod slot_epoch;
 pub mod slot_height;
 pub mod validator;
-pub mod validator_registry;
 
 use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;

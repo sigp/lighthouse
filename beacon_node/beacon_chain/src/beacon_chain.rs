@@ -82,7 +82,7 @@ where
         let state_root = genesis_state.canonical_root();
         state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
 
-        let block_root = genesis_block.into_header().canonical_root();
+        let block_root = genesis_block.block_header().canonical_root();
         block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
 
         let finalized_head = RwLock::new(CheckPoint::new(
@@ -189,7 +189,7 @@ where
     pub fn advance_state(&self, slot: Slot) -> Result<(), SlotProcessingError> {
         let state_slot = self.state.read().slot;
 
-        let latest_block_header = self.head().beacon_block.into_header();
+        let latest_block_header = self.head().beacon_block.block_header();
 
         for _ in state_slot.as_u64()..slot.as_u64() {
             per_slot_processing(&mut *self.state.write(), &latest_block_header, &self.spec)?;
@@ -561,7 +561,7 @@ where
     pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot);
 
-        let block_root = block.into_header().canonical_root();
+        let block_root = block.block_header().canonical_root();
 
         let present_slot = self.present_slot();
 
@@ -596,8 +596,7 @@ where
 
         // Transition the parent state to the present slot.
         let mut state = parent_state;
-        println!("parent process state: {:?}", state.latest_block_header);
-        let previous_block_header = parent_block.into_header();
+        let previous_block_header = parent_block.block_header();
         for _ in state.slot.as_u64()..present_slot.as_u64() {
             if let Err(e) = per_slot_processing(&mut state, &previous_block_header, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -613,8 +612,6 @@ where
                 InvalidBlock::PerBlockProcessingError(e),
             ));
         }
-
-        println!("process state: {:?}", state.latest_block_header);
 
         let state_root = state.canonical_root();
 
@@ -705,8 +702,6 @@ where
         trace!("BeaconChain::produce_block: updating state for new block.",);
 
         per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
-
-        println!("produce state: {:?}", state.latest_block_header);
 
         let state_root = state.canonical_root();
 

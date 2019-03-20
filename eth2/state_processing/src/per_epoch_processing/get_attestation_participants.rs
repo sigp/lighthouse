@@ -1,4 +1,5 @@
-use types::{beacon_state::helpers::verify_bitfield_length, *};
+use crate::common::verify_bitfield_length;
+use types::*;
 
 /// Returns validator indices which participated in the attestation.
 ///
@@ -27,7 +28,7 @@ pub fn get_attestation_participants(
     let mut participants = Vec::with_capacity(committee.len());
     for (i, validator_index) in committee.iter().enumerate() {
         match bitfield.get(i) {
-            Ok(bit) if bit == true => participants.push(*validator_index),
+            Ok(bit) if bit => participants.push(*validator_index),
             _ => {}
         }
     }
