@@ -112,6 +112,13 @@ pub struct ChainSpec {
     domain_deposit: u32,
     domain_exit: u32,
     domain_transfer: u32,
+
+    /*
+     * Network specific parameters
+     *
+     */
+    pub boot_nodes: Vec<Multiaddr>,
+    pub network_id: u8,
 }
 
 impl ChainSpec {
@@ -243,6 +250,30 @@ impl ChainSpec {
             domain_deposit: 3,
             domain_exit: 4,
             domain_transfer: 5,
+
+            /*
+             * Boot nodes
+             */
+            boot_nodes: vec![],
+            network_id: 1, // foundation network id
+        }
+    }
+
+    /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
+    ///
+    /// Spec v0.4.0
+    pub fn lighthouse_testnet() -> Self {
+        /*
+         * Lighthouse testnet bootnodes
+         */
+        let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
+            .parse()
+            .expect("correct multiaddr")];
+
+        Self {
+            boot_nodes,
+            network_id: 2, // lighthouse testnet network id
+            ..ChainSpec::few_validators()
         }
     }
 
