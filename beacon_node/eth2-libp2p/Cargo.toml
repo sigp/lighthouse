@@ -1,5 +1,5 @@
 [package]
-name = "libp2p"
+name = "eth2-libp2p"
 version = "0.1.0"
 authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"

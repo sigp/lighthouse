@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
-libp2p =  { path = "../libp2p" }
+eth2-libp2p =  { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
 slog = "2.4.1"

@@ -1,6 +1,6 @@
 use crate::beacon_chain::BeaconChain;
-use libp2p::rpc::HelloMessage;
-use libp2p::PeerId;
+use eth2_libp2p::rpc::HelloMessage;
+use eth2_libp2p::PeerId;
 use slog::{debug, o};
 use std::collections::HashMap;
 use std::sync::Arc;
