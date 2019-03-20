@@ -89,11 +89,7 @@ pub fn get_existing_validator_index(
 /// Verify that a deposit is included in the state's eth1 deposit root.
 ///
 /// Spec v0.5.0
-pub fn verify_deposit_merkle_proof(
-    state: &BeaconState,
-    deposit: &Deposit,
-    spec: &ChainSpec,
-) -> bool {
+fn verify_deposit_merkle_proof(state: &BeaconState, deposit: &Deposit, spec: &ChainSpec) -> bool {
     let leaf = hash(&get_serialized_deposit_data(deposit));
     verify_merkle_proof(
         Hash256::from_slice(&leaf),
