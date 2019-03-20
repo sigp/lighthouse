@@ -81,6 +81,10 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                 let (hello_body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCRequest::Hello(hello_body)
             }
+            RPCMethod::Goodbye => {
+                let (goodbye_code, _index) = u64::ssz_decode(&packet, index)?;
+                RPCRequest::Goodbye(goodbye_code)
+            }
             RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
         };
 
