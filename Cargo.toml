@@ -23,4 +23,5 @@ members = [
 	"beacon_node/beacon_chain/test_harness",
 	"protos",
 	"validator_client",
+	"account_manager",
 ]
