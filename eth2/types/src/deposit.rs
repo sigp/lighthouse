@@ -7,10 +7,10 @@ use test_random_derive::TestRandom;
 
 /// A deposit to potentially become a beacon chain validator.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Deposit {
-    pub branch: Vec<Hash256>,
+    pub proof: Vec<Hash256>,
     pub index: u64,
     pub deposit_data: DepositData,
 }

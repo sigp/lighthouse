@@ -10,12 +10,12 @@ pub struct TestingTransferBuilder {
 
 impl TestingTransferBuilder {
     /// Instantiates a new builder.
-    pub fn new(from: u64, to: u64, amount: u64, slot: Slot) -> Self {
+    pub fn new(sender: u64, recipient: u64, amount: u64, slot: Slot) -> Self {
         let keypair = Keypair::random();
 
         let transfer = Transfer {
-            from,
-            to,
+            sender,
+            recipient,
             amount,
             fee: 0,
             slot,

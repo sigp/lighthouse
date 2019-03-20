@@ -19,6 +19,7 @@ slog = "^2.2.3"
 slot_clock = { path = "../eth2/utils/slot_clock" }
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
+state_processing = { path = "../eth2/state_processing" }
 types = { path = "../eth2/types" }
 ssz = { path = "../eth2/utils/ssz" }
 tokio = "0.1"

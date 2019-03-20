@@ -9,6 +9,7 @@ test_cases:
       deposits_for_chain_start: 1000
       num_slots: 64
       skip_slots: [2, 3]
+      persistent_committee_period: 0
       deposits:
           # At slot 1, create a new validator deposit of 5 ETH.
         - slot: 1
