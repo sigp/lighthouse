@@ -1,6 +1,7 @@
 use int_to_bytes::int_to_bytes8;
 use itertools::Itertools;
 use ssz::ssz_encode;
+use state_processing::per_block_processing::errors::ProposerSlashingValidationError;
 use state_processing::per_block_processing::{
     validate_attestation, verify_deposit_merkle_proof, verify_exit, verify_proposer_slashing,
     verify_transfer, verify_transfer_partial,
@@ -92,7 +93,7 @@ pub enum DepositInsertStatus {
     /// The deposit already existed in the pool.
     Duplicate,
     /// The deposit conflicted with an existing deposit, which was replaced.
-    Replaced(Deposit),
+    Replaced(Box<Deposit>),
 }
 
 impl OperationPool {
@@ -190,7 +191,7 @@ impl OperationPool {
                 if entry.get() == &deposit {
                     Duplicate
                 } else {
-                    Replaced(entry.insert(deposit))
+                    Replaced(Box::new(entry.insert(deposit)))
                 }
             }
         }
@@ -222,17 +223,21 @@ impl OperationPool {
         std::mem::replace(&mut self.deposits, deposits_keep)
     }
 
+    /// The number of deposits stored in the pool.
+    pub fn num_deposits(&self) -> usize {
+        self.deposits.len()
+    }
+
     /// Insert a proposer slashing into the pool.
     pub fn insert_proposer_slashing(
         &mut self,
         slashing: ProposerSlashing,
         state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<(), ()> {
+    ) -> Result<(), ProposerSlashingValidationError> {
         // TODO: should maybe insert anyway if the proposer is unknown in the validator index,
         // because they could *become* known later
-        // FIXME: error handling
-        verify_proposer_slashing(&slashing, state, spec).map_err(|_| ())?;
+        verify_proposer_slashing(&slashing, state, spec)?;
         self.proposer_slashings
             .insert(slashing.proposer_index, slashing);
         Ok(())
@@ -404,7 +409,22 @@ mod tests {
 
         assert_eq!(op_pool.insert_deposit(deposit1.clone()), Fresh);
         assert_eq!(op_pool.insert_deposit(deposit1.clone()), Duplicate);
-        assert_eq!(op_pool.insert_deposit(deposit2), Replaced(deposit1));
+        assert_eq!(
+            op_pool.insert_deposit(deposit2),
+            Replaced(Box::new(deposit1))
+        );
+    }
+
+    // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
+    fn dummy_deposits(rng: &mut XorShiftRng, start: u64, count: u64) -> Vec<Deposit> {
+        let proto_deposit = Deposit::random_for_test(rng);
+        (start..start + count)
+            .map(|index| {
+                let mut deposit = proto_deposit.clone();
+                deposit.index = index;
+                deposit
+            })
+            .collect()
     }
 
     #[test]
@@ -418,14 +438,7 @@ mod tests {
         let offset = 1;
         assert!(offset <= extra);
 
-        let proto_deposit = Deposit::random_for_test(&mut rng);
-        let deposits = (start..start + max_deposits + extra)
-            .map(|index| {
-                let mut deposit = proto_deposit.clone();
-                deposit.index = index;
-                deposit
-            })
-            .collect::<Vec<_>>();
+        let deposits = dummy_deposits(&mut rng, start, max_deposits + extra);
 
         for deposit in &deposits {
             assert_eq!(op_pool.insert_deposit(deposit.clone()), Fresh);
@@ -440,6 +453,56 @@ mod tests {
             deposits_for_block[..],
             deposits[offset as usize..(offset + max_deposits) as usize]
         );
+    }
+
+    #[test]
+    fn prune_deposits() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut op_pool = OperationPool::new();
+        let spec = ChainSpec::foundation();
+
+        let start1 = 100;
+        let count = 100;
+        let gap = 25;
+        let start2 = start1 + count + gap;
+
+        let deposits1 = dummy_deposits(rng, start1, count);
+        let deposits2 = dummy_deposits(rng, start2, count);
+
+        for d in deposits1.into_iter().chain(deposits2) {
+            op_pool.insert_deposit(d);
+        }
+
+        assert_eq!(op_pool.num_deposits(), 2 * count as usize);
+
+        let mut state = BeaconState::random_for_test(rng);
+        state.deposit_index = start1;
+
+        // Pruning the first bunch of deposits in batches of 5 should work.
+        let step = 5;
+        let mut pool_size = step + 2 * count as usize;
+        for i in (start1..=(start1 + count)).step_by(step) {
+            state.deposit_index = i;
+            op_pool.prune_deposits(&state);
+            pool_size -= step;
+            assert_eq!(op_pool.num_deposits(), pool_size);
+        }
+        assert_eq!(pool_size, count as usize);
+        // Pruning in the gap should do nothing.
+        for i in (start1 + count..start2).step_by(step) {
+            state.deposit_index = i;
+            op_pool.prune_deposits(&state);
+            assert_eq!(op_pool.num_deposits(), count as usize);
+        }
+        // Same again for the later deposits.
+        pool_size += step;
+        for i in (start2..=(start2 + count)).step_by(step) {
+            state.deposit_index = i;
+            op_pool.prune_deposits(&state);
+            pool_size -= step;
+            assert_eq!(op_pool.num_deposits(), pool_size);
+        }
+        assert_eq!(op_pool.num_deposits(), 0);
     }
 
     // TODO: more tests
