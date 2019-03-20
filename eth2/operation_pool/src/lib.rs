@@ -6,8 +6,9 @@ use state_processing::per_block_processing::errors::{
     ProposerSlashingValidationError, TransferValidationError,
 };
 use state_processing::per_block_processing::{
-    validate_attestation, verify_deposit, verify_exit, verify_exit_time_independent_only,
-    verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
+    validate_attestation, validate_attestation_time_independent_only, verify_deposit, verify_exit,
+    verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
+    verify_transfer_time_independent_only,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use types::chain_spec::Domain;
@@ -113,8 +114,7 @@ impl OperationPool {
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
         // Check that attestation signatures are valid.
-        // FIXME: should disable the time-dependent checks.
-        validate_attestation(state, &attestation, spec)?;
+        validate_attestation_time_independent_only(state, &attestation, spec)?;
 
         let id = AttestationId::from_data(&attestation.data, state, spec);
 
