@@ -1,18 +1,24 @@
+use apply_rewards::apply_rewards;
 use errors::EpochProcessingError as Error;
-use integer_sqrt::IntegerSquareRoot;
-use process_validator_registry::process_validator_registry;
-use rayon::prelude::*;
+use process_ejections::process_ejections;
+use process_exit_queue::process_exit_queue;
+use process_slashings::process_slashings;
 use ssz::TreeHash;
 use std::collections::HashMap;
-use types::{validator_registry::get_active_validator_indices, *};
+use types::*;
+use update_registry_and_shuffling_data::update_registry_and_shuffling_data;
 use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
+pub mod apply_rewards;
 pub mod errors;
 pub mod get_attestation_participants;
 pub mod inclusion_distance;
-pub mod process_validator_registry;
+pub mod process_ejections;
+pub mod process_exit_queue;
+pub mod process_slashings;
 pub mod tests;
+pub mod update_registry_and_shuffling_data;
 pub mod validator_statuses;
 pub mod winning_root;
 
@@ -26,34 +32,51 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     // Ensure the previous and next epoch caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
 
-    let mut statuses = initialize_validator_statuses(&state, spec)?;
+    // Load the struct we use to assign validators into sets based on their participation.
+    //
+    // E.g., attestation in the previous epoch, attested to the head, etc.
+    let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
+    validator_statuses.process_attestations(&state, spec)?;
 
-    process_eth1_data(state, spec);
+    // Justification.
+    update_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
 
-    process_justification(state, &statuses.total_balances, spec);
-
-    // Crosslinks
+    // Crosslinks.
     let winning_root_for_shards = process_crosslinks(state, spec)?;
 
-    // Rewards and Penalities
-    process_rewards_and_penalities(state, &mut statuses, &winning_root_for_shards, spec)?;
+    // Eth1 data.
+    maybe_reset_eth1_period(state, spec);
 
-    // Ejections
-    state.process_ejections(spec)?;
+    // Rewards and Penalities.
+    apply_rewards(
+        state,
+        &mut validator_statuses,
+        &winning_root_for_shards,
+        spec,
+    )?;
 
-    // Validator Registry
-    process_validator_registry(state, spec)?;
+    // Ejections.
+    process_ejections(state, spec)?;
 
-    // Final updates
-    update_active_tree_index_roots(state, spec)?;
-    update_latest_slashed_balances(state, spec);
-    clean_attestations(state);
+    // Validator Registry.
+    update_registry_and_shuffling_data(
+        state,
+        validator_statuses.total_balances.current_epoch,
+        spec,
+    )?;
+
+    // Slashings and exit queue.
+    process_slashings(state, validator_statuses.total_balances.current_epoch, spec)?;
+    process_exit_queue(state, spec);
+
+    // Final updates.
+    finish_epoch_update(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
@@ -61,39 +84,10 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     Ok(())
 }
 
-/// Returns a list of active validator indices for the state's current epoch.
-///
-/// Spec v0.5.0
-pub fn calculate_active_validator_indices(state: &BeaconState, spec: &ChainSpec) -> Vec<usize> {
-    get_active_validator_indices(
-        &state.validator_registry,
-        state.slot.epoch(spec.slots_per_epoch),
-    )
-}
-
-/// Calculates various sets of attesters, including:
-///
-/// - current epoch attesters
-/// - current epoch boundary attesters
-/// - previous epoch attesters
-/// - etc.
-///
-/// Spec v0.5.0
-pub fn initialize_validator_statuses(
-    state: &BeaconState,
-    spec: &ChainSpec,
-) -> Result<ValidatorStatuses, BeaconStateError> {
-    let mut statuses = ValidatorStatuses::new(state, spec)?;
-
-    statuses.process_attestations(&state, spec)?;
-
-    Ok(statuses)
-}
-
 /// Maybe resets the eth1 period.
 ///
 /// Spec v0.5.0
-pub fn process_eth1_data(state: &mut BeaconState, spec: &ChainSpec) {
+pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
     let next_epoch = state.next_epoch(spec);
     let voting_period = spec.epochs_per_eth1_voting_period;
 
@@ -114,83 +108,68 @@ pub fn process_eth1_data(state: &mut BeaconState, spec: &ChainSpec) {
 /// - `justified_epoch`
 /// - `previous_justified_epoch`
 ///
-/// Spec v0.4.0
-pub fn process_justification(
+/// Spec v0.5.0
+pub fn update_justification_and_finalization(
     state: &mut BeaconState,
     total_balances: &TotalBalances,
     spec: &ChainSpec,
-) {
+) -> Result<(), Error> {
     let previous_epoch = state.previous_epoch(spec);
     let current_epoch = state.current_epoch(spec);
 
     let mut new_justified_epoch = state.current_justified_epoch;
+    let mut new_finalized_epoch = state.finalized_epoch;
+
+    // Rotate the justification bitfield up one epoch to make room for the current epoch.
     state.justification_bitfield <<= 1;
 
-    // If > 2/3 of the total balance attested to the previous epoch boundary
-    //
-    // - Set the 2nd bit of the bitfield.
-    // - Set the previous epoch to be justified.
-    if (3 * total_balances.previous_epoch_boundary_attesters) >= (2 * total_balances.previous_epoch)
+    // If the previous epoch gets justified, full the second last bit.
+    if (total_balances.previous_epoch_boundary_attesters * 3) >= (total_balances.previous_epoch * 2)
     {
-        state.justification_bitfield |= 2;
         new_justified_epoch = previous_epoch;
+        state.justification_bitfield |= 2;
     }
-    // If > 2/3 of the total balance attested to the previous epoch boundary
-    //
-    // - Set the 1st bit of the bitfield.
-    // - Set the current epoch to be justified.
-    if (3 * total_balances.current_epoch_boundary_attesters) >= (2 * total_balances.current_epoch) {
-        state.justification_bitfield |= 1;
+    // If the current epoch gets justified, fill the last bit.
+    if (total_balances.current_epoch_boundary_attesters * 3) >= (total_balances.current_epoch * 2) {
         new_justified_epoch = current_epoch;
+        state.justification_bitfield |= 1;
     }
 
-    // If:
-    //
-    // - All three epochs prior to this epoch have been justified.
-    // - The previous justified justified epoch was three epochs ago.
-    //
-    // Then, set the finalized epoch to be three epochs ago.
-    if ((state.justification_bitfield >> 1) % 8 == 0b111)
-        & (state.previous_justified_epoch == previous_epoch - 2)
-    {
-        state.finalized_epoch = state.previous_justified_epoch;
+    let bitfield = state.justification_bitfield;
+
+    // The 2nd/3rd/4th most recent epochs are all justified, the 2nd using the 4th as source.
+    if ((bitfield >> 1) % 8 == 0b111) & (state.previous_justified_epoch == current_epoch - 3) {
+        new_finalized_epoch = state.previous_justified_epoch;
     }
-    // If:
-    //
-    // - Both two epochs prior to this epoch have been justified.
-    // - The previous justified epoch was two epochs ago.
-    //
-    // Then, set the finalized epoch to two epochs ago.
-    if ((state.justification_bitfield >> 1) % 4 == 0b11)
-        & (state.previous_justified_epoch == previous_epoch - 1)
-    {
-        state.finalized_epoch = state.previous_justified_epoch;
+    // The 2nd/3rd most recent epochs are both justified, the 2nd using the 3rd as source.
+    if ((bitfield >> 1) % 4 == 0b11) & (state.previous_justified_epoch == current_epoch - 2) {
+        new_finalized_epoch = state.previous_justified_epoch;
     }
-    // If:
-    //
-    // - This epoch and the two prior have been justified.
-    // - The presently justified epoch was two epochs ago.
-    //
-    // Then, set the finalized epoch to two epochs ago.
-    if (state.justification_bitfield % 8 == 0b111)
-        & (state.current_justified_epoch == previous_epoch - 1)
-    {
-        state.finalized_epoch = state.current_justified_epoch;
+    // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 2nd as source.
+    if (bitfield % 8 == 0b111) & (state.current_justified_epoch == current_epoch - 2) {
+        new_finalized_epoch = state.current_justified_epoch;
     }
-    // If:
-    //
-    // - This epoch and the epoch prior to it have been justified.
-    // - Set the previous epoch to be justified.
-    //
-    // Then, set the finalized epoch to be the previous epoch.
-    if (state.justification_bitfield % 4 == 0b11)
-        & (state.current_justified_epoch == previous_epoch)
-    {
-        state.finalized_epoch = state.current_justified_epoch;
+    // The 1st/2nd most recent epochs are both justified, the 1st using the 2nd as source.
+    if (bitfield % 4 == 0b11) & (state.current_justified_epoch == current_epoch - 1) {
+        new_finalized_epoch = state.current_justified_epoch;
     }
 
     state.previous_justified_epoch = state.current_justified_epoch;
-    state.current_justified_epoch = new_justified_epoch;
+    state.previous_justified_root = state.current_justified_root;
+
+    if new_justified_epoch != state.current_justified_epoch {
+        state.current_justified_epoch = new_justified_epoch;
+        state.current_justified_root =
+            *state.get_block_root(new_justified_epoch.start_slot(spec.slots_per_epoch), spec)?;
+    }
+
+    if new_finalized_epoch != state.finalized_epoch {
+        state.finalized_epoch = new_finalized_epoch;
+        state.finalized_root =
+            *state.get_block_root(new_finalized_epoch.start_slot(spec.slots_per_epoch), spec)?;
+    }
+
+    Ok(())
 }
 
 /// Updates the following fields on the `BeaconState`:
@@ -240,238 +219,53 @@ pub fn process_crosslinks(
     Ok(winning_root_for_shards)
 }
 
-/// Updates the following fields on the BeaconState:
-///
-/// - `validator_balances`
-///
-/// Spec v0.4.0
-pub fn process_rewards_and_penalities(
-    state: &mut BeaconState,
-    statuses: &mut ValidatorStatuses,
-    winning_root_for_shards: &WinningRootHashSet,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let next_epoch = state.next_epoch(spec);
-
-    statuses.process_winning_roots(state, winning_root_for_shards, spec)?;
-
-    let total_balances = &statuses.total_balances;
-
-    let base_reward_quotient =
-        total_balances.previous_epoch.integer_sqrt() / spec.base_reward_quotient;
-
-    // Guard against a divide-by-zero during the validator balance update.
-    if base_reward_quotient == 0 {
-        return Err(Error::BaseRewardQuotientIsZero);
-    }
-    // Guard against a divide-by-zero during the validator balance update.
-    if total_balances.previous_epoch == 0 {
-        return Err(Error::PreviousTotalBalanceIsZero);
-    }
-    // Guard against an out-of-bounds during the validator balance update.
-    if statuses.statuses.len() != state.validator_balances.len() {
-        return Err(Error::ValidatorStatusesInconsistent);
-    }
-
-    // Justification and finalization
-
-    let epochs_since_finality = next_epoch - state.finalized_epoch;
-
-    state.validator_balances = state
-        .validator_balances
-        .par_iter()
-        .enumerate()
-        .map(|(index, &balance)| {
-            let mut balance = balance;
-            let status = &statuses.statuses[index];
-            let base_reward = get_base_reward(state, index, total_balances.previous_epoch, spec)
-                .expect(
-                    "Cannot fail to access a validator balance when iterating validator balances.",
-                );
-
-            if epochs_since_finality <= 4 {
-                // Expected FFG source
-                if status.is_previous_epoch_attester {
-                    safe_add_assign!(
-                        balance,
-                        base_reward * total_balances.previous_epoch_attesters
-                            / total_balances.previous_epoch
-                    );
-                } else if status.is_active_in_previous_epoch {
-                    safe_sub_assign!(balance, base_reward);
-                }
-
-                // Expected FFG target
-                if status.is_previous_epoch_boundary_attester {
-                    safe_add_assign!(
-                        balance,
-                        base_reward * total_balances.previous_epoch_boundary_attesters
-                            / total_balances.previous_epoch
-                    );
-                } else if status.is_active_in_previous_epoch {
-                    safe_sub_assign!(balance, base_reward);
-                }
-
-                // Expected beacon chain head
-                if status.is_previous_epoch_head_attester {
-                    safe_add_assign!(
-                        balance,
-                        base_reward * total_balances.previous_epoch_head_attesters
-                            / total_balances.previous_epoch
-                    );
-                } else if status.is_active_in_previous_epoch {
-                    safe_sub_assign!(balance, base_reward);
-                };
-            } else {
-                let inactivity_penalty = get_inactivity_penalty(
-                    state,
-                    index,
-                    epochs_since_finality.as_u64(),
-                    total_balances.previous_epoch,
-                    spec,
-                )
-                .expect(
-                    "Cannot fail to access a validator balance when iterating validator balances.",
-                );
-
-                if status.is_active_in_previous_epoch {
-                    if !status.is_previous_epoch_attester {
-                        safe_sub_assign!(balance, inactivity_penalty);
-                    }
-                    if !status.is_previous_epoch_boundary_attester {
-                        safe_sub_assign!(balance, inactivity_penalty);
-                    }
-                    if !status.is_previous_epoch_head_attester {
-                        safe_sub_assign!(balance, inactivity_penalty);
-                    }
-
-                    if state.validator_registry[index].slashed {
-                        let base_reward =
-                            get_base_reward(state, index, total_balances.previous_epoch, spec).expect(
-                                "Cannot fail to access a validator balance when iterating validator balances.",
-                            );
-                        safe_sub_assign!(balance, 2 * inactivity_penalty + base_reward);
-                    }
-                }
-            }
-
-            // Crosslinks
-
-            if let Some(ref info) = status.winning_root_info {
-                safe_add_assign!(
-                    balance,
-                    base_reward * info.total_attesting_balance / info.total_committee_balance
-                );
-            } else {
-                safe_sub_assign!(balance, base_reward);
-            }
-
-            balance
-        })
-        .collect();
-
-    // Attestation inclusion
-
-    // Guard against an out-of-bounds during the attester inclusion balance update.
-    if statuses.statuses.len() != state.validator_registry.len() {
-        return Err(Error::ValidatorStatusesInconsistent);
-    }
-
-    for (index, _validator) in state.validator_registry.iter().enumerate() {
-        let status = &statuses.statuses[index];
-
-        if status.is_previous_epoch_attester {
-            let proposer_index = status.inclusion_info.proposer_index;
-            let inclusion_distance = status.inclusion_info.distance;
-
-            let base_reward =
-                get_base_reward(state, proposer_index, total_balances.previous_epoch, spec).expect(
-                    "Cannot fail to access a validator balance when iterating validator balances.",
-                );
-
-            if inclusion_distance > 0 && inclusion_distance < Slot::max_value() {
-                safe_add_assign!(
-                    state.validator_balances[proposer_index],
-                    base_reward * spec.min_attestation_inclusion_delay
-                        / inclusion_distance.as_u64()
-                )
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Returns the base reward for some validator.
+/// Finish up an epoch update.
 ///
 /// Spec v0.5.0
-pub fn get_base_reward(
-    state: &BeaconState,
-    index: usize,
-    previous_total_balance: u64,
-    spec: &ChainSpec,
-) -> Result<u64, BeaconStateError> {
-    if previous_total_balance == 0 {
-        Ok(0)
-    } else {
-        let adjusted_quotient = previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
-        Ok(state.get_effective_balance(index, spec)? / adjusted_quotient / 5)
-    }
-}
-
-/// Returns the inactivity penalty for some validator.
-///
-/// Spec v0.5.0
-pub fn get_inactivity_penalty(
-    state: &BeaconState,
-    index: usize,
-    epochs_since_finality: u64,
-    previous_total_balance: u64,
-    spec: &ChainSpec,
-) -> Result<u64, BeaconStateError> {
-    Ok(get_base_reward(state, index, previous_total_balance, spec)?
-        + state.get_effective_balance(index, spec)? * epochs_since_finality
-            / spec.inactivity_penalty_quotient
-            / 2)
-}
-
-/// Updates the state's `latest_active_index_roots` field with a tree hash the active validator
-/// indices for the next epoch.
-///
-/// Spec v0.4.0
-pub fn update_active_tree_index_roots(
-    state: &mut BeaconState,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let next_epoch = state.next_epoch(spec);
-
-    let active_tree_root = get_active_validator_indices(
-        &state.validator_registry,
-        next_epoch + Epoch::from(spec.activation_exit_delay),
-    )
-    .hash_tree_root();
-
-    state.latest_active_index_roots[(next_epoch.as_usize()
-        + spec.activation_exit_delay as usize)
-        % spec.latest_active_index_roots_length] = Hash256::from_slice(&active_tree_root[..]);
-
-    Ok(())
-}
-
-/// Advances the state's `latest_slashed_balances` field.
-///
-/// Spec v0.4.0
-pub fn update_latest_slashed_balances(state: &mut BeaconState, spec: &ChainSpec) {
+pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
 
-    state.latest_slashed_balances[next_epoch.as_usize() % spec.latest_slashed_exit_length] =
-        state.latest_slashed_balances[current_epoch.as_usize() % spec.latest_slashed_exit_length];
-}
+    // This is a hack to allow us to update index roots and slashed balances for the next epoch.
+    //
+    // The indentation here is to make it obvious where the weird stuff happens.
+    {
+        state.slot += 1;
 
-/// Removes all pending attestations from the previous epoch.
-///
-/// Spec v0.4.0
-pub fn clean_attestations(state: &mut BeaconState) {
-    state.previous_epoch_attestations = vec![];
+        // Set active index root
+        let active_index_root = Hash256::from_slice(
+            &state
+                .get_active_validator_indices(next_epoch + spec.activation_exit_delay)
+                .hash_tree_root()[..],
+        );
+        state.set_active_index_root(next_epoch, active_index_root, spec)?;
+
+        // Set total slashed balances
+        state.set_slashed_balance(
+            next_epoch,
+            state.get_slashed_balance(current_epoch, spec)?,
+            spec,
+        )?;
+
+        // Set randao mix
+        state.set_randao_mix(
+            next_epoch,
+            *state.get_randao_mix(current_epoch, spec)?,
+            spec,
+        )?;
+
+        state.slot -= 1;
+    }
+
+    if next_epoch.as_u64() % (spec.slots_per_historical_root as u64 / spec.slots_per_epoch) == 0 {
+        let historical_batch: HistoricalBatch = state.historical_batch();
+        state
+            .historical_roots
+            .push(Hash256::from_slice(&historical_batch.hash_tree_root()[..]));
+    }
+
+    state.previous_epoch_attestations = state.current_epoch_attestations.clone();
+    state.current_epoch_attestations = vec![];
+
+    Ok(())
 }

@@ -242,8 +242,9 @@ fn setup_inital_state(
 
     let spec = ChainSpec::foundation();
 
-    let state_builder =
+    let mut state_builder =
         TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
+    state_builder.build_caches(&spec).unwrap();
     let (state, _keypairs) = state_builder.build();
 
     let state_root = state.canonical_root();

@@ -1,6 +1,6 @@
 use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
+use crate::common::verify_bitfield_length;
 use ssz::TreeHash;
-use types::beacon_state::helpers::*;
 use types::*;
 
 /// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
@@ -176,17 +176,7 @@ fn validate_attestation_signature_optional(
     );
 
     if verify_signature {
-        let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
-        verify_attestation_signature(
-            state,
-            committee,
-            attestation_epoch,
-            &attestation.aggregation_bitfield,
-            &attestation.custody_bitfield,
-            &attestation.data,
-            &attestation.aggregate_signature,
-            spec,
-        )?;
+        verify_attestation_signature(state, committee, attestation, spec)?;
     }
 
     // Crosslink data root is zero (to be removed in phase 1).
@@ -210,32 +200,29 @@ fn validate_attestation_signature_optional(
 fn verify_attestation_signature(
     state: &BeaconState,
     committee: &[usize],
-    attestation_epoch: Epoch,
-    aggregation_bitfield: &Bitfield,
-    custody_bitfield: &Bitfield,
-    attestation_data: &AttestationData,
-    aggregate_signature: &AggregateSignature,
+    a: &Attestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let mut aggregate_pubs = vec![AggregatePublicKey::new(); 2];
     let mut message_exists = vec![false; 2];
+    let attestation_epoch = a.data.slot.epoch(spec.slots_per_epoch);
 
     for (i, v) in committee.iter().enumerate() {
-        let validator_signed = aggregation_bitfield.get(i).map_err(|_| {
+        let validator_signed = a.aggregation_bitfield.get(i).map_err(|_| {
             Error::Invalid(Invalid::BadAggregationBitfieldLength {
                 committee_len: committee.len(),
-                bitfield_len: aggregation_bitfield.len(),
+                bitfield_len: a.aggregation_bitfield.len(),
             })
         })?;
 
         if validator_signed {
-            let custody_bit: bool = match custody_bitfield.get(i) {
+            let custody_bit: bool = match a.custody_bitfield.get(i) {
                 Ok(bit) => bit,
                 // Invalidate signature if custody_bitfield.len() < committee
                 Err(_) => {
                     return Err(Error::Invalid(Invalid::BadCustodyBitfieldLength {
                         committee_len: committee.len(),
-                        bitfield_len: aggregation_bitfield.len(),
+                        bitfield_len: a.aggregation_bitfield.len(),
                     }));
                 }
             };
@@ -254,14 +241,14 @@ fn verify_attestation_signature(
 
     // Message when custody bitfield is `false`
     let message_0 = AttestationDataAndCustodyBit {
-        data: attestation_data.clone(),
+        data: a.data.clone(),
         custody_bit: false,
     }
     .hash_tree_root();
 
     // Message when custody bitfield is `true`
     let message_1 = AttestationDataAndCustodyBit {
-        data: attestation_data.clone(),
+        data: a.data.clone(),
         custody_bit: true,
     }
     .hash_tree_root();
@@ -283,7 +270,8 @@ fn verify_attestation_signature(
     let domain = spec.get_domain(attestation_epoch, Domain::Attestation, &state.fork);
 
     verify!(
-        aggregate_signature.verify_multiple(&messages[..], domain, &keys[..]),
+        a.aggregate_signature
+            .verify_multiple(&messages[..], domain, &keys[..]),
         Invalid::BadSignature
     );
 

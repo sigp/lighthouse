@@ -71,7 +71,7 @@ impl BeaconBlock {
     /// Note: performs a full tree-hash of `self.body`.
     ///
     /// Spec v0.5.0
-    pub fn into_header(&self) -> BeaconBlockHeader {
+    pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
             previous_block_root: self.previous_block_root,
@@ -84,11 +84,11 @@ impl BeaconBlock {
     /// Returns a "temporary" header, where the `state_root` is `spec.zero_hash`.
     ///
     /// Spec v0.5.0
-    pub fn into_temporary_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
+    pub fn temporary_block_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: spec.zero_hash,
             signature: spec.empty_signature.clone(),
-            ..self.into_header()
+            ..self.block_header()
         }
     }
 }

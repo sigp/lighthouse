@@ -25,9 +25,6 @@ pub fn per_slot_processing(
 
     state.slot += 1;
 
-    let latest_block_root = Hash256::from_slice(&state.latest_block_header.hash_tree_root()[..]);
-    state.set_block_root(state.slot - 1, latest_block_root, spec)?;
-
     Ok(())
 }
 
