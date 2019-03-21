@@ -1,3 +1,4 @@
+use crate::test_utils::TestingAttestationDataBuilder;
 use crate::*;
 use ssz::TreeHash;
 
@@ -18,31 +19,7 @@ impl TestingAttestationBuilder {
         shard: u64,
         spec: &ChainSpec,
     ) -> Self {
-        let current_epoch = state.current_epoch(spec);
-        let previous_epoch = state.previous_epoch(spec);
-
-        let is_previous_epoch =
-            state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
-
-        let justified_epoch = if is_previous_epoch {
-            state.previous_justified_epoch
-        } else {
-            state.justified_epoch
-        };
-
-        let epoch_boundary_root = if is_previous_epoch {
-            *state
-                .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch), spec)
-                .unwrap()
-        } else {
-            *state
-                .get_block_root(current_epoch.start_slot(spec.slots_per_epoch), spec)
-                .unwrap()
-        };
-
-        let justified_block_root = *state
-            .get_block_root(justified_epoch.start_slot(spec.slots_per_epoch), spec)
-            .unwrap();
+        let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
 
         let mut aggregation_bitfield = Bitfield::new();
         let mut custody_bitfield = Bitfield::new();
@@ -54,16 +31,7 @@ impl TestingAttestationBuilder {
 
         let attestation = Attestation {
             aggregation_bitfield,
-            data: AttestationData {
-                slot,
-                shard,
-                beacon_block_root: *state.get_block_root(slot, spec).unwrap(),
-                epoch_boundary_root,
-                crosslink_data_root: Hash256::zero(),
-                latest_crosslink: state.latest_crosslinks[shard as usize].clone(),
-                justified_epoch,
-                justified_block_root,
-            },
+            data: data_builder.build(),
             custody_bitfield,
             aggregate_signature: AggregateSignature::new(),
         };

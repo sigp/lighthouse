@@ -22,38 +22,38 @@ impl TestingProposerSlashingBuilder {
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
         let slot = Slot::new(0);
-        let shard = 0;
+        let hash_1 = Hash256::from([1; 32]);
+        let hash_2 = Hash256::from([2; 32]);
 
-        let mut proposal_1 = Proposal {
+        let mut header_1 = BeaconBlockHeader {
             slot,
-            shard,
-            block_root: Hash256::from_low_u64_le(1),
+            previous_block_root: hash_1,
+            state_root: hash_1,
+            block_body_root: hash_1,
             signature: Signature::empty_signature(),
         };
 
-        let mut proposal_2 = Proposal {
-            slot,
-            shard,
-            block_root: Hash256::from_low_u64_le(2),
-            signature: Signature::empty_signature(),
+        let mut header_2 = BeaconBlockHeader {
+            previous_block_root: hash_2,
+            ..header_1.clone()
         };
 
-        proposal_1.signature = {
-            let message = proposal_1.signed_root();
+        header_1.signature = {
+            let message = header_1.signed_root();
             let epoch = slot.epoch(spec.slots_per_epoch);
-            signer(proposer_index, &message[..], epoch, Domain::Proposal)
+            signer(proposer_index, &message[..], epoch, Domain::BeaconBlock)
         };
 
-        proposal_2.signature = {
-            let message = proposal_2.signed_root();
+        header_2.signature = {
+            let message = header_2.signed_root();
             let epoch = slot.epoch(spec.slots_per_epoch);
-            signer(proposer_index, &message[..], epoch, Domain::Proposal)
+            signer(proposer_index, &message[..], epoch, Domain::BeaconBlock)
         };
 
         ProposerSlashing {
             proposer_index,
-            proposal_1,
-            proposal_2,
+            header_1,
+            header_2,
         }
     }
 }

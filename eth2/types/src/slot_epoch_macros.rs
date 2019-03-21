@@ -207,9 +207,9 @@ macro_rules! impl_ssz {
         }
 
         impl TreeHash for $type {
-            fn hash_tree_root_internal(&self) -> Vec<u8> {
+            fn hash_tree_root(&self) -> Vec<u8> {
                 let mut result: Vec<u8> = vec![];
-                result.append(&mut self.0.hash_tree_root_internal());
+                result.append(&mut self.0.hash_tree_root());
                 hash(&result)
             }
         }
@@ -248,7 +248,7 @@ macro_rules! impl_common {
 }
 
 // test macros
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! new_tests {
     ($type: ident) => {
         #[test]
@@ -260,7 +260,7 @@ macro_rules! new_tests {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! from_into_tests {
     ($type: ident, $other: ident) => {
         #[test]
@@ -286,7 +286,7 @@ macro_rules! from_into_tests {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! math_between_tests {
     ($type: ident, $other: ident) => {
         #[test]
@@ -434,7 +434,7 @@ macro_rules! math_between_tests {
     };
 }
 
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! math_tests {
     ($type: ident) => {
         #[test]
@@ -528,35 +528,7 @@ macro_rules! math_tests {
     };
 }
 
-#[allow(unused_macros)]
-macro_rules! ssz_tests {
-    ($type: ident) => {
-        #[test]
-        pub fn test_ssz_round_trip() {
-            let mut rng = XorShiftRng::from_seed([42; 16]);
-            let original = $type::random_for_test(&mut rng);
-
-            let bytes = ssz_encode(&original);
-            let (decoded, _) = $type::ssz_decode(&bytes, 0).unwrap();
-
-            assert_eq!(original, decoded);
-        }
-
-        #[test]
-        pub fn test_hash_tree_root_internal() {
-            let mut rng = XorShiftRng::from_seed([42; 16]);
-            let original = $type::random_for_test(&mut rng);
-
-            let result = original.hash_tree_root_internal();
-
-            assert_eq!(result.len(), 32);
-            // TODO: Add further tests
-            // https://github.com/sigp/lighthouse/issues/170
-        }
-    };
-}
-
-#[allow(unused_macros)]
+#[cfg(test)]
 macro_rules! all_tests {
     ($type: ident) => {
         new_tests!($type);
