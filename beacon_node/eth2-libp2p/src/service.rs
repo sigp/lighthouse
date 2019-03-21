@@ -167,9 +167,12 @@ fn build_transport(
 
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent {
-    // We have received an RPC event on the swarm
+    /// An RPC response request has been received on the swarm.
     RPC(PeerId, RPCEvent),
+    /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
+    /// Received information about a peer on the network.
     Identified(PeerId, IdentifyInfo),
+    // TODO: Pub-sub testing only.
     Message(String),
 }
