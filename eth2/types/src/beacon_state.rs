@@ -162,7 +162,7 @@ impl BeaconState {
             latest_state_roots: vec![spec.zero_hash; spec.slots_per_historical_root],
             latest_active_index_roots: vec![spec.zero_hash; spec.latest_active_index_roots_length],
             latest_slashed_balances: vec![0; spec.latest_slashed_exit_length],
-            latest_block_header: BeaconBlock::empty(spec).into_temporary_header(spec),
+            latest_block_header: BeaconBlock::empty(spec).temporary_block_header(spec),
             historical_roots: vec![],
 
             /*
@@ -191,6 +191,13 @@ impl BeaconState {
     /// Spec v0.5.0
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
+    }
+
+    pub fn historical_batch(&self) -> HistoricalBatch {
+        HistoricalBatch {
+            block_roots: self.latest_block_roots.clone(),
+            state_roots: self.latest_state_roots.clone(),
+        }
     }
 
     /// If a validator pubkey exists in the validator registry, returns `Some(i)`, otherwise
@@ -379,7 +386,28 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         let i = self.get_latest_block_roots_index(slot, spec)?;
-        Ok(self.latest_block_roots[i] = block_root)
+        self.latest_block_roots[i] = block_root;
+        Ok(())
+    }
+
+    /// Safely obtains the index for `latest_randao_mixes`
+    ///
+    /// Spec v0.5.0
+    fn get_randao_mix_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
+        let current_epoch = self.current_epoch(spec);
+
+        if (current_epoch - (spec.latest_randao_mixes_length as u64) < epoch)
+            & (epoch <= current_epoch)
+        {
+            let i = epoch.as_usize() % spec.latest_randao_mixes_length;
+            if i < self.latest_randao_mixes.len() {
+                Ok(i)
+            } else {
+                Err(Error::InsufficientRandaoMixes)
+            }
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }
     }
 
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
@@ -406,24 +434,24 @@ impl BeaconState {
 
     /// Return the randao mix at a recent ``epoch``.
     ///
-    /// # Errors:
-    /// - `InsufficientRandaoMixes` if `self.latest_randao_mixes` is shorter than
-    /// `spec.latest_randao_mixes_length`.
-    /// - `EpochOutOfBounds` if the state no longer stores randao mixes for the given `epoch`.
-    ///
     /// Spec v0.5.0
     pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Result<&Hash256, Error> {
-        let current_epoch = self.current_epoch(spec);
+        let i = self.get_randao_mix_index(epoch, spec)?;
+        Ok(&self.latest_randao_mixes[i])
+    }
 
-        if (current_epoch - (spec.latest_randao_mixes_length as u64) < epoch)
-            & (epoch <= current_epoch)
-        {
-            self.latest_randao_mixes
-                .get(epoch.as_usize() % spec.latest_randao_mixes_length)
-                .ok_or_else(|| Error::InsufficientRandaoMixes)
-        } else {
-            Err(Error::EpochOutOfBounds)
-        }
+    /// Set the randao mix at a recent ``epoch``.
+    ///
+    /// Spec v0.5.0
+    pub fn set_randao_mix(
+        &mut self,
+        epoch: Epoch,
+        mix: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let i = self.get_randao_mix_index(epoch, spec)?;
+        self.latest_randao_mixes[i] = mix;
+        Ok(())
     }
 
     /// Safely obtains the index for `latest_active_index_roots`, given some `epoch`.
@@ -466,7 +494,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_active_index_root_index(epoch, spec)?;
-        Ok(self.latest_active_index_roots[i] = index_root)
+        self.latest_active_index_roots[i] = index_root;
+        Ok(())
     }
 
     /// Replace `active_index_roots` with clones of `index_root`.
@@ -511,7 +540,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_latest_state_roots_index(slot, spec)?;
-        Ok(self.latest_state_roots[i] = state_root)
+        self.latest_state_roots[i] = state_root;
+        Ok(())
     }
 
     /// Safely obtains the index for `latest_slashed_balances`, given some `epoch`.
@@ -547,7 +577,8 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_slashed_balance_index(epoch, spec)?;
-        Ok(self.latest_slashed_balances[i] = balance)
+        self.latest_slashed_balances[i] = balance;
+        Ok(())
     }
 
     /// Generate a seed for the given `epoch`.
@@ -586,24 +617,6 @@ impl BeaconState {
     ///  Spec v0.5.0
     pub fn get_delayed_activation_exit_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
         epoch + 1 + spec.activation_exit_delay
-    }
-
-    /// Activate the validator of the given ``index``.
-    ///
-    /// Spec v0.5.0
-    pub fn activate_validator(
-        &mut self,
-        validator_index: usize,
-        is_genesis: bool,
-        spec: &ChainSpec,
-    ) {
-        let current_epoch = self.current_epoch(spec);
-
-        self.validator_registry[validator_index].activation_epoch = if is_genesis {
-            spec.genesis_epoch
-        } else {
-            self.get_delayed_activation_exit_epoch(current_epoch, spec)
-        }
     }
 
     /// Initiate an exit for the validator of the given `index`.

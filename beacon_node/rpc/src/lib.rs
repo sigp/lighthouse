@@ -1,16 +1,18 @@
 mod beacon_block;
+pub mod config;
 mod validator;
 
 use self::beacon_block::BeaconBlockServiceInstance;
 use self::validator::ValidatorServiceInstance;
+pub use config::Config as RPCConfig;
 use grpcio::{Environment, Server, ServerBuilder};
 use protos::services_grpc::{create_beacon_block_service, create_validator_service};
 use std::sync::Arc;
 
-use slog::{info, Logger};
+use slog::{info, o};
 
-pub fn start_server(log: Logger) -> Server {
-    let log_clone = log.clone();
+pub fn start_server(config: &RPCConfig, log: &slog::Logger) -> Server {
+    let log = log.new(o!("Service"=>"RPC"));
     let env = Arc::new(Environment::new(1));
 
     let beacon_block_service = {
@@ -25,12 +27,12 @@ pub fn start_server(log: Logger) -> Server {
     let mut server = ServerBuilder::new(env)
         .register_service(beacon_block_service)
         .register_service(validator_service)
-        .bind("127.0.0.1", 50_051)
+        .bind(config.listen_address.to_string(), config.port)
         .build()
         .unwrap();
     server.start();
     for &(ref host, port) in server.bind_addrs() {
-        info!(log_clone, "gRPC listening on {}:{}", host, port);
+        info!(log, "gRPC listening on {}:{}", host, port);
     }
     server
 }

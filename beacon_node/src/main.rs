@@ -1,35 +1,20 @@
 extern crate slog;
 
-mod config;
-mod rpc;
+mod run;
 
-use std::path::PathBuf;
-
-use crate::config::LighthouseConfig;
-use crate::rpc::start_server;
-use beacon_chain::BeaconChain;
 use clap::{App, Arg};
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    MemoryDB,
-};
-use fork_choice::BitwiseLMDGhost;
-use slog::{error, info, o, Drain};
-use slot_clock::SystemTimeSlotClock;
-use ssz::TreeHash;
-use std::sync::Arc;
-use types::test_utils::TestingBeaconStateBuilder;
-use types::*;
+use client::ClientConfig;
+use slog::{error, o, Drain};
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let log = slog::Logger::root(drain, o!());
+    let logger = slog::Logger::root(drain, o!());
 
     let matches = App::new("Lighthouse")
-        .version("0.0.1")
-        .author("Sigma Prime <paul@sigmaprime.io>")
+        .version(version::version().as_str())
+        .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
         .arg(
             Arg::with_name("datadir")
@@ -39,70 +24,47 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("listen_address")
+                .long("listen-address")
+                .value_name("Listen Address")
+                .help("The Network address to listen for p2p connections.")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
                 .help("Network listen port for p2p connections.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("rpc")
+                .long("rpc")
+                .value_name("RPC")
+                .help("Enable the RPC server.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("rpc-address")
+                .long("rpc-address")
+                .value_name("RPCADDRESS")
+                .help("Listen address for RPC endpoint.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("rpc-port")
+                .long("rpc-port")
+                .value_name("RPCPORT")
+                .help("Listen port for RPC endpoint.")
+                .takes_value(true),
+        )
         .get_matches();
 
-    let mut config = LighthouseConfig::default();
+    // invalid arguments, panic
+    let config = ClientConfig::parse_args(matches, &logger).unwrap();
 
-    // Custom datadir
-    if let Some(dir) = matches.value_of("datadir") {
-        config.data_dir = PathBuf::from(dir.to_string());
-    }
-
-    // Custom p2p listen port
-    if let Some(port_str) = matches.value_of("port") {
-        if let Ok(port) = port_str.parse::<u16>() {
-            config.p2p_listen_port = port;
-        } else {
-            error!(log, "Invalid port"; "port" => port_str);
-            return;
-        }
-    }
-
-    // Log configuration
-    info!(log, "";
-          "data_dir" => &config.data_dir.to_str(),
-          "port" => &config.p2p_listen_port);
-
-    // Specification (presently fixed to foundation).
-    let spec = ChainSpec::foundation();
-
-    // Database (presently in-memory)
-    let db = Arc::new(MemoryDB::open());
-    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
-    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
-
-    let state_builder = TestingBeaconStateBuilder::from_deterministic_keypairs(8, &spec);
-    let (genesis_state, _keypairs) = state_builder.build();
-
-    let mut genesis_block = BeaconBlock::empty(&spec);
-    genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
-
-    // Slot clock
-    let slot_clock = SystemTimeSlotClock::new(genesis_state.genesis_time, spec.seconds_per_slot)
-        .expect("Unable to load SystemTimeSlotClock");
-    // Choose the fork choice
-    let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
-
-    // Genesis chain
-    let _chain_result = BeaconChain::from_genesis(
-        state_store.clone(),
-        block_store.clone(),
-        slot_clock,
-        genesis_state,
-        genesis_block,
-        spec,
-        fork_choice,
-    );
-
-    let _server = start_server(log.clone());
-
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
+    match run::run_beacon_node(config, &logger) {
+        Ok(_) => {}
+        Err(e) => error!(logger, "Beacon node failed because {:?}", e),
     }
 }
