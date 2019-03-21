@@ -33,7 +33,8 @@ impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         debug!(log, "Libp2p Service starting");
 
-        let local_private_key = config.local_private_key;
+        let local_private_key = config.local_private_key.clone();
+        let local_public_key = local_private_key.to_public_key();
         let local_peer_id = local_private_key.to_peer_id();
         info!(log, "Local peer id: {:?}", local_peer_id);
 
@@ -41,7 +42,7 @@ impl Service {
             // Set up the transport
             let transport = build_transport(local_private_key);
             // Set up gossipsub routing
-            let behaviour = Behaviour::new(local_peer_id.clone(), config.gs_config, &log);
+            let behaviour = Behaviour::new(local_public_key.clone(), &config, &log);
             // Set up Topology
             let topology = local_peer_id.clone();
             Swarm::new(transport, behaviour, topology)
