@@ -596,7 +596,6 @@ where
 
         // Transition the parent state to the present slot.
         let mut state = parent_state;
-        println!("parent process state: {:?}", state.latest_block_header);
         let previous_block_header = parent_block.into_header();
         for _ in state.slot.as_u64()..present_slot.as_u64() {
             if let Err(e) = per_slot_processing(&mut state, &previous_block_header, &self.spec) {
@@ -613,8 +612,6 @@ where
                 InvalidBlock::PerBlockProcessingError(e),
             ));
         }
-
-        println!("process state: {:?}", state.latest_block_header);
 
         let state_root = state.canonical_root();
 
@@ -705,8 +702,6 @@ where
         trace!("BeaconChain::produce_block: updating state for new block.",);
 
         per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
-
-        println!("produce state: {:?}", state.latest_block_header);
 
         let state_root = state.canonical_root();
 
