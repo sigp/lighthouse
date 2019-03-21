@@ -6,7 +6,6 @@ use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use futures::prelude::*;
 use futures::sync::oneshot;
 use futures::Stream;
-use libp2p::rpc::RPCResponse;
 use libp2p::RPCEvent;
 use libp2p::Service as LibP2PService;
 use libp2p::{Libp2pEvent, PeerId};

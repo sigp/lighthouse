@@ -1,5 +1,6 @@
 use beacon_chain::test_utils::TestingBeaconChainBuilder;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use libp2p::rpc::methods::*;
 use libp2p::rpc::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
 use libp2p::{PeerId, RPCEvent};
 use network::beacon_chain::BeaconChain as NetworkBeaconChain;
@@ -9,6 +10,7 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::Severity;
 use sloggers::Build;
 use std::sync::Arc;
+use std::time::Duration;
 use test_harness::BeaconChainHarness;
 use tokio::runtime::TaskExecutor;
 use types::{test_utils::TestingBeaconStateBuilder, *};
@@ -42,7 +44,9 @@ impl SyncNode {
     }
 
     fn recv(&self) -> NetworkMessage {
-        self.receiver.recv().unwrap()
+        self.receiver
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap()
     }
 
     fn recv_rpc_response(&self) -> RPCResponse {
@@ -106,6 +110,12 @@ impl SyncMaster {
         }
     }
 
+    pub fn build_blocks(&mut self, blocks: usize) {
+        for _ in 0..blocks {
+            self.harness.advance_chain_with_block();
+        }
+    }
+
     pub fn response_id(&mut self, node: &SyncNode) -> u64 {
         let id = self.response_ids[node.id];
         self.response_ids[node.id] += 1;
@@ -137,6 +147,17 @@ impl SyncMaster {
                 result: rpc_response,
             },
         )
+    }
+}
+
+fn assert_sent_block_root_request(node: &SyncNode, expected: BeaconBlockRootsRequest) {
+    let request = node.recv_rpc_request();
+
+    match request {
+        RPCRequest::BeaconBlockRoots(response) => {
+            assert_eq!(expected, response, "Bad block roots response");
+        }
+        _ => assert!(false, "Did not get block root request"),
     }
 }
 
@@ -178,7 +199,17 @@ fn first_test() {
 
     let (runtime, mut master, nodes) = test_setup(state_builder, node_count, &spec, logger.clone());
 
+    master.build_blocks(10);
+
     master.do_hello_with(&nodes[0]);
+
+    assert_sent_block_root_request(
+        &nodes[0],
+        BeaconBlockRootsRequest {
+            start_slot: Slot::new(1),
+            count: 10,
+        },
+    );
 
     runtime.shutdown_now();
 }
