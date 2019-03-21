@@ -1,0 +1,17 @@
+[package]
+name = "eth2-libp2p"
+version = "0.1.0"
+authors = ["Age Manning <Age@AgeManning.com>"]
+edition = "2018"
+
+[dependencies]
+# SigP repository until PR is merged
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", branch = "gossipsub" }
+types = { path =  "../../eth2/types" }
+ssz = { path = "../../eth2/utils/ssz" }
+ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+slog = "2.4.1"
+version = { path = "../version" }
+tokio = "0.1.16"
+futures = "0.1.25"
+error-chain = "0.12.0"

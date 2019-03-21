@@ -8,6 +8,8 @@ pub enum EpochProcessingError {
     NoRandaoSeed,
     PreviousTotalBalanceIsZero,
     InclusionDistanceZero,
+    ValidatorStatusesInconsistent,
+    DeltasInconsistent,
     /// Unable to get the inclusion distance for a validator that should have an inclusion
     /// distance. This indicates an internal inconsistency.
     ///

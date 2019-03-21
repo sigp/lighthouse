@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
-use bls::{Keypair, PublicKey, Signature};
+use bls::{PublicKey, Signature};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{SignedRoot, TreeHash};
@@ -9,7 +9,7 @@ use test_random_derive::TestRandom;
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug,
     PartialEq,
@@ -31,25 +31,23 @@ pub struct DepositInput {
 impl DepositInput {
     /// Generate the 'proof_of_posession' signature for a given DepositInput details.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn create_proof_of_possession(
-        keypair: &Keypair,
-        withdrawal_credentials: &Hash256,
-        domain: u64,
+        &self,
+        secret_key: &SecretKey,
+        epoch: Epoch,
+        fork: &Fork,
+        spec: &ChainSpec,
     ) -> Signature {
-        let signable_deposit_input = DepositInput {
-            pubkey: keypair.pk.clone(),
-            withdrawal_credentials: withdrawal_credentials.clone(),
-            proof_of_possession: Signature::empty_signature(),
-        };
-        let msg = signable_deposit_input.signed_root();
+        let msg = self.signed_root();
+        let domain = spec.get_domain(epoch, Domain::Deposit, fork);
 
-        Signature::new(msg.as_slice(), domain, &keypair.sk)
+        Signature::new(msg.as_slice(), domain, secret_key)
     }
 
     /// Verify that proof-of-possession is valid.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn validate_proof_of_possession(
         &self,
         epoch: Epoch,
@@ -66,29 +64,25 @@ impl DepositInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use ssz::{ssz_encode, Decodable, TreeHash};
+
+    ssz_tests!(DepositInput);
 
     #[test]
-    pub fn test_ssz_round_trip() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = DepositInput::random_for_test(&mut rng);
+    fn can_create_and_validate() {
+        let spec = ChainSpec::foundation();
+        let fork = Fork::genesis(&spec);
+        let keypair = Keypair::random();
+        let epoch = Epoch::new(0);
 
-        let bytes = ssz_encode(&original);
-        let (decoded, _) = <_>::ssz_decode(&bytes, 0).unwrap();
+        let mut deposit_input = DepositInput {
+            pubkey: keypair.pk.clone(),
+            withdrawal_credentials: Hash256::zero(),
+            proof_of_possession: Signature::empty_signature(),
+        };
 
-        assert_eq!(original, decoded);
-    }
+        deposit_input.proof_of_possession =
+            deposit_input.create_proof_of_possession(&keypair.sk, epoch, &fork, &spec);
 
-    #[test]
-    pub fn test_hash_tree_root_internal() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let original = DepositInput::random_for_test(&mut rng);
-
-        let result = original.hash_tree_root_internal();
-
-        assert_eq!(result.len(), 32);
-        // TODO: Add further tests
-        // https://github.com/sigp/lighthouse/issues/170
+        assert!(deposit_input.validate_proof_of_possession(epoch, &fork, &spec));
     }
 }

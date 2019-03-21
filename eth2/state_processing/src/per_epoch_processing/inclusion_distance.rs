@@ -1,12 +1,11 @@
 use super::errors::InclusionError;
+use super::get_attestation_participants::get_attestation_participants;
 use types::*;
 
 /// Returns the distance between the first included attestation for some validator and this
 /// slot.
 ///
-/// Note: In the spec this is defined "inline", not as a helper function.
-///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn inclusion_distance(
     state: &BeaconState,
     attestations: &[&PendingAttestation],
@@ -19,9 +18,7 @@ pub fn inclusion_distance(
 
 /// Returns the slot of the earliest included attestation for some validator.
 ///
-/// Note: In the spec this is defined "inline", not as a helper function.
-///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn inclusion_slot(
     state: &BeaconState,
     attestations: &[&PendingAttestation],
@@ -34,9 +31,7 @@ pub fn inclusion_slot(
 
 /// Finds the earliest included attestation for some validator.
 ///
-/// Note: In the spec this is defined "inline", not as a helper function.
-///
-/// Spec v0.4.0
+/// Spec v0.5.0
 fn earliest_included_attestation(
     state: &BeaconState,
     attestations: &[&PendingAttestation],
@@ -47,7 +42,7 @@ fn earliest_included_attestation(
 
     for (i, a) in attestations.iter().enumerate() {
         let participants =
-            state.get_attestation_participants(&a.data, &a.aggregation_bitfield, spec)?;
+            get_attestation_participants(state, &a.data, &a.aggregation_bitfield, spec)?;
         if participants.iter().any(|i| *i == validator_index) {
             included_attestations.push(i);
         }

@@ -7,7 +7,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn verify_proposer_slashing(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState,
@@ -21,34 +21,28 @@ pub fn verify_proposer_slashing(
         })?;
 
     verify!(
-        proposer_slashing.proposal_1.slot == proposer_slashing.proposal_2.slot,
+        proposer_slashing.header_1.slot == proposer_slashing.header_2.slot,
         Invalid::ProposalSlotMismatch(
-            proposer_slashing.proposal_1.slot,
-            proposer_slashing.proposal_2.slot
+            proposer_slashing.header_1.slot,
+            proposer_slashing.header_2.slot
         )
     );
 
     verify!(
-        proposer_slashing.proposal_1.shard == proposer_slashing.proposal_2.shard,
-        Invalid::ProposalShardMismatch(
-            proposer_slashing.proposal_1.shard,
-            proposer_slashing.proposal_2.shard
-        )
-    );
-
-    verify!(
-        proposer_slashing.proposal_1.block_root != proposer_slashing.proposal_2.block_root,
-        Invalid::ProposalBlockRootMismatch(
-            proposer_slashing.proposal_1.block_root,
-            proposer_slashing.proposal_2.block_root
-        )
+        proposer_slashing.header_1 != proposer_slashing.header_2,
+        Invalid::ProposalsIdentical
     );
 
     verify!(!proposer.slashed, Invalid::ProposerAlreadySlashed);
 
     verify!(
-        verify_proposal_signature(
-            &proposer_slashing.proposal_1,
+        proposer.withdrawable_epoch > state.slot.epoch(spec.slots_per_epoch),
+        Invalid::ProposerAlreadyWithdrawn(proposer_slashing.proposer_index)
+    );
+
+    verify!(
+        verify_header_signature(
+            &proposer_slashing.header_1,
             &proposer.pubkey,
             &state.fork,
             spec
@@ -56,8 +50,8 @@ pub fn verify_proposer_slashing(
         Invalid::BadProposal1Signature
     );
     verify!(
-        verify_proposal_signature(
-            &proposer_slashing.proposal_2,
+        verify_header_signature(
+            &proposer_slashing.header_2,
             &proposer.pubkey,
             &state.fork,
             spec
@@ -71,17 +65,19 @@ pub fn verify_proposer_slashing(
 /// Verifies the signature of a proposal.
 ///
 /// Returns `true` if the signature is valid.
-fn verify_proposal_signature(
-    proposal: &Proposal,
+///
+/// Spec v0.5.0
+fn verify_header_signature(
+    header: &BeaconBlockHeader,
     pubkey: &PublicKey,
     fork: &Fork,
     spec: &ChainSpec,
 ) -> bool {
-    let message = proposal.signed_root();
+    let message = header.signed_root();
     let domain = spec.get_domain(
-        proposal.slot.epoch(spec.slots_per_epoch),
-        Domain::Proposal,
+        header.slot.epoch(spec.slots_per_epoch),
+        Domain::BeaconBlock,
         fork,
     );
-    proposal.signature.verify(&message[..], domain, pubkey)
+    header.signature.verify(&message[..], domain, pubkey)
 }

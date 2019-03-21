@@ -3,13 +3,11 @@
 
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
-use bls::get_withdrawal_credentials;
 use log::{info, warn};
 use ssz::SignedRoot;
-use std::path::Path;
 use types::*;
 
-use types::test_utils::{TestingAttesterSlashingBuilder, TestingProposerSlashingBuilder};
+use types::test_utils::*;
 use yaml_rust::Yaml;
 
 mod config;
@@ -64,12 +62,16 @@ impl TestCase {
             spec.slots_per_epoch = n;
         }
 
+        if let Some(n) = self.config.persistent_committee_period {
+            spec.persistent_committee_period = n;
+        }
+
         spec
     }
 
     /// Executes the test case, returning an `ExecutionResult`.
     #[allow(clippy::cyclomatic_complexity)]
-    pub fn execute(&self, validators_dir: Option<&Path>) -> ExecutionResult {
+    pub fn execute(&self) -> ExecutionResult {
         let spec = self.spec();
         let validator_count = self.config.deposits_for_chain_start;
         let slots = self.config.num_slots;
@@ -79,7 +81,7 @@ impl TestCase {
             validator_count
         );
 
-        let mut harness = BeaconChainHarness::new(spec, validator_count, validators_dir, true);
+        let mut harness = BeaconChainHarness::new(spec, validator_count);
 
         info!("Starting simulation across {} slots...", slots);
 
@@ -223,27 +225,20 @@ impl TestCase {
 }
 
 /// Builds a `Deposit` this is valid for the given `BeaconChainHarness` at its next slot.
-fn build_transfer(harness: &BeaconChainHarness, from: u64, to: u64, amount: u64) -> Transfer {
+fn build_transfer(
+    harness: &BeaconChainHarness,
+    sender: u64,
+    recipient: u64,
+    amount: u64,
+) -> Transfer {
     let slot = harness.beacon_chain.state.read().slot + 1;
 
-    let mut transfer = Transfer {
-        from,
-        to,
-        amount,
-        fee: 0,
-        slot,
-        pubkey: harness.validators[from as usize].keypair.pk.clone(),
-        signature: Signature::empty_signature(),
-    };
+    let mut builder = TestingTransferBuilder::new(sender, recipient, amount, slot);
 
-    let message = transfer.signed_root();
-    let epoch = slot.epoch(harness.spec.slots_per_epoch);
+    let keypair = harness.validator_keypair(sender as usize).unwrap();
+    builder.sign(keypair.clone(), &harness.fork(), &harness.spec);
 
-    transfer.signature = harness
-        .validator_sign(from as usize, &message[..], epoch, Domain::Transfer)
-        .expect("Unable to sign Transfer");
-
-    transfer
+    builder.build()
 }
 
 /// Builds a `Deposit` this is valid for the given `BeaconChainHarness`.
@@ -256,41 +251,12 @@ fn build_deposit(
     index_offset: u64,
 ) -> (Deposit, Keypair) {
     let keypair = Keypair::random();
-    let withdrawal_credentials = Hash256::from_slice(
-        &get_withdrawal_credentials(&keypair.pk, harness.spec.bls_withdrawal_prefix_byte)[..],
-    );
-    let proof_of_possession = DepositInput::create_proof_of_possession(
-        &keypair,
-        &withdrawal_credentials,
-        harness.spec.get_domain(
-            harness
-                .beacon_chain
-                .state
-                .read()
-                .current_epoch(&harness.spec),
-            Domain::Deposit,
-            &harness.beacon_chain.state.read().fork,
-        ),
-    );
-    let index = harness.beacon_chain.state.read().deposit_index + index_offset;
 
-    let deposit = Deposit {
-        // Note: `branch` and `index` will need to be updated once the spec defines their
-        // validity.
-        branch: vec![],
-        index,
-        deposit_data: DepositData {
-            amount,
-            timestamp: 1,
-            deposit_input: DepositInput {
-                pubkey: keypair.pk.clone(),
-                withdrawal_credentials,
-                proof_of_possession,
-            },
-        },
-    };
+    let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
+    builder.set_index(harness.beacon_chain.state.read().deposit_index + index_offset);
+    builder.sign(&keypair, harness.epoch(), &harness.fork(), &harness.spec);
 
-    (deposit, keypair)
+    (builder.build(), keypair)
 }
 
 /// Builds a `VoluntaryExit` this is valid for the given `BeaconChainHarness`.
