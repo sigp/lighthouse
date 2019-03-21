@@ -1,4 +1,4 @@
-use super::methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
+use super::methods::*;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use ssz::{ssz_encode, Decodable, Encodable, SszStream};
 use std::io;
@@ -85,6 +85,11 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                 let (goodbye_code, _index) = u64::ssz_decode(&packet, index)?;
                 RPCRequest::Goodbye(goodbye_code)
             }
+            RPCMethod::BeaconBlockRoots => {
+                let (block_roots_request, _index) =
+                    BeaconBlockRootsRequest::ssz_decode(&packet, index)?;
+                RPCRequest::BeaconBlockRoots(block_roots_request)
+            }
             RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
         };
 
@@ -100,6 +105,11 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
             RPCMethod::Hello => {
                 let (body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCResponse::Hello(body)
+            }
+            RPCMethod::Goodbye => unreachable!("Should never receive a goodbye response"),
+            RPCMethod::BeaconBlockRoots => {
+                let (body, _index) = BeaconBlockRootsResponse::ssz_decode(&packet, index)?;
+                RPCResponse::BeaconBlockRoots(body)
             }
             RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
         };
