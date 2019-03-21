@@ -8,6 +8,7 @@ use libp2p::{
     },
     gossipsub::{Gossipsub, GossipsubEvent},
     identify::{protocol::IdentifyInfo, Identify, IdentifyEvent},
+    ping::{Ping, PingEvent},
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
@@ -26,10 +27,14 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     serenity_rpc: Rpc<TSubstream>,
     /// Allows discovery of IP addresses for peers on the network.
     identify: Identify<TSubstream>,
+    /// Keep regular connection to peers and disconnect if absent.
+    // TODO: Keepalive, likely remove this later.
+    // TODO: Make the ping time customizeable.
+    ping: Ping<TSubstream>,
     #[behaviour(ignore)]
     events: Vec<BehaviourEvent>,
-    #[behaviour(ignore)]
     /// Logger for behaviour actions.
+    #[behaviour(ignore)]
     log: slog::Logger,
 }
 
@@ -88,6 +93,14 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
     }
 }
 
+impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<PingEvent>
+    for Behaviour<TSubstream>
+{
+    fn inject_event(&mut self, _event: PingEvent) {
+        // not interested in ping responses at the moment.
+    }
+}
+
 impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn new(local_public_key: PublicKey, net_conf: &NetworkConfig, log: &slog::Logger) -> Self {
         let local_peer_id = local_public_key.clone().into_peer_id();
@@ -102,6 +115,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
                 identify_config.user_agent,
                 local_public_key,
             ),
+            ping: Ping::new(),
             events: Vec::new(),
             log: behaviour_log,
         }
