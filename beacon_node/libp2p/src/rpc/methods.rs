@@ -1,3 +1,4 @@
+use beacon_chain::parking_lot::RwLockReadGuard;
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
@@ -60,6 +61,20 @@ pub enum RPCRequest {
     BeaconChainState(BeaconChainStateRequest),
 }
 
+impl RPCRequest {
+    pub fn method_id(&self) -> u16 {
+        let method = match self {
+            RPCRequest::Hello(_) => RPCMethod::Hello,
+            RPCRequest::Goodbye(_) => RPCMethod::Goodbye,
+            RPCRequest::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
+            RPCRequest::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
+            RPCRequest::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
+            RPCRequest::BeaconChainState(_) => RPCMethod::BeaconChainState,
+        };
+        method.into()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RPCResponse {
     Hello(HelloMessage),
@@ -67,6 +82,19 @@ pub enum RPCResponse {
     BeaconBlockHeaders(BeaconBlockHeadersResponse),
     BeaconBlockBodies(BeaconBlockBodiesResponse),
     BeaconChainState(BeaconChainStateResponse),
+}
+
+impl RPCResponse {
+    pub fn method_id(&self) -> u16 {
+        let method = match self {
+            RPCResponse::Hello(_) => RPCMethod::Hello,
+            RPCResponse::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
+            RPCResponse::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
+            RPCResponse::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
+            RPCResponse::BeaconChainState(_) => RPCMethod::BeaconChainState,
+        };
+        method.into()
+    }
 }
 
 /* Request/Response data structures for RPC methods */
