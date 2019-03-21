@@ -9,7 +9,8 @@ before_install:
 script:
   - cargo build --verbose --all
   - cargo fmt --all -- --check
-  - cargo clippy
+  # No clippy until later...
+  #- cargo clippy
   - cargo test --verbose --all
 rust:
   - stable
