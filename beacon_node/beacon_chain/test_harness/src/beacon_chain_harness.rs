@@ -36,14 +36,21 @@ impl BeaconChainHarness {
     /// - A keypair, `BlockProducer` and `Attester` for each validator.
     /// - A new BeaconChain struct where the given validators are in the genesis.
     pub fn new(spec: ChainSpec, validator_count: usize) -> Self {
+        let state_builder =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+        Self::from_beacon_state_builder(state_builder, spec)
+    }
+
+    pub fn from_beacon_state_builder(
+        state_builder: TestingBeaconStateBuilder,
+        spec: ChainSpec,
+    ) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
         let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
 
-        let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
         let (genesis_state, keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
