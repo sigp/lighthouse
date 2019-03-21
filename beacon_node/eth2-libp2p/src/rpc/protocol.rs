@@ -90,6 +90,11 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                     BeaconBlockRootsRequest::ssz_decode(&packet, index)?;
                 RPCRequest::BeaconBlockRoots(block_roots_request)
             }
+            RPCMethod::BeaconBlockHeaders => {
+                let (block_headers_request, _index) =
+                    BeaconBlockHeadersRequest::ssz_decode(&packet, index)?;
+                RPCRequest::BeaconBlockHeaders(block_headers_request)
+            }
             RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
         };
 
@@ -110,6 +115,10 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
             RPCMethod::BeaconBlockRoots => {
                 let (body, _index) = BeaconBlockRootsResponse::ssz_decode(&packet, index)?;
                 RPCResponse::BeaconBlockRoots(body)
+            }
+            RPCMethod::BeaconBlockHeaders => {
+                let (body, _index) = BeaconBlockHeadersResponse::ssz_decode(&packet, index)?;
+                RPCResponse::BeaconBlockHeaders(body)
             }
             RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
         };
