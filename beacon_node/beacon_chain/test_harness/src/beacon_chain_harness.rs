@@ -51,10 +51,23 @@ impl BeaconChainHarness {
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
         let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
 
-        let (genesis_state, keypairs) = state_builder.build();
+        let (mut genesis_state, keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::Previous, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::Current, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)
+            .unwrap();
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
@@ -194,7 +207,6 @@ impl BeaconChainHarness {
         self.increment_beacon_chain_slot();
 
         // Produce a new block.
-        debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
         match self.beacon_chain.process_block(block) {

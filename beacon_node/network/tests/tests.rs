@@ -1,8 +1,8 @@
 use beacon_chain::test_utils::TestingBeaconChainBuilder;
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use libp2p::rpc::methods::*;
-use libp2p::rpc::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
-use libp2p::{PeerId, RPCEvent};
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use eth2_libp2p::rpc::methods::*;
+use eth2_libp2p::rpc::{RPCMethod, RPCRequest, RPCResponse};
+use eth2_libp2p::{PeerId, RPCEvent};
 use network::beacon_chain::BeaconChain as NetworkBeaconChain;
 use network::message_handler::{HandlerMessage, MessageHandler};
 use network::service::{NetworkMessage, OutgoingMessage};
@@ -43,15 +43,13 @@ impl SyncNode {
         self.sender.send(message).unwrap();
     }
 
-    fn recv(&self) -> NetworkMessage {
-        self.receiver
-            .recv_timeout(Duration::from_millis(500))
-            .unwrap()
+    fn recv(&self) -> Result<NetworkMessage, RecvTimeoutError> {
+        self.receiver.recv_timeout(Duration::from_millis(500))
     }
 
-    fn recv_rpc_response(&self) -> RPCResponse {
-        let network_message = self.recv();
-        match network_message {
+    fn recv_rpc_response(&self) -> Result<RPCResponse, RecvTimeoutError> {
+        let network_message = self.recv()?;
+        Ok(match network_message {
             NetworkMessage::Send(
                 _peer_id,
                 OutgoingMessage::RPC(RPCEvent::Response {
@@ -61,12 +59,12 @@ impl SyncNode {
                 }),
             ) => result,
             _ => panic!("get_rpc_response failed! got {:?}", network_message),
-        }
+        })
     }
 
-    fn recv_rpc_request(&self) -> RPCRequest {
-        let network_message = self.recv();
-        match network_message {
+    fn recv_rpc_request(&self) -> Result<RPCRequest, RecvTimeoutError> {
+        let network_message = self.recv()?;
+        Ok(match network_message {
             NetworkMessage::Send(
                 _peer_id,
                 OutgoingMessage::RPC(RPCEvent::Request {
@@ -76,7 +74,7 @@ impl SyncNode {
                 }),
             ) => body,
             _ => panic!("get_rpc_request failed! got {:?}", network_message),
-        }
+        })
     }
 }
 
@@ -126,7 +124,7 @@ impl SyncMaster {
         let message = HandlerMessage::PeerDialed(self.peer_id.clone());
         node.send(message);
 
-        let request = node.recv_rpc_request();
+        let request = node.recv_rpc_request().expect("No hello response");
 
         match request {
             RPCRequest::Hello(_hello) => {
@@ -151,7 +149,7 @@ impl SyncMaster {
 }
 
 fn assert_sent_block_root_request(node: &SyncNode, expected: BeaconBlockRootsRequest) {
-    let request = node.recv_rpc_request();
+    let request = node.recv_rpc_request().expect("No block root request");
 
     match request {
         RPCRequest::BeaconBlockRoots(response) => {

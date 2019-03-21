@@ -28,6 +28,8 @@ pub enum BeaconChainError {
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
     BlockProcessingError(BlockProcessingError),
+    BeaconStateError(BeaconStateError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
+easy_from_to!(BeaconStateError, BlockProductionError);

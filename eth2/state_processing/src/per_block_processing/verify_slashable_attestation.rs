@@ -1,8 +1,8 @@
 use super::errors::{
     SlashableAttestationInvalid as Invalid, SlashableAttestationValidationError as Error,
 };
+use crate::common::verify_bitfield_length;
 use ssz::TreeHash;
-use types::beacon_state::helpers::verify_bitfield_length;
 use types::*;
 
 /// Indicates if a `SlashableAttestation` is valid to be included in a block in the current epoch of the given

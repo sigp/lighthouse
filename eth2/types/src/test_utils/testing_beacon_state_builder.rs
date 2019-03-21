@@ -215,7 +215,7 @@ impl TestingBeaconStateBuilder {
             - spec.min_attestation_inclusion_delay;
         let last_slot = std::cmp::min(state.slot.as_u64(), last_slot);
 
-        for slot in first_slot..last_slot + 1 {
+        for slot in first_slot..=last_slot {
             let slot = Slot::from(slot);
 
             let committees = state

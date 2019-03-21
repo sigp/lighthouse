@@ -7,7 +7,7 @@ use beacon_chain::{
     types::{BeaconState, ChainSpec},
     CheckPoint,
 };
-use libp2p::HelloMessage;
+use eth2_libp2p::HelloMessage;
 use types::{Epoch, Hash256, Slot};
 
 /// The network's API to the beacon chain.

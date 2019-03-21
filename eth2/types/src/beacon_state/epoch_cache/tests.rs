@@ -7,15 +7,19 @@ use swap_or_not_shuffle::shuffle_list;
 fn do_sane_cache_test(
     state: BeaconState,
     epoch: Epoch,
+    relative_epoch: RelativeEpoch,
     validator_count: usize,
     expected_seed: Hash256,
     expected_shuffling_start: u64,
     spec: &ChainSpec,
 ) {
     let active_indices: Vec<usize> = (0..validator_count).collect();
+
     assert_eq!(
         &active_indices[..],
-        state.get_active_validator_indices(epoch, &spec).unwrap(),
+        state
+            .get_cached_active_validator_indices(relative_epoch, &spec)
+            .unwrap(),
         "Validator indices mismatch"
     );
 
@@ -101,6 +105,7 @@ fn builds_sane_current_epoch_cache() {
     do_sane_cache_test(
         state.clone(),
         state.current_epoch(&spec),
+        RelativeEpoch::Current,
         validator_count as usize,
         state.current_shuffling_seed,
         state.current_shuffling_start_shard,
@@ -117,6 +122,7 @@ fn builds_sane_previous_epoch_cache() {
     do_sane_cache_test(
         state.clone(),
         state.previous_epoch(&spec),
+        RelativeEpoch::Previous,
         validator_count as usize,
         state.previous_shuffling_seed,
         state.previous_shuffling_start_shard,
@@ -134,6 +140,7 @@ fn builds_sane_next_without_update_epoch_cache() {
     do_sane_cache_test(
         state.clone(),
         state.next_epoch(&spec),
+        RelativeEpoch::NextWithoutRegistryChange,
         validator_count as usize,
         state.current_shuffling_seed,
         state.current_shuffling_start_shard,

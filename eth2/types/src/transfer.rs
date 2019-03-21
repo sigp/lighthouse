@@ -9,7 +9,7 @@ use test_random_derive::TestRandom;
 
 /// The data submitted to the deposit contract.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(
     Debug,
     PartialEq,

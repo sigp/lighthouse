@@ -1,5 +1,5 @@
 // generates error types
-use libp2p;
+use eth2_libp2p;
 
 use error_chain::{
     error_chain, error_chain_processing, impl_error_chain_kind, impl_error_chain_processed,
@@ -8,6 +8,6 @@ use error_chain::{
 
 error_chain! {
    links  {
-       Libp2p(libp2p::error::Error, libp2p::error::ErrorKind);
+       Libp2p(eth2_libp2p::error::Error, eth2_libp2p::error::ErrorKind);
    }
 }
