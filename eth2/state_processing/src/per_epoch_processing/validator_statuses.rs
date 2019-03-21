@@ -23,7 +23,7 @@ pub struct WinningRootInfo {
 }
 
 /// The information required to reward a block producer for including an attestation in a block.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct InclusionInfo {
     /// The earliest slot a validator had an attestation included in the previous epoch.
     pub slot: Slot,
@@ -59,7 +59,11 @@ impl InclusionInfo {
 
 /// Information required to reward some validator during the current and previous epoch.
 #[derive(Default, Clone)]
-pub struct AttesterStatus {
+pub struct ValidatorStatus {
+    /// True if the validator has been slashed, ever.
+    pub is_slashed: bool,
+    /// True if the validator can withdraw in the current epoch.
+    pub is_withdrawable_in_current_epoch: bool,
     /// True if the validator was active in the state's _current_ epoch.
     pub is_active_in_current_epoch: bool,
     /// True if the validator was active in the state's _previous_ epoch.
@@ -81,14 +85,14 @@ pub struct AttesterStatus {
 
     /// Information used to reward the block producer of this validators earliest-included
     /// attestation.
-    pub inclusion_info: InclusionInfo,
+    pub inclusion_info: Option<InclusionInfo>,
     /// Information used to reward/penalize the validator if they voted in the super-majority for
     /// some shard block.
     pub winning_root_info: Option<WinningRootInfo>,
 }
 
-impl AttesterStatus {
-    /// Accepts some `other` `AttesterStatus` and updates `self` if required.
+impl ValidatorStatus {
+    /// Accepts some `other` `ValidatorStatus` and updates `self` if required.
     ///
     /// Will never set one of the `bool` fields to `false`, it will only set it to `true` if other
     /// contains a `true` field.
@@ -97,6 +101,8 @@ impl AttesterStatus {
     pub fn update(&mut self, other: &Self) {
         // Update all the bool fields, only updating `self` if `other` is true (never setting
         // `self` to false).
+        set_self_if_other_is_true!(self, other, is_slashed);
+        set_self_if_other_is_true!(self, other, is_withdrawable_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_previous_epoch);
         set_self_if_other_is_true!(self, other, is_current_epoch_attester);
@@ -105,7 +111,13 @@ impl AttesterStatus {
         set_self_if_other_is_true!(self, other, is_previous_epoch_boundary_attester);
         set_self_if_other_is_true!(self, other, is_previous_epoch_head_attester);
 
-        self.inclusion_info.update(&other.inclusion_info);
+        if let Some(other_info) = other.inclusion_info {
+            if let Some(self_info) = self.inclusion_info.as_mut() {
+                self_info.update(&other_info);
+            } else {
+                self.inclusion_info = other.inclusion_info;
+            }
+        }
     }
 }
 
@@ -137,7 +149,7 @@ pub struct TotalBalances {
 #[derive(Clone)]
 pub struct ValidatorStatuses {
     /// Information about each individual validator from the state's validator registy.
-    pub statuses: Vec<AttesterStatus>,
+    pub statuses: Vec<ValidatorStatus>,
     /// Summed balances for various sets of validators.
     pub total_balances: TotalBalances,
 }
@@ -154,7 +166,12 @@ impl ValidatorStatuses {
         let mut total_balances = TotalBalances::default();
 
         for (i, validator) in state.validator_registry.iter().enumerate() {
-            let mut status = AttesterStatus::default();
+            let mut status = ValidatorStatus {
+                is_slashed: validator.slashed,
+                is_withdrawable_in_current_epoch: validator
+                    .is_withdrawable_at(state.current_epoch(spec)),
+                ..ValidatorStatus::default()
+            };
 
             if validator.is_active_at(state.current_epoch(spec)) {
                 status.is_active_in_current_epoch = true;
@@ -193,10 +210,10 @@ impl ValidatorStatuses {
                 get_attestation_participants(state, &a.data, &a.aggregation_bitfield, spec)?;
             let attesting_balance = state.get_total_balance(&attesting_indices, spec)?;
 
-            let mut status = AttesterStatus::default();
+            let mut status = ValidatorStatus::default();
 
             // Profile this attestation, updating the total balances and generating an
-            // `AttesterStatus` object that applies to all participants in the attestation.
+            // `ValidatorStatus` object that applies to all participants in the attestation.
             if is_from_epoch(a, state.current_epoch(spec), spec) {
                 self.total_balances.current_epoch_attesters += attesting_balance;
                 status.is_current_epoch_attester = true;
@@ -211,7 +228,7 @@ impl ValidatorStatuses {
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
                 let relative_epoch = RelativeEpoch::from_slot(state.slot, a.data.slot, spec)?;
-                status.inclusion_info = InclusionInfo {
+                status.inclusion_info = Some(InclusionInfo {
                     slot: a.inclusion_slot,
                     distance: inclusion_distance(a),
                     proposer_index: state.get_beacon_proposer_index(
@@ -219,7 +236,7 @@ impl ValidatorStatuses {
                         relative_epoch,
                         spec,
                     )?,
-                };
+                });
 
                 if has_common_epoch_boundary_root(a, state, state.previous_epoch(spec), spec)? {
                     self.total_balances.previous_epoch_boundary_attesters += attesting_balance;
