@@ -11,6 +11,7 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
+use slog::{debug, o};
 use types::Topic;
 
 /// Builds the network behaviour for the libp2p Swarm.
@@ -27,6 +28,9 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     identify: Identify<TSubstream>,
     #[behaviour(ignore)]
     events: Vec<BehaviourEvent>,
+    #[behaviour(ignore)]
+    /// Logger for behaviour actions.
+    log: slog::Logger,
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
@@ -70,6 +74,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                 peer_id, mut info, ..
             } => {
                 if info.listen_addrs.len() > 20 {
+                    debug!(
+                        self.log,
+                        "More than 20 peers have been identified, truncating"
+                    );
                     info.listen_addrs.truncate(20);
                 }
                 self.events.push(BehaviourEvent::Identified(peer_id, info));
@@ -84,6 +92,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn new(local_public_key: PublicKey, net_conf: &NetworkConfig, log: &slog::Logger) -> Self {
         let local_peer_id = local_public_key.clone().into_peer_id();
         let identify_config = net_conf.identify_config.clone();
+        let behaviour_log = log.new(o!());
 
         Behaviour {
             gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
@@ -94,6 +103,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
                 local_public_key,
             ),
             events: Vec::new(),
+            log: behaviour_log,
         }
     }
 
