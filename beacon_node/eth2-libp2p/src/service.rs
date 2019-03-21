@@ -11,8 +11,8 @@ use libp2p::core::{
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
-use libp2p::{core, secio, Transport};
-use libp2p::{PeerId, Swarm};
+use libp2p::identify::protocol::IdentifyInfo;
+use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
@@ -104,17 +104,23 @@ impl Stream for Service {
             // TODO: Currently only gossipsub events passed here.
             // Build a type for more generic events
             match self.swarm.poll() {
-                Ok(Async::Ready(Some(BehaviourEvent::Message(m)))) => {
+                //Behaviour events
+                Ok(Async::Ready(Some(event))) => match event {
                     // TODO: Stub here for debugging
-                    debug!(self.log, "Message received: {}", m);
-                    return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
-                }
-                Ok(Async::Ready(Some(BehaviourEvent::RPC(peer_id, event)))) => {
-                    return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
-                }
-                Ok(Async::Ready(Some(BehaviourEvent::PeerDialed(peer_id)))) => {
-                    return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
-                }
+                    BehaviourEvent::Message(m) => {
+                        debug!(self.log, "Message received: {}", m);
+                        return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
+                    }
+                    BehaviourEvent::RPC(peer_id, event) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
+                    }
+                    BehaviourEvent::PeerDialed(peer_id) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
+                    }
+                    BehaviourEvent::Identified(peer_id, info) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::Identified(peer_id, info))));
+                    }
+                },
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
                 _ => break,
@@ -164,5 +170,6 @@ pub enum Libp2pEvent {
     // We have received an RPC event on the swarm
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
+    Identified(PeerId, IdentifyInfo),
     Message(String),
 }
