@@ -8,10 +8,15 @@ pub fn hash(input: &[u8]) -> Vec<u8> {
     result
 }
 
-// Get merkle root of some hashed values - the input leaf nodes is expected to already be hashed
-// Outputs a `Vec<u8>` byte array of the merkle root given a set of leaf node values.
-pub fn merkle_root(values: &[Vec<u8>]) -> Vec<u8> {
+/// Get merkle root of some hashed values - the input leaf nodes is expected to already be hashed
+/// Outputs a `Vec<u8>` byte array of the merkle root given a set of leaf node values.
+pub fn merkle_root(values: &[Vec<u8>]) -> Option<Vec<u8>> {
     let values_len = values.len();
+
+    // check size of vector > 0 and ^ 2
+    if values.is_empty() || !values_len.is_power_of_two() {
+        return None
+    }
 
     // vector to store hashes
     // filled with 0 as placeholders
@@ -30,7 +35,7 @@ pub fn merkle_root(values: &[Vec<u8>]) -> Vec<u8> {
     }
 
     // the root hash will be at index 1
-    o[1].clone()
+    return Some(o[1].clone())
 }
 
 #[cfg(test)]
@@ -79,6 +84,22 @@ mod tests {
 
         let expected = hash(&root[..]);
 
-        assert_eq!(&expected[..], output.as_slice());
+        assert_eq!(&expected[..], output.unwrap().as_slice());
+    }
+    #[test]
+    fn test_empty_input_merkle_root() {
+        let input = vec![];
+        let output = merkle_root(&input[..]);
+        assert_eq!(None, output);
+    }
+    #[test]
+    fn test_odd_leaf_merkle_root() {
+        let input = vec![
+            hash("a".as_bytes()),
+            hash("b".as_bytes()),
+            hash("a".as_bytes()),
+        ];
+        let output = merkle_root(&input[..]);
+        assert_eq!(None, output);
     }
 }
