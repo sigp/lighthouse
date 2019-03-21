@@ -15,7 +15,7 @@ pub fn merkle_root(values: &[Vec<u8>]) -> Option<Vec<u8>> {
 
     // check size of vector > 0 and ^ 2
     if values.is_empty() || !values_len.is_power_of_two() {
-        return None
+        return None;
     }
 
     // vector to store hashes
@@ -35,7 +35,7 @@ pub fn merkle_root(values: &[Vec<u8>]) -> Option<Vec<u8>> {
     }
 
     // the root hash will be at index 1
-    return Some(o[1].clone())
+    return Some(o[1].clone());
 }
 
 #[cfg(test)]
