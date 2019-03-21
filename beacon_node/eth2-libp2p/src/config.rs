@@ -30,7 +30,7 @@ impl Default for Config {
                 .expect("is a correct multi-address")],
             listen_port: 9000,
             gs_config: GossipsubConfigBuilder::new().build(),
-            identify_config: IdentifyConfig::new(&version::version()),
+            identify_config: IdentifyConfig::default(),
             boot_nodes: Vec::new(),
             client_version: version::version(),
             topics: vec![String::from("beacon_chain")],
@@ -60,16 +60,7 @@ impl Default for IdentifyConfig {
     fn default() -> Self {
         Self {
             version: "/eth/serenity/1.0".to_string(),
-            user_agent: "Lighthouse".to_string(),
+            user_agent: version::version(),
         }
-    }
-}
-
-impl IdentifyConfig {
-    /// Adds the version to the user agent.
-    pub fn new(version: &String) -> Self {
-        let mut config = IdentifyConfig::default();
-        config.user_agent += version;
-        config
     }
 }
