@@ -33,7 +33,11 @@ impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         debug!(log, "Libp2p Service starting");
 
-        let local_private_key = config.local_private_key.clone();
+        // TODO: Currently using secp256k1 key pairs. Wire protocol specifies RSA. Waiting for this
+        // PR to be merged to generate RSA keys: https://github.com/briansmith/ring/pull/733
+        // TODO: Save and recover node key from disk
+        let local_private_key = secio::SecioKeyPair::secp256k1_generated().unwrap();
+
         let local_public_key = local_private_key.to_public_key();
         let local_peer_id = local_private_key.to_peer_id();
         info!(log, "Local peer id: {:?}", local_peer_id);
