@@ -178,7 +178,21 @@ impl Encodable for RPCEvent {
                     RPCRequest::Hello(body) => {
                         s.append(body);
                     }
-                    _ => {}
+                    RPCRequest::Goodbye(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconBlockRoots(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconBlockHeaders(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconBlockBodies(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconChainState(body) => {
+                        s.append(body);
+                    }
                 }
             }
             RPCEvent::Response {
@@ -193,7 +207,18 @@ impl Encodable for RPCEvent {
                     RPCResponse::Hello(response) => {
                         s.append(response);
                     }
-                    _ => {}
+                    RPCResponse::BeaconBlockRoots(response) => {
+                        s.append(response);
+                    }
+                    RPCResponse::BeaconBlockHeaders(response) => {
+                        s.append(response);
+                    }
+                    RPCResponse::BeaconBlockBodies(response) => {
+                        s.append(response);
+                    }
+                    RPCResponse::BeaconChainState(response) => {
+                        s.append(response);
+                    }
                 }
             }
         }
