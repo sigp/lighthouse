@@ -1,10 +1,10 @@
-use crate::*;
+use types::*;
 
 /// Verify ``bitfield`` against the ``committee_size``.
 ///
 /// Is title `verify_bitfield` in spec.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn verify_bitfield_length(bitfield: &Bitfield, committee_size: usize) -> bool {
     if bitfield.num_bytes() != ((committee_size + 7) / 8) {
         return false;

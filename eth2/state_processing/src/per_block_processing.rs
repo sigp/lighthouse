@@ -1,4 +1,5 @@
 use self::verify_proposer_slashing::verify_proposer_slashing;
+use crate::common::slash_validator;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
 use ssz::{SignedRoot, TreeHash};
@@ -100,12 +101,15 @@ pub fn process_block_header(
 ) -> Result<(), Error> {
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
+    // NOTE: this is not to spec. I think spec is broken. See:
+    //
+    // https://github.com/ethereum/eth2.0-specs/issues/797
     verify!(
-        block.previous_block_root.as_bytes() == &state.latest_block_header.hash_tree_root()[..],
+        block.previous_block_root == *state.get_block_root(state.slot - 1, spec)?,
         Invalid::ParentBlockRootMismatch
     );
 
-    state.latest_block_header = block.into_temporary_header(spec);
+    state.latest_block_header = block.temporary_block_header(spec);
 
     Ok(())
 }
@@ -219,7 +223,7 @@ pub fn process_proposer_slashings(
 
     // Update the state.
     for proposer_slashing in proposer_slashings {
-        state.slash_validator(proposer_slashing.proposer_index as usize, spec)?;
+        slash_validator(state, proposer_slashing.proposer_index as usize, spec)?;
     }
 
     Ok(())
@@ -276,7 +280,7 @@ pub fn process_attester_slashings(
             .map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
-            state.slash_validator(i as usize, spec)?;
+            slash_validator(state, i as usize, spec)?;
         }
     }
 
@@ -384,7 +388,7 @@ pub fn process_deposits(
             // Create a new validator.
             let validator = Validator {
                 pubkey: deposit_input.pubkey.clone(),
-                withdrawal_credentials: deposit_input.withdrawal_credentials.clone(),
+                withdrawal_credentials: deposit_input.withdrawal_credentials,
                 activation_epoch: spec.far_future_epoch,
                 exit_epoch: spec.far_future_epoch,
                 withdrawable_epoch: spec.far_future_epoch,

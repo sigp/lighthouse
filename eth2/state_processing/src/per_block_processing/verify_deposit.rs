@@ -71,9 +71,7 @@ pub fn get_existing_validator_index(
 ) -> Result<Option<u64>, Error> {
     let deposit_input = &deposit.deposit_data.deposit_input;
 
-    let validator_index = state
-        .get_validator_index(&deposit_input.pubkey)?
-        .and_then(|i| Some(i));
+    let validator_index = state.get_validator_index(&deposit_input.pubkey)?;
 
     match validator_index {
         None => Ok(None),

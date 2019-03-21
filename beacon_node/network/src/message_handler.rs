@@ -3,11 +3,11 @@ use crate::error;
 use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use crossbeam_channel::{unbounded as channel, Sender};
-use futures::future;
-use libp2p::{
+use eth2_libp2p::{
     rpc::{RPCRequest, RPCResponse},
     PeerId, RPCEvent,
 };
+use futures::future;
 use slog::debug;
 use slog::warn;
 use std::collections::HashMap;

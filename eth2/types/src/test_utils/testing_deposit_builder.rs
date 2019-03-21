@@ -47,7 +47,7 @@ impl TestingDepositBuilder {
         self.deposit
             .deposit_data
             .deposit_input
-            .withdrawal_credentials = withdrawal_credentials.clone();
+            .withdrawal_credentials = withdrawal_credentials;
 
         self.deposit.deposit_data.deposit_input.proof_of_possession = self
             .deposit

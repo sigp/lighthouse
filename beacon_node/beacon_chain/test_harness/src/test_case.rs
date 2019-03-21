@@ -62,6 +62,10 @@ impl TestCase {
             spec.slots_per_epoch = n;
         }
 
+        if let Some(n) = self.config.persistent_committee_period {
+            spec.persistent_committee_period = n;
+        }
+
         spec
     }
 

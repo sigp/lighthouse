@@ -2,9 +2,9 @@ use crate::beacon_chain::BeaconChain;
 use crate::message_handler::NetworkContext;
 use crate::service::NetworkMessage;
 use crossbeam_channel::Sender;
-use libp2p::rpc::methods::*;
-use libp2p::rpc::{RPCRequest, RPCResponse};
-use libp2p::PeerId;
+use eth2_libp2p::rpc::methods::*;
+use eth2_libp2p::rpc::{RPCRequest, RPCResponse};
+use eth2_libp2p::PeerId;
 use slog::{debug, o};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,6 +51,7 @@ impl PeerSyncInfo {
     }
 }
 
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum PeerStatus {
     OnDifferentChain,
     HigherFinalizedEpoch,
@@ -142,6 +143,12 @@ impl SimpleSync {
         let peer = PeerSyncInfo::from(hello);
         debug!(self.log, "Handshake successful. Peer: {:?}", peer_id);
         self.known_peers.insert(peer_id.clone(), peer);
+
+        debug!(
+            self.log,
+            "Peer hello. Status: {:?}",
+            peer.status(&self.chain)
+        );
 
         match peer.status(&self.chain) {
             PeerStatus::OnDifferentChain => {

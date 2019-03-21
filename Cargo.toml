@@ -22,6 +22,7 @@ members = [
 	"beacon_node/db",
 	"beacon_node/client",
 	"beacon_node/network",
+	"beacon_node/eth2-libp2p",
     "beacon_node/rpc",
 	"beacon_node/version",
 	"beacon_node/beacon_chain",
