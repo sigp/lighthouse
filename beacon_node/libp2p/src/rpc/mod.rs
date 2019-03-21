@@ -2,7 +2,7 @@
 ///
 /// This is purpose built for Ethereum 2.0 serenity and the protocol listens on
 /// `/eth/serenity/rpc/1.0.0`
-mod methods;
+pub mod methods;
 mod protocol;
 
 use futures::prelude::*;

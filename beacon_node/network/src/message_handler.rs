@@ -6,7 +6,7 @@ use crossbeam_channel::{unbounded as channel, Sender};
 use futures::future;
 use libp2p::{
     rpc::{RPCRequest, RPCResponse},
-    HelloMessage, PeerId, RPCEvent,
+    PeerId, RPCEvent,
 };
 use slog::debug;
 use slog::warn;
@@ -85,7 +85,7 @@ impl MessageHandler {
         match message {
             // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
-                self.sync.on_connect(&peer_id, &mut self.network_context);
+                self.sync.on_connect(peer_id, &mut self.network_context);
             }
             // we have received an RPC message request/response
             HandlerMessage::RPC(peer_id, rpc_event) => {
@@ -113,7 +113,7 @@ impl MessageHandler {
         match request {
             RPCRequest::Hello(hello_message) => {
                 self.sync
-                    .on_hello(&peer_id, hello_message, &mut self.network_context)
+                    .on_hello(peer_id, hello_message, &mut self.network_context)
             }
             // TODO: Handle all requests
             _ => {}
@@ -136,24 +136,11 @@ impl MessageHandler {
         match response {
             RPCResponse::Hello(hello_message) => {
                 debug!(self.log, "Hello response received from peer: {:?}", peer_id);
-                self.validate_hello(peer_id, hello_message);
+                self.sync
+                    .on_hello(peer_id, hello_message, &mut self.network_context);
             }
             // TODO: Handle all responses
             _ => {}
-        }
-    }
-
-    /// Validate a HELLO RPC message.
-    fn validate_hello(&mut self, peer_id: PeerId, message: HelloMessage) {
-        self.sync
-            .on_hello(&peer_id, message.clone(), &mut self.network_context);
-        // validate the peer
-        if !self.sync.validate_peer(peer_id.clone(), message) {
-            debug!(
-                self.log,
-                "Peer dropped due to mismatching HELLO messages: {:?}", peer_id
-            );
-            //TODO: block/ban the peer
         }
     }
 }
@@ -177,6 +164,10 @@ impl NetworkContext {
             request_ids: HashMap::new(),
             log,
         }
+    }
+
+    pub fn disconnect(&self, _peer_id: PeerId) {
+        // TODO: disconnect peers.
     }
 
     pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
