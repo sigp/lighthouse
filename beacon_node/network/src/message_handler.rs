@@ -139,8 +139,19 @@ impl MessageHandler {
                 self.sync
                     .on_hello(peer_id, hello_message, &mut self.network_context);
             }
+            RPCResponse::BeaconBlockRoots(response) => {
+                debug!(
+                    self.log,
+                    "BeaconBlockRoots response received from peer: {:?}", peer_id
+                );
+                self.sync.on_beacon_block_roots_response(
+                    peer_id,
+                    response,
+                    &mut self.network_context,
+                )
+            }
             // TODO: Handle all responses
-            _ => {}
+            _ => panic!("Unknown response: {:?}", response),
         }
     }
 }

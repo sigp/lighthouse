@@ -165,6 +165,15 @@ impl SimpleSync {
         }
     }
 
+    pub fn on_beacon_block_roots_response(
+        &mut self,
+        peer_id: PeerId,
+        reponse: BeaconBlockRootsResponse,
+        network: &mut NetworkContext,
+    ) {
+        //
+    }
+
     fn request_block_roots(
         &mut self,
         peer_id: PeerId,
@@ -174,8 +183,11 @@ impl SimpleSync {
     ) {
         // Potentially set state to sync.
         if self.state == SyncState::Idle && count > SLOT_IMPORT_TOLERANCE {
+            debug!(self.log, "Entering downloading sync state.");
             self.state = SyncState::Downloading;
         }
+
+        debug!(self.log, "Requesting {} blocks from {:?}.", count, &peer_id);
 
         // TODO: handle count > max count.
         network.send_rpc_request(

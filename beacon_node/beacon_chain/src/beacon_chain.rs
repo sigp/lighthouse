@@ -122,6 +122,70 @@ where
         })
     }
 
+    /// Returns beacon block roots for `count` slots, starting from `start_slot`.
+    ///
+    /// ## Errors:
+    ///
+    /// - `SlotOutOfBounds`: Unable to return the full specified range.
+    /// - `SlotOutOfBounds`: Unable to load a state from the DB.
+    /// - `SlotOutOfBounds`: Start slot is higher than the first slot.
+    /// - Other: BeaconState` is inconsistent.
+    pub fn get_block_roots(
+        &self,
+        start_slot: Slot,
+        count: Slot,
+    ) -> Result<Vec<Hash256>, BeaconStateError> {
+        let spec = &self.spec;
+
+        let mut roots: Vec<Hash256> = vec![];
+        let mut state = self.state.read().clone();
+        let mut slot = start_slot + count - 1;
+
+        loop {
+            // Return if the slot required is greater than the current state.
+            if slot >= state.slot {
+                return Err(BeaconStateError::SlotOutOfBounds);
+            }
+
+            // If the slot is within the range of the current state's block roots, append the root
+            // to the output vec.
+            //
+            // If we get `SlotOutOfBounds` error, load the oldest known state to the present state
+            // from the DB.
+            match state.get_block_root(slot, spec) {
+                Ok(root) => {
+                    roots.push(*root);
+
+                    if slot == start_slot {
+                        break;
+                    } else {
+                        slot -= 1;
+                    }
+                }
+                Err(BeaconStateError::SlotOutOfBounds) => {
+                    // Read the earliest historic state in the current slot.
+                    let earliest_historic_slot =
+                        state.slot - Slot::from(spec.slots_per_historical_root);
+                    // Load the earlier state from disk.
+                    let new_state_root = state.get_state_root(earliest_historic_slot, spec)?;
+
+                    // Break if the DB is unable to load the state.
+                    state = match self.state_store.get_deserialized(&new_state_root) {
+                        Ok(Some(state)) => state,
+                        _ => break,
+                    }
+                }
+                Err(e) => return Err(e),
+            };
+        }
+
+        if (slot == start_slot) && (roots.len() == count.as_usize()) {
+            Ok(roots)
+        } else {
+            Err(BeaconStateError::SlotOutOfBounds)
+        }
+    }
+
     /// Update the canonical head to some new values.
     pub fn update_canonical_head(
         &self,

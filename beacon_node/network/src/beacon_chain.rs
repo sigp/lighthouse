@@ -8,7 +8,7 @@ use beacon_chain::{
     CheckPoint,
 };
 use eth2_libp2p::HelloMessage;
-use types::{Epoch, Hash256, Slot};
+use types::{BeaconStateError, Epoch, Hash256, Slot};
 
 /// The network's API to the beacon chain.
 pub trait BeaconChain: Send + Sync {
@@ -29,6 +29,12 @@ pub trait BeaconChain: Send + Sync {
     fn finalized_epoch(&self) -> Epoch;
 
     fn hello_message(&self) -> HelloMessage;
+
+    fn get_block_roots(
+        &self,
+        start_slot: Slot,
+        count: Slot,
+    ) -> Result<Vec<Hash256>, BeaconStateError>;
 }
 
 impl<T, U, F> BeaconChain for RawBeaconChain<T, U, F>
@@ -80,5 +86,13 @@ where
             best_root: self.best_block_root(),
             best_slot: self.best_slot(),
         }
+    }
+
+    fn get_block_roots(
+        &self,
+        start_slot: Slot,
+        count: Slot,
+    ) -> Result<Vec<Hash256>, BeaconStateError> {
+        self.get_block_roots(start_slot, count)
     }
 }

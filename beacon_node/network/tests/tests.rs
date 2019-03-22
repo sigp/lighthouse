@@ -63,6 +63,15 @@ impl SyncNode {
         self.harness.beacon_chain.hello_message()
     }
 
+    pub fn get_block_root_request(&self) -> BeaconBlockRootsRequest {
+        let request = self.recv_rpc_request().expect("No block root request");
+
+        match request {
+            RPCRequest::BeaconBlockRoots(response) => response,
+            _ => panic!("Did not get block root request"),
+        }
+    }
+
     fn _recv_rpc_response(&self) -> Result<RPCResponse, RecvTimeoutError> {
         let network_message = self.recv()?;
         Ok(match network_message {
@@ -146,6 +155,34 @@ impl SyncMaster {
         }
     }
 
+    pub fn respond_to_block_roots_request(
+        &mut self,
+        node: &SyncNode,
+        request: BeaconBlockRootsRequest,
+    ) {
+        let roots = self
+            .harness
+            .beacon_chain
+            .get_block_roots(request.start_slot, Slot::from(request.count))
+            .expect("Beacon chain did not give blocks");
+
+        let roots = roots
+            .iter()
+            .enumerate()
+            .map(|(i, root)| BlockRootSlot {
+                block_root: *root,
+                slot: Slot::from(i) + request.start_slot,
+            })
+            .collect();
+
+        let response = RPCResponse::BeaconBlockRoots(BeaconBlockRootsResponse { roots });
+        self.send_rpc_response(node, response)
+    }
+
+    fn send_rpc_response(&mut self, node: &SyncNode, rpc_response: RPCResponse) {
+        node.send(self.rpc_response(node, rpc_response));
+    }
+
     fn rpc_response(&mut self, node: &SyncNode, rpc_response: RPCResponse) -> HandlerMessage {
         HandlerMessage::RPC(
             self.peer_id.clone(),
@@ -155,17 +192,6 @@ impl SyncMaster {
                 result: rpc_response,
             },
         )
-    }
-}
-
-fn assert_sent_block_root_request(node: &SyncNode, expected: BeaconBlockRootsRequest) {
-    let request = node.recv_rpc_request().expect("No block root request");
-
-    match request {
-        RPCRequest::BeaconBlockRoots(response) => {
-            assert_eq!(expected, response, "Bad block roots response");
-        }
-        _ => assert!(false, "Did not get block root request"),
     }
 }
 
@@ -223,13 +249,12 @@ fn first_test() {
 
     master.do_hello_with(&nodes[0]);
 
-    assert_sent_block_root_request(
-        &nodes[0],
-        BeaconBlockRootsRequest {
-            start_slot: original_node_slot,
-            count: 2,
-        },
-    );
+    let request = nodes[0].get_block_root_request();
+    assert_eq!(request.start_slot, original_node_slot);
+    assert_eq!(request.count, 2);
 
+    master.respond_to_block_roots_request(&nodes[0], request);
+
+    std::thread::sleep(Duration::from_millis(500));
     runtime.shutdown_now();
 }
