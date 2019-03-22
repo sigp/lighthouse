@@ -12,20 +12,50 @@ syntax = "proto3";
 
 package ethereum.beacon.rpc.v1;
 
+
+/// Service that handles block production
 service BeaconBlockService {
     rpc ProduceBeaconBlock(ProduceBeaconBlockRequest) returns (ProduceBeaconBlockResponse);
     rpc PublishBeaconBlock(PublishBeaconBlockRequest) returns (PublishBeaconBlockResponse);
 }
 
+/// Service that provides the validator client with requisite knowledge about
+//its public keys
 service ValidatorService {
-    // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
 	rpc ProposeBlockSlot(ProposeBlockSlotRequest) returns (ProposeBlockSlotResponse);
 	rpc ValidatorIndex(PublicKey) returns (IndexResponse);
+    // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
 }
 
+/// Service that handles validator attestations
 service AttestationService {
 	rpc ProduceAttestationData (ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
 	rpc PublishAttestationData (PublishAttestationDataRequest) returns (PublishAttestationDataResponse);
+}
+
+/*
+ * Block Production Service Messages
+ */
+
+// Validator requests an unsigned proposal.
+message ProduceBeaconBlockRequest {
+    uint64 slot = 1;
+}
+
+// Beacon node returns an unsigned proposal.
+message ProduceBeaconBlockResponse {
+    BeaconBlock block = 1;
+}
+
+// Validator submits a signed proposal.
+message PublishBeaconBlockRequest {
+    BeaconBlock block = 1;
+}
+
+// Beacon node indicates a sucessfully submitted proposal.
+message PublishBeaconBlockResponse {
+    bool success = 1;
+    bytes msg = 2;
 }
 
 message BeaconBlock {
@@ -33,6 +63,73 @@ message BeaconBlock {
 	bytes block_root = 2;
 	bytes randao_reveal = 3;
 	bytes signature = 4;
+}
+
+/*
+ * Validator Service Messages
+ */
+/*
+message ValidatorAssignmentRequest {
+	uint64 epoch = 1;
+	bytes validator_index = 2;
+}
+
+// A validators duties for some epoch.
+// TODO: add shard duties.
+message ValidatorAssignment {
+	oneof block_production_slot_oneof {
+		bool block_production_slot_none = 1;
+		uint64 block_production_slot = 2;
+	}
+}
+*/
+
+// Validator Assignment
+
+message PublicKey {
+	bytes public_key = 1;
+}
+
+message IndexResponse {
+	uint64 index = 1;
+}
+
+
+// Propose slot
+
+message ProposeBlockSlotRequest {
+	uint64 epoch = 1;
+	uint64 validator_index = 2;
+}
+
+message ProposeBlockSlotResponse {
+	oneof slot_oneof {
+		bool none = 1;
+		uint64 slot = 2;
+	}
+}
+
+
+/*
+ * Attestation Service Messages
+ */
+
+message ProduceAttestationDataRequest {
+	uint64 slot = 1;
+	uint64 shard = 2;
+}
+
+message ProduceAttestationDataResponse {
+	AttestationData attestation_data = 1;
+}
+
+message PublishAttestationDataRequest {
+	FreeAttestation free_attestation = 1;
+}
+
+message PublishAttestationDataResponse {
+	bool success = 1;
+	bytes msg = 2;
 }
 
 message Crosslink {
@@ -57,85 +154,4 @@ message FreeAttestation {
 	AttestationData attestation_data = 1;
 	bytes signature = 2;
 	uint64 validator_index = 3;
-}
-
-// Validator requests an unsigned proposal.
-message ProduceBeaconBlockRequest {
-    uint64 slot = 1;
-}
-
-// Beacon node returns an unsigned proposal.
-message ProduceBeaconBlockResponse {
-    BeaconBlock block = 1;
-}
-
-// Validator submits a signed proposal.
-message PublishBeaconBlockRequest {
-    BeaconBlock block = 1;
-}
-
-// Beacon node indicates a sucessfully submitted proposal.
-message PublishBeaconBlockResponse {
-    bool success = 1;
-    bytes msg = 2;
-}
-
-message ProduceAttestationDataRequest {
-	uint64 slot = 1;
-	uint64 shard = 2;
-}
-
-message ProduceAttestationDataResponse {
-	AttestationData attestation_data = 1;
-}
-
-message PublishAttestationDataRequest {
-	FreeAttestation free_attestation = 1;
-}
-
-message PublishAttestationDataResponse {
-	bool success = 1;
-	bytes msg = 2;
-}
-
-// A validators duties for some epoch.
-// TODO: add shard duties.
-message ValidatorAssignment {
-	oneof block_production_slot_oneof {
-		bool block_production_slot_none = 1;
-		uint64 block_production_slot = 2;
-	}
-}
-
-message ValidatorAssignmentRequest {
-	uint64 epoch = 1;
-	bytes validator_index = 2;
-}
-
-/*
- * Propose slot
- */
-
-message ProposeBlockSlotRequest {
-	uint64 epoch = 1;
-	uint64 validator_index = 2;
-}
-
-message ProposeBlockSlotResponse {
-	oneof slot_oneof {
-		bool none = 1;
-		uint64 slot = 2;
-	}
-}
-
-/*
- * Validator Assignment
- */
-
-message PublicKey {
-	bytes public_key = 1;
-}
-
-message IndexResponse {
-	uint64 index = 1;
 }
