@@ -1,15 +1,17 @@
-use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
-use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::attester_service::{AttestationGrpcClient, AttesterService};
+use crate::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use crate::config::ClientConfig;
+use crate::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use attester::test_utils::EpochMap;
 use attester::{test_utils::LocalSigner as AttesterLocalSigner, Attester};
 use block_proposer::{test_utils::LocalSigner as BlockProposerLocalSigner, BlockProducer};
 use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
+use protos::services::{Empty, NodeInfo};
 use protos::services_grpc::{
-    AttestationServiceClient, BeaconBlockServiceClient, ValidatorServiceClient,
+    AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
+    ValidatorServiceClient,
 };
 use slog::{error, info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
@@ -94,6 +96,13 @@ fn main() {
           "data_dir" => &config.data_dir.to_str(),
           "server" => &config.server);
 
+    // Beacon node gRPC beacon node endpoints.
+    let beacon_node_grpc_client = {
+        let env = Arc::new(EnvBuilder::new().build());
+        let ch = ChannelBuilder::new(env).connect(&config.server);
+        Arc::new(BeaconNodeServiceClient::new(ch))
+    };
+
     // Beacon node gRPC beacon block endpoints.
     let beacon_block_grpc_client = {
         let env = Arc::new(EnvBuilder::new().build());
@@ -115,12 +124,14 @@ fn main() {
         Arc::new(AttestationServiceClient::new(ch))
     };
 
+    // retrieve node information
+    let node_info = beacon_node_grpc_client.info(&Empty::new());
+
+    info!(log, "Beacon node info: {:?}", node_info);
+
     // Spec
     let spec = Arc::new(config.spec.clone());
 
-    // Clock for determining the present slot.
-    // TODO: this shouldn't be a static time, instead it should be pulled from the beacon node.
-    // https://github.com/sigp/lighthouse/issues/160
     let genesis_time = 1_549_935_547;
     let slot_clock = {
         info!(log, "Genesis time"; "unix_epoch_seconds" => genesis_time);
