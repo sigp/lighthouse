@@ -1,12 +1,13 @@
 mod beacon_block;
+pub mod beacon_chain;
 mod beacon_node;
 pub mod config;
 mod validator;
 
 use self::beacon_block::BeaconBlockServiceInstance;
+use self::beacon_chain::BeaconChain;
 use self::beacon_node::BeaconNodeServiceInstance;
 use self::validator::ValidatorServiceInstance;
-use beacon_chain::{db::ClientDB, fork_choice::ForkChoice, slot_clock::SlotClock, BeaconChain};
 pub use config::Config as RPCConfig;
 use grpcio::{Environment, Server, ServerBuilder};
 use protos::services_grpc::{
@@ -16,16 +17,11 @@ use std::sync::Arc;
 
 use slog::{info, o};
 
-pub fn start_server<T, U, F>(
+pub fn start_server(
     config: &RPCConfig,
-    beacon_chain: Arc<BeaconChain<T, U, F>>,
+    beacon_chain: Arc<BeaconChain>,
     log: &slog::Logger,
-) -> Server
-where
-    T: ClientDB + Clone + 'static,
-    U: SlotClock + Clone + 'static,
-    F: ForkChoice + Clone + 'static,
-{
+) -> Server {
     let log = log.new(o!("Service"=>"RPC"));
     let env = Arc::new(Environment::new(1));
 
