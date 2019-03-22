@@ -22,7 +22,6 @@ use types::{Epoch, Fork};
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
-#[derive(Debug)]
 pub struct Service {
     /// The node we currently connected to.
     connected_node_version: String,
@@ -30,8 +29,8 @@ pub struct Service {
     chain_id: u16,
     /// The fork state we processing on.
     fork: Fork,
-    //    /// The slot clock keeping track of time.
-    //    slot_clock: Arc<SlotClock>,
+    /// The slot clock keeping track of time.
+    slot_clock: Arc<SystemTimeSlotClock>,
 }
 
 impl Service {
@@ -54,7 +53,10 @@ impl Service {
             };
         };
 
-        info!(log,"Beacon node connected"; "Node Version:" => node_info.version.clone(), "Chain ID:" => node_info.chain_id);
+        // build requisite objects to form Self
+        let genesis_time = node_info.get_genesis_time();
+
+        info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.chain_id, "Genesis time" => genesis_time);
 
         let proto_fork = node_info.get_fork();
         let mut previous_version: [u8; 4] = [0; 4];
@@ -67,9 +69,8 @@ impl Service {
             epoch: Epoch::from(proto_fork.get_epoch()),
         };
 
-        let genesis_time = 1_549_935_547;
+        // build the validator slot clock
         let slot_clock = {
-            info!(log, "Genesis time"; "unix_epoch_seconds" => genesis_time);
             let clock = SystemTimeSlotClock::new(genesis_time, seconds_per_slot)
                 .expect("Unable to instantiate SystemTimeSlotClock.");
             Arc::new(clock)
@@ -79,6 +80,7 @@ impl Service {
             connected_node_version: node_info.version,
             chain_id: node_info.chain_id as u16,
             fork,
+            slot_clock,
         }
     }
 
