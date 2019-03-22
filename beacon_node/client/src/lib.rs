@@ -61,7 +61,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
 
         // spawn the RPC server
         if config.rpc_conf.enabled {
-            rpc::start_server(&config.rpc_conf, &log);
+            rpc::start_server(&config.rpc_conf, beacon_chain.clone(), &log);
         }
 
         Ok(Client {
