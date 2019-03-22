@@ -36,7 +36,7 @@ pub struct SimpleSync {
     /// The current state of the syncing protocol.
     state: SyncState,
     /// The network id, for quick HELLO RPC message lookup.
-    network_id: u8,
+    chain_id: u8,
     /// The latest epoch of the syncing chain.
     latest_finalized_epoch: Epoch,
     /// The latest block of the syncing chain.
@@ -53,7 +53,7 @@ impl SimpleSync {
             chain: beacon_chain.clone(),
             known_peers: HashMap::new(),
             state: SyncState::Idle,
-            network_id: beacon_chain.get_spec().network_id,
+            chain_id: beacon_chain.get_spec().chain_id,
             latest_finalized_epoch: state.finalized_epoch,
             latest_slot: state.slot - 1, //TODO: Build latest block function into Beacon chain and correct this
             log: sync_logger,
@@ -65,7 +65,7 @@ impl SimpleSync {
         let state = &self.chain.get_state();
         //TODO: Paul to verify the logic of these fields.
         HelloMessage {
-            network_id: self.network_id,
+            network_id: self.chain_id,
             latest_finalized_root: state.finalized_root,
             latest_finalized_epoch: state.finalized_epoch,
             best_root: Hash256::zero(), //TODO: build correct value as a beacon chain function
@@ -75,7 +75,7 @@ impl SimpleSync {
 
     pub fn validate_peer(&mut self, peer_id: PeerId, hello_message: HelloMessage) -> bool {
         // network id must match
-        if hello_message.network_id != self.network_id {
+        if hello_message.network_id != self.chain_id {
             return false;
         }
         // compare latest epoch and finalized root to see if they exist in our chain
