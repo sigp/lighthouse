@@ -15,6 +15,8 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 use types::{test_utils::TestingBeaconStateBuilder, *};
 
+type TestingBeaconChain = BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>;
+
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
 /// information and submit blocks/attestations for processing.
@@ -23,7 +25,7 @@ use types::{test_utils::TestingBeaconStateBuilder, *};
 /// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
-    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
+    pub beacon_chain: Arc<TestingBeaconChain>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<ValidatorHarness>,
