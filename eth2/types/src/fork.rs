@@ -1,4 +1,7 @@
-use crate::{test_utils::{fork_from_hex_str, TestRandom}, ChainSpec, Epoch};
+use crate::{
+    test_utils::{fork_from_hex_str, TestRandom},
+    ChainSpec, Epoch,
+};
 use int_to_bytes::int_to_bytes4;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};

@@ -13,27 +13,35 @@ use ssz::{
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
 #[derive(Debug, PartialEq, Clone, Eq)]
-pub struct Signature(RawSignature);
+pub struct Signature {
+    signature: RawSignature,
+    is_empty: bool,
+}
 
 impl Signature {
     /// Instantiate a new Signature from a message and a SecretKey.
     pub fn new(msg: &[u8], domain: u64, sk: &SecretKey) -> Self {
-        Signature(RawSignature::new(msg, domain, sk.as_raw()))
+        Signature {
+            signature: RawSignature::new(msg, domain, sk.as_raw()),
+            is_empty: false,
+        }
     }
 
     /// Instantiate a new Signature from a message and a SecretKey, where the message has already
     /// been hashed.
     pub fn new_hashed(x_real_hashed: &[u8], x_imaginary_hashed: &[u8], sk: &SecretKey) -> Self {
-        Signature(RawSignature::new_hashed(
-            x_real_hashed,
-            x_imaginary_hashed,
-            sk.as_raw(),
-        ))
+        Signature {
+            signature: RawSignature::new_hashed(x_real_hashed, x_imaginary_hashed, sk.as_raw()),
+            is_empty: false,
+        }
     }
 
     /// Verify the Signature against a PublicKey.
     pub fn verify(&self, msg: &[u8], domain: u64, pk: &PublicKey) -> bool {
-        self.0.verify(msg, domain, pk.as_raw())
+        if self.is_empty {
+            return false;
+        }
+        self.signature.verify(msg, domain, pk.as_raw())
     }
 
     /// Verify the Signature against a PublicKey, where the message has already been hashed.
@@ -43,44 +51,72 @@ impl Signature {
         x_imaginary_hashed: &[u8],
         pk: &PublicKey,
     ) -> bool {
-        self.0
+        self.signature
             .verify_hashed(x_real_hashed, x_imaginary_hashed, pk.as_raw())
     }
 
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawSignature {
-        &self.0
+        &self.signature
     }
 
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
-        // Empty Signature is currently being represented as BLS::Signature.point_at_infinity()
-        // However it should be represented as vec![0; 96] but this
-        // would require all signatures to be represented in byte form as opposed to Signature
+        // Set RawSignature = infinity
         let mut empty: Vec<u8> = vec![0; 96];
-        // Sets C_flag and B_flag to 1 and all else to 0
         empty[0] += u8::pow(2, 6) + u8::pow(2, 7);
-        Signature(RawSignature::from_bytes(&empty).unwrap())
+        Signature {
+            signature: RawSignature::from_bytes(&empty).unwrap(),
+            is_empty: true,
+        }
+    }
+
+    // Converts a BLS Signature to bytes
+    pub fn as_bytes(&self) -> Vec<u8> {
+        if self.is_empty {
+            return vec![0; 96];
+        }
+        self.signature.as_bytes()
+    }
+
+    // Convert bytes to BLS Signature
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        for byte in bytes {
+            if *byte != 0 {
+                let raw_signature =
+                    RawSignature::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+                return Ok(Signature {
+                    signature: raw_signature,
+                    is_empty: false,
+                });
+            }
+        }
+        Ok(Signature::empty_signature())
+    }
+
+    // Check for empty Signature
+    pub fn is_empty(&self) -> bool {
+        self.is_empty
     }
 }
 
 impl Encodable for Signature {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.0.as_bytes());
+        s.append_vec(&self.as_bytes());
     }
 }
 
 impl Decodable for Signature {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
         let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let raw_sig = RawSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::Invalid)?;
-        Ok((Signature(raw_sig), i))
+        let signature = Signature::from_bytes(&sig_bytes)?;
+        Ok((signature, i))
     }
 }
 
 impl TreeHash for Signature {
     fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.0.as_bytes())
+        hash(&self.as_bytes())
     }
 }
 
