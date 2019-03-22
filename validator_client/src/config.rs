@@ -21,7 +21,7 @@ impl ClientConfig {
         };
         fs::create_dir_all(&data_dir)
             .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
-        let server = "localhost:50051".to_string();
+        let server = "localhost:5051".to_string();
         let spec = ChainSpec::foundation();
         Self {
             data_dir,
