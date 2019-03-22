@@ -31,11 +31,7 @@ impl Signature {
     /// been hashed.
     pub fn new_hashed(x_real_hashed: &[u8], x_imaginary_hashed: &[u8], sk: &SecretKey) -> Self {
         Signature {
-            signature: RawSignature::new_hashed(
-                x_real_hashed,
-                x_imaginary_hashed,
-                sk.as_raw(),
-            ),
+            signature: RawSignature::new_hashed(x_real_hashed, x_imaginary_hashed, sk.as_raw()),
             is_empty: false,
         }
     }
@@ -87,7 +83,8 @@ impl Signature {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         for byte in bytes {
             if *byte != 0 {
-                let raw_signature = RawSignature::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+                let raw_signature =
+                    RawSignature::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
                 return Ok(Signature {
                     signature: raw_signature,
                     is_empty: false,
