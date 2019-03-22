@@ -6,7 +6,7 @@ use types::ChainSpec;
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone)]
-pub struct ClientConfig {
+pub struct Config {
     pub data_dir: PathBuf,
     pub server: String,
     pub spec: ChainSpec,
@@ -14,7 +14,7 @@ pub struct ClientConfig {
 
 const DEFAULT_LIGHTHOUSE_DIR: &str = ".lighthouse-validators";
 
-impl ClientConfig {
+impl Config {
     /// Build a new configuration from defaults.
     pub fn default() -> Self {
         let data_dir = {
@@ -33,7 +33,7 @@ impl ClientConfig {
     }
 
     pub fn parse_args(matches: ArgMatches, log: &slog::Logger) -> Result<Self, &'static str> {
-        let mut config = ClientConfig::default();
+        let mut config = Config::default();
         // Custom datadir
         if let Some(dir) = matches.value_of("datadir") {
             config.data_dir = PathBuf::from(dir.to_string());

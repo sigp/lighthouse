@@ -1,7 +1,7 @@
 [package]
 name = "validator_client"
 version = "0.1.0"
-authors = ["Paul Hauner <paul@paulhauner.com>"]
+authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
