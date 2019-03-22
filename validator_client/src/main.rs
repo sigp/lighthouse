@@ -13,12 +13,10 @@ use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
     ValidatorServiceClient,
 };
-use slog::{error, info, o, Drain};
+use slog::{info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use types::ChainSpec;
 
 mod attester_service;
 mod block_producer_service;
@@ -63,38 +61,7 @@ fn main() {
         )
         .get_matches();
 
-    let mut config = ClientConfig::default();
-
-    // Custom datadir
-    if let Some(dir) = matches.value_of("datadir") {
-        config.data_dir = PathBuf::from(dir.to_string());
-    }
-
-    // Custom server port
-    if let Some(server_str) = matches.value_of("server") {
-        if let Ok(addr) = server_str.parse::<u16>() {
-            config.server = addr.to_string();
-        } else {
-            error!(log, "Invalid address"; "server" => server_str);
-            return;
-        }
-    }
-
-    // TODO: Permit loading a custom spec from file.
-    // Custom spec
-    if let Some(spec_str) = matches.value_of("spec") {
-        match spec_str {
-            "foundation" => config.spec = ChainSpec::foundation(),
-            "few_validators" => config.spec = ChainSpec::few_validators(),
-            // Should be impossible due to clap's `possible_values(..)` function.
-            _ => unreachable!(),
-        };
-    }
-
-    // Log configuration
-    info!(log, "";
-          "data_dir" => &config.data_dir.to_str(),
-          "server" => &config.server);
+    let config = ClientConfig::parse_args(matches, &log).unwrap();
 
     // Beacon node gRPC beacon node endpoints.
     let beacon_node_grpc_client = {
