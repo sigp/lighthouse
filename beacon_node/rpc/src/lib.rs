@@ -51,6 +51,7 @@ pub fn start_server(
     let mut server = ServerBuilder::new(env)
         .register_service(beacon_block_service)
         .register_service(validator_service)
+        .register_service(beacon_node_service)
         .bind(config.listen_address.to_string(), config.port)
         .build()
         .unwrap();
