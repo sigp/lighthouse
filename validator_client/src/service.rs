@@ -31,18 +31,44 @@ pub struct Service {
     fork: Fork,
     /// The slot clock keeping track of time.
     slot_clock: Arc<SystemTimeSlotClock>,
+    // GRPC Clients
+    /// The beacon block GRPC client.
+    beacon_block_client: Arc<BeaconBlockServiceClient>,
+    /// The validator GRPC client.
+    validator_client: Arc<ValidatorServiceClient>,
+    /// The attester GRPC client.
+    attester_client: Arc<AttestationServiceClient>,
+    /// The validator client logger.
+    log: slog::Logger,
 }
 
 impl Service {
+    /// Initialise the service then run the core thread.
+    pub fn start(config: ValidatorConfig, log: slog::Logger) {
+        // connect to the node and retrieve its properties and initialize the gRPC clients
+        let service = Service::initialize_service(&config, log);
+
+        // we have connected to a node and established its parameters. Spin up the core service
+        service.run(config);
+    }
+
     ///  Initial connection to the beacon node to determine its properties.
-    fn connect_to_node(
-        node_client: Arc<BeaconNodeServiceClient>,
-        seconds_per_slot: u64,
-        log: &slog::Logger,
-    ) -> Self {
+    ///
+    ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
+    ///  and returns an instance of the service.
+    fn initialize_service(config: &ValidatorConfig, log: slog::Logger) -> Self {
+        // initialise the beacon node client to check for a connection
+
+        let env = Arc::new(EnvBuilder::new().build());
+        // Beacon node gRPC beacon node endpoints.
+        let beacon_node_client = {
+            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            Arc::new(BeaconNodeServiceClient::new(ch))
+        };
+
         // retrieve node information
         let node_info = loop {
-            let info = match node_client.info(&Empty::new()) {
+            let info = match beacon_node_client.info(&Empty::new()) {
                 Err(e) => {
                     warn!(log, "Could not connect to node. Error: {}", e);
                     info!(log, "Retrying in 5 seconds...");
@@ -71,9 +97,29 @@ impl Service {
 
         // build the validator slot clock
         let slot_clock = {
-            let clock = SystemTimeSlotClock::new(genesis_time, seconds_per_slot)
+            let clock = SystemTimeSlotClock::new(genesis_time, config.spec.seconds_per_slot)
                 .expect("Unable to instantiate SystemTimeSlotClock.");
             Arc::new(clock)
+        };
+
+        // initialize the RPC clients
+
+        // Beacon node gRPC beacon block endpoints.
+        let beacon_block_client = {
+            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            Arc::new(BeaconBlockServiceClient::new(ch))
+        };
+
+        // Beacon node gRPC validator endpoints.
+        let validator_client = {
+            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            Arc::new(ValidatorServiceClient::new(ch))
+        };
+
+        //Beacon node gRPC attester endpoints.
+        let attester_client = {
+            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            Arc::new(AttestationServiceClient::new(ch))
         };
 
         Self {
@@ -81,53 +127,14 @@ impl Service {
             chain_id: node_info.chain_id as u16,
             fork,
             slot_clock,
+            beacon_block_client,
+            validator_client,
+            attester_client,
+            log,
         }
     }
 
-    pub fn start(config: ValidatorConfig, log: slog::Logger) {
-        // initialize the RPC clients
-
-        let env = Arc::new(EnvBuilder::new().build());
-        // Beacon node gRPC beacon node endpoints.
-        let beacon_node_grpc_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
-            Arc::new(BeaconNodeServiceClient::new(ch))
-        };
-
-        // Beacon node gRPC beacon block endpoints.
-        let beacon_block_grpc_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
-            Arc::new(BeaconBlockServiceClient::new(ch))
-        };
-
-        // Beacon node gRPC validator endpoints.
-        let validator_grpc_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
-            Arc::new(ValidatorServiceClient::new(ch))
-        };
-
-        //Beacon node gRPC attester endpoints.
-        let attester_grpc_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
-            Arc::new(AttestationServiceClient::new(ch))
-        };
-
-        let spec = Arc::new(config.spec);
-        // connect to the node and retrieve its properties
-        let service =
-            Service::connect_to_node(beacon_node_grpc_client, spec.seconds_per_slot, &log);
-
-        let poll_interval_millis = spec.seconds_per_slot * 1000 / 10; // 10% epoch time precision.
-        info!(log, "Starting block producer service"; "polls_per_epoch" => spec.seconds_per_slot * 1000 / poll_interval_millis);
-
-        let genesis_time = 1_549_935_547;
-        let slot_clock = {
-            info!(log, "Genesis time"; "unix_epoch_seconds" => genesis_time);
-            let clock = SystemTimeSlotClock::new(genesis_time, spec.seconds_per_slot)
-                .expect("Unable to instantiate SystemTimeSlotClock.");
-            Arc::new(clock)
-        };
-
+    fn run(&mut self, config: ValidatorConfig) {
         /*
          * Start threads.
          */
@@ -136,8 +143,10 @@ impl Service {
         // https://github.com/sigp/lighthouse/issues/160
         let keypairs = vec![Keypair::random()];
 
+        let spec = config.spec;
+
         for keypair in keypairs {
-            info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
+            info!(self.log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
             let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
             let epoch_map_for_attester = Arc::new(EpochMap::new(spec.slots_per_epoch));
 
@@ -145,9 +154,9 @@ impl Service {
             let duties_manager_thread = {
                 let spec = spec.clone();
                 let duties_map = duties_map.clone();
-                let slot_clock = slot_clock.clone();
-                let log = log.clone();
-                let beacon_node = validator_grpc_client.clone();
+                let slot_clock = self.slot_clock.clone();
+                let log = self.log.clone();
+                let beacon_node = self.validator_client.clone();
                 let pubkey = keypair.pk.clone();
                 thread::spawn(move || {
                     let manager = DutiesManager {
