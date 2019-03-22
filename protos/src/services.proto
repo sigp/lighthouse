@@ -12,6 +12,10 @@ syntax = "proto3";
 
 package ethereum.beacon.rpc.v1;
 
+// Service that currently identifies a beacon node
+service BeaconNodeService {
+    rpc Info(Empty) returns (NodeInfo);
+}
 
 /// Service that handles block production
 service BeaconBlockService {
@@ -32,6 +36,26 @@ service AttestationService {
 	rpc ProduceAttestationData (ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
 	rpc PublishAttestationData (PublishAttestationDataRequest) returns (PublishAttestationDataResponse);
 }
+
+/*
+ * Beacon Node Service Message
+ */
+message NodeInfo {
+    string version = 1;
+    Fork fork = 2;
+    uint32 chain_id = 3;
+}
+
+message Fork {
+    bytes previous_version = 1;
+    bytes current_version = 2;
+    uint64 epoch = 3;
+}
+
+message Empty {
+}
+
+
 
 /*
  * Block Production Service Messages
