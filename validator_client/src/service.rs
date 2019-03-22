@@ -31,6 +31,8 @@ pub struct Service {
     fork: Fork,
     /// The slot clock keeping track of time.
     slot_clock: Arc<SystemTimeSlotClock>,
+    /// The current slot we are processing.
+    current_slot: Slot,
     // GRPC Clients
     /// The beacon block GRPC client.
     beacon_block_client: Arc<BeaconBlockServiceClient>,
@@ -122,11 +124,14 @@ impl Service {
             Arc::new(AttestationServiceClient::new(ch))
         };
 
+        let current_slot = slot_clock.present_slot().saturating_sub(1);
+
         Self {
             connected_node_version: node_info.version,
             chain_id: node_info.chain_id as u16,
             fork,
             slot_clock,
+            current_slot,
             beacon_block_client,
             validator_client,
             attester_client,
@@ -135,15 +140,50 @@ impl Service {
     }
 
     fn run(&mut self, config: ValidatorConfig) {
-        /*
-         * Start threads.
-         */
-        let mut threads = vec![];
+
+        // generate keypairs
+
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
         let keypairs = vec![Keypair::random()];
 
-        let spec = config.spec;
+        // set up the validator service runtime
+        let runtime = Builder::new().clock(Clock::system()).name_prefix("validator-client-").build().unwrap();
+
+        // set up the validator work interval - start at next slot and proceed every slot
+        let interval = {
+            let time_to_next_slot = {
+                let syslot_time = SystemTime::now();
+                let duration_since_epoch = syslot_time.duration_since(SystemTime::UNIX_EPOCH)?;
+                let mut secs_to_slot = None;
+            if let Some(duration_since_genesis) =
+                duration_since_epoch.checked_sub(Duration::from_secs(self.genesis_seconds))  {
+                    // seconds till next slot
+                    secs_to_slot =duration_since_genesis.as_secs().checked_rem(config.spec.seconds_per_slot);
+                }
+            secs_to_slot.ok_or_else(0)
+            }
+            // Set the interval to start at the next slot, and every slot after
+            let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
+            //TODO: Handle checked add correctly
+            Interval::new(Instant::now().checked_add(secs_to_slot)?, slot_duration)
+        }
+
+        // kick off core service
+        runtime.spawn(interval.for_each(|_| {}));
+
+
+
+        let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
+        let epoch_map_for_attester = Arc::new(EpochMap::new(spec.slots_per_epoch));
+        let manager = DutiesManager {
+            duties_map,
+            pubkey,
+            spec,
+            slot_clock,
+            beacon_node,
+        };
+
 
         for keypair in keypairs {
             info!(self.log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
