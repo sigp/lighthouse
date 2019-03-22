@@ -1,4 +1,3 @@
-use beacon_chain::test_utils::TestingBeaconChainBuilder;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCMethod, RPCRequest, RPCResponse};
@@ -9,7 +8,6 @@ use network::service::{NetworkMessage, OutgoingMessage};
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::Severity;
 use sloggers::Build;
-use std::sync::Arc;
 use std::time::Duration;
 use test_harness::BeaconChainHarness;
 use tokio::runtime::TaskExecutor;
@@ -19,24 +17,38 @@ pub struct SyncNode {
     pub id: usize,
     sender: Sender<HandlerMessage>,
     receiver: Receiver<NetworkMessage>,
+    harness: BeaconChainHarness,
 }
 
 impl SyncNode {
-    pub fn new(
+    fn from_beacon_state_builder(
         id: usize,
         executor: &TaskExecutor,
-        chain: Arc<NetworkBeaconChain>,
+        state_builder: TestingBeaconStateBuilder,
+        spec: &ChainSpec,
         logger: slog::Logger,
     ) -> Self {
+        let harness = BeaconChainHarness::from_beacon_state_builder(state_builder, spec.clone());
+
         let (network_sender, network_receiver) = unbounded();
-        let message_handler_sender =
-            MessageHandler::spawn(chain, network_sender, executor, logger).unwrap();
+        let message_handler_sender = MessageHandler::spawn(
+            harness.beacon_chain.clone(),
+            network_sender,
+            executor,
+            logger,
+        )
+        .unwrap();
 
         Self {
             id,
             sender: message_handler_sender,
             receiver: network_receiver,
+            harness,
         }
+    }
+
+    fn increment_beacon_chain_slot(&mut self) {
+        self.harness.increment_beacon_chain_slot();
     }
 
     fn send(&self, message: HandlerMessage) {
@@ -47,7 +59,11 @@ impl SyncNode {
         self.receiver.recv_timeout(Duration::from_millis(500))
     }
 
-    fn recv_rpc_response(&self) -> Result<RPCResponse, RecvTimeoutError> {
+    fn hello_message(&self) -> HelloMessage {
+        self.harness.beacon_chain.hello_message()
+    }
+
+    fn _recv_rpc_response(&self) -> Result<RPCResponse, RecvTimeoutError> {
         let network_message = self.recv()?;
         Ok(match network_message {
             NetworkMessage::Send(
@@ -108,12 +124,6 @@ impl SyncMaster {
         }
     }
 
-    pub fn build_blocks(&mut self, blocks: usize) {
-        for _ in 0..blocks {
-            self.harness.advance_chain_with_block();
-        }
-    }
-
     pub fn response_id(&mut self, node: &SyncNode) -> u64 {
         let id = self.response_ids[node.id];
         self.response_ids[node.id] += 1;
@@ -169,11 +179,11 @@ fn test_setup(
 
     let mut nodes = Vec::with_capacity(node_count);
     for id in 0..node_count {
-        let local_chain = TestingBeaconChainBuilder::from(state_builder.clone()).build(&spec);
-        let node = SyncNode::new(
+        let node = SyncNode::from_beacon_state_builder(
             id,
             &runtime.executor(),
-            Arc::new(local_chain),
+            state_builder.clone(),
+            &spec,
             logger.clone(),
         );
 
@@ -183,6 +193,15 @@ fn test_setup(
     let master = SyncMaster::from_beacon_state_builder(state_builder, node_count, &spec);
 
     (runtime, master, nodes)
+}
+
+pub fn build_blocks(blocks: usize, master: &mut SyncMaster, nodes: &mut Vec<SyncNode>) {
+    for _ in 0..blocks {
+        master.harness.advance_chain_with_block();
+        for i in 0..nodes.len() {
+            nodes[i].increment_beacon_chain_slot();
+        }
+    }
 }
 
 #[test]
@@ -195,17 +214,20 @@ fn first_test() {
     let state_builder =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
 
-    let (runtime, mut master, nodes) = test_setup(state_builder, node_count, &spec, logger.clone());
+    let (runtime, mut master, mut nodes) =
+        test_setup(state_builder, node_count, &spec, logger.clone());
 
-    master.build_blocks(10);
+    let original_node_slot = nodes[0].hello_message().best_slot;
+
+    build_blocks(2, &mut master, &mut nodes);
 
     master.do_hello_with(&nodes[0]);
 
     assert_sent_block_root_request(
         &nodes[0],
         BeaconBlockRootsRequest {
-            start_slot: Slot::new(1),
-            count: 10,
+            start_slot: original_node_slot,
+            count: 2,
         },
     );
 

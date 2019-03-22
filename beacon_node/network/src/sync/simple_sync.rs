@@ -1,7 +1,5 @@
 use crate::beacon_chain::BeaconChain;
 use crate::message_handler::NetworkContext;
-use crate::service::NetworkMessage;
-use crossbeam_channel::Sender;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse};
 use eth2_libp2p::PeerId;
@@ -10,14 +8,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{Epoch, Hash256, Slot};
 
-type NetworkSender = Sender<NetworkMessage>;
-
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
 /// Keeps track of syncing information for known connected peers.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
+    network_id: u8,
     latest_finalized_root: Hash256,
     latest_finalized_epoch: Epoch,
     best_root: Hash256,
@@ -25,25 +22,24 @@ pub struct PeerSyncInfo {
 }
 
 impl PeerSyncInfo {
-    fn is_on_chain(&self, chain: &Arc<BeaconChain>) -> bool {
-        // TODO: make useful.
-        true
+    fn is_on_same_chain(&self, other: Self) -> bool {
+        self.network_id == other.network_id
     }
 
-    fn has_higher_finalized_epoch(&self, chain: &Arc<BeaconChain>) -> bool {
-        self.latest_finalized_epoch > chain.get_state().finalized_epoch
+    fn has_higher_finalized_epoch_than(&self, other: Self) -> bool {
+        self.latest_finalized_epoch > other.latest_finalized_epoch
     }
 
-    fn has_higher_best_slot(&self, chain: &Arc<BeaconChain>) -> bool {
-        self.latest_finalized_epoch > chain.get_state().finalized_epoch
+    fn has_higher_best_slot_than(&self, other: Self) -> bool {
+        self.best_slot > other.best_slot
     }
 
-    pub fn status(&self, chain: &Arc<BeaconChain>) -> PeerStatus {
-        if self.has_higher_finalized_epoch(chain) {
+    pub fn status_compared_to(&self, other: Self) -> PeerStatus {
+        if self.has_higher_finalized_epoch_than(other) {
             PeerStatus::HigherFinalizedEpoch
-        } else if !self.is_on_chain(chain) {
-            PeerStatus::HigherFinalizedEpoch
-        } else if self.has_higher_best_slot(chain) {
+        } else if !self.is_on_same_chain(other) {
+            PeerStatus::OnDifferentChain
+        } else if self.has_higher_best_slot_than(other) {
             PeerStatus::HigherBestSlot
         } else {
             PeerStatus::NotInteresting
@@ -62,11 +58,18 @@ pub enum PeerStatus {
 impl From<HelloMessage> for PeerSyncInfo {
     fn from(hello: HelloMessage) -> PeerSyncInfo {
         PeerSyncInfo {
+            network_id: hello.network_id,
             latest_finalized_root: hello.latest_finalized_root,
             latest_finalized_epoch: hello.latest_finalized_epoch,
             best_root: hello.best_root,
             best_slot: hello.best_slot,
         }
+    }
+}
+
+impl From<&Arc<BeaconChain>> for PeerSyncInfo {
+    fn from(chain: &Arc<BeaconChain>) -> PeerSyncInfo {
+        Self::from(chain.hello_message())
     }
 }
 
@@ -88,12 +91,6 @@ pub struct SimpleSync {
     known_peers: HashMap<PeerId, PeerSyncInfo>,
     /// The current state of the syncing protocol.
     state: SyncState,
-    /// The network id, for quick HELLO RPC message lookup.
-    network_id: u8,
-    /// The latest epoch of the syncing chain.
-    latest_finalized_epoch: Epoch,
-    /// The latest block of the syncing chain.
-    latest_slot: Slot,
     /// Sync logger.
     log: slog::Logger,
 }
@@ -106,9 +103,6 @@ impl SimpleSync {
             chain: beacon_chain.clone(),
             known_peers: HashMap::new(),
             state: SyncState::Idle,
-            network_id: beacon_chain.get_spec().network_id,
-            latest_finalized_epoch: state.finalized_epoch,
-            latest_slot: state.slot - 1, //TODO: Build latest block function into Beacon chain and correct this
             log: sync_logger,
         }
     }
@@ -133,40 +127,39 @@ impl SimpleSync {
     pub fn on_hello(&mut self, peer_id: PeerId, hello: HelloMessage, network: &mut NetworkContext) {
         let spec = self.chain.get_spec();
 
+        let remote = PeerSyncInfo::from(hello);
+        let local = PeerSyncInfo::from(&self.chain);
+        let remote_status = remote.status_compared_to(local);
+
         // network id must match
-        if hello.network_id != self.network_id {
-            debug!(self.log, "Bad network id. Peer: {:?}", peer_id);
-            network.disconnect(peer_id);
-            return;
+        if remote_status != PeerStatus::OnDifferentChain {
+            debug!(self.log, "Handshake successful. Peer: {:?}", peer_id);
+            self.known_peers.insert(peer_id.clone(), remote);
         }
 
-        let peer = PeerSyncInfo::from(hello);
-        debug!(self.log, "Handshake successful. Peer: {:?}", peer_id);
-        self.known_peers.insert(peer_id.clone(), peer);
-
-        debug!(
-            self.log,
-            "Peer hello. Status: {:?}",
-            peer.status(&self.chain)
-        );
-
-        match peer.status(&self.chain) {
+        match remote_status {
             PeerStatus::OnDifferentChain => {
                 debug!(self.log, "Peer is on different chain. Peer: {:?}", peer_id);
 
                 network.disconnect(peer_id);
             }
             PeerStatus::HigherFinalizedEpoch => {
-                let start_slot = peer.latest_finalized_epoch.start_slot(spec.slots_per_epoch);
-                let required_slots = start_slot - self.chain.slot();
+                let start_slot = remote
+                    .latest_finalized_epoch
+                    .start_slot(spec.slots_per_epoch);
+                let required_slots = start_slot - local.best_slot;
 
                 self.request_block_roots(peer_id, start_slot, required_slots.as_u64(), network);
             }
             PeerStatus::HigherBestSlot => {
-                let start_slot = peer.best_slot;
-                let required_slots = start_slot - self.chain.slot();
+                let required_slots = remote.best_slot - local.best_slot;
 
-                self.request_block_roots(peer_id, start_slot, required_slots.as_u64(), network);
+                self.request_block_roots(
+                    peer_id,
+                    local.best_slot,
+                    required_slots.as_u64(),
+                    network,
+                );
             }
             PeerStatus::NotInteresting => {}
         }
