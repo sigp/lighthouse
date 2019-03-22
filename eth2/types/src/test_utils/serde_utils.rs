@@ -1,5 +1,5 @@
-use serde::{Deserialize, Deserializer};
 use serde::de::Error;
+use serde::{Deserialize, Deserializer};
 
 pub fn u8_from_hex_str<'de, D>(deserializer: D) -> Result<u8, D::Error>
 where
