@@ -142,8 +142,14 @@ where
         let mut slot = start_slot + count - 1;
 
         loop {
-            // Return if the slot required is greater than the current state.
-            if slot >= state.slot {
+            // If the highest slot requested is that of the current state insert the root of the
+            // head block, unless the head block's slot is not matching.
+            if slot == state.slot && self.head().beacon_block.slot == slot {
+                roots.push(self.head().beacon_block_root);
+
+                slot -= 1;
+                continue;
+            } else if slot >= state.slot {
                 return Err(BeaconStateError::SlotOutOfBounds);
             }
 
@@ -180,10 +186,23 @@ where
         }
 
         if (slot == start_slot) && (roots.len() == count.as_usize()) {
-            Ok(roots)
+            // Reverse the ordering of the roots. We extracted them in reverse order to make it
+            // simpler to lookup historic states.
+            //
+            // This is a potential optimisation target.
+            Ok(roots.iter().rev().cloned().collect())
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, Error> {
+        Ok(self.block_store.get_deserialized(block_root)?)
     }
 
     /// Update the canonical head to some new values.
@@ -620,6 +639,11 @@ where
         for i in indices_to_delete {
             attester_slashings_for_inclusion.remove(i);
         }
+    }
+
+    /// Returns `true` if the given block root has not been processed.
+    pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
+        Ok(!self.block_store.exists(beacon_block_root)?)
     }
 
     /// Accept some block and attempt to add it to block DAG.

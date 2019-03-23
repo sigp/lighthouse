@@ -142,9 +142,20 @@ impl MessageHandler {
             RPCResponse::BeaconBlockRoots(response) => {
                 debug!(
                     self.log,
-                    "BeaconBlockRoots response received from peer: {:?}", peer_id
+                    "BeaconBlockRoots response received"; "peer" => format!("{:?}", peer_id)
                 );
                 self.sync.on_beacon_block_roots_response(
+                    peer_id,
+                    response,
+                    &mut self.network_context,
+                )
+            }
+            RPCResponse::BeaconBlockHeaders(response) => {
+                debug!(
+                    self.log,
+                    "BeaconBlockHeaders response received"; "peer" => format!("{:?}", peer_id)
+                );
+                self.sync.on_beacon_block_headers_response(
                     peer_id,
                     response,
                     &mut self.network_context,
@@ -233,10 +244,6 @@ impl NetworkContext {
         };
         // register RPC request
         self.requests.insert((peer_id.clone(), id), Instant::now());
-        debug!(
-            self.log,
-            "Hello request registered with peer: {:?}", peer_id
-        );
         id
     }
 }

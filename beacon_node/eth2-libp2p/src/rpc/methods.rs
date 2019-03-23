@@ -162,7 +162,7 @@ pub struct BeaconBlockHeadersResponse {
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockBodiesRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: Hash256,
+    pub block_roots: Vec<Hash256>,
 }
 
 /// Response containing the list of requested beacon block bodies.
