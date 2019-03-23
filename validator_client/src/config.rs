@@ -1,11 +1,11 @@
 use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
+use slog::{debug, error, info};
 use std::fs;
 use std::fs::File;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
-use slog::{debug, info, error};
 use types::ChainSpec;
 
 /// Stores the core configuration for this validator instance.
@@ -77,11 +77,9 @@ impl Config {
 
     /// Try to load keys from validator_dir, returning None if none are found or an error.
     pub fn fetch_keys(&self, log: &slog::Logger) -> Option<Vec<Keypair>> {
-
         let key_pairs: Vec<Keypair> = fs::read_dir(&self.data_dir)
             .unwrap()
-            .filter_map( |validator_dir| {
-
+            .filter_map(|validator_dir| {
                 let validator_dir = validator_dir.ok()?;
 
                 if !(validator_dir.file_type().ok()?.is_dir()) {
@@ -92,24 +90,40 @@ impl Config {
                 let key_filename = validator_dir.path().join(DEFAULT_PRIVATE_KEY_FILENAME);
 
                 if !(key_filename.is_file()) {
-                    info!(log, "Private key is not a file: {:?}", key_filename.to_str());
+                    info!(
+                        log,
+                        "Private key is not a file: {:?}",
+                        key_filename.to_str()
+                    );
                     return None;
                 }
 
-                debug!(log, "Deserializing private key from file: {:?}", key_filename.to_str());
+                debug!(
+                    log,
+                    "Deserializing private key from file: {:?}",
+                    key_filename.to_str()
+                );
 
                 let mut key_file = File::open(key_filename.clone()).ok()?;
 
                 let key: Keypair = if let Ok(key_ok) = bincode::deserialize_from(&mut key_file) {
-                        key_ok
-                    } else {
-                        error!(log, "Unable to deserialize the private key file: {:?}", key_filename);
-                        return None;
-                    };
+                    key_ok
+                } else {
+                    error!(
+                        log,
+                        "Unable to deserialize the private key file: {:?}", key_filename
+                    );
+                    return None;
+                };
 
                 let ki = key.identifier();
                 if ki != validator_dir.file_name().into_string().ok()? {
-                    error!(log, "The validator key ({:?}) did not match the directory filename {:?}.", ki, &validator_dir.path().to_string_lossy());
+                    error!(
+                        log,
+                        "The validator key ({:?}) did not match the directory filename {:?}.",
+                        ki,
+                        &validator_dir.path().to_string_lossy()
+                    );
                     return None;
                 }
                 Some(key)
@@ -122,7 +136,6 @@ impl Config {
         } else {
             Some(key_pairs)
         }
-
     }
 
     /// Saves a keypair to a file inside the appropriate validator directory. Returns the saved path filename.
