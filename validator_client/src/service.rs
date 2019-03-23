@@ -39,8 +39,8 @@ pub struct Service {
     slot_clock: Arc<SystemTimeSlotClock>,
     /// The current slot we are processing.
     current_slot: Slot,
-    /// Seconds until the next slot. This is used for initializing the tokio timer interval.
-    seconds_to_next_slot: Duration,
+    /// Micro seconds until the next slot. This is used for initializing the tokio timer interval.
+    micros_to_next_slot: Duration,
     // GRPC Clients
     /// The beacon block GRPC client.
     beacon_block_client: Arc<BeaconBlockServiceClient>,
@@ -82,6 +82,7 @@ impl Service {
 
         // build requisite objects to form Self
         let genesis_time = node_info.get_genesis_time();
+        let genesis_time = 1_549_935_547;
 
         info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.chain_id, "Genesis time" => genesis_time);
 
@@ -127,20 +128,37 @@ impl Service {
         let current_slot = slot_clock.present_slot().unwrap().unwrap().sub(1);
 
         // calculate seconds to the next slot
-        let seconds_to_next_slot = {
+        let micros_to_next_slot = {
             let syslot_time = SystemTime::now();
             let duration_since_epoch = syslot_time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
-            let mut secs_to_slot = None;
+            debug!(log, "Duration since unix epoch {:?}", duration_since_epoch);
+            let mut micros_to_slot = None;
             if let Some(duration_since_genesis) =
                 duration_since_epoch.checked_sub(Duration::from_secs(genesis_time))
             {
                 // seconds till next slot
-                secs_to_slot = duration_since_genesis
+                debug!(log, "Genesis Time {:?}", genesis_time);
+                debug!(log, "Duration since genesis {:?}", duration_since_genesis);
+                micros_to_slot = duration_since_genesis
                     .as_secs()
                     .checked_rem(config.spec.seconds_per_slot);
             }
-            secs_to_slot.unwrap_or_else(|| 0)
+            micros_to_slot.unwrap_or_else(|| 0)
+            /*
+            let duration_to_slot = duration_since_genesis
+                .checked_sub(Duration::from(
+                    duration_since_genesis
+                        .checked_div(config.spec.seconds_per_slot as u64)
+                        .unwrap()
+                        .as_secs()
+                        .checked_mul(config.spec.seconds_per_slot)
+                        .unwrap(),
+                ))
+                .unwrap();
+                */
         };
+
+        info!(log, ""; "Micro Seconds to next slot"=>micros_to_next_slot);
 
         Self {
             connected_node_version: node_info.version,
@@ -148,7 +166,7 @@ impl Service {
             fork,
             slot_clock,
             current_slot,
-            seconds_to_next_slot: Duration::from_secs(seconds_to_next_slot),
+            micros_to_next_slot: Duration::from_micros(micros_to_next_slot),
             beacon_block_client,
             validator_client,
             attester_client,
@@ -176,7 +194,7 @@ impl Service {
             // Set the interval to start at the next slot, and every slot after
             let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
             //TODO: Handle checked add correctly
-            Interval::new(Instant::now() + service.seconds_to_next_slot, slot_duration)
+            Interval::new(Instant::now() + service.micros_to_next_slot, slot_duration)
         };
 
         // kick off core service
@@ -200,7 +218,11 @@ impl Service {
 
         runtime.block_on(interval.for_each(move |_| {
             // update duties
-            debug!(service.log, "Processing new slot...");
+            debug!(
+                service.log,
+                "Processing slot: {}",
+                service.slot_clock.present_slot().unwrap().unwrap().as_u64()
+            );
             manager.poll();
             Ok(())
         }));
