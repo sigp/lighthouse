@@ -2,7 +2,7 @@ use bls::Keypair;
 use clap::{App, Arg, SubCommand};
 use slog::{debug, info, o, Drain};
 use std::path::PathBuf;
-use validator_client::config::ValidatorClientConfig;
+use validator_client::Config as ValidatorClientConfig;
 
 fn main() {
     // Logging
@@ -31,7 +31,7 @@ fn main() {
         )
         .get_matches();
 
-    let config = ValidatorClientConfig::build_config(&matches)
+    let config = ValidatorClientConfig::parse_args(&matches, &log)
         .expect("Unable to build a configuration for the account manager.");
 
     // Log configuration
