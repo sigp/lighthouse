@@ -8,6 +8,7 @@ edition = "2018"
 block_proposer = { path = "../eth2/block_proposer" }
 attester = { path = "../eth2/attester" }
 bls = { path = "../eth2/utils/bls" }
+ssz = { path = "../eth2/utils/ssz" }
 clap = "2.32.0"
 dirs = "1.0.3"
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
@@ -18,4 +19,5 @@ types = { path = "../eth2/types" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
-ssz = { path = "../eth2/utils/ssz" }
+tokio = "0.1.18"
+tokio-timer = "0.2.10"

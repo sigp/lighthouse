@@ -39,11 +39,11 @@ pub enum Error {
 /// A polling state machine which ensures the latest `EpochDuties` are obtained from the Beacon
 /// Node.
 ///
-/// There is a single `DutiesManager` per validator instance.
+/// This keeps track of all validator keys and required voting slots.
 pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
     pub duties_map: Arc<EpochDutiesMap>,
-    /// The validator's public key.
-    pub pubkey: PublicKey,
+    /// A list of all public keys known to the validator service.
+    pub pubkeys: Vec<PublicKey>,
     pub spec: Arc<ChainSpec>,
     pub slot_clock: Arc<T>,
     pub beacon_node: Arc<U>,
@@ -54,6 +54,8 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
     ///
     /// The present `epoch` will be learned from the supplied `SlotClock`. In production this will
     /// be a wall-clock (e.g., system time, remote server time, etc.).
+    //TODO: Remove the poll and trust the tokio system-clock timer. Leave for now to ensure the
+    //timer is accurate.
     pub fn poll(&self) -> Result<PollOutcome, Error> {
         let slot = self
             .slot_clock
@@ -63,7 +65,10 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
 
         let epoch = slot.epoch(self.spec.slots_per_epoch);
 
-        if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkey)? {
+        if let Some(duties) = self
+            .beacon_node
+            .request_shuffling(epoch, &self.pubkeys[0])?
+        {
             // If these duties were known, check to see if they're updates or identical.
             let result = if let Some(known_duties) = self.duties_map.get(epoch)? {
                 if known_duties == duties {
