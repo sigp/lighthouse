@@ -161,6 +161,17 @@ impl MessageHandler {
                     &mut self.network_context,
                 )
             }
+            RPCResponse::BeaconBlockBodies(response) => {
+                debug!(
+                    self.log,
+                    "BeaconBlockBodies response received"; "peer" => format!("{:?}", peer_id)
+                );
+                self.sync.on_beacon_block_bodies_response(
+                    peer_id,
+                    response,
+                    &mut self.network_context,
+                )
+            }
             // TODO: Handle all responses
             _ => panic!("Unknown response: {:?}", response),
         }

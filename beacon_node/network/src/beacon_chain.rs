@@ -10,7 +10,7 @@ use beacon_chain::{
 use eth2_libp2p::HelloMessage;
 use types::{BeaconBlock, BeaconStateError, Epoch, Hash256, Slot};
 
-pub use beacon_chain::BeaconChainError;
+pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
 
 /// The network's API to the beacon chain.
 pub trait BeaconChain: Send + Sync {
@@ -33,6 +33,9 @@ pub trait BeaconChain: Send + Sync {
     fn finalized_epoch(&self) -> Epoch;
 
     fn hello_message(&self) -> HelloMessage;
+
+    fn process_block(&self, block: BeaconBlock)
+        -> Result<BlockProcessingOutcome, BeaconChainError>;
 
     fn get_block_roots(
         &self,
@@ -96,6 +99,13 @@ where
             best_root: self.best_block_root(),
             best_slot: self.best_slot(),
         }
+    }
+
+    fn process_block(
+        &self,
+        block: BeaconBlock,
+    ) -> Result<BlockProcessingOutcome, BeaconChainError> {
+        self.process_block(block)
     }
 
     fn get_block_roots(

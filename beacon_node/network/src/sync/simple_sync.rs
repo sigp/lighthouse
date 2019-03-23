@@ -3,12 +3,12 @@ use crate::message_handler::NetworkContext;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse};
 use eth2_libp2p::PeerId;
-use slog::{debug, error, o, warn};
+use slog::{debug, error, info, o, warn};
 use ssz::TreeHash;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
-use types::{BeaconBlockHeader, Epoch, Hash256, Slot};
+use std::time::{Duration, Instant};
+use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
@@ -102,7 +102,11 @@ pub struct SimpleSync {
 impl SimpleSync {
     pub fn new(beacon_chain: Arc<BeaconChain>, log: &slog::Logger) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));
-        let import_queue = ImportQueue::new(beacon_chain.clone(), log.clone());
+
+        let queue_item_stale_time = Duration::from_secs(600);
+
+        let import_queue =
+            ImportQueue::new(beacon_chain.clone(), queue_item_stale_time, log.clone());
         SimpleSync {
             chain: beacon_chain.clone(),
             known_peers: HashMap::new(),
@@ -229,10 +233,69 @@ impl SimpleSync {
             return;
         }
 
-        let block_roots = self.import_queue.enqueue_headers(response.headers);
+        let block_roots = self
+            .import_queue
+            .enqueue_headers(response.headers, peer_id.clone());
 
         if !block_roots.is_empty() {
             self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
+        }
+    }
+
+    pub fn on_beacon_block_bodies_response(
+        &mut self,
+        peer_id: PeerId,
+        response: BeaconBlockBodiesResponse,
+        network: &mut NetworkContext,
+    ) {
+        self.import_queue
+            .enqueue_bodies(response.block_bodies, peer_id.clone());
+        self.process_import_queue(network);
+    }
+
+    pub fn process_import_queue(&mut self, network: &mut NetworkContext) {
+        let mut blocks: Vec<(Hash256, BeaconBlock, PeerId)> = self
+            .import_queue
+            .partials
+            .iter()
+            .filter_map(|(key, partial)| {
+                if let Some(_) = partial.body {
+                    let (block, _root) = partial.clone().complete().expect("Body must be Some");
+                    Some((*key, block, partial.sender.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort the blocks to be in ascending slot order.
+        blocks.sort_unstable_by(|a, b| a.1.slot.partial_cmp(&b.1.slot).unwrap());
+
+        let mut imported_keys = vec![];
+
+        for (key, block, sender) in blocks {
+            match self.chain.process_block(block) {
+                Ok(outcome) => {
+                    if outcome.is_invalid() {
+                        warn!(self.log, "Invalid block: {:?}", outcome);
+                        network.disconnect(sender);
+                    } else {
+                        imported_keys.push(key)
+                    }
+                }
+                Err(e) => {
+                    error!(self.log, "Error during block processing"; "error" => format!("{:?}", e))
+                }
+            }
+        }
+
+        println!("imported_keys.len: {:?}", imported_keys.len());
+
+        if !imported_keys.is_empty() {
+            info!(self.log, "Imported {} blocks", imported_keys.len());
+            for key in imported_keys {
+                self.import_queue.partials.remove(&key);
+            }
         }
     }
 
@@ -298,19 +361,41 @@ pub struct ImportQueue {
     pub chain: Arc<BeaconChain>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
     pub partials: HashMap<Hash256, PartialBeaconBlock>,
+    /// Time before a queue entry is consider state.
+    pub stale_time: Duration,
     /// Logging
     log: slog::Logger,
 }
 
 impl ImportQueue {
-    pub fn new(chain: Arc<BeaconChain>, log: slog::Logger) -> Self {
+    pub fn new(chain: Arc<BeaconChain>, stale_time: Duration, log: slog::Logger) -> Self {
         Self {
             chain,
             partials: HashMap::new(),
+            stale_time,
             log,
         }
     }
 
+    pub fn remove_stale(&mut self) {
+        let keys: Vec<Hash256> = self
+            .partials
+            .iter()
+            .filter_map(|(key, partial)| {
+                if partial.inserted + self.stale_time >= Instant::now() {
+                    Some(*key)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        keys.iter().for_each(|key| {
+            self.partials.remove(&key);
+        });
+    }
+
+    /// Returns `true` if `self.chain` has not yet processed this block.
     fn is_new_block(&self, block_root: &Hash256) -> bool {
         self.chain
             .is_new_block_root(&block_root)
@@ -322,9 +407,6 @@ impl ImportQueue {
 
     /// Returns the index of the first new root in the list of block roots.
     pub fn first_new_root(&mut self, roots: &[BlockRootSlot]) -> Option<usize> {
-        for root in roots {
-            println!("root {}", root.block_root);
-        }
         roots
             .iter()
             .position(|brs| self.is_new_block(&brs.block_root))
@@ -339,14 +421,18 @@ impl ImportQueue {
     /// If a `header` is already in the queue, but not yet processed by the chain the block root is
     /// included in the output and the `inserted` time for the partial record is set to
     /// `Instant::now()`. Updating the `inserted` time stops the partial from becoming stale.
-    pub fn enqueue_headers(&mut self, headers: Vec<BeaconBlockHeader>) -> Vec<Hash256> {
+    pub fn enqueue_headers(
+        &mut self,
+        headers: Vec<BeaconBlockHeader>,
+        sender: PeerId,
+    ) -> Vec<Hash256> {
         let mut required_bodies: Vec<Hash256> = vec![];
 
         for header in headers {
             let block_root = Hash256::from_slice(&header.hash_tree_root()[..]);
 
             if self.is_new_block(&block_root) {
-                self.insert_partial(block_root, header);
+                self.insert_header(block_root, header, sender.clone());
                 required_bodies.push(block_root)
             }
         }
@@ -354,20 +440,60 @@ impl ImportQueue {
         required_bodies
     }
 
-    fn insert_partial(&mut self, block_root: Hash256, header: BeaconBlockHeader) {
-        self.partials.insert(
-            header.block_body_root,
-            PartialBeaconBlock {
+    /// If there is a matching `header` for this `body`, adds it to the queue.
+    ///
+    /// If there is no `header` for the `body`, the body is simply discarded.
+    pub fn enqueue_bodies(&mut self, bodies: Vec<BeaconBlockBody>, sender: PeerId) {
+        for body in bodies {
+            self.insert_body(body, sender.clone());
+        }
+    }
+
+    /// Inserts a header to the queue.
+    ///
+    /// If the header already exists, the `inserted` time is set to `now` and not other
+    /// modifications are made.
+    fn insert_header(&mut self, block_root: Hash256, header: BeaconBlockHeader, sender: PeerId) {
+        self.partials
+            .entry(header.block_body_root)
+            .and_modify(|p| p.inserted = Instant::now())
+            .or_insert(PartialBeaconBlock {
                 block_root,
                 header,
+                body: None,
                 inserted: Instant::now(),
-            },
-        );
+                sender,
+            });
+    }
+
+    /// Updates an existing partial with the `body`.
+    ///
+    /// If there is no header for the `body`, the body is simply discarded.
+    fn insert_body(&mut self, body: BeaconBlockBody, sender: PeerId) {
+        let body_root = Hash256::from_slice(&body.hash_tree_root()[..]);
+
+        self.partials.entry(body_root).and_modify(|p| {
+            if body_root == p.header.block_body_root {
+                p.body = Some(body);
+                p.inserted = Instant::now();
+                p.sender = sender;
+            }
+        });
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct PartialBeaconBlock {
     pub block_root: Hash256,
     pub header: BeaconBlockHeader,
+    pub body: Option<BeaconBlockBody>,
     pub inserted: Instant,
+    pub sender: PeerId,
+}
+
+impl PartialBeaconBlock {
+    /// Given a `body`, consumes `self` and returns a complete `BeaconBlock` along with its root.
+    pub fn complete(self) -> Option<(BeaconBlock, Hash256)> {
+        Some((self.header.into_block(self.body?), self.block_root))
+    }
 }

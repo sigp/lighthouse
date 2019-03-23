@@ -77,7 +77,16 @@ impl SyncNode {
 
         match request {
             RPCRequest::BeaconBlockHeaders(request) => request,
-            _ => panic!("Did not get block root request"),
+            _ => panic!("Did not get block headers request"),
+        }
+    }
+
+    pub fn get_block_bodies_request(&self) -> BeaconBlockBodiesRequest {
+        let request = self.recv_rpc_request().expect("No block bodies request");
+
+        match request {
+            RPCRequest::BeaconBlockBodies(request) => request,
+            _ => panic!("Did not get block bodies request"),
         }
     }
 
@@ -223,6 +232,29 @@ impl SyncMaster {
         self.send_rpc_response(node, response)
     }
 
+    pub fn respond_to_block_bodies_request(
+        &mut self,
+        node: &SyncNode,
+        request: BeaconBlockBodiesRequest,
+    ) {
+        let block_bodies: Vec<BeaconBlockBody> = request
+            .block_roots
+            .iter()
+            .map(|root| {
+                let block = self
+                    .harness
+                    .beacon_chain
+                    .get_block(root)
+                    .expect("Failed to load block")
+                    .expect("Block did not exist");
+                block.body
+            })
+            .collect();
+
+        let response = RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse { block_bodies });
+        self.send_rpc_response(node, response)
+    }
+
     fn send_rpc_response(&mut self, node: &SyncNode, rpc_response: RPCResponse) {
         node.send(self.rpc_response(node, rpc_response));
     }
@@ -311,6 +343,11 @@ fn first_test() {
 
     master.respond_to_block_headers_request(&nodes[0], headers_request);
 
-    std::thread::sleep(Duration::from_millis(500));
+    let bodies_request = nodes[0].get_block_bodies_request();
+    assert_eq!(bodies_request.block_roots.len(), 2);
+
+    master.respond_to_block_bodies_request(&nodes[0], bodies_request);
+
+    std::thread::sleep(Duration::from_millis(10000));
     runtime.shutdown_now();
 }
