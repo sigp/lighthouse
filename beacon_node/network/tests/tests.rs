@@ -67,7 +67,16 @@ impl SyncNode {
         let request = self.recv_rpc_request().expect("No block root request");
 
         match request {
-            RPCRequest::BeaconBlockRoots(response) => response,
+            RPCRequest::BeaconBlockRoots(request) => request,
+            _ => panic!("Did not get block root request"),
+        }
+    }
+
+    pub fn get_block_headers_request(&self) -> BeaconBlockHeadersRequest {
+        let request = self.recv_rpc_request().expect("No block headers request");
+
+        match request {
+            RPCRequest::BeaconBlockHeaders(request) => request,
             _ => panic!("Did not get block root request"),
         }
     }
@@ -164,9 +173,7 @@ impl SyncMaster {
             .harness
             .beacon_chain
             .get_block_roots(request.start_slot, Slot::from(request.count))
-            .expect("Beacon chain did not give blocks");
-
-        let roots = roots
+            .expect("Beacon chain did not give block roots")
             .iter()
             .enumerate()
             .map(|(i, root)| BlockRootSlot {
@@ -176,6 +183,43 @@ impl SyncMaster {
             .collect();
 
         let response = RPCResponse::BeaconBlockRoots(BeaconBlockRootsResponse { roots });
+        self.send_rpc_response(node, response)
+    }
+
+    pub fn respond_to_block_headers_request(
+        &mut self,
+        node: &SyncNode,
+        request: BeaconBlockHeadersRequest,
+    ) {
+        let roots = self
+            .harness
+            .beacon_chain
+            .get_block_roots(request.start_slot, Slot::from(request.max_headers))
+            .expect("Beacon chain did not give blocks");
+
+        if roots.is_empty() {
+            panic!("Roots was empty when trying to get headers.")
+        }
+
+        assert_eq!(
+            roots[0], request.start_root,
+            "Got the wrong start root when getting headers"
+        );
+
+        let headers: Vec<BeaconBlockHeader> = roots
+            .iter()
+            .map(|root| {
+                let block = self
+                    .harness
+                    .beacon_chain
+                    .get_block(root)
+                    .expect("Failed to load block")
+                    .expect("Block did not exist");
+                block.block_header()
+            })
+            .collect();
+
+        let response = RPCResponse::BeaconBlockHeaders(BeaconBlockHeadersResponse { headers });
         self.send_rpc_response(node, response)
     }
 
@@ -228,6 +272,11 @@ pub fn build_blocks(blocks: usize, master: &mut SyncMaster, nodes: &mut Vec<Sync
             nodes[i].increment_beacon_chain_slot();
         }
     }
+    master.harness.run_fork_choice();
+
+    for i in 0..nodes.len() {
+        nodes[i].harness.run_fork_choice();
+    }
 }
 
 #[test]
@@ -249,11 +298,18 @@ fn first_test() {
 
     master.do_hello_with(&nodes[0]);
 
-    let request = nodes[0].get_block_root_request();
-    assert_eq!(request.start_slot, original_node_slot);
-    assert_eq!(request.count, 2);
+    let roots_request = nodes[0].get_block_root_request();
+    assert_eq!(roots_request.start_slot, original_node_slot + 1);
+    assert_eq!(roots_request.count, 2);
 
-    master.respond_to_block_roots_request(&nodes[0], request);
+    master.respond_to_block_roots_request(&nodes[0], roots_request);
+
+    let headers_request = nodes[0].get_block_headers_request();
+    assert_eq!(headers_request.start_slot, original_node_slot + 1);
+    assert_eq!(headers_request.max_headers, 2);
+    assert_eq!(headers_request.skip_slots, 0);
+
+    master.respond_to_block_headers_request(&nodes[0], headers_request);
 
     std::thread::sleep(Duration::from_millis(500));
     runtime.shutdown_now();

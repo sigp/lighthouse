@@ -8,7 +8,9 @@ use beacon_chain::{
     CheckPoint,
 };
 use eth2_libp2p::HelloMessage;
-use types::{BeaconStateError, Epoch, Hash256, Slot};
+use types::{BeaconBlock, BeaconStateError, Epoch, Hash256, Slot};
+
+pub use beacon_chain::BeaconChainError;
 
 /// The network's API to the beacon chain.
 pub trait BeaconChain: Send + Sync {
@@ -19,6 +21,8 @@ pub trait BeaconChain: Send + Sync {
     fn slot(&self) -> Slot;
 
     fn head(&self) -> RwLockReadGuard<CheckPoint>;
+
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, BeaconChainError>;
 
     fn best_slot(&self) -> Slot;
 
@@ -35,6 +39,8 @@ pub trait BeaconChain: Send + Sync {
         start_slot: Slot,
         count: Slot,
     ) -> Result<Vec<Hash256>, BeaconStateError>;
+
+    fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, BeaconChainError>;
 }
 
 impl<T, U, F> BeaconChain for RawBeaconChain<T, U, F>
@@ -57,6 +63,10 @@ where
 
     fn head(&self) -> RwLockReadGuard<CheckPoint> {
         self.head()
+    }
+
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, BeaconChainError> {
+        self.get_block(block_root)
     }
 
     fn finalized_epoch(&self) -> Epoch {
@@ -94,5 +104,9 @@ where
         count: Slot,
     ) -> Result<Vec<Hash256>, BeaconStateError> {
         self.get_block_roots(start_slot, count)
+    }
+
+    fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, BeaconChainError> {
+        self.is_new_block_root(beacon_block_root)
     }
 }
