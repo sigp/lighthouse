@@ -46,6 +46,26 @@ pub enum BlockProcessingOutcome {
     InvalidBlock(InvalidBlock),
 }
 
+impl BlockProcessingOutcome {
+    /// Returns `true` if the block was objectively invalid and we should disregard the peer who
+    /// sent it.
+    pub fn is_invalid(&self) -> bool {
+        match self {
+            BlockProcessingOutcome::ValidBlock(_) => false,
+            BlockProcessingOutcome::InvalidBlock(r) => match r {
+                InvalidBlock::FutureSlot => true,
+                InvalidBlock::StateRootMismatch => true,
+                InvalidBlock::ParentUnknown => false,
+                InvalidBlock::SlotProcessingError(_) => false,
+                InvalidBlock::PerBlockProcessingError(e) => match e {
+                    BlockProcessingError::Invalid(_) => true,
+                    BlockProcessingError::BeaconStateError(_) => false,
+                },
+            },
+        }
+    }
+}
+
 pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
@@ -685,10 +705,10 @@ where
         // TODO: check the block proposer signature BEFORE doing a state transition. This will
         // significantly lower exposure surface to DoS attacks.
 
-        // Transition the parent state to the present slot.
+        // Transition the parent state to the block slot.
         let mut state = parent_state;
         let previous_block_header = parent_block.block_header();
-        for _ in state.slot.as_u64()..present_slot.as_u64() {
+        for _ in state.slot.as_u64()..block.slot.as_u64() {
             if let Err(e) = per_slot_processing(&mut state, &previous_block_header, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
