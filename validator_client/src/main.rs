@@ -1,14 +1,14 @@
 use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
-use crate::config::ValidatorClientConfig;
+use crate::config::Config;
 use block_proposer::{test_utils::LocalSigner, BlockProducer};
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services_grpc::{BeaconBlockServiceClient, ValidatorServiceClient};
-use slog::{error, info, o, Drain};
+use slog::{info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
 use std::sync::Arc;
-use std::{process, thread, time};
+use std::thread;
 
 mod block_producer_service;
 mod config;
@@ -52,7 +52,7 @@ fn main() {
         )
         .get_matches();
 
-    let config = ValidatorClientConfig::build_config(&matches)
+    let config = Config::parse_args(&matches, &log)
         .expect("Unable to build a configuration for the validator client.");
 
     // Log configuration
@@ -91,15 +91,8 @@ fn main() {
     let poll_interval_millis = spec.seconds_per_slot * 1000 / 10; // 10% epoch time precision.
     info!(log, "Starting block producer service"; "polls_per_epoch" => spec.seconds_per_slot * 1000 / poll_interval_millis);
 
-    let keypairs = config
-        .fetch_keys()
-        .expect("Encountered an error while fetching saved keys.")
-        .unwrap_or_else(|| {
-            error!(log, "No key pairs found in configuration, they must first be generated with: account_manager generate.");
-            // give the logger a chance to flush the error before exiting.
-            thread::sleep(time::Duration::from_millis(500));
-            process::exit(1)
-        });
+    let keypairs = config.fetch_keys(&log)
+        .expect("No key pairs found in configuration, they must first be generated with: account_manager generate.");
 
     /*
      * Start threads.

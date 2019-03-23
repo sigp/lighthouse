@@ -1,3 +1,3 @@
 pub mod config;
 
-pub use crate::config::ValidatorClientConfig;
+pub use crate::config::Config;

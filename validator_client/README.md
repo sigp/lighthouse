@@ -65,7 +65,6 @@ with `--datadir`.
 The configuration directory structure looks like:
 ```
 ~/.lighthouse-validator
-└── validators
     ├── 3cf4210d58ec
     │   └── private.key
     ├── 9b5d8b5be4e7
