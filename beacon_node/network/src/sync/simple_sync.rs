@@ -119,6 +119,16 @@ impl SimpleSync {
         }
     }
 
+    pub fn on_goodbye(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        info!(
+            self.log, "PeerGoodbye";
+            "peer" => format!("{:?}", peer_id),
+            "reason" => format!("{:?}", reason),
+        );
+
+        self.known_peers.remove(&peer_id);
+    }
+
     pub fn on_connect(&self, peer_id: PeerId, network: &mut NetworkContext) {
         info!(self.log, "PeerConnect"; "peer" => format!("{:?}", peer_id));
 

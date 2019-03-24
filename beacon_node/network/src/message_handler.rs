@@ -107,13 +107,14 @@ impl MessageHandler {
     }
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request(&mut self, peer_id: PeerId, id: u64, request: RPCRequest) {
-        // TODO: ensure the id is legit
+    fn handle_rpc_request(&mut self, peer_id: PeerId, _id: u64, request: RPCRequest) {
+        // TODO: process the `id`.
         match request {
             RPCRequest::Hello(hello_message) => {
                 self.sync
                     .on_hello_request(peer_id, hello_message, &mut self.network_context)
             }
+            RPCRequest::Goodbye(goodbye_reason) => self.sync.on_goodbye(peer_id, goodbye_reason),
             RPCRequest::BeaconBlockRoots(request) => {
                 self.sync
                     .on_beacon_block_roots_request(peer_id, request, &mut self.network_context)
@@ -128,8 +129,11 @@ impl MessageHandler {
                 request,
                 &mut self.network_context,
             ),
-            // TODO: Handle all requests
-            _ => panic!("Unknown request: {:?}", request),
+            RPCRequest::BeaconChainState(_) => {
+                // We do not implement this endpoint, it is not required and will only likely be
+                // useful for light-client support in later phases.
+                warn!(self.log, "BeaconChainState RPC call is not supported.");
+            }
         }
     }
 
@@ -172,8 +176,14 @@ impl MessageHandler {
                     &mut self.network_context,
                 );
             }
-            // TODO: Handle all responses
-            _ => panic!("Unknown response: {:?}", response),
+            RPCResponse::BeaconChainState(_) => {
+                // We do not implement this endpoint, it is not required and will only likely be
+                // useful for light-client support in later phases.
+                //
+                // Theoretically, we shouldn't reach this code because we should never send a
+                // beacon state RPC request.
+                warn!(self.log, "BeaconChainState RPC call is not supported.");
+            }
         };
     }
 }
