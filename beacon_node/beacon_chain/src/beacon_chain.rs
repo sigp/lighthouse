@@ -26,7 +26,10 @@ pub enum ValidBlock {
 #[derive(Debug, PartialEq)]
 pub enum InvalidBlock {
     /// The block slot is greater than the present slot.
-    FutureSlot,
+    FutureSlot {
+        present_slot: Slot,
+        block_slot: Slot,
+    },
     /// The block state_root does not match the generated state.
     StateRootMismatch,
     /// The blocks parent_root is unknown.
@@ -53,7 +56,7 @@ impl BlockProcessingOutcome {
         match self {
             BlockProcessingOutcome::ValidBlock(_) => false,
             BlockProcessingOutcome::InvalidBlock(r) => match r {
-                InvalidBlock::FutureSlot => true,
+                InvalidBlock::FutureSlot { .. } => true,
                 InvalidBlock::StateRootMismatch => true,
                 InvalidBlock::ParentUnknown => false,
                 InvalidBlock::SlotProcessingError(_) => false,
@@ -302,6 +305,49 @@ where
         self.canonical_head.read()
     }
 
+    /// Updates the canonical `BeaconState` with the supplied state.
+    ///
+    /// Advances the chain forward to the present slot. This method is better than just setting
+    /// state and calling `catchup_state` as it will not result in an old state being installed and
+    /// then having it iteratively updated -- in such a case it's possible for another thread to
+    /// find the state at an old slot.
+    pub fn update_state(&self, mut state: BeaconState) -> Result<(), Error> {
+        let latest_block_header = self.head().beacon_block.block_header();
+
+        let present_slot = match self.slot_clock.present_slot() {
+            Ok(Some(slot)) => slot,
+            _ => return Err(Error::UnableToReadSlot),
+        };
+
+        // If required, transition the new state to the present slot.
+        for _ in state.slot.as_u64()..present_slot.as_u64() {
+            per_slot_processing(&mut state, &latest_block_header, &self.spec)?;
+        }
+
+        *self.state.write() = state;
+
+        Ok(())
+    }
+
+    /// Ensures the current canonical `BeaconState` has been transitioned to match the `slot_clock`.
+    pub fn catchup_state(&self) -> Result<(), Error> {
+        let latest_block_header = self.head().beacon_block.block_header();
+
+        let present_slot = match self.slot_clock.present_slot() {
+            Ok(Some(slot)) => slot,
+            _ => return Err(Error::UnableToReadSlot),
+        };
+
+        let mut state = self.state.write();
+
+        // If required, transition the new state to the present slot.
+        for _ in state.slot.as_u64()..present_slot.as_u64() {
+            per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
+        }
+
+        Ok(())
+    }
+
     /// Update the justified head to some new values.
     pub fn update_finalized_head(
         &self,
@@ -323,28 +369,6 @@ where
     /// indirectly,  by the fork-choice rule).
     pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint> {
         self.finalized_head.read()
-    }
-
-    /// Advance the `self.state` `BeaconState` to the supplied slot.
-    ///
-    /// This will perform per_slot and per_epoch processing as required.
-    ///
-    /// The `previous_block_root` will be set to the root of the current head block (as determined
-    /// by the fork-choice rule).
-    ///
-    /// It is important to note that this is _not_ the state corresponding to the canonical head
-    /// block, instead it is that state which may or may not have had additional per slot/epoch
-    /// processing applied to it.
-    pub fn advance_state(&self, slot: Slot) -> Result<(), SlotProcessingError> {
-        let state_slot = self.state.read().slot;
-
-        let latest_block_header = self.head().beacon_block.block_header();
-
-        for _ in state_slot.as_u64()..slot.as_u64() {
-            per_slot_processing(&mut *self.state.write(), &latest_block_header, &self.spec)?;
-        }
-
-        Ok(())
     }
 
     /// Returns the validator index (if any) for the given public key.
@@ -724,7 +748,10 @@ where
 
         if block.slot > present_slot {
             return Ok(BlockProcessingOutcome::InvalidBlock(
-                InvalidBlock::FutureSlot,
+                InvalidBlock::FutureSlot {
+                    present_slot,
+                    block_slot: block.slot,
+                },
             ));
         }
 
@@ -800,8 +827,9 @@ where
         // run instead.
         if self.head().beacon_block_root == parent_block_root {
             self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
-            // Update the local state variable.
-            *self.state.write() = state;
+
+            // Update the canonical `BeaconState`.
+            self.update_state(state)?;
         }
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
@@ -891,7 +919,10 @@ where
                 .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
             let state_root = state.canonical_root();
 
-            self.update_canonical_head(block, block_root, state, state_root);
+            self.update_canonical_head(block, block_root, state.clone(), state_root);
+
+            // Update the canonical `BeaconState`.
+            self.update_state(state)?;
         }
 
         Ok(())

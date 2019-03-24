@@ -1,5 +1,6 @@
 use fork_choice::ForkChoiceError;
 use state_processing::BlockProcessingError;
+use state_processing::SlotProcessingError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -16,13 +17,17 @@ macro_rules! easy_from_to {
 pub enum BeaconChainError {
     InsufficientValidators,
     BadRecentBlockRoots,
+    UnableToReadSlot,
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(String),
     ForkChoiceError(ForkChoiceError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
+    SlotProcessingError(SlotProcessingError),
 }
+
+easy_from_to!(SlotProcessingError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {

@@ -430,7 +430,7 @@ impl SimpleSync {
         let mut errored = 0;
 
         // Loop through all of the complete blocks in the queue.
-        for (queue_index, block, sender) in self.import_queue.complete_blocks() {
+        for (block_root, block, sender) in self.import_queue.complete_blocks() {
             match self.chain.process_block(block) {
                 Ok(outcome) => {
                     if outcome.is_invalid() {
@@ -447,7 +447,7 @@ impl SimpleSync {
                     // If this results to true, the item will be removed from the queue.
                     if outcome.sucessfully_processed() {
                         successful += 1;
-                        self.import_queue.partials.remove(queue_index);
+                        self.import_queue.remove(block_root);
                     }
                 }
                 Err(e) => {
@@ -457,13 +457,15 @@ impl SimpleSync {
             }
         }
 
-        info!(
-            self.log,
-            "ProcessBlocks";
-            "invalid" => invalid,
-            "successful" => successful,
-            "errored" => errored,
-        )
+        if successful > 0 {
+            info!(self.log, "Imported {} blocks", successful)
+        }
+        if invalid > 0 {
+            warn!(self.log, "Rejected {} invalid blocks", invalid)
+        }
+        if errored > 0 {
+            warn!(self.log, "Failed to process {} blocks", errored)
+        }
     }
 
     fn request_block_roots(
@@ -548,33 +550,35 @@ impl ImportQueue {
         }
     }
 
-    /// Completes all possible partials into `BeaconBlock` and returns them, sorted by slot number.
-    /// Does not delete the partials from the queue, this must be done manually.
+    /// Completes all possible partials into `BeaconBlock` and returns them, sorted by increasing
+    /// slot number.  Does not delete the partials from the queue, this must be done manually.
     ///
     /// Returns `(queue_index, block, sender)`:
     ///
-    /// - `queue_index`: used to remove the entry if it is successfully processed.
+    /// - `block_root`: may be used to remove the entry if it is successfully processed.
     /// - `block`: the completed block.
     /// - `sender`: the `PeerId` the provided the `BeaconBlockBody` which completed the partial.
-    pub fn complete_blocks(&self) -> Vec<(usize, BeaconBlock, PeerId)> {
-        let mut completable: Vec<(usize, &PartialBeaconBlock)> = self
+    pub fn complete_blocks(&self) -> Vec<(Hash256, BeaconBlock, PeerId)> {
+        let mut complete: Vec<(Hash256, BeaconBlock, PeerId)> = self
             .partials
             .iter()
-            .enumerate()
-            .filter(|(_i, partial)| partial.completable())
+            .filter_map(|partial| partial.clone().complete())
             .collect();
 
         // Sort the completable partials to be in ascending slot order.
-        completable.sort_unstable_by(|a, b| a.1.header.slot.partial_cmp(&b.1.header.slot).unwrap());
+        complete.sort_unstable_by(|a, b| a.1.slot.partial_cmp(&b.1.slot).unwrap());
 
-        completable
+        complete
+    }
+
+    /// Removes the first `PartialBeaconBlock` with a matching `block_root`, returning the partial
+    /// if it exists.
+    pub fn remove(&mut self, block_root: Hash256) -> Option<PartialBeaconBlock> {
+        let position = self
+            .partials
             .iter()
-            .map(|(i, partial)| {
-                let (block, _root, sender) =
-                    (*partial).clone().complete().expect("Body must be Some");
-                (*i, block, sender)
-            })
-            .collect()
+            .position(|p| p.block_root == block_root)?;
+        Some(self.partials.remove(position))
     }
 
     /// Flushes all stale entries from the queue.
@@ -716,15 +720,11 @@ pub struct PartialBeaconBlock {
 }
 
 impl PartialBeaconBlock {
-    pub fn completable(&self) -> bool {
-        self.body.is_some()
-    }
-
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock` along with its root.
-    pub fn complete(self) -> Option<(BeaconBlock, Hash256, PeerId)> {
+    pub fn complete(self) -> Option<(Hash256, BeaconBlock, PeerId)> {
         Some((
-            self.header.into_block(self.body?),
             self.block_root,
+            self.header.into_block(self.body?),
             self.sender,
         ))
     }
