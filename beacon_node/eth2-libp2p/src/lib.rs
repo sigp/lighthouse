@@ -3,16 +3,16 @@
 ///
 /// This crate builds and manages the libp2p services required by the beacon node.
 pub mod behaviour;
+mod config;
 pub mod error;
-mod network_config;
 pub mod rpc;
 mod service;
 
+pub use config::Config as NetworkConfig;
 pub use libp2p::{
     gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
     PeerId,
 };
-pub use network_config::NetworkConfig;
 pub use rpc::{HelloMessage, RPCEvent};
 pub use service::Libp2pEvent;
 pub use service::Service;
