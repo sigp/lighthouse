@@ -131,12 +131,7 @@ impl SimpleSync {
     /// Handle a `Goodbye` message from a peer.
     ///
     /// Removes the peer from `known_peers`.
-    pub fn on_goodbye(
-        &mut self,
-        peer_id: PeerId,
-        reason: GoodbyeReason,
-        ddnetwork: &mut NetworkContext,
-    ) {
+    pub fn on_goodbye(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         info!(
             self.log, "PeerGoodbye";
             "peer" => format!("{:?}", peer_id),
