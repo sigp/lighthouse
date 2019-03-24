@@ -131,7 +131,9 @@ impl BeaconChainHarness {
         );
 
         self.beacon_chain.slot_clock.set_slot(slot.as_u64());
-        self.beacon_chain.advance_state(slot).unwrap();
+        self.beacon_chain
+            .catchup_state()
+            .expect("Failed to catch state");
         slot
     }
 

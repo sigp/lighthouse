@@ -541,6 +541,28 @@ fn sync_two_nodes() {
     // A provides block bodies to B.
     node_a.tee_block_body_response(&node_b);
 
-    std::thread::sleep(Duration::from_secs(60));
+    std::thread::sleep(Duration::from_secs(10));
+
+    node_b.harness.run_fork_choice();
+
+    let node_a_chain = node_a
+        .harness
+        .beacon_chain
+        .chain_dump()
+        .expect("Can't dump node a chain");
+
+    let node_b_chain = node_b
+        .harness
+        .beacon_chain
+        .chain_dump()
+        .expect("Can't dump node b chain");
+
+    assert_eq!(
+        node_a_chain.len(),
+        node_b_chain.len(),
+        "Chains should be equal length"
+    );
+    assert_eq!(node_a_chain, node_b_chain, "Chains should be identical");
+
     runtime.shutdown_now();
 }
