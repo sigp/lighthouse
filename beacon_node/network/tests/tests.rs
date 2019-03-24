@@ -450,6 +450,7 @@ pub fn build_blocks(blocks: usize, master: &mut SyncMaster, nodes: &mut Vec<Sync
 }
 
 #[test]
+#[ignore]
 fn sync_node_with_master() {
     let logger = get_logger();
     let spec = ChainSpec::few_validators();
@@ -491,6 +492,7 @@ fn sync_node_with_master() {
 }
 
 #[test]
+#[ignore]
 fn sync_two_nodes() {
     let logger = get_logger();
     let spec = ChainSpec::few_validators();
