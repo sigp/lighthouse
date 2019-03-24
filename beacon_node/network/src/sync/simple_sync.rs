@@ -27,18 +27,22 @@ pub struct PeerSyncInfo {
 }
 
 impl PeerSyncInfo {
+    /// Returns `true` if the peer is on the same chain as `other`.
     fn is_on_same_chain(&self, other: Self) -> bool {
         self.network_id == other.network_id
     }
 
+    /// Returns `true` if the peer has a higher finalized epoch than `other`.
     fn has_higher_finalized_epoch_than(&self, other: Self) -> bool {
         self.latest_finalized_epoch > other.latest_finalized_epoch
     }
 
+    /// Returns `true` if the peer has a higher best slot than `other`.
     fn has_higher_best_slot_than(&self, other: Self) -> bool {
         self.best_slot > other.best_slot
     }
 
+    /// Returns the `PeerStatus` of `self` in relation to `other`.
     pub fn status_compared_to(&self, other: Self) -> PeerStatus {
         if self.has_higher_finalized_epoch_than(other) {
             PeerStatus::HigherFinalizedEpoch
@@ -52,11 +56,17 @@ impl PeerSyncInfo {
     }
 }
 
+/// The status of a peers view on the chain, relative to some other view of the chain (presumably
+/// our view).
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum PeerStatus {
+    /// The peer is on a completely different chain.
     OnDifferentChain,
+    /// The peer has a higher finalized epoch.
     HigherFinalizedEpoch,
+    /// The peer has a higher best slot.
     HigherBestSlot,
+    /// The peer has the same or lesser view of the chain. We have nothing to request of them.
     NotInteresting,
 }
 
@@ -87,8 +97,6 @@ pub enum SyncState {
 }
 
 /// Simple Syncing protocol.
-//TODO: Decide for HELLO messages whether its better to keep current in RAM or build on the fly
-//when asked.
 pub struct SimpleSync {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain>,
@@ -103,6 +111,7 @@ pub struct SimpleSync {
 }
 
 impl SimpleSync {
+    /// Instantiate a `SimpleSync` instance, with no peers and an empty queue.
     pub fn new(beacon_chain: Arc<BeaconChain>, log: &slog::Logger) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));
 
@@ -119,7 +128,15 @@ impl SimpleSync {
         }
     }
 
-    pub fn on_goodbye(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+    /// Handle a `Goodbye` message from a peer.
+    ///
+    /// Removes the peer from `known_peers`.
+    pub fn on_goodbye(
+        &mut self,
+        peer_id: PeerId,
+        reason: GoodbyeReason,
+        ddnetwork: &mut NetworkContext,
+    ) {
         info!(
             self.log, "PeerGoodbye";
             "peer" => format!("{:?}", peer_id),
@@ -129,12 +146,18 @@ impl SimpleSync {
         self.known_peers.remove(&peer_id);
     }
 
+    /// Handle the connection of a new peer.
+    ///
+    /// Sends a `Hello` message to the peer.
     pub fn on_connect(&self, peer_id: PeerId, network: &mut NetworkContext) {
         info!(self.log, "PeerConnect"; "peer" => format!("{:?}", peer_id));
 
         network.send_rpc_request(peer_id, RPCRequest::Hello(self.chain.hello_message()));
     }
 
+    /// Handle a `Hello` request.
+    ///
+    /// Processes the `HelloMessage` from the remote peer and sends back our `Hello`.
     pub fn on_hello_request(
         &mut self,
         peer_id: PeerId,
@@ -152,6 +175,7 @@ impl SimpleSync {
         self.process_hello(peer_id, hello, network);
     }
 
+    /// Process a `Hello` response from a peer.
     pub fn on_hello_response(
         &mut self,
         peer_id: PeerId,
@@ -164,6 +188,9 @@ impl SimpleSync {
         self.process_hello(peer_id, hello, network);
     }
 
+    /// Process a `Hello` message, requesting new blocks if appropriate.
+    ///
+    /// Disconnects the peer if required.
     fn process_hello(
         &mut self,
         peer_id: PeerId,
@@ -223,6 +250,7 @@ impl SimpleSync {
         }
     }
 
+    /// Handle a `BeaconBlockRoots` request from the peer.
     pub fn on_beacon_block_roots_request(
         &mut self,
         peer_id: PeerId,
@@ -268,6 +296,7 @@ impl SimpleSync {
         )
     }
 
+    /// Handle a `BeaconBlockRoots` response from the peer.
     pub fn on_beacon_block_roots_response(
         &mut self,
         peer_id: PeerId,
@@ -311,6 +340,7 @@ impl SimpleSync {
         }
     }
 
+    /// Handle a `BeaconBlockHeaders` request from the peer.
     pub fn on_beacon_block_headers_request(
         &mut self,
         peer_id: PeerId,
@@ -348,6 +378,7 @@ impl SimpleSync {
         )
     }
 
+    /// Handle a `BeaconBlockHeaders` response from the peer.
     pub fn on_beacon_block_headers_response(
         &mut self,
         peer_id: PeerId,
@@ -378,6 +409,7 @@ impl SimpleSync {
         self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
     }
 
+    /// Handle a `BeaconBlockBodies` request from the peer.
     pub fn on_beacon_block_bodies_request(
         &mut self,
         peer_id: PeerId,
@@ -411,6 +443,7 @@ impl SimpleSync {
         )
     }
 
+    /// Handle a `BeaconBlockBodies` response from the peer.
     pub fn on_beacon_block_bodies_response(
         &mut self,
         peer_id: PeerId,
@@ -434,6 +467,10 @@ impl SimpleSync {
         self.process_import_queue(network);
     }
 
+    /// Iterate through the `import_queue` and process any complete blocks.
+    ///
+    /// If a block is successfully processed it is removed from the queue, otherwise it remains in
+    /// the queue.
     pub fn process_import_queue(&mut self, network: &mut NetworkContext) {
         let mut successful = 0;
         let mut invalid = 0;
@@ -478,6 +515,7 @@ impl SimpleSync {
         }
     }
 
+    /// Request some `BeaconBlockRoots` from the remote peer.
     fn request_block_roots(
         &mut self,
         peer_id: PeerId,
@@ -501,6 +539,7 @@ impl SimpleSync {
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockRoots(req));
     }
 
+    /// Request some `BeaconBlockHeaders` from the remote peer.
     fn request_block_headers(
         &mut self,
         peer_id: PeerId,
@@ -517,6 +556,7 @@ impl SimpleSync {
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockHeaders(req));
     }
 
+    /// Request some `BeaconBlockBodies` from the remote peer.
     fn request_block_bodies(
         &mut self,
         peer_id: PeerId,
@@ -539,18 +579,30 @@ impl SimpleSync {
     }
 }
 
+/// Provides a queue for fully and partially built `BeaconBlock`s.
+///
+/// The queue is fundamentally a `Vec<PartialBeaconBlock>` where no two items have the same
+/// `item.block_root`. This struct it backed by a `Vec` not a `HashMap` for the following two
+/// reasons:
+///
+/// - When we receive a `BeaconBlockBody`, the only way we can find it's matching
+/// `BeaconBlockHeader` is to find a header such that `header.beacon_block_body ==
+/// hash_tree_root(body)`. Therefore, if we used a `HashMap` we would need to use the root of
+/// `BeaconBlockBody` as the key.
+/// - It is possible for multiple distinct blocks to have identical `BeaconBlockBodies`. Therefore
+/// we cannot use a `HashMap` keyed by the root of `BeaconBlockBody`.
 pub struct ImportQueue {
-    /// BeaconChain
     pub chain: Arc<BeaconChain>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
     pub partials: Vec<PartialBeaconBlock>,
-    /// Time before a queue entry is consider state.
+    /// Time before a queue entry is considered state.
     pub stale_time: Duration,
     /// Logging
     log: slog::Logger,
 }
 
 impl ImportQueue {
+    /// Return a new, empty queue.
     pub fn new(chain: Arc<BeaconChain>, stale_time: Duration, log: slog::Logger) -> Self {
         Self {
             chain,
@@ -649,6 +701,10 @@ impl ImportQueue {
     /// If a `header` is already in the queue, but not yet processed by the chain the block root is
     /// included in the output and the `inserted` time for the partial record is set to
     /// `Instant::now()`. Updating the `inserted` time stops the partial from becoming stale.
+    ///
+    /// Presently the queue enforces that a `BeaconBlockHeader` _must_ be received before its
+    /// `BeaconBlockBody`. This is not a natural requirement and we could enhance the queue to lift
+    /// this restraint.
     pub fn enqueue_headers(
         &mut self,
         headers: Vec<BeaconBlockHeader>,
@@ -720,17 +776,24 @@ impl ImportQueue {
     }
 }
 
+/// Individual components of a `BeaconBlock`, potentially all that are required to form a full
+/// `BeaconBlock`.
 #[derive(Clone, Debug)]
 pub struct PartialBeaconBlock {
+    /// `BeaconBlock` root.
     pub block_root: Hash256,
     pub header: BeaconBlockHeader,
     pub body: Option<BeaconBlockBody>,
+    /// The instant at which this record was created or last meaningfully modified. Used to
+    /// determine if an entry is stale and should be removed.
     pub inserted: Instant,
+    /// The `PeerId` that last meaningfully contributed to this item.
     pub sender: PeerId,
 }
 
 impl PartialBeaconBlock {
-    /// Given a `body`, consumes `self` and returns a complete `BeaconBlock` along with its root.
+    /// Consumes `self` and returns a full built `BeaconBlock`, it's root and the `sender`
+    /// `PeerId`, if enough information exists to complete the block. Otherwise, returns `None`.
     pub fn complete(self) -> Option<(Hash256, BeaconBlock, PeerId)> {
         Some((
             self.block_root,
