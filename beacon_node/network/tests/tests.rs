@@ -17,6 +17,7 @@ pub struct SyncNode {
     pub id: usize,
     sender: Sender<HandlerMessage>,
     receiver: Receiver<NetworkMessage>,
+    peer_id: PeerId,
     harness: BeaconChainHarness,
 }
 
@@ -43,6 +44,7 @@ impl SyncNode {
             id,
             sender: message_handler_sender,
             receiver: network_receiver,
+            peer_id: PeerId::random(),
             harness,
         }
     }
@@ -61,6 +63,138 @@ impl SyncNode {
 
     fn hello_message(&self) -> HelloMessage {
         self.harness.beacon_chain.hello_message()
+    }
+
+    pub fn connect_to(&mut self, node: &SyncNode) {
+        let message = HandlerMessage::PeerDialed(self.peer_id.clone());
+        node.send(message);
+    }
+
+    /// Reads the receive queue from one node and passes the message to the other. Also returns a
+    /// copy of the message.
+    ///
+    /// self -----> node
+    ///        |
+    ///        us
+    ///
+    /// Named after the unix `tee` command.
+    fn tee(&mut self, node: &SyncNode) -> NetworkMessage {
+        let network_message = self.recv().expect("Timeout on tee");
+
+        let handler_message = match network_message.clone() {
+            NetworkMessage::Send(peer_id, OutgoingMessage::RPC(event)) => {
+                HandlerMessage::RPC(peer_id, event)
+            }
+            _ => panic!("tee cannot parse {:?}", network_message),
+        };
+
+        node.send(handler_message);
+
+        network_message
+    }
+
+    fn tee_hello_request(&mut self, node: &SyncNode) -> HelloMessage {
+        let request = self.tee_rpc_request(node);
+
+        match request {
+            RPCRequest::Hello(message) => message,
+            _ => panic!("tee_hello_request got: {:?}", request),
+        }
+    }
+
+    fn tee_hello_response(&mut self, node: &SyncNode) -> HelloMessage {
+        let response = self.tee_rpc_response(node);
+
+        match response {
+            RPCResponse::Hello(message) => message,
+            _ => panic!("tee_hello_response got: {:?}", response),
+        }
+    }
+
+    fn tee_block_root_request(&mut self, node: &SyncNode) -> BeaconBlockRootsRequest {
+        let msg = self.tee_rpc_request(node);
+
+        match msg {
+            RPCRequest::BeaconBlockRoots(data) => data,
+            _ => panic!("tee_block_root_request got: {:?}", msg),
+        }
+    }
+
+    fn tee_block_root_response(&mut self, node: &SyncNode) -> BeaconBlockRootsResponse {
+        let msg = self.tee_rpc_response(node);
+
+        match msg {
+            RPCResponse::BeaconBlockRoots(data) => data,
+            _ => panic!("tee_block_root_response got: {:?}", msg),
+        }
+    }
+
+    fn tee_block_header_request(&mut self, node: &SyncNode) -> BeaconBlockHeadersRequest {
+        let msg = self.tee_rpc_request(node);
+
+        match msg {
+            RPCRequest::BeaconBlockHeaders(data) => data,
+            _ => panic!("tee_block_header_request got: {:?}", msg),
+        }
+    }
+
+    fn tee_block_header_response(&mut self, node: &SyncNode) -> BeaconBlockHeadersResponse {
+        let msg = self.tee_rpc_response(node);
+
+        match msg {
+            RPCResponse::BeaconBlockHeaders(data) => data,
+            _ => panic!("tee_block_header_response got: {:?}", msg),
+        }
+    }
+
+    fn tee_block_body_request(&mut self, node: &SyncNode) -> BeaconBlockBodiesRequest {
+        let msg = self.tee_rpc_request(node);
+
+        match msg {
+            RPCRequest::BeaconBlockBodies(data) => data,
+            _ => panic!("tee_block_body_request got: {:?}", msg),
+        }
+    }
+
+    fn tee_block_body_response(&mut self, node: &SyncNode) -> BeaconBlockBodiesResponse {
+        let msg = self.tee_rpc_response(node);
+
+        match msg {
+            RPCResponse::BeaconBlockBodies(data) => data,
+            _ => panic!("tee_block_body_response got: {:?}", msg),
+        }
+    }
+
+    fn tee_rpc_request(&mut self, node: &SyncNode) -> RPCRequest {
+        let network_message = self.tee(node);
+
+        match network_message {
+            NetworkMessage::Send(
+                _peer_id,
+                OutgoingMessage::RPC(RPCEvent::Request {
+                    id: _,
+                    method_id: _,
+                    body,
+                }),
+            ) => body,
+            _ => panic!("tee_rpc_request failed! got {:?}", network_message),
+        }
+    }
+
+    fn tee_rpc_response(&mut self, node: &SyncNode) -> RPCResponse {
+        let network_message = self.tee(node);
+
+        match network_message {
+            NetworkMessage::Send(
+                _peer_id,
+                OutgoingMessage::RPC(RPCEvent::Response {
+                    id: _,
+                    method_id: _,
+                    result,
+                }),
+            ) => result,
+            _ => panic!("tee_rpc_response failed! got {:?}", network_message),
+        }
     }
 
     pub fn get_block_root_request(&self) -> BeaconBlockRootsRequest {
@@ -181,7 +315,7 @@ impl SyncMaster {
         let roots = self
             .harness
             .beacon_chain
-            .get_block_roots(request.start_slot, Slot::from(request.count))
+            .get_block_roots(request.start_slot, request.count as usize, 0)
             .expect("Beacon chain did not give block roots")
             .iter()
             .enumerate()
@@ -203,7 +337,11 @@ impl SyncMaster {
         let roots = self
             .harness
             .beacon_chain
-            .get_block_roots(request.start_slot, Slot::from(request.max_headers))
+            .get_block_roots(
+                request.start_slot,
+                request.max_headers as usize,
+                request.skip_slots as usize,
+            )
             .expect("Beacon chain did not give blocks");
 
         if roots.is_empty() {
@@ -312,7 +450,7 @@ pub fn build_blocks(blocks: usize, master: &mut SyncMaster, nodes: &mut Vec<Sync
 }
 
 #[test]
-fn first_test() {
+fn sync_node_with_master() {
     let logger = get_logger();
     let spec = ChainSpec::few_validators();
     let validator_count = 8;
@@ -349,5 +487,57 @@ fn first_test() {
     master.respond_to_block_bodies_request(&nodes[0], bodies_request);
 
     std::thread::sleep(Duration::from_millis(10000));
+    runtime.shutdown_now();
+}
+
+#[test]
+fn sync_two_nodes() {
+    let logger = get_logger();
+    let spec = ChainSpec::few_validators();
+    let validator_count = 8;
+    let node_count = 2;
+
+    let state_builder =
+        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+
+    let (runtime, _master, mut nodes) =
+        test_setup(state_builder, node_count, &spec, logger.clone());
+
+    // let original_node_slot = nodes[0].hello_message().best_slot;
+    let mut node_a = nodes.remove(0);
+    let mut node_b = nodes.remove(0);
+
+    let blocks = 2;
+
+    // Node A builds out a longer, better chain.
+    for _ in 0..blocks {
+        node_a.harness.advance_chain_with_block();
+    }
+    node_a.harness.run_fork_choice();
+
+    // A connects to B.
+    node_a.connect_to(&node_b);
+
+    // B says hello to A.
+    node_b.tee_hello_request(&node_a);
+    // A says hello back.
+    node_a.tee_hello_response(&node_b);
+
+    // B requests block roots from A.
+    node_b.tee_block_root_request(&node_a);
+    // A provides block roots to A.
+    node_a.tee_block_root_response(&node_b);
+
+    // B requests block headers from A.
+    node_b.tee_block_header_request(&node_a);
+    // A provides block headers to B.
+    node_a.tee_block_header_response(&node_b);
+
+    // B requests block bodies from A.
+    node_b.tee_block_body_request(&node_a);
+    // A provides block bodies to B.
+    node_a.tee_block_body_response(&node_b);
+
+    std::thread::sleep(Duration::from_secs(60));
     runtime.shutdown_now();
 }

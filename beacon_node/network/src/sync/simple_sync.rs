@@ -126,14 +126,31 @@ impl SimpleSync {
         hello: HelloMessage,
         network: &mut NetworkContext,
     ) {
+        // Say hello back.
         network.send_rpc_response(
             peer_id.clone(),
             RPCResponse::Hello(self.chain.hello_message()),
         );
-        self.on_hello(peer_id, hello, network);
+
+        self.process_hello(peer_id, hello, network);
     }
 
-    pub fn on_hello(&mut self, peer_id: PeerId, hello: HelloMessage, network: &mut NetworkContext) {
+    pub fn on_hello_response(
+        &mut self,
+        peer_id: PeerId,
+        hello: HelloMessage,
+        network: &mut NetworkContext,
+    ) {
+        // Process the hello message, without sending back another hello.
+        self.process_hello(peer_id, hello, network);
+    }
+
+    fn process_hello(
+        &mut self,
+        peer_id: PeerId,
+        hello: HelloMessage,
+        network: &mut NetworkContext,
+    ) {
         let spec = self.chain.get_spec();
 
         let remote = PeerSyncInfo::from(hello);
@@ -142,7 +159,7 @@ impl SimpleSync {
 
         // network id must match
         if remote_status != PeerStatus::OnDifferentChain {
-            debug!(self.log, "Handshake successful. Peer: {:?}", peer_id);
+            info!(self.log, "HandshakeSuccess"; "peer" => format!("{:?}", peer_id));
             self.known_peers.insert(peer_id.clone(), remote);
         }
 
@@ -183,6 +200,44 @@ impl SimpleSync {
         }
     }
 
+    pub fn on_beacon_block_roots_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BeaconBlockRootsRequest,
+        network: &mut NetworkContext,
+    ) {
+        let roots = match self
+            .chain
+            .get_block_roots(request.start_slot, request.count as usize, 0)
+        {
+            Ok(roots) => roots,
+            Err(e) => {
+                // TODO: return RPC error.
+                warn!(
+                    self.log,
+                    "RPCRequest"; "peer" => format!("{:?}", peer_id),
+                    "request" => "BeaconBlockRoots",
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
+        let roots = roots
+            .iter()
+            .enumerate()
+            .map(|(i, &block_root)| BlockRootSlot {
+                slot: request.start_slot + Slot::from(i),
+                block_root,
+            })
+            .collect();
+
+        network.send_rpc_response(
+            peer_id,
+            RPCResponse::BeaconBlockRoots(BeaconBlockRootsResponse { roots }),
+        )
+    }
+
     pub fn on_beacon_block_roots_response(
         &mut self,
         peer_id: PeerId,
@@ -219,6 +274,36 @@ impl SimpleSync {
         }
     }
 
+    pub fn on_beacon_block_headers_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BeaconBlockHeadersRequest,
+        network: &mut NetworkContext,
+    ) {
+        let headers = match self.chain.get_block_headers(
+            request.start_slot,
+            request.max_headers as usize,
+            request.skip_slots as usize,
+        ) {
+            Ok(headers) => headers,
+            Err(e) => {
+                // TODO: return RPC error.
+                warn!(
+                    self.log,
+                    "RPCRequest"; "peer" => format!("{:?}", peer_id),
+                    "request" => "BeaconBlockHeaders",
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
+        network.send_rpc_response(
+            peer_id,
+            RPCResponse::BeaconBlockHeaders(BeaconBlockHeadersResponse { headers }),
+        )
+    }
+
     pub fn on_beacon_block_headers_response(
         &mut self,
         peer_id: PeerId,
@@ -237,9 +322,33 @@ impl SimpleSync {
             .import_queue
             .enqueue_headers(response.headers, peer_id.clone());
 
-        if !block_roots.is_empty() {
-            self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
-        }
+        self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
+    }
+
+    pub fn on_beacon_block_bodies_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BeaconBlockBodiesRequest,
+        network: &mut NetworkContext,
+    ) {
+        let block_bodies = match self.chain.get_block_bodies(&request.block_roots) {
+            Ok(bodies) => bodies,
+            Err(e) => {
+                // TODO: return RPC error.
+                warn!(
+                    self.log,
+                    "RPCRequest"; "peer" => format!("{:?}", peer_id),
+                    "request" => "BeaconBlockBodies",
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
+        network.send_rpc_response(
+            peer_id,
+            RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse { block_bodies }),
+        )
     }
 
     pub fn on_beacon_block_bodies_response(
@@ -250,6 +359,11 @@ impl SimpleSync {
     ) {
         self.import_queue
             .enqueue_bodies(response.block_bodies, peer_id.clone());
+
+        // Clear out old entries
+        self.import_queue.remove_stale();
+
+        // Import blocks, if possible.
         self.process_import_queue(network);
     }
 
@@ -268,10 +382,14 @@ impl SimpleSync {
             })
             .collect();
 
+        if !blocks.is_empty() {
+            info!(self.log, "Processing blocks"; "count" => blocks.len());
+        }
+
         // Sort the blocks to be in ascending slot order.
         blocks.sort_unstable_by(|a, b| a.1.slot.partial_cmp(&b.1.slot).unwrap());
 
-        let mut imported_keys = vec![];
+        let mut keys_to_delete = vec![];
 
         for (key, block, sender) in blocks {
             match self.chain.process_block(block) {
@@ -279,8 +397,10 @@ impl SimpleSync {
                     if outcome.is_invalid() {
                         warn!(self.log, "Invalid block: {:?}", outcome);
                         network.disconnect(sender);
+                        keys_to_delete.push(key)
                     } else {
-                        imported_keys.push(key)
+                        // TODO: don't delete if was not invalid but not successfully processed.
+                        keys_to_delete.push(key)
                     }
                 }
                 Err(e) => {
@@ -289,11 +409,9 @@ impl SimpleSync {
             }
         }
 
-        println!("imported_keys.len: {:?}", imported_keys.len());
-
-        if !imported_keys.is_empty() {
-            info!(self.log, "Imported {} blocks", imported_keys.len());
-            for key in imported_keys {
+        if !keys_to_delete.is_empty() {
+            info!(self.log, "Processed {} blocks", keys_to_delete.len());
+            for key in keys_to_delete {
                 self.import_queue.partials.remove(&key);
             }
         }
@@ -313,7 +431,10 @@ impl SimpleSync {
 
         debug!(
             self.log,
-            "Requesting {} block roots from {:?}.", request.count, &peer_id
+            "RPCRequest";
+            "type" => "BeaconBlockRoots",
+            "count" => request.count,
+            "peer" => format!("{:?}", peer_id)
         );
 
         // TODO: handle count > max count.
@@ -328,7 +449,10 @@ impl SimpleSync {
     ) {
         debug!(
             self.log,
-            "Requesting {} headers from {:?}.", request.max_headers, &peer_id
+            "RPCRequest";
+            "type" => "BeaconBlockHeaders",
+            "max_headers" => request.max_headers,
+            "peer" => format!("{:?}", peer_id)
         );
 
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockHeaders(request));
@@ -377,6 +501,10 @@ impl ImportQueue {
         }
     }
 
+    /// Flushes all stale entries from the queue.
+    ///
+    /// An entry is stale if it has as a `inserted` time that is more than `self.stale_time` in the
+    /// past.
     pub fn remove_stale(&mut self) {
         let keys: Vec<Hash256> = self
             .partials

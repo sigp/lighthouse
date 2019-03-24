@@ -113,10 +113,24 @@ impl MessageHandler {
         match request {
             RPCRequest::Hello(hello_message) => {
                 self.sync
-                    .on_hello(peer_id, hello_message, &mut self.network_context)
+                    .on_hello_request(peer_id, hello_message, &mut self.network_context)
             }
+            RPCRequest::BeaconBlockRoots(request) => {
+                self.sync
+                    .on_beacon_block_roots_request(peer_id, request, &mut self.network_context)
+            }
+            RPCRequest::BeaconBlockHeaders(request) => self.sync.on_beacon_block_headers_request(
+                peer_id,
+                request,
+                &mut self.network_context,
+            ),
+            RPCRequest::BeaconBlockBodies(request) => self.sync.on_beacon_block_bodies_request(
+                peer_id,
+                request,
+                &mut self.network_context,
+            ),
             // TODO: Handle all requests
-            _ => {}
+            _ => panic!("Unknown request: {:?}", request),
         }
     }
 
@@ -133,48 +147,41 @@ impl MessageHandler {
             debug!(self.log, "Unrecognized response from peer: {:?}", peer_id);
             return;
         }
-        match response {
+        let response_str = match response {
             RPCResponse::Hello(hello_message) => {
-                debug!(self.log, "Hello response received from peer: {:?}", peer_id);
                 self.sync
-                    .on_hello(peer_id, hello_message, &mut self.network_context);
+                    .on_hello_response(peer_id, hello_message, &mut self.network_context);
+                "Hello"
             }
             RPCResponse::BeaconBlockRoots(response) => {
-                debug!(
-                    self.log,
-                    "BeaconBlockRoots response received"; "peer" => format!("{:?}", peer_id)
-                );
                 self.sync.on_beacon_block_roots_response(
                     peer_id,
                     response,
                     &mut self.network_context,
-                )
+                );
+                "BeaconBlockRoots"
             }
             RPCResponse::BeaconBlockHeaders(response) => {
-                debug!(
-                    self.log,
-                    "BeaconBlockHeaders response received"; "peer" => format!("{:?}", peer_id)
-                );
                 self.sync.on_beacon_block_headers_response(
                     peer_id,
                     response,
                     &mut self.network_context,
-                )
+                );
+                "BeaconBlockHeaders"
             }
             RPCResponse::BeaconBlockBodies(response) => {
-                debug!(
-                    self.log,
-                    "BeaconBlockBodies response received"; "peer" => format!("{:?}", peer_id)
-                );
                 self.sync.on_beacon_block_bodies_response(
                     peer_id,
                     response,
                     &mut self.network_context,
-                )
+                );
+                "BeaconBlockBodies"
             }
             // TODO: Handle all responses
             _ => panic!("Unknown response: {:?}", response),
-        }
+        };
+
+        debug!(self.log, "RPCResponse"; "type" => response_str);
     }
 }
 
