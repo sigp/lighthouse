@@ -181,7 +181,7 @@ impl MessageHandler {
             _ => panic!("Unknown response: {:?}", response),
         };
 
-        debug!(self.log, "RPCResponse"; "type" => response_str);
+        debug!(self.log, "RPCResponse({})", response_str);
     }
 }
 

@@ -13,6 +13,9 @@ use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slo
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
+/// The amount of seconds a block (or partial block) may exist in the import queue.
+const QUEUE_STALE_SECS: u64 = 60;
+
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
@@ -103,7 +106,7 @@ impl SimpleSync {
     pub fn new(beacon_chain: Arc<BeaconChain>, log: &slog::Logger) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));
 
-        let queue_item_stale_time = Duration::from_secs(600);
+        let queue_item_stale_time = Duration::from_secs(QUEUE_STALE_SECS);
 
         let import_queue =
             ImportQueue::new(beacon_chain.clone(), queue_item_stale_time, log.clone());
@@ -165,7 +168,11 @@ impl SimpleSync {
 
         match remote_status {
             PeerStatus::OnDifferentChain => {
-                debug!(self.log, "Peer is on different chain. Peer: {:?}", peer_id);
+                info!(
+                    self.log, "Failure";
+                    "peer" => format!("{:?}", peer_id),
+                    "reason" => "network_id"
+                );
 
                 network.disconnect(peer_id);
             }
@@ -431,8 +438,7 @@ impl SimpleSync {
 
         debug!(
             self.log,
-            "RPCRequest";
-            "type" => "BeaconBlockRoots",
+            "RPCRequest(BeaconBlockRoots)";
             "count" => request.count,
             "peer" => format!("{:?}", peer_id)
         );
@@ -449,8 +455,7 @@ impl SimpleSync {
     ) {
         debug!(
             self.log,
-            "RPCRequest";
-            "type" => "BeaconBlockHeaders",
+            "RPCRequest(BeaconBlockHeaders)";
             "max_headers" => request.max_headers,
             "peer" => format!("{:?}", peer_id)
         );
@@ -466,9 +471,9 @@ impl SimpleSync {
     ) {
         debug!(
             self.log,
-            "Requesting {} bodies from {:?}.",
-            request.block_roots.len(),
-            &peer_id
+            "RPCRequest(BeaconBlockBodies)";
+            "count" => request.block_roots.len(),
+            "peer" => format!("{:?}", peer_id)
         );
 
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockBodies(request));
@@ -510,13 +515,22 @@ impl ImportQueue {
             .partials
             .iter()
             .filter_map(|(key, partial)| {
-                if partial.inserted + self.stale_time >= Instant::now() {
+                if partial.inserted + self.stale_time <= Instant::now() {
                     Some(*key)
                 } else {
                     None
                 }
             })
             .collect();
+
+        if !keys.is_empty() {
+            debug!(
+                self.log,
+                "ImportQueue removing stale entries";
+                "stale_count" => keys.len(),
+                "stale_time_seconds" => self.stale_time.as_secs()
+            );
+        }
 
         keys.iter().for_each(|key| {
             self.partials.remove(&key);
