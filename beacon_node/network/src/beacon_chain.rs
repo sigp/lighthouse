@@ -8,7 +8,7 @@ use beacon_chain::{
     CheckPoint,
 };
 use eth2_libp2p::HelloMessage;
-use types::{BeaconBlock, BeaconStateError, Epoch, Hash256, Slot};
+use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
 
@@ -40,8 +40,19 @@ pub trait BeaconChain: Send + Sync {
     fn get_block_roots(
         &self,
         start_slot: Slot,
-        count: Slot,
-    ) -> Result<Vec<Hash256>, BeaconStateError>;
+        count: usize,
+        skip: usize,
+    ) -> Result<Vec<Hash256>, BeaconChainError>;
+
+    fn get_block_headers(
+        &self,
+        start_slot: Slot,
+        count: usize,
+        skip: usize,
+    ) -> Result<Vec<BeaconBlockHeader>, BeaconChainError>;
+
+    fn get_block_bodies(&self, roots: &[Hash256])
+        -> Result<Vec<BeaconBlockBody>, BeaconChainError>;
 
     fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, BeaconChainError>;
 }
@@ -111,9 +122,27 @@ where
     fn get_block_roots(
         &self,
         start_slot: Slot,
-        count: Slot,
-    ) -> Result<Vec<Hash256>, BeaconStateError> {
-        self.get_block_roots(start_slot, count)
+        count: usize,
+        skip: usize,
+    ) -> Result<Vec<Hash256>, BeaconChainError> {
+        self.get_block_roots(start_slot, count, skip)
+    }
+
+    fn get_block_headers(
+        &self,
+        start_slot: Slot,
+        count: usize,
+        skip: usize,
+    ) -> Result<Vec<BeaconBlockHeader>, BeaconChainError> {
+        let roots = self.get_block_roots(start_slot, count, skip)?;
+        self.get_block_headers(&roots)
+    }
+
+    fn get_block_bodies(
+        &self,
+        roots: &[Hash256],
+    ) -> Result<Vec<BeaconBlockBody>, BeaconChainError> {
+        self.get_block_bodies(roots)
     }
 
     fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, BeaconChainError> {

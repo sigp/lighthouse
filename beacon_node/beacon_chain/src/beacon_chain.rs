@@ -142,7 +142,38 @@ where
         })
     }
 
-    /// Returns beacon block roots for `count` slots, starting from `start_slot`.
+    /// Returns the beacon block body for each beacon block root in `roots`.
+    ///
+    /// Fails if any root in `roots` does not have a corresponding block.
+    pub fn get_block_bodies(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockBody>, Error> {
+        let bodies: Result<Vec<BeaconBlockBody>, _> = roots
+            .iter()
+            .map(|root| match self.get_block(root)? {
+                Some(block) => Ok(block.body),
+                None => Err(Error::DBInconsistent("Missing block".into())),
+            })
+            .collect();
+
+        Ok(bodies?)
+    }
+
+    /// Returns the beacon block header for each beacon block root in `roots`.
+    ///
+    /// Fails if any root in `roots` does not have a corresponding block.
+    pub fn get_block_headers(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockHeader>, Error> {
+        let headers: Result<Vec<BeaconBlockHeader>, _> = roots
+            .iter()
+            .map(|root| match self.get_block(root)? {
+                Some(block) => Ok(block.block_header()),
+                None => Err(Error::DBInconsistent("Missing block".into())),
+            })
+            .collect();
+
+        Ok(headers?)
+    }
+
+    /// Returns `count `beacon block roots, starting from `start_slot` with an
+    /// interval of `skip` slots between each root.
     ///
     /// ## Errors:
     ///
@@ -152,40 +183,45 @@ where
     /// - Other: BeaconState` is inconsistent.
     pub fn get_block_roots(
         &self,
-        start_slot: Slot,
-        count: Slot,
-    ) -> Result<Vec<Hash256>, BeaconStateError> {
+        earliest_slot: Slot,
+        count: usize,
+        skip: usize,
+    ) -> Result<Vec<Hash256>, Error> {
         let spec = &self.spec;
+        let step_by = Slot::from(skip + 1);
 
         let mut roots: Vec<Hash256> = vec![];
+
+        // The state for reading block roots. Will be updated with an older state if slots go too
+        // far back in history.
         let mut state = self.state.read().clone();
-        let mut slot = start_slot + count - 1;
+
+        // The final slot in this series, will be reduced by `skip` each loop iteration.
+        let mut slot = earliest_slot + Slot::from(count * (skip + 1)) - 1;
+
+        // If the highest slot requested is that of the current state insert the root of the
+        // head block, unless the head block's slot is not matching.
+        if slot == state.slot && self.head().beacon_block.slot == slot {
+            roots.push(self.head().beacon_block_root);
+
+            slot -= step_by;
+        } else if slot >= state.slot {
+            return Err(BeaconStateError::SlotOutOfBounds.into());
+        }
 
         loop {
-            // If the highest slot requested is that of the current state insert the root of the
-            // head block, unless the head block's slot is not matching.
-            if slot == state.slot && self.head().beacon_block.slot == slot {
-                roots.push(self.head().beacon_block_root);
-
-                slot -= 1;
-                continue;
-            } else if slot >= state.slot {
-                return Err(BeaconStateError::SlotOutOfBounds);
-            }
-
             // If the slot is within the range of the current state's block roots, append the root
             // to the output vec.
             //
-            // If we get `SlotOutOfBounds` error, load the oldest known state to the present state
-            // from the DB.
+            // If we get `SlotOutOfBounds` error, load the oldest available historic
+            // state from the DB.
             match state.get_block_root(slot, spec) {
                 Ok(root) => {
-                    roots.push(*root);
-
-                    if slot == start_slot {
+                    if slot < earliest_slot {
                         break;
                     } else {
-                        slot -= 1;
+                        roots.push(*root);
+                        slot -= step_by;
                     }
                 }
                 Err(BeaconStateError::SlotOutOfBounds) => {
@@ -201,18 +237,19 @@ where
                         _ => break,
                     }
                 }
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into()),
             };
         }
 
-        if (slot == start_slot) && (roots.len() == count.as_usize()) {
+        // Return the results if they pass a sanity check.
+        if (slot <= earliest_slot) && (roots.len() == count) {
             // Reverse the ordering of the roots. We extracted them in reverse order to make it
             // simpler to lookup historic states.
             //
             // This is a potential optimisation target.
             Ok(roots.iter().rev().cloned().collect())
         } else {
-            Err(BeaconStateError::SlotOutOfBounds)
+            Err(BeaconStateError::SlotOutOfBounds.into())
         }
     }
 
