@@ -64,6 +64,15 @@ impl BlockProcessingOutcome {
             },
         }
     }
+
+    /// Returns `true` if the block was successfully processed and can be removed from any import
+    /// queues or temporary storage.
+    pub fn sucessfully_processed(&self) -> bool {
+        match self {
+            BlockProcessingOutcome::ValidBlock(_) => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {

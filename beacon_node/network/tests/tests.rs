@@ -511,7 +511,10 @@ fn sync_two_nodes() {
 
     // Node A builds out a longer, better chain.
     for _ in 0..blocks {
+        // Node A should build a block.
         node_a.harness.advance_chain_with_block();
+        // Node B should just increment it's slot without a block.
+        node_b.harness.increment_beacon_chain_slot();
     }
     node_a.harness.run_fork_choice();
 
