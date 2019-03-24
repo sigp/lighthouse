@@ -1,3 +1,4 @@
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
@@ -53,7 +54,7 @@ impl Into<u16> for RPCMethod {
 #[derive(Debug, Clone)]
 pub enum RPCRequest {
     Hello(HelloMessage),
-    Goodbye(u64),
+    Goodbye(GoodbyeReason),
     BeaconBlockRoots(BeaconBlockRootsRequest),
     BeaconBlockHeaders(BeaconBlockHeadersRequest),
     BeaconBlockBodies(BeaconBlockBodiesRequest),
@@ -111,6 +112,55 @@ pub struct HelloMessage {
     pub best_root: Hash256,
     /// The peers last slot.
     pub best_slot: Slot,
+}
+
+/// The reason given for a `Goodbye` message.
+///
+/// Note: any unknown `u64::into(n)` will resolve to `GoodbyeReason::Unknown` for any unknown `n`,
+/// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
+/// re-serializing may not return the same bytes.
+#[derive(Debug, Clone)]
+pub enum GoodbyeReason {
+    ClientShutdown,
+    IrreleventNetwork,
+    Fault,
+    Unknown,
+}
+
+impl From<u64> for GoodbyeReason {
+    fn from(id: u64) -> GoodbyeReason {
+        match id {
+            1 => GoodbyeReason::ClientShutdown,
+            2 => GoodbyeReason::IrreleventNetwork,
+            3 => GoodbyeReason::Fault,
+            _ => GoodbyeReason::Unknown,
+        }
+    }
+}
+
+impl Into<u64> for GoodbyeReason {
+    fn into(self) -> u64 {
+        match self {
+            GoodbyeReason::Unknown => 0,
+            GoodbyeReason::ClientShutdown => 1,
+            GoodbyeReason::IrreleventNetwork => 2,
+            GoodbyeReason::Fault => 3,
+        }
+    }
+}
+
+impl Encodable for GoodbyeReason {
+    fn ssz_append(&self, s: &mut SszStream) {
+        let id: u64 = (*self).clone().into();
+        id.ssz_append(s);
+    }
+}
+
+impl Decodable for GoodbyeReason {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+        let (id, index) = u64::ssz_decode(bytes, index)?;
+        Ok((Self::from(id), index))
+    }
 }
 
 /// Request a number of beacon block roots from a peer.
