@@ -8,8 +8,7 @@ use eth2_libp2p::{
     PeerId, RPCEvent,
 };
 use futures::future;
-use slog::debug;
-use slog::warn;
+use slog::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -144,14 +143,13 @@ impl MessageHandler {
             .remove(&(peer_id.clone(), id))
             .is_none()
         {
-            debug!(self.log, "Unrecognized response from peer: {:?}", peer_id);
+            debug!(self.log, "Unrecognised response from peer: {:?}", peer_id);
             return;
         }
-        let response_str = match response {
+        match response {
             RPCResponse::Hello(hello_message) => {
                 self.sync
                     .on_hello_response(peer_id, hello_message, &mut self.network_context);
-                "Hello"
             }
             RPCResponse::BeaconBlockRoots(response) => {
                 self.sync.on_beacon_block_roots_response(
@@ -159,7 +157,6 @@ impl MessageHandler {
                     response,
                     &mut self.network_context,
                 );
-                "BeaconBlockRoots"
             }
             RPCResponse::BeaconBlockHeaders(response) => {
                 self.sync.on_beacon_block_headers_response(
@@ -167,7 +164,6 @@ impl MessageHandler {
                     response,
                     &mut self.network_context,
                 );
-                "BeaconBlockHeaders"
             }
             RPCResponse::BeaconBlockBodies(response) => {
                 self.sync.on_beacon_block_bodies_response(
@@ -175,13 +171,10 @@ impl MessageHandler {
                     response,
                     &mut self.network_context,
                 );
-                "BeaconBlockBodies"
             }
             // TODO: Handle all responses
             _ => panic!("Unknown response: {:?}", response),
         };
-
-        debug!(self.log, "RPCResponse({})", response_str);
     }
 }
 
