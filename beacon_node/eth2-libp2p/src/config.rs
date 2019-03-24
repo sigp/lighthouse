@@ -1,11 +1,9 @@
 use crate::Multiaddr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
-use libp2p::secio;
-use std::fmt;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Network configuration for lighthouse.
-pub struct NetworkConfig {
+pub struct Config {
     //TODO: stubbing networking initial params, change in the future
     /// IP address to listen on.
     pub listen_addresses: Vec<Multiaddr>,
@@ -13,47 +11,56 @@ pub struct NetworkConfig {
     pub listen_port: u16,
     /// Gossipsub configuration parameters.
     pub gs_config: GossipsubConfig,
+    /// Configuration parameters for node identification protocol.
+    pub identify_config: IdentifyConfig,
     /// List of nodes to initially connect to.
     pub boot_nodes: Vec<Multiaddr>,
-    /// Peer key related to this nodes PeerId.
-    pub local_private_key: secio::SecioKeyPair,
     /// Client version
     pub client_version: String,
     /// List of topics to subscribe to as strings
     pub topics: Vec<String>,
 }
 
-impl Default for NetworkConfig {
+impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
-        // TODO: Currently using secp256k1 key pairs. Wire protocol specifies RSA. Waiting for this
-        // PR to be merged to generate RSA keys: https://github.com/briansmith/ring/pull/733
-
-        NetworkConfig {
+        Config {
             listen_addresses: vec!["/ip4/127.0.0.1/tcp/9000"
                 .parse()
                 .expect("is a correct multi-address")],
             listen_port: 9000,
             gs_config: GossipsubConfigBuilder::new().build(),
+            identify_config: IdentifyConfig::default(),
             boot_nodes: Vec::new(),
-            local_private_key: secio::SecioKeyPair::secp256k1_generated().unwrap(),
             client_version: version::version(),
             topics: vec![String::from("beacon_chain")],
         }
     }
 }
 
-impl NetworkConfig {
+impl Config {
     pub fn new(boot_nodes: Vec<Multiaddr>) -> Self {
-        let mut conf = NetworkConfig::default();
+        let mut conf = Config::default();
         conf.boot_nodes = boot_nodes;
 
         conf
     }
 }
 
-impl fmt::Debug for NetworkConfig {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "NetworkConfig: listen_addresses: {:?}, listen_port: {:?}, gs_config: {:?}, boot_nodes: {:?}, local_private_key: <Secio-PubKey {:?}>, client_version: {:?}", self.listen_addresses, self.listen_port, self.gs_config, self.boot_nodes, self.local_private_key.to_public_key(), self.client_version)
+/// The configuration parameters for the Identify protocol
+#[derive(Debug, Clone)]
+pub struct IdentifyConfig {
+    /// The protocol version to listen on.
+    pub version: String,
+    /// The client's name and version for identification.
+    pub user_agent: String,
+}
+
+impl Default for IdentifyConfig {
+    fn default() -> Self {
+        Self {
+            version: "/eth/serenity/1.0".to_string(),
+            user_agent: version::version(),
+        }
     }
 }
