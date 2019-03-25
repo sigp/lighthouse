@@ -1,0 +1,13 @@
+[package]
+name = "account_manager"
+version = "0.0.1"
+authors = ["Luke Anderson <luke@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+bls = { path = "../eth2/utils/bls" }
+clap = "2.32.0"
+slog = "^2.2.3"
+slog-term = "^2.4.0"
+slog-async = "^2.3.0"
+validator_client = { path = "../validator_client" }

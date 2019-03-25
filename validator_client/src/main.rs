@@ -1,17 +1,14 @@
 use self::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use self::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
-use crate::config::ClientConfig;
+use crate::config::Config;
 use block_proposer::{test_utils::LocalSigner, BlockProducer};
-use bls::Keypair;
 use clap::{App, Arg};
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services_grpc::{BeaconBlockServiceClient, ValidatorServiceClient};
-use slog::{error, info, o, Drain};
+use slog::{info, o, Drain};
 use slot_clock::SystemTimeSlotClock;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use types::ChainSpec;
 
 mod block_producer_service;
 mod config;
@@ -55,36 +52,11 @@ fn main() {
         )
         .get_matches();
 
-    let mut config = ClientConfig::default();
-
-    // Custom datadir
-    if let Some(dir) = matches.value_of("datadir") {
-        config.data_dir = PathBuf::from(dir.to_string());
-    }
-
-    // Custom server port
-    if let Some(server_str) = matches.value_of("server") {
-        if let Ok(addr) = server_str.parse::<u16>() {
-            config.server = addr.to_string();
-        } else {
-            error!(log, "Invalid address"; "server" => server_str);
-            return;
-        }
-    }
-
-    // TODO: Permit loading a custom spec from file.
-    // Custom spec
-    if let Some(spec_str) = matches.value_of("spec") {
-        match spec_str {
-            "foundation" => config.spec = ChainSpec::foundation(),
-            "few_validators" => config.spec = ChainSpec::few_validators(),
-            // Should be impossible due to clap's `possible_values(..)` function.
-            _ => unreachable!(),
-        };
-    }
+    let config = Config::parse_args(&matches, &log)
+        .expect("Unable to build a configuration for the validator client.");
 
     // Log configuration
-    info!(log, "";
+    info!(log, "Configuration parameters:";
           "data_dir" => &config.data_dir.to_str(),
           "server" => &config.server);
 
@@ -119,13 +91,13 @@ fn main() {
     let poll_interval_millis = spec.seconds_per_slot * 1000 / 10; // 10% epoch time precision.
     info!(log, "Starting block producer service"; "polls_per_epoch" => spec.seconds_per_slot * 1000 / poll_interval_millis);
 
+    let keypairs = config.fetch_keys(&log)
+        .expect("No key pairs found in configuration, they must first be generated with: account_manager generate.");
+
     /*
      * Start threads.
      */
     let mut threads = vec![];
-    // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
-    // https://github.com/sigp/lighthouse/issues/160
-    let keypairs = vec![Keypair::random()];
 
     for keypair in keypairs {
         info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
