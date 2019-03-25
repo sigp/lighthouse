@@ -104,7 +104,7 @@ impl ImportQueue {
     }
 
     /// Returns `true` if `self.chain` has not yet processed this block.
-    fn is_new_block(&self, block_root: &Hash256) -> bool {
+    pub fn is_new_block(&self, block_root: &Hash256) -> bool {
         self.chain
             .is_new_block_root(&block_root)
             .unwrap_or_else(|_| {

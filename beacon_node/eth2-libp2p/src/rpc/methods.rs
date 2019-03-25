@@ -1,7 +1,7 @@
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{Attestation, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 #[derive(Debug)]
 /// Available Serenity Libp2p RPC methods
@@ -95,6 +95,12 @@ impl RPCResponse {
         };
         method.into()
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum IncomingGossip {
+    Block(BlockGossip),
+    Attestation(AttestationGossip),
 }
 
 /* Request/Response data structures for RPC methods */
@@ -235,4 +241,16 @@ pub struct BeaconChainStateRequest {
 pub struct BeaconChainStateResponse {
     /// The values corresponding the to the requested tree hashes.
     pub values: bool, //TBD - stubbed with encodeable bool
+}
+
+/// Gossipsub message providing notification of a new block.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlockGossip {
+    pub root: BlockRootSlot,
+}
+
+/// Gossipsub message providing notification of a new attestation.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct AttestationGossip {
+    pub attestation: Attestation,
 }

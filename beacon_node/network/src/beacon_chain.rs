@@ -5,10 +5,10 @@ use beacon_chain::{
     parking_lot::RwLockReadGuard,
     slot_clock::SlotClock,
     types::{BeaconState, ChainSpec},
-    CheckPoint,
+    AggregationOutcome, CheckPoint,
 };
 use eth2_libp2p::HelloMessage;
-use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
 
@@ -36,6 +36,11 @@ pub trait BeaconChain: Send + Sync {
 
     fn process_block(&self, block: BeaconBlock)
         -> Result<BlockProcessingOutcome, BeaconChainError>;
+
+    fn process_attestation(
+        &self,
+        attestation: Attestation,
+    ) -> Result<AggregationOutcome, BeaconChainError>;
 
     fn get_block_roots(
         &self,
@@ -117,6 +122,18 @@ where
         block: BeaconBlock,
     ) -> Result<BlockProcessingOutcome, BeaconChainError> {
         self.process_block(block)
+    }
+
+    fn process_attestation(
+        &self,
+        _attestation: Attestation,
+    ) -> Result<AggregationOutcome, BeaconChainError> {
+        // Awaiting a proper operations pool before we can import attestations.
+        //
+        // Returning a useless error for now.
+        //
+        // https://github.com/sigp/lighthouse/issues/281
+        return Err(BeaconChainError::DBInconsistent("CANNOT PROCESS".into()));
     }
 
     fn get_block_roots(
