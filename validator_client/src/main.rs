@@ -4,7 +4,7 @@ mod config;
 mod duties;
 mod service;
 
-use crate::config::Config as ValidatorConfig;
+use crate::config::Config as ValidatorClientConfig;
 use clap::{App, Arg};
 use service::Service as ValidatorService;
 use slog::{o, Drain};
@@ -47,7 +47,8 @@ fn main() {
         )
         .get_matches();
 
-    let config = ValidatorConfig::parse_args(matches, &log).unwrap();
+    let config = ValidatorClientConfig::parse_args(&matches, &log)
+        .expect("Unable to build a configuration for the validator client.");
 
     // start the validator service.
     ValidatorService::start(config, log);
