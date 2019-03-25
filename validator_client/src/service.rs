@@ -39,8 +39,8 @@ pub struct Service {
     slot_clock: Arc<SystemTimeSlotClock>,
     /// The current slot we are processing.
     current_slot: Slot,
-    /// Micro seconds until the next slot. This is used for initializing the tokio timer interval.
-    micros_to_next_slot: Duration,
+    /// Duration until the next slot. This is used for initializing the tokio timer interval.
+    duration_to_next_slot: Duration,
     // GRPC Clients
     /// The beacon block GRPC client.
     beacon_block_client: Arc<BeaconBlockServiceClient>,
@@ -76,13 +76,25 @@ impl Service {
                     std::thread::sleep(Duration::from_secs(5));
                     continue;
                 }
-                Ok(info) => break info,
+                Ok(info) => {
+                    if SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        > Duration::from_secs(info.genesis_time)
+                    {
+                        warn!(
+                            log,
+                            "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
+                        );
+                        //                        return Err("Genesis Time in the future");
+                    }
+                    break info;
+                }
             };
         };
 
         // build requisite objects to form Self
         let genesis_time = node_info.get_genesis_time();
-        let genesis_time = 1_549_935_547;
 
         info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.chain_id, "Genesis time" => genesis_time);
 
@@ -127,38 +139,30 @@ impl Service {
         //TODO: Add error chain. Handle errors
         let current_slot = slot_clock.present_slot().unwrap().unwrap().sub(1);
 
-        // calculate seconds to the next slot
-        let micros_to_next_slot = {
+        // calculate the duration to the next slot
+        let duration_to_next_slot = {
             let syslot_time = SystemTime::now();
             let duration_since_epoch = syslot_time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
-            debug!(log, "Duration since unix epoch {:?}", duration_since_epoch);
-            let mut micros_to_slot = None;
+            let mut duration_to_next_slot = None;
             if let Some(duration_since_genesis) =
                 duration_since_epoch.checked_sub(Duration::from_secs(genesis_time))
             {
-                // seconds till next slot
-                debug!(log, "Genesis Time {:?}", genesis_time);
-                debug!(log, "Duration since genesis {:?}", duration_since_genesis);
-                micros_to_slot = duration_since_genesis
+                let elapsed_slots = duration_since_epoch
                     .as_secs()
-                    .checked_rem(config.spec.seconds_per_slot);
+                    .checked_div(config.spec.seconds_per_slot as u64)
+                    .unwrap();
+                duration_to_next_slot = Some(
+                    Duration::from_secs(
+                        (elapsed_slots + 1)
+                            .checked_mul(config.spec.seconds_per_slot)
+                            .unwrap(),
+                    )
+                    .checked_sub(duration_since_genesis)
+                    .expect("This should never saturate"),
+                );
             }
-            micros_to_slot.unwrap_or_else(|| 0)
-            /*
-            let duration_to_slot = duration_since_genesis
-                .checked_sub(Duration::from(
-                    duration_since_genesis
-                        .checked_div(config.spec.seconds_per_slot as u64)
-                        .unwrap()
-                        .as_secs()
-                        .checked_mul(config.spec.seconds_per_slot)
-                        .unwrap(),
-                ))
-                .unwrap();
-                */
+            duration_to_next_slot.unwrap_or_else(|| Duration::from_secs(0))
         };
-
-        info!(log, ""; "Micro Seconds to next slot"=>micros_to_next_slot);
 
         Self {
             connected_node_version: node_info.version,
@@ -166,7 +170,7 @@ impl Service {
             fork,
             slot_clock,
             current_slot,
-            micros_to_next_slot: Duration::from_micros(micros_to_next_slot),
+            duration_to_next_slot,
             beacon_block_client,
             validator_client,
             attester_client,
@@ -194,7 +198,10 @@ impl Service {
             // Set the interval to start at the next slot, and every slot after
             let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
             //TODO: Handle checked add correctly
-            Interval::new(Instant::now() + service.micros_to_next_slot, slot_duration)
+            Interval::new(
+                Instant::now() + service.duration_to_next_slot,
+                slot_duration,
+            )
         };
 
         // kick off core service
