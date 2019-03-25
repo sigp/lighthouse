@@ -54,6 +54,6 @@ fn main() {
     // start the validator service.
     match ValidatorService::start(config, log.clone()) {
         Ok(_) => info!(log, "Validator client shutdown successfully."),
-        Err(e) => error!(log, "Validator exited due to {:?}", e),
+        Err(e) => error!(log, "Validator exited due to: {}", e.to_string()),
     }
 }
