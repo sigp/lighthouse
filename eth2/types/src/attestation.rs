@@ -46,7 +46,8 @@ impl Attestation {
         self.aggregation_bitfield
             .union_inplace(&other.aggregation_bitfield);
         self.custody_bitfield.union_inplace(&other.custody_bitfield);
-        // FIXME: signature aggregation once our BLS library wraps it
+        self.aggregate_signature
+            .add_aggregate(&other.aggregate_signature);
     }
 }
 
