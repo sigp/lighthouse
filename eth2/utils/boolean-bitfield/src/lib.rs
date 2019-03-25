@@ -6,7 +6,7 @@ use bit_vec::BitVec;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
-use ssz::Decodable;
+use ssz::{Decodable, Encodable};
 use std::cmp;
 use std::default;
 
@@ -144,14 +144,13 @@ impl std::ops::BitAnd for BooleanBitfield {
     }
 }
 
-impl ssz::Encodable for BooleanBitfield {
-    // ssz_append encodes Self according to the `ssz` spec.
+impl Encodable for BooleanBitfield {
     fn ssz_append(&self, s: &mut ssz::SszStream) {
         s.append_vec(&self.to_bytes())
     }
 }
 
-impl ssz::Decodable for BooleanBitfield {
+impl Decodable for BooleanBitfield {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), ssz::DecodeError> {
         let len = ssz::decode::decode_length(bytes, index, ssz::LENGTH_BYTES)?;
         if (ssz::LENGTH_BYTES + len) > bytes.len() {
