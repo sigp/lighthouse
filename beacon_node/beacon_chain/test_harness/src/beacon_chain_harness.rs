@@ -207,13 +207,13 @@ impl BeaconChainHarness {
     ///
     /// This is the ideal scenario for the Beacon Chain, 100% honest participation from
     /// validators.
-    pub fn advance_chain_with_block(&mut self) {
+    pub fn advance_chain_with_block(&mut self) -> BeaconBlock {
         self.increment_beacon_chain_slot();
 
         // Produce a new block.
         let block = self.produce_block();
         debug!("Submitting block for processing...");
-        match self.beacon_chain.process_block(block) {
+        match self.beacon_chain.process_block(block.clone()) {
             Ok(BlockProcessingOutcome::ValidBlock(_)) => {}
             other => panic!("block processing failed with {:?}", other),
         };
@@ -233,6 +233,8 @@ impl BeaconChainHarness {
         });
 
         debug!("Free attestations processed.");
+
+        block
     }
 
     /// Signs a message using some validators secret key with the `Fork` info from the latest state
