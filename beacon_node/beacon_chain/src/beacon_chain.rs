@@ -280,8 +280,8 @@ where
     }
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
-    pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
-        trace!("BeaconChain::produce_attestation_data: shard: {}", shard);
+    pub fn produce_attestation(&self, shard: u64) -> Result<AttestationData, Error> {
+        trace!("BeaconChain::produce_attestation: shard: {}", shard);
         let source_epoch = self.state.read().current_justified_epoch;
         let source_root = *self.state.read().get_block_root(
             source_epoch.start_slot(self.spec.slots_per_epoch),

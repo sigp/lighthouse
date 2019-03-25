@@ -2,7 +2,7 @@ use protos::services_grpc::AttestationServiceClient;
 use std::sync::Arc;
 
 use attester::{BeaconNode, BeaconNodeError, PublishOutcome};
-use protos::services::ProduceAttestationDataRequest;
+use protos::services::ProduceAttestationRequest;
 use types::{AttestationData, FreeAttestation, Slot};
 
 pub struct AttestationGrpcClient {
@@ -16,25 +16,25 @@ impl AttestationGrpcClient {
 }
 
 impl BeaconNode for AttestationGrpcClient {
-    fn produce_attestation_data(
+    fn produce_attestation(
         &self,
         slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, BeaconNodeError> {
-        let mut req = ProduceAttestationDataRequest::new();
+        let mut req = ProduceAttestationRequest::new();
         req.set_slot(slot.as_u64());
         req.set_shard(shard);
 
         let reply = self
             .client
-            .produce_attestation_data(&req)
+            .produce_attestation(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
-        // TODO: return correct AttestationData
+        // TODO: return correct Attestation
         Err(BeaconNodeError::DecodeFailure)
     }
 
-    fn publish_attestation_data(
+    fn publish_attestation(
         &self,
         free_attestation: FreeAttestation,
     ) -> Result<PublishOutcome, BeaconNodeError> {
