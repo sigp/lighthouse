@@ -4,7 +4,8 @@ use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use crossbeam_channel::{unbounded as channel, Sender};
 use eth2_libp2p::{
-    rpc::{methods::GoodbyeReason, IncomingGossip, RPCRequest, RPCResponse, RequestId},
+    behaviour::IncomingGossip,
+    rpc::{methods::GoodbyeReason, RPCRequest, RPCResponse, RequestId},
     PeerId, RPCEvent,
 };
 use futures::future;
