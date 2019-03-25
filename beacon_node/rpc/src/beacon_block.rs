@@ -9,6 +9,7 @@ use slog::Logger;
 
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance {
+    network_chan: crossbeam_channel::Sender<NetworkMessage>,
     pub log: Logger,
 }
 
@@ -43,7 +44,15 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         req: PublishBeaconBlockRequest,
         sink: UnarySink<PublishBeaconBlockResponse>,
     ) {
-        println!("publishing {:?}", req.get_block());
+        let block = req.get_block();
+        println!("publishing {:?}", block);
+
+
+        // TODO: Build properly
+        let topic = types::TopicBuilder::
+        println!("Sending beacon block to gossipsub");
+        network_chan.send(NetworkMessage::Publish(
+
 
         // TODO: actually process the block.
         let mut resp = PublishBeaconBlockResponse::new();

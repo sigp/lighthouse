@@ -21,6 +21,7 @@ use tokio::runtime::TaskExecutor;
 pub fn start_server(
     config: &RPCConfig,
     executor: &TaskExecutor,
+    network_chan: crossbeam_channel::Sender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
@@ -40,7 +41,9 @@ pub fn start_server(
     };
 
     let beacon_block_service = {
-        let instance = BeaconBlockServiceInstance { log: log.clone() };
+        let instance = BeaconBlockServiceInstance {
+            network_chan
+            log: log.clone() };
         create_beacon_block_service(instance)
     };
     let validator_service = {
