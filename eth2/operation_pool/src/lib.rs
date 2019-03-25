@@ -2,12 +2,13 @@ use int_to_bytes::int_to_bytes8;
 use itertools::Itertools;
 use ssz::ssz_encode;
 use state_processing::per_block_processing::errors::{
-    AttestationValidationError, DepositValidationError, ExitValidationError,
-    ProposerSlashingValidationError, TransferValidationError,
+    AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
+    ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
 use state_processing::per_block_processing::{
-    validate_attestation, validate_attestation_time_independent_only, verify_deposit, verify_exit,
-    verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
+    gather_attester_slashing_indices_modular, validate_attestation,
+    validate_attestation_time_independent_only, verify_attester_slashing, verify_deposit,
+    verify_exit, verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
     verify_transfer_time_independent_only,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
@@ -32,8 +33,8 @@ pub struct OperationPool {
     // and the spec doesn't seem to accomodate for re-orgs on a time-frame
     // longer than an epoch
     deposits: BTreeMap<u64, Deposit>,
-    /// Map from attester index to slashing.
-    attester_slashings: HashMap<u64, AttesterSlashing>,
+    /// Map from two attestation IDs to a slashing for those IDs.
+    attester_slashings: HashMap<(AttestationId, AttestationId), AttesterSlashing>,
     /// Map from proposer index to slashing.
     proposer_slashings: HashMap<u64, ProposerSlashing>,
     /// Map from exiting validator to their exit data.
@@ -250,18 +251,44 @@ impl OperationPool {
         Ok(())
     }
 
-    /// Only check whether the implicated validator has already been slashed, because
-    /// all slashings in the pool were validated upon insertion.
-    // TODO: we need a mechanism to avoid including a proposer slashing and an attester
-    // slashing for the same validator in the same block
-    pub fn get_proposer_slashings(
+    /// Compute the tuple ID that is used to identify an attester slashing.
+    ///
+    /// Depends on the fork field of the state, but not on the state's epoch.
+    fn attester_slashing_id(
+        slashing: &AttesterSlashing,
+        state: &BeaconState,
+        spec: &ChainSpec,
+    ) -> (AttestationId, AttestationId) {
+        (
+            AttestationId::from_data(&slashing.slashable_attestation_1.data, state, spec),
+            AttestationId::from_data(&slashing.slashable_attestation_2.data, state, spec),
+        )
+    }
+
+    /// Insert an attester slashing into the pool.
+    pub fn insert_attester_slashing(
+        &mut self,
+        slashing: AttesterSlashing,
+        state: &BeaconState,
+        spec: &ChainSpec,
+    ) -> Result<(), AttesterSlashingValidationError> {
+        verify_attester_slashing(state, &slashing, true, spec)?;
+        let id = Self::attester_slashing_id(&slashing, state, spec);
+        self.attester_slashings.insert(id, slashing);
+        Ok(())
+    }
+
+    /// Get proposer and attester slashings for inclusion in a block.
+    ///
+    /// This function computes both types of slashings together, because
+    /// attester slashings may be invalidated by proposer slashings included
+    /// earlier in the block.
+    pub fn get_slashings(
         &self,
         state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Vec<ProposerSlashing> {
-        // We sort by validator index, which is safe, because a validator can only supply
-        // so many valid slashings for lower-indexed validators (and even that is unlikely)
-        filter_limit_operations(
+    ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing>) {
+        let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.values(),
             |slashing| {
                 state
@@ -270,10 +297,48 @@ impl OperationPool {
                     .map_or(false, |validator| !validator.slashed)
             },
             spec.max_proposer_slashings,
-        )
+        );
+
+        // Set of validators to be slashed, so we don't attempt to construct invalid attester
+        // slashings.
+        let mut to_be_slashed = proposer_slashings
+            .iter()
+            .map(|s| s.proposer_index)
+            .collect::<HashSet<_>>();
+
+        let attester_slashings = self
+            .attester_slashings
+            .iter()
+            .filter(|(id, slashing)| {
+                // Check the fork.
+                Self::attester_slashing_id(slashing, state, spec) == **id
+            })
+            .filter(|(_, slashing)| {
+                // Take all slashings that will slash 1 or more validators.
+                let slashed_validators = gather_attester_slashing_indices_modular(
+                    state,
+                    slashing,
+                    |index, validator| validator.slashed || to_be_slashed.contains(&index),
+                    spec,
+                );
+
+                // Extend the `to_be_slashed` set so subsequent iterations don't try to include
+                // useless slashings.
+                if let Ok(validators) = slashed_validators {
+                    to_be_slashed.extend(validators);
+                    true
+                } else {
+                    false
+                }
+            })
+            .take(spec.max_attester_slashings as usize)
+            .map(|(_, slashing)| slashing.clone())
+            .collect();
+
+        (proposer_slashings, attester_slashings)
     }
 
-    /// Prune slashings for all slashed or withdrawn validators.
+    /// Prune proposer slashings for all slashed or withdrawn validators.
     pub fn prune_proposer_slashings(&mut self, finalized_state: &BeaconState, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.proposer_slashings,
@@ -285,7 +350,22 @@ impl OperationPool {
         );
     }
 
-    // FIXME: copy ProposerSlashing code for AttesterSlashing
+    /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
+    /// fork.
+    pub fn prune_attester_slashings(&mut self, finalized_state: &BeaconState, spec: &ChainSpec) {
+        self.attester_slashings.retain(|id, slashing| {
+            let fork_ok = &Self::attester_slashing_id(slashing, finalized_state, spec) == id;
+            let curr_epoch = finalized_state.current_epoch(spec);
+            let slashing_ok = gather_attester_slashing_indices_modular(
+                finalized_state,
+                slashing,
+                |_, validator| validator.slashed || validator.is_withdrawable_at(curr_epoch),
+                spec,
+            )
+            .is_ok();
+            fork_ok && slashing_ok
+        });
+    }
 
     /// Insert a voluntary exit, validating it almost-entirely (future exits are permitted).
     pub fn insert_voluntary_exit(
@@ -359,13 +439,13 @@ impl OperationPool {
         self.prune_attestations(finalized_state, spec);
         self.prune_deposits(finalized_state);
         self.prune_proposer_slashings(finalized_state, spec);
-        // FIXME: add attester slashings
+        self.prune_attester_slashings(finalized_state, spec);
         self.prune_voluntary_exits(finalized_state, spec);
         self.prune_transfers(finalized_state);
     }
 }
 
-/// Filter up to a maximum number of operations out of a slice.
+/// Filter up to a maximum number of operations out of an iterator.
 fn filter_limit_operations<'a, T: 'a, I, F>(operations: I, filter: F, limit: u64) -> Vec<T>
 where
     I: IntoIterator<Item = &'a T>,

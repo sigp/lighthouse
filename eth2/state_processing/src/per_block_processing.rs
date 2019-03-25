@@ -5,7 +5,8 @@ use ssz::{SignedRoot, TreeHash};
 use types::*;
 
 pub use self::verify_attester_slashing::{
-    gather_attester_slashing_indices, verify_attester_slashing,
+    gather_attester_slashing_indices, gather_attester_slashing_indices_modular,
+    verify_attester_slashing,
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use validate_attestation::{
