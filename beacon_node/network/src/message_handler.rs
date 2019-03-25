@@ -4,7 +4,7 @@ use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use crossbeam_channel::{unbounded as channel, Sender};
 use eth2_libp2p::{
-    behaviour::IncomingGossip,
+    behaviour::PubsubMessage,
     rpc::{methods::GoodbyeReason, RPCRequest, RPCResponse, RequestId},
     PeerId, RPCEvent,
 };
@@ -41,7 +41,7 @@ pub enum HandlerMessage {
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
     /// A gossip message has been received.
-    IncomingGossip(PeerId, IncomingGossip),
+    PubsubMessage(PeerId, PubsubMessage),
 }
 
 impl MessageHandler {
@@ -92,7 +92,7 @@ impl MessageHandler {
                 self.handle_rpc_message(peer_id, rpc_event);
             }
             // we have received an RPC message request/response
-            HandlerMessage::IncomingGossip(peer_id, gossip) => {
+            HandlerMessage::PubsubMessage(peer_id, gossip) => {
                 self.handle_gossip(peer_id, gossip);
             }
             //TODO: Handle all messages
@@ -205,13 +205,13 @@ impl MessageHandler {
     }
 
     /// Handle RPC messages
-    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: IncomingGossip) {
+    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage) {
         match gossip_message {
-            IncomingGossip::Block(message) => {
+            PubsubMessage::Block(message) => {
                 self.sync
                     .on_block_gossip(peer_id, message, &mut self.network_context)
             }
-            IncomingGossip::Attestation(message) => {
+            PubsubMessage::Attestation(message) => {
                 self.sync
                     .on_attestation_gossip(peer_id, message, &mut self.network_context)
             }

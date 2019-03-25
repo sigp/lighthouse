@@ -6,6 +6,8 @@ use protos::services::{
 };
 use protos::services_grpc::BeaconBlockService;
 use slog::Logger;
+use crossbeam_channel;
+use network::NetworkMessage;
 
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance {
@@ -48,8 +50,8 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         println!("publishing {:?}", block);
 
 
-        // TODO: Build properly
-        let topic = types::TopicBuilder::
+        // TODO: Obtain from the network properly.
+        let topic = types::TopicBuilder::from("beacon_chain").build();
         println!("Sending beacon block to gossipsub");
         network_chan.send(NetworkMessage::Publish(
 
