@@ -7,7 +7,7 @@ use beacon_chain::{
     types::{BeaconState, ChainSpec},
     AggregationOutcome, CheckPoint,
 };
-use eth2_libp2p::HelloMessage;
+use eth2_libp2p::rpc::HelloMessage;
 use types::{Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};

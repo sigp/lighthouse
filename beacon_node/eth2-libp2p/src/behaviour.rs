@@ -13,11 +13,11 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
-use slog::{debug, o};
+use slog::{debug, o, warn};
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use ssz_derive::{Decode, Encode};
 use types::Attestation;
-use types::Topic;
+use types::{Topic, TopicHash};
 
 /// Builds the network behaviour for the libp2p Swarm.
 /// Implements gossipsub message routing.
@@ -48,13 +48,33 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
 {
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
-            GossipsubEvent::Message(message) => {
-                let gs_message = String::from_utf8_lossy(&message.data);
-                // TODO: Remove this type - debug only
-                self.events
-                    .push(BehaviourEvent::Message(gs_message.to_string()))
+            GossipsubEvent::Message(gs_msg) => {
+                let pubsub_message = match PubsubMessage::ssz_decode(&gs_msg.data, 0) {
+                    //TODO: Punish peer on error
+                    Err(e) => {
+                        warn!(
+                            self.log,
+                            "Received undecodable message from Peer {:?}", gs_msg.source
+                        );
+                        return;
+                    }
+                    Ok((msg, _index)) => msg,
+                };
+
+                self.events.push(BehaviourEvent::GossipMessage {
+                    source: gs_msg.source,
+                    topics: gs_msg.topics,
+                    message: pubsub_message,
+                });
             }
-            _ => {}
+            GossipsubEvent::Subscribed {
+                peer_id: _,
+                topic: _,
+            }
+            | GossipsubEvent::Unsubscribed {
+                peer_id: _,
+                topic: _,
+            } => {}
         }
     }
 }
@@ -125,15 +145,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         }
     }
 
-    /* Behaviour functions */
-
-    /// Publishes a message on the pubsub (gossipsub) behaviour.
-    pub fn publish(&mut self, topic: Topic, message: PubsubMessage) {
-        //encode the message
-        let message_bytes = ssz_encode(&message);
-        self.gossipsub.publish(topic, message_bytes);
-    }
-
     /// Consumes the events list when polled.
     fn poll<TBehaviourIn>(
         &mut self,
@@ -157,6 +168,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.serenity_rpc.send_rpc(peer_id, rpc_event);
     }
+
+    /// Publishes a message on the pubsub (gossipsub) behaviour.
+    pub fn publish(&mut self, topic: Topic, message: PubsubMessage) {
+        let message_bytes = ssz_encode(&message);
+        self.gossipsub.publish(topic, message_bytes);
+    }
 }
 
 /// The types of events than can be obtained from polling the behaviour.
@@ -165,7 +182,11 @@ pub enum BehaviourEvent {
     PeerDialed(PeerId),
     Identified(PeerId, IdentifyInfo),
     // TODO: This is a stub at the moment
-    Message(String),
+    GossipMessage {
+        source: PeerId,
+        topics: Vec<TopicHash>,
+        message: PubsubMessage,
+    },
 }
 
 /// Gossipsub message providing notification of a new block.
