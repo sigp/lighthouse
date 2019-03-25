@@ -27,9 +27,9 @@ pub struct PeerSyncInfo {
 }
 
 impl PeerSyncInfo {
-    /// Returns `true` if the peer is on the same chain as `other`.
-    fn is_on_same_chain(&self, other: Self) -> bool {
-        self.network_id == other.network_id
+    /// Returns `true` if the has a different network ID to `other`.
+    fn has_different_network_id_to(&self, other: Self) -> bool {
+        self.network_id != other.network_id
     }
 
     /// Returns `true` if the peer has a higher finalized epoch than `other`.
@@ -41,19 +41,6 @@ impl PeerSyncInfo {
     fn has_higher_best_slot_than(&self, other: Self) -> bool {
         self.best_slot > other.best_slot
     }
-
-    /// Returns the `PeerStatus` of `self` in relation to `other`.
-    pub fn status_compared_to(&self, other: Self) -> PeerStatus {
-        if self.has_higher_finalized_epoch_than(other) {
-            PeerStatus::HigherFinalizedEpoch
-        } else if !self.is_on_same_chain(other) {
-            PeerStatus::OnDifferentChain
-        } else if self.has_higher_best_slot_than(other) {
-            PeerStatus::HigherBestSlot
-        } else {
-            PeerStatus::NotInteresting
-        }
-    }
 }
 
 /// The status of a peers view on the chain, relative to some other view of the chain (presumably
@@ -61,13 +48,27 @@ impl PeerSyncInfo {
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum PeerStatus {
     /// The peer is on a completely different chain.
-    OnDifferentChain,
+    DifferentNetworkId,
+    /// The peer lists a finalized epoch for which we have a different root.
+    FinalizedEpochNotInChain,
     /// The peer has a higher finalized epoch.
     HigherFinalizedEpoch,
     /// The peer has a higher best slot.
     HigherBestSlot,
     /// The peer has the same or lesser view of the chain. We have nothing to request of them.
     NotInteresting,
+}
+
+impl PeerStatus {
+    pub fn should_handshake(&self) -> bool {
+        match self {
+            PeerStatus::DifferentNetworkId => false,
+            PeerStatus::FinalizedEpochNotInChain => false,
+            PeerStatus::HigherFinalizedEpoch => true,
+            PeerStatus::HigherBestSlot => true,
+            PeerStatus::NotInteresting => true,
+        }
+    }
 }
 
 impl From<HelloMessage> for PeerSyncInfo {
@@ -183,6 +184,51 @@ impl SimpleSync {
         self.process_hello(peer_id, hello, network);
     }
 
+    /// Returns a `PeerStatus` for some peer.
+    fn peer_status(&self, peer: PeerSyncInfo) -> PeerStatus {
+        let local = PeerSyncInfo::from(&self.chain);
+
+        if peer.has_different_network_id_to(local) {
+            return PeerStatus::DifferentNetworkId;
+        }
+
+        if local.has_higher_finalized_epoch_than(peer) {
+            let peer_finalized_slot = peer
+                .latest_finalized_epoch
+                .start_slot(self.chain.get_spec().slots_per_epoch);
+
+            let local_roots = self.chain.get_block_roots(peer_finalized_slot, 1, 0);
+
+            if let Ok(local_roots) = local_roots {
+                if let Some(local_root) = local_roots.get(0) {
+                    if *local_root != peer.latest_finalized_root {
+                        return PeerStatus::FinalizedEpochNotInChain;
+                    }
+                } else {
+                    error!(
+                        self.log,
+                        "Cannot get root for peer finalized slot.";
+                        "error" => "empty roots"
+                    );
+                }
+            } else {
+                error!(
+                    self.log,
+                    "Cannot get root for peer finalized slot.";
+                    "error" => format!("{:?}", local_roots)
+                );
+            }
+        }
+
+        if peer.has_higher_finalized_epoch_than(local) {
+            PeerStatus::HigherFinalizedEpoch
+        } else if peer.has_higher_best_slot_than(local) {
+            PeerStatus::HigherBestSlot
+        } else {
+            PeerStatus::NotInteresting
+        }
+    }
+
     /// Process a `Hello` message, requesting new blocks if appropriate.
     ///
     /// Disconnects the peer if required.
@@ -196,26 +242,22 @@ impl SimpleSync {
 
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
-        let remote_status = remote.status_compared_to(local);
+        let remote_status = self.peer_status(remote);
 
-        // network id must match
-        if remote_status != PeerStatus::OnDifferentChain {
+        if remote_status.should_handshake() {
             info!(self.log, "HandshakeSuccess"; "peer" => format!("{:?}", peer_id));
             self.known_peers.insert(peer_id.clone(), remote);
+        } else {
+            info!(
+                self.log, "HandshakeFailure";
+                "peer" => format!("{:?}", peer_id),
+                "reason" => "network_id"
+            );
+            network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
         }
 
-        // TODO: boot peer if finalization is wrong.
-
+        // If required, send requests for blocks.
         match remote_status {
-            PeerStatus::OnDifferentChain => {
-                info!(
-                    self.log, "Failure";
-                    "peer" => format!("{:?}", peer_id),
-                    "reason" => "network_id"
-                );
-
-                network.disconnect(peer_id);
-            }
             PeerStatus::HigherFinalizedEpoch => {
                 let start_slot = remote
                     .latest_finalized_epoch
@@ -243,6 +285,8 @@ impl SimpleSync {
                     network,
                 );
             }
+            PeerStatus::FinalizedEpochNotInChain => {}
+            PeerStatus::DifferentNetworkId => {}
             PeerStatus::NotInteresting => {}
         }
     }
@@ -541,7 +585,7 @@ impl SimpleSync {
                             "sender_peer_id" => format!("{:?}", sender),
                             "reason" => format!("{:?}", outcome),
                         );
-                        network.disconnect(sender);
+                        network.disconnect(sender, GoodbyeReason::Fault);
                     }
 
                     // If this results to true, the item will be removed from the queue.
