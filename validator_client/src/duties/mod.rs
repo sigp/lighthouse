@@ -1,21 +1,19 @@
 mod epoch_duties;
 mod grpc;
-mod service;
 #[cfg(test)]
 mod test_node;
 mod traits;
 
 pub use self::epoch_duties::EpochDutiesMap;
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
-pub use self::service::DutiesManagerService;
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{ChainSpec, Epoch};
+use types::{ChainSpec, Epoch, Slot};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum PollOutcome {
+pub enum UpdateOutcome {
     /// The `EpochDuties` were not updated during this poll.
     NoChange(Epoch),
     /// The `EpochDuties` for the `epoch` were previously unknown, but obtained in the poll.
@@ -39,45 +37,42 @@ pub enum Error {
 /// A polling state machine which ensures the latest `EpochDuties` are obtained from the Beacon
 /// Node.
 ///
-/// There is a single `DutiesManager` per validator instance.
+/// This keeps track of all validator keys and required voting slots.
 pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
     pub duties_map: Arc<EpochDutiesMap>,
-    /// The validator's public key.
-    pub pubkey: PublicKey,
+    /// A list of all public keys known to the validator service.
+    pub pubkeys: Vec<PublicKey>,
     pub spec: Arc<ChainSpec>,
     pub slot_clock: Arc<T>,
     pub beacon_node: Arc<U>,
 }
 
 impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
-    /// Poll the Beacon Node for `EpochDuties`.
+    /// Check the Beacon Node for `EpochDuties`.
     ///
     /// The present `epoch` will be learned from the supplied `SlotClock`. In production this will
     /// be a wall-clock (e.g., system time, remote server time, etc.).
-    pub fn poll(&self) -> Result<PollOutcome, Error> {
-        let slot = self
-            .slot_clock
-            .present_slot()
-            .map_err(|_| Error::SlotClockError)?
-            .ok_or(Error::SlotUnknowable)?;
-
+    pub fn update(&self, slot: Slot) -> Result<UpdateOutcome, Error> {
         let epoch = slot.epoch(self.spec.slots_per_epoch);
 
-        if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkey)? {
+        if let Some(duties) = self
+            .beacon_node
+            .request_shuffling(epoch, &self.pubkeys[0])?
+        {
             // If these duties were known, check to see if they're updates or identical.
             let result = if let Some(known_duties) = self.duties_map.get(epoch)? {
                 if known_duties == duties {
-                    Ok(PollOutcome::NoChange(epoch))
+                    Ok(UpdateOutcome::NoChange(epoch))
                 } else {
-                    Ok(PollOutcome::DutiesChanged(epoch, duties))
+                    Ok(UpdateOutcome::DutiesChanged(epoch, duties))
                 }
             } else {
-                Ok(PollOutcome::NewDuties(epoch, duties))
+                Ok(UpdateOutcome::NewDuties(epoch, duties))
             };
             self.duties_map.insert(epoch, duties)?;
             result
         } else {
-            Ok(PollOutcome::UnknownValidatorOrEpoch(epoch))
+            Ok(UpdateOutcome::UnknownValidatorOrEpoch(epoch))
         }
     }
 }

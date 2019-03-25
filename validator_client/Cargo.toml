@@ -1,12 +1,23 @@
 [package]
 name = "validator_client"
 version = "0.1.0"
-authors = ["Paul Hauner <paul@paulhauner.com>"]
+authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
 edition = "2018"
+
+[[bin]]
+name = "validator_client"
+path = "src/main.rs"
+
+[lib]
+name = "validator_client"
+path = "src/lib.rs"
+
 
 [dependencies]
 block_proposer = { path = "../eth2/block_proposer" }
+attester = { path = "../eth2/attester" }
 bls = { path = "../eth2/utils/bls" }
+ssz = { path = "../eth2/utils/ssz" }
 clap = "2.32.0"
 dirs = "1.0.3"
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
@@ -17,4 +28,7 @@ types = { path = "../eth2/types" }
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
-ssz = { path = "../eth2/utils/ssz" }
+tokio = "0.1.18"
+tokio-timer = "0.2.10"
+error-chain = "0.12.0"
+bincode = "^1.1.2"
