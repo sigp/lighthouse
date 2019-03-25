@@ -2,7 +2,7 @@ use super::import_queue::ImportQueue;
 use crate::beacon_chain::BeaconChain;
 use crate::message_handler::NetworkContext;
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCRequest, RPCResponse};
+use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, warn};
 use std::collections::HashMap;
@@ -157,6 +157,7 @@ impl SimpleSync {
     pub fn on_hello_request(
         &mut self,
         peer_id: PeerId,
+        request_id: RequestId,
         hello: HelloMessage,
         network: &mut NetworkContext,
     ) {
@@ -165,6 +166,7 @@ impl SimpleSync {
         // Say hello back.
         network.send_rpc_response(
             peer_id.clone(),
+            request_id,
             RPCResponse::Hello(self.chain.hello_message()),
         );
 
@@ -256,7 +258,7 @@ impl SimpleSync {
             network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
         }
 
-        // If required, send requests for blocks.
+        // If required, send additional requests.
         match remote_status {
             PeerStatus::HigherFinalizedEpoch => {
                 let start_slot = remote
@@ -295,6 +297,7 @@ impl SimpleSync {
     pub fn on_beacon_block_roots_request(
         &mut self,
         peer_id: PeerId,
+        request_id: RequestId,
         req: BeaconBlockRootsRequest,
         network: &mut NetworkContext,
     ) {
@@ -333,6 +336,7 @@ impl SimpleSync {
 
         network.send_rpc_response(
             peer_id,
+            request_id,
             RPCResponse::BeaconBlockRoots(BeaconBlockRootsResponse { roots }),
         )
     }
@@ -385,6 +389,7 @@ impl SimpleSync {
     pub fn on_beacon_block_headers_request(
         &mut self,
         peer_id: PeerId,
+        request_id: RequestId,
         req: BeaconBlockHeadersRequest,
         network: &mut NetworkContext,
     ) {
@@ -415,6 +420,7 @@ impl SimpleSync {
 
         network.send_rpc_response(
             peer_id,
+            request_id,
             RPCResponse::BeaconBlockHeaders(BeaconBlockHeadersResponse { headers }),
         )
     }
@@ -454,6 +460,7 @@ impl SimpleSync {
     pub fn on_beacon_block_bodies_request(
         &mut self,
         peer_id: PeerId,
+        request_id: RequestId,
         req: BeaconBlockBodiesRequest,
         network: &mut NetworkContext,
     ) {
@@ -480,6 +487,7 @@ impl SimpleSync {
 
         network.send_rpc_response(
             peer_id,
+            request_id,
             RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse { block_bodies }),
         )
     }

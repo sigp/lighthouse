@@ -12,7 +12,7 @@ use libp2p::core::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{HelloMessage, IncomingGossip, RPCMethod, RPCRequest, RPCResponse};
-pub use protocol::{RPCEvent, RPCProtocol};
+pub use protocol::{RPCEvent, RPCProtocol, RequestId};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};

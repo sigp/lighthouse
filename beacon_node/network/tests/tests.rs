@@ -1,6 +1,6 @@
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCMethod, RPCRequest, RPCResponse};
+use eth2_libp2p::rpc::{RPCMethod, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::{PeerId, RPCEvent};
 use network::beacon_chain::BeaconChain as NetworkBeaconChain;
 use network::message_handler::{HandlerMessage, MessageHandler};
@@ -82,8 +82,8 @@ impl SyncNode {
         let network_message = self.recv().expect("Timeout on tee");
 
         let handler_message = match network_message.clone() {
-            NetworkMessage::Send(peer_id, OutgoingMessage::RPC(event)) => {
-                HandlerMessage::RPC(peer_id, event)
+            NetworkMessage::Send(_to_peer_id, OutgoingMessage::RPC(event)) => {
+                HandlerMessage::RPC(self.peer_id.clone(), event)
             }
             _ => panic!("tee cannot parse {:?}", network_message),
         };
@@ -265,7 +265,7 @@ fn get_logger() -> slog::Logger {
 pub struct SyncMaster {
     harness: BeaconChainHarness,
     peer_id: PeerId,
-    response_ids: Vec<u64>,
+    response_ids: Vec<RequestId>,
 }
 
 impl SyncMaster {
@@ -276,7 +276,7 @@ impl SyncMaster {
     ) -> Self {
         let harness = BeaconChainHarness::from_beacon_state_builder(state_builder, spec.clone());
         let peer_id = PeerId::random();
-        let response_ids = vec![0; node_count];
+        let response_ids = vec![RequestId::from(0); node_count];
 
         Self {
             harness,
@@ -285,9 +285,9 @@ impl SyncMaster {
         }
     }
 
-    pub fn response_id(&mut self, node: &SyncNode) -> u64 {
-        let id = self.response_ids[node.id];
-        self.response_ids[node.id] += 1;
+    pub fn response_id(&mut self, node: &SyncNode) -> RequestId {
+        let id = self.response_ids[node.id].clone();
+        self.response_ids[node.id].increment();
         id
     }
 
