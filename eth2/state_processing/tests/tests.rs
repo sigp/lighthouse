@@ -1,5 +1,7 @@
 use serde_derive::Deserialize;
 use types::*;
+#[allow(unused_imports)]
+use yaml_utils;
 
 #[derive(Debug, Deserialize)]
 pub struct TestCase {
@@ -23,9 +25,10 @@ fn yaml() {
     use serde_yaml;
     use std::{fs::File, io::prelude::*, path::PathBuf};
 
+    // Test sanity-check_small-config_32-vals.yaml
     let mut file = {
         let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        file_path_buf.push("specs/example.yml");
+        file_path_buf.push("yaml_utils/specs/sanity-check_small-config_32-vals.yaml");
 
         File::open(file_path_buf).unwrap()
     };
@@ -34,7 +37,23 @@ fn yaml() {
 
     file.read_to_string(&mut yaml_str).unwrap();
 
-    let yaml_str = yaml_str.to_lowercase();
+    yaml_str = yaml_str.to_lowercase();
+
+    let _doc: TestDoc = serde_yaml::from_str(&yaml_str.as_str()).unwrap();
+
+    // Test sanity-check_default-config_100-vals.yaml
+    file = {
+        let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        file_path_buf.push("yaml_utils/specs/sanity-check_default-config_100-vals.yaml");
+
+        File::open(file_path_buf).unwrap()
+    };
+
+    yaml_str = String::new();
+
+    file.read_to_string(&mut yaml_str).unwrap();
+
+    yaml_str = yaml_str.to_lowercase();
 
     let _doc: TestDoc = serde_yaml::from_str(&yaml_str.as_str()).unwrap();
 }
