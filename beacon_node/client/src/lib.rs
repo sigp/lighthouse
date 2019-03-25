@@ -24,12 +24,8 @@ pub struct Client<T: ClientTypes> {
     beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>>,
     /// Reference to the network service.
     pub network: Arc<NetworkService>,
-    /// Future to stop and begin shutdown of the Client.
-    //TODO: Decide best way to handle shutdown
-    pub exit: exit_future::Exit,
-    /// The sending future to call to terminate the Client.
-    //TODO: Decide best way to handle shutdown
-    pub exit_signal: Signal,
+    /// Signal to terminate the RPC server.
+    pub rpc_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
     /// Marker to pin the beacon chain generics.
@@ -43,8 +39,6 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
-        let (exit_signal, exit) = exit_future::signal();
-
         // generate a beacon chain
         let beacon_chain = TClientType::initialise_beacon_chain(&config);
 
@@ -52,23 +46,29 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         // TODO: Add beacon_chain reference to network parameters
         let network_config = &config.net_conf;
         let network_logger = log.new(o!("Service" => "Network"));
-        let (network, _network_send) = NetworkService::new(
+        let (network, network_send) = NetworkService::new(
             beacon_chain.clone(),
             network_config,
             executor,
             network_logger,
         )?;
 
+        let mut rpc_exit_signal = None;
         // spawn the RPC server
         if config.rpc_conf.enabled {
-            rpc::start_server(&config.rpc_conf, &log);
+            rpc_exit_signal = Some(rpc::start_server(
+                &config.rpc_conf,
+                executor,
+                network_send,
+                beacon_chain.clone(),
+                &log,
+            ));
         }
 
         Ok(Client {
             config,
             beacon_chain,
-            exit,
-            exit_signal,
+            rpc_exit_signal,
             log,
             network,
             phantom: PhantomData,

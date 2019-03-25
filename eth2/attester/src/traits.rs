@@ -14,13 +14,13 @@ pub enum PublishOutcome {
 
 /// Defines the methods required to produce and publish blocks on a Beacon Node.
 pub trait BeaconNode: Send + Sync {
-    fn produce_attestation_data(
+    fn produce_attestation(
         &self,
         slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, BeaconNodeError>;
 
-    fn publish_attestation_data(
+    fn publish_attestation(
         &self,
         free_attestation: FreeAttestation,
     ) -> Result<PublishOutcome, BeaconNodeError>;

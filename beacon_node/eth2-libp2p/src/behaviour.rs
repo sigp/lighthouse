@@ -13,10 +13,11 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
-use slog::{debug, o};
+use slog::{debug, o, warn};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use ssz_derive::{Decode, Encode};
 use types::Attestation;
-use types::Topic;
+use types::{Topic, TopicHash};
 
 /// Builds the network behaviour for the libp2p Swarm.
 /// Implements gossipsub message routing.
@@ -47,13 +48,33 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
 {
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
-            GossipsubEvent::Message(message) => {
-                let gs_message = String::from_utf8_lossy(&message.data);
-                // TODO: Remove this type - debug only
-                self.events
-                    .push(BehaviourEvent::Message(gs_message.to_string()))
+            GossipsubEvent::Message(gs_msg) => {
+                let pubsub_message = match PubsubMessage::ssz_decode(&gs_msg.data, 0) {
+                    //TODO: Punish peer on error
+                    Err(e) => {
+                        warn!(
+                            self.log,
+                            "Received undecodable message from Peer {:?}", gs_msg.source
+                        );
+                        return;
+                    }
+                    Ok((msg, _index)) => msg,
+                };
+
+                self.events.push(BehaviourEvent::GossipMessage {
+                    source: gs_msg.source,
+                    topics: gs_msg.topics,
+                    message: pubsub_message,
+                });
             }
-            _ => {}
+            GossipsubEvent::Subscribed {
+                peer_id: _,
+                topic: _,
+            }
+            | GossipsubEvent::Unsubscribed {
+                peer_id: _,
+                topic: _,
+            } => {}
         }
     }
 }
@@ -147,6 +168,14 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.serenity_rpc.send_rpc(peer_id, rpc_event);
     }
+
+    /// Publishes a message on the pubsub (gossipsub) behaviour.
+    pub fn publish(&mut self, topics: Vec<Topic>, message: PubsubMessage) {
+        let message_bytes = ssz_encode(&message);
+        for topic in topics {
+            self.gossipsub.publish(topic, message_bytes.clone());
+        }
+    }
 }
 
 /// The types of events than can be obtained from polling the behaviour.
@@ -155,23 +184,51 @@ pub enum BehaviourEvent {
     PeerDialed(PeerId),
     Identified(PeerId, IdentifyInfo),
     // TODO: This is a stub at the moment
-    Message(String),
+    GossipMessage {
+        source: PeerId,
+        topics: Vec<TopicHash>,
+        message: PubsubMessage,
+    },
 }
 
+/// Messages that are passed to and from the pubsub (Gossipsub) behaviour.
 #[derive(Debug, Clone)]
-pub enum IncomingGossip {
-    Block(BlockGossip),
-    Attestation(AttestationGossip),
+pub enum PubsubMessage {
+    /// Gossipsub message providing notification of a new block.
+    Block(BlockRootSlot),
+    /// Gossipsub message providing notification of a new attestation.
+    Attestation(Attestation),
 }
 
-/// Gossipsub message providing notification of a new block.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BlockGossip {
-    pub root: BlockRootSlot,
+//TODO: Correctly encode/decode enums. Prefixing with integer for now.
+impl Encodable for PubsubMessage {
+    fn ssz_append(&self, s: &mut SszStream) {
+        match self {
+            PubsubMessage::Block(block_gossip) => {
+                0u32.ssz_append(s);
+                block_gossip.ssz_append(s);
+            }
+            PubsubMessage::Attestation(attestation_gossip) => {
+                1u32.ssz_append(s);
+                attestation_gossip.ssz_append(s);
+            }
+        }
+    }
 }
 
-/// Gossipsub message providing notification of a new attestation.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct AttestationGossip {
-    pub attestation: Attestation,
+impl Decodable for PubsubMessage {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+        let (id, index) = u32::ssz_decode(bytes, index)?;
+        match id {
+            1 => {
+                let (block, index) = BlockRootSlot::ssz_decode(bytes, index)?;
+                Ok((PubsubMessage::Block(block), index))
+            }
+            2 => {
+                let (attestation, index) = Attestation::ssz_decode(bytes, index)?;
+                Ok((PubsubMessage::Attestation(attestation), index))
+            }
+            _ => Err(DecodeError::Invalid),
+        }
+    }
 }
