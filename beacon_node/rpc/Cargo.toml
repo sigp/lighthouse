@@ -8,6 +8,7 @@ edition = "2018"
 bls = { path = "../../eth2/utils/bls" }
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
+eth2-libp2p = { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
 ssz = { path = "../../eth2/utils/ssz" }

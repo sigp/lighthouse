@@ -165,9 +165,9 @@ fn network_service(
                         }
                     };
                 }
-                Ok(NetworkMessage::Publish(topic, message)) => {
-                    debug!(log, "Sending pubsub message on topic {:?}", topic);
-                    libp2p_service.swarm.publish(topic, message);
+                Ok(NetworkMessage::Publish { topics, message }) => {
+                    debug!(log, "Sending pubsub message on topics {:?}", topics);
+                    libp2p_service.swarm.publish(topics, message);
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -188,7 +188,10 @@ pub enum NetworkMessage {
     //TODO: Define typing for messages across the wire
     Send(PeerId, OutgoingMessage),
     /// Publish a message to pubsub mechanism.
-    Publish(Topic, PubsubMessage),
+    Publish {
+        topics: Vec<Topic>,
+        message: PubsubMessage,
+    },
 }
 
 /// Type of outgoing messages that can be sent through the network service.
