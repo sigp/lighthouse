@@ -46,7 +46,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         // TODO: Add beacon_chain reference to network parameters
         let network_config = &config.net_conf;
         let network_logger = log.new(o!("Service" => "Network"));
-        let (network, _network_send) = NetworkService::new(
+        let (network, network_send) = NetworkService::new(
             beacon_chain.clone(),
             network_config,
             executor,
@@ -59,6 +59,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             rpc_exit_signal = Some(rpc::start_server(
                 &config.rpc_conf,
                 executor,
+                network_send,
                 beacon_chain.clone(),
                 &log,
             ));

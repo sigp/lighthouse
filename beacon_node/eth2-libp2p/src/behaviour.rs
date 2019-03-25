@@ -14,6 +14,7 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use ssz_derive::{Decode, Encode};
 use types::Attestation;
 use types::Topic;
@@ -124,6 +125,15 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         }
     }
 
+    /* Behaviour functions */
+
+    /// Publishes a message on the pubsub (gossipsub) behaviour.
+    pub fn publish(&mut self, topic: Topic, message: PubsubMessage) {
+        //encode the message
+        let message_bytes = ssz_encode(&message);
+        self.gossipsub.publish(topic, message_bytes);
+    }
+
     /// Consumes the events list when polled.
     fn poll<TBehaviourIn>(
         &mut self,
@@ -158,12 +168,6 @@ pub enum BehaviourEvent {
     Message(String),
 }
 
-#[derive(Debug, Clone)]
-pub enum IncomingGossip {
-    Block(BlockGossip),
-    Attestation(AttestationGossip),
-}
-
 /// Gossipsub message providing notification of a new block.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlockGossip {
@@ -174,4 +178,44 @@ pub struct BlockGossip {
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct AttestationGossip {
     pub attestation: Attestation,
+}
+
+/// Messages that are passed to and from the pubsub (Gossipsub) behaviour.
+#[derive(Debug, Clone)]
+pub enum PubsubMessage {
+    Block(BlockGossip),
+    Attestation(AttestationGossip),
+}
+
+//TODO: Correctly encode/decode enums. Prefixing with integer for now.
+impl Encodable for PubsubMessage {
+    fn ssz_append(&self, s: &mut SszStream) {
+        match self {
+            PubsubMessage::Block(block_gossip) => {
+                0u32.ssz_append(s);
+                block_gossip.ssz_append(s);
+            }
+            PubsubMessage::Attestation(attestation_gossip) => {
+                1u32.ssz_append(s);
+                attestation_gossip.ssz_append(s);
+            }
+        }
+    }
+}
+
+impl Decodable for PubsubMessage {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+        let (id, index) = u32::ssz_decode(bytes, index)?;
+        match id {
+            1 => {
+                let (block, index) = BlockGossip::ssz_decode(bytes, index)?;
+                Ok((PubsubMessage::Block(block), index))
+            }
+            2 => {
+                let (attestation, index) = AttestationGossip::ssz_decode(bytes, index)?;
+                Ok((PubsubMessage::Attestation(attestation), index))
+            }
+            _ => Err(DecodeError::Invalid),
+        }
+    }
 }
