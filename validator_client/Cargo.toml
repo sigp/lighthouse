@@ -1,8 +1,17 @@
 [package]
 name = "validator_client"
 version = "0.1.0"
-authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
+authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
 edition = "2018"
+
+[[bin]]
+name = "validator_client"
+path = "src/main.rs"
+
+[lib]
+name = "validator_client"
+path = "src/lib.rs"
+
 
 [dependencies]
 block_proposer = { path = "../eth2/block_proposer" }
@@ -22,3 +31,4 @@ slog-async = "^2.3.0"
 tokio = "0.1.18"
 tokio-timer = "0.2.10"
 error-chain = "0.12.0"
+bincode = "^1.1.2"
