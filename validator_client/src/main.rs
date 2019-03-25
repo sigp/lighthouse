@@ -2,12 +2,13 @@ mod attester_service;
 mod block_producer_service;
 mod config;
 mod duties;
+pub mod error;
 mod service;
 
 use crate::config::Config as ValidatorConfig;
 use clap::{App, Arg};
 use service::Service as ValidatorService;
-use slog::{o, Drain};
+use slog::{error, info, o, Drain};
 
 fn main() {
     // Logging
@@ -50,5 +51,8 @@ fn main() {
     let config = ValidatorConfig::parse_args(matches, &log).unwrap();
 
     // start the validator service.
-    ValidatorService::start(config, log);
+    match ValidatorService::start(config, log.clone()) {
+        Ok(_) => info!(log, "Validator client shutdown successfully."),
+        Err(e) => error!(log, "Validator exited due to {:?}", e),
+    }
 }
