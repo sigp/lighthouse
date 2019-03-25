@@ -11,6 +11,7 @@ use self::validator::ValidatorServiceInstance;
 pub use config::Config as RPCConfig;
 use futures::{future, Future};
 use grpcio::{Environment, Server, ServerBuilder};
+use network::NetworkMessage;
 use protos::services_grpc::{
     create_beacon_block_service, create_beacon_node_service, create_validator_service,
 };
@@ -42,8 +43,9 @@ pub fn start_server(
 
     let beacon_block_service = {
         let instance = BeaconBlockServiceInstance {
-            network_chan
-            log: log.clone() };
+            network_chan,
+            log: log.clone(),
+        };
         create_beacon_block_service(instance)
     };
     let validator_service = {

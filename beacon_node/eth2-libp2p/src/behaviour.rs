@@ -170,9 +170,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     }
 
     /// Publishes a message on the pubsub (gossipsub) behaviour.
-    pub fn publish(&mut self, topic: Topic, message: PubsubMessage) {
+    pub fn publish(&mut self, topics: Vec<Topic>, message: PubsubMessage) {
         let message_bytes = ssz_encode(&message);
-        self.gossipsub.publish(topic, message_bytes);
+        for topic in topics {
+            self.gossipsub.publish(topic, message_bytes.clone());
+        }
     }
 }
 
@@ -189,23 +191,13 @@ pub enum BehaviourEvent {
     },
 }
 
-/// Gossipsub message providing notification of a new block.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BlockGossip {
-    pub root: BlockRootSlot,
-}
-
-/// Gossipsub message providing notification of a new attestation.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct AttestationGossip {
-    pub attestation: Attestation,
-}
-
 /// Messages that are passed to and from the pubsub (Gossipsub) behaviour.
 #[derive(Debug, Clone)]
 pub enum PubsubMessage {
-    Block(BlockGossip),
-    Attestation(AttestationGossip),
+    /// Gossipsub message providing notification of a new block.
+    Block(BlockRootSlot),
+    /// Gossipsub message providing notification of a new attestation.
+    Attestation(Attestation),
 }
 
 //TODO: Correctly encode/decode enums. Prefixing with integer for now.
@@ -229,11 +221,11 @@ impl Decodable for PubsubMessage {
         let (id, index) = u32::ssz_decode(bytes, index)?;
         match id {
             1 => {
-                let (block, index) = BlockGossip::ssz_decode(bytes, index)?;
+                let (block, index) = BlockRootSlot::ssz_decode(bytes, index)?;
                 Ok((PubsubMessage::Block(block), index))
             }
             2 => {
-                let (attestation, index) = AttestationGossip::ssz_decode(bytes, index)?;
+                let (attestation, index) = Attestation::ssz_decode(bytes, index)?;
                 Ok((PubsubMessage::Attestation(attestation), index))
             }
             _ => Err(DecodeError::Invalid),
