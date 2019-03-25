@@ -145,13 +145,17 @@ impl OperationPool {
 
     /// Get a list of attestations for inclusion in a block.
     pub fn get_attestations(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<Attestation> {
-        // Attestations for the current fork...
-        // FIXME: should we also check domain bytes for the previous epoch?
-        let current_epoch = state.slot.epoch(spec.slots_per_epoch);
-        let domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
+        // Attestations for the current fork, which may be from the current or previous epoch.
+        let prev_epoch = state.previous_epoch(spec);
+        let current_epoch = state.current_epoch(spec);
+        let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
+        let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
         self.attestations
             .iter()
-            .filter(|(key, _)| key.domain_bytes_match(&domain_bytes))
+            .filter(|(key, _)| {
+                key.domain_bytes_match(&prev_domain_bytes)
+                    || key.domain_bytes_match(&curr_domain_bytes)
+            })
             .flat_map(|(_, attestations)| attestations)
             // That are valid...
             .filter(|attestation| validate_attestation(state, attestation, spec).is_ok())
