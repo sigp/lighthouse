@@ -2,6 +2,7 @@
 use crate::attester_service::{AttestationGrpcClient, AttesterService};
 use crate::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use crate::config::Config as ValidatorConfig;
+use crate::duties::PollOutcome;
 use crate::duties::{DutiesManager, DutiesManagerService, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::error::ErrorKind;
@@ -84,7 +85,8 @@ impl Service {
                     if SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
-                        > Duration::from_secs(info.genesis_time)
+                        .as_secs()
+                        < info.genesis_time
                     {
                         warn!(
                             log,
@@ -239,8 +241,32 @@ impl Service {
                     Ok(slot) => slot.expect("Genesis is in the future"),
                 };
 
+                debug_assert!(
+                    current_slot > service.current_slot,
+                    "The Timer should poll a new slot"
+                );
+
                 debug!(service.log, "Processing slot: {}", current_slot.as_u64());
-                manager.poll();
+
+                // check for new duties
+                match manager.poll() {
+                    Err(error) => {
+                        error!(service.log, "Epoch duties poll error"; "error" => format!("{:?}", error))
+                    }
+                    Ok(PollOutcome::NoChange(epoch)) => {
+                        debug!(service.log, "No change in duties"; "epoch" => epoch)
+                    }
+                    Ok(PollOutcome::DutiesChanged(epoch, duties)) => {
+                        info!(service.log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+                    }
+                    Ok(PollOutcome::NewDuties(epoch, duties)) => {
+                        info!(service.log, "New duties obtained"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+                    }
+                    Ok(PollOutcome::UnknownValidatorOrEpoch(epoch)) => {
+                        error!(service.log, "Epoch or validator unknown"; "epoch" => epoch)
+                    }
+                };
+
                 Ok(())
             }))
             .map_err(|e| format!("Service thread failed: {:?}", e))?;
