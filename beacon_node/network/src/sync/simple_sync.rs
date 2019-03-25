@@ -204,6 +204,8 @@ impl SimpleSync {
             self.known_peers.insert(peer_id.clone(), remote);
         }
 
+        // TODO: boot peer if finalization is wrong.
+
         match remote_status {
             PeerStatus::OnDifferentChain => {
                 info!(
@@ -460,6 +462,62 @@ impl SimpleSync {
 
         // Import blocks, if possible.
         self.process_import_queue(network);
+    }
+
+    /// Process a gossip message declaring a new block.
+    pub fn on_block_gossip(
+        &mut self,
+        peer_id: PeerId,
+        msg: BlockGossip,
+        network: &mut NetworkContext,
+    ) {
+        debug!(
+            self.log,
+            "BlockGossip";
+            "peer" => format!("{:?}", peer_id),
+        );
+        // TODO: filter out messages that a prior to the finalized slot.
+        //
+        // TODO: if the block is a few more slots ahead, try to get all block roots from then until
+        // now.
+        //
+        // Note: only requests the new block -- will fail if we don't have its parents.
+        if self.import_queue.is_new_block(&msg.root.block_root) {
+            self.request_block_headers(
+                peer_id,
+                BeaconBlockHeadersRequest {
+                    start_root: msg.root.block_root,
+                    start_slot: msg.root.slot,
+                    max_headers: 1,
+                    skip_slots: 0,
+                },
+                network,
+            )
+        }
+    }
+
+    /// Process a gossip message declaring a new attestation.
+    ///
+    /// Not currently implemented.
+    pub fn on_attestation_gossip(
+        &mut self,
+        peer_id: PeerId,
+        msg: AttestationGossip,
+        _network: &mut NetworkContext,
+    ) {
+        debug!(
+            self.log,
+            "AttestationGossip";
+            "peer" => format!("{:?}", peer_id),
+        );
+
+        // Awaiting a proper operations pool before we can import attestations.
+        //
+        // https://github.com/sigp/lighthouse/issues/281
+        match self.chain.process_attestation(msg.attestation) {
+            Ok(_) => panic!("Impossible, method not implemented."),
+            Err(_) => error!(self.log, "Attestation processing not implemented!"),
+        }
     }
 
     /// Iterate through the `import_queue` and process any complete blocks.

@@ -4,7 +4,7 @@ use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use crossbeam_channel::{unbounded as channel, Sender};
 use eth2_libp2p::{
-    rpc::{RPCRequest, RPCResponse},
+    rpc::{IncomingGossip, RPCRequest, RPCResponse},
     PeerId, RPCEvent,
 };
 use futures::future;
@@ -39,8 +39,8 @@ pub enum HandlerMessage {
     PeerDisconnected(PeerId),
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
-    /// A block has been imported.
-    BlockImported(), //TODO: This comes from pub-sub - decide its contents
+    /// A gossip message has been received.
+    IncomingGossip(PeerId, IncomingGossip),
 }
 
 impl MessageHandler {
@@ -89,6 +89,10 @@ impl MessageHandler {
             // we have received an RPC message request/response
             HandlerMessage::RPC(peer_id, rpc_event) => {
                 self.handle_rpc_message(peer_id, rpc_event);
+            }
+            // we have received an RPC message request/response
+            HandlerMessage::IncomingGossip(peer_id, gossip) => {
+                self.handle_gossip(peer_id, gossip);
             }
             //TODO: Handle all messages
             _ => {}
@@ -185,6 +189,19 @@ impl MessageHandler {
                 warn!(self.log, "BeaconChainState RPC call is not supported.");
             }
         };
+    }
+
+    /// Handle RPC messages
+    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: IncomingGossip) {
+        match gossip_message {
+            IncomingGossip::Block(message) => {
+                self.sync
+                    .on_block_gossip(peer_id, message, &mut self.network_context)
+            }
+            IncomingGossip::Attestation(message) => {
+                //
+            }
+        }
     }
 }
 
