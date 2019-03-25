@@ -97,12 +97,6 @@ impl RPCResponse {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum IncomingGossip {
-    Block(BlockGossip),
-    Attestation(AttestationGossip),
-}
-
 /* Request/Response data structures for RPC methods */
 
 /// The HELLO request/response handshake message.
@@ -241,16 +235,4 @@ pub struct BeaconChainStateRequest {
 pub struct BeaconChainStateResponse {
     /// The values corresponding the to the requested tree hashes.
     pub values: bool, //TBD - stubbed with encodeable bool
-}
-
-/// Gossipsub message providing notification of a new block.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BlockGossip {
-    pub root: BlockRootSlot,
-}
-
-/// Gossipsub message providing notification of a new attestation.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct AttestationGossip {
-    pub attestation: Attestation,
 }

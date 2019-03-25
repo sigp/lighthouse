@@ -1,6 +1,7 @@
 use super::import_queue::ImportQueue;
 use crate::beacon_chain::BeaconChain;
 use crate::message_handler::NetworkContext;
+use eth2_libp2p::behaviour::{AttestationGossip, BlockGossip};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
