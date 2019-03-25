@@ -64,8 +64,6 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             ));
         }
 
-        println!("Here");
-
         Ok(Client {
             config,
             beacon_chain,
