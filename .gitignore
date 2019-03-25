@@ -4,3 +4,4 @@ Cargo.lock
 *.pk
 *.sk
 *.raw_keypairs
+eth2/state_processing/yaml_utils/specs/*.yaml

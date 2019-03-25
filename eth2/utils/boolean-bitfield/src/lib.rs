@@ -186,7 +186,7 @@ impl Serialize for BooleanBitfield {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&encode(&ssz::ssz_encode(self)))
+        serializer.serialize_str(&encode(&self.to_bytes()))
     }
 }
 
@@ -197,9 +197,7 @@ impl<'de> Deserialize<'de> for BooleanBitfield {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let (bitfield, _) = <_>::ssz_decode(&bytes[..], 0)
-            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
-        Ok(bitfield)
+        Ok(BooleanBitfield::from_bytes(&bytes))
     }
 }
 
