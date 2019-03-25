@@ -4,7 +4,7 @@ use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use crossbeam_channel::{unbounded as channel, Sender};
 use eth2_libp2p::{
-    rpc::{IncomingGossip, RPCRequest, RPCResponse},
+    rpc::{methods::GoodbyeReason, IncomingGossip, RPCRequest, RPCResponse},
     PeerId, RPCEvent,
 };
 use futures::future;
@@ -199,7 +199,8 @@ impl MessageHandler {
                     .on_block_gossip(peer_id, message, &mut self.network_context)
             }
             IncomingGossip::Attestation(message) => {
-                //
+                self.sync
+                    .on_attestation_gossip(peer_id, message, &mut self.network_context)
             }
         }
     }
@@ -226,7 +227,8 @@ impl NetworkContext {
         }
     }
 
-    pub fn disconnect(&self, _peer_id: PeerId) {
+    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        self.send_rpc_request(peer_id, RPCRequest::Goodbye(reason))
         // TODO: disconnect peers.
     }
 
