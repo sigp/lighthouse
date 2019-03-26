@@ -33,7 +33,7 @@ service ValidatorService {
 
 /// Service that handles validator attestations
 service AttestationService {
-	rpc ProduceAttestation(ProduceAttestationRequest) returns (ProduceAttestationResponse);
+	rpc ProduceAttestation(ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
 	rpc PublishAttestation(PublishAttestationRequest) returns (PublishAttestationResponse);
 }
 
@@ -138,13 +138,13 @@ message ProposeBlockSlotResponse {
  * Attestation Service Messages
  */
 
-message ProduceAttestationRequest {
+message ProduceAttestationDataRequest {
 	uint64 slot = 1;
 	uint64 shard = 2;
 }
 
-message ProduceAttestationResponse {
-	Attestation attestation_data = 1;
+message ProduceAttestationDataResponse {
+	AttestationData attestation_data = 1;
 }
 
 message PublishAttestationRequest {
@@ -162,7 +162,7 @@ message Crosslink {
 
 }
 
-message Attestation {
+message AttestationData {
 	uint64 slot = 1;
 	uint64 shard = 2;
 	bytes beacon_block_root = 3;
@@ -175,7 +175,7 @@ message Attestation {
 }
 
 message FreeAttestation {
-	Attestation attestation_data = 1;
+	AttestationData data = 1;
 	bytes signature = 2;
 	uint64 validator_index = 3;
 }
