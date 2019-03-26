@@ -60,10 +60,13 @@ where
 {
     type Output = RPCEvent;
     type Error = DecodeError;
-    type Future =
-        upgrade::ReadOneThen<TSocket, (), fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>>;
+    type Future = upgrade::ReadOneThen<
+        upgrade::Negotiated<TSocket>,
+        (),
+        fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>,
+    >;
 
-    fn upgrade_inbound(self, socket: TSocket, _: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, socket: upgrade::Negotiated<TSocket>, _: Self::Info) -> Self::Future {
         upgrade::read_one_then(socket, MAX_READ_SIZE, (), |packet, ()| Ok(decode(packet)?))
     }
 }
@@ -154,10 +157,10 @@ where
 {
     type Output = ();
     type Error = io::Error;
-    type Future = upgrade::WriteOne<TSocket>;
+    type Future = upgrade::WriteOne<upgrade::Negotiated<TSocket>>;
 
     #[inline]
-    fn upgrade_outbound(self, socket: TSocket, _: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, socket: upgrade::Negotiated<TSocket>, _: Self::Info) -> Self::Future {
         let bytes = ssz_encode(&self);
         upgrade::write_one(socket, bytes)
     }
