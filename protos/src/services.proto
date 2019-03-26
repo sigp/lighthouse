@@ -83,10 +83,7 @@ message PublishBeaconBlockResponse {
 }
 
 message BeaconBlock {
-	uint64 slot = 1;
-	bytes block_root = 2;
-	bytes randao_reveal = 3;
-	bytes signature = 4;
+	bytes ssz = 1;
 }
 
 /*

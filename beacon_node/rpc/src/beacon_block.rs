@@ -9,8 +9,10 @@ use protos::services::{
     PublishBeaconBlockRequest, PublishBeaconBlockResponse,
 };
 use protos::services_grpc::BeaconBlockService;
+use slog::debug;
 use slog::Logger;
-use types::{Hash256, Slot};
+use ssz::{Decodable, TreeHash};
+use types::{BeaconBlock, Hash256, Slot};
 
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance {
@@ -30,8 +32,7 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
 
         // TODO: build a legit block.
         let mut block = BeaconBlockProto::new();
-        block.set_slot(req.get_slot());
-        block.set_block_root(b"cats".to_vec());
+        block.set_ssz(b"cats".to_vec());
 
         let mut resp = ProduceBeaconBlockResponse::new();
         resp.set_block(block);
@@ -49,30 +50,39 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         req: PublishBeaconBlockRequest,
         sink: UnarySink<PublishBeaconBlockResponse>,
     ) {
+        debug!(self.log, "PublishBeaconBlock");
+
         let block = req.get_block();
-        let block_root = Hash256::from_slice(block.get_block_root());
-        let block_slot = BlockRootSlot {
-            block_root,
-            slot: Slot::from(block.get_slot()),
-        };
-        println!("publishing block with root {:?}", block_root);
 
-        // TODO: Obtain topics from the network service properly.
-        let topic = types::TopicBuilder::new("beacon_chain".to_string()).build();
-        let message = PubsubMessage::Block(block_slot);
-        println!("Sending beacon block to gossipsub");
-        self.network_chan.send(NetworkMessage::Publish {
-            topics: vec![topic],
-            message,
-        });
+        match BeaconBlock::ssz_decode(block.get_ssz(), 0) {
+            Ok((block, _i)) => {
+                let block_root = Hash256::from_slice(&block.hash_tree_root()[..]);
 
-        // TODO: actually process the block.
-        let mut resp = PublishBeaconBlockResponse::new();
-        resp.set_success(true);
+                // TODO: Obtain topics from the network service properly.
+                let topic = types::TopicBuilder::new("beacon_chain".to_string()).build();
+                let message = PubsubMessage::Block(BlockRootSlot {
+                    block_root,
+                    slot: block.slot,
+                });
 
-        let f = sink
-            .success(resp)
-            .map_err(move |e| println!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f)
+                println!("Sending beacon block to gossipsub");
+                self.network_chan.send(NetworkMessage::Publish {
+                    topics: vec![topic],
+                    message,
+                });
+
+                // TODO: actually process the block.
+                let mut resp = PublishBeaconBlockResponse::new();
+                resp.set_success(true);
+
+                let f = sink
+                    .success(resp)
+                    .map_err(move |e| println!("failed to reply {:?}: {:?}", req, e));
+                ctx.spawn(f)
+            }
+            Err(e) => {
+                //
+            }
+        }
     }
 }
