@@ -29,7 +29,9 @@ impl Default for Config {
                 .parse()
                 .expect("is a correct multi-address")],
             listen_port: 9000,
-            gs_config: GossipsubConfigBuilder::new().build(),
+            gs_config: GossipsubConfigBuilder::new()
+                .max_gossip_size(4_000_000)
+                .build(),
             identify_config: IdentifyConfig::default(),
             boot_nodes: Vec::new(),
             client_version: version::version(),
