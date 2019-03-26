@@ -322,13 +322,7 @@ pub fn process_attestations(
 
     // Update the state in series.
     for attestation in attestations {
-        let pending_attestation = PendingAttestation {
-            data: attestation.data.clone(),
-            aggregation_bitfield: attestation.aggregation_bitfield.clone(),
-            custody_bitfield: attestation.custody_bitfield.clone(),
-            inclusion_slot: state.slot,
-        };
-
+        let pending_attestation = PendingAttestation::from_attestation(attestation, state.slot);
         let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
 
         if attestation_epoch == state.current_epoch(spec) {
