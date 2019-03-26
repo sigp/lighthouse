@@ -173,7 +173,7 @@ impl TreeHash for AggregateSignature {
 mod tests {
     use super::super::{Keypair, Signature};
     use super::*;
-    use ssz::ssz_encode;
+    use ssz::{decode, ssz_encode};
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -183,7 +183,7 @@ mod tests {
         original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = AggregateSignature::ssz_decode(&bytes, 0).unwrap();
+        let decoded = decode::<AggregateSignature>(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }
