@@ -34,7 +34,7 @@ impl<T: ClientDB + Sized> ForkChoice for LongestChain<T> {
     ) -> Result<(), ForkChoiceError> {
         // add the block hash to head_block_hashes removing the parent if it exists
         self.head_block_hashes
-            .retain(|hash| *hash != block.parent_root);
+            .retain(|hash| *hash != block.previous_block_root);
         self.head_block_hashes.push(*block_hash);
         Ok(())
     }

@@ -20,6 +20,8 @@ pub struct Config {
     pub deposits_for_chain_start: usize,
     /// Number of slots in an epoch.
     pub slots_per_epoch: Option<u64>,
+    /// Affects the number of epochs a validator must be active before they can withdraw.
+    pub persistent_committee_period: Option<u64>,
     /// Number of slots to build before ending execution.
     pub num_slots: u64,
     /// Number of slots that should be skipped due to inactive validator.
@@ -45,6 +47,7 @@ impl Config {
             deposits_for_chain_start: as_usize(&yaml, "deposits_for_chain_start")
                 .expect("Must specify validator count"),
             slots_per_epoch: as_u64(&yaml, "slots_per_epoch"),
+            persistent_committee_period: as_u64(&yaml, "persistent_committee_period"),
             num_slots: as_u64(&yaml, "num_slots").expect("Must specify `config.num_slots`"),
             skip_slots: as_vec_u64(yaml, "skip_slots"),
             deposits: parse_deposits(&yaml),

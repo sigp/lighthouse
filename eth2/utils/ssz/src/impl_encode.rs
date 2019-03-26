@@ -40,11 +40,24 @@ macro_rules! impl_encodable_for_uint {
     };
 }
 
+macro_rules! impl_encodable_for_u8_array {
+    ($len: expr) => {
+        impl Encodable for [u8; $len] {
+            fn ssz_append(&self, s: &mut SszStream) {
+                let bytes: Vec<u8> = self.iter().cloned().collect();
+                s.append_encoded_raw(&bytes);
+            }
+        }
+    };
+}
+
 impl_encodable_for_uint!(u8, 8);
 impl_encodable_for_uint!(u16, 16);
 impl_encodable_for_uint!(u32, 32);
 impl_encodable_for_uint!(u64, 64);
 impl_encodable_for_uint!(usize, 64);
+
+impl_encodable_for_u8_array!(4);
 
 impl Encodable for bool {
     fn ssz_append(&self, s: &mut SszStream) {
@@ -77,6 +90,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ssz_encode;
 
     #[test]
     fn test_ssz_encode_h256() {
@@ -246,5 +260,16 @@ mod tests {
         let mut ssz = SszStream::new();
         ssz.append(&x);
         assert_eq!(ssz.drain(), vec![0b0000_0001]);
+    }
+
+    #[test]
+    fn test_ssz_encode_u8_array() {
+        let x: [u8; 4] = [0, 1, 7, 8];
+        let ssz = ssz_encode(&x);
+        assert_eq!(ssz, vec![0, 1, 7, 8]);
+
+        let x: [u8; 4] = [255, 255, 255, 255];
+        let ssz = ssz_encode(&x);
+        assert_eq!(ssz, vec![255, 255, 255, 255]);
     }
 }

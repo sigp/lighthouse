@@ -6,7 +6,7 @@ use test_random_derive::TestRandom;
 
 /// Information about a `BeaconChain` validator.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
     pub pubkey: PublicKey,
@@ -53,29 +53,60 @@ impl Default for Validator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
     #[test]
-    fn test_validator_can_be_active() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let mut validator = Validator::random_for_test(&mut rng);
+    fn default() {
+        let v = Validator::default();
 
-        let activation_epoch = u64::random_for_test(&mut rng);
-        let exit_epoch = activation_epoch + 234;
+        let epoch = Epoch::new(0);
 
-        validator.activation_epoch = Epoch::from(activation_epoch);
-        validator.exit_epoch = Epoch::from(exit_epoch);
+        assert_eq!(v.is_active_at(epoch), false);
+        assert_eq!(v.is_exited_at(epoch), false);
+        assert_eq!(v.is_withdrawable_at(epoch), false);
+        assert_eq!(v.initiated_exit, false);
+        assert_eq!(v.slashed, false);
+    }
 
-        for slot in (activation_epoch - 100)..(exit_epoch + 100) {
-            let slot = Epoch::from(slot);
-            if slot < activation_epoch {
-                assert!(!validator.is_active_at(slot));
-            } else if slot >= exit_epoch {
-                assert!(!validator.is_active_at(slot));
-            } else {
-                assert!(validator.is_active_at(slot));
-            }
-        }
+    #[test]
+    fn is_active_at() {
+        let epoch = Epoch::new(10);
+
+        let v = Validator {
+            activation_epoch: epoch,
+            ..Validator::default()
+        };
+
+        assert_eq!(v.is_active_at(epoch - 1), false);
+        assert_eq!(v.is_active_at(epoch), true);
+        assert_eq!(v.is_active_at(epoch + 1), true);
+    }
+
+    #[test]
+    fn is_exited_at() {
+        let epoch = Epoch::new(10);
+
+        let v = Validator {
+            exit_epoch: epoch,
+            ..Validator::default()
+        };
+
+        assert_eq!(v.is_exited_at(epoch - 1), false);
+        assert_eq!(v.is_exited_at(epoch), true);
+        assert_eq!(v.is_exited_at(epoch + 1), true);
+    }
+
+    #[test]
+    fn is_withdrawable_at() {
+        let epoch = Epoch::new(10);
+
+        let v = Validator {
+            withdrawable_epoch: epoch,
+            ..Validator::default()
+        };
+
+        assert_eq!(v.is_withdrawable_at(epoch - 1), false);
+        assert_eq!(v.is_withdrawable_at(epoch), true);
+        assert_eq!(v.is_withdrawable_at(epoch + 1), true);
     }
 
     ssz_tests!(Validator);

@@ -50,15 +50,15 @@ impl BeaconNode for BeaconBlockGrpcClient {
             // TODO: this conversion is incomplete; fix it.
             Ok(Some(BeaconBlock {
                 slot: Slot::new(block.get_slot()),
-                parent_root: Hash256::zero(),
+                previous_block_root: Hash256::zero(),
                 state_root: Hash256::zero(),
-                randao_reveal,
-                eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
-                },
                 signature,
                 body: BeaconBlockBody {
+                    randao_reveal,
+                    eth1_data: Eth1Data {
+                        deposit_root: Hash256::zero(),
+                        block_hash: Hash256::zero(),
+                    },
                     proposer_slashings: vec![],
                     attester_slashings: vec![],
                     attestations: vec![],
@@ -83,7 +83,7 @@ impl BeaconNode for BeaconBlockGrpcClient {
         let mut grpc_block = GrpcBeaconBlock::new();
         grpc_block.set_slot(block.slot.as_u64());
         grpc_block.set_block_root(vec![0]);
-        grpc_block.set_randao_reveal(ssz_encode(&block.randao_reveal));
+        grpc_block.set_randao_reveal(ssz_encode(&block.body.randao_reveal));
         grpc_block.set_signature(ssz_encode(&block.signature));
 
         req.set_block(grpc_block);

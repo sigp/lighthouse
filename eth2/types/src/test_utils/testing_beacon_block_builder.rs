@@ -12,14 +12,14 @@ use ssz::{SignedRoot, TreeHash};
 ///
 /// This struct should **never be used for production purposes.**
 pub struct TestingBeaconBlockBuilder {
-    block: BeaconBlock,
+    pub block: BeaconBlock,
 }
 
 impl TestingBeaconBlockBuilder {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
         Self {
-            block: BeaconBlock::genesis(spec.zero_hash, spec),
+            block: BeaconBlock::empty(spec),
         }
     }
 
@@ -32,10 +32,9 @@ impl TestingBeaconBlockBuilder {
     ///
     /// Modifying the block after signing may invalidate the signature.
     pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
-        let proposal = self.block.proposal(spec);
-        let message = proposal.signed_root();
+        let message = self.block.signed_root();
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
-        let domain = spec.get_domain(epoch, Domain::Proposal, fork);
+        let domain = spec.get_domain(epoch, Domain::BeaconBlock, fork);
         self.block.signature = Signature::new(&message, domain, sk);
     }
 
@@ -46,7 +45,7 @@ impl TestingBeaconBlockBuilder {
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
         let message = epoch.hash_tree_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
-        self.block.randao_reveal = Signature::new(&message, domain, sk);
+        self.block.body.randao_reveal = Signature::new(&message, domain, sk);
     }
 
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
@@ -74,19 +73,20 @@ impl TestingBeaconBlockBuilder {
         self.block.body.attester_slashings.push(attester_slashing);
     }
 
-    /// Fills the block with `MAX_ATTESTATIONS` attestations.
+    /// Fills the block with `num_attestations` attestations.
     ///
     /// It will first go and get each committee that is able to include an attestation in this
-    /// block. If there are enough committees, it will produce an attestation for each. If there
-    /// are _not_ enough committees, it will start splitting the committees in half until it
+    /// block. If there _are_ enough committees, it will produce an attestation for each. If there
+    /// _are not_ enough committees, it will start splitting the committees in half until it
     /// achieves the target. It will then produce separate attestations for each split committee.
     ///
     /// Note: the signed messages of the split committees will be identical -- it would be possible
     /// to aggregate these split attestations.
-    pub fn fill_with_attestations(
+    pub fn insert_attestations(
         &mut self,
         state: &BeaconState,
         secret_keys: &[&SecretKey],
+        num_attestations: usize,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         let mut slot = self.block.slot - spec.min_attestation_inclusion_delay;
@@ -109,12 +109,17 @@ impl TestingBeaconBlockBuilder {
                 break;
             }
 
-            for (committee, shard) in state.get_crosslink_committees_at_slot(slot, spec)? {
-                if attestations_added >= spec.max_attestations {
+            for crosslink_committee in state.get_crosslink_committees_at_slot(slot, spec)? {
+                if attestations_added >= num_attestations {
                     break;
                 }
 
-                committees.push((slot, committee.clone(), committee.clone(), *shard));
+                committees.push((
+                    slot,
+                    crosslink_committee.committee.clone(),
+                    crosslink_committee.committee.clone(),
+                    crosslink_committee.shard,
+                ));
 
                 attestations_added += 1;
             }
@@ -125,12 +130,12 @@ impl TestingBeaconBlockBuilder {
         // Loop through all the committees, splitting each one in half until we have
         // `MAX_ATTESTATIONS` committees.
         loop {
-            if committees.len() >= spec.max_attestations as usize {
+            if committees.len() >= num_attestations as usize {
                 break;
             }
 
             for index in 0..committees.len() {
-                if committees.len() >= spec.max_attestations as usize {
+                if committees.len() >= num_attestations as usize {
                     break;
                 }
 
@@ -175,9 +180,14 @@ impl TestingBeaconBlockBuilder {
     ) {
         let keypair = Keypair::random();
 
-        let mut builder = TestingDepositBuilder::new(amount);
+        let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
         builder.set_index(index);
-        builder.sign(&keypair, state, spec);
+        builder.sign(
+            &keypair,
+            state.slot.epoch(spec.slots_per_epoch),
+            &state.fork,
+            spec,
+        );
 
         self.block.body.deposits.push(builder.build())
     }

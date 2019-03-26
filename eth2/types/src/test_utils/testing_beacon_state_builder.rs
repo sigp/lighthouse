@@ -1,5 +1,5 @@
 use super::{generate_deterministic_keypairs, KeypairsFile};
-use crate::beacon_state::BeaconStateBuilder;
+use crate::test_utils::TestingPendingAttestationBuilder;
 use crate::*;
 use bls::get_withdrawal_credentials;
 use dirs;
@@ -109,7 +109,8 @@ impl TestingBeaconStateBuilder {
                 Validator {
                     pubkey: keypair.pk.clone(),
                     withdrawal_credentials,
-                    activation_epoch: spec.far_future_epoch,
+                    // All validators start active.
+                    activation_epoch: spec.genesis_epoch,
                     exit_epoch: spec.far_future_epoch,
                     withdrawable_epoch: spec.far_future_epoch,
                     initiated_exit: false,
@@ -118,7 +119,7 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
-        let mut state_builder = BeaconStateBuilder::new(
+        let mut state = BeaconState::genesis(
             0,
             Eth1Data {
                 deposit_root: Hash256::zero(),
@@ -130,16 +131,10 @@ impl TestingBeaconStateBuilder {
         let balances = vec![32_000_000_000; validator_count];
 
         debug!("Importing {} existing validators...", validator_count);
-        state_builder.import_existing_validators(
-            validators,
-            balances,
-            validator_count as u64,
-            spec,
-        );
+        state.validator_registry = validators;
+        state.validator_balances = balances;
 
-        let state = state_builder.build(spec).unwrap();
-
-        debug!("BeaconState built.");
+        debug!("BeaconState initialized.");
 
         Self { state, keypairs }
     }
@@ -158,7 +153,8 @@ impl TestingBeaconStateBuilder {
 
         state.build_epoch_cache(RelativeEpoch::Previous, &spec)?;
         state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
-        state.build_epoch_cache(RelativeEpoch::Next, &spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)?;
 
         state.update_pubkey_cache()?;
 
@@ -189,7 +185,7 @@ impl TestingBeaconStateBuilder {
         state.current_shuffling_seed = Hash256::from_low_u64_le(1);
 
         state.previous_justified_epoch = epoch - 3;
-        state.justified_epoch = epoch - 2;
+        state.current_justified_epoch = epoch - 2;
         state.justification_bitfield = u64::max_value();
 
         state.finalized_epoch = epoch - 3;
@@ -218,7 +214,7 @@ impl TestingBeaconStateBuilder {
             - spec.min_attestation_inclusion_delay;
         let last_slot = std::cmp::min(state.slot.as_u64(), last_slot);
 
-        for slot in first_slot..last_slot + 1 {
+        for slot in first_slot..=last_slot {
             let slot = Slot::from(slot);
 
             let committees = state
@@ -226,77 +222,24 @@ impl TestingBeaconStateBuilder {
                 .unwrap()
                 .clone();
 
-            for (committee, shard) in committees {
-                state
-                    .latest_attestations
-                    .push(committee_to_pending_attestation(
-                        state, &committee, shard, slot, spec,
-                    ))
+            for crosslink_committee in committees {
+                let mut builder = TestingPendingAttestationBuilder::new(
+                    state,
+                    crosslink_committee.shard,
+                    slot,
+                    spec,
+                );
+                // The entire committee should have signed the pending attestation.
+                let signers = vec![true; crosslink_committee.committee.len()];
+                builder.add_committee_participation(signers);
+                let attestation = builder.build();
+
+                if attestation.data.slot.epoch(spec.slots_per_epoch) < state.current_epoch(spec) {
+                    state.previous_epoch_attestations.push(attestation)
+                } else {
+                    state.current_epoch_attestations.push(attestation)
+                }
             }
         }
-    }
-}
-
-/// Maps a committee to a `PendingAttestation`.
-///
-/// The committee will be signed by all validators in the committee.
-fn committee_to_pending_attestation(
-    state: &BeaconState,
-    committee: &[usize],
-    shard: u64,
-    slot: Slot,
-    spec: &ChainSpec,
-) -> PendingAttestation {
-    let current_epoch = state.current_epoch(spec);
-    let previous_epoch = state.previous_epoch(spec);
-
-    let mut aggregation_bitfield = Bitfield::new();
-    let mut custody_bitfield = Bitfield::new();
-
-    for (i, _) in committee.iter().enumerate() {
-        aggregation_bitfield.set(i, true);
-        custody_bitfield.set(i, true);
-    }
-
-    let is_previous_epoch =
-        state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
-
-    let justified_epoch = if is_previous_epoch {
-        state.previous_justified_epoch
-    } else {
-        state.justified_epoch
-    };
-
-    let epoch_boundary_root = if is_previous_epoch {
-        *state
-            .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch), spec)
-            .unwrap()
-    } else {
-        *state
-            .get_block_root(current_epoch.start_slot(spec.slots_per_epoch), spec)
-            .unwrap()
-    };
-
-    let justified_block_root = *state
-        .get_block_root(justified_epoch.start_slot(spec.slots_per_epoch), spec)
-        .unwrap();
-
-    PendingAttestation {
-        aggregation_bitfield,
-        data: AttestationData {
-            slot,
-            shard,
-            beacon_block_root: *state.get_block_root(slot, spec).unwrap(),
-            epoch_boundary_root,
-            crosslink_data_root: Hash256::zero(),
-            latest_crosslink: Crosslink {
-                epoch: slot.epoch(spec.slots_per_epoch),
-                crosslink_data_root: Hash256::zero(),
-            },
-            justified_epoch,
-            justified_block_root,
-        },
-        custody_bitfield,
-        inclusion_slot: slot + spec.min_attestation_inclusion_delay,
     }
 }

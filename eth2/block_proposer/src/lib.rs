@@ -4,7 +4,7 @@ mod traits;
 use slot_clock::SlotClock;
 use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Domain, Hash256, Proposal, Slot};
+use types::{BeaconBlock, ChainSpec, Domain, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -158,7 +158,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             if self.safe_to_produce(&block) {
                 let domain = self.spec.get_domain(
                     slot.epoch(self.spec.slots_per_epoch),
-                    Domain::Proposal,
+                    Domain::BeaconBlock,
                     &fork,
                 );
                 if let Some(block) = self.sign_block(block, domain) {
@@ -182,16 +182,9 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     fn sign_block(&mut self, mut block: BeaconBlock, domain: u64) -> Option<BeaconBlock> {
         self.store_produce(&block);
 
-        let proposal = Proposal {
-            slot: block.slot,
-            shard: self.spec.beacon_chain_shard_number,
-            block_root: Hash256::from_slice(&block.signed_root()[..]),
-            signature: block.signature.clone(),
-        };
-
         match self
             .signer
-            .sign_block_proposal(&proposal.signed_root()[..], domain)
+            .sign_block_proposal(&block.signed_root()[..], domain)
         {
             None => None,
             Some(signature) => {

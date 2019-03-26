@@ -10,17 +10,15 @@ pub struct TestingDepositBuilder {
 
 impl TestingDepositBuilder {
     /// Instantiates a new builder.
-    pub fn new(amount: u64) -> Self {
-        let keypair = Keypair::random();
-
+    pub fn new(pubkey: PublicKey, amount: u64) -> Self {
         let deposit = Deposit {
-            branch: vec![],
+            proof: vec![],
             index: 0,
             deposit_data: DepositData {
                 amount,
                 timestamp: 1,
                 deposit_input: DepositInput {
-                    pubkey: keypair.pk,
+                    pubkey,
                     withdrawal_credentials: Hash256::zero(),
                     proof_of_possession: Signature::empty_signature(),
                 },
@@ -40,21 +38,22 @@ impl TestingDepositBuilder {
     /// - `pubkey` to the signing pubkey.
     /// - `withdrawal_credentials` to the signing pubkey.
     /// - `proof_of_possesssion`
-    pub fn sign(&mut self, keypair: &Keypair, state: &BeaconState, spec: &ChainSpec) {
+    pub fn sign(&mut self, keypair: &Keypair, epoch: Epoch, fork: &Fork, spec: &ChainSpec) {
         let withdrawal_credentials = Hash256::from_slice(
             &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],
         );
-
-        let epoch = state.current_epoch(spec);
-        let domain = spec.get_domain(epoch, Domain::Deposit, &state.fork);
 
         self.deposit.deposit_data.deposit_input.pubkey = keypair.pk.clone();
         self.deposit
             .deposit_data
             .deposit_input
-            .withdrawal_credentials = withdrawal_credentials.clone();
-        self.deposit.deposit_data.deposit_input.proof_of_possession =
-            DepositInput::create_proof_of_possession(&keypair, &withdrawal_credentials, domain);
+            .withdrawal_credentials = withdrawal_credentials;
+
+        self.deposit.deposit_data.deposit_input.proof_of_possession = self
+            .deposit
+            .deposit_data
+            .deposit_input
+            .create_proof_of_possession(&keypair.sk, epoch, fork, spec);
     }
 
     /// Builds the deposit, consuming the builder.

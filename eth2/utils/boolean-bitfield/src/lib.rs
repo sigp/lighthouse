@@ -3,7 +3,9 @@ extern crate ssz;
 
 use bit_vec::BitVec;
 
+use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode, PrefixedHexVisitor};
 use ssz::{Decodable, Encodable};
 use std::cmp;
 use std::default;
@@ -179,11 +181,25 @@ impl Decodable for BooleanBitfield {
 }
 
 impl Serialize for BooleanBitfield {
+    /// Serde serialization is compliant the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(&ssz::ssz_encode(self))
+        serializer.serialize_str(&encode(&ssz::ssz_encode(self)))
+    }
+}
+
+impl<'de> Deserialize<'de> for BooleanBitfield {
+    /// Serde serialization is compliant the Ethereum YAML test format.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+        let (bitfield, _) = <_>::ssz_decode(&bytes[..], 0)
+            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
+        Ok(bitfield)
     }
 }
 

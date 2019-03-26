@@ -51,3 +51,17 @@ where
         ]
     }
 }
+
+macro_rules! impl_test_random_for_u8_array {
+    ($len: expr) => {
+        impl<T: RngCore> TestRandom<T> for [u8; $len] {
+            fn random_for_test(rng: &mut T) -> Self {
+                let mut bytes = [0; $len];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            }
+        }
+    };
+}
+
+impl_test_random_for_u8_array!(4);
