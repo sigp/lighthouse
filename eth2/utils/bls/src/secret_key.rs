@@ -1,11 +1,10 @@
+use super::BLS_SECRET_KEY_BYTE_SIZE;
 use bls_aggregates::{DecodeError as BlsDecodeError, SecretKey as RawSecretKey};
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{
-    decode, decode_ssz_list, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
-};
+use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A single BLS signature.
 ///
@@ -34,15 +33,18 @@ impl SecretKey {
 
 impl Encodable for SecretKey {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.0.as_bytes());
+        s.append_encoded_raw(&self.0.as_bytes());
     }
 }
 
 impl Decodable for SecretKey {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let raw_sig = RawSecretKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
-        Ok((SecretKey(raw_sig), i))
+        if bytes.len() - i < BLS_SECRET_KEY_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        let raw_sig = RawSecretKey::from_bytes(&bytes[i..(i + BLS_SECRET_KEY_BYTE_SIZE)])
+            .map_err(|_| DecodeError::TooShort)?;
+        Ok((SecretKey(raw_sig), i + BLS_SECRET_KEY_BYTE_SIZE))
     }
 }
 

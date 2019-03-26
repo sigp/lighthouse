@@ -4,10 +4,7 @@ use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{
-    decode, decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream,
-    TreeHash,
-};
+use ssz::{decode, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A single BLS signature.
 ///
@@ -103,15 +100,17 @@ impl Signature {
 
 impl Encodable for Signature {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.as_bytes());
+        s.append_encoded_raw(&self.as_bytes());
     }
 }
 
 impl Decodable for Signature {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let signature = Signature::from_bytes(&sig_bytes)?;
-        Ok((signature, i))
+        if bytes.len() - i < BLS_SIG_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        let signature = Signature::from_bytes(&bytes[i..(i + BLS_SIG_BYTE_SIZE)])?;
+        Ok((signature, i + BLS_SIG_BYTE_SIZE))
     }
 }
 
@@ -138,7 +137,7 @@ impl<'de> Deserialize<'de> for Signature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let signature = Signature::from_bytes(&bytes[..])
+        let signature = decode(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(signature)
     }
