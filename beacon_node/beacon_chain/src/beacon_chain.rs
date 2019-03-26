@@ -342,6 +342,10 @@ where
 
         // If required, transition the new state to the present slot.
         for _ in state.slot.as_u64()..present_slot.as_u64() {
+            // Ensure the next epoch state caches are built in case of an epoch transition.
+            state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
+            state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+
             per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
         }
 
