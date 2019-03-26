@@ -27,7 +27,8 @@ service BeaconBlockService {
 //its public keys
 service ValidatorService {
 	rpc ProposeBlockSlot(ProposeBlockSlotRequest) returns (ProposeBlockSlotResponse);
-	rpc ValidatorIndex(PublicKey) returns (IndexResponse);
+    /// Given a set of public keys, returns their respective indicies
+	rpc ValidatorIndex(PublicKeys) returns (Indicies);
     // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
 }
 
@@ -110,12 +111,12 @@ message ValidatorAssignment {
 
 // Validator Assignment
 
-message PublicKey {
-	bytes public_key = 1;
+message PublicKeys {
+	repeated bytes public_key = 1;
 }
 
-message IndexResponse {
-	uint64 index = 1;
+message Indicies {
+	repeated uint64 index = 1;
 }
 
 
@@ -123,14 +124,24 @@ message IndexResponse {
 
 message ProposeBlockSlotRequest {
 	uint64 epoch = 1;
-	uint64 validator_index = 2;
+	repeated uint64 validator_index = 2;
 }
 
-message ProposeBlockSlotResponse {
-	oneof slot_oneof {
+message GetDutiesResponse {
+	repeated oneof slot_oneof {
 		bool none = 1;
-		uint64 slot = 2;
+        ValidatorDuty duty = 2;
 	}
+}
+
+ValidatorDuty {
+    oneof block_oneof {
+        bool none = 1;
+        uint64 block_produce_slot = 2;
+    }
+	uint64 committee_slot = 1;
+	uint64 committee_shard = 2;
+    uint64 committee_index = 3;
 }
 
 

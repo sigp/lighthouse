@@ -10,9 +10,8 @@ use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
 use futures::Async;
 use slog::{debug, error, info};
-use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{ChainSpec, Epoch, Slot};
+use types::{Epoch, Slot};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum UpdateOutcome {
@@ -30,8 +29,6 @@ pub enum UpdateOutcome {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    SlotClockError,
-    SlotUnknowable,
     EpochMapPoisoned,
     BeaconNodeError(BeaconNodeError),
 }
@@ -40,27 +37,23 @@ pub enum Error {
 /// Node.
 ///
 /// This keeps track of all validator keys and required voting slots.
-pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
+pub struct DutiesManager<U: BeaconNode> {
     pub duties_map: Arc<EpochDutiesMap>,
     /// A list of all public keys known to the validator service.
     pub pubkeys: Vec<PublicKey>,
-    pub spec: Arc<ChainSpec>,
-    pub slot_clock: Arc<T>,
+    pub slots_per_epoch: u64,
     pub beacon_node: Arc<U>,
 }
 
-impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
+impl<U: BeaconNode> DutiesManager<U> {
     /// Check the Beacon Node for `EpochDuties`.
     ///
     /// The present `epoch` will be learned from the supplied `SlotClock`. In production this will
     /// be a wall-clock (e.g., system time, remote server time, etc.).
     fn update(&self, slot: Slot) -> Result<UpdateOutcome, Error> {
-        let epoch = slot.epoch(self.spec.slots_per_epoch);
+        let epoch = slot.epoch(self.slots_per_epoch);
 
-        if let Some(duties) = self
-            .beacon_node
-            .request_shuffling(epoch, &self.pubkeys[0])?
-        {
+        if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkeys)? {
             // If these duties were known, check to see if they're updates or identical.
             let result = if let Some(known_duties) = self.duties_map.get(epoch)? {
                 if known_duties == duties {

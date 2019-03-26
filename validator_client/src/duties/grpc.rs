@@ -1,6 +1,6 @@
 use super::traits::{BeaconNode, BeaconNodeError};
 use super::EpochDuties;
-use protos::services::{ProposeBlockSlotRequest, PublicKey as IndexRequest};
+use protos::services::{ProposeBlockSlotRequest, PublicKeys as IndexRequest};
 use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
 use types::{Epoch, PublicKey, Slot};
@@ -15,12 +15,14 @@ impl BeaconNode for ValidatorServiceClient {
     fn request_shuffling(
         &self,
         epoch: Epoch,
-        public_key: &PublicKey,
+        pubkeys: &[PublicKey],
     ) -> Result<Option<EpochDuties>, BeaconNodeError> {
-        // Lookup the validator index for the supplied public key.
-        let validator_index = {
+        // Lookup the validator indexes for all the supplied public keys.
+        let validator_indices = {
             let mut req = IndexRequest::new();
-            req.set_public_key(ssz_encode(public_key).to_vec());
+            for public_key in pubkeys {
+                req.mut_public_key().push(ssz_encode(public_key));
+            }
             let resp = self
                 .validator_index(&req)
                 .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;

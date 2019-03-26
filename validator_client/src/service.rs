@@ -222,11 +222,11 @@ impl Service {
         // build requisite objects to pass to core thread.
         let duties_map = Arc::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
         let epoch_map_for_attester = Arc::new(EpochMap::new(config.spec.slots_per_epoch));
+
         let manager = Arc::new(DutiesManager {
             duties_map,
             pubkeys: keypairs.iter().map(|keypair| keypair.pk.clone()).collect(),
-            spec: Arc::new(config.spec),
-            slot_clock: service.slot_clock.clone(),
+            slots_per_epoch: config.spec.slots_per_epoch.clone(),
             beacon_node: service.validator_client.clone(),
         });
 
@@ -234,6 +234,7 @@ impl Service {
         runtime
             .block_on(interval.for_each(move |_| {
                 let log = service.log.clone();
+
                 // get the current slot
                 let current_slot = match service.slot_clock.present_slot() {
                     Err(e) => {
@@ -250,23 +251,23 @@ impl Service {
 
                 info!(log, "Processing slot: {}", current_slot.as_u64());
 
-                let cloned_manager = manager.clone();
-
                 // check for new duties
+                let cloned_manager = manager.clone();
                 tokio::spawn(futures::future::poll_fn(move || {
                     cloned_manager.run_update(current_slot.clone(), log.clone())
                 }));
+
+                // execute any specified duties
+
                 Ok(())
             }))
             .map_err(|e| format!("Service thread failed: {:?}", e))?;
+
+        // completed a slot process
         Ok(())
     }
 
     /*
-
-    let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
-    let epoch_map_for_attester = Arc::new(EpochMap::new(spec.slots_per_epoch));
-
 
     for keypair in keypairs {
         info!(self.log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
