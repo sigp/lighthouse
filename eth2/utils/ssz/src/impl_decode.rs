@@ -24,10 +24,29 @@ macro_rules! impl_decodable_for_uint {
     };
 }
 
+macro_rules! impl_decodable_for_u8_array {
+    ($len: expr) => {
+        impl Decodable for [u8; $len] {
+            fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+                if index + $len > bytes.len() {
+                    Err(DecodeError::TooShort)
+                } else {
+                    let mut array: [u8; $len] = [0; $len];
+                    array.copy_from_slice(&bytes[index..index + $len]);
+
+                    Ok((array, index + $len))
+                }
+            }
+        }
+    };
+}
+
 impl_decodable_for_uint!(u16, 16);
 impl_decodable_for_uint!(u32, 32);
 impl_decodable_for_uint!(u64, 64);
 impl_decodable_for_uint!(usize, 64);
+
+impl_decodable_for_u8_array!(4);
 
 impl Decodable for u8 {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
@@ -275,5 +294,13 @@ mod tests {
         let encoded = vec![6, 0, 0, 0, 1, 0, 1, 0, 1, 0, 2];
         let decoded_array: Result<Vec<u16>, DecodeError> = decode(&encoded);
         assert_eq!(decoded_array, Err(DecodeError::TooLong));
+    }
+
+    #[test]
+    fn test_decode_u8_array() {
+        let ssz = vec![0, 1, 2, 3];
+        let result: [u8; 4] = decode(&ssz).unwrap();
+        assert_eq!(result.len(), 4);
+        assert_eq!(result, [0, 1, 2, 3]);
     }
 }

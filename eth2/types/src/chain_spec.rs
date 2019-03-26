@@ -1,21 +1,28 @@
-use crate::{Address, Epoch, Fork, Hash256, Slot};
+use crate::*;
 use bls::Signature;
+use int_to_bytes::int_to_bytes4;
+use serde_derive::Deserialize;
+use test_utils::u8_from_hex_str;
 
 const GWEI: u64 = 1_000_000_000;
 
+/// Each of the BLS signature domains.
+///
+/// Spec v0.5.0
 pub enum Domain {
-    Deposit,
-    Attestation,
-    Proposal,
-    Exit,
+    BeaconBlock,
     Randao,
+    Attestation,
+    Deposit,
+    Exit,
     Transfer,
 }
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.4.0
-#[derive(PartialEq, Debug, Clone)]
+/// Spec v0.5.0
+#[derive(PartialEq, Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct ChainSpec {
     /*
      * Misc
@@ -23,8 +30,7 @@ pub struct ChainSpec {
     pub shard_count: u64,
     pub target_committee_size: u64,
     pub max_balance_churn_quotient: u64,
-    pub beacon_chain_shard_number: u64,
-    pub max_indices_per_slashable_vote: u64,
+    pub max_indices_per_slashable_vote: usize,
     pub max_exit_dequeues_per_epoch: u64,
     pub shuffle_round_count: u8,
 
@@ -45,13 +51,14 @@ pub struct ChainSpec {
     /*
      * Initial Values
      */
-    pub genesis_fork_version: u64,
+    pub genesis_fork_version: u32,
     pub genesis_slot: Slot,
     pub genesis_epoch: Epoch,
     pub genesis_start_shard: u64,
     pub far_future_epoch: Epoch,
     pub zero_hash: Hash256,
     pub empty_signature: Signature,
+    #[serde(deserialize_with = "u8_from_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
@@ -63,12 +70,13 @@ pub struct ChainSpec {
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
     pub epochs_per_eth1_voting_period: u64,
+    pub slots_per_historical_root: usize,
     pub min_validator_withdrawability_delay: Epoch,
+    pub persistent_committee_period: u64,
 
     /*
      * State list lengths
      */
-    pub latest_block_roots_length: usize,
     pub latest_randao_mixes_length: usize,
     pub latest_active_index_roots_length: usize,
     pub latest_slashed_exit_length: usize,
@@ -100,18 +108,25 @@ pub struct ChainSpec {
      *
      * Use `ChainSpec::get_domain(..)` to access these values.
      */
-    domain_deposit: u64,
-    domain_attestation: u64,
-    domain_proposal: u64,
-    domain_exit: u64,
-    domain_randao: u64,
-    domain_transfer: u64,
+    domain_beacon_block: u32,
+    domain_randao: u32,
+    domain_attestation: u32,
+    domain_deposit: u32,
+    domain_exit: u32,
+    domain_transfer: u32,
+
+    /*
+     * Network specific parameters
+     *
+     */
+    pub boot_nodes: Vec<Multiaddr>,
+    pub network_id: u8,
 }
 
 impl ChainSpec {
     /// Return the number of committees in one epoch.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
         std::cmp::max(
             1,
@@ -124,24 +139,29 @@ impl ChainSpec {
 
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = match domain {
-            Domain::Deposit => self.domain_deposit,
-            Domain::Attestation => self.domain_attestation,
-            Domain::Proposal => self.domain_proposal,
-            Domain::Exit => self.domain_exit,
+            Domain::BeaconBlock => self.domain_beacon_block,
             Domain::Randao => self.domain_randao,
+            Domain::Attestation => self.domain_attestation,
+            Domain::Deposit => self.domain_deposit,
+            Domain::Exit => self.domain_exit,
             Domain::Transfer => self.domain_transfer,
         };
 
-        let fork_version = fork.get_fork_version(epoch);
-        fork_version * u64::pow(2, 32) + domain_constant
+        let mut bytes: Vec<u8> = fork.get_fork_version(epoch).to_vec();
+        bytes.append(&mut int_to_bytes4(domain_constant));
+
+        let mut fork_and_domain = [0; 8];
+        fork_and_domain.copy_from_slice(&bytes);
+
+        u64::from_le_bytes(fork_and_domain)
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.4.0
+    /// Spec v0.5.0
     pub fn foundation() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 64;
@@ -154,7 +174,6 @@ impl ChainSpec {
             shard_count: 1_024,
             target_committee_size: 128,
             max_balance_churn_quotient: 32,
-            beacon_chain_shard_number: u64::max_value(),
             max_indices_per_slashable_vote: 4_096,
             max_exit_dequeues_per_epoch: 4,
             shuffle_round_count: 90,
@@ -194,12 +213,13 @@ impl ChainSpec {
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             epochs_per_eth1_voting_period: 16,
+            slots_per_historical_root: 8_192,
             min_validator_withdrawability_delay: Epoch::new(256),
+            persistent_committee_period: 2_048,
 
             /*
              * State list lengths
              */
-            latest_block_roots_length: 8_192,
             latest_randao_mixes_length: 8_192,
             latest_active_index_roots_length: 8_192,
             latest_slashed_exit_length: 8_192,
@@ -226,18 +246,40 @@ impl ChainSpec {
             /*
              * Signature domains
              */
-            domain_deposit: 0,
-            domain_attestation: 1,
-            domain_proposal: 2,
-            domain_exit: 3,
-            domain_randao: 4,
+            domain_beacon_block: 0,
+            domain_randao: 1,
+            domain_attestation: 2,
+            domain_deposit: 3,
+            domain_exit: 4,
             domain_transfer: 5,
+
+            /*
+             * Boot nodes
+             */
+            boot_nodes: vec![],
+            network_id: 1, // foundation network id
+        }
+    }
+
+    /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
+    ///
+    /// Spec v0.4.0
+    pub fn lighthouse_testnet() -> Self {
+        /*
+         * Lighthouse testnet bootnodes
+         */
+        let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
+            .parse()
+            .expect("correct multiaddr")];
+
+        Self {
+            boot_nodes,
+            network_id: 2, // lighthouse testnet network id
+            ..ChainSpec::few_validators()
         }
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    ///
-    /// Spec v0.4.0
     pub fn few_validators() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 8;
@@ -254,12 +296,43 @@ impl ChainSpec {
     }
 }
 
+impl Default for ChainSpec {
+    fn default() -> Self {
+        Self::foundation()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use int_to_bytes::int_to_bytes8;
 
     #[test]
     fn test_foundation_spec_can_be_constructed() {
         let _ = ChainSpec::foundation();
+    }
+
+    fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
+        let fork = Fork::genesis(&spec);
+        let epoch = Epoch::new(0);
+
+        let domain = spec.get_domain(epoch, domain_type, &fork);
+
+        let mut expected = fork.get_fork_version(epoch).to_vec();
+        expected.append(&mut int_to_bytes4(raw_domain));
+
+        assert_eq!(int_to_bytes8(domain), expected);
+    }
+
+    #[test]
+    fn test_get_domain() {
+        let spec = ChainSpec::foundation();
+
+        test_domain(Domain::BeaconBlock, spec.domain_beacon_block, &spec);
+        test_domain(Domain::Randao, spec.domain_randao, &spec);
+        test_domain(Domain::Attestation, spec.domain_attestation, &spec);
+        test_domain(Domain::Deposit, spec.domain_deposit, &spec);
+        test_domain(Domain::Exit, spec.domain_exit, &spec);
+        test_domain(Domain::Transfer, spec.domain_transfer, &spec);
     }
 }

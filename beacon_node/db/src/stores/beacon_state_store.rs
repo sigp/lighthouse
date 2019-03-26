@@ -2,7 +2,7 @@ use super::STATES_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use ssz::decode;
 use std::sync::Arc;
-use types::{readers::BeaconStateReader, BeaconState, Hash256};
+use types::{BeaconState, Hash256};
 
 pub struct BeaconStateStore<T>
 where
@@ -20,23 +20,6 @@ impl<T: ClientDB> BeaconStateStore<T> {
     }
 
     pub fn get_deserialized(&self, hash: &Hash256) -> Result<Option<BeaconState>, DBError> {
-        match self.get(&hash)? {
-            None => Ok(None),
-            Some(ssz) => {
-                let state = decode::<BeaconState>(&ssz).map_err(|_| DBError {
-                    message: "Bad State SSZ.".to_string(),
-                })?;
-                Ok(Some(state))
-            }
-        }
-    }
-
-    /// Retuns an object implementing `BeaconStateReader`, or `None` (if hash not known).
-    ///
-    /// Note: Presently, this function fully deserializes a `BeaconState` and returns that. In the
-    /// future, it would be ideal to return an object capable of reading directly from serialized
-    /// SSZ bytes.
-    pub fn get_reader(&self, hash: &Hash256) -> Result<Option<impl BeaconStateReader>, DBError> {
         match self.get(&hash)? {
             None => Ok(None),
             Some(ssz) => {
@@ -72,8 +55,7 @@ mod tests {
 
         store.put(&state_root, &ssz_encode(&state)).unwrap();
 
-        let reader = store.get_reader(&state_root).unwrap().unwrap();
-        let decoded = reader.into_beacon_state().unwrap();
+        let decoded = store.get_deserialized(&state_root).unwrap().unwrap();
 
         assert_eq!(state, decoded);
     }

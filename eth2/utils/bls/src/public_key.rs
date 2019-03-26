@@ -1,9 +1,8 @@
-use super::serde_vistors::HexVisitor;
 use super::SecretKey;
 use bls_aggregates::PublicKey as RawPublicKey;
-use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{
     decode, decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream,
     TreeHash,
@@ -82,7 +81,7 @@ impl Serialize for PublicKey {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&hex_encode(ssz_encode(self)))
+        serializer.serialize_str(&hex_encode(self.as_raw().as_bytes()))
     }
 }
 
@@ -91,9 +90,9 @@ impl<'de> Deserialize<'de> for PublicKey {
     where
         D: Deserializer<'de>,
     {
-        let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let pubkey = decode::<PublicKey>(&bytes[..])
-            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+        let pubkey = PublicKey::from_bytes(&bytes[..])
+            .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))?;
         Ok(pubkey)
     }
 }

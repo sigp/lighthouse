@@ -10,10 +10,7 @@ use log::{debug, trace};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{
-    readers::BeaconBlockReader, validator_registry::get_active_validator_indices, BeaconBlock,
-    ChainSpec, Hash256, Slot, SlotHeight,
-};
+use types::{BeaconBlock, ChainSpec, Hash256, Slot, SlotHeight};
 
 //TODO: Pruning - Children
 //TODO: Handle Syncing
@@ -93,10 +90,8 @@ where
             .get_deserialized(&state_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
-        let active_validator_indices = get_active_validator_indices(
-            &current_state.validator_registry[..],
-            block_slot.epoch(spec.slots_per_epoch),
-        );
+        let active_validator_indices =
+            current_state.get_active_validator_indices(block_slot.epoch(spec.slots_per_epoch));
 
         for index in active_validator_indices {
             let balance = std::cmp::min(
@@ -226,17 +221,17 @@ impl<T: ClientDB + Sized> ForkChoice for OptimizedLMDGhost<T> {
         // get the height of the parent
         let parent_height = self
             .block_store
-            .get_deserialized(&block.parent_root)?
-            .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.parent_root))?
-            .slot()
+            .get_deserialized(&block.previous_block_root)?
+            .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(block.previous_block_root))?
+            .slot
             .height(spec.genesis_slot);
 
-        let parent_hash = &block.parent_root;
+        let parent_hash = &block.previous_block_root;
 
         // add the new block to the children of parent
         (*self
             .children
-            .entry(block.parent_root)
+            .entry(block.previous_block_root)
             .or_insert_with(|| vec![]))
         .push(block_hash.clone());
 
@@ -280,7 +275,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimizedLMDGhost<T> {
                 .block_store
                 .get_deserialized(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
-                .slot()
+                .slot
                 .height(spec.genesis_slot);
 
             // get the height of the past target block
@@ -288,7 +283,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimizedLMDGhost<T> {
                 .block_store
                 .get_deserialized(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
-                .slot()
+                .slot
                 .height(spec.genesis_slot);
             // update the attestation only if the new target is higher
             if past_block_height < block_height {
@@ -314,8 +309,8 @@ impl<T: ClientDB + Sized> ForkChoice for OptimizedLMDGhost<T> {
             .get_deserialized(&justified_block_start)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
 
-        let block_slot = block.slot();
-        let state_root = block.state_root();
+        let block_slot = block.slot;
+        let state_root = block.state_root;
         let mut block_height = block_slot.height(spec.genesis_slot);
 
         let mut current_head = *justified_block_start;
@@ -405,7 +400,7 @@ impl<T: ClientDB + Sized> ForkChoice for OptimizedLMDGhost<T> {
                 .block_store
                 .get_deserialized(&current_head)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(current_head))?
-                .slot()
+                .slot
                 .height(spec.genesis_slot);
             // prune the latest votes for votes that are not part of current chosen chain
             // more specifically, only keep votes that have head as an ancestor

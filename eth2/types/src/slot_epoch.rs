@@ -130,4 +130,15 @@ mod epoch_tests {
             assert_eq!(Slot::from(i), slots[i as usize])
         }
     }
+
+    #[test]
+    fn max_epoch_ssz() {
+        let max_epoch = Epoch::max_value();
+        let mut ssz = SszStream::new();
+        ssz.append(&max_epoch);
+        let encoded = ssz.drain();
+        assert_eq!(&encoded, &[255, 255, 255, 255, 255, 255, 255, 255]);
+        let (decoded, _i): (Epoch, usize) = <_>::ssz_decode(&encoded, 0).unwrap();
+        assert_eq!(max_epoch, decoded);
+    }
 }

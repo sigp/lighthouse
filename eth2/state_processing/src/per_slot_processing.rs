@@ -1,5 +1,6 @@
 use crate::*;
-use types::{BeaconState, BeaconStateError, ChainSpec, Hash256};
+use ssz::TreeHash;
+use types::*;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -9,12 +10,14 @@ pub enum Error {
 
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn per_slot_processing(
     state: &mut BeaconState,
-    previous_block_root: Hash256,
+    latest_block_header: &BeaconBlockHeader,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    cache_state(state, latest_block_header, spec)?;
+
     if (state.slot + 1) % spec.slots_per_epoch == 0 {
         per_epoch_processing(state, spec)?;
         state.advance_caches();
@@ -22,27 +25,35 @@ pub fn per_slot_processing(
 
     state.slot += 1;
 
-    update_block_roots(state, previous_block_root, spec);
-
     Ok(())
 }
 
-/// Updates the state's block roots as per-slot processing is performed.
-///
-/// Spec v0.4.0
-pub fn update_block_roots(state: &mut BeaconState, previous_block_root: Hash256, spec: &ChainSpec) {
-    state.latest_block_roots[(state.slot.as_usize() - 1) % spec.latest_block_roots_length] =
-        previous_block_root;
+fn cache_state(
+    state: &mut BeaconState,
+    latest_block_header: &BeaconBlockHeader,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let previous_slot_state_root = Hash256::from_slice(&state.hash_tree_root()[..]);
 
-    if state.slot.as_usize() % spec.latest_block_roots_length == 0 {
-        let root = merkle_root(&state.latest_block_roots[..]);
-        state.batched_block_roots.push(root);
+    // Note: increment the state slot here to allow use of our `state_root` and `block_root`
+    // getter/setter functions.
+    //
+    // This is a bit hacky, however it gets the job safely without lots of code.
+    let previous_slot = state.slot;
+    state.slot += 1;
+
+    // Store the previous slot's post-state transition root.
+    if state.latest_block_header.state_root == spec.zero_hash {
+        state.latest_block_header.state_root = previous_slot_state_root
     }
-}
 
-fn merkle_root(_input: &[Hash256]) -> Hash256 {
-    // TODO: implement correctly.
-    Hash256::zero()
+    let latest_block_root = Hash256::from_slice(&latest_block_header.hash_tree_root()[..]);
+    state.set_block_root(previous_slot, latest_block_root, spec)?;
+
+    // Set the state slot back to what it should be.
+    state.slot -= 1;
+
+    Ok(())
 }
 
 impl From<BeaconStateError> for Error {

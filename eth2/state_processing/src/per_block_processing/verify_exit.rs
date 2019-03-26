@@ -7,7 +7,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.4.0
+/// Spec v0.5.0
 pub fn verify_exit(
     state: &BeaconState,
     exit: &VoluntaryExit,
@@ -18,15 +18,35 @@ pub fn verify_exit(
         .get(exit.validator_index as usize)
         .ok_or_else(|| Error::Invalid(Invalid::ValidatorUnknown(exit.validator_index)))?;
 
+    // Verify that the validator has not yet exited.
     verify!(
-        validator.exit_epoch
-            > state.get_delayed_activation_exit_epoch(state.current_epoch(spec), spec),
-        Invalid::AlreadyExited
+        validator.exit_epoch == spec.far_future_epoch,
+        Invalid::AlreadyExited(exit.validator_index)
     );
 
+    // Verify that the validator has not yet initiated.
+    verify!(
+        !validator.initiated_exit,
+        Invalid::AlreadyInitiatedExited(exit.validator_index)
+    );
+
+    // Exits must specify an epoch when they become valid; they are not valid before then.
     verify!(
         state.current_epoch(spec) >= exit.epoch,
-        Invalid::FutureEpoch(state.current_epoch(spec), exit.epoch)
+        Invalid::FutureEpoch {
+            state: state.current_epoch(spec),
+            exit: exit.epoch
+        }
+    );
+
+    // Must have been in the validator set long enough.
+    let lifespan = state.slot.epoch(spec.slots_per_epoch) - validator.activation_epoch;
+    verify!(
+        lifespan >= spec.persistent_committee_period,
+        Invalid::TooYoungToLeave {
+            lifespan,
+            expected: spec.persistent_committee_period,
+        }
     );
 
     let message = exit.signed_root();
