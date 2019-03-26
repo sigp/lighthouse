@@ -145,10 +145,7 @@ impl std::ops::BitAnd for BooleanBitfield {
 }
 
 impl Encodable for BooleanBitfield {
-<<<<<<< HEAD
-=======
     // ssz_append encodes Self according to the `ssz` spec.
->>>>>>> v0.5.0-state-transition-tests
     fn ssz_append(&self, s: &mut ssz::SszStream) {
         s.append_vec(&self.to_bytes())
     }

@@ -4,8 +4,8 @@ use bls_aggregates::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{decode_ssz_list, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use serde_hex::{encode as hex_encode, HexVisitor};
+use ssz::{decode, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A BLS aggregate signature.
 ///
@@ -121,22 +121,18 @@ impl AggregateSignature {
 
 impl Encodable for AggregateSignature {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.as_bytes());
+        s.append_encoded_raw(&self.as_bytes());
     }
 }
 
 impl Decodable for AggregateSignature {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let raw_sig =
-            RawAggregateSignature::from_bytes(&sig_bytes).map_err(|_| DecodeError::Invalid)?;
-        Ok((
-            Self {
-                aggregate_signature: raw_sig,
-                is_empty: false,
-            },
-            i,
-        ))
+        if bytes.len() - i < BLS_AGG_SIG_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        let agg_sig = AggregateSignature::from_bytes(&bytes[i..(i + BLS_AGG_SIG_BYTE_SIZE)])
+            .map_err(|_| DecodeError::Invalid)?;
+        Ok((agg_sig, i + BLS_AGG_SIG_BYTE_SIZE))
     }
 }
 
@@ -156,8 +152,8 @@ impl<'de> Deserialize<'de> for AggregateSignature {
     where
         D: Deserializer<'de>,
     {
-        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let agg_sig = AggregateSignature::from_bytes(&bytes[..])
+        let bytes = deserializer.deserialize_str(HexVisitor)?;
+        let agg_sig = decode(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(agg_sig)
     }

@@ -1,12 +1,9 @@
-use super::SecretKey;
+use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
 use bls_aggregates::PublicKey as RawPublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{
-    decode, decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream,
-    TreeHash,
-};
+use serde_hex::{encode as hex_encode, HexVisitor};
+use ssz::{decode, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 use std::default;
 use std::hash::{Hash, Hasher};
 
@@ -64,15 +61,18 @@ impl default::Default for PublicKey {
 
 impl Encodable for PublicKey {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.0.as_bytes());
+        s.append_encoded_raw(&self.0.as_bytes());
     }
 }
 
 impl Decodable for PublicKey {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let raw_sig = RawPublicKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
-        Ok((PublicKey(raw_sig), i))
+        if bytes.len() - i < BLS_PUBLIC_KEY_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        let raw_sig = RawPublicKey::from_bytes(&bytes[i..(i + BLS_PUBLIC_KEY_BYTE_SIZE)])
+            .map_err(|_| DecodeError::TooShort)?;
+        Ok((PublicKey(raw_sig), i + BLS_PUBLIC_KEY_BYTE_SIZE))
     }
 }
 
@@ -90,8 +90,8 @@ impl<'de> Deserialize<'de> for PublicKey {
     where
         D: Deserializer<'de>,
     {
-        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let pubkey = PublicKey::from_bytes(&bytes[..])
+        let bytes = deserializer.deserialize_str(HexVisitor)?;
+        let pubkey = decode(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))?;
         Ok(pubkey)
     }

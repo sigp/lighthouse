@@ -15,6 +15,7 @@ pub trait Decodable: Sized {
 ///
 /// The single ssz encoded value/container/list will be decoded as the given type,
 /// by recursively calling `ssz_decode`.
+/// Check on totality for underflowing the length of bytes and overflow checks done per container
 pub fn decode<T>(ssz_bytes: &[u8]) -> Result<(T), DecodeError>
 where
     T: Decodable,
