@@ -3,7 +3,6 @@
 extern crate ethereum_types;
 extern crate ssz;
 
-use ethereum_types::{Address, H256};
 use ssz::SszStream;
 
 // Fuzz ssz_encode()
