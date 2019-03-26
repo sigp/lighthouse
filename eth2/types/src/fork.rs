@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, ChainSpec, Epoch};
+use crate::{
+    test_utils::{fork_from_hex_str, TestRandom},
+    ChainSpec, Epoch,
+};
 use int_to_bytes::int_to_bytes4;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
@@ -12,7 +15,9 @@ use test_random_derive::TestRandom;
     Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct Fork {
+    #[serde(deserialize_with = "fork_from_hex_str")]
     pub previous_version: [u8; 4],
+    #[serde(deserialize_with = "fork_from_hex_str")]
     pub current_version: [u8; 4],
     pub epoch: Epoch,
 }

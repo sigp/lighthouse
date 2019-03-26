@@ -15,12 +15,10 @@ pub struct TestDoc {
     pub title: String,
     pub summary: String,
     pub fork: String,
-    pub version: String,
     pub test_cases: Vec<TestCase>,
 }
 
 #[test]
-#[ignore]
 fn yaml() {
     use serde_yaml;
     use std::{fs::File, io::prelude::*, path::PathBuf};

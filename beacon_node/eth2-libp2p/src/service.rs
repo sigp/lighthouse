@@ -6,13 +6,14 @@ use crate::NetworkConfig;
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
+    identity,
     muxing::StreamMuxerBox,
     nodes::Substream,
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
-use libp2p::{core, secio, Transport};
-use libp2p::{PeerId, Swarm};
+use libp2p::identify::protocol::IdentifyInfo;
+use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
@@ -33,15 +34,20 @@ impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         debug!(log, "Libp2p Service starting");
 
-        let local_private_key = config.local_private_key;
-        let local_peer_id = local_private_key.to_peer_id();
+        // TODO: Currently using secp256k1 key pairs. Wire protocol specifies RSA. Waiting for this
+        // PR to be merged to generate RSA keys: https://github.com/briansmith/ring/pull/733
+        // TODO: Save and recover node key from disk
+        let local_private_key = identity::Keypair::generate_secp256k1();
+
+        let local_public_key = local_private_key.public();
+        let local_peer_id = PeerId::from(local_private_key.public());
         info!(log, "Local peer id: {:?}", local_peer_id);
 
         let mut swarm = {
             // Set up the transport
             let transport = build_transport(local_private_key);
             // Set up gossipsub routing
-            let behaviour = Behaviour::new(local_peer_id.clone(), config.gs_config, &log);
+            let behaviour = Behaviour::new(local_public_key.clone(), &config, &log);
             // Set up Topology
             let topology = local_peer_id.clone();
             Swarm::new(transport, behaviour, topology)
@@ -99,17 +105,23 @@ impl Stream for Service {
             // TODO: Currently only gossipsub events passed here.
             // Build a type for more generic events
             match self.swarm.poll() {
-                Ok(Async::Ready(Some(BehaviourEvent::Message(m)))) => {
+                //Behaviour events
+                Ok(Async::Ready(Some(event))) => match event {
                     // TODO: Stub here for debugging
-                    debug!(self.log, "Message received: {}", m);
-                    return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
-                }
-                Ok(Async::Ready(Some(BehaviourEvent::RPC(peer_id, event)))) => {
-                    return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
-                }
-                Ok(Async::Ready(Some(BehaviourEvent::PeerDialed(peer_id)))) => {
-                    return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
-                }
+                    BehaviourEvent::Message(m) => {
+                        debug!(self.log, "Message received: {}", m);
+                        return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
+                    }
+                    BehaviourEvent::RPC(peer_id, event) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
+                    }
+                    BehaviourEvent::PeerDialed(peer_id) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
+                    }
+                    BehaviourEvent::Identified(peer_id, info) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::Identified(peer_id, info))));
+                    }
+                },
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
                 _ => break,
@@ -121,9 +133,7 @@ impl Stream for Service {
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, secio as the encryption layer, and
 /// mplex or yamux as the multiplexing layer.
-fn build_transport(
-    local_private_key: secio::SecioKeyPair,
-) -> Boxed<(PeerId, StreamMuxerBox), Error> {
+fn build_transport(local_private_key: identity::Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
     let transport = libp2p::tcp::TcpConfig::new();
@@ -156,8 +166,12 @@ fn build_transport(
 
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent {
-    // We have received an RPC event on the swarm
+    /// An RPC response request has been received on the swarm.
     RPC(PeerId, RPCEvent),
+    /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
+    /// Received information about a peer on the network.
+    Identified(PeerId, IdentifyInfo),
+    // TODO: Pub-sub testing only.
     Message(String),
 }
