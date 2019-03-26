@@ -34,6 +34,7 @@ impl BeaconNodeService for BeaconNodeServiceInstance {
 
         node_info.set_fork(fork);
         node_info.set_genesis_time(genesis_time);
+        node_info.set_genesis_slot(self.chain.get_spec().genesis_slot.as_u64());
         node_info.set_chain_id(self.chain.get_spec().chain_id as u32);
 
         // send the node_info the requester

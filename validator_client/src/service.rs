@@ -101,6 +101,7 @@ impl Service {
 
         // build requisite objects to form Self
         let genesis_time = node_info.get_genesis_time();
+        let genesis_slot = Slot::from(node_info.get_genesis_slot());
 
         info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.chain_id, "Genesis time" => genesis_time);
 
@@ -117,8 +118,9 @@ impl Service {
 
         // build the validator slot clock
         let slot_clock = {
-            let clock = SystemTimeSlotClock::new(genesis_time, config.spec.seconds_per_slot)
-                .expect("Unable to instantiate SystemTimeSlotClock.");
+            let clock =
+                SystemTimeSlotClock::new(genesis_slot, genesis_time, config.spec.seconds_per_slot)
+                    .expect("Unable to instantiate SystemTimeSlotClock.");
             Arc::new(clock)
         };
 

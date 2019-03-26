@@ -35,8 +35,12 @@ pub fn initialise_beacon_chain(
     genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
 
     // Slot clock
-    let slot_clock = SystemTimeSlotClock::new(genesis_state.genesis_time, spec.seconds_per_slot)
-        .expect("Unable to load SystemTimeSlotClock");
+    let slot_clock = SystemTimeSlotClock::new(
+        spec.genesis_slot,
+        genesis_state.genesis_time,
+        spec.seconds_per_slot,
+    )
+    .expect("Unable to load SystemTimeSlotClock");
     // Choose the fork choice
     let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
 
@@ -72,8 +76,12 @@ pub fn initialise_test_beacon_chain(
     genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
 
     // Slot clock
-    let slot_clock = SystemTimeSlotClock::new(genesis_state.genesis_time, spec.seconds_per_slot)
-        .expect("Unable to load SystemTimeSlotClock");
+    let slot_clock = SystemTimeSlotClock::new(
+        spec.genesis_slot,
+        genesis_state.genesis_time,
+        spec.seconds_per_slot,
+    )
+    .expect("Unable to load SystemTimeSlotClock");
     // Choose the fork choice
     let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
 

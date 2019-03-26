@@ -45,6 +45,7 @@ message NodeInfoResponse {
     Fork fork = 2;
     uint32 chain_id = 3;
     uint64 genesis_time = 4;
+    uint64 genesis_slot = 5;
 }
 
 message Fork {
