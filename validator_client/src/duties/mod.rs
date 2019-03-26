@@ -91,6 +91,7 @@ impl From<EpochDutiesMapError> for Error {
     }
 }
 
+/* TODO: Modify tests for new Duties Manager form
 #[cfg(test)]
 mod tests {
     use super::test_node::TestBeaconNode;
@@ -103,6 +104,7 @@ mod tests {
     // https://github.com/sigp/lighthouse/issues/160
     //
     // These tests should serve as a good example for future tests.
+
 
     #[test]
     pub fn polling() {
@@ -154,3 +156,4 @@ mod tests {
         );
     }
 }
+*/
