@@ -1,4 +1,7 @@
+use state_processing::{per_block_processing, per_block_processing_without_verifying_block_signature, per_slot_processing};
 use serde_derive::Deserialize;
+use serde_yaml;
+use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::*;
 #[allow(unused_imports)]
 use yaml_utils;
@@ -21,10 +24,7 @@ pub struct TestDoc {
 }
 
 #[test]
-fn yaml() {
-    use serde_yaml;
-    use std::{fs::File, io::prelude::*, path::PathBuf};
-
+fn test_read_yaml() {
     // Test sanity-check_small-config_32-vals.yaml
     let mut file = {
         let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -56,4 +56,44 @@ fn yaml() {
     yaml_str = yaml_str.to_lowercase();
 
     let _doc: TestDoc = serde_yaml::from_str(&yaml_str.as_str()).unwrap();
+}
+
+#[test]
+fn run_state_transition_tests_small() {
+    // Test sanity-check_small-config_32-vals.yaml
+    let mut file = {
+        let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        file_path_buf.push("yaml_utils/specs/sanity-check_small-config_32-vals.yaml");
+
+        File::open(file_path_buf).unwrap()
+    };
+    let mut yaml_str = String::new();
+    file.read_to_string(&mut yaml_str).unwrap();
+    yaml_str = yaml_str.to_lowercase();
+
+    let doc: TestDoc = serde_yaml::from_str(&yaml_str.as_str()).unwrap();
+
+    // Run Tests
+    for (i, test_case) in doc.test_cases.iter().enumerate() {
+        let mut state = test_case.initial_state.clone();
+        for block in test_case.blocks.iter() {
+            while block.slot > state.slot {
+                let latest_block_header = state.latest_block_header.clone();
+                let res = per_slot_processing(&mut state, &latest_block_header, &test_case.config).unwrap();
+            }
+            if test_case.verify_signatures {
+                let res = per_block_processing(&mut state, &block, &test_case.config);
+                if  res.is_err() {
+                    println!("{:?}", i);
+                    println!("{:?}", res);
+                };
+            } else {
+                let res = per_block_processing_without_verifying_block_signature(&mut state, &block, &test_case.config);
+                if  res.is_err() {
+                    println!("{:?}", i);
+                    println!("{:?}", res);
+                }
+            }
+        }
+    }
 }
