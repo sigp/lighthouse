@@ -409,6 +409,20 @@ where
         }
     }
 
+    /// Reads the slot clock (see `self.read_slot_clock()` and returns the number of slots since
+    /// genesis.
+    pub fn slots_since_genesis(&self) -> Option<SlotHeight> {
+        let now = self.read_slot_clock()?;
+
+        if now < self.spec.genesis_slot {
+            None
+        } else {
+            Some(SlotHeight::from(
+                now.as_u64() - self.spec.genesis_slot.as_u64(),
+            ))
+        }
+    }
+
     /// Returns slot of the present state.
     ///
     /// This is distinct to `read_slot_clock`, which reads from the actual system clock. If

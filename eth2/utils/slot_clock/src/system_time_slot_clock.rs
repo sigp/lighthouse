@@ -54,6 +54,10 @@ impl SlotClock for SystemTimeSlotClock {
                 .and_then(|s| Some(s + self.genesis_slot))),
         }
     }
+
+    fn duration_to_next_slot(&self) -> Result<Option<Duration>, Error> {
+        duration_to_next_slot(self.genesis_seconds, self.slot_duration_seconds)
+    }
 }
 
 impl From<SystemTimeError> for Error {
@@ -66,6 +70,30 @@ fn slot_from_duration(slot_duration_seconds: u64, duration: Duration) -> Option<
     Some(Slot::new(
         duration.as_secs().checked_div(slot_duration_seconds)?,
     ))
+}
+// calculate the duration to the next slot
+fn duration_to_next_slot(
+    genesis_time: u64,
+    seconds_per_slot: u64,
+) -> Result<Option<Duration>, Error> {
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
+    let genesis_time = Duration::from_secs(genesis_time);
+
+    if now < genesis_time {
+        return Ok(None);
+    }
+
+    let since_genesis = now - genesis_time;
+
+    let elapsed_slots = since_genesis.as_secs() / seconds_per_slot;
+
+    let next_slot_start_seconds = (elapsed_slots + 1)
+        .checked_mul(seconds_per_slot)
+        .expect("Next slot time should not overflow u64");
+
+    let time_to_next_slot = Duration::from_secs(next_slot_start_seconds) - since_genesis;
+
+    Ok(Some(time_to_next_slot))
 }
 
 #[cfg(test)]
