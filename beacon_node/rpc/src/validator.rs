@@ -6,7 +6,7 @@ use protos::services::{
 };
 use protos::services_grpc::ValidatorService;
 use slog::{debug, Logger};
-use ssz::Decodable;
+use ssz::decode;
 
 #[derive(Clone)]
 pub struct ValidatorServiceInstance {
@@ -20,7 +20,7 @@ impl ValidatorService for ValidatorServiceInstance {
         req: PublicKeyRequest,
         sink: UnarySink<IndexResponse>,
     ) {
-        if let Ok((public_key, _)) = PublicKey::ssz_decode(req.get_public_key(), 0) {
+        if let Ok(public_key) = decode::<PublicKey>(req.get_public_key()) {
             debug!(self.log, "RPC request"; "endpoint" => "ValidatorIndex", "public_key" => public_key.concatenated_hex_id());
 
             let mut resp = IndexResponse::new();
