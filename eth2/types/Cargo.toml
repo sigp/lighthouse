@@ -25,7 +25,7 @@ ssz = { path = "../utils/ssz" }
 ssz_derive = { path = "../utils/ssz_derive" }
 swap_or_not_shuffle = { path = "../utils/swap_or_not_shuffle" }
 test_random_derive = { path = "../utils/test_random_derive" }
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", branch = "gossipsub" }
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "987fec350b5c2eb55e5f0139615adab49ce493ff" }
 
 [dev-dependencies]
 env_logger = "0.6.0"
