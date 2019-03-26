@@ -4,7 +4,8 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{
-    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
+    decode, decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream,
+    TreeHash,
 };
 use std::default;
 use std::hash::{Hash, Hasher};
@@ -90,9 +91,9 @@ impl<'de> Deserialize<'de> for PublicKey {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let obj = PublicKey::from_bytes(&bytes[..])
+        let pubkey = PublicKey::from_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))?;
-        Ok(obj)
+        Ok(pubkey)
     }
 }
 

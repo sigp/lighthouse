@@ -1,11 +1,12 @@
-use super::serde_vistors::HexVisitor;
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
 use bls_aggregates::Signature as RawSignature;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_hex::HexVisitor;
 use ssz::{
-    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
+    decode, decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream,
+    TreeHash,
 };
 
 /// A single BLS signature.
@@ -136,7 +137,7 @@ impl<'de> Deserialize<'de> for Signature {
     where
         D: Deserializer<'de>,
     {
-        let bytes: Vec<u8> = deserializer.deserialize_str(HexVisitor)?;
+        let bytes = deserializer.deserialize_str(HexVisitor)?;
         let signature = Signature::from_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(signature)
@@ -156,7 +157,7 @@ mod tests {
         let original = Signature::new(&[42, 42], 0, &keypair.sk);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = Signature::ssz_decode(&bytes, 0).unwrap();
+        let decoded = decode::<Signature>(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }

@@ -15,8 +15,6 @@ fuzz_target!(|data: &[u8]| {
     ssz.append(&val_bool);
     let ssz = ssz.drain();
 
-    // TODO: change to little endian bytes
-    // https://github.com/sigp/lighthouse/issues/215
-    assert_eq!(val_bool, ssz[0] % u8::pow(2, 6));
+    assert_eq!(val_bool, ssz[0]);
     assert_eq!(ssz.len(), 1);
 });
