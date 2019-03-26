@@ -49,12 +49,15 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(gs_msg) => {
+                debug!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
+
                 let pubsub_message = match PubsubMessage::ssz_decode(&gs_msg.data, 0) {
                     //TODO: Punish peer on error
                     Err(e) => {
                         warn!(
                             self.log,
-                            "Received undecodable message from Peer {:?}", gs_msg.source
+                            "Received undecodable message from Peer {:?} error", gs_msg.source;
+                            "error" => format!("{:?}", e)
                         );
                         return;
                     }
