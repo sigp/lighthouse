@@ -28,7 +28,7 @@ pub fn initialise_beacon_chain(
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
-    let state_builder = TestingBeaconStateBuilder::from_deterministic_keypairs(8, &spec);
+    let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, &spec);
     let (genesis_state, _keypairs) = state_builder.build();
 
     let mut genesis_block = BeaconBlock::empty(&spec);
@@ -69,7 +69,7 @@ pub fn initialise_test_beacon_chain(
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
-    let state_builder = TestingBeaconStateBuilder::from_deterministic_keypairs(8, spec);
+    let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, spec);
     let (genesis_state, _keypairs) = state_builder.build();
 
     let mut genesis_block = BeaconBlock::empty(spec);
