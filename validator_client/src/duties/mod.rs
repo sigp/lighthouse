@@ -8,6 +8,8 @@ pub use self::epoch_duties::EpochDutiesMap;
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
 use self::traits::{BeaconNode, BeaconNodeError};
 use bls::PublicKey;
+use futures::Async;
+use slog::{debug, error, info};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::{ChainSpec, Epoch, Slot};
@@ -52,7 +54,7 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
     ///
     /// The present `epoch` will be learned from the supplied `SlotClock`. In production this will
     /// be a wall-clock (e.g., system time, remote server time, etc.).
-    pub fn update(&self, slot: Slot) -> Result<UpdateOutcome, Error> {
+    fn update(&self, slot: Slot) -> Result<UpdateOutcome, Error> {
         let epoch = slot.epoch(self.spec.slots_per_epoch);
 
         if let Some(duties) = self
@@ -74,6 +76,27 @@ impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
         } else {
             Ok(UpdateOutcome::UnknownValidatorOrEpoch(epoch))
         }
+    }
+
+    /// A future wrapping around `update()`. This will perform logic based upon the update
+    /// process and complete once the update has completed.
+    pub fn run_update(&self, slot: Slot, log: slog::Logger) -> Result<Async<()>, ()> {
+        match self.update(slot) {
+            Err(error) => error!(log, "Epoch duties poll error"; "error" => format!("{:?}", error)),
+            Ok(UpdateOutcome::NoChange(epoch)) => {
+                debug!(log, "No change in duties"; "epoch" => epoch)
+            }
+            Ok(UpdateOutcome::DutiesChanged(epoch, duties)) => {
+                info!(log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+            }
+            Ok(UpdateOutcome::NewDuties(epoch, duties)) => {
+                info!(log, "New duties obtained"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+            }
+            Ok(UpdateOutcome::UnknownValidatorOrEpoch(epoch)) => {
+                error!(log, "Epoch or validator unknown"; "epoch" => epoch)
+            }
+        };
+        Ok(Async::Ready(()))
     }
 }
 

@@ -222,21 +222,22 @@ impl Service {
         // build requisite objects to pass to core thread.
         let duties_map = Arc::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
         let epoch_map_for_attester = Arc::new(EpochMap::new(config.spec.slots_per_epoch));
-        let manager = DutiesManager {
+        let manager = Arc::new(DutiesManager {
             duties_map,
             pubkeys: keypairs.iter().map(|keypair| keypair.pk.clone()).collect(),
             spec: Arc::new(config.spec),
             slot_clock: service.slot_clock.clone(),
             beacon_node: service.validator_client.clone(),
-        };
+        });
 
         // run the core thread
         runtime
             .block_on(interval.for_each(move |_| {
+                let log = service.log.clone();
                 // get the current slot
                 let current_slot = match service.slot_clock.present_slot() {
                     Err(e) => {
-                        error!(service.log, "SystemTimeError {:?}", e);
+                        error!(log, "SystemTimeError {:?}", e);
                         return Ok(());
                     }
                     Ok(slot) => slot.expect("Genesis is in the future"),
@@ -247,28 +248,14 @@ impl Service {
                     "The Timer should poll a new slot"
                 );
 
-                info!(service.log, "Processing slot: {}", current_slot.as_u64());
+                info!(log, "Processing slot: {}", current_slot.as_u64());
+
+                let cloned_manager = manager.clone();
 
                 // check for new duties
-                // TODO: Convert to its own thread
-                match manager.update(current_slot) {
-                    Err(error) => {
-                        error!(service.log, "Epoch duties poll error"; "error" => format!("{:?}", error))
-                    }
-                    Ok(UpdateOutcome::NoChange(epoch)) => {
-                        debug!(service.log, "No change in duties"; "epoch" => epoch)
-                    }
-                    Ok(UpdateOutcome::DutiesChanged(epoch, duties)) => {
-                        info!(service.log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
-                    }
-                    Ok(UpdateOutcome::NewDuties(epoch, duties)) => {
-                        info!(service.log, "New duties obtained"; "epoch" => epoch, "duties" => format!("{:?}", duties))
-                    }
-                    Ok(UpdateOutcome::UnknownValidatorOrEpoch(epoch)) => {
-                        error!(service.log, "Epoch or validator unknown"; "epoch" => epoch)
-                    }
-                };
-
+                tokio::spawn(futures::future::poll_fn(move || {
+                    cloned_manager.run_update(current_slot.clone(), log.clone())
+                }));
                 Ok(())
             }))
             .map_err(|e| format!("Service thread failed: {:?}", e))?;
