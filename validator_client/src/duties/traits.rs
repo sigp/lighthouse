@@ -16,5 +16,5 @@ pub trait BeaconNode: Send + Sync {
         &self,
         epoch: Epoch,
         pubkeys: &[PublicKey],
-    ) -> Result<Vec<Option<EpochDuties>>, BeaconNodeError>;
+    ) -> Result<EpochDuties, BeaconNodeError>;
 }

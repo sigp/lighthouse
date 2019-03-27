@@ -97,7 +97,7 @@ message BeaconBlock {
 
 // the public keys of the validators
 message Validators {
-	repeated bytes public_key = 1;
+	repeated bytes public_keys = 1;
 }
 
 // Propose slot
@@ -107,11 +107,11 @@ message GetDutiesRequest {
 }
 
 message GetDutiesResponse {
-	repeated ActiveValidator active_validator = 1;
+	repeated ActiveValidator active_validators = 1;
 }
 
 message ActiveValidator {
-    oneof slot_oneof {
+    oneof duty_oneof {
 		bool none = 1;
         ValidatorDuty duty = 2;
 	}
@@ -120,7 +120,7 @@ message ActiveValidator {
 message ValidatorDuty {
     oneof block_oneof {
         bool none = 1;
-        uint64 block_produce_slot = 2;
+        uint64 block_production_slot = 2;
     }
 	uint64 committee_slot = 3;
 	uint64 committee_shard = 4;
