@@ -523,9 +523,9 @@ impl SimpleSync {
         msg: BlockRootSlot,
         network: &mut NetworkContext,
     ) {
-        debug!(
+        info!(
             self.log,
-            "BlockSlot";
+            "NewGossipBlock";
             "peer" => format!("{:?}", peer_id),
         );
         // TODO: filter out messages that a prior to the finalized slot.
@@ -557,9 +557,9 @@ impl SimpleSync {
         msg: Attestation,
         _network: &mut NetworkContext,
     ) {
-        debug!(
+        info!(
             self.log,
-            "Attestation";
+            "NewAttestationGossip";
             "peer" => format!("{:?}", peer_id),
         );
 
