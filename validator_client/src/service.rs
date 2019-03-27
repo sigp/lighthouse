@@ -240,7 +240,7 @@ impl Service {
             .block_on(interval.for_each(move |_| {
                 let log = service.log.clone();
 
-                // get the current slot
+                /* get the current slot and epoch */
                 let current_slot = match service.slot_clock.present_slot() {
                     Err(e) => {
                         error!(log, "SystemTimeError {:?}", e);
@@ -258,13 +258,25 @@ impl Service {
 
                 info!(log, "Processing slot: {}", current_slot.as_u64());
 
-                // check for new duties
-                let mut cloned_manager = manager.clone();
+                /* check for new duties */
+
+                let cloned_manager = manager.clone();
                 tokio::spawn(futures::future::poll_fn(move || {
                     cloned_manager.run_update(current_epoch.clone(), log.clone())
                 }));
 
-                // execute any specified duties
+                /* execute any specified duties */
+
+                if let Some(work) = manager.get_current_work(current_slot) {
+                    for (_public_key, work_type) in work {
+                        if work_type.produce_block {
+                            // TODO: Produce a beacon block in a new thread
+                        }
+                        if work_type.produce_attestation {
+                            //TODO: Produce an attestation in a new thread
+                        }
+                    }
+                }
 
                 Ok(())
             }))
