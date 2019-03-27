@@ -49,7 +49,10 @@ pub fn start_server(
         create_beacon_block_service(instance)
     };
     let validator_service = {
-        let instance = ValidatorServiceInstance { log: log.clone() };
+        let instance = ValidatorServiceInstance {
+            chain: beacon_chain.clone(),
+            log: log.clone(),
+        };
         create_validator_service(instance)
     };
 
