@@ -13,6 +13,24 @@ pub struct TreeHashCache<'a> {
 }
 
 impl<'a> TreeHashCache<'a> {
+    pub fn build_changes_vec(bytes: &[u8]) -> Vec<bool> {
+        vec![false; bytes.len() / BYTES_PER_CHUNK]
+    }
+
+    pub fn from_mut_slice(bytes: &'a mut [u8], changes: &'a mut [bool]) -> Option<Self> {
+        if bytes.len() % BYTES_PER_CHUNK > 0 {
+            return None;
+        }
+
+        let chunk_modified = vec![false; bytes.len() / BYTES_PER_CHUNK];
+
+        Some(Self {
+            chunk_offset: 0,
+            cache: bytes,
+            chunk_modified: changes,
+        })
+    }
+
     pub fn increment(&mut self) {
         self.chunk_offset += 1
     }
@@ -63,6 +81,10 @@ impl<'a> TreeHashCache<'a> {
                 .get_mut(self.chunk_offset..self.chunk_offset + leaves)?,
         })
     }
+
+    pub fn into_slice(self) -> &'a [u8] {
+        self.cache
+    }
 }
 
 fn children(parent: usize) -> (usize, usize) {
@@ -81,7 +103,7 @@ pub trait CachedTreeHash {
 
 impl CachedTreeHash for u64 {
     fn build_cache_bytes(&self) -> Vec<u8> {
-        merkleize(&ssz_encode(self))
+        merkleize(&int_to_bytes32(*self))
     }
 
     fn cached_hash_tree_root(&self, other: &Self, cache: &mut TreeHashCache) -> Option<()> {
@@ -95,6 +117,7 @@ impl CachedTreeHash for u64 {
     }
 }
 
+#[derive(Clone)]
 pub struct Inner {
     pub a: u64,
     pub b: u64,
@@ -123,6 +146,8 @@ impl CachedTreeHash for Inner {
         self.c.cached_hash_tree_root(&other.c, &mut leaf_cache)?;
         self.d.cached_hash_tree_root(&other.d, &mut leaf_cache)?;
 
+        dbg!(leaf_cache.into_slice());
+
         let nodes = num_nodes(num_leaves);
         let internal_chunks = nodes - num_leaves;
 
@@ -140,8 +165,12 @@ impl CachedTreeHash for Inner {
 pub fn merkleize(values: &[u8]) -> Vec<u8> {
     let leaves = values.len() / HASHSIZE;
 
-    if leaves == 0 || !leaves.is_power_of_two() {
-        panic!("Handle bad leaf count");
+    if leaves == 0 {
+        panic!("No full leaves");
+    }
+
+    if !leaves.is_power_of_two() {
+        panic!("leaves is not power of two");
     }
 
     let mut o: Vec<u8> = vec![0; (num_nodes(leaves) - leaves) * HASHSIZE];
@@ -171,6 +200,62 @@ mod tests {
             all.extend_from_slice(&mut one.clone())
         }
         all
+    }
+
+    #[test]
+    fn cached_hash_on_inner() {
+        let inner = Inner {
+            a: 1,
+            b: 2,
+            c: 3,
+            d: 4,
+        };
+
+        let mut cache = inner.build_cache_bytes();
+
+        let changed_inner = Inner {
+            a: 42,
+            ..inner.clone()
+        };
+
+        let mut changes = TreeHashCache::build_changes_vec(&cache);
+        let mut cache_struct = TreeHashCache::from_mut_slice(&mut cache, &mut changes).unwrap();
+
+        changed_inner.cached_hash_tree_root(&inner, &mut cache_struct);
+
+        let new_cache = cache_struct.into_slice();
+
+        let data1 = &int_to_bytes32(42);
+        let data2 = &int_to_bytes32(2);
+        let data3 = &int_to_bytes32(3);
+        let data4 = &int_to_bytes32(4);
+
+        let data = join(vec![&data1, &data2, &data3, &data4]);
+        let expected = merkleize(&data);
+
+        assert_eq!(expected, new_cache);
+    }
+
+    #[test]
+    fn build_cache_matches_merkelize() {
+        let data1 = &int_to_bytes32(1);
+        let data2 = &int_to_bytes32(2);
+        let data3 = &int_to_bytes32(3);
+        let data4 = &int_to_bytes32(4);
+
+        let data = join(vec![&data1, &data2, &data3, &data4]);
+        let expected = merkleize(&data);
+
+        let inner = Inner {
+            a: 1,
+            b: 2,
+            c: 3,
+            d: 4,
+        };
+
+        let cache = inner.build_cache_bytes();
+
+        assert_eq!(expected, cache);
     }
 
     #[test]
