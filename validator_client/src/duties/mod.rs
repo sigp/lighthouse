@@ -6,7 +6,7 @@ mod grpc;
 mod traits;
 
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
-pub use self::epoch_duties::{EpochDutiesMap, WorkType};
+pub use self::epoch_duties::{EpochDutiesMap, WorkInfo};
 use self::traits::{BeaconNode, BeaconNodeError};
 use futures::Async;
 use slog::{debug, error, info};
@@ -85,10 +85,10 @@ impl<U: BeaconNode> DutiesManager<U> {
         Ok(Async::Ready(()))
     }
 
-    /// Returns a list of (Public, WorkType) indicating all the validators that have work to perform
+    /// Returns a list of (Public, WorkInfo) indicating all the validators that have work to perform
     /// this slot.
-    pub fn get_current_work(&self, slot: Slot) -> Option<Vec<(PublicKey, WorkType)>> {
-        let mut current_work: Vec<(PublicKey, WorkType)> = Vec::new();
+    pub fn get_current_work(&self, slot: Slot) -> Option<Vec<(PublicKey, WorkInfo)>> {
+        let mut current_work: Vec<(PublicKey, WorkInfo)> = Vec::new();
 
         // if the map is poisoned, return None
         let duties = self.duties_map.read().ok()?;

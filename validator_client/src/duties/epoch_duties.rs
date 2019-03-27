@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
-use types::{Epoch, PublicKey, Slot};
+use types::{AttestationDuty, Epoch, PublicKey, Slot};
 
-/// The type of work a validator is required to do in a given slot.
+/// When work needs to be performed by a validator, this type is given back to the main service
+/// which indicates all the information that required to process the work.
+///
+/// Note: This is calculated per slot, so a validator knows which slot is related to this struct.
 #[derive(Debug, Clone)]
-pub struct WorkType {
+pub struct WorkInfo {
+    /// Validator needs to produce a block.
     pub produce_block: bool,
-    pub produce_attestation: bool,
+    /// Validator needs to produce an attestation. This supplies the required attestation data.
+    pub attestation_duty: Option<AttestationDuty>,
 }
 
 /// The information required for a validator to propose and attest during some epoch.
@@ -23,23 +28,28 @@ pub struct EpochDuty {
 }
 
 impl EpochDuty {
-    /// Returns `WorkType` if work needs to be done in the supplied `slot`
-    pub fn is_work_slot(&self, slot: Slot) -> Option<WorkType> {
+    /// Returns `WorkInfo` if work needs to be done in the supplied `slot`
+    pub fn is_work_slot(&self, slot: Slot) -> Option<WorkInfo> {
         // if validator is required to produce a slot return true
         let produce_block = match self.block_production_slot {
             Some(s) if s == slot => true,
             _ => false,
         };
 
-        let mut produce_attestation = false;
+        // if the validator is required to attest to a shard, create the data
+        let mut attestation_duty = None;
         if self.attestation_slot == slot {
-            produce_attestation = true;
+            attestation_duty = Some(AttestationDuty {
+                slot,
+                shard: self.attestation_shard,
+                committee_index: self.committee_index as usize,
+            });
         }
 
-        if produce_block | produce_attestation {
-            return Some(WorkType {
+        if produce_block | attestation_duty.is_some() {
+            return Some(WorkInfo {
                 produce_block,
-                produce_attestation,
+                attestation_duty,
             });
         }
         None
@@ -89,7 +99,7 @@ impl EpochDutiesMap {
         &self,
         slot: Slot,
         pubkey: &PublicKey,
-    ) -> Result<Option<WorkType>, EpochDutiesMapError> {
+    ) -> Result<Option<WorkInfo>, EpochDutiesMapError> {
         let epoch = slot.epoch(self.slots_per_epoch);
 
         let epoch_duties = self
