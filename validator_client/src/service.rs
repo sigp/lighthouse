@@ -272,7 +272,10 @@ impl Service {
                         if work_type.produce_block {
                             // TODO: Produce a beacon block in a new thread
                         }
-                        if work_type.produce_attestation {
+                        if work_type.attestation_duty.is_some() {
+                            // available AttestationDuty info
+                            let attestation_duty =
+                                work_type.attestation_duty.expect("Cannot be None");
                             //TODO: Produce an attestation in a new thread
                         }
                     }
