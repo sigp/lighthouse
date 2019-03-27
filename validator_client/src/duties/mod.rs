@@ -5,15 +5,14 @@ mod grpc;
 //mod test_node;
 mod traits;
 
-pub use self::epoch_duties::EpochDutiesMap;
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
+pub use self::epoch_duties::{EpochDutiesMap, WorkType};
 use self::traits::{BeaconNode, BeaconNodeError};
-use bls::PublicKey;
 use futures::Async;
 use slog::{debug, error, info};
 use std::sync::Arc;
 use std::sync::RwLock;
-use types::Epoch;
+use types::{Epoch, PublicKey, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum UpdateOutcome {
@@ -24,9 +23,6 @@ pub enum UpdateOutcome {
     /// New `EpochDuties` were obtained, different to those which were previously known. This is
     /// likely to be the result of chain re-organisation.
     DutiesChanged(Epoch, EpochDuties),
-    /// The Beacon Node was unable to return the duties as the validator is unknown, or the
-    /// shuffling for the epoch is unknown.
-    UnknownValidatorOrEpoch(Epoch),
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,18 +52,19 @@ impl<U: BeaconNode> DutiesManager<U> {
     fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
         let duties = self.beacon_node.request_duties(epoch, &self.pubkeys)?;
         // If these duties were known, check to see if they're updates or identical.
-        let result = if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
+        if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
             if *known_duties == duties {
                 return Ok(UpdateOutcome::NoChange(epoch));
             } else {
                 //TODO: Duties could be large here. Remove from display and avoid the clone.
-                return Ok(UpdateOutcome::DutiesChanged(epoch, duties.clone()));
+                self.duties_map.write()?.insert(epoch, duties.clone());
+                return Ok(UpdateOutcome::DutiesChanged(epoch, duties));
             }
         } else {
-            Ok(UpdateOutcome::NewDuties(epoch, duties.clone()))
+            //TODO: Remove clone by removing duties from outcome
+            self.duties_map.write()?.insert(epoch, duties.clone());
+            return Ok(UpdateOutcome::NewDuties(epoch, duties));
         };
-        self.duties_map.write()?.insert(epoch, duties);
-        result
     }
 
     /// A future wrapping around `update()`. This will perform logic based upon the update
@@ -84,11 +81,29 @@ impl<U: BeaconNode> DutiesManager<U> {
             Ok(UpdateOutcome::NewDuties(epoch, duties)) => {
                 info!(log, "New duties obtained"; "epoch" => epoch, "duties" => format!("{:?}", duties))
             }
-            Ok(UpdateOutcome::UnknownValidatorOrEpoch(epoch)) => {
-                error!(log, "Epoch or validator unknown"; "epoch" => epoch)
-            }
         };
         Ok(Async::Ready(()))
+    }
+
+    /// Returns a list of (Public, WorkType) indicating all the validators that have work to perform
+    /// this slot.
+    pub fn get_current_work(&self, slot: Slot) -> Option<Vec<(PublicKey, WorkType)>> {
+        let mut current_work: Vec<(PublicKey, WorkType)> = Vec::new();
+
+        // if the map is poisoned, return None
+        let duties = self.duties_map.read().ok()?;
+
+        for validator_pk in &self.pubkeys {
+            match duties.is_work_slot(slot, &validator_pk) {
+                Ok(Some(work_type)) => current_work.push((validator_pk.clone(), work_type)),
+                Ok(None) => {} // No work for this validator
+                Err(_) => {}   // Unknown epoch or validator, no work
+            }
+        }
+        if current_work.is_empty() {
+            return None;
+        }
+        Some(current_work)
     }
 }
 
@@ -101,7 +116,7 @@ impl From<BeaconNodeError> for Error {
 
 //TODO: Use error_chain to handle errors
 impl<T> From<std::sync::PoisonError<T>> for Error {
-    fn from(e: std::sync::PoisonError<T>) -> Error {
+    fn from(_e: std::sync::PoisonError<T>) -> Error {
         Error::DutiesMapPoisoned
     }
 }

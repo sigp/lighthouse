@@ -5,8 +5,8 @@ use types::{Epoch, PublicKey, Slot};
 /// The type of work a validator is required to do in a given slot.
 #[derive(Debug, Clone)]
 pub struct WorkType {
-    produce_block: bool,
-    produce_attestation: bool,
+    pub produce_block: bool,
+    pub produce_attestation: bool,
 }
 
 /// The information required for a validator to propose and attest during some epoch.
@@ -85,7 +85,7 @@ impl DerefMut for EpochDutiesMap {
 
 impl EpochDutiesMap {
     /// Checks if the validator has work to do.
-    fn is_work_slot(
+    pub fn is_work_slot(
         &self,
         slot: Slot,
         pubkey: &PublicKey,
