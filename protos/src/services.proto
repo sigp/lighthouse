@@ -122,8 +122,8 @@ message ValidatorDuty {
         bool none = 1;
         uint64 block_production_slot = 2;
     }
-	uint64 committee_slot = 3;
-	uint64 committee_shard = 4;
+	uint64 attestation_slot = 3;
+	uint64 attestation_shard = 4;
     uint64 committee_index = 5;
 }
 
