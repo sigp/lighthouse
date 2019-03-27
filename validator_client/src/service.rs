@@ -19,6 +19,7 @@ use protos::services_grpc::{
 use slog::{debug, error, info, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
@@ -224,7 +225,7 @@ impl Service {
         // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
         // where EpochDuty contains slot numbers and attestation data that each validator needs to
         // produce work on.
-        let duties_map = EpochDutiesMap::new(config.spec.slots_per_epoch);
+        let duties_map = RwLock::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
 
         // builds a manager which maintains the list of current duties for all known validators
         // and can check when a validator needs to perform a task.
