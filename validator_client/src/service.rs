@@ -37,12 +37,14 @@ pub struct Service {
     chain_id: u16,
     /// The fork state we processing on.
     fork: Fork,
-    /// The slot clock keeping track of time.
-    slot_clock: Arc<SystemTimeSlotClock>,
+    /// The slot clock for this service.
+    slot_clock: SystemTimeSlotClock,
     /// The current slot we are processing.
     current_slot: Slot,
     /// Duration until the next slot. This is used for initializing the tokio timer interval.
     duration_to_next_slot: Duration,
+    /// The number of slots per epoch to allow for converting slots to epochs.
+    slots_per_epoch: u64,
     // GRPC Clients
     /// The beacon block GRPC client.
     beacon_block_client: Arc<BeaconBlockServiceClient>,
@@ -74,7 +76,7 @@ impl Service {
 
         // retrieve node information
         let node_info = loop {
-            let info = match beacon_node_client.info(&Empty::new()) {
+            match beacon_node_client.info(&Empty::new()) {
                 Err(e) => {
                     warn!(log, "Could not connect to node. Error: {}", e);
                     info!(log, "Retrying in 5 seconds...");
@@ -115,13 +117,6 @@ impl Service {
             epoch: Epoch::from(proto_fork.get_epoch()),
         };
 
-        // build the validator slot clock
-        let slot_clock = {
-            let clock = SystemTimeSlotClock::new(genesis_time, config.spec.seconds_per_slot)
-                .expect("Unable to instantiate SystemTimeSlotClock.");
-            Arc::new(clock)
-        };
-
         // initialize the RPC clients
 
         // Beacon node gRPC beacon block endpoints.
@@ -141,6 +136,10 @@ impl Service {
             let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
             Arc::new(AttestationServiceClient::new(ch))
         };
+
+        // build the validator slot clock
+        let slot_clock = SystemTimeSlotClock::new(genesis_time, config.spec.seconds_per_slot)
+            .expect("Unable to instantiate SystemTimeSlotClock.");
 
         let current_slot = slot_clock
             .present_slot()
@@ -179,6 +178,7 @@ impl Service {
             slot_clock,
             current_slot,
             duration_to_next_slot,
+            slots_per_epoch: config.spec.slots_per_epoch,
             beacon_block_client,
             validator_client,
             attester_client,
@@ -211,7 +211,7 @@ impl Service {
             )
         };
 
-        // kick off core service
+        /* kick off core service */
 
         // generate keypairs
 
@@ -219,14 +219,18 @@ impl Service {
         // https://github.com/sigp/lighthouse/issues/160
         let keypairs = Arc::new(vec![Keypair::random()]);
 
-        // build requisite objects to pass to core thread.
-        let duties_map = Arc::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
-        let epoch_map_for_attester = Arc::new(EpochMap::new(config.spec.slots_per_epoch));
+        /* build requisite objects to pass to core thread */
 
+        // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
+        // where EpochDuty contains slot numbers and attestation data that each validator needs to
+        // produce work on.
+        let duties_map = EpochDutiesMap::new(config.spec.slots_per_epoch);
+
+        // builds a manager which maintains the list of current duties for all known validators
+        // and can check when a validator needs to perform a task.
         let manager = Arc::new(DutiesManager {
             duties_map,
             pubkeys: keypairs.iter().map(|keypair| keypair.pk.clone()).collect(),
-            slots_per_epoch: config.spec.slots_per_epoch.clone(),
             beacon_node: service.validator_client.clone(),
         });
 
@@ -244,6 +248,8 @@ impl Service {
                     Ok(slot) => slot.expect("Genesis is in the future"),
                 };
 
+                let current_epoch = current_slot.epoch(service.slots_per_epoch);
+
                 debug_assert!(
                     current_slot > service.current_slot,
                     "The Timer should poll a new slot"
@@ -252,9 +258,9 @@ impl Service {
                 info!(log, "Processing slot: {}", current_slot.as_u64());
 
                 // check for new duties
-                let cloned_manager = manager.clone();
+                let mut cloned_manager = manager.clone();
                 tokio::spawn(futures::future::poll_fn(move || {
-                    cloned_manager.run_update(current_slot.clone(), log.clone())
+                    cloned_manager.run_update(current_epoch.clone(), log.clone())
                 }));
 
                 // execute any specified duties

@@ -1,7 +1,13 @@
-use block_proposer::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
-use std::sync::RwLock;
-use types::{Epoch, Fork, PublicKey, Slot};
+use std::ops::{Deref, DerefMut};
+use types::{Epoch, PublicKey, Slot};
+
+/// The type of work a validator is required to do in a given slot.
+#[derive(Debug, Clone)]
+pub struct WorkType {
+    produce_block: bool,
+    produce_attestation: bool,
+}
 
 /// The information required for a validator to propose and attest during some epoch.
 ///
@@ -17,84 +23,91 @@ pub struct EpochDuty {
 }
 
 impl EpochDuty {
-    /// Returns `true` if work needs to be done in the supplied `slot`
-    pub fn is_work_slot(&self, slot: Slot) -> bool {
+    /// Returns `WorkType` if work needs to be done in the supplied `slot`
+    pub fn is_work_slot(&self, slot: Slot) -> Option<WorkType> {
         // if validator is required to produce a slot return true
-        match self.block_production_slot {
-            Some(s) if s == slot => return true,
+        let produce_block = match self.block_production_slot {
+            Some(s) if s == slot => true,
             _ => false,
+        };
+
+        let mut produce_attestation = false;
+        if self.committee_slot == slot {
+            produce_attestation = true;
         }
 
-        if self.committee_slot == slot {
-            return true;
+        if produce_block | produce_attestation {
+            return Some(WorkType {
+                produce_block,
+                produce_attestation,
+            });
         }
-        return false;
+        None
     }
 }
 /// Maps a list of public keys (many validators) to an EpochDuty.
-pub struct EpochDuties {
-    inner: HashMap<PublicKey, Option<EpochDuty>>,
-}
+pub type EpochDuties = HashMap<PublicKey, Option<EpochDuty>>;
 
 pub enum EpochDutiesMapError {
     Poisoned,
+    UnknownEpoch,
+    UnknownValidator,
 }
 
 /// Maps an `epoch` to some `EpochDuties` for a single validator.
 pub struct EpochDutiesMap {
     pub slots_per_epoch: u64,
-    pub map: RwLock<HashMap<Epoch, EpochDuties>>,
+    pub map: HashMap<Epoch, EpochDuties>,
 }
 
 impl EpochDutiesMap {
     pub fn new(slots_per_epoch: u64) -> Self {
         Self {
             slots_per_epoch,
-            map: RwLock::new(HashMap::new()),
+            map: HashMap::new(),
         }
-    }
-
-    pub fn get(&self, epoch: Epoch) -> Result<Option<EpochDuties>, EpochDutiesMapError> {
-        let map = self.map.read().map_err(|_| EpochDutiesMapError::Poisoned)?;
-        match map.get(&epoch) {
-            Some(duties) => Ok(Some(*duties)),
-            None => Ok(None),
-        }
-    }
-
-    pub fn insert(
-        &self,
-        epoch: Epoch,
-        epoch_duties: EpochDuties,
-    ) -> Result<Option<EpochDuties>, EpochDutiesMapError> {
-        let mut map = self
-            .map
-            .write()
-            .map_err(|_| EpochDutiesMapError::Poisoned)?;
-        Ok(map.insert(epoch, epoch_duties))
     }
 }
 
-impl DutiesReader for EpochDutiesMap {
-    fn is_block_production_slot(&self, slot: Slot) -> Result<bool, DutiesReaderError> {
+// Expose the hashmap methods
+impl Deref for EpochDutiesMap {
+    type Target = HashMap<Epoch, EpochDuties>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+impl DerefMut for EpochDutiesMap {
+    fn deref_mut(&mut self) -> &mut HashMap<Epoch, EpochDuties> {
+        &mut self.map
+    }
+}
+
+impl EpochDutiesMap {
+    /// Checks if the validator has work to do.
+    fn is_work_slot(
+        &self,
+        slot: Slot,
+        pubkey: &PublicKey,
+    ) -> Result<Option<WorkType>, EpochDutiesMapError> {
         let epoch = slot.epoch(self.slots_per_epoch);
 
-        let map = self.map.read().map_err(|_| DutiesReaderError::Poisoned)?;
-        let duties = map
+        let epoch_duties = self
+            .map
             .get(&epoch)
-            .ok_or_else(|| DutiesReaderError::UnknownEpoch)?;
-        Ok(duties.is_block_production_slot(slot))
-    }
-
-    fn fork(&self) -> Result<Fork, DutiesReaderError> {
-        // TODO: this is garbage data.
-        //
-        // It will almost certainly cause signatures to fail verification.
-        Ok(Fork {
-            previous_version: [0; 4],
-            current_version: [0; 4],
-            epoch: Epoch::new(0),
-        })
+            .ok_or_else(|| EpochDutiesMapError::UnknownEpoch)?;
+        if let Some(epoch_duty) = epoch_duties.get(pubkey) {
+            if let Some(duty) = epoch_duty {
+                // Retrieves the duty for a validator at a given slot
+                return Ok(duty.is_work_slot(slot));
+            } else {
+                // the validator isn't active
+                return Ok(None);
+            }
+        } else {
+            // validator isn't known
+            return Err(EpochDutiesMapError::UnknownValidator);
+        }
     }
 }
 

@@ -1,7 +1,8 @@
 mod epoch_duties;
 mod grpc;
-#[cfg(test)]
-mod test_node;
+// TODO: reintroduce tests
+//#[cfg(test)]
+//mod test_node;
 mod traits;
 
 pub use self::epoch_duties::EpochDutiesMap;
@@ -11,9 +12,10 @@ use bls::PublicKey;
 use futures::Async;
 use slog::{debug, error, info};
 use std::sync::Arc;
-use types::{Epoch, Slot};
+use std::sync::RwLock;
+use types::Epoch;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum UpdateOutcome {
     /// The `EpochDuties` were not updated during this poll.
     NoChange(Epoch),
@@ -29,8 +31,11 @@ pub enum UpdateOutcome {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    DutiesMapPoisoned,
     EpochMapPoisoned,
     BeaconNodeError(BeaconNodeError),
+    UnknownEpoch,
+    UnknownValidator,
 }
 
 /// A polling state machine which ensures the latest `EpochDuties` are obtained from the Beacon
@@ -38,43 +43,37 @@ pub enum Error {
 ///
 /// This keeps track of all validator keys and required voting slots.
 pub struct DutiesManager<U: BeaconNode> {
-    pub duties_map: Arc<EpochDutiesMap>,
+    pub duties_map: RwLock<EpochDutiesMap>,
     /// A list of all public keys known to the validator service.
     pub pubkeys: Vec<PublicKey>,
-    pub slots_per_epoch: u64,
     pub beacon_node: Arc<U>,
 }
 
 impl<U: BeaconNode> DutiesManager<U> {
     /// Check the Beacon Node for `EpochDuties`.
     ///
-    /// The present `epoch` will be learned from the supplied `SlotClock`. In production this will
     /// be a wall-clock (e.g., system time, remote server time, etc.).
-    fn update(&self, slot: Slot) -> Result<UpdateOutcome, Error> {
-        let epoch = slot.epoch(self.slots_per_epoch);
-
-        if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkeys)? {
-            // If these duties were known, check to see if they're updates or identical.
-            let result = if let Some(known_duties) = self.duties_map.get(epoch)? {
-                if known_duties == duties {
-                    Ok(UpdateOutcome::NoChange(epoch))
-                } else {
-                    Ok(UpdateOutcome::DutiesChanged(epoch, duties))
-                }
+    fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
+        let duties = self.beacon_node.request_duties(epoch, &self.pubkeys)?;
+        // If these duties were known, check to see if they're updates or identical.
+        let result = if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
+            if *known_duties == duties {
+                return Ok(UpdateOutcome::NoChange(epoch));
             } else {
-                Ok(UpdateOutcome::NewDuties(epoch, duties))
-            };
-            self.duties_map.insert(epoch, duties)?;
-            result
+                //TODO: Duties could be large here. Remove from display and avoid the clone.
+                return Ok(UpdateOutcome::DutiesChanged(epoch, duties.clone()));
+            }
         } else {
-            Ok(UpdateOutcome::UnknownValidatorOrEpoch(epoch))
-        }
+            Ok(UpdateOutcome::NewDuties(epoch, duties.clone()))
+        };
+        self.duties_map.write()?.insert(epoch, duties);
+        result
     }
 
     /// A future wrapping around `update()`. This will perform logic based upon the update
     /// process and complete once the update has completed.
-    pub fn run_update(&self, slot: Slot, log: slog::Logger) -> Result<Async<()>, ()> {
-        match self.update(slot) {
+    pub fn run_update(&self, epoch: Epoch, log: slog::Logger) -> Result<Async<()>, ()> {
+        match self.update(epoch) {
             Err(error) => error!(log, "Epoch duties poll error"; "error" => format!("{:?}", error)),
             Ok(UpdateOutcome::NoChange(epoch)) => {
                 debug!(log, "No change in duties"; "epoch" => epoch)
@@ -93,16 +92,25 @@ impl<U: BeaconNode> DutiesManager<U> {
     }
 }
 
+//TODO: Use error_chain to handle errors
 impl From<BeaconNodeError> for Error {
     fn from(e: BeaconNodeError) -> Error {
         Error::BeaconNodeError(e)
     }
 }
 
+//TODO: Use error_chain to handle errors
+impl<T> From<std::sync::PoisonError<T>> for Error {
+    fn from(e: std::sync::PoisonError<T>) -> Error {
+        Error::DutiesMapPoisoned
+    }
+}
 impl From<EpochDutiesMapError> for Error {
     fn from(e: EpochDutiesMapError) -> Error {
         match e {
             EpochDutiesMapError::Poisoned => Error::EpochMapPoisoned,
+            EpochDutiesMapError::UnknownEpoch => Error::UnknownEpoch,
+            EpochDutiesMapError::UnknownValidator => Error::UnknownValidator,
         }
     }
 }
