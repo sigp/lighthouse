@@ -26,10 +26,9 @@ service BeaconBlockService {
 /// Service that provides the validator client with requisite knowledge about
 //its public keys
 service ValidatorService {
-	rpc ProposeBlockSlot(ProposeBlockSlotRequest) returns (ProposeBlockSlotResponse);
-    /// Given a set of public keys, returns their respective indicies
-	rpc ValidatorIndex(PublicKeys) returns (Indicies);
-    // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
+    // Gets the block proposer slot and comittee slot that a validator needs to
+    // perform work on.
+	rpc GetValidatorDuties(GetDutiesRequest) returns (GetDutiesResponse);
 }
 
 /// Service that handles validator attestations
@@ -93,57 +92,40 @@ message BeaconBlock {
 /*
  * Validator Service Messages
  */
-/*
-message ValidatorAssignmentRequest {
-	uint64 epoch = 1;
-	bytes validator_index = 2;
-}
-
-// A validators duties for some epoch.
-// TODO: add shard duties.
-message ValidatorAssignment {
-	oneof block_production_slot_oneof {
-		bool block_production_slot_none = 1;
-		uint64 block_production_slot = 2;
-	}
-}
-*/
 
 // Validator Assignment
 
-message PublicKeys {
+// the public keys of the validators
+message Validators {
 	repeated bytes public_key = 1;
 }
 
-message Indicies {
-	repeated uint64 index = 1;
-}
-
-
 // Propose slot
-
-message ProposeBlockSlotRequest {
+message GetDutiesRequest {
 	uint64 epoch = 1;
-	repeated uint64 validator_index = 2;
+	Validators validators = 2;
 }
 
 message GetDutiesResponse {
-	repeated oneof slot_oneof {
+	repeated ActiveValidator active_validator = 1;
+}
+
+message ActiveValidator {
+    oneof slot_oneof {
 		bool none = 1;
         ValidatorDuty duty = 2;
 	}
 }
 
-ValidatorDuty {
+message ValidatorDuty {
     oneof block_oneof {
         bool none = 1;
         uint64 block_produce_slot = 2;
     }
-	uint64 committee_slot = 1;
-	uint64 committee_shard = 2;
-    uint64 committee_index = 3;
+	uint64 committee_slot = 3;
+	uint64 committee_shard = 4;
+    uint64 committee_index = 5;
 }
-
 
 /*
  * Attestation Service Messages
