@@ -17,8 +17,8 @@ pub struct WorkType {
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub struct EpochDuty {
     pub block_production_slot: Option<Slot>,
-    pub committee_slot: Slot,
-    pub committee_shard: u64,
+    pub attestation_slot: Slot,
+    pub attestation_shard: u64,
     pub committee_index: u64,
 }
 
@@ -32,7 +32,7 @@ impl EpochDuty {
         };
 
         let mut produce_attestation = false;
-        if self.committee_slot == slot {
+        if self.attestation_slot == slot {
             produce_attestation = true;
         }
 
