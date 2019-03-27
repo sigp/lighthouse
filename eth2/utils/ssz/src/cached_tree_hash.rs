@@ -179,6 +179,29 @@ impl CachedTreeHash for Inner {
     }
 }
 
+fn last_leaf_needs_padding(num_bytes: usize) -> bool {
+    num_bytes % HASHSIZE != 0
+}
+
+fn num_leaves(num_bytes: usize) -> usize {
+    num_bytes / HASHSIZE
+}
+
+fn num_bytes(num_leaves: usize) -> usize {
+    num_leaves * HASHSIZE
+}
+
+pub fn sanitise_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
+    let present_leaves = num_leaves(bytes.len());
+    let required_leaves = present_leaves.next_power_of_two();
+
+    if (present_leaves != required_leaves) | last_leaf_needs_padding(bytes.len()) {
+        bytes.resize(num_bytes(required_leaves), 0);
+    }
+
+    bytes
+}
+
 /// A reference function to test against.
 pub fn merkleize(values: &[u8]) -> Vec<u8> {
     let leaves = values.len() / HASHSIZE;
@@ -220,6 +243,19 @@ mod tests {
         all
     }
 
+    #[test]
+    fn merkleize_odd() {
+        let data = join(vec![
+            int_to_bytes32(1),
+            int_to_bytes32(2),
+            int_to_bytes32(3),
+            int_to_bytes32(4),
+            int_to_bytes32(5),
+        ]);
+
+        merkleize(&sanitise_bytes(data));
+    }
+
     fn generic_test(index: usize) {
         let inner = Inner {
             a: 1,
@@ -228,7 +264,7 @@ mod tests {
             d: 4,
         };
 
-        let mut cache = inner.build_cache_bytes();
+        let cache = inner.build_cache_bytes();
 
         let changed_inner = match index {
             0 => Inner {
