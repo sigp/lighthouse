@@ -71,14 +71,17 @@ impl<'a> TreeHashCache<'a> {
     pub fn just_the_leaves(&mut self, leaves: usize) -> Option<TreeHashCache> {
         let nodes = num_nodes(leaves);
         let internal = nodes - leaves;
-        let leaves_start = (self.chunk_offset + internal) * HASHSIZE;
+
+        let leaves_start = (self.chunk_offset + internal) * BYTES_PER_CHUNK;
+        let leaves_end = leaves_start + leaves * BYTES_PER_CHUNK;
+
+        let modified_start = self.chunk_offset + internal;
+        let modified_end = modified_start + leaves;
 
         Some(TreeHashCache {
             chunk_offset: self.chunk_offset + internal,
-            cache: self.cache.get_mut(leaves_start..leaves * HASHSIZE)?,
-            chunk_modified: self
-                .chunk_modified
-                .get_mut(self.chunk_offset..self.chunk_offset + leaves)?,
+            cache: self.cache.get_mut(leaves_start..leaves_end)?,
+            chunk_modified: self.chunk_modified.get_mut(modified_start..modified_end)?,
         })
     }
 
@@ -108,7 +111,7 @@ impl CachedTreeHash for u64 {
 
     fn cached_hash_tree_root(&self, other: &Self, cache: &mut TreeHashCache) -> Option<()> {
         if self != other {
-            cache.modify_current_chunk(&hash(&ssz_encode(self)));
+            cache.modify_current_chunk(&merkleize(&int_to_bytes32(*self)));
         }
 
         cache.increment();
@@ -140,18 +143,18 @@ impl CachedTreeHash for Inner {
     fn cached_hash_tree_root(&self, other: &Self, cache: &mut TreeHashCache) -> Option<()> {
         let num_leaves = 4;
 
-        let mut leaf_cache = cache.just_the_leaves(num_leaves)?;
-        self.a.cached_hash_tree_root(&other.a, &mut leaf_cache)?;
-        self.b.cached_hash_tree_root(&other.b, &mut leaf_cache)?;
-        self.c.cached_hash_tree_root(&other.c, &mut leaf_cache)?;
-        self.d.cached_hash_tree_root(&other.d, &mut leaf_cache)?;
-
-        dbg!(leaf_cache.into_slice());
+        {
+            let mut leaf_cache = cache.just_the_leaves(num_leaves)?;
+            self.a.cached_hash_tree_root(&other.a, &mut leaf_cache)?;
+            self.b.cached_hash_tree_root(&other.b, &mut leaf_cache)?;
+            self.c.cached_hash_tree_root(&other.c, &mut leaf_cache)?;
+            self.d.cached_hash_tree_root(&other.d, &mut leaf_cache)?;
+        }
 
         let nodes = num_nodes(num_leaves);
         let internal_chunks = nodes - num_leaves;
 
-        for chunk in 0..internal_chunks {
+        for chunk in (0..internal_chunks).into_iter().rev() {
             if cache.children_modified(chunk)? {
                 cache.modify_chunk(chunk, &cache.hash_children(chunk)?)?;
             }
