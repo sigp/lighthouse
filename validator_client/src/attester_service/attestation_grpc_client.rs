@@ -27,7 +27,7 @@ impl BeaconNode for AttestationGrpcClient {
 
         let reply = self
             .client
-            .produce_attestation(&req)
+            .produce_attestation_data(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
         // TODO: return correct Attestation
