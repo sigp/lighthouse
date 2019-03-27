@@ -9,6 +9,8 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockService;
 use slog::{Logger, info, warn, error};
 
+const TEST_SHARD_PHASE_ZERO: u8 = 0;
+
 #[derive(Clone)]
 pub struct AttestationServiceInstance {
     pub chain: Arc<BeaconChain>,
@@ -29,9 +31,11 @@ impl AttestationService for AttestationServiceInstance {
         let spec = self.chain.get_spec();
         let state = self.chain.get_state();
 
+        let slot_requested = req.get_slot();
+
         // Start by performing some checks
         // Check that the the AttestionData is for the current slot (otherwise it will not be valid)
-        if req.get_slot() != state.slot {
+        if slot_requested != state.slot {
             let f = sink
                 .fail(RpcStatus::new(
                     RpcStatusCode::OutOfRange,
@@ -40,15 +44,8 @@ impl AttestationService for AttestationServiceInstance {
                 .map_err(move |e| error!(&self.log, "Failed to reply with failure {:?}: {:?}", req, e));
         }
 
-        // Then collect the data we need for the AttesatationData object
-        //let beacon_block_root = state.latest_block_roots.first().ok_or_else(|e| )
-
-        // And finally build the AttestationData object
-        let mut attestation_data = AttestationDataProto::new();
-        attestation_data.set_slot(state.slot.as_u64());
-        attestation_data.set_shard(spec.genesis_start_shard);
-        attestation_data.set_beacon_block_root(b"cats".to_vec());
-        //attestation_data.
+        // Then get the AttestationData from the beacon chain (for shard 0 for now)
+        let attestation_data = self.chain.produce_attestation_data(TEST_SHARD_PHASE_ZERO);
 
         let mut resp = ProduceAttestationDataResponse::new();
         resp.set_attestation_data(attestation_data);

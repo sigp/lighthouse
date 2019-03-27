@@ -33,7 +33,7 @@ service ValidatorService {
 
 /// Service that handles validator attestations
 service AttestationService {
-	rpc ProduceAttestation(ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
+	rpc ProduceAttestationData(ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
 	rpc PublishAttestation(PublishAttestationRequest) returns (PublishAttestationResponse);
 }
 
