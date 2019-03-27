@@ -8,7 +8,9 @@ pub mod notifier;
 use beacon_chain::BeaconChain;
 pub use client_config::ClientConfig;
 pub use client_types::ClientTypes;
+use db::ClientDB;
 use exit_future::Signal;
+use fork_choice::ForkChoice;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
 use slog::{error, info, o};
@@ -50,16 +52,34 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         // generate a beacon chain
         let beacon_chain = TClientType::initialise_beacon_chain(&config);
 
+        if beacon_chain.read_slot_clock().is_none() {
+            panic!("Cannot start client before genesis!")
+        }
+
+        // Block starting the client until we have caught the state up to the current slot.
+        //
+        // If we don't block here we create an initial scenario where we're unable to process any
+        // blocks and we're basically useless.
         {
-            let state = beacon_chain.state.read();
-            let state_root = Hash256::from_slice(&state.hash_tree_root());
+            let state_slot = beacon_chain.state.read().slot;
+            let wall_clock_slot = beacon_chain.read_slot_clock().unwrap();
+            let slots_since_genesis = beacon_chain.slots_since_genesis().unwrap();
             info!(
                 log,
-                "ChainInitialized";
-                "state_root" => format!("{}", state_root),
-                "genesis_time" => format!("{}", state.genesis_time),
+                "Initializing state";
+                "state_slot" => state_slot,
+                "wall_clock_slot" => wall_clock_slot,
+                "slots_since_genesis" => slots_since_genesis,
+                "catchup_distance" => wall_clock_slot - state_slot,
             );
         }
+        do_state_catchup(&beacon_chain, &log);
+        info!(
+            log,
+            "State initialized";
+            "state_slot" => beacon_chain.state.read().slot,
+            "wall_clock_slot" => beacon_chain.read_slot_clock().unwrap(),
+        );
 
         // Start the network service, libp2p and syncing threads
         // TODO: Add beacon_chain reference to network parameters
@@ -96,39 +116,11 @@ impl<TClientType: ClientTypes> Client<TClientType> {
 
             let chain = beacon_chain.clone();
             let log = log.new(o!("Service" => "SlotTimer"));
-
-            let state_slot = chain.state.read().slot;
-            let wall_clock_slot = chain.read_slot_clock().unwrap();
-            let slots_since_genesis = chain.slots_since_genesis().unwrap();
-            info!(
-                log,
-                "Starting SlotTimer";
-                "state_slot" => state_slot,
-                "wall_clock_slot" => wall_clock_slot,
-                "slots_since_genesis" => slots_since_genesis,
-                "catchup_distance" => wall_clock_slot - state_slot,
-            );
             executor.spawn(
                 exit.until(
                     interval
                         .for_each(move |_| {
-                            if let Some(genesis_height) = chain.slots_since_genesis() {
-                                match chain.catchup_state() {
-                                    Ok(_) => info!(
-                                        log,
-                                        "NewSlot";
-                                        "slot" => chain.state.read().slot,
-                                        "slots_since_genesis" => genesis_height,
-                                    ),
-                                    Err(e) => error!(
-                                        log,
-                                        "StateCatchupFailed";
-                                        "state_slot" => chain.state.read().slot,
-                                        "slots_since_genesis" => genesis_height,
-                                        "error" => format!("{:?}", e),
-                                    ),
-                                };
-                            }
+                            do_state_catchup(&chain, &log);
 
                             Ok(())
                         })
@@ -147,5 +139,38 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             network,
             phantom: PhantomData,
         })
+    }
+}
+
+fn do_state_catchup<T, U, F>(chain: &Arc<BeaconChain<T, U, F>>, log: &slog::Logger)
+where
+    T: ClientDB,
+    U: SlotClock,
+    F: ForkChoice,
+{
+    if let Some(genesis_height) = chain.slots_since_genesis() {
+        let result = chain.catchup_state();
+
+        let common = o!(
+            "best_slot" => chain.head().beacon_block.slot,
+            "latest_block_root" => format!("{}", chain.head().beacon_block_root),
+            "wall_clock_slot" => chain.read_slot_clock().unwrap(),
+            "state_slot" => chain.state.read().slot,
+            "slots_since_genesis" => genesis_height,
+        );
+
+        match result {
+            Ok(_) => info!(
+                log,
+                "NewSlot";
+                common
+            ),
+            Err(e) => error!(
+                log,
+                "StateCatchupFailed";
+                "error" => format!("{:?}", e),
+                common
+            ),
+        };
     }
 }

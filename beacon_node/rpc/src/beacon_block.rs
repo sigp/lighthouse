@@ -68,7 +68,8 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
                             info!(
                                 self.log,
                                 "PublishBeaconBlock";
-                                "type" => "invalid_block",
+                                "type" => "valid_block",
+                                "block_slot" => block.slot,
                                 "outcome" => format!("{:?}", outcome)
                             );
 
@@ -102,10 +103,10 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
                             );
                         } else {
                             // Some failure during processing.
-                            error!(
+                            warn!(
                                 self.log,
                                 "PublishBeaconBlock";
-                                "type" => "other",
+                                "type" => "unable_to_import",
                                 "outcome" => format!("{:?}", outcome)
                             );
 
