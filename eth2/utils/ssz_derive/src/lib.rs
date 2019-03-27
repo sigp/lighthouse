@@ -38,7 +38,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{parse_macro_input, DeriveInput};
 
 /// Returns a Vec of `syn::Ident` for each named field in the struct.
@@ -218,7 +218,7 @@ fn get_tree_hashable_named_field_idents<'a>(
 /// The field attribute is: `#[tree_hash(skip_hashing)]`
 fn should_skip_tree_hash(field: &syn::Field) -> bool {
     for attr in &field.attrs {
-        if attr.tts.to_string() == "( skip_hashing )" {
+        if attr.into_token_stream().to_string() == "# [ tree_hash ( skip_hashing ) ]" {
             return true;
         }
     }
@@ -289,7 +289,7 @@ fn final_type_ident(field: &syn::Field) -> &syn::Ident {
 /// If you can think of a better way to do this, please make an issue!
 ///
 /// Fields are processed in the order they are defined.
-#[proc_macro_derive(SignedRoot)]
+#[proc_macro_derive(SignedRoot, attributes(signed_root))]
 pub fn ssz_signed_root_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
@@ -302,19 +302,7 @@ pub fn ssz_signed_root_derive(input: TokenStream) -> TokenStream {
 
     let mut field_idents: Vec<&syn::Ident> = vec![];
 
-    for field in struct_data.fields.iter() {
-        let final_type_ident = final_type_ident(&field);
-
-        if type_ident_is_signature(final_type_ident) {
-            break;
-        } else {
-            let ident = field
-                .ident
-                .as_ref()
-                .expect("ssz_derive only supports named_struct fields.");
-            field_idents.push(ident);
-        }
-    }
+    let field_idents = get_signed_root_named_field_idents(&struct_data);
 
     let output = quote! {
         impl ssz::SignedRoot for #name {
@@ -329,4 +317,28 @@ pub fn ssz_signed_root_derive(input: TokenStream) -> TokenStream {
         }
     };
     output.into()
+}
+
+fn get_signed_root_named_field_idents(struct_data: &syn::DataStruct) -> Vec<&syn::Ident> {
+    struct_data
+        .fields
+        .iter()
+        .filter_map(|f| {
+            if should_skip_signed_root(&f) {
+                None
+            } else {
+                Some(match &f.ident {
+                    Some(ref ident) => ident,
+                    _ => panic!("ssz_derive only supports named struct fields"),
+                })
+            }
+        })
+        .collect()
+}
+
+fn should_skip_signed_root(field: &syn::Field) -> bool {
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.into_token_stream().to_string() == "# [ signed_root ( skip_hashing ) ]")
 }

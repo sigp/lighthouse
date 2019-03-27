@@ -27,6 +27,7 @@ pub struct SlashableAttestation {
     pub validator_indices: Vec<u64>,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
+    #[signed_root(skip_hashing)]
     pub aggregate_signature: AggregateSignature,
 }
 

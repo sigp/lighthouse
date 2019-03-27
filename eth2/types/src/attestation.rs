@@ -25,6 +25,7 @@ pub struct Attestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
+    #[signed_root(skip_hashing)]
     pub aggregate_signature: AggregateSignature,
 }
 

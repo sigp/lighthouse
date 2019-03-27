@@ -32,6 +32,7 @@ pub struct Transfer {
     pub slot: Slot,
     pub pubkey: PublicKey,
     #[derivative(Hash = "ignore")]
+    #[signed_root(skip_hashing)]
     pub signature: Signature,
 }
 
