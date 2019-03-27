@@ -25,6 +25,7 @@ use test_random_derive::TestRandom;
 pub struct DepositInput {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
+    #[signed_root(skip_hashing)]
     pub proof_of_possession: Signature,
 }
 

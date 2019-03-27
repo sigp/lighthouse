@@ -27,6 +27,7 @@ pub struct BeaconBlock {
     pub previous_block_root: Hash256,
     pub state_root: Hash256,
     pub body: BeaconBlockBody,
+    #[signed_root(skip_hashing)]
     pub signature: Signature,
 }
 
