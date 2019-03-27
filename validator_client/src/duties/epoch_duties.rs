@@ -1,29 +1,39 @@
 use block_proposer::{DutiesReader, DutiesReaderError};
 use std::collections::HashMap;
 use std::sync::RwLock;
-use types::{Epoch, Fork, Slot};
+use types::{Epoch, Fork, PublicKey, Slot};
 
 /// The information required for a validator to propose and attest during some epoch.
 ///
 /// Generally obtained from a Beacon Node, this information contains the validators canonical index
-/// (thier sequence in the global validator induction process) and the "shuffling" for that index
+/// (their sequence in the global validator induction process) and the "shuffling" for that index
 /// for some epoch.
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
-pub struct EpochDuties {
-    pub validator_index: u64,
+pub struct EpochDuty {
     pub block_production_slot: Option<Slot>,
-    // Future shard info
+    pub committee_slot: Slot,
+    pub committee_shard: u64,
+    pub committee_index: u64,
 }
 
-impl EpochDuties {
-    /// Returns `true` if the supplied `slot` is a slot in which the validator should produce a
-    /// block.
-    pub fn is_block_production_slot(&self, slot: Slot) -> bool {
+impl EpochDuty {
+    /// Returns `true` if work needs to be done in the supplied `slot`
+    pub fn is_work_slot(&self, slot: Slot) -> bool {
+        // if validator is required to produce a slot return true
         match self.block_production_slot {
-            Some(s) if s == slot => true,
+            Some(s) if s == slot => return true,
             _ => false,
         }
+
+        if self.committee_slot == slot {
+            return true;
+        }
+        return false;
     }
+}
+/// Maps a list of public keys (many validators) to an EpochDuty.
+pub struct EpochDuties {
+    inner: HashMap<PublicKey, Option<EpochDuty>>,
 }
 
 pub enum EpochDutiesMapError {
