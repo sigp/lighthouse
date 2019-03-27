@@ -25,8 +25,11 @@ use tokio::runtime::Builder;
 use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
 use types::{Epoch, Fork, Slot};
+use std::thread;
 
 //TODO: This service should be simplified in the future. Can be made more steamlined.
+
+const POLL_INTERVAL_MILLIS: u64 = 100;
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
@@ -217,7 +220,10 @@ impl Service {
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
-        let keypairs = Arc::new(vec![Keypair::random()]);
+        let keypairs = match config.fetch_keys(&log) {
+            Some(kps) => kps,
+            None => panic!("No key pairs found, cannot start validator client without. Try running ./account_manager generate first.")
+        };
 
         // build requisite objects to pass to core thread.
         let duties_map = Arc::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
@@ -272,87 +278,87 @@ impl Service {
                 Ok(())
             }))
             .map_err(|e| format!("Service thread failed: {:?}", e))?;
+
+        let mut threads = vec![];
+
+        for keypair in keypairs {
+            info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
+
+        /*
+            // Spawn a new thread to maintain the validator's `EpochDuties`.
+            let duties_manager_thread = {
+                let spec = spec.clone();
+                let duties_map = duties_map.clone();
+                let slot_clock = self.slot_clock.clone();
+                let log = self.log.clone();
+                let beacon_node = self.validator_client.clone();
+                let pubkey = keypair.pk.clone();
+                thread::spawn(move || {
+                    let manager = DutiesManager {
+                        duties_map,
+                        pubkey,
+                        spec,
+                        slot_clock,
+                        beacon_node,
+                    };
+                    let mut duties_manager_service = DutiesManagerService {
+                        manager,
+                        poll_interval_millis,
+                        log,
+                    };
+
+                    duties_manager_service.run();
+                })
+            };
+
+            // Spawn a new thread to perform block production for the validator.
+            let producer_thread = {
+                let spec = spec.clone();
+                let signer = Arc::new(BlockProposerLocalSigner::new(keypair.clone()));
+                let duties_map = duties_map.clone();
+                let slot_clock = slot_clock.clone();
+                let log = log.clone();
+                let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
+                thread::spawn(move || {
+                    let block_producer =
+                        BlockProducer::new(spec, duties_map, slot_clock, client, signer);
+                    let mut block_producer_service = BlockProducerService {
+                        block_producer,
+                        poll_interval_millis,
+                        log,
+                    };
+
+                    block_producer_service.run();
+                })
+            };
+        */
+
+            // Spawn a new thread for attestation for the validator.
+            let attester_thread = {
+                let signer = Arc::new(AttesterLocalSigner::new(keypair.clone()));
+                let slot_clock = service.slot_clock.clone();
+                let log = log.clone();
+                let attester_grpc_client = Arc::new(AttestationGrpcClient::new(attester_client.clone()));
+                thread::spawn(move || {
+                    let attester = Attester::new(epoch_map_for_attester, slot_clock, attester_grpc_client, signer);
+                    let mut attester_service = AttesterService {
+                        attester,
+                        poll_interval_millis,
+                        log,
+                    };
+
+                    attester_service.run();
+                })
+            };
+
+            //threads.push((duties_manager_thread, producer_thread, attester_thread));
+            threads.push((attester_thread));
+        }
+
         Ok(())
-    }
 
+    }
     /*
-
-    let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
-    let epoch_map_for_attester = Arc::new(EpochMap::new(spec.slots_per_epoch));
-
-
-    for keypair in keypairs {
-        info!(self.log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
-
-        // Spawn a new thread to maintain the validator's `EpochDuties`.
-        let duties_manager_thread = {
-            let spec = spec.clone();
-            let duties_map = duties_map.clone();
-            let slot_clock = self.slot_clock.clone();
-            let log = self.log.clone();
-            let beacon_node = self.validator_client.clone();
-            let pubkey = keypair.pk.clone();
-            thread::spawn(move || {
-                let manager = DutiesManager {
-                    duties_map,
-                    pubkey,
-                    spec,
-                    slot_clock,
-                    beacon_node,
-                };
-                let mut duties_manager_service = DutiesManagerService {
-                    manager,
-                    poll_interval_millis,
-                    log,
-                };
-
-                duties_manager_service.run();
-            })
-        };
-
-        // Spawn a new thread to perform block production for the validator.
-        let producer_thread = {
-            let spec = spec.clone();
-            let signer = Arc::new(BlockProposerLocalSigner::new(keypair.clone()));
-            let duties_map = duties_map.clone();
-            let slot_clock = slot_clock.clone();
-            let log = log.clone();
-            let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
-            thread::spawn(move || {
-                let block_producer =
-                    BlockProducer::new(spec, duties_map, slot_clock, client, signer);
-                let mut block_producer_service = BlockProducerService {
-                    block_producer,
-                    poll_interval_millis,
-                    log,
-                };
-
-                block_producer_service.run();
-            })
-        };
-
-        // Spawn a new thread for attestation for the validator.
-        let attester_thread = {
-            let signer = Arc::new(AttesterLocalSigner::new(keypair.clone()));
-            let epoch_map = epoch_map_for_attester.clone();
-            let slot_clock = slot_clock.clone();
-            let log = log.clone();
-            let client = Arc::new(AttestationGrpcClient::new(attester_grpc_client.clone()));
-            thread::spawn(move || {
-                let attester = Attester::new(epoch_map, slot_clock, client, signer);
-                let mut attester_service = AttesterService {
-                    attester,
-                    poll_interval_millis,
-                    log,
-                };
-
-                attester_service.run();
-            })
-        };
-
-        threads.push((duties_manager_thread, producer_thread, attester_thread));
-    }
-
     // Naively wait for all the threads to complete.
     for tuple in threads {
         let (manager, producer, attester) = tuple;

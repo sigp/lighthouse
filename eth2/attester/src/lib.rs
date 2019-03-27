@@ -99,6 +99,8 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
             None => return Ok(PollOutcome::BeaconNodeUnableToProduceAttestation(slot)),
         };
 
+        dbg!(&attestation_data);
+
         if !self.safe_to_produce(&attestation_data) {
             return Ok(PollOutcome::SlashableAttestationNotProduced(slot));
         }
