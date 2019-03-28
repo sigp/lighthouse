@@ -22,15 +22,14 @@ pub struct Config {
 const DEFAULT_PRIVATE_KEY_FILENAME: &str = "private.key";
 
 impl Default for Config {
+    /// Build a new configuration from defaults.
     fn default() -> Self {
         let data_dir = {
             let home = dirs::home_dir().expect("Unable to determine home directory.");
             home.join(".lighthouse-validator")
         };
-        fs::create_dir_all(&data_dir)
-            .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
 
-        let server = "localhost:50051".to_string();
+        let server = "localhost:5051".to_string();
 
         let spec = ChainSpec::foundation();
 
@@ -50,13 +49,14 @@ impl Config {
         // Use the specified datadir, or default in the home directory
         if let Some(datadir) = args.value_of("datadir") {
             config.data_dir = PathBuf::from(datadir);
-            fs::create_dir_all(&config.data_dir)
-                .unwrap_or_else(|_| panic!("Unable to create {:?}", &config.data_dir));
             info!(log, "Using custom data dir: {:?}", &config.data_dir);
         };
 
+        fs::create_dir_all(&config.data_dir)
+            .unwrap_or_else(|_| panic!("Unable to create {:?}", &config.data_dir));
+
         if let Some(srv) = args.value_of("server") {
-            //TODO: I don't think this parses correctly a server & port combo
+            //TODO: Validate the server value, to ensure it makes sense.
             config.server = srv.to_string();
             info!(log, "Using custom server: {:?}", &config.server);
         };
@@ -67,10 +67,15 @@ impl Config {
             config.spec = match spec_str {
                 "foundation" => ChainSpec::foundation(),
                 "few_validators" => ChainSpec::few_validators(),
+                "lighthouse_testnet" => ChainSpec::lighthouse_testnet(),
                 // Should be impossible due to clap's `possible_values(..)` function.
                 _ => unreachable!(),
             };
         };
+        // Log configuration
+        info!(log, "";
+              "data_dir" => &config.data_dir.to_str(),
+              "server" => &config.server);
 
         Ok(config)
     }
