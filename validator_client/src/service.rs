@@ -235,7 +235,7 @@ impl Service {
                         "The Timer should poll a new slot"
                     );
 
-                    info!(log, "Processing slot: {}", current_slot.as_u64());
+                    info!(log, "Processing"; "slot" => current_slot.as_u64(), "epoch" => current_epoch.as_u64());
 
                     /* check for new duties */
 
@@ -243,8 +243,7 @@ impl Service {
                     let cloned_log = log.clone();
                     // spawn a new thread separate to the runtime
                     std::thread::spawn(move || {
-                        cloned_manager.run_update(current_epoch.clone(), cloned_log.clone());
-                        dbg!("Finished thread");
+                        let _empty_error = cloned_manager.run_update(current_epoch.clone(), cloned_log.clone());
                     });
 
                     /* execute any specified duties */
