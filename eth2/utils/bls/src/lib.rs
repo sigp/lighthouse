@@ -17,6 +17,7 @@ pub use crate::secret_key::SecretKey;
 pub use crate::signature::Signature;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 96;
+pub const BLS_SIG_BYTE_SIZE: usize = 96;
 
 use hashing::hash;
 use ssz::ssz_encode;
