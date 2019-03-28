@@ -15,6 +15,8 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 use types::{test_utils::TestingBeaconStateBuilder, *};
 
+type TestingBeaconChain = BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>;
+
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
 /// information and submit blocks/attestations for processing.
@@ -23,7 +25,7 @@ use types::{test_utils::TestingBeaconStateBuilder, *};
 /// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
-    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
+    pub beacon_chain: Arc<TestingBeaconChain>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<ValidatorHarness>,
@@ -36,18 +38,38 @@ impl BeaconChainHarness {
     /// - A keypair, `BlockProducer` and `Attester` for each validator.
     /// - A new BeaconChain struct where the given validators are in the genesis.
     pub fn new(spec: ChainSpec, validator_count: usize) -> Self {
+        let state_builder =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+        Self::from_beacon_state_builder(state_builder, spec)
+    }
+
+    pub fn from_beacon_state_builder(
+        state_builder: TestingBeaconStateBuilder,
+        spec: ChainSpec,
+    ) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
         let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
 
-        let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
-        let (genesis_state, keypairs) = state_builder.build();
+        let (mut genesis_state, keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::Previous, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::Current, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)
+            .unwrap();
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
@@ -109,7 +131,9 @@ impl BeaconChainHarness {
         );
 
         self.beacon_chain.slot_clock.set_slot(slot.as_u64());
-        self.beacon_chain.advance_state(slot).unwrap();
+        self.beacon_chain
+            .catchup_state()
+            .expect("Failed to catch state");
         slot
     }
 
@@ -183,14 +207,13 @@ impl BeaconChainHarness {
     ///
     /// This is the ideal scenario for the Beacon Chain, 100% honest participation from
     /// validators.
-    pub fn advance_chain_with_block(&mut self) {
+    pub fn advance_chain_with_block(&mut self) -> BeaconBlock {
         self.increment_beacon_chain_slot();
 
         // Produce a new block.
-        debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
-        match self.beacon_chain.process_block(block) {
+        match self.beacon_chain.process_block(block.clone()) {
             Ok(BlockProcessingOutcome::ValidBlock(_)) => {}
             other => panic!("block processing failed with {:?}", other),
         };
@@ -210,6 +233,8 @@ impl BeaconChainHarness {
         });
 
         debug!("Free attestations processed.");
+
+        block
     }
 
     /// Signs a message using some validators secret key with the `Fork` info from the latest state

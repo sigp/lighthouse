@@ -92,6 +92,7 @@ impl EpochCache {
                         slot,
                         shard,
                         committee_index: k,
+                        validator_index: *validator_index,
                     };
                     attestation_duties[*validator_index] = Some(attestation_duty)
                 }

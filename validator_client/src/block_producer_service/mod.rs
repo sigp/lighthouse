@@ -10,18 +10,19 @@ use std::time::Duration;
 
 pub use self::beacon_block_grpc_client::BeaconBlockGrpcClient;
 
-pub struct BlockProducerService<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
-    pub block_producer: BlockProducer<T, U, V, W>,
+pub struct BlockProducerService<U: BeaconNode, W: Signer> {
+    pub block_producer: BlockProducer<U, W>,
     pub poll_interval_millis: u64,
     pub log: Logger,
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducerService<T, U, V, W> {
+impl<U: BeaconNode, W: Signer> BlockProducerService<U, W> {
     /// Run a loop which polls the block producer each `poll_interval_millis` millseconds.
     ///
     /// Logs the results of the polls.
     pub fn run(&mut self) {
         loop {
+            /* Don't do polling any more
             match self.block_producer.poll() {
                 Err(error) => {
                     error!(self.log, "Block producer poll error"; "error" => format!("{:?}", error))
@@ -54,7 +55,9 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducerServi
                     error!(self.log, "Unable to get a `Fork` struct to generate signature domains"; "slot" => slot)
                 }
             };
+            */
 
+            println!("Legacy polling still happening...");
             std::thread::sleep(Duration::from_millis(self.poll_interval_millis));
         }
     }

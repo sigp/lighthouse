@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use attester::{BeaconNode, BeaconNodeError, PublishOutcome};
 use protos::services::ProduceAttestationDataRequest;
-use types::{AttestationData, FreeAttestation, Slot};
+use types::{AttestationData, Attestation, Slot};
 
 pub struct AttestationGrpcClient {
     client: Arc<AttestationServiceClient>,
@@ -36,7 +36,7 @@ impl BeaconNode for AttestationGrpcClient {
 
     fn publish_attestation(
         &self,
-        free_attestation: FreeAttestation,
+        attestation: Attestation,
     ) -> Result<PublishOutcome, BeaconNodeError> {
         // TODO: return correct PublishOutcome
         Err(BeaconNodeError::DecodeFailure)

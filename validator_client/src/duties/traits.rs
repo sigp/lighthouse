@@ -1,6 +1,5 @@
 use super::EpochDuties;
-use bls::PublicKey;
-use types::Epoch;
+use types::{Epoch, Keypair};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
@@ -9,12 +8,13 @@ pub enum BeaconNodeError {
 
 /// Defines the methods required to obtain a validators shuffling from a Beacon Node.
 pub trait BeaconNode: Send + Sync {
-    /// Get the shuffling for the given epoch and public key.
+    /// Gets the duties for all validators.
     ///
-    /// Returns Ok(None) if the public key is unknown, or the shuffling for that epoch is unknown.
-    fn request_shuffling(
+    /// Returns a vector of EpochDuties for each validator public key. The entry will be None for
+    /// validators that are not activated.
+    fn request_duties(
         &self,
         epoch: Epoch,
-        public_key: &PublicKey,
-    ) -> Result<Option<EpochDuties>, BeaconNodeError>;
+        signers: &[Keypair],
+    ) -> Result<EpochDuties, BeaconNodeError>;
 }

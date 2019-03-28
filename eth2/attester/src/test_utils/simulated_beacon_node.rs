@@ -1,6 +1,6 @@
 use crate::traits::{BeaconNode, BeaconNodeError, PublishOutcome};
 use std::sync::RwLock;
-use types::{AttestationData, FreeAttestation, Slot};
+use types::{AttestationData, Attestation, Slot};
 
 type ProduceResult = Result<Option<AttestationData>, BeaconNodeError>;
 type PublishResult = Result<PublishOutcome, BeaconNodeError>;
@@ -11,7 +11,7 @@ pub struct SimulatedBeaconNode {
     pub produce_input: RwLock<Option<(Slot, u64)>>,
     pub produce_result: RwLock<Option<ProduceResult>>,
 
-    pub publish_input: RwLock<Option<FreeAttestation>>,
+    pub publish_input: RwLock<Option<Attestation>>,
     pub publish_result: RwLock<Option<PublishResult>>,
 }
 
@@ -34,8 +34,8 @@ impl BeaconNode for SimulatedBeaconNode {
         }
     }
 
-    fn publish_attestation(&self, free_attestation: FreeAttestation) -> PublishResult {
-        *self.publish_input.write().unwrap() = Some(free_attestation.clone());
+    fn publish_attestation(&self, attestation: Attestation) -> PublishResult {
+        *self.publish_input.write().unwrap() = Some(attestation.clone());
         match *self.publish_result.read().unwrap() {
             Some(ref r) => r.clone(),
             None => panic!("TestBeaconNode: publish_result == None"),

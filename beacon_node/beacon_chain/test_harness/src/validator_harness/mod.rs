@@ -8,8 +8,7 @@ use beacon_chain::BeaconChain;
 use block_proposer::PollOutcome as BlockPollOutcome;
 use block_proposer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
-use direct_beacon_node::DirectBeaconNode;
-use direct_duties::DirectDuties;
+use crate::direct_beacon_node::DirectBeaconNode;
 use fork_choice::BitwiseLMDGhost;
 use local_signer::LocalSigner;
 use slot_clock::TestingSlotClock;
@@ -29,16 +28,12 @@ pub enum AttestationProduceError {
 }
 
 type TestingBlockProducer = BlockProducer<
-    TestingSlotClock,
     DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
-    DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
     LocalSigner,
 >;
 
 type TestingAttester = Attester<
-    TestingSlotClock,
     DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
-    DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
     LocalSigner,
 >;
 

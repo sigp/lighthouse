@@ -6,18 +6,19 @@ use std::time::Duration;
 
 pub use self::attestation_grpc_client::AttestationGrpcClient;
 
-pub struct AttesterService<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
-    pub attester: Attester<T, U, V, W>,
+pub struct AttesterService<U: BeaconNode, W: Signer> {
+    pub attester: Attester<U, W>,
     pub poll_interval_millis: u64,
     pub log: Logger,
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> AttesterService<T, U, V, W> {
+impl<U: BeaconNode, W: Signer> AttesterService<U, W> {
     /// Run a loop which polls the Attester each `poll_interval_millis` millseconds.
     ///
     /// Logs the results of the polls.
     pub fn run(&mut self) {
         loop {
+            /* We don't do the polling any more...
             match self.attester.poll() {
                 Err(error) => {
                     error!(self.log, "Attester poll error"; "error" => format!("{:?}", error))
@@ -47,7 +48,8 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> AttesterService<T,
                     error!(self.log, "The Beacon Node does not recognise the validator"; "slot" => slot)
                 }
             };
-
+            */
+            println!("Legacy polling still happening...");
             std::thread::sleep(Duration::from_millis(self.poll_interval_millis));
         }
     }
