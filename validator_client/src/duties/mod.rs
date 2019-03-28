@@ -51,7 +51,11 @@ impl<U: BeaconNode> DutiesManager<U> {
     ///
     /// be a wall-clock (e.g., system time, remote server time, etc.).
     fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
+<<<<<<< HEAD
         let duties = self.beacon_node.request_duties(epoch, &self.signers)?;
+=======
+        let duties = self.beacon_node.request_duties(epoch, &self.pubkeys)?;
+>>>>>>> master
         {
             // If these duties were known, check to see if they're updates or identical.
             if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {

@@ -205,7 +205,6 @@ impl Service {
             None => panic!("No key pairs found, cannot start validator client without. Try running ./account_manager generate first.")
         };
         */
-
         let keypairs = Arc::new(generate_deterministic_keypairs(8));
 
         /* build requisite objects to pass to core thread */
@@ -294,36 +293,6 @@ impl Service {
 
     /*
 
-    for keypair in keypairs {
-        info!(self.log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
-
-        // Spawn a new thread to maintain the validator's `EpochDuties`.
-        let duties_manager_thread = {
-            let spec = spec.clone();
-            let duties_map = duties_map.clone();
-            let slot_clock = self.slot_clock.clone();
-            let log = self.log.clone();
-            let beacon_node = self.validator_client.clone();
-            let pubkey = keypair.pk.clone();
-            thread::spawn(move || {
-                let manager = DutiesManager {
-                    duties_map,
-                    pubkey,
-                    spec,
-                    slot_clock,
-                    beacon_node,
-                };
-                let mut duties_manager_service = DutiesManagerService {
-                    manager,
-                    poll_interval_millis,
-                    log,
-                };
-
-                duties_manager_service.run();
-            })
-        };
-
-        let mut threads = vec![];
 
         for keypair in keypairs {
             info!(log, "Starting validator services"; "validator" => keypair.pk.concatenated_hex_id());
