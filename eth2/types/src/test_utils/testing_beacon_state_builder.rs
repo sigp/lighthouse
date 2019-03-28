@@ -120,8 +120,10 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
+        let genesis_time = 1553647464; // arbitrary
+
         let mut state = BeaconState::genesis(
-            0,
+            genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
                 block_hash: Hash256::zero(),
