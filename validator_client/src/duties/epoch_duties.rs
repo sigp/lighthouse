@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 use types::{AttestationDuty, Epoch, PublicKey, Slot};
 
@@ -55,11 +56,25 @@ impl EpochDuty {
         None
     }
 }
+
+impl fmt::Display for EpochDuty {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut display_block = String::from("None");
+        if let Some(block_slot) = self.block_production_slot {
+            display_block = block_slot.to_string();
+        }
+        write!(
+            f,
+            "produce block slot: {}, attestation slot: {}, attestation shard: {}",
+            display_block, self.attestation_slot, self.attestation_shard
+        )
+    }
+}
+
 /// Maps a list of public keys (many validators) to an EpochDuty.
 pub type EpochDuties = HashMap<PublicKey, Option<EpochDuty>>;
 
 pub enum EpochDutiesMapError {
-    Poisoned,
     UnknownEpoch,
     UnknownValidator,
 }
