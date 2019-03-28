@@ -42,8 +42,6 @@ pub struct Service {
     slot_clock: SystemTimeSlotClock,
     /// The current slot we are processing.
     current_slot: Slot,
-    /// Duration until the next slot. This is used for initializing the tokio timer interval.
-    duration_to_next_slot: Duration,
     /// The number of slots per epoch to allow for converting slots to epochs.
     slots_per_epoch: u64,
     // GRPC Clients
@@ -104,6 +102,7 @@ impl Service {
 
         // build requisite objects to form Self
         let genesis_time = node_info.get_genesis_time();
+        let genesis_slot = Slot::from(node_info.get_genesis_slot());
 
         info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.chain_id, "Genesis time" => genesis_time);
 
@@ -139,38 +138,14 @@ impl Service {
         };
 
         // build the validator slot clock
-        let slot_clock = SystemTimeSlotClock::new(genesis_time, config.spec.seconds_per_slot)
-            .expect("Unable to instantiate SystemTimeSlotClock.");
+        let slot_clock =
+            SystemTimeSlotClock::new(genesis_slot, genesis_time, config.spec.seconds_per_slot)
+                .expect("Unable to instantiate SystemTimeSlotClock.");
 
         let current_slot = slot_clock
             .present_slot()
             .map_err(|e| ErrorKind::SlotClockError(e))?
             .expect("Genesis must be in the future");
-
-        // calculate the duration to the next slot
-        let duration_to_next_slot = {
-            let seconds_per_slot = config.spec.seconds_per_slot;
-            let syslot_time = SystemTime::now();
-            let duration_since_epoch = syslot_time
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map_err(|e| ErrorKind::SystemTimeError(e.to_string()))?;
-            let duration_since_genesis = duration_since_epoch
-                .checked_sub(Duration::from_secs(genesis_time))
-                .expect("Genesis must be in the future. Checked on connection");
-            let elapsed_slots = duration_since_epoch
-                .as_secs()
-                .checked_div(seconds_per_slot as u64)
-                .expect("Seconds per slot should not be 0");
-
-            // the duration to the next slot
-            Duration::from_secs(
-                (elapsed_slots + 1)
-                    .checked_mul(seconds_per_slot)
-                    .expect("Next slot time should not overflow u64"),
-            )
-            .checked_sub(duration_since_genesis)
-            .expect("This should never saturate")
-        };
 
         Ok(Self {
             connected_node_version: node_info.version,
@@ -178,7 +153,6 @@ impl Service {
             fork,
             slot_clock,
             current_slot,
-            duration_to_next_slot,
             slots_per_epoch: config.spec.slots_per_epoch,
             beacon_block_client,
             validator_client,
@@ -201,15 +175,18 @@ impl Service {
             .build()
             .map_err(|e| format!("Tokio runtime failed: {}", e))?;
 
+        let duration_to_next_slot = service
+            .slot_clock
+            .duration_to_next_slot()
+            .map_err(|e| format!("System clock error: {:?}", e))?
+            .expect("Cannot start before genesis");
+
         // set up the validator work interval - start at next slot and proceed every slot
         let interval = {
             // Set the interval to start at the next slot, and every slot after
             let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
             //TODO: Handle checked add correctly
-            Interval::new(
-                Instant::now() + service.duration_to_next_slot,
-                slot_duration,
-            )
+            Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };
 
         /* kick off core service */

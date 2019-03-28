@@ -43,6 +43,7 @@ pub fn start_server(
 
     let beacon_block_service = {
         let instance = BeaconBlockServiceInstance {
+            chain: beacon_chain.clone(),
             network_chan,
             log: log.clone(),
         };
