@@ -6,7 +6,6 @@ mod aggregate_signature;
 mod keypair;
 mod public_key;
 mod secret_key;
-mod serde_vistors;
 mod signature;
 
 pub use crate::aggregate_public_key::AggregatePublicKey;
@@ -18,6 +17,8 @@ pub use crate::signature::Signature;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 96;
 pub const BLS_SIG_BYTE_SIZE: usize = 96;
+pub const BLS_SECRET_KEY_BYTE_SIZE: usize = 48;
+pub const BLS_PUBLIC_KEY_BYTE_SIZE: usize = 48;
 
 use hashing::hash;
 use ssz::ssz_encode;
