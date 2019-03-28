@@ -6,7 +6,7 @@ use bit_vec::BitVec;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
-use ssz::Decodable;
+use ssz::{Decodable, Encodable};
 use std::cmp;
 use std::default;
 
@@ -144,14 +144,13 @@ impl std::ops::BitAnd for BooleanBitfield {
     }
 }
 
-impl ssz::Encodable for BooleanBitfield {
-    // ssz_append encodes Self according to the `ssz` spec.
+impl Encodable for BooleanBitfield {
     fn ssz_append(&self, s: &mut ssz::SszStream) {
         s.append_vec(&self.to_bytes())
     }
 }
 
-impl ssz::Decodable for BooleanBitfield {
+impl Decodable for BooleanBitfield {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), ssz::DecodeError> {
         let len = ssz::decode::decode_length(bytes, index, ssz::LENGTH_BYTES)?;
         if (ssz::LENGTH_BYTES + len) > bytes.len() {
@@ -186,7 +185,7 @@ impl Serialize for BooleanBitfield {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&encode(&ssz::ssz_encode(self)))
+        serializer.serialize_str(&encode(&self.to_bytes()))
     }
 }
 
@@ -197,9 +196,7 @@ impl<'de> Deserialize<'de> for BooleanBitfield {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let (bitfield, _) = <_>::ssz_decode(&bytes[..], 0)
-            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
-        Ok(bitfield)
+        Ok(BooleanBitfield::from_bytes(&bytes))
     }
 }
 
