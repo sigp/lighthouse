@@ -1,12 +1,13 @@
-use super::methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
+use super::methods::*;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use ssz::{ssz_encode, Decodable, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError as SSZDecodeError, Encodable, SszStream};
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// The maximum bytes that can be sent across the RPC.
-const MAX_READ_SIZE: usize = 2048;
+const MAX_READ_SIZE: usize = 4_194_304; // 4M
 
 /// Implementation of the `ConnectionUpgrade` for the rpc protocol.
 
@@ -29,16 +30,65 @@ impl Default for RPCProtocol {
     }
 }
 
+/// A monotonic counter for ordering `RPCRequest`s.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RequestId(u64);
+
+impl RequestId {
+    /// Increment the request id.
+    pub fn increment(&mut self) {
+        self.0 += 1
+    }
+
+    /// Return the previous id.
+    pub fn previous(&self) -> Self {
+        Self(self.0 - 1)
+    }
+}
+
+impl Eq for RequestId {}
+
+impl Hash for RequestId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl From<u64> for RequestId {
+    fn from(x: u64) -> RequestId {
+        RequestId(x)
+    }
+}
+
+impl Into<u64> for RequestId {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
+impl Encodable for RequestId {
+    fn ssz_append(&self, s: &mut SszStream) {
+        self.0.ssz_append(s);
+    }
+}
+
+impl Decodable for RequestId {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), SSZDecodeError> {
+        let (id, index) = u64::ssz_decode(bytes, index)?;
+        Ok((Self::from(id), index))
+    }
+}
+
 /// The RPC types which are sent/received in this protocol.
 #[derive(Debug, Clone)]
 pub enum RPCEvent {
     Request {
-        id: u64,
+        id: RequestId,
         method_id: u16,
         body: RPCRequest,
     },
     Response {
-        id: u64,
+        id: RequestId,
         method_id: u16, //TODO: Remove and process decoding upstream
         result: RPCResponse,
     },
@@ -60,10 +110,13 @@ where
 {
     type Output = RPCEvent;
     type Error = DecodeError;
-    type Future =
-        upgrade::ReadOneThen<TSocket, (), fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>>;
+    type Future = upgrade::ReadOneThen<
+        upgrade::Negotiated<TSocket>,
+        (),
+        fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>,
+    >;
 
-    fn upgrade_inbound(self, socket: TSocket, _: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, socket: upgrade::Negotiated<TSocket>, _: Self::Info) -> Self::Future {
         upgrade::read_one_then(socket, MAX_READ_SIZE, (), |packet, ()| Ok(decode(packet)?))
     }
 }
@@ -72,7 +125,7 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
     // decode the header of the rpc
     // request/response
     let (request, index) = bool::ssz_decode(&packet, 0)?;
-    let (id, index) = u64::ssz_decode(&packet, index)?;
+    let (id, index) = RequestId::ssz_decode(&packet, index)?;
     let (method_id, index) = u16::ssz_decode(&packet, index)?;
 
     if request {
@@ -81,7 +134,31 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                 let (hello_body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCRequest::Hello(hello_body)
             }
-            RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
+            RPCMethod::Goodbye => {
+                let (goodbye_reason, _index) = GoodbyeReason::ssz_decode(&packet, index)?;
+                RPCRequest::Goodbye(goodbye_reason)
+            }
+            RPCMethod::BeaconBlockRoots => {
+                let (block_roots_request, _index) =
+                    BeaconBlockRootsRequest::ssz_decode(&packet, index)?;
+                RPCRequest::BeaconBlockRoots(block_roots_request)
+            }
+            RPCMethod::BeaconBlockHeaders => {
+                let (block_headers_request, _index) =
+                    BeaconBlockHeadersRequest::ssz_decode(&packet, index)?;
+                RPCRequest::BeaconBlockHeaders(block_headers_request)
+            }
+            RPCMethod::BeaconBlockBodies => {
+                let (block_bodies_request, _index) =
+                    BeaconBlockBodiesRequest::ssz_decode(&packet, index)?;
+                RPCRequest::BeaconBlockBodies(block_bodies_request)
+            }
+            RPCMethod::BeaconChainState => {
+                let (chain_state_request, _index) =
+                    BeaconChainStateRequest::ssz_decode(&packet, index)?;
+                RPCRequest::BeaconChainState(chain_state_request)
+            }
+            RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
 
         Ok(RPCEvent::Request {
@@ -97,7 +174,24 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                 let (body, _index) = HelloMessage::ssz_decode(&packet, index)?;
                 RPCResponse::Hello(body)
             }
-            RPCMethod::Unknown | _ => return Err(DecodeError::UnknownRPCMethod),
+            RPCMethod::Goodbye => unreachable!("Should never receive a goodbye response"),
+            RPCMethod::BeaconBlockRoots => {
+                let (body, _index) = BeaconBlockRootsResponse::ssz_decode(&packet, index)?;
+                RPCResponse::BeaconBlockRoots(body)
+            }
+            RPCMethod::BeaconBlockHeaders => {
+                let (body, _index) = BeaconBlockHeadersResponse::ssz_decode(&packet, index)?;
+                RPCResponse::BeaconBlockHeaders(body)
+            }
+            RPCMethod::BeaconBlockBodies => {
+                let (body, _index) = BeaconBlockBodiesResponse::ssz_decode(&packet, index)?;
+                RPCResponse::BeaconBlockBodies(body)
+            }
+            RPCMethod::BeaconChainState => {
+                let (body, _index) = BeaconChainStateResponse::ssz_decode(&packet, index)?;
+                RPCResponse::BeaconChainState(body)
+            }
+            RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
         Ok(RPCEvent::Response {
             id,
@@ -113,10 +207,10 @@ where
 {
     type Output = ();
     type Error = io::Error;
-    type Future = upgrade::WriteOne<TSocket>;
+    type Future = upgrade::WriteOne<upgrade::Negotiated<TSocket>>;
 
     #[inline]
-    fn upgrade_outbound(self, socket: TSocket, _: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, socket: upgrade::Negotiated<TSocket>, _: Self::Info) -> Self::Future {
         let bytes = ssz_encode(&self);
         upgrade::write_one(socket, bytes)
     }
@@ -137,7 +231,21 @@ impl Encodable for RPCEvent {
                     RPCRequest::Hello(body) => {
                         s.append(body);
                     }
-                    _ => {}
+                    RPCRequest::Goodbye(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconBlockRoots(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconBlockHeaders(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconBlockBodies(body) => {
+                        s.append(body);
+                    }
+                    RPCRequest::BeaconChainState(body) => {
+                        s.append(body);
+                    }
                 }
             }
             RPCEvent::Response {
@@ -152,7 +260,18 @@ impl Encodable for RPCEvent {
                     RPCResponse::Hello(response) => {
                         s.append(response);
                     }
-                    _ => {}
+                    RPCResponse::BeaconBlockRoots(response) => {
+                        s.append(response);
+                    }
+                    RPCResponse::BeaconBlockHeaders(response) => {
+                        s.append(response);
+                    }
+                    RPCResponse::BeaconBlockBodies(response) => {
+                        s.append(response);
+                    }
+                    RPCResponse::BeaconChainState(response) => {
+                        s.append(response);
+                    }
                 }
             }
         }
