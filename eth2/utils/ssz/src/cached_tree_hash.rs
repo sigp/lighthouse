@@ -1,5 +1,8 @@
 use hashing::hash;
+use std::iter::IntoIterator;
 use std::iter::Iterator;
+use std::ops::Range;
+use std::vec::Splice;
 
 mod impls;
 mod tests;
@@ -16,6 +19,8 @@ pub trait CachedTreeHash {
     /// Return the number of bytes when this element is encoded as raw SSZ _without_ length
     /// prefixes.
     fn num_bytes(&self) -> usize;
+
+    fn offset_handler(&self, initial_offset: usize) -> Option<OffsetHandler>;
 
     fn num_child_nodes(&self) -> usize;
 
@@ -48,6 +53,27 @@ impl TreeHashCache {
             chunk_modified: vec![false; bytes.len() / BYTES_PER_CHUNK],
             cache: bytes,
         })
+    }
+
+    pub fn single_chunk_splice<I>(&mut self, chunk: usize, replace_with: I) -> Splice<I::IntoIter>
+    where
+        I: IntoIterator<Item = u8>,
+    {
+        self.chunk_splice(chunk..chunk + 1, replace_with)
+    }
+
+    pub fn chunk_splice<I>(
+        &mut self,
+        chunk_range: Range<usize>,
+        replace_with: I,
+    ) -> Splice<I::IntoIter>
+    where
+        I: IntoIterator<Item = u8>,
+    {
+        let byte_start = chunk_range.start * BYTES_PER_CHUNK;
+        let byte_end = chunk_range.end * BYTES_PER_CHUNK;
+
+        self.cache.splice(byte_start..byte_end, replace_with)
     }
 
     pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Option<()> {
@@ -201,6 +227,12 @@ impl OffsetHandler {
                 (&self.offsets[children.0], &self.offsets[children.1]),
             )
         })
+    }
+
+    pub fn iter_leaf_nodes<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a usize> {
+        let leaf_nodes = &self.offsets[self.num_internal_nodes..];
+
+        leaf_nodes.iter()
     }
 }
 

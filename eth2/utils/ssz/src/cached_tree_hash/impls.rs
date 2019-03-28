@@ -12,6 +12,10 @@ impl CachedTreeHash for u64 {
         8
     }
 
+    fn offset_handler(&self, _initial_offset: usize) -> Option<OffsetHandler> {
+        None
+    }
+
     fn num_child_nodes(&self) -> usize {
         0
     }
