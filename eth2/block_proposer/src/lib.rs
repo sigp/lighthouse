@@ -4,7 +4,7 @@ mod traits;
 use slot_clock::SlotClock;
 use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Domain, Slot, Fork};
+use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -57,11 +57,7 @@ pub struct BlockProducer<U: BeaconNode, W: Signer> {
 
 impl<U: BeaconNode, W: Signer> BlockProducer<U, W> {
     /// Returns a new instance where `last_processed_slot == 0`.
-    pub fn new(
-        spec: Arc<ChainSpec>,
-        beacon_node: Arc<U>,
-        signer: Arc<W>,
-    ) -> Self {
+    pub fn new(spec: Arc<ChainSpec>, beacon_node: Arc<U>, signer: Arc<W>) -> Self {
         Self {
             last_processed_slot: None,
             spec,
@@ -72,7 +68,6 @@ impl<U: BeaconNode, W: Signer> BlockProducer<U, W> {
 }
 
 impl<U: BeaconNode, W: Signer> BlockProducer<U, W> {
-
     /* No longer needed because we don't poll any more
     /// "Poll" to see if the validator is required to take any action.
     ///
@@ -129,7 +124,6 @@ impl<U: BeaconNode, W: Signer> BlockProducer<U, W> {
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
     fn produce_block(&mut self, slot: Slot, fork: Fork) -> Result<PollOutcome, Error> {
-
         let randao_reveal = {
             // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
             let message = slot.epoch(self.spec.slots_per_epoch).hash_tree_root();
@@ -238,12 +232,8 @@ mod tests {
         let beacon_node = Arc::new(SimulatedBeaconNode::default());
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-
-        let mut block_proposer = BlockProducer::new(
-            spec.clone(),
-            beacon_node.clone(),
-            signer.clone(),
-        );
+        let mut block_proposer =
+            BlockProducer::new(spec.clone(), beacon_node.clone(), signer.clone());
 
         // Configure responses from the BeaconNode.
         beacon_node.set_next_produce_result(Ok(Some(BeaconBlock::random_for_test(&mut rng))));

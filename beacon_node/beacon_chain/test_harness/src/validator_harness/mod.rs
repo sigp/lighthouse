@@ -2,13 +2,13 @@ mod direct_beacon_node;
 mod direct_duties;
 mod local_signer;
 
+use crate::direct_beacon_node::DirectBeaconNode;
 use attester::PollOutcome as AttestationPollOutcome;
 use attester::{Attester, Error as AttestationPollError};
 use beacon_chain::BeaconChain;
 use block_proposer::PollOutcome as BlockPollOutcome;
 use block_proposer::{BlockProducer, Error as BlockPollError};
 use db::MemoryDB;
-use crate::direct_beacon_node::DirectBeaconNode;
 use fork_choice::BitwiseLMDGhost;
 use local_signer::LocalSigner;
 use slot_clock::TestingSlotClock;
@@ -32,10 +32,8 @@ type TestingBlockProducer = BlockProducer<
     LocalSigner,
 >;
 
-type TestingAttester = Attester<
-    DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>,
-    LocalSigner,
->;
+type TestingAttester =
+    Attester<DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>, LocalSigner>;
 
 /// A `BlockProducer` and `Attester` which sign using a common keypair.
 ///

@@ -44,7 +44,7 @@ impl EpochDuty {
                 slot,
                 shard: self.attestation_shard,
                 committee_index: self.committee_index as usize,
-                validator_index: self.validator_index as usize
+                validator_index: self.validator_index as usize,
             });
         }
 

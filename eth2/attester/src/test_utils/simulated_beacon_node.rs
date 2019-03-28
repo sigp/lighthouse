@@ -1,6 +1,6 @@
 use crate::traits::{BeaconNode, BeaconNodeError, PublishOutcome};
 use std::sync::RwLock;
-use types::{AttestationData, Attestation, Slot};
+use types::{Attestation, AttestationData, Slot};
 
 type ProduceResult = Result<Option<AttestationData>, BeaconNodeError>;
 type PublishResult = Result<PublishOutcome, BeaconNodeError>;
