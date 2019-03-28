@@ -1,5 +1,5 @@
 use super::*;
-use int_to_bytes::{int_to_bytes32, int_to_bytes8};
+use int_to_bytes::int_to_bytes32;
 
 #[derive(Clone)]
 pub struct Inner {
@@ -12,21 +12,19 @@ pub struct Inner {
 impl CachedTreeHash for Inner {
     type Item = Self;
 
-    fn build_cache_bytes(&self) -> Vec<u8> {
+    fn build_cache(&self) -> Result<TreeHashCache, Error> {
+        let offset_handler = self.offset_handler(0)?;
+
         let mut leaves_and_subtrees = vec![];
 
-        leaves_and_subtrees.append(&mut self.a.build_cache_bytes());
-        leaves_and_subtrees.append(&mut self.b.build_cache_bytes());
-        leaves_and_subtrees.append(&mut self.c.build_cache_bytes());
-        leaves_and_subtrees.append(&mut self.d.build_cache_bytes());
+        leaves_and_subtrees.append(&mut self.a.build_cache()?.into());
+        leaves_and_subtrees.append(&mut self.b.build_cache()?.into());
+        leaves_and_subtrees.append(&mut self.c.build_cache()?.into());
+        leaves_and_subtrees.append(&mut self.d.build_cache()?.into());
 
-        // TODO: fix unwrap
-        let offset_handler = self.offset_handler(0).unwrap();
+        pad_for_leaf_count(offset_handler.num_leaf_nodes, &mut leaves_and_subtrees);
 
-        // TODO: fix unwrap
-        let cache = TreeHashCache::new(leaves_and_subtrees, offset_handler).unwrap();
-
-        cache.into()
+        TreeHashCache::from_leaves_and_subtrees(leaves_and_subtrees, self.offset_handler(0)?)
     }
 
     fn num_bytes(&self) -> usize {
@@ -40,7 +38,7 @@ impl CachedTreeHash for Inner {
         bytes
     }
 
-    fn offset_handler(&self, initial_offset: usize) -> Option<OffsetHandler> {
+    fn offset_handler(&self, initial_offset: usize) -> Result<OffsetHandler, Error> {
         let mut offsets = vec![];
 
         offsets.push(self.a.num_child_nodes() + 1);
@@ -48,7 +46,7 @@ impl CachedTreeHash for Inner {
         offsets.push(self.c.num_child_nodes() + 1);
         offsets.push(self.d.num_child_nodes() + 1);
 
-        Some(OffsetHandler::from_lengths(initial_offset, offsets))
+        OffsetHandler::from_lengths(initial_offset, offsets)
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -68,7 +66,7 @@ impl CachedTreeHash for Inner {
         other: &Self,
         cache: &mut TreeHashCache,
         chunk: usize,
-    ) -> Option<usize> {
+    ) -> Result<usize, Error> {
         let offset_handler = self.offset_handler(chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
@@ -86,7 +84,7 @@ impl CachedTreeHash for Inner {
             }
         }
 
-        Some(offset_handler.next_node())
+        Ok(offset_handler.next_node())
     }
 }
 
@@ -100,20 +98,18 @@ pub struct Outer {
 impl CachedTreeHash for Outer {
     type Item = Self;
 
-    fn build_cache_bytes(&self) -> Vec<u8> {
+    fn build_cache(&self) -> Result<TreeHashCache, Error> {
+        let offset_handler = self.offset_handler(0)?;
+
         let mut leaves_and_subtrees = vec![];
 
-        leaves_and_subtrees.append(&mut self.a.build_cache_bytes());
-        leaves_and_subtrees.append(&mut self.b.build_cache_bytes());
-        leaves_and_subtrees.append(&mut self.c.build_cache_bytes());
+        leaves_and_subtrees.append(&mut self.a.build_cache()?.into());
+        leaves_and_subtrees.append(&mut self.b.build_cache()?.into());
+        leaves_and_subtrees.append(&mut self.c.build_cache()?.into());
 
-        // TODO: fix unwrap
-        let offset_handler = self.offset_handler(0).unwrap();
+        pad_for_leaf_count(offset_handler.num_leaf_nodes, &mut leaves_and_subtrees);
 
-        // TODO: fix unwrap
-        let cache = TreeHashCache::new(leaves_and_subtrees, offset_handler).unwrap();
-
-        cache.into()
+        TreeHashCache::from_leaves_and_subtrees(leaves_and_subtrees, self.offset_handler(0)?)
     }
 
     fn num_bytes(&self) -> usize {
@@ -135,14 +131,14 @@ impl CachedTreeHash for Outer {
         num_nodes(leaves) + children - 1
     }
 
-    fn offset_handler(&self, initial_offset: usize) -> Option<OffsetHandler> {
+    fn offset_handler(&self, initial_offset: usize) -> Result<OffsetHandler, Error> {
         let mut offsets = vec![];
 
         offsets.push(self.a.num_child_nodes() + 1);
         offsets.push(self.b.num_child_nodes() + 1);
         offsets.push(self.c.num_child_nodes() + 1);
 
-        Some(OffsetHandler::from_lengths(initial_offset, offsets))
+        OffsetHandler::from_lengths(initial_offset, offsets)
     }
 
     fn cached_hash_tree_root(
@@ -150,7 +146,7 @@ impl CachedTreeHash for Outer {
         other: &Self,
         cache: &mut TreeHashCache,
         chunk: usize,
-    ) -> Option<usize> {
+    ) -> Result<usize, Error> {
         let offset_handler = self.offset_handler(chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
@@ -167,7 +163,7 @@ impl CachedTreeHash for Outer {
             }
         }
 
-        Some(offset_handler.next_node())
+        Ok(offset_handler.next_node())
     }
 }
 
@@ -199,17 +195,16 @@ fn partial_modification_to_inner_struct() {
         ..original_inner.clone()
     };
 
-    // Build the initial cache.
-    let original_cache = original_outer.build_cache_bytes();
-
     // Modify outer
     let modified_outer = Outer {
         b: modified_inner.clone(),
         ..original_outer.clone()
     };
 
+    println!("AAAAAAAAA");
     // Perform a differential hash
-    let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
+    let mut cache_struct = TreeHashCache::new(&original_outer).unwrap();
+    println!("BBBBBBBBBB");
 
     modified_outer
         .cached_hash_tree_root(&original_outer, &mut cache_struct, 0)
@@ -220,7 +215,7 @@ fn partial_modification_to_inner_struct() {
     // Generate reference data.
     let mut data = vec![];
     data.append(&mut int_to_bytes32(0));
-    let inner_bytes = modified_inner.build_cache_bytes();
+    let inner_bytes: Vec<u8> = TreeHashCache::new(&modified_inner).unwrap().into();
     data.append(&mut int_to_bytes32(5));
 
     let leaves = vec![
@@ -254,7 +249,7 @@ fn partial_modification_to_outer() {
     };
 
     // Build the initial cache.
-    let original_cache = original_outer.build_cache_bytes();
+    // let original_cache = original_outer.build_cache_bytes();
 
     // Modify outer
     let modified_outer = Outer {
@@ -263,7 +258,7 @@ fn partial_modification_to_outer() {
     };
 
     // Perform a differential hash
-    let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
+    let mut cache_struct = TreeHashCache::new(&original_outer).unwrap();
 
     modified_outer
         .cached_hash_tree_root(&original_outer, &mut cache_struct, 0)
@@ -274,7 +269,7 @@ fn partial_modification_to_outer() {
     // Generate reference data.
     let mut data = vec![];
     data.append(&mut int_to_bytes32(0));
-    let inner_bytes = inner.build_cache_bytes();
+    let inner_bytes: Vec<u8> = TreeHashCache::new(&inner).unwrap().into();
     data.append(&mut int_to_bytes32(5));
 
     let leaves = vec![
@@ -308,12 +303,12 @@ fn outer_builds() {
     };
 
     // Build the function output.
-    let cache = outer.build_cache_bytes();
+    let cache: Vec<u8> = TreeHashCache::new(&outer).unwrap().into();
 
     // Generate reference data.
     let mut data = vec![];
     data.append(&mut int_to_bytes32(0));
-    let inner_bytes = inner.build_cache_bytes();
+    let inner_bytes: Vec<u8> = inner.build_cache().unwrap().into();
     data.append(&mut int_to_bytes32(5));
 
     let leaves = vec![
@@ -427,7 +422,7 @@ fn generic_test(index: usize) {
         d: 4,
     };
 
-    let cache = inner.build_cache_bytes();
+    let cache: Vec<u8> = TreeHashCache::new(&inner).unwrap().into();
 
     let changed_inner = match index {
         0 => Inner {
@@ -498,7 +493,7 @@ fn inner_builds() {
         d: 4,
     };
 
-    let cache = inner.build_cache_bytes();
+    let cache: Vec<u8> = TreeHashCache::new(&inner).unwrap().into();
 
     assert_eq!(expected, cache);
 }
