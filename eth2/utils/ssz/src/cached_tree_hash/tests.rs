@@ -13,28 +13,18 @@ impl CachedTreeHash for Inner {
     type Item = Self;
 
     fn build_cache_bytes(&self) -> Vec<u8> {
-        let cache_a = self.a.build_cache_bytes();
-        let cache_b = self.b.build_cache_bytes();
-        let cache_c = self.c.build_cache_bytes();
-        let cache_d = self.d.build_cache_bytes();
+        let mut leaves_and_subtrees = vec![];
 
-        let mut leaves = vec![];
-        leaves.extend_from_slice(&cache_a[0..32].to_vec());
-        leaves.extend_from_slice(&cache_b[0..32].to_vec());
-        leaves.extend_from_slice(&cache_c[0..32].to_vec());
-        leaves.extend_from_slice(&cache_d[0..32].to_vec());
-
-        // TODO: fix unwrap
-        let mut cache = TreeHashCache::from_bytes(merkleize(leaves)).unwrap();
+        leaves_and_subtrees.append(&mut self.a.build_cache_bytes());
+        leaves_and_subtrees.append(&mut self.b.build_cache_bytes());
+        leaves_and_subtrees.append(&mut self.c.build_cache_bytes());
+        leaves_and_subtrees.append(&mut self.d.build_cache_bytes());
 
         // TODO: fix unwrap
         let offset_handler = self.offset_handler(0).unwrap();
-        let mut iter = offset_handler.iter_leaf_nodes();
 
-        cache.single_chunk_splice(*iter.next().unwrap(), cache_a);
-        cache.single_chunk_splice(*iter.next().unwrap(), cache_b);
-        cache.single_chunk_splice(*iter.next().unwrap(), cache_c);
-        cache.single_chunk_splice(*iter.next().unwrap(), cache_d);
+        // TODO: fix unwrap
+        let cache = TreeHashCache::new(leaves_and_subtrees, offset_handler).unwrap();
 
         cache.into()
     }
@@ -111,25 +101,17 @@ impl CachedTreeHash for Outer {
     type Item = Self;
 
     fn build_cache_bytes(&self) -> Vec<u8> {
-        let cache_a = self.a.build_cache_bytes();
-        let cache_b = self.b.build_cache_bytes();
-        let cache_c = self.c.build_cache_bytes();
+        let mut leaves_and_subtrees = vec![];
 
-        let mut leaves = vec![];
-        leaves.extend_from_slice(&cache_a[0..32].to_vec());
-        leaves.extend_from_slice(&cache_b[0..32].to_vec());
-        leaves.extend_from_slice(&cache_c[0..32].to_vec());
-
-        // TODO: fix unwrap
-        let mut cache = TreeHashCache::from_bytes(merkleize(leaves)).unwrap();
+        leaves_and_subtrees.append(&mut self.a.build_cache_bytes());
+        leaves_and_subtrees.append(&mut self.b.build_cache_bytes());
+        leaves_and_subtrees.append(&mut self.c.build_cache_bytes());
 
         // TODO: fix unwrap
         let offset_handler = self.offset_handler(0).unwrap();
-        let mut iter = offset_handler.iter_leaf_nodes();
 
-        cache.single_chunk_splice(*iter.next().unwrap(), cache_a);
-        cache.single_chunk_splice(*iter.next().unwrap(), cache_b);
-        cache.single_chunk_splice(*iter.next().unwrap(), cache_c);
+        // TODO: fix unwrap
+        let cache = TreeHashCache::new(leaves_and_subtrees, offset_handler).unwrap();
 
         cache.into()
     }
