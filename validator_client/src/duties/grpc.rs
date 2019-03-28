@@ -36,7 +36,7 @@ impl BeaconNode for ValidatorServiceClient {
             if !validator_duty.has_duty() {
                 // validator is inactive
                 epoch_duties.insert(pubkeys[index].clone(), None);
-                break;
+                continue;
             }
             // active validator
             let active_duty = validator_duty.get_duty();

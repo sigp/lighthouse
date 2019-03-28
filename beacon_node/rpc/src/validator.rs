@@ -72,7 +72,6 @@ impl ValidatorService for ValidatorServiceInstance {
         };
 
         // get the duties for each validator
-        dbg!(validators.get_public_keys());
         for validator_pk in validators.get_public_keys() {
             let mut active_validator = ActiveValidator::new();
 
@@ -89,7 +88,6 @@ impl ValidatorService for ValidatorServiceInstance {
                     return ctx.spawn(f);
                 }
             };
-            info!(self.log,""; "Public key" => format!("{:?}",public_key));
 
             // get the validator index
             let val_index = match state.get_validator_index(&public_key) {
@@ -102,7 +100,7 @@ impl ValidatorService for ValidatorServiceInstance {
                     );
                     active_validator.set_none(false);
                     resp_validators.push(active_validator);
-                    break;
+                    continue;
                 }
                 // the cache is not built, throw an error
                 Err(e) => {
@@ -128,7 +126,7 @@ impl ValidatorService for ValidatorServiceInstance {
                     );
                     active_validator.set_none(false);
                     resp_validators.push(active_validator);
-                    break;
+                    continue;
                 }
                 // the cache is not built, throw an error
                 Err(e) => {
