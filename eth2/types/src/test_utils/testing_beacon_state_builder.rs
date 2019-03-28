@@ -23,6 +23,7 @@ pub fn keypairs_path() -> PathBuf {
 /// Builds a beacon state to be used for testing purposes.
 ///
 /// This struct should **never be used for production purposes.**
+#[derive(Clone)]
 pub struct TestingBeaconStateBuilder {
     state: BeaconState,
     keypairs: Vec<Keypair>,

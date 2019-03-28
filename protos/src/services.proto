@@ -26,9 +26,9 @@ service BeaconBlockService {
 /// Service that provides the validator client with requisite knowledge about
 //its public keys
 service ValidatorService {
-	rpc ProposeBlockSlot(ProposeBlockSlotRequest) returns (ProposeBlockSlotResponse);
-	rpc ValidatorIndex(PublicKey) returns (IndexResponse);
-    // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
+    // Gets the block proposer slot and comittee slot that a validator needs to
+    // perform work on.
+	rpc GetValidatorDuties(GetDutiesRequest) returns (GetDutiesResponse);
 }
 
 /// Service that handles validator attestations
@@ -92,47 +92,41 @@ message BeaconBlock {
 /*
  * Validator Service Messages
  */
-/*
-message ValidatorAssignmentRequest {
-	uint64 epoch = 1;
-	bytes validator_index = 2;
-}
-
-// A validators duties for some epoch.
-// TODO: add shard duties.
-message ValidatorAssignment {
-	oneof block_production_slot_oneof {
-		bool block_production_slot_none = 1;
-		uint64 block_production_slot = 2;
-	}
-}
-*/
 
 // Validator Assignment
 
-message PublicKey {
-	bytes public_key = 1;
+// the public keys of the validators
+message Validators {
+	repeated bytes public_keys = 1;
 }
-
-message IndexResponse {
-	uint64 index = 1;
-}
-
 
 // Propose slot
-
-message ProposeBlockSlotRequest {
+message GetDutiesRequest {
 	uint64 epoch = 1;
-	uint64 validator_index = 2;
+	Validators validators = 2;
 }
 
-message ProposeBlockSlotResponse {
-	oneof slot_oneof {
+message GetDutiesResponse {
+	repeated ActiveValidator active_validators = 1;
+}
+
+message ActiveValidator {
+    oneof duty_oneof {
 		bool none = 1;
-		uint64 slot = 2;
+        ValidatorDuty duty = 2;
 	}
 }
 
+message ValidatorDuty {
+    oneof block_oneof {
+        bool none = 1;
+        uint64 block_production_slot = 2;
+    }
+	uint64 attestation_slot = 3;
+	uint64 attestation_shard = 4;
+    uint64 committee_index = 5;
+	uint64 validator_index = 6;
+}
 
 /*
  * Attestation Service Messages

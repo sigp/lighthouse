@@ -4,7 +4,7 @@ mod traits;
 use slot_clock::SlotClock;
 use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Domain, Slot};
+use types::{BeaconBlock, ChainSpec, Domain, Slot, Fork};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -48,36 +48,32 @@ pub enum Error {
 /// Ensures that messages are not slashable.
 ///
 /// Relies upon an external service to keep the `EpochDutiesMap` updated.
-pub struct BlockProducer<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
+pub struct BlockProducer<U: BeaconNode, W: Signer> {
     pub last_processed_slot: Option<Slot>,
     spec: Arc<ChainSpec>,
-    epoch_map: Arc<V>,
-    slot_clock: Arc<T>,
     beacon_node: Arc<U>,
     signer: Arc<W>,
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U, V, W> {
+impl<U: BeaconNode, W: Signer> BlockProducer<U, W> {
     /// Returns a new instance where `last_processed_slot == 0`.
     pub fn new(
         spec: Arc<ChainSpec>,
-        epoch_map: Arc<V>,
-        slot_clock: Arc<T>,
         beacon_node: Arc<U>,
         signer: Arc<W>,
     ) -> Self {
         Self {
             last_processed_slot: None,
             spec,
-            epoch_map,
-            slot_clock,
             beacon_node,
             signer,
         }
     }
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U, V, W> {
+impl<U: BeaconNode, W: Signer> BlockProducer<U, W> {
+
+    /* No longer needed because we don't poll any more
     /// "Poll" to see if the validator is required to take any action.
     ///
     /// The slot clock will be read and any new actions undertaken.
@@ -113,6 +109,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
             Ok(PollOutcome::SlotAlreadyProcessed(slot))
         }
     }
+    */
 
     fn is_processed_slot(&self, slot: Slot) -> bool {
         match self.last_processed_slot {
@@ -131,11 +128,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
     ///
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
-    fn produce_block(&mut self, slot: Slot) -> Result<PollOutcome, Error> {
-        let fork = match self.epoch_map.fork() {
-            Ok(fork) => fork,
-            Err(_) => return Ok(PollOutcome::UnableToGetFork(slot)),
-        };
+    fn produce_block(&mut self, slot: Slot, fork: Fork) -> Result<PollOutcome, Error> {
 
         let randao_reveal = {
             // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
@@ -242,20 +235,12 @@ mod tests {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
         let spec = Arc::new(ChainSpec::foundation());
-        let slot_clock = Arc::new(TestingSlotClock::new(0));
         let beacon_node = Arc::new(SimulatedBeaconNode::default());
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-        let mut epoch_map = EpochMap::new(spec.slots_per_epoch);
-        let produce_slot = Slot::new(100);
-        let produce_epoch = produce_slot.epoch(spec.slots_per_epoch);
-        epoch_map.map.insert(produce_epoch, produce_slot);
-        let epoch_map = Arc::new(epoch_map);
 
         let mut block_proposer = BlockProducer::new(
             spec.clone(),
-            epoch_map.clone(),
-            slot_clock.clone(),
             beacon_node.clone(),
             signer.clone(),
         );

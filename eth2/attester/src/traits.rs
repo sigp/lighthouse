@@ -1,4 +1,4 @@
-use types::{AttestationData, FreeAttestation, Signature, Slot};
+use types::{AttestationData, Attestation, Signature, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {
@@ -22,7 +22,7 @@ pub trait BeaconNode: Send + Sync {
 
     fn publish_attestation(
         &self,
-        free_attestation: FreeAttestation,
+        attestation: Attestation,
     ) -> Result<PublishOutcome, BeaconNodeError>;
 }
 

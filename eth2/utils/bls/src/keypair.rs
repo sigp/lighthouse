@@ -1,5 +1,6 @@
 use super::{PublicKey, SecretKey};
 use serde_derive::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Keypair {
@@ -17,5 +18,17 @@ impl Keypair {
 
     pub fn identifier(&self) -> String {
         self.pk.concatenated_hex_id()
+    }
+}
+
+impl Hash for Keypair {
+    /// Note: this is distinct from consensus serialization, it will produce a different hash.
+    ///
+    /// This method uses the uncompressed bytes, which are much faster to obtain than the
+    /// compressed bytes required for consensus serialization.
+    ///
+    /// Use `ssz::Encode` to obtain the bytes required for consensus hashing.
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.pk.as_uncompressed_bytes().hash(state)
     }
 }

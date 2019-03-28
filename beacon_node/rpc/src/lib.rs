@@ -11,6 +11,7 @@ use self::validator::ValidatorServiceInstance;
 pub use config::Config as RPCConfig;
 use futures::{future, Future};
 use grpcio::{Environment, Server, ServerBuilder};
+use network::NetworkMessage;
 use protos::services_grpc::{
     create_beacon_block_service, create_beacon_node_service, create_validator_service,
 };
@@ -21,6 +22,7 @@ use tokio::runtime::TaskExecutor;
 pub fn start_server(
     config: &RPCConfig,
     executor: &TaskExecutor,
+    network_chan: crossbeam_channel::Sender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
@@ -40,11 +42,17 @@ pub fn start_server(
     };
 
     let beacon_block_service = {
-        let instance = BeaconBlockServiceInstance { log: log.clone() };
+        let instance = BeaconBlockServiceInstance {
+            network_chan,
+            log: log.clone(),
+        };
         create_beacon_block_service(instance)
     };
     let validator_service = {
-        let instance = ValidatorServiceInstance { log: log.clone() };
+        let instance = ValidatorServiceInstance {
+            chain: beacon_chain.clone(),
+            log: log.clone(),
+        };
         create_validator_service(instance)
     };
 
