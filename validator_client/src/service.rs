@@ -1,4 +1,13 @@
-/// The validator service. Connects to a beacon node and signs blocks when required.
+/// The Validator Client service.
+///
+/// Connects to a beacon node and negotiates the correct chain id.
+///
+/// Once connected, the service loads known validators keypairs from disk. Every slot,
+/// the service pings the beacon node, asking for new duties for each of the validators.
+///
+/// When a validator needs to either produce a block or sign an attestation, it requests the
+/// data from the beacon node and performs the signing before publishing the block to the beacon
+/// node.
 use crate::attester_service::{AttestationGrpcClient, AttesterService};
 use crate::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
 use crate::config::Config as ValidatorConfig;
@@ -36,8 +45,6 @@ pub struct Service {
     /// The node we currently connected to.
     connected_node_version: String,
     /// The chain id we are processing on.
-    chain_id: u16,
-    /// The fork state we processing on.
     fork: Fork,
     /// The slot clock for this service.
     slot_clock: SystemTimeSlotClock,
@@ -74,7 +81,7 @@ impl Service {
             Arc::new(BeaconNodeServiceClient::new(ch))
         };
 
-        // retrieve node information
+        // retrieve node information and validate the beacon node
         let node_info = loop {
             match beacon_node_client.info(&Empty::new()) {
                 Err(e) => {
@@ -84,17 +91,26 @@ impl Service {
                     continue;
                 }
                 Ok(info) => {
+                    // verify the node's genesis time
                     if SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
                         .as_secs()
                         < info.genesis_time
                     {
-                        warn!(
+                        error!(
                             log,
                             "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
                         );
                         return Err("Genesis time in the future".into());
+                    }
+                    // verify the node's chain id
+                    if config.spec.chain_id != info.chain_id as u8 {
+                        error!(
+                            log,
+                            "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
+                        );
+                        return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", config.spec.chain_id, info.chain_id).into());
                     }
                     break info;
                 }
@@ -150,7 +166,6 @@ impl Service {
 
         Ok(Self {
             connected_node_version: node_info.version,
-            chain_id: node_info.chain_id as u16,
             fork,
             slot_clock,
             current_slot,
