@@ -4,16 +4,16 @@ use crate::{ssz_encode, Encodable};
 impl CachedTreeHash for u64 {
     type Item = Self;
 
-    fn build_cache_bytes(&self) -> Vec<u8> {
-        merkleize(ssz_encode(self))
+    fn build_cache(&self) -> Result<TreeHashCache, Error> {
+        TreeHashCache::from_bytes(merkleize(ssz_encode(self)))
     }
 
     fn num_bytes(&self) -> usize {
         8
     }
 
-    fn offset_handler(&self, _initial_offset: usize) -> Option<OffsetHandler> {
-        None
+    fn offset_handler(&self, _initial_offset: usize) -> Result<OffsetHandler, Error> {
+        Err(Error::ShouldNotProduceOffsetHandler)
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -25,13 +25,13 @@ impl CachedTreeHash for u64 {
         other: &Self,
         cache: &mut TreeHashCache,
         chunk: usize,
-    ) -> Option<usize> {
+    ) -> Result<usize, Error> {
         if self != other {
             let leaf = merkleize(ssz_encode(self));
             cache.modify_chunk(chunk, &leaf)?;
         }
 
-        Some(chunk + 1)
+        Ok(chunk + 1)
     }
 }
 

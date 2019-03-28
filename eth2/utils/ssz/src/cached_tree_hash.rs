@@ -11,16 +11,27 @@ const BYTES_PER_CHUNK: usize = 32;
 const HASHSIZE: usize = 32;
 const MERKLE_HASH_CHUNCK: usize = 2 * BYTES_PER_CHUNK;
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum Error {
+    LeavesAndSubtreesIncomplete(usize),
+    ShouldNotProduceOffsetHandler,
+    NoFirstNode,
+    BytesAreNotEvenChunks(usize),
+    NoModifiedFieldForChunk(usize),
+    NoBytesForChunk(usize),
+    NoChildrenForHashing((usize, usize)),
+}
+
 pub trait CachedTreeHash {
     type Item: CachedTreeHash;
 
-    fn build_cache_bytes(&self) -> Vec<u8>;
+    fn build_cache(&self) -> Result<TreeHashCache, Error>;
 
     /// Return the number of bytes when this element is encoded as raw SSZ _without_ length
     /// prefixes.
     fn num_bytes(&self) -> usize;
 
-    fn offset_handler(&self, initial_offset: usize) -> Option<OffsetHandler>;
+    fn offset_handler(&self, initial_offset: usize) -> Result<OffsetHandler, Error>;
 
     fn num_child_nodes(&self) -> usize;
 
@@ -29,9 +40,10 @@ pub trait CachedTreeHash {
         other: &Self::Item,
         cache: &mut TreeHashCache,
         chunk: usize,
-    ) -> Option<usize>;
+    ) -> Result<usize, Error>;
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct TreeHashCache {
     cache: Vec<u8>,
     chunk_modified: Vec<bool>,
@@ -44,11 +56,17 @@ impl Into<Vec<u8>> for TreeHashCache {
 }
 
 impl TreeHashCache {
-    pub fn new(mut leaves_and_subtrees: Vec<u8>, offset_handler: OffsetHandler) -> Option<Self> {
-        if leaves_and_subtrees.len() % BYTES_PER_CHUNK != 0 {
-            return None;
-        }
+    pub fn new<T>(item: &T) -> Result<Self, Error>
+    where
+        T: CachedTreeHash,
+    {
+        item.build_cache()
+    }
 
+    pub fn from_leaves_and_subtrees(
+        mut leaves_and_subtrees: Vec<u8>,
+        offset_handler: OffsetHandler,
+    ) -> Result<Self, Error> {
         // Allocate enough bytes to store the internal nodes and the leaves and subtrees, then fill
         // all the to-be-built internal nodes with zeros and append the leaves and subtrees.
         let internal_node_bytes = offset_handler.num_internal_nodes * BYTES_PER_CHUNK;
@@ -56,13 +74,22 @@ impl TreeHashCache {
         cache.resize(internal_node_bytes, 0);
         cache.append(&mut leaves_and_subtrees);
 
+        dbg!(cache.len() / BYTES_PER_CHUNK);
+
         // Concat all the leaves into one big byte array, ready for `merkleize`.
         let mut leaves = vec![];
         for leaf_chunk in offset_handler.iter_leaf_nodes() {
             let start = leaf_chunk * BYTES_PER_CHUNK;
             let end = start + BYTES_PER_CHUNK;
 
-            leaves.extend_from_slice(cache.get(start..end)?);
+            dbg!(end);
+            dbg!(cache.len());
+
+            leaves.extend_from_slice(
+                cache
+                    .get(start..end)
+                    .ok_or_else(|| Error::LeavesAndSubtreesIncomplete(*leaf_chunk))?,
+            );
         }
 
         // Merkleize the leaves, then split the leaf nodes off them. Then, replace all-zeros
@@ -71,18 +98,18 @@ impl TreeHashCache {
         merkleized.split_off(internal_node_bytes);
         cache.splice(0..internal_node_bytes, merkleized);
 
-        Some(Self {
+        Ok(Self {
             chunk_modified: vec![false; cache.len() / BYTES_PER_CHUNK],
             cache,
         })
     }
 
-    pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
         if bytes.len() % BYTES_PER_CHUNK > 0 {
-            return None;
+            return Err(Error::BytesAreNotEvenChunks(bytes.len()));
         }
 
-        Some(Self {
+        Ok(Self {
             chunk_modified: vec![false; bytes.len() / BYTES_PER_CHUNK],
             cache: bytes,
         })
@@ -121,15 +148,18 @@ impl TreeHashCache {
         Some(())
     }
 
-    pub fn modify_chunk(&mut self, chunk: usize, to: &[u8]) -> Option<()> {
+    pub fn modify_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
 
-        self.cache.get_mut(start..end)?.copy_from_slice(to);
+        self.cache
+            .get_mut(start..end)
+            .ok_or_else(|| Error::NoBytesForChunk(chunk))?
+            .copy_from_slice(to);
 
         self.chunk_modified[chunk] = true;
 
-        Some(())
+        Ok(())
     }
 
     pub fn chunk_equals(&mut self, chunk: usize, other: &[u8]) -> Option<bool> {
@@ -139,56 +169,29 @@ impl TreeHashCache {
         Some(self.cache.get(start..end)? == other)
     }
 
-    pub fn changed(&self, chunk: usize) -> Option<bool> {
-        self.chunk_modified.get(chunk).cloned()
+    pub fn changed(&self, chunk: usize) -> Result<bool, Error> {
+        self.chunk_modified
+            .get(chunk)
+            .cloned()
+            .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))
     }
 
-    pub fn either_modified(&self, children: (&usize, &usize)) -> Option<bool> {
-        Some(self.changed(*children.0)? | self.changed(*children.1)?)
+    pub fn either_modified(&self, children: (&usize, &usize)) -> Result<bool, Error> {
+        Ok(self.changed(*children.0)? | self.changed(*children.1)?)
     }
 
-    /*
-    pub fn children_modified(&self, parent_chunk: usize, child_offsets: &[usize]) -> Option<bool> {
-        let children = children(parent_chunk);
-
-        let a = *child_offsets.get(children.0)?;
-        let b = *child_offsets.get(children.1)?;
-
-        Some(self.changed(a)? | self.changed(b)?)
-    }
-    */
-
-    pub fn hash_children(&self, children: (&usize, &usize)) -> Option<Vec<u8>> {
+    pub fn hash_children(&self, children: (&usize, &usize)) -> Result<Vec<u8>, Error> {
         let start = children.0 * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK * 2;
 
-        Some(hash(&self.cache.get(start..end)?))
+        let children = &self
+            .cache
+            .get(start..end)
+            .ok_or_else(|| Error::NoChildrenForHashing((*children.0, *children.1)))?;
+
+        Ok(hash(children))
     }
 }
-
-/*
-pub struct LocalCache {
-    offsets: Vec<usize>,
-}
-
-impl LocalCache {
-
-}
-
-pub struct OffsetBTree {
-    offsets: Vec<usize>,
-}
-
-impl From<Vec<usize>> for OffsetBTree {
-    fn from(offsets: Vec<usize>) -> Self {
-        Self { offsets }
-    }
-}
-
-impl OffsetBTree {
-    fn
-}
-*/
 
 fn children(parent: usize) -> (usize, usize) {
     ((2 * parent + 1), (2 * parent + 2))
@@ -206,7 +209,7 @@ pub struct OffsetHandler {
 }
 
 impl OffsetHandler {
-    fn from_lengths(offset: usize, mut lengths: Vec<usize>) -> Self {
+    fn from_lengths(offset: usize, mut lengths: Vec<usize>) -> Result<Self, Error> {
         // Extend it to the next power-of-two, if it is not already.
         let num_leaf_nodes = if lengths.len().is_power_of_two() {
             lengths.len()
@@ -228,20 +231,23 @@ impl OffsetHandler {
             next_node += lengths[i];
         }
 
-        Self {
+        Ok(Self {
             num_internal_nodes,
             num_leaf_nodes,
             offsets,
             next_node,
-        }
+        })
     }
 
     pub fn total_nodes(&self) -> usize {
         self.num_internal_nodes + self.num_leaf_nodes
     }
 
-    pub fn first_leaf_node(&self) -> Option<usize> {
-        self.offsets.get(self.num_internal_nodes).cloned()
+    pub fn first_leaf_node(&self) -> Result<usize, Error> {
+        self.offsets
+            .get(self.num_internal_nodes)
+            .cloned()
+            .ok_or_else(|| Error::NoFirstNode)
     }
 
     pub fn next_node(&self) -> usize {
@@ -312,6 +318,15 @@ pub fn sanitise_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
     }
 
     bytes
+}
+
+fn pad_for_leaf_count(num_leaves: usize, bytes: &mut Vec<u8>) {
+    let required_leaves = num_leaves.next_power_of_two();
+
+    bytes.resize(
+        bytes.len() + (required_leaves - num_leaves) * BYTES_PER_CHUNK,
+        0,
+    );
 }
 
 fn last_leaf_needs_padding(num_bytes: usize) -> bool {
