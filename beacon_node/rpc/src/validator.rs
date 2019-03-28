@@ -58,13 +58,13 @@ impl ValidatorService for ValidatorServiceInstance {
             .collect();
         let validator_proposers = match validator_proposers {
             Ok(v) => v,
-            Err(_) => {
+            Err(e) => {
                 // could not get the validator proposer index
                 let log_clone = self.log.clone();
                 let f = sink
                     .fail(RpcStatus::new(
-                        RpcStatusCode::InvalidArgument,
-                        Some("Invalid public_key".to_string()),
+                        RpcStatusCode::FailedPrecondition,
+                        Some(format!("Could not find beacon proposers: {:?}", e)),
                     ))
                     .map_err(move |e| warn!(log_clone, "failed to reply {:?} : {:?}", req, e));
                 return ctx.spawn(f);
@@ -82,7 +82,7 @@ impl ValidatorService for ValidatorServiceInstance {
                     let f = sink
                         .fail(RpcStatus::new(
                             RpcStatusCode::InvalidArgument,
-                            Some("Invalid public_key".to_string()),
+                            Some("apurple  Invalid public_key".to_string()),
                         ))
                         .map_err(move |e| warn!(log_clone, "failed to reply {:?}", req));
                     return ctx.spawn(f);
