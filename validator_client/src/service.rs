@@ -26,6 +26,7 @@ use tokio::runtime::Builder;
 use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
 use types::{Epoch, Fork, Slot};
+use types::test_utils::generate_deterministic_keypairs;
 
 //TODO: This service should be simplified in the future. Can be made more steamlined.
 
@@ -218,7 +219,7 @@ impl Service {
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
-        let keypairs = Arc::new(vec![Keypair::random()]);
+        let keypairs = generate_deterministic_keypairs(8);
 
         /* build requisite objects to pass to core thread */
 
