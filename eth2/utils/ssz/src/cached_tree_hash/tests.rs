@@ -58,7 +58,7 @@ impl CachedTreeHash for Inner {
 
         // Iterate backwards through the internal nodes, rehashing any node where it's children
         // have changed.
-        for chunk in (0..num_internal_nodes).into_iter().rev() {
+        for chunk in (chunk..chunk + num_internal_nodes).into_iter().rev() {
             if cache.children_modified(chunk)? {
                 cache.modify_chunk(chunk, &cache.hash_children(chunk)?)?;
             }
@@ -77,7 +77,56 @@ fn join(many: Vec<Vec<u8>>) -> Vec<u8> {
 }
 
 #[test]
-fn vec_of_u64() {
+fn partial_modification_u64_vec() {
+    let n: u64 = 50;
+
+    let original_vec: Vec<u64> = (0..n).collect();
+
+    // Generate initial cache.
+    let original_cache = original_vec.build_cache_bytes();
+
+    // Modify the vec
+    let mut modified_vec = original_vec.clone();
+    modified_vec[n as usize - 1] = 42;
+
+    // Perform a differential hash
+    let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
+    modified_vec.cached_hash_tree_root(&original_vec, &mut cache_struct, 0);
+    let modified_cache: Vec<u8> = cache_struct.into();
+
+    // Generate reference data.
+    let mut data = vec![];
+    for i in &modified_vec {
+        data.append(&mut int_to_bytes8(*i));
+    }
+    let data = sanitise_bytes(data);
+    let expected = merkleize(data);
+
+    assert_eq!(expected, modified_cache);
+}
+
+#[test]
+fn large_vec_of_u64_builds() {
+    let n: u64 = 50;
+
+    let my_vec: Vec<u64> = (0..n).collect();
+
+    // Generate function output.
+    let cache = my_vec.build_cache_bytes();
+
+    // Generate reference data.
+    let mut data = vec![];
+    for i in &my_vec {
+        data.append(&mut int_to_bytes8(*i));
+    }
+    let data = sanitise_bytes(data);
+    let expected = merkleize(data);
+
+    assert_eq!(expected, cache);
+}
+
+#[test]
+fn vec_of_u64_builds() {
     let data = join(vec![
         int_to_bytes8(1),
         int_to_bytes8(2),

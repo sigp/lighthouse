@@ -85,6 +85,14 @@ where
             }
         }
 
+        // Iterate backwards through the internal nodes, rehashing any node where it's children
+        // have changed.
+        for chunk in (chunk..chunk + num_internal_nodes).into_iter().rev() {
+            if cache.children_modified(chunk)? {
+                cache.modify_chunk(chunk, &cache.hash_children(chunk)?)?;
+            }
+        }
+
         Some(chunk + num_nodes)
     }
 }
