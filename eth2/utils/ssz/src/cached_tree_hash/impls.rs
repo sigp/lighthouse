@@ -12,6 +12,10 @@ impl CachedTreeHash for u64 {
         8
     }
 
+    fn num_child_nodes(&self) -> usize {
+        0
+    }
+
     fn cached_hash_tree_root(
         &self,
         other: &Self,
@@ -27,6 +31,7 @@ impl CachedTreeHash for u64 {
     }
 }
 
+/*
 impl<T> CachedTreeHash for Vec<T>
 where
     T: CachedTreeHash + Encodable,
@@ -96,3 +101,4 @@ where
         Some(chunk + num_nodes)
     }
 }
+*/
