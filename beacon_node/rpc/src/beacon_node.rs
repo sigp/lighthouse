@@ -1,7 +1,7 @@
 use crate::beacon_chain::BeaconChain;
 use futures::Future;
 use grpcio::{RpcContext, UnarySink};
-use protos::services::{Empty, Fork, NodeInfo};
+use protos::services::{Empty, Fork, NodeInfoResponse};
 use protos::services_grpc::BeaconNodeService;
 use slog::{trace, warn};
 use std::sync::Arc;
@@ -14,11 +14,11 @@ pub struct BeaconNodeServiceInstance {
 
 impl BeaconNodeService for BeaconNodeServiceInstance {
     /// Provides basic node information.
-    fn info(&mut self, ctx: RpcContext, _req: Empty, sink: UnarySink<NodeInfo>) {
+    fn info(&mut self, ctx: RpcContext, _req: Empty, sink: UnarySink<NodeInfoResponse>) {
         trace!(self.log, "Node info requested via RPC");
 
         // build the response
-        let mut node_info = NodeInfo::new();
+        let mut node_info = NodeInfoResponse::new();
         node_info.set_version(version::version());
 
         // get the chain state
@@ -34,6 +34,7 @@ impl BeaconNodeService for BeaconNodeServiceInstance {
 
         node_info.set_fork(fork);
         node_info.set_genesis_time(genesis_time);
+        node_info.set_genesis_slot(self.chain.get_spec().genesis_slot.as_u64());
         node_info.set_chain_id(self.chain.get_spec().chain_id as u32);
 
         // send the node_info the requester
