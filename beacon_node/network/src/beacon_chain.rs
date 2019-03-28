@@ -7,7 +7,7 @@ use beacon_chain::{
     types::{BeaconState, ChainSpec},
     AggregationOutcome, CheckPoint,
 };
-use eth2_libp2p::HelloMessage;
+use eth2_libp2p::rpc::HelloMessage;
 use types::{Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
@@ -109,7 +109,7 @@ where
         let state = self.get_state();
 
         HelloMessage {
-            network_id: spec.network_id,
+            network_id: spec.chain_id,
             latest_finalized_root: state.finalized_root,
             latest_finalized_epoch: state.finalized_epoch,
             best_root: self.best_block_root(),

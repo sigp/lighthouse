@@ -1,7 +1,6 @@
 use super::import_queue::ImportQueue;
 use crate::beacon_chain::BeaconChain;
 use crate::message_handler::NetworkContext;
-use eth2_libp2p::behaviour::{AttestationGossip, BlockGossip};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
@@ -9,7 +8,7 @@ use slog::{debug, error, info, o, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{Epoch, Hash256, Slot};
+use types::{Attestation, Epoch, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
@@ -521,12 +520,12 @@ impl SimpleSync {
     pub fn on_block_gossip(
         &mut self,
         peer_id: PeerId,
-        msg: BlockGossip,
+        msg: BlockRootSlot,
         network: &mut NetworkContext,
     ) {
-        debug!(
+        info!(
             self.log,
-            "BlockGossip";
+            "NewGossipBlock";
             "peer" => format!("{:?}", peer_id),
         );
         // TODO: filter out messages that a prior to the finalized slot.
@@ -535,12 +534,12 @@ impl SimpleSync {
         // now.
         //
         // Note: only requests the new block -- will fail if we don't have its parents.
-        if self.import_queue.is_new_block(&msg.root.block_root) {
+        if self.import_queue.is_new_block(&msg.block_root) {
             self.request_block_headers(
                 peer_id,
                 BeaconBlockHeadersRequest {
-                    start_root: msg.root.block_root,
-                    start_slot: msg.root.slot,
+                    start_root: msg.block_root,
+                    start_slot: msg.slot,
                     max_headers: 1,
                     skip_slots: 0,
                 },
@@ -555,19 +554,19 @@ impl SimpleSync {
     pub fn on_attestation_gossip(
         &mut self,
         peer_id: PeerId,
-        msg: AttestationGossip,
+        msg: Attestation,
         _network: &mut NetworkContext,
     ) {
-        debug!(
+        info!(
             self.log,
-            "AttestationGossip";
+            "NewAttestationGossip";
             "peer" => format!("{:?}", peer_id),
         );
 
         // Awaiting a proper operations pool before we can import attestations.
         //
         // https://github.com/sigp/lighthouse/issues/281
-        match self.chain.process_attestation(msg.attestation) {
+        match self.chain.process_attestation(msg) {
             Ok(_) => panic!("Impossible, method not implemented."),
             Err(_) => error!(self.log, "Attestation processing not implemented!"),
         }
