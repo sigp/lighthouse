@@ -1,4 +1,4 @@
-use types::{AttestationData, Attestation, Signature, Slot};
+use types::{Attestation, AttestationData, Signature, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeError {

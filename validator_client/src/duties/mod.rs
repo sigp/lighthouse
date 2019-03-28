@@ -102,7 +102,7 @@ impl<U: BeaconNode> DutiesManager<U> {
                 Ok(Some(work_type)) => current_work.push((validator_signer.clone(), work_type)),
                 Ok(None) => {} // No work for this validator
                 //TODO: This should really log an error, as we shouldn't end up with an err here.
-                Err(_) => {}   // Unknown epoch or validator, no work
+                Err(_) => {} // Unknown epoch or validator, no work
             }
         }
         if current_work.is_empty() {

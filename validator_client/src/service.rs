@@ -20,6 +20,7 @@ use slog::{debug, error, info, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
@@ -27,7 +28,6 @@ use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
 use types::test_utils::generate_deterministic_keypairs;
 use types::{Epoch, Fork, Slot};
-use std::thread;
 
 //TODO: This service should be simplified in the future. Can be made more steamlined.
 
@@ -268,17 +268,11 @@ impl Service {
                                 // available AttestationDuty info
                                 let attestation_duty =
                                     work_type.attestation_duty.expect("Cannot be None");
-                                let attester_grpc_client =
-                                    Arc::new(
-                                        AttestationGrpcClient::new(
-                                            service.attester_client.clone()
-                                        )
-                                    );
+                                let attester_grpc_client = Arc::new(AttestationGrpcClient::new(
+                                    service.attester_client.clone(),
+                                ));
                                 let signer = Arc::new(AttesterLocalSigner::new(keypair.clone()));
-                                let attester =
-                                    Attester::new(
-                                        attester_grpc_client,
-                                        signer);
+                                let attester = Attester::new(attester_grpc_client, signer);
                                 let mut attester_service = AttesterService {
                                     attester,
                                     poll_interval_millis: POLL_INTERVAL_MILLIS,

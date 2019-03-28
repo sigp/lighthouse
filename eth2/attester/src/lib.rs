@@ -3,8 +3,10 @@ mod traits;
 
 use ssz::TreeHash;
 use std::sync::Arc;
-use types::{AttestationData, AttestationDataAndCustodyBit, Attestation, Signature,
-            AggregateSignature, Slot, AttestationDuty, Bitfield};
+use types::{
+    AggregateSignature, Attestation, AttestationData, AttestationDataAndCustodyBit,
+    AttestationDuty, Bitfield, Signature, Slot,
+};
 
 pub use self::traits::{
     BeaconNode, BeaconNodeError, DutiesReader, DutiesReaderError, PublishOutcome, Signer,
@@ -59,20 +61,28 @@ impl<U: BeaconNode, W: Signer> Attester<U, W> {
 }
 
 impl<B: BeaconNode, W: Signer> Attester<B, W> {
-
-    fn produce_attestation(&mut self, attestation_duty: AttestationDuty) -> Result<PollOutcome, Error> {
-        let attestation_data = match self.beacon_node.produce_attestation_data(
-            attestation_duty.slot,
-            attestation_duty.shard
-        )? {
+    fn produce_attestation(
+        &mut self,
+        attestation_duty: AttestationDuty,
+    ) -> Result<PollOutcome, Error> {
+        let attestation_data = match self
+            .beacon_node
+            .produce_attestation_data(attestation_duty.slot, attestation_duty.shard)?
+        {
             Some(attestation_data) => attestation_data,
-            None => return Ok(PollOutcome::BeaconNodeUnableToProduceAttestation(attestation_duty.slot)),
+            None => {
+                return Ok(PollOutcome::BeaconNodeUnableToProduceAttestation(
+                    attestation_duty.slot,
+                ))
+            }
         };
 
         dbg!(&attestation_data);
 
         if !self.safe_to_produce(&attestation_data) {
-            return Ok(PollOutcome::SlashableAttestationNotProduced(attestation_duty.slot));
+            return Ok(PollOutcome::SlashableAttestationNotProduced(
+                attestation_duty.slot,
+            ));
         }
 
         let signature = match self.sign_attestation_data(&attestation_data) {
@@ -81,7 +91,6 @@ impl<B: BeaconNode, W: Signer> Attester<B, W> {
         };
         let mut agg_sig = AggregateSignature::new();
         agg_sig.add(&signature);
-
 
         let attestation = Attestation {
             aggregation_bitfield: Bitfield::new(),
@@ -172,10 +181,7 @@ mod tests {
         let attest_epoch = attest_slot / spec.slots_per_epoch;
         let attest_shard = 12;
 
-        let mut attester = Attester::new(
-            beacon_node.clone(),
-            signer.clone(),
-        );
+        let mut attester = Attester::new(beacon_node.clone(), signer.clone());
 
         // Configure responses from the BeaconNode.
         beacon_node.set_next_produce_result(Ok(Some(AttestationData::random_for_test(&mut rng))));
@@ -220,6 +226,5 @@ mod tests {
             Ok(PollOutcome::ProducerDutiesUnknown(slot))
         );
         */
-
     }
 }
