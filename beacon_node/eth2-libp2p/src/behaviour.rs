@@ -1,3 +1,4 @@
+use crate::rpc::methods::BlockRootSlot;
 use crate::rpc::{RPCEvent, RPCMessage, Rpc};
 use crate::NetworkConfig;
 use futures::prelude::*;
@@ -13,6 +14,8 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o};
+use ssz_derive::{Decode, Encode};
+use types::Attestation;
 use types::Topic;
 
 /// Builds the network behaviour for the libp2p Swarm.
@@ -153,4 +156,22 @@ pub enum BehaviourEvent {
     Identified(PeerId, IdentifyInfo),
     // TODO: This is a stub at the moment
     Message(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum IncomingGossip {
+    Block(BlockGossip),
+    Attestation(AttestationGossip),
+}
+
+/// Gossipsub message providing notification of a new block.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlockGossip {
+    pub root: BlockRootSlot,
+}
+
+/// Gossipsub message providing notification of a new attestation.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct AttestationGossip {
+    pub attestation: Attestation,
 }

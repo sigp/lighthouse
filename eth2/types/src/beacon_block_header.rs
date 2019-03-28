@@ -37,6 +37,19 @@ impl BeaconBlockHeader {
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.hash_tree_root()[..])
     }
+
+    /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
+    ///
+    /// Spec v0.5.0
+    pub fn into_block(self, body: BeaconBlockBody) -> BeaconBlock {
+        BeaconBlock {
+            slot: self.slot,
+            previous_block_root: self.previous_block_root,
+            state_root: self.state_root,
+            body,
+            signature: self.signature,
+        }
+    }
 }
 
 #[cfg(test)]
