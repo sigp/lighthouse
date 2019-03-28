@@ -195,8 +195,8 @@ impl Service {
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
-        let keypairs = Arc::new(vec![Keypair::random()]);
-
+        let keypairs: Arc<Vec<Keypair>> =
+            Arc::new((0..10).into_iter().map(|_| Keypair::random()).collect());
         /* build requisite objects to pass to core thread */
 
         // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
@@ -213,54 +213,59 @@ impl Service {
         });
 
         // run the core thread
-        runtime
-            .block_on(interval.for_each(move |_| {
-                let log = service.log.clone();
+        runtime.block_on(
+            interval
+                .for_each(move |_| {
+                    let log = service.log.clone();
 
-                /* get the current slot and epoch */
-                let current_slot = match service.slot_clock.present_slot() {
-                    Err(e) => {
-                        error!(log, "SystemTimeError {:?}", e);
-                        return Ok(());
-                    }
-                    Ok(slot) => slot.expect("Genesis is in the future"),
-                };
-
-                let current_epoch = current_slot.epoch(service.slots_per_epoch);
-
-                debug_assert!(
-                    current_slot > service.current_slot,
-                    "The Timer should poll a new slot"
-                );
-
-                info!(log, "Processing slot: {}", current_slot.as_u64());
-
-                /* check for new duties */
-
-                let cloned_manager = manager.clone();
-                tokio::spawn(futures::future::poll_fn(move || {
-                    cloned_manager.run_update(current_epoch.clone(), log.clone())
-                }));
-
-                /* execute any specified duties */
-
-                if let Some(work) = manager.get_current_work(current_slot) {
-                    for (_public_key, work_type) in work {
-                        if work_type.produce_block {
-                            // TODO: Produce a beacon block in a new thread
+                    /* get the current slot and epoch */
+                    let current_slot = match service.slot_clock.present_slot() {
+                        Err(e) => {
+                            error!(log, "SystemTimeError {:?}", e);
+                            return Ok(());
                         }
-                        if work_type.attestation_duty.is_some() {
-                            // available AttestationDuty info
-                            let attestation_duty =
-                                work_type.attestation_duty.expect("Cannot be None");
-                            //TODO: Produce an attestation in a new thread
+                        Ok(slot) => slot.expect("Genesis is in the future"),
+                    };
+
+                    let current_epoch = current_slot.epoch(service.slots_per_epoch);
+
+                    debug_assert!(
+                        current_slot > service.current_slot,
+                        "The Timer should poll a new slot"
+                    );
+
+                    info!(log, "Processing slot: {}", current_slot.as_u64());
+
+                    /* check for new duties */
+
+                    let cloned_manager = manager.clone();
+                    let cloned_log = log.clone();
+                    // spawn a new thread separate to the runtime
+                    std::thread::spawn(move || {
+                        cloned_manager.run_update(current_epoch.clone(), cloned_log.clone());
+                        dbg!("Finished thread");
+                    });
+
+                    /* execute any specified duties */
+
+                    if let Some(work) = manager.get_current_work(current_slot) {
+                        for (_public_key, work_type) in work {
+                            if work_type.produce_block {
+                                // TODO: Produce a beacon block in a new thread
+                            }
+                            if work_type.attestation_duty.is_some() {
+                                // available AttestationDuty info
+                                let attestation_duty =
+                                    work_type.attestation_duty.expect("Cannot be None");
+                                //TODO: Produce an attestation in a new thread
+                            }
                         }
                     }
-                }
 
-                Ok(())
-            }))
-            .map_err(|e| format!("Service thread failed: {:?}", e))?;
+                    Ok(())
+                })
+                .map_err(|e| format!("Service thread failed: {:?}", e)),
+        );
 
         // completed a slot process
         Ok(())
