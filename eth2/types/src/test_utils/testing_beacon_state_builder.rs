@@ -120,7 +120,7 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
-        let genesis_time = 1553753928; // arbitrary
+        let genesis_time = 1553776331; // arbitrary
 
         let mut state = BeaconState::genesis(
             genesis_time,

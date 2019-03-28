@@ -82,7 +82,8 @@ impl<U: BeaconNode> DutiesManager<U> {
                 info!(log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
             }
             Ok(UpdateOutcome::NewDuties(epoch, duties)) => {
-                info!(log, "New duties obtained"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+                info!(log, "New duties obtained"; "epoch" => epoch);
+                print_duties(&log, duties);
             }
         };
         Ok(Async::Ready(()))
@@ -126,9 +127,18 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
 impl From<EpochDutiesMapError> for Error {
     fn from(e: EpochDutiesMapError) -> Error {
         match e {
-            EpochDutiesMapError::Poisoned => Error::EpochMapPoisoned,
             EpochDutiesMapError::UnknownEpoch => Error::UnknownEpoch,
             EpochDutiesMapError::UnknownValidator => Error::UnknownValidator,
+        }
+    }
+}
+
+fn print_duties(log: &slog::Logger, duties: EpochDuties) {
+    for (pk, duty) in duties.iter() {
+        if let Some(display_duty) = duty {
+            info!(log, "Validator: {}",pk; "Duty" => format!("{}",display_duty));
+        } else {
+            info!(log, "Validator: {}",pk; "Duty" => "None");
         }
     }
 }
