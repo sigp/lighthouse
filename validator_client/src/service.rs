@@ -25,8 +25,8 @@ use tokio::prelude::*;
 use tokio::runtime::Builder;
 use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
-use types::{Epoch, Fork, Slot};
 use types::test_utils::generate_deterministic_keypairs;
+use types::{Epoch, Fork, Slot};
 
 //TODO: This service should be simplified in the future. Can be made more steamlined.
 
