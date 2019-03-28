@@ -4,12 +4,17 @@ version = "0.1.0"
 authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
+[dev-dependencies]
+test_harness = { path = "../beacon_chain/test_harness" }
+sloggers = "0.3.2"
+
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
 slog = "2.4.1"
+ssz = { path = "../../eth2/utils/ssz" }
 futures = "0.1.25"
 error-chain = "0.12.0"
 crossbeam-channel = "0.3.8"
