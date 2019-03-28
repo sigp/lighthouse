@@ -4,7 +4,7 @@ use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{ActiveValidator, GetDutiesRequest, GetDutiesResponse, ValidatorDuty};
 use protos::services_grpc::ValidatorService;
-use slog::{debug, warn, Logger};
+use slog::{debug, info, warn, Logger};
 use ssz::Decodable;
 use std::sync::Arc;
 use types::{Epoch, RelativeEpoch};
@@ -72,6 +72,7 @@ impl ValidatorService for ValidatorServiceInstance {
         };
 
         // get the duties for each validator
+        dbg!(validators.get_public_keys());
         for validator_pk in validators.get_public_keys() {
             let mut active_validator = ActiveValidator::new();
 
@@ -82,12 +83,13 @@ impl ValidatorService for ValidatorServiceInstance {
                     let f = sink
                         .fail(RpcStatus::new(
                             RpcStatusCode::InvalidArgument,
-                            Some("apurple  Invalid public_key".to_string()),
+                            Some("Invalid public_key".to_string()),
                         ))
                         .map_err(move |e| warn!(log_clone, "failed to reply {:?}", req));
                     return ctx.spawn(f);
                 }
             };
+            info!(self.log,""; "Public key" => format!("{:?}",public_key));
 
             // get the validator index
             let val_index = match state.get_validator_index(&public_key) {
