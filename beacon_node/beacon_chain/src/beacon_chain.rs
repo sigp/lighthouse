@@ -348,6 +348,11 @@ where
 
             per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
         }
+        state.build_epoch_cache(RelativeEpoch::Previous, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+        state.update_pubkey_cache()?;
 
         Ok(())
     }
