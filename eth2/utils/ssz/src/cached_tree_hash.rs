@@ -1,4 +1,5 @@
 use hashing::hash;
+use std::iter::Iterator;
 
 mod impls;
 mod tests;
@@ -15,6 +16,8 @@ pub trait CachedTreeHash {
     /// Return the number of bytes when this element is encoded as raw SSZ _without_ length
     /// prefixes.
     fn num_bytes(&self) -> usize;
+
+    fn num_child_nodes(&self) -> usize;
 
     fn cached_hash_tree_root(
         &self,
@@ -81,15 +84,24 @@ impl TreeHashCache {
         self.chunk_modified.get(chunk).cloned()
     }
 
-    pub fn children_modified(&self, parent_chunk: usize) -> Option<bool> {
-        let children = children(parent_chunk);
-
-        Some(self.changed(children.0)? | self.changed(children.1)?)
+    pub fn either_modified(&self, children: (&usize, &usize)) -> Option<bool> {
+        dbg!(&self.chunk_modified.len());
+        dbg!(&self.cache.len() / BYTES_PER_CHUNK);
+        Some(self.changed(*children.0)? | self.changed(*children.1)?)
     }
 
-    pub fn hash_children(&self, parent_chunk: usize) -> Option<Vec<u8>> {
+    /*
+    pub fn children_modified(&self, parent_chunk: usize, child_offsets: &[usize]) -> Option<bool> {
         let children = children(parent_chunk);
 
+        let a = *child_offsets.get(children.0)?;
+        let b = *child_offsets.get(children.1)?;
+
+        Some(self.changed(a)? | self.changed(b)?)
+    }
+    */
+
+    pub fn hash_children(&self, children: (&usize, &usize)) -> Option<Vec<u8>> {
         let start = children.0 * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK * 2;
 
@@ -97,12 +109,101 @@ impl TreeHashCache {
     }
 }
 
+/*
+pub struct LocalCache {
+    offsets: Vec<usize>,
+}
+
+impl LocalCache {
+
+}
+
+pub struct OffsetBTree {
+    offsets: Vec<usize>,
+}
+
+impl From<Vec<usize>> for OffsetBTree {
+    fn from(offsets: Vec<usize>) -> Self {
+        Self { offsets }
+    }
+}
+
+impl OffsetBTree {
+    fn
+}
+*/
+
 fn children(parent: usize) -> (usize, usize) {
     ((2 * parent + 1), (2 * parent + 2))
 }
 
 fn num_nodes(num_leaves: usize) -> usize {
     2 * num_leaves - 1
+}
+
+pub struct OffsetHandler {
+    num_internal_nodes: usize,
+    num_leaf_nodes: usize,
+    next_node: usize,
+    offsets: Vec<usize>,
+}
+
+impl OffsetHandler {
+    fn from_lengths(offset: usize, mut lengths: Vec<usize>) -> Self {
+        // Extend it to the next power-of-two, if it is not already.
+        let num_leaf_nodes = if lengths.len().is_power_of_two() {
+            lengths.len()
+        } else {
+            let num_leaf_nodes = lengths.len().next_power_of_two();
+            lengths.resize(num_leaf_nodes, 1);
+            num_leaf_nodes
+        };
+
+        let num_nodes = num_nodes(num_leaf_nodes);
+        let num_internal_nodes = num_nodes - num_leaf_nodes;
+
+        let mut offsets = Vec::with_capacity(num_nodes);
+        offsets.append(&mut (offset..offset + num_internal_nodes).collect());
+
+        let mut next_node = num_internal_nodes + offset;
+        for i in 0..num_leaf_nodes {
+            offsets.push(next_node);
+            next_node += lengths[i];
+        }
+
+        Self {
+            num_internal_nodes,
+            num_leaf_nodes,
+            offsets,
+            next_node,
+        }
+    }
+
+    pub fn total_nodes(&self) -> usize {
+        self.num_internal_nodes + self.num_leaf_nodes
+    }
+
+    pub fn first_leaf_node(&self) -> Option<usize> {
+        self.offsets.get(self.num_internal_nodes).cloned()
+    }
+
+    pub fn next_node(&self) -> usize {
+        self.next_node
+    }
+
+    pub fn iter_internal_nodes<'a>(
+        &'a self,
+    ) -> impl DoubleEndedIterator<Item = (&'a usize, (&'a usize, &'a usize))> {
+        let internal_nodes = &self.offsets[0..self.num_internal_nodes];
+
+        internal_nodes.iter().enumerate().map(move |(i, parent)| {
+            let children = children(i);
+            (
+                parent,
+                (&self.offsets[children.0], &self.offsets[children.1]),
+            )
+        })
+    }
 }
 
 /// Split `values` into a power-of-two, identical-length chunks (padding with `0`) and merkleize
