@@ -51,20 +51,23 @@ impl<U: BeaconNode> DutiesManager<U> {
     /// be a wall-clock (e.g., system time, remote server time, etc.).
     fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
         let duties = self.beacon_node.request_duties(epoch, &self.pubkeys)?;
-        // If these duties were known, check to see if they're updates or identical.
-        if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
-            if *known_duties == duties {
-                return Ok(UpdateOutcome::NoChange(epoch));
-            } else {
-                //TODO: Duties could be large here. Remove from display and avoid the clone.
-                self.duties_map.write()?.insert(epoch, duties.clone());
-                return Ok(UpdateOutcome::DutiesChanged(epoch, duties));
+        {
+            // If these duties were known, check to see if they're updates or identical.
+            if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
+                if *known_duties == duties {
+                    return Ok(UpdateOutcome::NoChange(epoch));
+                }
             }
-        } else {
+        }
+        if !self.duties_map.read()?.contains_key(&epoch) {
             //TODO: Remove clone by removing duties from outcome
             self.duties_map.write()?.insert(epoch, duties.clone());
             return Ok(UpdateOutcome::NewDuties(epoch, duties));
-        };
+        }
+        // duties have changed
+        //TODO: Duties could be large here. Remove from display and avoid the clone.
+        self.duties_map.write()?.insert(epoch, duties.clone());
+        return Ok(UpdateOutcome::DutiesChanged(epoch, duties));
     }
 
     /// A future wrapping around `update()`. This will perform logic based upon the update

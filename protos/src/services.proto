@@ -14,7 +14,7 @@ package ethereum.beacon.rpc.v1;
 
 // Service that currently identifies a beacon node
 service BeaconNodeService {
-    rpc Info(Empty) returns (NodeInfo);
+    rpc Info(Empty) returns (NodeInfoResponse);
 }
 
 /// Service that handles block production
@@ -40,11 +40,12 @@ service AttestationService {
 /*
  * Beacon Node Service Message
  */
-message NodeInfo {
+message NodeInfoResponse {
     string version = 1;
     Fork fork = 2;
     uint32 chain_id = 3;
     uint64 genesis_time = 4;
+    uint64 genesis_slot = 5;
 }
 
 message Fork {
@@ -53,8 +54,7 @@ message Fork {
     uint64 epoch = 3;
 }
 
-message Empty {
-}
+message Empty {}
 
 
 /*
@@ -83,10 +83,7 @@ message PublishBeaconBlockResponse {
 }
 
 message BeaconBlock {
-	uint64 slot = 1;
-	bytes block_root = 2;
-	bytes randao_reveal = 3;
-	bytes signature = 4;
+	bytes ssz = 1;
 }
 
 /*

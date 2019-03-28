@@ -342,8 +342,17 @@ where
 
         // If required, transition the new state to the present slot.
         for _ in state.slot.as_u64()..present_slot.as_u64() {
+            // Ensure the next epoch state caches are built in case of an epoch transition.
+            state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
+            state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+
             per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
         }
+        state.build_epoch_cache(RelativeEpoch::Previous, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+        state.update_pubkey_cache()?;
 
         Ok(())
     }
@@ -402,6 +411,20 @@ where
             Ok(Some(some_slot)) => Some(some_slot),
             Ok(None) => None,
             _ => None,
+        }
+    }
+
+    /// Reads the slot clock (see `self.read_slot_clock()` and returns the number of slots since
+    /// genesis.
+    pub fn slots_since_genesis(&self) -> Option<SlotHeight> {
+        let now = self.read_slot_clock()?;
+
+        if now < self.spec.genesis_slot {
+            None
+        } else {
+            Some(SlotHeight::from(
+                now.as_u64() - self.spec.genesis_slot.as_u64(),
+            ))
         }
     }
 

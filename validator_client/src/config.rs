@@ -1,6 +1,6 @@
-use clap::ArgMatches;
 use bincode;
 use bls::Keypair;
+use clap::ArgMatches;
 use slog::{debug, error, info};
 use std::fs;
 use std::fs::File;
@@ -67,6 +67,7 @@ impl Config {
             config.spec = match spec_str {
                 "foundation" => ChainSpec::foundation(),
                 "few_validators" => ChainSpec::few_validators(),
+                "lighthouse_testnet" => ChainSpec::lighthouse_testnet(),
                 // Should be impossible due to clap's `possible_values(..)` function.
                 _ => unreachable!(),
             };
