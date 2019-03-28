@@ -2,7 +2,7 @@ mod direct_beacon_node;
 mod direct_duties;
 mod local_signer;
 
-use crate::direct_beacon_node::DirectBeaconNode;
+use crate::validator_harness::direct_beacon_node::DirectBeaconNode;
 use attester::PollOutcome as AttestationPollOutcome;
 use attester::{Attester, Error as AttestationPollError};
 use beacon_chain::BeaconChain;
@@ -44,10 +44,8 @@ pub struct ValidatorHarness {
     pub block_producer: TestingBlockProducer,
     pub attester: TestingAttester,
     pub spec: Arc<ChainSpec>,
-    pub epoch_map: Arc<DirectDuties<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
     pub keypair: Keypair,
     pub beacon_node: Arc<DirectBeaconNode<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
-    pub slot_clock: Arc<TestingSlotClock>,
     pub signer: Arc<LocalSigner>,
 }
 
@@ -61,22 +59,16 @@ impl ValidatorHarness {
         beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
-        let slot_clock = Arc::new(TestingSlotClock::new(spec.genesis_slot.as_u64()));
         let signer = Arc::new(LocalSigner::new(keypair.clone()));
         let beacon_node = Arc::new(DirectBeaconNode::new(beacon_chain.clone()));
-        let epoch_map = Arc::new(DirectDuties::new(keypair.pk.clone(), beacon_chain.clone()));
 
         let block_producer = BlockProducer::new(
             spec.clone(),
-            epoch_map.clone(),
-            slot_clock.clone(),
             beacon_node.clone(),
             signer.clone(),
         );
 
         let attester = Attester::new(
-            epoch_map.clone(),
-            slot_clock.clone(),
             beacon_node.clone(),
             signer.clone(),
         );
@@ -85,10 +77,8 @@ impl ValidatorHarness {
             block_producer,
             attester,
             spec,
-            epoch_map,
             keypair,
             beacon_node,
-            slot_clock,
             signer,
         }
     }
@@ -113,7 +103,7 @@ impl ValidatorHarness {
     /// Run the `poll` function on the `Attester` and produce a `FreeAttestation`.
     ///
     /// An error is returned if the attester refuses to attest.
-    pub fn produce_free_attestation(&mut self) -> Result<FreeAttestation, AttestationProduceError> {
+    pub fn produce_attestation(&mut self) -> Result<Attestation, AttestationProduceError> {
         match self.attester.poll() {
             Ok(AttestationPollOutcome::AttestationProduced(_)) => {}
             Ok(outcome) => return Err(AttestationProduceError::DidNotProduce(outcome)),

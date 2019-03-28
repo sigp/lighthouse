@@ -137,11 +137,11 @@ impl BeaconChainHarness {
         slot
     }
 
-    /// Gather the `FreeAttestation`s from the valiators.
+    /// Gather the `Attestation`s from the valiators.
     ///
     /// Note: validators will only produce attestations _once per slot_. So, if you call this twice
     /// you'll only get attestations on the first run.
-    pub fn gather_free_attesations(&mut self) -> Vec<FreeAttestation> {
+    pub fn gather_attesations(&mut self) -> Vec<Attestation> {
         let present_slot = self.beacon_chain.present_slot();
 
         let attesting_validators = self
@@ -158,7 +158,7 @@ impl BeaconChainHarness {
         let attesting_validators: HashSet<usize> =
             HashSet::from_iter(attesting_validators.iter().cloned());
 
-        let free_attestations: Vec<FreeAttestation> = self
+        let attestations: Vec<Attestation> = self
             .validators
             .par_iter_mut()
             .enumerate()
@@ -176,8 +176,8 @@ impl BeaconChainHarness {
             .collect();
 
         debug!(
-            "Gathered {} FreeAttestations for slot {}.",
-            free_attestations.len(),
+            "Gathered {} Attestations for slot {}.",
+            attestations.len(),
             present_slot
         );
 
@@ -232,7 +232,7 @@ impl BeaconChainHarness {
                 .unwrap();
         });
 
-        debug!("Free attestations processed.");
+        debug!("attestations processed.");
 
         block
     }
