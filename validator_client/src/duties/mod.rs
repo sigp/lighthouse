@@ -42,7 +42,7 @@ pub struct DutiesManager<U: BeaconNode> {
     pub duties_map: RwLock<EpochDutiesMap>,
     /// A list of all signer objects known to the validator service.
     // TODO: Generalise the signers, so that they're not just keypairs
-    pub signers: Vec<Keypair>,
+    pub signers: Arc<Vec<Keypair>>,
     pub beacon_node: Arc<U>,
 }
 
@@ -97,7 +97,7 @@ impl<U: BeaconNode> DutiesManager<U> {
         // if the map is poisoned, return None
         let duties = self.duties_map.read().ok()?;
 
-        for validator_signer in &self.signers {
+        for validator_signer in self.signers.iter() {
             match duties.is_work_slot(slot, &validator_signer) {
                 Ok(Some(work_type)) => current_work.push((validator_signer.clone(), work_type)),
                 Ok(None) => {} // No work for this validator
