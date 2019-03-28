@@ -174,8 +174,6 @@ impl CachedTreeHash for Outer {
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
             if cache.either_modified(children)? {
-                dbg!(parent);
-                dbg!(children);
                 cache.modify_chunk(parent, &cache.hash_children(children)?)?;
             }
         }
@@ -234,7 +232,7 @@ fn partial_modification_to_outer() {
     let leaves = vec![
         int_to_bytes32(0),
         inner_bytes[0..32].to_vec(),
-        int_to_bytes32(5),
+        int_to_bytes32(42),
         vec![0; 32], // padding
     ];
     let mut merkle = merkleize(join(leaves));
@@ -282,15 +280,7 @@ fn outer_builds() {
     assert_eq!(merkle.len() / HASHSIZE, 13);
     assert_eq!(cache.len() / HASHSIZE, 13);
 
-    for (i, chunk) in cache.chunks(HASHSIZE).enumerate() {
-        assert_eq!(
-            merkle[i * HASHSIZE..(i + 1) * HASHSIZE],
-            *chunk,
-            "failed on {}",
-            i
-        );
-    }
-    // assert_eq!(merkle, cache);
+    assert_eq!(merkle, cache);
 }
 
 /*

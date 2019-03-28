@@ -85,8 +85,6 @@ impl TreeHashCache {
     }
 
     pub fn either_modified(&self, children: (&usize, &usize)) -> Option<bool> {
-        dbg!(&self.chunk_modified.len());
-        dbg!(&self.cache.len() / BYTES_PER_CHUNK);
         Some(self.changed(*children.0)? | self.changed(*children.1)?)
     }
 
