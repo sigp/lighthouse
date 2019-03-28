@@ -1,5 +1,5 @@
 use super::*;
-use int_to_bytes::int_to_bytes32;
+use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 
 #[derive(Clone)]
 pub struct Inner {
@@ -10,6 +10,8 @@ pub struct Inner {
 }
 
 impl CachedTreeHash for Inner {
+    type Item = Self;
+
     fn build_cache_bytes(&self) -> Vec<u8> {
         let mut leaves = vec![];
 
@@ -19,15 +21,6 @@ impl CachedTreeHash for Inner {
         leaves.append(&mut self.d.build_cache_bytes());
 
         merkleize(leaves)
-    }
-
-    fn max_num_leaves(&self) -> usize {
-        let mut leaves = 0;
-        leaves += self.a.max_num_leaves();
-        leaves += self.b.max_num_leaves();
-        leaves += self.c.max_num_leaves();
-        leaves += self.d.max_num_leaves();
-        leaves
     }
 
     fn num_bytes(&self) -> usize {
@@ -45,7 +38,12 @@ impl CachedTreeHash for Inner {
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Option<usize> {
-        let num_leaves = self.max_num_leaves();
+        let mut num_leaves: usize = 0;
+        num_leaves += num_unsanitized_leaves(self.a.num_bytes());
+        num_leaves += num_unsanitized_leaves(self.b.num_bytes());
+        num_leaves += num_unsanitized_leaves(self.c.num_bytes());
+        num_leaves += num_unsanitized_leaves(self.d.num_bytes());
+
         let num_nodes = num_nodes(num_leaves);
         let num_internal_nodes = num_nodes - num_leaves;
 
@@ -76,6 +74,26 @@ fn join(many: Vec<Vec<u8>>) -> Vec<u8> {
         all.extend_from_slice(&mut one.clone())
     }
     all
+}
+
+#[test]
+fn vec_of_u64() {
+    let data = join(vec![
+        int_to_bytes8(1),
+        int_to_bytes8(2),
+        int_to_bytes8(3),
+        int_to_bytes8(4),
+        int_to_bytes8(5),
+        vec![0; 32 - 8], // padding
+    ]);
+
+    let expected = merkleize(data);
+
+    let my_vec = vec![1, 2, 3, 4, 5];
+
+    let cache = my_vec.build_cache_bytes();
+
+    assert_eq!(expected, cache);
 }
 
 #[test]

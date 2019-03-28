@@ -8,15 +8,17 @@ const HASHSIZE: usize = 32;
 const MERKLE_HASH_CHUNCK: usize = 2 * BYTES_PER_CHUNK;
 
 pub trait CachedTreeHash {
+    type Item: CachedTreeHash;
+
     fn build_cache_bytes(&self) -> Vec<u8>;
 
+    /// Return the number of bytes when this element is encoded as raw SSZ _without_ length
+    /// prefixes.
     fn num_bytes(&self) -> usize;
-
-    fn max_num_leaves(&self) -> usize;
 
     fn cached_hash_tree_root(
         &self,
-        other: &Self,
+        other: &Self::Item,
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Option<usize>;
@@ -45,6 +47,18 @@ impl TreeHashCache {
         })
     }
 
+    pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Option<()> {
+        let start = chunk * BYTES_PER_CHUNK;
+        let end = start + BYTES_PER_CHUNK;
+
+        if !self.chunk_equals(chunk, to)? {
+            self.cache.get_mut(start..end)?.copy_from_slice(to);
+            self.chunk_modified[chunk] = true;
+        }
+
+        Some(())
+    }
+
     pub fn modify_chunk(&mut self, chunk: usize, to: &[u8]) -> Option<()> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
@@ -54,6 +68,13 @@ impl TreeHashCache {
         self.chunk_modified[chunk] = true;
 
         Some(())
+    }
+
+    pub fn chunk_equals(&mut self, chunk: usize, other: &[u8]) -> Option<bool> {
+        let start = chunk * BYTES_PER_CHUNK;
+        let end = start + BYTES_PER_CHUNK;
+
+        Some(self.cache.get(start..end)? == other)
     }
 
     pub fn changed(&self, chunk: usize) -> Option<bool> {
@@ -119,7 +140,7 @@ pub fn merkleize(values: Vec<u8>) -> Vec<u8> {
 }
 
 pub fn sanitise_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
-    let present_leaves = num_leaves(bytes.len());
+    let present_leaves = num_unsanitized_leaves(bytes.len());
     let required_leaves = present_leaves.next_power_of_two();
 
     if (present_leaves != required_leaves) | last_leaf_needs_padding(bytes.len()) {
@@ -133,8 +154,15 @@ fn last_leaf_needs_padding(num_bytes: usize) -> bool {
     num_bytes % HASHSIZE != 0
 }
 
-fn num_leaves(num_bytes: usize) -> usize {
-    num_bytes / HASHSIZE
+/// Rounds up
+fn num_unsanitized_leaves(num_bytes: usize) -> usize {
+    (num_bytes + HASHSIZE - 1) / HASHSIZE
+}
+
+/// Rounds up
+fn num_sanitized_leaves(num_bytes: usize) -> usize {
+    let leaves = (num_bytes + HASHSIZE - 1) / HASHSIZE;
+    leaves.next_power_of_two()
 }
 
 fn num_bytes(num_leaves: usize) -> usize {
