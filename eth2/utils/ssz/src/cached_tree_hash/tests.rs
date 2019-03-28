@@ -24,22 +24,19 @@ impl CachedTreeHash for Inner {
         leaves.extend_from_slice(&cache_c[0..32].to_vec());
         leaves.extend_from_slice(&cache_d[0..32].to_vec());
 
-        let mut merkle = merkleize(leaves);
+        // TODO: fix unwrap
+        let mut cache = TreeHashCache::from_bytes(merkleize(leaves)).unwrap();
 
-        let num_leaves = 4;
-        let num_nodes = num_nodes(num_leaves);
-        let num_internal_nodes = num_nodes - num_leaves;
+        // TODO: fix unwrap
+        let offset_handler = self.offset_handler(0).unwrap();
+        let mut iter = offset_handler.iter_leaf_nodes();
 
-        let mut next_hash = num_internal_nodes * HASHSIZE;
-        merkle.splice(next_hash..next_hash + HASHSIZE, cache_a);
-        next_hash += HASHSIZE;
-        merkle.splice(next_hash..next_hash + HASHSIZE, cache_b);
-        next_hash += HASHSIZE;
-        merkle.splice(next_hash..next_hash + HASHSIZE, cache_c);
-        next_hash += HASHSIZE;
-        merkle.splice(next_hash..next_hash + HASHSIZE, cache_d);
+        cache.single_chunk_splice(*iter.next().unwrap(), cache_a);
+        cache.single_chunk_splice(*iter.next().unwrap(), cache_b);
+        cache.single_chunk_splice(*iter.next().unwrap(), cache_c);
+        cache.single_chunk_splice(*iter.next().unwrap(), cache_d);
 
-        merkle
+        cache.into()
     }
 
     fn num_bytes(&self) -> usize {
@@ -51,6 +48,17 @@ impl CachedTreeHash for Inner {
         bytes += self.d.num_bytes();
 
         bytes
+    }
+
+    fn offset_handler(&self, initial_offset: usize) -> Option<OffsetHandler> {
+        let mut offsets = vec![];
+
+        offsets.push(self.a.num_child_nodes() + 1);
+        offsets.push(self.b.num_child_nodes() + 1);
+        offsets.push(self.c.num_child_nodes() + 1);
+        offsets.push(self.d.num_child_nodes() + 1);
+
+        Some(OffsetHandler::from_lengths(initial_offset, offsets))
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -71,12 +79,7 @@ impl CachedTreeHash for Inner {
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Option<usize> {
-        let mut offsets = vec![];
-        offsets.push(self.a.num_child_nodes() + 1);
-        offsets.push(self.b.num_child_nodes() + 1);
-        offsets.push(self.c.num_child_nodes() + 1);
-        offsets.push(self.d.num_child_nodes() + 1);
-        let offset_handler = OffsetHandler::from_lengths(chunk, offsets);
+        let offset_handler = self.offset_handler(chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
         {
@@ -117,20 +120,18 @@ impl CachedTreeHash for Outer {
         leaves.extend_from_slice(&cache_b[0..32].to_vec());
         leaves.extend_from_slice(&cache_c[0..32].to_vec());
 
-        let mut merkle = merkleize(leaves);
+        // TODO: fix unwrap
+        let mut cache = TreeHashCache::from_bytes(merkleize(leaves)).unwrap();
 
-        let num_leaves = 4;
-        let num_nodes = num_nodes(num_leaves);
-        let num_internal_nodes = num_nodes - num_leaves;
+        // TODO: fix unwrap
+        let offset_handler = self.offset_handler(0).unwrap();
+        let mut iter = offset_handler.iter_leaf_nodes();
 
-        let mut next_hash = num_internal_nodes * HASHSIZE;
-        merkle.splice(next_hash..next_hash + HASHSIZE, cache_a);
-        next_hash += (self.a.num_child_nodes() + 1) * HASHSIZE;
-        merkle.splice(next_hash..next_hash + HASHSIZE, cache_b);
-        next_hash += (self.b.num_child_nodes() + 1) * HASHSIZE;
-        merkle.splice(next_hash..next_hash + HASHSIZE, cache_c);
+        cache.single_chunk_splice(*iter.next().unwrap(), cache_a);
+        cache.single_chunk_splice(*iter.next().unwrap(), cache_b);
+        cache.single_chunk_splice(*iter.next().unwrap(), cache_c);
 
-        merkle
+        cache.into()
     }
 
     fn num_bytes(&self) -> usize {
@@ -152,17 +153,23 @@ impl CachedTreeHash for Outer {
         num_nodes(leaves) + children - 1
     }
 
+    fn offset_handler(&self, initial_offset: usize) -> Option<OffsetHandler> {
+        let mut offsets = vec![];
+
+        offsets.push(self.a.num_child_nodes() + 1);
+        offsets.push(self.b.num_child_nodes() + 1);
+        offsets.push(self.c.num_child_nodes() + 1);
+
+        Some(OffsetHandler::from_lengths(initial_offset, offsets))
+    }
+
     fn cached_hash_tree_root(
         &self,
         other: &Self,
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Option<usize> {
-        let mut offsets = vec![];
-        offsets.push(self.a.num_child_nodes() + 1);
-        offsets.push(self.b.num_child_nodes() + 1);
-        offsets.push(self.c.num_child_nodes() + 1);
-        let offset_handler = OffsetHandler::from_lengths(chunk, offsets);
+        let offset_handler = self.offset_handler(chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
         {
@@ -188,6 +195,65 @@ fn join(many: Vec<Vec<u8>>) -> Vec<u8> {
         all.extend_from_slice(&mut one.clone())
     }
     all
+}
+
+#[test]
+fn partial_modification_to_inner_struct() {
+    let original_inner = Inner {
+        a: 1,
+        b: 2,
+        c: 3,
+        d: 4,
+    };
+
+    let original_outer = Outer {
+        a: 0,
+        b: original_inner.clone(),
+        c: 5,
+    };
+
+    let modified_inner = Inner {
+        a: 42,
+        ..original_inner.clone()
+    };
+
+    // Build the initial cache.
+    let original_cache = original_outer.build_cache_bytes();
+
+    // Modify outer
+    let modified_outer = Outer {
+        b: modified_inner.clone(),
+        ..original_outer.clone()
+    };
+
+    // Perform a differential hash
+    let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
+
+    modified_outer
+        .cached_hash_tree_root(&original_outer, &mut cache_struct, 0)
+        .unwrap();
+
+    let modified_cache: Vec<u8> = cache_struct.into();
+
+    // Generate reference data.
+    let mut data = vec![];
+    data.append(&mut int_to_bytes32(0));
+    let inner_bytes = modified_inner.build_cache_bytes();
+    data.append(&mut int_to_bytes32(5));
+
+    let leaves = vec![
+        int_to_bytes32(0),
+        inner_bytes[0..32].to_vec(),
+        int_to_bytes32(5),
+        vec![0; 32], // padding
+    ];
+    let mut merkle = merkleize(join(leaves));
+    merkle.splice(4 * 32..5 * 32, inner_bytes);
+
+    assert_eq!(merkle.len() / HASHSIZE, 13);
+    assert_eq!(modified_cache.len() / HASHSIZE, 13);
+
+    assert_eq!(merkle, modified_cache);
 }
 
 #[test]
