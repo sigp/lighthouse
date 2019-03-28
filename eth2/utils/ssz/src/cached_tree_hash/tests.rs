@@ -68,12 +68,140 @@ impl CachedTreeHash for Inner {
     }
 }
 
+#[derive(Clone)]
+pub struct Outer {
+    pub a: u64,
+    pub b: Inner,
+    pub c: u64,
+}
+
+impl CachedTreeHash for Outer {
+    type Item = Self;
+
+    fn build_cache_bytes(&self) -> Vec<u8> {
+        let mut leaves = vec![];
+
+        leaves.append(&mut self.a.build_cache_bytes());
+        leaves.append(&mut self.b.build_cache_bytes());
+        leaves.append(&mut self.c.build_cache_bytes());
+
+        merkleize(leaves)
+    }
+
+    fn num_bytes(&self) -> usize {
+        let mut bytes = 0;
+        bytes += self.a.num_bytes();
+        bytes += self.b.num_bytes();
+        bytes
+    }
+
+    fn cached_hash_tree_root(
+        &self,
+        other: &Self,
+        cache: &mut TreeHashCache,
+        chunk: usize,
+    ) -> Option<usize> {
+        let mut num_leaves: usize = 0;
+        num_leaves += num_unsanitized_leaves(self.a.num_bytes());
+        num_leaves += num_unsanitized_leaves(self.b.num_bytes());
+        num_leaves += num_unsanitized_leaves(self.c.num_bytes());
+
+        let num_nodes = num_nodes(num_leaves);
+        let num_internal_nodes = num_nodes - num_leaves;
+
+        // Skip past the internal nodes and update any changed leaf nodes.
+        {
+            let chunk = chunk + num_internal_nodes;
+            let chunk = self.a.cached_hash_tree_root(&other.a, cache, chunk)?;
+            let chunk = self.b.cached_hash_tree_root(&other.b, cache, chunk)?;
+            let _chunk = self.c.cached_hash_tree_root(&other.c, cache, chunk)?;
+        }
+
+        // Iterate backwards through the internal nodes, rehashing any node where it's children
+        // have changed.
+        for chunk in (chunk..chunk + num_internal_nodes).into_iter().rev() {
+            if cache.children_modified(chunk)? {
+                cache.modify_chunk(chunk, &cache.hash_children(chunk)?)?;
+            }
+        }
+
+        Some(chunk + num_nodes)
+    }
+}
+
 fn join(many: Vec<Vec<u8>>) -> Vec<u8> {
     let mut all = vec![];
     for one in many {
         all.extend_from_slice(&mut one.clone())
     }
     all
+}
+
+#[test]
+fn partial_modification_to_outer() {
+    let inner = Inner {
+        a: 1,
+        b: 2,
+        c: 3,
+        d: 4,
+    };
+
+    let original_outer = Outer {
+        a: 0,
+        b: inner.clone(),
+        c: 5,
+    };
+
+    // Build the initial cache.
+    let original_cache = original_outer.build_cache_bytes();
+
+    // Modify outer
+    let modified_outer = Outer {
+        c: 42,
+        ..original_outer.clone()
+    };
+
+    // Perform a differential hash
+    let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
+    modified_outer.cached_hash_tree_root(&original_outer, &mut cache_struct, 0);
+    let modified_cache: Vec<u8> = cache_struct.into();
+
+    // Generate reference data.
+    let mut data = vec![];
+    data.append(&mut int_to_bytes32(0));
+    data.append(&mut inner.build_cache_bytes());
+    data.append(&mut int_to_bytes32(42));
+    let merkle = merkleize(data);
+
+    assert_eq!(merkle, modified_cache);
+}
+
+#[test]
+fn outer_builds() {
+    let inner = Inner {
+        a: 1,
+        b: 2,
+        c: 3,
+        d: 4,
+    };
+
+    let outer = Outer {
+        a: 0,
+        b: inner.clone(),
+        c: 5,
+    };
+
+    // Build the function output.
+    let cache = outer.build_cache_bytes();
+
+    // Generate reference data.
+    let mut data = vec![];
+    data.append(&mut int_to_bytes32(0));
+    data.append(&mut inner.build_cache_bytes());
+    data.append(&mut int_to_bytes32(5));
+    let merkle = merkleize(data);
+
+    assert_eq!(merkle, cache);
 }
 
 #[test]
@@ -155,7 +283,11 @@ fn merkleize_odd() {
         int_to_bytes32(5),
     ]);
 
-    merkleize(sanitise_bytes(data));
+    let merkle = merkleize(sanitise_bytes(data));
+
+    let expected_len = num_nodes(8) * BYTES_PER_CHUNK;
+
+    assert_eq!(merkle.len(), expected_len);
 }
 
 fn generic_test(index: usize) {
@@ -221,7 +353,7 @@ fn cached_hash_on_inner() {
 }
 
 #[test]
-fn build_cache_matches_merkelize() {
+fn inner_builds() {
     let data1 = int_to_bytes32(1);
     let data2 = int_to_bytes32(2);
     let data3 = int_to_bytes32(3);
