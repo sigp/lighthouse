@@ -12,7 +12,7 @@ use fork_choice::ForkChoice;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{AttestationData, BeaconBlock, FreeAttestation, Signature, Slot};
+use types::{AttestationData, BeaconBlock, Attestation, Signature, Slot};
 
 // mod attester;
 // mod producer;
@@ -20,13 +20,13 @@ use types::{AttestationData, BeaconBlock, FreeAttestation, Signature, Slot};
 /// Connect directly to a borrowed `BeaconChain` instance so an attester/producer can request/submit
 /// blocks/attestations.
 ///
-/// `BeaconBlock`s and `FreeAttestation`s are not actually published to the `BeaconChain`, instead
+/// `BeaconBlock`s and `Attestation`s are not actually published to the `BeaconChain`, instead
 /// they are stored inside this struct. This is to allow one to benchmark the submission of the
 /// block/attestation directly, or modify it before submission.
 pub struct DirectBeaconNode<T: ClientDB, U: SlotClock, F: ForkChoice> {
     beacon_chain: Arc<BeaconChain<T, U, F>>,
     published_blocks: RwLock<Vec<BeaconBlock>>,
-    published_attestations: RwLock<Vec<FreeAttestation>>,
+    published_attestations: RwLock<Vec<Attestation>>,
 }
 
 impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectBeaconNode<T, U, F> {
@@ -44,7 +44,7 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectBeaconNode<T, U, F> {
     }
 
     /// Get the last published attestation (if any).
-    pub fn last_published_free_attestation(&self) -> Option<FreeAttestation> {
+    pub fn last_published_free_attestation(&self) -> Option<Attestation> {
         Some(self.published_attestations.read().last()?.clone())
     }
 }
@@ -55,7 +55,7 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterBeaconNode for DirectBeac
         _slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, NodeError> {
-        match self.beacon_chain.produce_attestation(shard) {
+        match self.beacon_chain.produce_attestation_data(shard) {
             Ok(attestation_data) => Ok(Some(attestation_data)),
             Err(e) => Err(NodeError::RemoteFailure(format!("{:?}", e))),
         }
@@ -63,9 +63,9 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterBeaconNode for DirectBeac
 
     fn publish_attestation(
         &self,
-        free_attestation: FreeAttestation,
+        attestation: Attestation,
     ) -> Result<AttestationPublishOutcome, NodeError> {
-        self.published_attestations.write().push(free_attestation);
+        self.published_attestations.write().push(attestation);
         Ok(AttestationPublishOutcome::ValidAttestation)
     }
 }
