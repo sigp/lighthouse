@@ -43,8 +43,8 @@ fn main() {
                 .short("s")
                 .help("Configuration of Beacon Chain")
                 .takes_value(true)
-                .possible_values(&["foundation", "few_validators"])
-                .default_value("foundation"),
+                .possible_values(&["foundation", "few_validators", "lighthouse_testnet"])
+                .default_value("lighthouse_testnet"),
         )
         .get_matches();
 

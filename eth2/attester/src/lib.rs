@@ -119,8 +119,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
             validator_index,
         };
 
-        self.beacon_node
-            .publish_attestation(free_attestation)?;
+        self.beacon_node.publish_attestation(free_attestation)?;
         Ok(PollOutcome::AttestationProduced(slot))
     }
 

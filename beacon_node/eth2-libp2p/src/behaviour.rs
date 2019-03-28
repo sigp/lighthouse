@@ -49,12 +49,15 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(gs_msg) => {
+                debug!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
+
                 let pubsub_message = match PubsubMessage::ssz_decode(&gs_msg.data, 0) {
                     //TODO: Punish peer on error
                     Err(e) => {
                         warn!(
                             self.log,
-                            "Received undecodable message from Peer {:?}", gs_msg.source
+                            "Received undecodable message from Peer {:?} error", gs_msg.source;
+                            "error" => format!("{:?}", e)
                         );
                         return;
                     }
@@ -192,7 +195,7 @@ pub enum BehaviourEvent {
 }
 
 /// Messages that are passed to and from the pubsub (Gossipsub) behaviour.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage {
     /// Gossipsub message providing notification of a new block.
     Block(BlockRootSlot),
@@ -220,15 +223,37 @@ impl Decodable for PubsubMessage {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
         let (id, index) = u32::ssz_decode(bytes, index)?;
         match id {
-            1 => {
+            0 => {
                 let (block, index) = BlockRootSlot::ssz_decode(bytes, index)?;
                 Ok((PubsubMessage::Block(block), index))
             }
-            2 => {
+            1 => {
                 let (attestation, index) = Attestation::ssz_decode(bytes, index)?;
                 Ok((PubsubMessage::Attestation(attestation), index))
             }
             _ => Err(DecodeError::Invalid),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::*;
+
+    #[test]
+    fn ssz_encoding() {
+        let original = PubsubMessage::Block(BlockRootSlot {
+            block_root: Hash256::from_slice(&[42; 32]),
+            slot: Slot::new(4),
+        });
+
+        let encoded = ssz_encode(&original);
+
+        println!("{:?}", encoded);
+
+        let (decoded, _i) = PubsubMessage::ssz_decode(&encoded, 0).unwrap();
+
+        assert_eq!(original, decoded);
     }
 }

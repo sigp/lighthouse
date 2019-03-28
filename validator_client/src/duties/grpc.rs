@@ -1,9 +1,11 @@
 use super::epoch_duties::{EpochDuties, EpochDuty};
 use super::traits::{BeaconNode, BeaconNodeError};
+use grpcio::CallOption;
 use protos::services::{GetDutiesRequest, Validators};
 use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
 use std::collections::HashMap;
+use std::time::Duration;
 use types::{Epoch, PublicKey, Slot};
 
 impl BeaconNode for ValidatorServiceClient {
@@ -21,6 +23,9 @@ impl BeaconNode for ValidatorServiceClient {
         validators.set_public_keys(pubkeys.iter().map(|v| ssz_encode(v)).collect());
         req.set_validators(validators);
 
+        // set a timeout for requests
+        // let call_opt = CallOption::default().timeout(Duration::from_secs(2));
+
         // send the request, get the duties reply
         let reply = self
             .get_validator_duties(&req)
@@ -31,7 +36,7 @@ impl BeaconNode for ValidatorServiceClient {
             if !validator_duty.has_duty() {
                 // validator is inactive
                 epoch_duties.insert(pubkeys[index].clone(), None);
-                break;
+                continue;
             }
             // active validator
             let active_duty = validator_duty.get_duty();
