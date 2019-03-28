@@ -90,8 +90,7 @@ impl<B: BeaconNode, W: Signer> Attester<B, W> {
             aggregate_signature: agg_sig,
         };
 
-        self.beacon_node
-            .publish_attestation(attestation)?;
+        self.beacon_node.publish_attestation(attestation)?;
         Ok(PollOutcome::AttestationProduced(attestation_duty.slot))
     }
 
