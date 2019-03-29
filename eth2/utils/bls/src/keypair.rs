@@ -14,4 +14,8 @@ impl Keypair {
         let pk = PublicKey::from_secret_key(&sk);
         Keypair { sk, pk }
     }
+
+    pub fn identifier(&self) -> String {
+        self.pk.concatenated_hex_id()
+    }
 }

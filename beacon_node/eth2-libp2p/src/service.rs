@@ -1,4 +1,4 @@
-use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
 use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
@@ -6,6 +6,7 @@ use crate::NetworkConfig;
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
+    identity,
     muxing::StreamMuxerBox,
     nodes::Substream,
     transport::boxed::Boxed,
@@ -16,7 +17,7 @@ use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use types::TopicBuilder;
+use types::{TopicBuilder, TopicHash};
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
@@ -36,10 +37,10 @@ impl Service {
         // TODO: Currently using secp256k1 key pairs. Wire protocol specifies RSA. Waiting for this
         // PR to be merged to generate RSA keys: https://github.com/briansmith/ring/pull/733
         // TODO: Save and recover node key from disk
-        let local_private_key = secio::SecioKeyPair::secp256k1_generated().unwrap();
+        let local_private_key = identity::Keypair::generate_secp256k1();
 
-        let local_public_key = local_private_key.to_public_key();
-        let local_peer_id = local_private_key.to_peer_id();
+        let local_public_key = local_private_key.public();
+        let local_peer_id = PeerId::from(local_private_key.public());
         info!(log, "Local peer id: {:?}", local_peer_id);
 
         let mut swarm = {
@@ -107,9 +108,17 @@ impl Stream for Service {
                 //Behaviour events
                 Ok(Async::Ready(Some(event))) => match event {
                     // TODO: Stub here for debugging
-                    BehaviourEvent::Message(m) => {
-                        debug!(self.log, "Message received: {}", m);
-                        return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
+                    BehaviourEvent::GossipMessage {
+                        source,
+                        topics,
+                        message,
+                    } => {
+                        debug!(self.log, "Pubsub message received: {:?}", message);
+                        return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                            source,
+                            topics,
+                            message,
+                        })));
                     }
                     BehaviourEvent::RPC(peer_id, event) => {
                         return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
@@ -132,9 +141,7 @@ impl Stream for Service {
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, secio as the encryption layer, and
 /// mplex or yamux as the multiplexing layer.
-fn build_transport(
-    local_private_key: secio::SecioKeyPair,
-) -> Boxed<(PeerId, StreamMuxerBox), Error> {
+fn build_transport(local_private_key: identity::Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
     let transport = libp2p::tcp::TcpConfig::new();
@@ -173,6 +180,10 @@ pub enum Libp2pEvent {
     PeerDialed(PeerId),
     /// Received information about a peer on the network.
     Identified(PeerId, IdentifyInfo),
-    // TODO: Pub-sub testing only.
-    Message(String),
+    /// Received pubsub message.
+    PubsubMessage {
+        source: PeerId,
+        topics: Vec<TopicHash>,
+        message: PubsubMessage,
+    },
 }
