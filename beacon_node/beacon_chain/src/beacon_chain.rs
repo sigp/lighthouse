@@ -6,7 +6,8 @@ use db::{
     ClientDB, DBError,
 };
 use fork_choice::{ForkChoice, ForkChoiceError};
-use log::{debug, trace};
+use log::{debug, trace, warn};
+use operation_pool::OperationPool;
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
@@ -83,6 +84,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
+    pub op_pool: RwLock<OperationPool>,
     pub deposits_for_inclusion: RwLock<Vec<Deposit>>,
     pub exits_for_inclusion: RwLock<Vec<VoluntaryExit>>,
     pub transfers_for_inclusion: RwLock<Vec<Transfer>>,
@@ -141,6 +143,7 @@ where
             state_store,
             slot_clock,
             attestation_aggregator,
+            op_pool: RwLock::new(OperationPool::new()),
             deposits_for_inclusion: RwLock::new(vec![]),
             exits_for_inclusion: RwLock::new(vec![]),
             transfers_for_inclusion: RwLock::new(vec![]),
@@ -540,218 +543,48 @@ where
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
     pub fn receive_deposit_for_inclusion(&self, deposit: Deposit) {
-        // TODO: deposits are not checked for validity; check them.
-        //
-        // https://github.com/sigp/lighthouse/issues/276
-        self.deposits_for_inclusion.write().push(deposit);
-    }
-
-    /// Return a vec of deposits suitable for inclusion in some block.
-    pub fn get_deposits_for_block(&self) -> Vec<Deposit> {
-        // TODO: deposits are indiscriminately included; check them for validity.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        self.deposits_for_inclusion.read().clone()
-    }
-
-    /// Takes a list of `Deposits` that were included in recent blocks and removes them from the
-    /// inclusion queue.
-    ///
-    /// This ensures that `Deposits` are not included twice in successive blocks.
-    pub fn set_deposits_as_included(&self, included_deposits: &[Deposit]) {
-        // TODO: method does not take forks into account; consider this.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        let mut indices_to_delete = vec![];
-
-        for included in included_deposits {
-            for (i, for_inclusion) in self.deposits_for_inclusion.read().iter().enumerate() {
-                if included == for_inclusion {
-                    indices_to_delete.push(i);
-                }
-            }
-        }
-
-        let deposits_for_inclusion = &mut self.deposits_for_inclusion.write();
-        for i in indices_to_delete {
-            deposits_for_inclusion.remove(i);
-        }
+        // Bad deposits are ignored.
+        let _ = self
+            .op_pool
+            .write()
+            .insert_deposit(deposit, &*self.state.read(), &self.spec);
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn receive_exit_for_inclusion(&self, exit: VoluntaryExit) {
-        // TODO: exits are not checked for validity; check them.
-        //
-        // https://github.com/sigp/lighthouse/issues/276
-        self.exits_for_inclusion.write().push(exit);
-    }
-
-    /// Return a vec of exits suitable for inclusion in some block.
-    pub fn get_exits_for_block(&self) -> Vec<VoluntaryExit> {
-        // TODO: exits are indiscriminately included; check them for validity.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        self.exits_for_inclusion.read().clone()
-    }
-
-    /// Takes a list of `Deposits` that were included in recent blocks and removes them from the
-    /// inclusion queue.
-    ///
-    /// This ensures that `Deposits` are not included twice in successive blocks.
-    pub fn set_exits_as_included(&self, included_exits: &[VoluntaryExit]) {
-        // TODO: method does not take forks into account; consider this.
-        let mut indices_to_delete = vec![];
-
-        for included in included_exits {
-            for (i, for_inclusion) in self.exits_for_inclusion.read().iter().enumerate() {
-                if included == for_inclusion {
-                    indices_to_delete.push(i);
-                }
-            }
-        }
-
-        let exits_for_inclusion = &mut self.exits_for_inclusion.write();
-        for i in indices_to_delete {
-            exits_for_inclusion.remove(i);
-        }
+        // Bad exits are ignored
+        let _ = self
+            .op_pool
+            .write()
+            .insert_voluntary_exit(exit, &*self.state.read(), &self.spec);
     }
 
     /// Accept some transfer and queue it for inclusion in an appropriate block.
     pub fn receive_transfer_for_inclusion(&self, transfer: Transfer) {
-        // TODO: transfers are not checked for validity; check them.
-        //
-        // https://github.com/sigp/lighthouse/issues/276
-        self.transfers_for_inclusion.write().push(transfer);
-    }
-
-    /// Return a vec of transfers suitable for inclusion in some block.
-    pub fn get_transfers_for_block(&self) -> Vec<Transfer> {
-        // TODO: transfers are indiscriminately included; check them for validity.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        self.transfers_for_inclusion.read().clone()
-    }
-
-    /// Takes a list of `Deposits` that were included in recent blocks and removes them from the
-    /// inclusion queue.
-    ///
-    /// This ensures that `Deposits` are not included twice in successive blocks.
-    pub fn set_transfers_as_included(&self, included_transfers: &[Transfer]) {
-        // TODO: method does not take forks into account; consider this.
-        let mut indices_to_delete = vec![];
-
-        for included in included_transfers {
-            for (i, for_inclusion) in self.transfers_for_inclusion.read().iter().enumerate() {
-                if included == for_inclusion {
-                    indices_to_delete.push(i);
-                }
-            }
-        }
-
-        let transfers_for_inclusion = &mut self.transfers_for_inclusion.write();
-        for i in indices_to_delete {
-            transfers_for_inclusion.remove(i);
-        }
+        // Bad transfers are ignored.
+        let _ = self
+            .op_pool
+            .write()
+            .insert_transfer(transfer, &*self.state.read(), &self.spec);
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
     pub fn receive_proposer_slashing_for_inclusion(&self, proposer_slashing: ProposerSlashing) {
-        // TODO: proposer_slashings are not checked for validity; check them.
-        //
-        // https://github.com/sigp/lighthouse/issues/276
-        self.proposer_slashings_for_inclusion
-            .write()
-            .push(proposer_slashing);
-    }
-
-    /// Return a vec of proposer slashings suitable for inclusion in some block.
-    pub fn get_proposer_slashings_for_block(&self) -> Vec<ProposerSlashing> {
-        // TODO: proposer_slashings are indiscriminately included; check them for validity.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        self.proposer_slashings_for_inclusion.read().clone()
-    }
-
-    /// Takes a list of `ProposerSlashings` that were included in recent blocks and removes them
-    /// from the inclusion queue.
-    ///
-    /// This ensures that `ProposerSlashings` are not included twice in successive blocks.
-    pub fn set_proposer_slashings_as_included(
-        &self,
-        included_proposer_slashings: &[ProposerSlashing],
-    ) {
-        // TODO: method does not take forks into account; consider this.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        let mut indices_to_delete = vec![];
-
-        for included in included_proposer_slashings {
-            for (i, for_inclusion) in self
-                .proposer_slashings_for_inclusion
-                .read()
-                .iter()
-                .enumerate()
-            {
-                if included == for_inclusion {
-                    indices_to_delete.push(i);
-                }
-            }
-        }
-
-        let proposer_slashings_for_inclusion = &mut self.proposer_slashings_for_inclusion.write();
-        for i in indices_to_delete {
-            proposer_slashings_for_inclusion.remove(i);
-        }
+        // Bad proposer slashings are ignored.
+        let _ = self.op_pool.write().insert_proposer_slashing(
+            proposer_slashing,
+            &*self.state.read(),
+            &self.spec,
+        );
     }
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
     pub fn receive_attester_slashing_for_inclusion(&self, attester_slashing: AttesterSlashing) {
-        // TODO: attester_slashings are not checked for validity; check them.
-        //
-        // https://github.com/sigp/lighthouse/issues/276
-        self.attester_slashings_for_inclusion
-            .write()
-            .push(attester_slashing);
-    }
-
-    /// Return a vec of attester slashings suitable for inclusion in some block.
-    pub fn get_attester_slashings_for_block(&self) -> Vec<AttesterSlashing> {
-        // TODO: attester_slashings are indiscriminately included; check them for validity.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        self.attester_slashings_for_inclusion.read().clone()
-    }
-
-    /// Takes a list of `AttesterSlashings` that were included in recent blocks and removes them
-    /// from the inclusion queue.
-    ///
-    /// This ensures that `AttesterSlashings` are not included twice in successive blocks.
-    pub fn set_attester_slashings_as_included(
-        &self,
-        included_attester_slashings: &[AttesterSlashing],
-    ) {
-        // TODO: method does not take forks into account; consider this.
-        //
-        // https://github.com/sigp/lighthouse/issues/275
-        let mut indices_to_delete = vec![];
-
-        for included in included_attester_slashings {
-            for (i, for_inclusion) in self
-                .attester_slashings_for_inclusion
-                .read()
-                .iter()
-                .enumerate()
-            {
-                if included == for_inclusion {
-                    indices_to_delete.push(i);
-                }
-            }
-        }
-
-        let attester_slashings_for_inclusion = &mut self.attester_slashings_for_inclusion.write();
-        for i in indices_to_delete {
-            attester_slashings_for_inclusion.remove(i);
-        }
+        let _ = self.op_pool.write().insert_attester_slashing(
+            attester_slashing,
+            &*self.state.read(),
+            &self.spec,
+        );
     }
 
     /// Returns `true` if the given block root has not been processed.
@@ -832,13 +665,6 @@ where
         self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
         self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
 
-        // Update the inclusion queues so they aren't re-submitted.
-        self.set_deposits_as_included(&block.body.deposits[..]);
-        self.set_transfers_as_included(&block.body.transfers[..]);
-        self.set_exits_as_included(&block.body.voluntary_exits[..]);
-        self.set_proposer_slashings_as_included(&block.body.proposer_slashings[..]);
-        self.set_attester_slashings_as_included(&block.body.attester_slashings[..]);
-
         // run the fork_choice add_block logic
         self.fork_choice
             .write()
@@ -888,6 +714,11 @@ where
             .get_block_root(state.slot - 1, &self.spec)
             .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?;
 
+        let (proposer_slashings, attester_slashings) = self
+            .op_pool
+            .read()
+            .get_slashings(&*self.state.read(), &self.spec);
+
         let mut block = BeaconBlock {
             slot: state.slot,
             previous_block_root,
@@ -900,12 +731,21 @@ where
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
                 },
-                proposer_slashings: self.get_proposer_slashings_for_block(),
-                attester_slashings: self.get_attester_slashings_for_block(),
+                proposer_slashings,
+                attester_slashings,
                 attestations,
-                deposits: self.get_deposits_for_block(),
-                voluntary_exits: self.get_exits_for_block(),
-                transfers: self.get_transfers_for_block(),
+                deposits: self
+                    .op_pool
+                    .read()
+                    .get_deposits(&*self.state.read(), &self.spec),
+                voluntary_exits: self
+                    .op_pool
+                    .read()
+                    .get_voluntary_exits(&*self.state.read(), &self.spec),
+                transfers: self
+                    .op_pool
+                    .read()
+                    .get_transfers(&*self.state.read(), &self.spec),
             },
         };
 
