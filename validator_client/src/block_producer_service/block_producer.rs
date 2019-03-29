@@ -1,10 +1,8 @@
-pub mod test_utils;
-mod traits;
-
-use slot_clock::SlotClock;
+use super::beacon_block_node::{BeaconBlockNode, BeaconBlockNodeError};
+use crate::signer::Signer;
 use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Domain, Slot};
+use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -13,11 +11,11 @@ pub enum Error {
     EpochMapPoisoned,
     SlotClockPoisoned,
     EpochLengthIsZero,
-    BeaconNodeError(BeaconNodeError),
+    BeaconBlockNodeError(BeaconBlockNodeError),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum BlockProducerEvent {
+pub enum ValidatorEvent {
     /// A new block was produced.
     BlockProduced(Slot),
     /// A block was not produced as it would have been slashable.
@@ -32,21 +30,20 @@ pub enum BlockProducerEvent {
 
 /// This struct contains the logic for requesting and signing beacon blocks for a validator. The
 /// validator can abstractly sign via the Signer trait object.
-pub struct BlockProducer<B: BeaconNode, S: Signer> {
+pub struct BlockProducer<B: BeaconBlockNode, S: Signer> {
     /// The current fork.
     pub fork: Fork,
     /// The current slot to produce a block for.
     pub slot: Slot,
     /// The current epoch.
-    pub epoch: Epoch,
+    pub spec: Arc<ChainSpec>,
     /// The beacon node to connect to.
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
     pub signer: Arc<S>,
 }
 
-impl<B: BeaconNode, S: Signer> BlockProducer<B, S> {
-
+impl<B: BeaconBlockNode, S: Signer> BlockProducer<B, S> {
     /// Produce a block at some slot.
     ///
     /// Assumes that a block is required at this slot (does not check the duties).
@@ -57,43 +54,38 @@ impl<B: BeaconNode, S: Signer> BlockProducer<B, S> {
     ///
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
-    fn produce_block(&mut self) -> Result<BlockProducerEvent, Error> {
+    fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
+        let epoch = self.slot.epoch(self.spec.slots_per_epoch);
 
         let randao_reveal = {
-            // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
-            let message = slot.epoch(self.spec.slots_per_epoch).hash_tree_root();
-
-            match self.signer.sign_randao_reveal(
+            let message = epoch.hash_tree_root();
+            let randao_reveal = match self.signer.sign_randao_reveal(
                 &message,
-                self.spec
-                    .get_domain(slot.epoch(self.spec.slots_per_epoch), Domain::Randao, &fork),
+                self.spec.get_domain(epoch, Domain::Randao, &self.fork),
             ) {
-                None => return Ok(PollOutcome::SignerRejection(slot)),
+                None => return Ok(ValidatorEvent::SignerRejection(self.slot)),
                 Some(signature) => signature,
-            }
+            };
+            randao_reveal
         };
 
         if let Some(block) = self
             .beacon_node
-            .produce_beacon_block(slot, &randao_reveal)?
+            .produce_beacon_block(self.slot, &randao_reveal)?
         {
             if self.safe_to_produce(&block) {
-                let domain = self.spec.get_domain(
-                    slot.epoch(self.spec.slots_per_epoch),
-                    Domain::BeaconBlock,
-                    &fork,
-                );
+                let domain = self.spec.get_domain(epoch, Domain::BeaconBlock, &self.fork);
                 if let Some(block) = self.sign_block(block, domain) {
                     self.beacon_node.publish_beacon_block(block)?;
-                    Ok(PollOutcome::BlockProduced(slot))
+                    Ok(ValidatorEvent::BlockProduced(self.slot))
                 } else {
-                    Ok(PollOutcome::SignerRejection(slot))
+                    Ok(ValidatorEvent::SignerRejection(self.slot))
                 }
             } else {
-                Ok(PollOutcome::SlashableBlockNotProduced(slot))
+                Ok(ValidatorEvent::SlashableBlockNotProduced(self.slot))
             }
         } else {
-            Ok(PollOutcome::BeaconNodeUnableToProduceBlock(slot))
+            Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(self.slot))
         }
     }
 
@@ -138,12 +130,11 @@ impl<B: BeaconNode, S: Signer> BlockProducer<B, S> {
     }
 }
 
-impl From<BeaconNodeError> for Error {
-    fn from(e: BeaconNodeError) -> Error {
-        Error::BeaconNodeError(e)
+impl From<BeaconBlockNodeError> for Error {
+    fn from(e: BeaconBlockNodeError) -> Error {
+        Error::BeaconBlockNodeError(e)
     }
 }
-
 
 /* Old tests - Re-work for new logic
 #[cfg(test)]
@@ -225,3 +216,4 @@ mod tests {
         );
     }
 }
+*/

@@ -4,6 +4,7 @@ mod config;
 mod duties;
 pub mod error;
 mod service;
+mod signer;
 
 use crate::config::Config as ValidatorClientConfig;
 use clap::{App, Arg};

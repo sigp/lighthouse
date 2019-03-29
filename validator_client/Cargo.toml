@@ -8,11 +8,6 @@ edition = "2018"
 name = "validator_client"
 path = "src/main.rs"
 
-[lib]
-name = "validator_client"
-path = "src/lib.rs"
-
-
 [dependencies]
 block_proposer = { path = "../eth2/block_proposer" }
 attester = { path = "../eth2/attester" }
