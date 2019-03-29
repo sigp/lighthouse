@@ -78,7 +78,7 @@ impl Service {
         // Beacon node gRPC beacon node endpoints.
         let beacon_node_client = {
             let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
-            Arc::new(BeaconNodeServiceClient::new(ch))
+            BeaconNodeServiceClient::new(ch)
         };
 
         // retrieve node information and validate the beacon node
@@ -287,7 +287,6 @@ impl Service {
     }
 
     /*
-
         // Spawn a new thread to perform block production for the validator.
         let producer_thread = {
             let spec = spec.clone();
