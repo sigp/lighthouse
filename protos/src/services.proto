@@ -19,7 +19,9 @@ service BeaconNodeService {
 
 /// Service that handles block production
 service BeaconBlockService {
+    // Requests a block to be signed from the beacon node.
     rpc ProduceBeaconBlock(ProduceBeaconBlockRequest) returns (ProduceBeaconBlockResponse);
+    // Responds to the node the signed block to be published.
     rpc PublishBeaconBlock(PublishBeaconBlockRequest) returns (PublishBeaconBlockResponse);
 }
 
@@ -64,6 +66,7 @@ message Empty {}
 // Validator requests an unsigned proposal.
 message ProduceBeaconBlockRequest {
     uint64 slot = 1;
+    bytes randao_reveal = 2;
 }
 
 // Beacon node returns an unsigned proposal.

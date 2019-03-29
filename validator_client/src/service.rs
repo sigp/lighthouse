@@ -9,7 +9,7 @@
 /// data from the beacon node and performs the signing before publishing the block to the beacon
 /// node.
 use crate::attester_service::{AttestationGrpcClient, AttesterService};
-use crate::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
+use crate::block_producer_service::BeaconBlockGrpcClient;
 use crate::config::Config as ValidatorConfig;
 use crate::duties::UpdateOutcome;
 use crate::duties::{DutiesManager, EpochDutiesMap};
