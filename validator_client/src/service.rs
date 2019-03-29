@@ -9,8 +9,7 @@
 /// data from the beacon node and performs the signing before publishing the block to the beacon
 /// node.
 use crate::attester_service::{AttestationGrpcClient, AttesterService};
-use crate::block_producer::BlockProducer;
-use crate::block_producer_service::BeaconBlockGrpcClient;
+use crate::block_producer::{BeaconBlockGrpcClient, BlockProducer};
 use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap, UpdateOutcome};
 use crate::error as error_chain;
@@ -40,6 +39,7 @@ use types::{ChainSpec, Epoch, Fork, Slot};
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
+//TODO: Generalize the BeaconNode types to use testing
 pub struct Service<B: BeaconNodeDuties + 'static> {
     /// The node we currently connected to.
     connected_node_version: String,
