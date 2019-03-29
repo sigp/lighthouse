@@ -26,7 +26,10 @@ pub enum ValidBlock {
 #[derive(Debug, PartialEq)]
 pub enum InvalidBlock {
     /// The block slot is greater than the present slot.
-    FutureSlot,
+    FutureSlot {
+        present_slot: Slot,
+        block_slot: Slot,
+    },
     /// The block state_root does not match the generated state.
     StateRootMismatch,
     /// The blocks parent_root is unknown.
@@ -44,6 +47,35 @@ pub enum BlockProcessingOutcome {
     ValidBlock(ValidBlock),
     /// The block was not successfully validated.
     InvalidBlock(InvalidBlock),
+}
+
+impl BlockProcessingOutcome {
+    /// Returns `true` if the block was objectively invalid and we should disregard the peer who
+    /// sent it.
+    pub fn is_invalid(&self) -> bool {
+        match self {
+            BlockProcessingOutcome::ValidBlock(_) => false,
+            BlockProcessingOutcome::InvalidBlock(r) => match r {
+                InvalidBlock::FutureSlot { .. } => true,
+                InvalidBlock::StateRootMismatch => true,
+                InvalidBlock::ParentUnknown => false,
+                InvalidBlock::SlotProcessingError(_) => false,
+                InvalidBlock::PerBlockProcessingError(e) => match e {
+                    BlockProcessingError::Invalid(_) => true,
+                    BlockProcessingError::BeaconStateError(_) => false,
+                },
+            },
+        }
+    }
+
+    /// Returns `true` if the block was successfully processed and can be removed from any import
+    /// queues or temporary storage.
+    pub fn sucessfully_processed(&self) -> bool {
+        match self {
+            BlockProcessingOutcome::ValidBlock(_) => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
@@ -122,6 +154,126 @@ where
         })
     }
 
+    /// Returns the beacon block body for each beacon block root in `roots`.
+    ///
+    /// Fails if any root in `roots` does not have a corresponding block.
+    pub fn get_block_bodies(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockBody>, Error> {
+        let bodies: Result<Vec<BeaconBlockBody>, _> = roots
+            .iter()
+            .map(|root| match self.get_block(root)? {
+                Some(block) => Ok(block.body),
+                None => Err(Error::DBInconsistent("Missing block".into())),
+            })
+            .collect();
+
+        Ok(bodies?)
+    }
+
+    /// Returns the beacon block header for each beacon block root in `roots`.
+    ///
+    /// Fails if any root in `roots` does not have a corresponding block.
+    pub fn get_block_headers(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockHeader>, Error> {
+        let headers: Result<Vec<BeaconBlockHeader>, _> = roots
+            .iter()
+            .map(|root| match self.get_block(root)? {
+                Some(block) => Ok(block.block_header()),
+                None => Err(Error::DBInconsistent("Missing block".into())),
+            })
+            .collect();
+
+        Ok(headers?)
+    }
+
+    /// Returns `count `beacon block roots, starting from `start_slot` with an
+    /// interval of `skip` slots between each root.
+    ///
+    /// ## Errors:
+    ///
+    /// - `SlotOutOfBounds`: Unable to return the full specified range.
+    /// - `SlotOutOfBounds`: Unable to load a state from the DB.
+    /// - `SlotOutOfBounds`: Start slot is higher than the first slot.
+    /// - Other: BeaconState` is inconsistent.
+    pub fn get_block_roots(
+        &self,
+        earliest_slot: Slot,
+        count: usize,
+        skip: usize,
+    ) -> Result<Vec<Hash256>, Error> {
+        let spec = &self.spec;
+        let step_by = Slot::from(skip + 1);
+
+        let mut roots: Vec<Hash256> = vec![];
+
+        // The state for reading block roots. Will be updated with an older state if slots go too
+        // far back in history.
+        let mut state = self.state.read().clone();
+
+        // The final slot in this series, will be reduced by `skip` each loop iteration.
+        let mut slot = earliest_slot + Slot::from(count * (skip + 1)) - 1;
+
+        // If the highest slot requested is that of the current state insert the root of the
+        // head block, unless the head block's slot is not matching.
+        if slot == state.slot && self.head().beacon_block.slot == slot {
+            roots.push(self.head().beacon_block_root);
+
+            slot -= step_by;
+        } else if slot >= state.slot {
+            return Err(BeaconStateError::SlotOutOfBounds.into());
+        }
+
+        loop {
+            // If the slot is within the range of the current state's block roots, append the root
+            // to the output vec.
+            //
+            // If we get `SlotOutOfBounds` error, load the oldest available historic
+            // state from the DB.
+            match state.get_block_root(slot, spec) {
+                Ok(root) => {
+                    if slot < earliest_slot {
+                        break;
+                    } else {
+                        roots.push(*root);
+                        slot -= step_by;
+                    }
+                }
+                Err(BeaconStateError::SlotOutOfBounds) => {
+                    // Read the earliest historic state in the current slot.
+                    let earliest_historic_slot =
+                        state.slot - Slot::from(spec.slots_per_historical_root);
+                    // Load the earlier state from disk.
+                    let new_state_root = state.get_state_root(earliest_historic_slot, spec)?;
+
+                    // Break if the DB is unable to load the state.
+                    state = match self.state_store.get_deserialized(&new_state_root) {
+                        Ok(Some(state)) => state,
+                        _ => break,
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            };
+        }
+
+        // Return the results if they pass a sanity check.
+        if (slot <= earliest_slot) && (roots.len() == count) {
+            // Reverse the ordering of the roots. We extracted them in reverse order to make it
+            // simpler to lookup historic states.
+            //
+            // This is a potential optimisation target.
+            Ok(roots.iter().rev().cloned().collect())
+        } else {
+            Err(BeaconStateError::SlotOutOfBounds.into())
+        }
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, Error> {
+        Ok(self.block_store.get_deserialized(block_root)?)
+    }
+
     /// Update the canonical head to some new values.
     pub fn update_canonical_head(
         &self,
@@ -153,6 +305,58 @@ where
         self.canonical_head.read()
     }
 
+    /// Updates the canonical `BeaconState` with the supplied state.
+    ///
+    /// Advances the chain forward to the present slot. This method is better than just setting
+    /// state and calling `catchup_state` as it will not result in an old state being installed and
+    /// then having it iteratively updated -- in such a case it's possible for another thread to
+    /// find the state at an old slot.
+    pub fn update_state(&self, mut state: BeaconState) -> Result<(), Error> {
+        let latest_block_header = self.head().beacon_block.block_header();
+
+        let present_slot = match self.slot_clock.present_slot() {
+            Ok(Some(slot)) => slot,
+            _ => return Err(Error::UnableToReadSlot),
+        };
+
+        // If required, transition the new state to the present slot.
+        for _ in state.slot.as_u64()..present_slot.as_u64() {
+            per_slot_processing(&mut state, &latest_block_header, &self.spec)?;
+        }
+
+        *self.state.write() = state;
+
+        Ok(())
+    }
+
+    /// Ensures the current canonical `BeaconState` has been transitioned to match the `slot_clock`.
+    pub fn catchup_state(&self) -> Result<(), Error> {
+        let latest_block_header = self.head().beacon_block.block_header();
+
+        let present_slot = match self.slot_clock.present_slot() {
+            Ok(Some(slot)) => slot,
+            _ => return Err(Error::UnableToReadSlot),
+        };
+
+        let mut state = self.state.write();
+
+        // If required, transition the new state to the present slot.
+        for _ in state.slot.as_u64()..present_slot.as_u64() {
+            // Ensure the next epoch state caches are built in case of an epoch transition.
+            state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
+            state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+
+            per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
+        }
+        state.build_epoch_cache(RelativeEpoch::Previous, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
+        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+        state.update_pubkey_cache()?;
+
+        Ok(())
+    }
+
     /// Update the justified head to some new values.
     pub fn update_finalized_head(
         &self,
@@ -174,28 +378,6 @@ where
     /// indirectly,  by the fork-choice rule).
     pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint> {
         self.finalized_head.read()
-    }
-
-    /// Advance the `self.state` `BeaconState` to the supplied slot.
-    ///
-    /// This will perform per_slot and per_epoch processing as required.
-    ///
-    /// The `previous_block_root` will be set to the root of the current head block (as determined
-    /// by the fork-choice rule).
-    ///
-    /// It is important to note that this is _not_ the state corresponding to the canonical head
-    /// block, instead it is that state which may or may not have had additional per slot/epoch
-    /// processing applied to it.
-    pub fn advance_state(&self, slot: Slot) -> Result<(), SlotProcessingError> {
-        let state_slot = self.state.read().slot;
-
-        let latest_block_header = self.head().beacon_block.block_header();
-
-        for _ in state_slot.as_u64()..slot.as_u64() {
-            per_slot_processing(&mut *self.state.write(), &latest_block_header, &self.spec)?;
-        }
-
-        Ok(())
     }
 
     /// Returns the validator index (if any) for the given public key.
@@ -232,6 +414,20 @@ where
         }
     }
 
+    /// Reads the slot clock (see `self.read_slot_clock()` and returns the number of slots since
+    /// genesis.
+    pub fn slots_since_genesis(&self) -> Option<SlotHeight> {
+        let now = self.read_slot_clock()?;
+
+        if now < self.spec.genesis_slot {
+            None
+        } else {
+            Some(SlotHeight::from(
+                now.as_u64() - self.spec.genesis_slot.as_u64(),
+            ))
+        }
+    }
+
     /// Returns slot of the present state.
     ///
     /// This is distinct to `read_slot_clock`, which reads from the actual system clock. If
@@ -246,7 +442,10 @@ where
     /// Information is read from the present `beacon_state` shuffling, so only information from the
     /// present and prior epoch is available.
     pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
-        trace!("BeaconChain::block_proposer: slot: {}", slot);
+        self.state
+            .write()
+            .build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
+
         let index = self.state.read().get_beacon_proposer_index(
             slot,
             RelativeEpoch::Current,
@@ -280,8 +479,8 @@ where
     }
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
-    pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
-        trace!("BeaconChain::produce_attestation_data: shard: {}", shard);
+    pub fn produce_attestation(&self, shard: u64) -> Result<AttestationData, Error> {
+        trace!("BeaconChain::produce_attestation: shard: {}", shard);
         let source_epoch = self.state.read().current_justified_epoch;
         let source_root = *self.state.read().get_block_root(
             source_epoch.start_slot(self.spec.slots_per_epoch),
@@ -555,6 +754,11 @@ where
         }
     }
 
+    /// Returns `true` if the given block root has not been processed.
+    pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
+        Ok(!self.block_store.exists(beacon_block_root)?)
+    }
+
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
@@ -567,7 +771,10 @@ where
 
         if block.slot > present_slot {
             return Ok(BlockProcessingOutcome::InvalidBlock(
-                InvalidBlock::FutureSlot,
+                InvalidBlock::FutureSlot {
+                    present_slot,
+                    block_slot: block.slot,
+                },
             ));
         }
 
@@ -594,10 +801,10 @@ where
         // TODO: check the block proposer signature BEFORE doing a state transition. This will
         // significantly lower exposure surface to DoS attacks.
 
-        // Transition the parent state to the present slot.
+        // Transition the parent state to the block slot.
         let mut state = parent_state;
         let previous_block_header = parent_block.block_header();
-        for _ in state.slot.as_u64()..present_slot.as_u64() {
+        for _ in state.slot.as_u64()..block.slot.as_u64() {
             if let Err(e) = per_slot_processing(&mut state, &previous_block_header, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
@@ -643,8 +850,9 @@ where
         // run instead.
         if self.head().beacon_block_root == parent_block_root {
             self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
-            // Update the local state variable.
-            *self.state.write() = state;
+
+            // Update the canonical `BeaconState`.
+            self.update_state(state)?;
         }
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
@@ -661,6 +869,8 @@ where
         debug!("Producing block at slot {}...", self.state.read().slot);
 
         let mut state = self.state.read().clone();
+
+        state.build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
 
         trace!("Finding attestations for new block...");
 
@@ -732,7 +942,10 @@ where
                 .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
             let state_root = state.canonical_root();
 
-            self.update_canonical_head(block, block_root, state, state_root);
+            self.update_canonical_head(block, block_root, state.clone(), state_root);
+
+            // Update the canonical `BeaconState`.
+            self.update_state(state)?;
         }
 
         Ok(())

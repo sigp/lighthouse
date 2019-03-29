@@ -2,7 +2,7 @@
 ///
 /// This is purpose built for Ethereum 2.0 serenity and the protocol listens on
 /// `/eth/serenity/rpc/1.0.0`
-mod methods;
+pub mod methods;
 mod protocol;
 
 use futures::prelude::*;
@@ -12,7 +12,7 @@ use libp2p::core::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
-pub use protocol::{RPCEvent, RPCProtocol};
+pub use protocol::{RPCEvent, RPCProtocol, RequestId};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};

@@ -23,6 +23,7 @@ pub fn keypairs_path() -> PathBuf {
 /// Builds a beacon state to be used for testing purposes.
 ///
 /// This struct should **never be used for production purposes.**
+#[derive(Clone)]
 pub struct TestingBeaconStateBuilder {
     state: BeaconState,
     keypairs: Vec<Keypair>,
@@ -119,8 +120,10 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
+        let genesis_time = 1553753928; // arbitrary
+
         let mut state = BeaconState::genesis(
-            0,
+            genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
                 block_hash: Hash256::zero(),
