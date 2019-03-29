@@ -20,7 +20,6 @@ pub fn per_slot_processing(
 
     if (state.slot + 1) % spec.slots_per_epoch == 0 {
         per_epoch_processing(state, spec)?;
-        state.advance_caches();
     }
 
     state.slot += 1;

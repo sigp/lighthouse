@@ -5,7 +5,7 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{decode, ssz_encode};
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconBlockBody, Eth1Data, Hash256, Signature, Slot};
+use types::{BeaconBlock, Signature, Slot};
 
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
@@ -40,33 +40,11 @@ impl BeaconNode for BeaconBlockGrpcClient {
 
         if reply.has_block() {
             let block = reply.get_block();
+            let ssz = block.get_ssz();
 
-            let signature = decode::<Signature>(block.get_signature())
-                .map_err(|_| BeaconNodeError::DecodeFailure)?;
+            let block = decode::<BeaconBlock>(&ssz).map_err(|_| BeaconNodeError::DecodeFailure)?;
 
-            let randao_reveal = decode::<Signature>(block.get_randao_reveal())
-                .map_err(|_| BeaconNodeError::DecodeFailure)?;
-
-            // TODO: this conversion is incomplete; fix it.
-            Ok(Some(BeaconBlock {
-                slot: Slot::new(block.get_slot()),
-                previous_block_root: Hash256::zero(),
-                state_root: Hash256::zero(),
-                signature,
-                body: BeaconBlockBody {
-                    randao_reveal,
-                    eth1_data: Eth1Data {
-                        deposit_root: Hash256::zero(),
-                        block_hash: Hash256::zero(),
-                    },
-                    proposer_slashings: vec![],
-                    attester_slashings: vec![],
-                    attestations: vec![],
-                    deposits: vec![],
-                    voluntary_exits: vec![],
-                    transfers: vec![],
-                },
-            }))
+            Ok(Some(block))
         } else {
             Ok(None)
         }
@@ -79,12 +57,11 @@ impl BeaconNode for BeaconBlockGrpcClient {
     fn publish_beacon_block(&self, block: BeaconBlock) -> Result<PublishOutcome, BeaconNodeError> {
         let mut req = PublishBeaconBlockRequest::new();
 
+        let ssz = ssz_encode(&block);
+
         // TODO: this conversion is incomplete; fix it.
         let mut grpc_block = GrpcBeaconBlock::new();
-        grpc_block.set_slot(block.slot.as_u64());
-        grpc_block.set_block_root(vec![0]);
-        grpc_block.set_randao_reveal(ssz_encode(&block.body.randao_reveal));
-        grpc_block.set_signature(ssz_encode(&block.signature));
+        grpc_block.set_ssz(ssz);
 
         req.set_block(grpc_block);
 

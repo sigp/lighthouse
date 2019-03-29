@@ -1,54 +1,60 @@
+use super::epoch_duties::{EpochDuties, EpochDuty};
 use super::traits::{BeaconNode, BeaconNodeError};
-use super::EpochDuties;
-use protos::services::{ProposeBlockSlotRequest, PublicKey as IndexRequest};
+use grpcio::CallOption;
+use protos::services::{GetDutiesRequest, Validators};
 use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
+use std::collections::HashMap;
+use std::time::Duration;
 use types::{Epoch, PublicKey, Slot};
 
 impl BeaconNode for ValidatorServiceClient {
-    /// Request the shuffling from the Beacon Node (BN).
-    ///
-    /// As this function takes a `PublicKey`, it will first attempt to resolve the public key into
-    /// a validator index, then call the BN for production/attestation duties.
-    ///
-    /// Note: presently only block production information is returned.
-    fn request_shuffling(
+    /// Requests all duties (block signing and committee attesting) from the Beacon Node (BN).
+    fn request_duties(
         &self,
         epoch: Epoch,
-        public_key: &PublicKey,
-    ) -> Result<Option<EpochDuties>, BeaconNodeError> {
-        // Lookup the validator index for the supplied public key.
-        let validator_index = {
-            let mut req = IndexRequest::new();
-            req.set_public_key(ssz_encode(public_key).to_vec());
-            let resp = self
-                .validator_index(&req)
-                .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
-            resp.get_index()
-        };
-
-        let mut req = ProposeBlockSlotRequest::new();
-        req.set_validator_index(validator_index);
+        pubkeys: &[PublicKey],
+    ) -> Result<EpochDuties, BeaconNodeError> {
+        // Get the required duties from all validators
+        // build the request
+        let mut req = GetDutiesRequest::new();
         req.set_epoch(epoch.as_u64());
+        let mut validators = Validators::new();
+        validators.set_public_keys(pubkeys.iter().map(|v| ssz_encode(v)).collect());
+        req.set_validators(validators);
 
+        // set a timeout for requests
+        // let call_opt = CallOption::default().timeout(Duration::from_secs(2));
+
+        // send the request, get the duties reply
         let reply = self
-            .propose_block_slot(&req)
+            .get_validator_duties(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
-        let block_production_slot = if reply.has_slot() {
-            Some(reply.get_slot())
-        } else {
-            None
-        };
-
-        let block_production_slot = match block_production_slot {
-            Some(slot) => Some(Slot::new(slot)),
-            None => None,
-        };
-
-        Ok(Some(EpochDuties {
-            validator_index,
-            block_production_slot,
-        }))
+        let mut epoch_duties: HashMap<PublicKey, Option<EpochDuty>> = HashMap::new();
+        for (index, validator_duty) in reply.get_active_validators().iter().enumerate() {
+            if !validator_duty.has_duty() {
+                // validator is inactive
+                epoch_duties.insert(pubkeys[index].clone(), None);
+                continue;
+            }
+            // active validator
+            let active_duty = validator_duty.get_duty();
+            let block_production_slot = {
+                if active_duty.has_block_production_slot() {
+                    Some(Slot::from(active_duty.get_block_production_slot()))
+                } else {
+                    None
+                }
+            };
+            let epoch_duty = EpochDuty {
+                block_production_slot,
+                attestation_slot: Slot::from(active_duty.get_attestation_slot()),
+                attestation_shard: active_duty.get_attestation_shard(),
+                committee_index: active_duty.get_committee_index(),
+            };
+            epoch_duties.insert(pubkeys[index].clone(), Some(epoch_duty));
+        }
+        Ok(epoch_duties)
     }
 }
