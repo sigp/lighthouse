@@ -1,61 +1,80 @@
-mod beacon_block_grpc_client;
-// mod block_producer_service;
-
-use block_proposer::{
-    BeaconNode, BlockProducer, DutiesReader, PollOutcome as BlockProducerPollOutcome, Signer,
+use protos::services::{
+    BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
-use slog::{error, info, warn, Logger};
-use slot_clock::SlotClock;
-use std::time::Duration;
+use protos::services_grpc::BeaconBlockServiceClient;
+use ssz::{ssz_encode, Decodable};
+use std::sync::Arc;
+use types::{BeaconBlock, Signature, Slot};
 
-pub use self::beacon_block_grpc_client::BeaconBlockGrpcClient;
-
-pub struct BlockProducerService<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> {
-    pub block_producer: BlockProducer<T, U, V, W>,
-    pub poll_interval_millis: u64,
-    pub log: Logger,
+/// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
+/// implemented upon it.
+pub struct BeaconBlockGrpcClient {
+    inner: Arc<BeaconBlockServiceClient>,
 }
 
-impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducerService<T, U, V, W> {
-    /// Run a loop which polls the block producer each `poll_interval_millis` millseconds.
-    ///
-    /// Logs the results of the polls.
-    pub fn run(&mut self) {
-        loop {
-            match self.block_producer.poll() {
-                Err(error) => {
-                    error!(self.log, "Block producer poll error"; "error" => format!("{:?}", error))
-                }
-                Ok(BlockProducerPollOutcome::BlockProduced(slot)) => {
-                    info!(self.log, "Produced block"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::SlashableBlockNotProduced(slot)) => {
-                    warn!(self.log, "Slashable block was not signed"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::BlockProductionNotRequired(slot)) => {
-                    info!(self.log, "Block production not required"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::ProducerDutiesUnknown(slot)) => {
-                    error!(self.log, "Block production duties unknown"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::SlotAlreadyProcessed(slot)) => {
-                    warn!(self.log, "Attempted to re-process slot"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::BeaconNodeUnableToProduceBlock(slot)) => {
-                    error!(self.log, "Beacon node unable to produce block"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::SignerRejection(slot)) => {
-                    error!(self.log, "The cryptographic signer refused to sign the block"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::ValidatorIsUnknown(slot)) => {
-                    error!(self.log, "The Beacon Node does not recognise the validator"; "slot" => slot)
-                }
-                Ok(BlockProducerPollOutcome::UnableToGetFork(slot)) => {
-                    error!(self.log, "Unable to get a `Fork` struct to generate signature domains"; "slot" => slot)
-                }
-            };
+impl BeaconBlockGrpcClient {
+    pub fn new(client: Arc<BeaconBlockServiceClient>) -> Self {
+        Self { inner: client }
+    }
+}
 
-            std::thread::sleep(Duration::from_millis(self.poll_interval_millis));
+impl BeaconNode for BeaconBlockGrpcClient {
+    /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
+    ///
+    /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
+    /// BN is unable to find a parent block.
+    fn produce_beacon_block(
+        &self,
+        slot: Slot,
+        // TODO: use randao_reveal, when proto APIs have been updated.
+        _randao_reveal: &Signature,
+    ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
+        let mut req = ProduceBeaconBlockRequest::new();
+        req.set_slot(slot.as_u64());
+
+        let reply = self
+            .client
+            .produce_beacon_block(&req)
+            .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
+
+        if reply.has_block() {
+            let block = reply.get_block();
+            let ssz = block.get_ssz();
+
+            let (block, _i) =
+                BeaconBlock::ssz_decode(&ssz, 0).map_err(|_| BeaconNodeError::DecodeFailure)?;
+
+            Ok(Some(block))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Request a Beacon Node (BN) to publish a block.
+    ///
+    /// Generally, this will be called after a `produce_beacon_block` call with a block that has
+    /// been completed (signed) by the validator client.
+    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<PublishOutcome, BeaconNodeError> {
+        let mut req = PublishBeaconBlockRequest::new();
+
+        let ssz = ssz_encode(&block);
+
+        // TODO: this conversion is incomplete; fix it.
+        let mut grpc_block = GrpcBeaconBlock::new();
+        grpc_block.set_ssz(ssz);
+
+        req.set_block(grpc_block);
+
+        let reply = self
+            .client
+            .publish_beacon_block(&req)
+            .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
+
+        if reply.get_success() {
+            Ok(PublishOutcome::ValidBlock)
+        } else {
+            // TODO: distinguish between different errors
+            Ok(PublishOutcome::InvalidBlock("Publish failed".to_string()))
         }
     }
 }
