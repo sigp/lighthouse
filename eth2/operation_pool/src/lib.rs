@@ -21,7 +21,7 @@ use types::{
 #[cfg(test)]
 const VERIFY_DEPOSIT_PROOFS: bool = false;
 #[cfg(not(test))]
-const VERIFY_DEPOSIT_PROOFS: bool = true;
+const VERIFY_DEPOSIT_PROOFS: bool = false; // TODO: enable this
 
 #[derive(Default)]
 pub struct OperationPool {
