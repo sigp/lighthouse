@@ -4,8 +4,8 @@ use crate::{ssz_encode, Encodable};
 impl CachedTreeHash for u64 {
     type Item = Self;
 
-    fn leaves_and_subtrees(&self) -> Vec<u8> {
-        merkleize(ssz_encode(self))
+    fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
+        Ok(TreeHashCache::from_bytes(merkleize(ssz_encode(self)))?)
     }
 
     fn num_bytes(&self) -> usize {
