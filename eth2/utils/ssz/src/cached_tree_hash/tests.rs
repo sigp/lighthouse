@@ -12,15 +12,18 @@ pub struct Inner {
 impl CachedTreeHash for Inner {
     type Item = Self;
 
-    fn leaves_and_subtrees(&self) -> Vec<u8> {
-        let mut leaves_and_subtrees = vec![];
+    fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
+        let tree = TreeHashCache::from_leaves_and_subtrees(
+            self,
+            vec![
+                self.a.build_tree_hash_cache()?,
+                self.b.build_tree_hash_cache()?,
+                self.c.build_tree_hash_cache()?,
+                self.d.build_tree_hash_cache()?,
+            ],
+        )?;
 
-        leaves_and_subtrees.append(&mut self.a.leaves_and_subtrees());
-        leaves_and_subtrees.append(&mut self.b.leaves_and_subtrees());
-        leaves_and_subtrees.append(&mut self.c.leaves_and_subtrees());
-        leaves_and_subtrees.append(&mut self.d.leaves_and_subtrees());
-
-        leaves_and_subtrees
+        Ok(tree)
     }
 
     fn num_bytes(&self) -> usize {
@@ -94,14 +97,17 @@ pub struct Outer {
 impl CachedTreeHash for Outer {
     type Item = Self;
 
-    fn leaves_and_subtrees(&self) -> Vec<u8> {
-        let mut leaves_and_subtrees = vec![];
+    fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
+        let tree = TreeHashCache::from_leaves_and_subtrees(
+            self,
+            vec![
+                self.a.build_tree_hash_cache()?,
+                self.b.build_tree_hash_cache()?,
+                self.c.build_tree_hash_cache()?,
+            ],
+        )?;
 
-        leaves_and_subtrees.append(&mut self.a.leaves_and_subtrees());
-        leaves_and_subtrees.append(&mut self.b.leaves_and_subtrees());
-        leaves_and_subtrees.append(&mut self.c.leaves_and_subtrees());
-
-        leaves_and_subtrees
+        Ok(tree)
     }
 
     fn num_bytes(&self) -> usize {
@@ -193,10 +199,8 @@ fn partial_modification_to_inner_struct() {
         ..original_outer.clone()
     };
 
-    println!("AAAAAAAAA");
     // Perform a differential hash
     let mut cache_struct = TreeHashCache::new(&original_outer).unwrap();
-    println!("BBBBBBBBBB");
 
     modified_outer
         .cached_hash_tree_root(&original_outer, &mut cache_struct, 0)
