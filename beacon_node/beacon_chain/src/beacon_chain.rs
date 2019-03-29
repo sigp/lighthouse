@@ -6,7 +6,7 @@ use db::{
     ClientDB, DBError,
 };
 use fork_choice::{ForkChoice, ForkChoiceError};
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
 use operation_pool::OperationPool;
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -560,7 +560,7 @@ where
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
-    pub fn receive_deposit_for_inclusion(
+    pub fn process_deposit(
         &self,
         deposit: Deposit,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
@@ -570,27 +570,21 @@ where
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
-    pub fn receive_exit_for_inclusion(
-        &self,
-        exit: VoluntaryExit,
-    ) -> Result<(), ExitValidationError> {
+    pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
         self.op_pool
             .write()
             .insert_voluntary_exit(exit, &*self.state.read(), &self.spec)
     }
 
     /// Accept some transfer and queue it for inclusion in an appropriate block.
-    pub fn receive_transfer_for_inclusion(
-        &self,
-        transfer: Transfer,
-    ) -> Result<(), TransferValidationError> {
+    pub fn process_transfer(&self, transfer: Transfer) -> Result<(), TransferValidationError> {
         self.op_pool
             .write()
             .insert_transfer(transfer, &*self.state.read(), &self.spec)
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
-    pub fn receive_proposer_slashing_for_inclusion(
+    pub fn process_proposer_slashing(
         &self,
         proposer_slashing: ProposerSlashing,
     ) -> Result<(), ProposerSlashingValidationError> {
@@ -602,7 +596,7 @@ where
     }
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
-    pub fn receive_attester_slashing_for_inclusion(
+    pub fn process_attester_slashing(
         &self,
         attester_slashing: AttesterSlashing,
     ) -> Result<(), AttesterSlashingValidationError> {
@@ -611,11 +605,6 @@ where
             &*self.state.read(),
             &self.spec,
         )
-    }
-
-    /// Returns `true` if the given block root has not been processed.
-    pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
-        Ok(!self.block_store.exists(beacon_block_root)?)
     }
 
     /// Accept some block and attempt to add it to block DAG.
@@ -815,6 +804,11 @@ where
         }
 
         Ok(())
+    }
+
+    /// Returns `true` if the given block root has not been processed.
+    pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
+        Ok(!self.block_store.exists(beacon_block_root)?)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.

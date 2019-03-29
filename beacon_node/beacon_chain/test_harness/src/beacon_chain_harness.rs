@@ -285,9 +285,7 @@ impl BeaconChainHarness {
     /// If a new `ValidatorHarness` was created, the validator should become fully operational as
     /// if the validator were created during `BeaconChainHarness` instantiation.
     pub fn add_deposit(&mut self, deposit: Deposit, keypair: Option<Keypair>) {
-        self.beacon_chain
-            .receive_deposit_for_inclusion(deposit)
-            .unwrap();
+        self.beacon_chain.process_deposit(deposit).unwrap();
 
         // If a keypair is present, add a new `ValidatorHarness` to the rig.
         if let Some(keypair) = keypair {
@@ -303,27 +301,25 @@ impl BeaconChainHarness {
     /// will stop receiving duties from the beacon chain and just do nothing when prompted to
     /// produce/attest.
     pub fn add_exit(&mut self, exit: VoluntaryExit) {
-        self.beacon_chain.receive_exit_for_inclusion(exit).unwrap();
+        self.beacon_chain.process_voluntary_exit(exit).unwrap();
     }
 
     /// Submit an transfer to the `BeaconChain` for inclusion in some block.
     pub fn add_transfer(&mut self, transfer: Transfer) {
-        self.beacon_chain
-            .receive_transfer_for_inclusion(transfer)
-            .unwrap();
+        self.beacon_chain.process_transfer(transfer).unwrap();
     }
 
     /// Submit a proposer slashing to the `BeaconChain` for inclusion in some block.
     pub fn add_proposer_slashing(&mut self, proposer_slashing: ProposerSlashing) {
         self.beacon_chain
-            .receive_proposer_slashing_for_inclusion(proposer_slashing)
+            .process_proposer_slashing(proposer_slashing)
             .unwrap();
     }
 
     /// Submit an attester slashing to the `BeaconChain` for inclusion in some block.
     pub fn add_attester_slashing(&mut self, attester_slashing: AttesterSlashing) {
         self.beacon_chain
-            .receive_attester_slashing_for_inclusion(attester_slashing)
+            .process_attester_slashing(attester_slashing)
             .unwrap();
     }
 
