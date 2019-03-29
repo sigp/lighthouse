@@ -8,7 +8,9 @@ before_install:
   - sudo chown -R $USER /usr/local/include/google
 script:
   - cargo build --verbose --all
+  - cargo build --verbose --release --all
   - cargo test --verbose --all
+  - cargo test --verbose --release --all
   - cargo fmt --all -- --check
 rust:
   - stable

@@ -1,5 +1,6 @@
 use super::SlotClock;
 use std::sync::RwLock;
+use std::time::Duration;
 use types::Slot;
 
 #[derive(Debug, PartialEq)]
@@ -31,6 +32,11 @@ impl SlotClock for TestingSlotClock {
     fn present_slot(&self) -> Result<Option<Slot>, Error> {
         let slot = *self.slot.read().expect("TestingSlotClock poisoned.");
         Ok(Some(Slot::new(slot)))
+    }
+
+    /// Always returns a duration of 1 second.
+    fn duration_to_next_slot(&self) -> Result<Option<Duration>, Error> {
+        Ok(Some(Duration::from_secs(1)))
     }
 }
 
