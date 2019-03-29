@@ -12,19 +12,15 @@ pub struct Inner {
 impl CachedTreeHash for Inner {
     type Item = Self;
 
-    fn build_cache(&self) -> Result<TreeHashCache, Error> {
-        let offset_handler = self.offset_handler(0)?;
-
+    fn leaves_and_subtrees(&self) -> Vec<u8> {
         let mut leaves_and_subtrees = vec![];
 
-        leaves_and_subtrees.append(&mut self.a.build_cache()?.into());
-        leaves_and_subtrees.append(&mut self.b.build_cache()?.into());
-        leaves_and_subtrees.append(&mut self.c.build_cache()?.into());
-        leaves_and_subtrees.append(&mut self.d.build_cache()?.into());
+        leaves_and_subtrees.append(&mut self.a.leaves_and_subtrees());
+        leaves_and_subtrees.append(&mut self.b.leaves_and_subtrees());
+        leaves_and_subtrees.append(&mut self.c.leaves_and_subtrees());
+        leaves_and_subtrees.append(&mut self.d.leaves_and_subtrees());
 
-        pad_for_leaf_count(offset_handler.num_leaf_nodes, &mut leaves_and_subtrees);
-
-        TreeHashCache::from_leaves_and_subtrees(leaves_and_subtrees, self.offset_handler(0)?)
+        leaves_and_subtrees
     }
 
     fn num_bytes(&self) -> usize {
@@ -38,7 +34,7 @@ impl CachedTreeHash for Inner {
         bytes
     }
 
-    fn offset_handler(&self, initial_offset: usize) -> Result<OffsetHandler, Error> {
+    fn offsets(&self) -> Result<Vec<usize>, Error> {
         let mut offsets = vec![];
 
         offsets.push(self.a.num_child_nodes() + 1);
@@ -46,7 +42,7 @@ impl CachedTreeHash for Inner {
         offsets.push(self.c.num_child_nodes() + 1);
         offsets.push(self.d.num_child_nodes() + 1);
 
-        OffsetHandler::from_lengths(initial_offset, offsets)
+        Ok(offsets)
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -67,7 +63,7 @@ impl CachedTreeHash for Inner {
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Result<usize, Error> {
-        let offset_handler = self.offset_handler(chunk)?;
+        let offset_handler = OffsetHandler::new(self, chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
         {
@@ -98,18 +94,14 @@ pub struct Outer {
 impl CachedTreeHash for Outer {
     type Item = Self;
 
-    fn build_cache(&self) -> Result<TreeHashCache, Error> {
-        let offset_handler = self.offset_handler(0)?;
-
+    fn leaves_and_subtrees(&self) -> Vec<u8> {
         let mut leaves_and_subtrees = vec![];
 
-        leaves_and_subtrees.append(&mut self.a.build_cache()?.into());
-        leaves_and_subtrees.append(&mut self.b.build_cache()?.into());
-        leaves_and_subtrees.append(&mut self.c.build_cache()?.into());
+        leaves_and_subtrees.append(&mut self.a.leaves_and_subtrees());
+        leaves_and_subtrees.append(&mut self.b.leaves_and_subtrees());
+        leaves_and_subtrees.append(&mut self.c.leaves_and_subtrees());
 
-        pad_for_leaf_count(offset_handler.num_leaf_nodes, &mut leaves_and_subtrees);
-
-        TreeHashCache::from_leaves_and_subtrees(leaves_and_subtrees, self.offset_handler(0)?)
+        leaves_and_subtrees
     }
 
     fn num_bytes(&self) -> usize {
@@ -131,14 +123,14 @@ impl CachedTreeHash for Outer {
         num_nodes(leaves) + children - 1
     }
 
-    fn offset_handler(&self, initial_offset: usize) -> Result<OffsetHandler, Error> {
+    fn offsets(&self) -> Result<Vec<usize>, Error> {
         let mut offsets = vec![];
 
         offsets.push(self.a.num_child_nodes() + 1);
         offsets.push(self.b.num_child_nodes() + 1);
         offsets.push(self.c.num_child_nodes() + 1);
 
-        OffsetHandler::from_lengths(initial_offset, offsets)
+        Ok(offsets)
     }
 
     fn cached_hash_tree_root(
@@ -147,7 +139,7 @@ impl CachedTreeHash for Outer {
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Result<usize, Error> {
-        let offset_handler = self.offset_handler(chunk)?;
+        let offset_handler = OffsetHandler::new(self, chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
         {
@@ -308,7 +300,7 @@ fn outer_builds() {
     // Generate reference data.
     let mut data = vec![];
     data.append(&mut int_to_bytes32(0));
-    let inner_bytes: Vec<u8> = inner.build_cache().unwrap().into();
+    let inner_bytes: Vec<u8> = TreeHashCache::new(&inner).unwrap().into();
     data.append(&mut int_to_bytes32(5));
 
     let leaves = vec![

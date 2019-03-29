@@ -25,13 +25,13 @@ pub enum Error {
 pub trait CachedTreeHash {
     type Item: CachedTreeHash;
 
-    fn build_cache(&self) -> Result<TreeHashCache, Error>;
+    fn leaves_and_subtrees(&self) -> Vec<u8>;
 
     /// Return the number of bytes when this element is encoded as raw SSZ _without_ length
     /// prefixes.
     fn num_bytes(&self) -> usize;
 
-    fn offset_handler(&self, initial_offset: usize) -> Result<OffsetHandler, Error>;
+    fn offsets(&self) -> Result<Vec<usize>, Error>;
 
     fn num_child_nodes(&self) -> usize;
 
@@ -60,13 +60,17 @@ impl TreeHashCache {
     where
         T: CachedTreeHash,
     {
-        item.build_cache()
+        Self::from_leaves_and_subtrees(item.leaves_and_subtrees(), OffsetHandler::new(item, 0)?)
     }
 
     pub fn from_leaves_and_subtrees(
         mut leaves_and_subtrees: Vec<u8>,
         offset_handler: OffsetHandler,
     ) -> Result<Self, Error> {
+        // Pad the leaves with zeros if the number of immediate leaf-nodes (without recursing into
+        // sub-trees) is not an even power-of-two.
+        pad_for_leaf_count(offset_handler.num_leaf_nodes, &mut leaves_and_subtrees);
+
         // Allocate enough bytes to store the internal nodes and the leaves and subtrees, then fill
         // all the to-be-built internal nodes with zeros and append the leaves and subtrees.
         let internal_node_bytes = offset_handler.num_internal_nodes * BYTES_PER_CHUNK;
@@ -209,6 +213,13 @@ pub struct OffsetHandler {
 }
 
 impl OffsetHandler {
+    pub fn new<T>(item: &T, initial_offset: usize) -> Result<Self, Error>
+    where
+        T: CachedTreeHash,
+    {
+        Self::from_lengths(initial_offset, item.offsets()?)
+    }
+
     fn from_lengths(offset: usize, mut lengths: Vec<usize>) -> Result<Self, Error> {
         // Extend it to the next power-of-two, if it is not already.
         let num_leaf_nodes = if lengths.len().is_power_of_two() {
