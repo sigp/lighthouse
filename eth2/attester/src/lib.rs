@@ -94,7 +94,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
     }
 
     fn produce_attestation(&mut self, slot: Slot, shard: u64) -> Result<PollOutcome, Error> {
-        let attestation_data = match self.beacon_node.produce_attestation_data(slot, shard)? {
+        let attestation_data = match self.beacon_node.produce_attestation(slot, shard)? {
             Some(attestation_data) => attestation_data,
             None => return Ok(PollOutcome::BeaconNodeUnableToProduceAttestation(slot)),
         };
@@ -119,8 +119,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
             validator_index,
         };
 
-        self.beacon_node
-            .publish_attestation_data(free_attestation)?;
+        self.beacon_node.publish_attestation(free_attestation)?;
         Ok(PollOutcome::AttestationProduced(slot))
     }
 

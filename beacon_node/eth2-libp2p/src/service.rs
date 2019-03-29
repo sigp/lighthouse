@@ -1,4 +1,4 @@
-use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
 use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
@@ -17,7 +17,7 @@ use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use types::TopicBuilder;
+use types::{TopicBuilder, TopicHash};
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
@@ -108,9 +108,17 @@ impl Stream for Service {
                 //Behaviour events
                 Ok(Async::Ready(Some(event))) => match event {
                     // TODO: Stub here for debugging
-                    BehaviourEvent::Message(m) => {
-                        debug!(self.log, "Message received: {}", m);
-                        return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
+                    BehaviourEvent::GossipMessage {
+                        source,
+                        topics,
+                        message,
+                    } => {
+                        debug!(self.log, "Pubsub message received: {:?}", message);
+                        return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                            source,
+                            topics,
+                            message,
+                        })));
                     }
                     BehaviourEvent::RPC(peer_id, event) => {
                         return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
@@ -172,6 +180,10 @@ pub enum Libp2pEvent {
     PeerDialed(PeerId),
     /// Received information about a peer on the network.
     Identified(PeerId, IdentifyInfo),
-    // TODO: Pub-sub testing only.
-    Message(String),
+    /// Received pubsub message.
+    PubsubMessage {
+        source: PeerId,
+        topics: Vec<TopicHash>,
+        message: PubsubMessage,
+    },
 }
