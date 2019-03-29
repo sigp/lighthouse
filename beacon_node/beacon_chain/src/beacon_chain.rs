@@ -7,10 +7,15 @@ use db::{
 };
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace, warn};
+use operation_pool::DepositInsertStatus;
 use operation_pool::OperationPool;
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
+pub use state_processing::per_block_processing::errors::{
+    AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
+    ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
+};
 use state_processing::{
     per_block_processing, per_block_processing_without_verifying_block_signature,
     per_slot_processing, BlockProcessingError, SlotProcessingError,
@@ -545,57 +550,67 @@ where
     ///
     /// If valid, the attestation is added to the `op_pool` and aggregated with another attestation
     /// if possible.
-    pub fn process_attestation(&self, attestation: Attestation) {
-        let _ =
-            self.op_pool
-                .write()
-                .insert_attestation(attestation, &*self.state.read(), &self.spec);
+    pub fn process_attestation(
+        &self,
+        attestation: Attestation,
+    ) -> Result<(), AttestationValidationError> {
+        self.op_pool
+            .write()
+            .insert_attestation(attestation, &*self.state.read(), &self.spec)
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
-    pub fn receive_deposit_for_inclusion(&self, deposit: Deposit) {
-        // Bad deposits are ignored.
-        let _ = self
-            .op_pool
+    pub fn receive_deposit_for_inclusion(
+        &self,
+        deposit: Deposit,
+    ) -> Result<DepositInsertStatus, DepositValidationError> {
+        self.op_pool
             .write()
-            .insert_deposit(deposit, &*self.state.read(), &self.spec);
+            .insert_deposit(deposit, &*self.state.read(), &self.spec)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
-    pub fn receive_exit_for_inclusion(&self, exit: VoluntaryExit) {
-        // Bad exits are ignored
-        let _ = self
-            .op_pool
+    pub fn receive_exit_for_inclusion(
+        &self,
+        exit: VoluntaryExit,
+    ) -> Result<(), ExitValidationError> {
+        self.op_pool
             .write()
-            .insert_voluntary_exit(exit, &*self.state.read(), &self.spec);
+            .insert_voluntary_exit(exit, &*self.state.read(), &self.spec)
     }
 
     /// Accept some transfer and queue it for inclusion in an appropriate block.
-    pub fn receive_transfer_for_inclusion(&self, transfer: Transfer) {
-        // Bad transfers are ignored.
-        let _ = self
-            .op_pool
+    pub fn receive_transfer_for_inclusion(
+        &self,
+        transfer: Transfer,
+    ) -> Result<(), TransferValidationError> {
+        self.op_pool
             .write()
-            .insert_transfer(transfer, &*self.state.read(), &self.spec);
+            .insert_transfer(transfer, &*self.state.read(), &self.spec)
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
-    pub fn receive_proposer_slashing_for_inclusion(&self, proposer_slashing: ProposerSlashing) {
-        // Bad proposer slashings are ignored.
-        let _ = self.op_pool.write().insert_proposer_slashing(
+    pub fn receive_proposer_slashing_for_inclusion(
+        &self,
+        proposer_slashing: ProposerSlashing,
+    ) -> Result<(), ProposerSlashingValidationError> {
+        self.op_pool.write().insert_proposer_slashing(
             proposer_slashing,
             &*self.state.read(),
             &self.spec,
-        );
+        )
     }
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
-    pub fn receive_attester_slashing_for_inclusion(&self, attester_slashing: AttesterSlashing) {
-        let _ = self.op_pool.write().insert_attester_slashing(
+    pub fn receive_attester_slashing_for_inclusion(
+        &self,
+        attester_slashing: AttesterSlashing,
+    ) -> Result<(), AttesterSlashingValidationError> {
+        self.op_pool.write().insert_attester_slashing(
             attester_slashing,
             &*self.state.read(),
             &self.spec,
-        );
+        )
     }
 
     /// Returns `true` if the given block root has not been processed.
