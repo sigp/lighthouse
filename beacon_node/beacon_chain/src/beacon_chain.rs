@@ -541,6 +541,17 @@ where
         Ok(aggregation_outcome)
     }
 
+    /// Accept a new attestation from the network.
+    ///
+    /// If valid, the attestation is added to the `op_pool` and aggregated with another attestation
+    /// if possible.
+    pub fn process_attestation(&self, attestation: Attestation) {
+        let _ =
+            self.op_pool
+                .write()
+                .insert_attestation(attestation, &*self.state.read(), &self.spec);
+    }
+
     /// Accept some deposit and queue it for inclusion in an appropriate block.
     pub fn receive_deposit_for_inclusion(&self, deposit: Deposit) {
         // Bad deposits are ignored.
@@ -701,9 +712,9 @@ where
         trace!("Finding attestations for new block...");
 
         let attestations = self
-            .attestation_aggregator
+            .op_pool
             .read()
-            .get_attestations_for_state(&state, &self.spec);
+            .get_attestations(&*self.state.read(), &self.spec);
 
         trace!(
             "Inserting {} attestation(s) into new block.",
