@@ -6,10 +6,12 @@ use futures::Future;
 use slog::info;
 use std::cell::RefCell;
 use tokio::runtime::Builder;
+use tokio_timer::clock::Clock;
 
 pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Result<()> {
     let mut runtime = Builder::new()
         .name_prefix("main-")
+        .clock(Clock::system())
         .build()
         .map_err(|e| format!("{:?}", e))?;
 

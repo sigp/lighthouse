@@ -14,6 +14,7 @@ types = { path = "../../eth2/types" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 error-chain = "0.12.0"
 slog = "^2.2.3"
+ssz = { path = "../../eth2/utils/ssz" }
 tokio = "0.1.15"
 clap = "2.32.0"
 dirs = "1.0.3"

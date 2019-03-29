@@ -8,12 +8,13 @@ pub mod error;
 pub mod rpc;
 mod service;
 
+pub use behaviour::PubsubMessage;
 pub use config::Config as NetworkConfig;
 pub use libp2p::{
     gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
     PeerId,
 };
-pub use rpc::{HelloMessage, RPCEvent};
+pub use rpc::RPCEvent;
 pub use service::Libp2pEvent;
 pub use service::Service;
 pub use types::multiaddr;

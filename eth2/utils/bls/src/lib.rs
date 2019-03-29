@@ -2,18 +2,32 @@ extern crate bls_aggregates;
 extern crate ssz;
 
 mod aggregate_public_key;
-mod aggregate_signature;
 mod keypair;
 mod public_key;
 mod secret_key;
+
+#[cfg(not(debug_assertions))]
+mod aggregate_signature;
+#[cfg(not(debug_assertions))]
 mod signature;
+#[cfg(not(debug_assertions))]
+pub use crate::aggregate_signature::AggregateSignature;
+#[cfg(not(debug_assertions))]
+pub use crate::signature::Signature;
+
+#[cfg(debug_assertions)]
+mod fake_aggregate_signature;
+#[cfg(debug_assertions)]
+mod fake_signature;
+#[cfg(debug_assertions)]
+pub use crate::fake_aggregate_signature::FakeAggregateSignature as AggregateSignature;
+#[cfg(debug_assertions)]
+pub use crate::fake_signature::FakeSignature as Signature;
 
 pub use crate::aggregate_public_key::AggregatePublicKey;
-pub use crate::aggregate_signature::AggregateSignature;
 pub use crate::keypair::Keypair;
 pub use crate::public_key::PublicKey;
 pub use crate::secret_key::SecretKey;
-pub use crate::signature::Signature;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 96;
 pub const BLS_SIG_BYTE_SIZE: usize = 96;

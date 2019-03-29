@@ -7,7 +7,12 @@ edition = "2018"
 [dependencies]
 bls = { path = "../../eth2/utils/bls" }
 beacon_chain = { path = "../beacon_chain" }
-
+network = { path = "../network" }
+eth2-libp2p = { path = "../eth2-libp2p" }
+version = { path = "../version" }
+types = { path = "../../eth2/types" }
+ssz = { path = "../../eth2/utils/ssz" }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
 protos = { path = "../../protos" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protobuf = "2.0.2"
@@ -16,8 +21,8 @@ db = { path = "../db" }
 dirs = "1.0.3"
 futures = "0.1.23"
 slog = "^2.2.3"
-slot_clock = { path = "../../eth2/utils/slot_clock" }
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
-types = { path = "../../eth2/types" }
-ssz = { path = "../../eth2/utils/ssz" }
+tokio = "0.1.17"
+exit-future = "0.1.4"
+crossbeam-channel = "0.3.8"
