@@ -1,5 +1,5 @@
 mod attester_service;
-mod block_producer_service;
+mod block_producer;
 mod config;
 mod duties;
 pub mod error;

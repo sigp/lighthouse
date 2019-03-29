@@ -1,13 +1,13 @@
+mod beacon_node_duties;
 mod epoch_duties;
 mod grpc;
 // TODO: reintroduce tests
 //#[cfg(test)]
 //mod test_node;
-mod traits;
 
+pub use self::beacon_node_duties::{BeaconNodeDuties, BeaconNodeDutiesError};
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
 pub use self::epoch_duties::{EpochDutiesMap, WorkInfo};
-use self::traits::{BeaconNode, BeaconNodeError};
 use futures::Async;
 use slog::{debug, error, info};
 use std::sync::Arc;
@@ -29,7 +29,7 @@ pub enum UpdateOutcome {
 pub enum Error {
     DutiesMapPoisoned,
     EpochMapPoisoned,
-    BeaconNodeError(BeaconNodeError),
+    BeaconNodeDutiesError(BeaconNodeDutiesError),
     UnknownEpoch,
     UnknownValidator,
 }
@@ -38,14 +38,14 @@ pub enum Error {
 /// Node.
 ///
 /// This keeps track of all validator keys and required voting slots.
-pub struct DutiesManager<U: BeaconNode> {
+pub struct DutiesManager<U: BeaconNodeDuties> {
     pub duties_map: RwLock<EpochDutiesMap>,
     /// A list of all public keys known to the validator service.
     pub pubkeys: Vec<PublicKey>,
     pub beacon_node: Arc<U>,
 }
 
-impl<U: BeaconNode> DutiesManager<U> {
+impl<U: BeaconNodeDuties> DutiesManager<U> {
     /// Check the Beacon Node for `EpochDuties`.
     ///
     /// be a wall-clock (e.g., system time, remote server time, etc.).
@@ -112,9 +112,9 @@ impl<U: BeaconNode> DutiesManager<U> {
 }
 
 //TODO: Use error_chain to handle errors
-impl From<BeaconNodeError> for Error {
-    fn from(e: BeaconNodeError) -> Error {
-        Error::BeaconNodeError(e)
+impl From<BeaconNodeDutiesError> for Error {
+    fn from(e: BeaconNodeDutiesError) -> Error {
+        Error::BeaconNodeDutiesError(e)
     }
 }
 
