@@ -7,6 +7,7 @@ use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
 use types::{BeaconBlock, Signature, Slot};
 
+//TODO: Remove this new type. Do not need to wrap
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
 pub struct BeaconBlockGrpcClient {

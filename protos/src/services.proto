@@ -141,7 +141,11 @@ message ProduceAttestationDataResponse {
 }
 
 message PublishAttestationRequest {
-	FreeAttestation free_attestation = 1;
+	Attestation attestation = 1;
+}
+
+message Attestation {
+    bytes ssz = 1;
 }
 
 message PublishAttestationResponse {
@@ -149,26 +153,6 @@ message PublishAttestationResponse {
 	bytes msg = 2;
 }
 
-message Crosslink {
-	uint64 epoch = 1;
-	bytes crosslink_data_root = 2;
-
-}
-
 message AttestationData {
-	uint64 slot = 1;
-	uint64 shard = 2;
-	bytes beacon_block_root = 3;
-	bytes epoch_boundary_root = 4;
-	bytes crosslink_data_root = 5;
-	Crosslink latest_crosslink = 6;
-	uint64 justified_epoch = 7;
-	bytes justified_block_root = 8;
-
-}
-
-message FreeAttestation {
-	AttestationData data = 1;
-	bytes signature = 2;
-	uint64 validator_index = 3;
+    bytes ssz = 1;
 }
