@@ -1,4 +1,4 @@
-mod attester_service;
+mod attestation_producer;
 mod block_producer;
 mod config;
 mod duties;
