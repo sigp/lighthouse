@@ -125,6 +125,7 @@ message ValidatorDuty {
 	uint64 attestation_slot = 3;
 	uint64 attestation_shard = 4;
     uint64 committee_index = 5;
+    uint64 committee_len = 6;
 }
 
 /*

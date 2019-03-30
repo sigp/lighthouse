@@ -6,7 +6,7 @@ use protos::services::{
     ProduceAttestationDataResponse, PublishAttestationRequest, PublishAttestationResponse,
 };
 use protos::services_grpc::AttestationService;
-use slog::{error, info, trace, warn, Logger};
+use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
 use types::Attestation;
