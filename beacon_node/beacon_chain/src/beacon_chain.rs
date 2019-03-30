@@ -1,4 +1,3 @@
-use crate::attestation_aggregator::{AttestationAggregator, Outcome as AggregationOutcome};
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use db::{
@@ -88,7 +87,6 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
-    pub attestation_aggregator: RwLock<AttestationAggregator>,
     pub op_pool: OperationPool,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
@@ -131,7 +129,6 @@ where
             genesis_state.clone(),
             state_root,
         ));
-        let attestation_aggregator = RwLock::new(AttestationAggregator::new());
 
         genesis_state.build_epoch_cache(RelativeEpoch::Previous, &spec)?;
         genesis_state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
@@ -142,7 +139,6 @@ where
             block_store,
             state_store,
             slot_clock,
-            attestation_aggregator,
             op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
             finalized_head,
@@ -477,7 +473,7 @@ where
     }
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
-    pub fn produce_attestation(&self, shard: u64) -> Result<AttestationData, Error> {
+    pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         trace!("BeaconChain::produce_attestation: shard: {}", shard);
         let source_epoch = self.state.read().current_justified_epoch;
         let source_root = *self.state.read().get_block_root(
@@ -507,33 +503,6 @@ where
             source_epoch,
             source_root,
         })
-    }
-
-    /// Validate a `FreeAttestation` and either:
-    ///
-    /// - Create a new `Attestation`.
-    /// - Aggregate it to an existing `Attestation`.
-    pub fn process_free_attestation(
-        &self,
-        free_attestation: FreeAttestation,
-    ) -> Result<AggregationOutcome, Error> {
-        let aggregation_outcome = self
-            .attestation_aggregator
-            .write()
-            .process_free_attestation(&self.state.read(), &free_attestation, &self.spec)?;
-
-        // return if the attestation is invalid
-        if !aggregation_outcome.valid {
-            return Ok(aggregation_outcome);
-        }
-
-        // valid attestation, proceed with fork-choice logic
-        self.fork_choice.write().add_attestation(
-            free_attestation.validator_index,
-            &free_attestation.data.beacon_block_root,
-            &self.spec,
-        )?;
-        Ok(aggregation_outcome)
     }
 
     /// Accept a new attestation from the network.

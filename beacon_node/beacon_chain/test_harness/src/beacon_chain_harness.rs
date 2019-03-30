@@ -10,8 +10,6 @@ use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
 use ssz::TreeHash;
-use std::collections::HashSet;
-use std::iter::FromIterator;
 use std::sync::Arc;
 use types::{test_utils::TestingBeaconStateBuilder, *};
 
@@ -137,51 +135,64 @@ impl BeaconChainHarness {
         slot
     }
 
-    /// Gather the `FreeAttestation`s from the valiators.
-    ///
-    /// Note: validators will only produce attestations _once per slot_. So, if you call this twice
-    /// you'll only get attestations on the first run.
-    pub fn gather_free_attesations(&mut self) -> Vec<FreeAttestation> {
+    pub fn gather_attesations(&mut self) -> Vec<Attestation> {
         let present_slot = self.beacon_chain.present_slot();
+        let state = self.beacon_chain.state.read();
 
-        let attesting_validators = self
-            .beacon_chain
-            .state
-            .read()
+        let mut attestations = vec![];
+
+        for committee in state
             .get_crosslink_committees_at_slot(present_slot, &self.spec)
             .unwrap()
-            .iter()
-            .fold(vec![], |mut acc, c| {
-                acc.append(&mut c.committee.clone());
-                acc
-            });
-        let attesting_validators: HashSet<usize> =
-            HashSet::from_iter(attesting_validators.iter().cloned());
+        {
+            for &validator in &committee.committee {
+                let duties = state
+                    .get_attestation_duties(validator, &self.spec)
+                    .unwrap()
+                    .expect("Attesting validators by definition have duties");
 
-        let free_attestations: Vec<FreeAttestation> = self
-            .validators
-            .par_iter_mut()
-            .enumerate()
-            .filter_map(|(i, validator)| {
-                if attesting_validators.contains(&i) {
-                    // Advance the validator slot.
-                    validator.set_slot(present_slot);
+                // Obtain `AttestationData` from the beacon chain.
+                let data = self
+                    .beacon_chain
+                    .produce_attestation_data(duties.shard)
+                    .unwrap();
 
-                    // Prompt the validator to produce an attestation (if required).
-                    validator.produce_free_attestation().ok()
-                } else {
-                    None
-                }
-            })
-            .collect();
+                // Produce an aggregate signature with a single signature.
+                let aggregate_signature = {
+                    let message = AttestationDataAndCustodyBit {
+                        data: data.clone(),
+                        custody_bit: false,
+                    }
+                    .hash_tree_root();
+                    let domain = self.spec.get_domain(
+                        state.slot.epoch(self.spec.slots_per_epoch),
+                        Domain::Attestation,
+                        &state.fork,
+                    );
+                    let sig =
+                        Signature::new(&message, domain, &self.validators[validator].keypair.sk);
 
-        debug!(
-            "Gathered {} FreeAttestations for slot {}.",
-            free_attestations.len(),
-            present_slot
-        );
+                    let mut agg_sig = AggregateSignature::new();
+                    agg_sig.add(&sig);
 
-        free_attestations
+                    agg_sig
+                };
+
+                let mut aggregation_bitfield = Bitfield::with_capacity(committee.committee.len());
+                let custody_bitfield = Bitfield::with_capacity(committee.committee.len());
+
+                aggregation_bitfield.set(duties.committee_index, true);
+
+                attestations.push(Attestation {
+                    aggregation_bitfield,
+                    data,
+                    custody_bitfield,
+                    aggregate_signature,
+                })
+            }
+        }
+
+        attestations
     }
 
     /// Get the block from the proposer for the slot.
@@ -200,7 +211,9 @@ impl BeaconChainHarness {
 
         // Ensure the validators slot clock is accurate.
         self.validators[proposer].set_slot(present_slot);
-        self.validators[proposer].produce_block().unwrap()
+        let block = self.validators[proposer].produce_block().unwrap();
+
+        block
     }
 
     /// Advances the chain with a BeaconBlock and attestations from all validators.
@@ -219,20 +232,23 @@ impl BeaconChainHarness {
         };
         debug!("...block processed by BeaconChain.");
 
-        debug!("Producing free attestations...");
+        debug!("Producing attestations...");
 
         // Produce new attestations.
-        let free_attestations = self.gather_free_attesations();
+        let attestations = self.gather_attesations();
 
-        debug!("Processing free attestations...");
+        debug!("Processing {} attestations...", attestations.len());
 
-        free_attestations.par_iter().for_each(|free_attestation| {
-            self.beacon_chain
-                .process_free_attestation(free_attestation.clone())
-                .unwrap();
-        });
+        attestations
+            .par_iter()
+            .enumerate()
+            .for_each(|(i, attestation)| {
+                self.beacon_chain
+                    .process_attestation(attestation.clone())
+                    .expect(&format!("Attestation {} invalid: {:?}", i, attestation));
+            });
 
-        debug!("Free attestations processed.");
+        debug!("Attestations processed.");
 
         block
     }
