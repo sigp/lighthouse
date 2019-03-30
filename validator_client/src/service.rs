@@ -14,6 +14,7 @@ use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap, UpdateOutcome};
 use crate::error as error_chain;
 use crate::error::ErrorKind;
+use crate::signer::Signer;
 use attester::test_utils::EpochMap;
 use attester::{test_utils::LocalSigner as AttesterLocalSigner, Attester};
 use bls::Keypair;
@@ -36,14 +37,10 @@ use tokio_timer::clock::Clock;
 use types::test_utils::generate_deterministic_keypairs;
 use types::{ChainSpec, Epoch, Fork, Slot};
 
-//TODO: This service should be simplified in the future. Can be made more steamlined.
-
-const POLL_INTERVAL_MILLIS: u64 = 100;
-
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
 //TODO: Generalize the BeaconNode types to use testing
-pub struct Service<B: BeaconNodeDuties + 'static> {
+pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static> {
     /// The node's current fork version we are processing on.
     fork: Fork,
     /// The slot clock for this service.
@@ -53,7 +50,7 @@ pub struct Service<B: BeaconNodeDuties + 'static> {
     /// The chain specification for this clients instance.
     spec: Arc<ChainSpec>,
     /// The duties manager which maintains the state of when to perform actions.
-    duties_manager: Arc<DutiesManager<B>>,
+    duties_manager: Arc<DutiesManager<B, S>>,
     // GRPC Clients
     /// The beacon block GRPC client.
     beacon_block_client: Arc<BeaconBlockGrpcClient>,
@@ -63,7 +60,7 @@ pub struct Service<B: BeaconNodeDuties + 'static> {
     log: slog::Logger,
 }
 
-impl<B: BeaconNodeDuties + 'static> Service<B> {
+impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
     ///  Initial connection to the beacon node to determine its properties.
     ///
     ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
@@ -71,7 +68,7 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
     fn initialize_service(
         config: ValidatorConfig,
         log: slog::Logger,
-    ) -> error_chain::Result<Service<ValidatorServiceClient>> {
+    ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair>> {
         // initialise the beacon node client to check for a connection
 
         let env = Arc::new(EnvBuilder::new().build());
@@ -183,6 +180,7 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
         // and can check when a validator needs to perform a task.
         let duties_manager = Arc::new(DutiesManager {
             duties_map,
+            // these are abstract objects capable of signing
             signers: keypairs,
             beacon_node: validator_client,
         });
@@ -205,7 +203,8 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
     // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
     pub fn start(config: ValidatorConfig, log: slog::Logger) -> error_chain::Result<()> {
         // connect to the node and retrieve its properties and initialize the gRPC clients
-        let mut service = Service::<ValidatorServiceClient>::initialize_service(config, log)?;
+        let mut service =
+            Service::<ValidatorServiceClient, Keypair>::initialize_service(config, log)?;
 
         // we have connected to a node and established its parameters. Spin up the core service
 
