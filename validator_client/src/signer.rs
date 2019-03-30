@@ -2,7 +2,7 @@ use std::fmt::Display;
 use types::{Keypair, PublicKey, Signature};
 
 /// Signs message using an internally-maintained private key.
-pub trait Signer: Display + Send + Sync {
+pub trait Signer: Display + Send + Sync + Clone {
     fn sign_block_proposal(&self, message: &[u8], domain: u64) -> Option<Signature>;
     fn sign_randao_reveal(&self, message: &[u8], domain: u64) -> Option<Signature>;
     /// Returns a public key for the signer object.
