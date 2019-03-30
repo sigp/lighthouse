@@ -299,17 +299,23 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
     /// If there are any duties to process, spawn a separate thread and perform required actions.
     fn process_duties(&mut self) {
         if let Some(work) = self.duties_manager.get_current_work(self.current_slot) {
-            for (_public_key, work_type) in work {
+            for (signer_index, work_type) in work {
                 if work_type.produce_block {
                     // spawns a thread to produce a beacon block
+                    let signers = self.duties_manager.signers.clone();
+                    let fork = self.fork.clone();
+                    let slot = self.current_slot.clone();
+                    let spec = self.spec.clone();
+                    let beacon_node = self.beacon_block_client.clone();
                     std::thread::spawn(move || {
-                        /*
+                        let signer = &signers[signer_index];
                         let block_producer = BlockProducer {
-                            fork: self.fork,
-                            slot: self.current_slot,
-                            spec: self.spec.clone(),
+                            fork,
+                            slot,
+                            spec,
+                            beacon_node,
+                            signer,
                         };
-                        */
                     });
 
                     // TODO: Produce a beacon block in a new thread

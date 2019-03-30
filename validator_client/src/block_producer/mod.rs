@@ -10,11 +10,6 @@ use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    SlotClockError,
-    SlotUnknowable,
-    EpochMapPoisoned,
-    SlotClockPoisoned,
-    EpochLengthIsZero,
     BeaconBlockNodeError(BeaconBlockNodeError),
 }
 
@@ -34,7 +29,7 @@ pub enum ValidatorEvent {
 
 /// This struct contains the logic for requesting and signing beacon blocks for a validator. The
 /// validator can abstractly sign via the Signer trait object.
-pub struct BlockProducer<B: BeaconBlockNode, S: Signer> {
+pub struct BlockProducer<'a, B: BeaconBlockNode, S: Signer> {
     /// The current fork.
     pub fork: Fork,
     /// The current slot to produce a block for.
@@ -44,10 +39,10 @@ pub struct BlockProducer<B: BeaconBlockNode, S: Signer> {
     /// The beacon node to connect to.
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
-    pub signer: Arc<S>,
+    pub signer: &'a S,
 }
 
-impl<B: BeaconBlockNode, S: Signer> BlockProducer<B, S> {
+impl<'a, B: BeaconBlockNode, S: Signer> BlockProducer<'a, B, S> {
     /// Produce a block at some slot.
     ///
     /// Assumes that a block is required at this slot (does not check the duties).
