@@ -374,7 +374,9 @@ impl SimpleSync {
             return;
         }
 
-        let new_roots = self.import_queue.enqueue_block_roots(&res.roots, peer_id.clone());
+        let new_roots = self
+            .import_queue
+            .enqueue_block_roots(&res.roots, peer_id.clone());
 
         // No new roots means nothing to do.
         //

@@ -113,13 +113,6 @@ impl ImportQueue {
             })
     }
 
-    /// Returns the index of the first new root in the list of block roots.
-    pub fn first_new_root(&mut self, roots: &[BlockRootSlot]) -> Option<usize> {
-        roots
-            .iter()
-            .position(|brs| self.is_new_block(&brs.block_root))
-    }
-
     /// Adds the `block_roots` to the partials queue.
     ///
     /// If a `block_root` is not in the queue and has not been processed by the chain it is added
@@ -203,8 +196,17 @@ impl ImportQueue {
             .iter()
             .position(|p| p.block_root == block_root)
         {
+            // Case 1: there already exists a partial with a matching block root.
+            //
+            // The `inserted` time is set to now and the header is replaced, regardless of whether
+            // it existed or not.
+            self.partials[i].header = Some(header);
             self.partials[i].inserted = Instant::now();
         } else {
+            // Case 2: there was no partial with a matching block root.
+            //
+            // A new partial is added. This case permits adding a header without already known the
+            // root -- this is not possible in the wire protocol however we support it anyway.
             self.partials.push(PartialBeaconBlock {
                 slot: header.slot,
                 block_root,
