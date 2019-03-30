@@ -27,8 +27,6 @@ pub enum ValidatorEvent {
     SlashableAttestationNotProduced(Slot),
     /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(Slot),
-    /// The Beacon Node was unable to produce an attestation at that slot.
-    BeaconNodeUnableToProduceAttestation(Slot),
     /// The signer failed to sign the message.
     SignerRejection(Slot),
     /// Publishing an attestation failed.
@@ -61,13 +59,13 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
             }
             Err(e) => error!(log, "Block production error"; "Error" => format!("{:?}", e)),
             Ok(ValidatorEvent::SignerRejection(_slot)) => {
-                error!(log, "Block production error"; "Error" => format!("Signer Could not sign the block"))
+                error!(log, "Block production error"; "Error" => "Signer Could not sign the block".to_string())
             }
             Ok(ValidatorEvent::SlashableBlockNotProduced(_slot)) => {
-                error!(log, "Block production error"; "Error" => format!("Rejected the block as it could have been slashed"))
+                error!(log, "Block production error"; "Error" => "Rejected the block as it could have been slashed".to_string())
             }
             Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(_slot)) => {
-                error!(log, "Block production error"; "Error" => format!("Beacon node was unable to produce a block"))
+                error!(log, "Block production error"; "Error" => "Beacon node was unable to produce a block".to_string())
             }
             Ok(v) => {
                 warn!(log, "Unknown result for block production"; "Error" => format!("{:?}",v))
@@ -88,16 +86,13 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     pub fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
         let epoch = self.slot.epoch(self.spec.slots_per_epoch);
 
-        let randao_reveal = {
-            let message = epoch.hash_tree_root();
-            let randao_reveal = match self.signer.sign_message(
-                &message,
-                self.spec.get_domain(epoch, Domain::Randao, &self.fork),
-            ) {
-                None => return Ok(ValidatorEvent::SignerRejection(self.slot)),
-                Some(signature) => signature,
-            };
-            randao_reveal
+        let message = epoch.hash_tree_root();
+        let randao_reveal = match self.signer.sign_message(
+            &message,
+            self.spec.get_domain(epoch, Domain::Randao, &self.fork),
+        ) {
+            None => return Ok(ValidatorEvent::SignerRejection(self.slot)),
+            Some(signature) => signature,
         };
 
         if let Some(block) = self

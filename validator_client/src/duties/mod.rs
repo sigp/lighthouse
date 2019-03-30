@@ -69,7 +69,7 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
         // duties have changed
         //TODO: Duties could be large here. Remove from display and avoid the clone.
         self.duties_map.write()?.insert(epoch, duties.clone());
-        return Ok(UpdateOutcome::DutiesChanged(epoch, duties));
+        Ok(UpdateOutcome::DutiesChanged(epoch, duties))
     }
 
     /// A future wrapping around `update()`. This will perform logic based upon the update

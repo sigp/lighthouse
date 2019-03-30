@@ -1,11 +1,12 @@
 use super::beacon_node_duties::{BeaconNodeDuties, BeaconNodeDutiesError};
 use super::epoch_duties::{EpochDuties, EpochDuty};
-use grpcio::CallOption;
+// to use if we manually specify a timeout
+//use grpcio::CallOption;
 use protos::services::{GetDutiesRequest, Validators};
 use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
 use std::collections::HashMap;
-use std::time::Duration;
+// use std::time::Duration;
 use types::{AttestationDuty, Epoch, PublicKey, Slot};
 
 impl BeaconNodeDuties for ValidatorServiceClient {

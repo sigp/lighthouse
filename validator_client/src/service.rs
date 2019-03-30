@@ -157,7 +157,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
 
         let current_slot = slot_clock
             .present_slot()
-            .map_err(|e| ErrorKind::SlotClockError(e))?
+            .map_err(ErrorKind::SlotClockError)?
             .expect("Genesis must be in the future");
 
         /* Generate the duties manager */
@@ -289,8 +289,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         std::thread::spawn(move || {
             // the return value is a future which returns ready.
             // built to be compatible with the tokio runtime.
-            let _empty = cloned_manager.run_update(current_epoch.clone(), cloned_log.clone());
-            dbg!("Duties Thread Ended");
+            let _empty = cloned_manager.run_update(current_epoch, cloned_log.clone());
         });
     }
 
@@ -303,7 +302,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                     // spawns a thread to produce a beacon block
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
-                    let slot = self.current_slot.clone();
+                    let slot = self.current_slot;
                     let spec = self.spec.clone();
                     let beacon_node = self.beacon_block_client.clone();
                     let log = self.log.clone();
@@ -318,7 +317,6 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             signer,
                         };
                         block_producer.handle_produce_block(log);
-                        dbg!("Block produce Thread Ended");
                     });
                 }
                 if work_type.attestation_duty.is_some() {
@@ -340,7 +338,6 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             signer,
                         };
                         attestation_producer.handle_produce_attestation(log);
-                        dbg!("Attestation Thread Ended");
                     });
                 }
             }
