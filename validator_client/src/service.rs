@@ -290,6 +290,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             // the return value is a future which returns ready.
             // built to be compatible with the tokio runtime.
             let _empty = cloned_manager.run_update(current_epoch.clone(), cloned_log.clone());
+            dbg!("Duties Thread Ended");
         });
     }
 
@@ -317,6 +318,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             signer,
                         };
                         block_producer.handle_produce_block(log);
+                        dbg!("Block produce Thread Ended");
                     });
                 }
                 if work_type.attestation_duty.is_some() {
@@ -338,6 +340,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             signer,
                         };
                         attestation_producer.handle_produce_attestation(log);
+                        dbg!("Attestation Thread Ended");
                     });
                 }
             }

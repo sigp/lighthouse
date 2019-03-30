@@ -1,19 +1,22 @@
+mod attestation;
 mod beacon_block;
 pub mod beacon_chain;
 mod beacon_node;
 pub mod config;
 mod validator;
 
+use self::attestation::AttestationServiceInstance;
 use self::beacon_block::BeaconBlockServiceInstance;
 use self::beacon_chain::BeaconChain;
 use self::beacon_node::BeaconNodeServiceInstance;
 use self::validator::ValidatorServiceInstance;
 pub use config::Config as RPCConfig;
-use futures::{future, Future};
-use grpcio::{Environment, Server, ServerBuilder};
+use futures::Future;
+use grpcio::{Environment, ServerBuilder};
 use network::NetworkMessage;
 use protos::services_grpc::{
-    create_beacon_block_service, create_beacon_node_service, create_validator_service,
+    create_attestation_service, create_beacon_block_service, create_beacon_node_service,
+    create_validator_service,
 };
 use slog::{info, o, warn};
 use std::sync::Arc;
@@ -56,11 +59,19 @@ pub fn start_server(
         };
         create_validator_service(instance)
     };
+    let attestation_service = {
+        let instance = AttestationServiceInstance {
+            chain: beacon_chain.clone(),
+            log: log.clone(),
+        };
+        create_attestation_service(instance)
+    };
 
     let mut server = ServerBuilder::new(env)
         .register_service(beacon_block_service)
         .register_service(validator_service)
         .register_service(beacon_node_service)
+        .register_service(attestation_service)
         .bind(config.listen_address.to_string(), config.port)
         .build()
         .unwrap();

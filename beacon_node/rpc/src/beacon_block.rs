@@ -36,8 +36,8 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         // decode the request
         // TODO: requested slot currently unused, see: https://github.com/sigp/lighthouse/issues/336
         let _requested_slot = Slot::from(req.get_slot());
-        let (randao_reveal, _index) = match Signature::ssz_decode(req.get_randao_reveal(), 0) {
-            Ok(v) => v,
+        let randao_reveal = match Signature::ssz_decode(req.get_randao_reveal(), 0) {
+            Ok((reveal, _index)) => reveal,
             Err(_) => {
                 // decode error, incorrect signature
                 let log_clone = self.log.clone();
@@ -86,6 +86,8 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         req: PublishBeaconBlockRequest,
         sink: UnarySink<PublishBeaconBlockResponse>,
     ) {
+        trace!(&self.log, "Attempting to publish a block");
+
         let mut resp = PublishBeaconBlockResponse::new();
 
         let ssz_serialized_block = req.get_block().get_ssz();
