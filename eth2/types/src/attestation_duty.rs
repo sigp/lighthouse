@@ -6,4 +6,5 @@ pub struct AttestationDuty {
     pub slot: Slot,
     pub shard: Shard,
     pub committee_index: usize,
+    pub comittee_size: usize,
 }

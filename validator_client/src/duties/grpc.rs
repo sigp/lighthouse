@@ -47,11 +47,17 @@ impl BeaconNodeDuties for ValidatorServiceClient {
                     None
                 }
             };
+
+            let attestation_duty = AttestationDuty {
+            slot: Slot::from(active_duty.get_attestation_slot()),
+            shard: active_duty.get_attestation_shard(),
+            committee_index: active_duty.get_committee_index(),
+            comittee_size: 10,
+            }
+
             let epoch_duty = EpochDuty {
                 block_production_slot,
-                attestation_slot: Slot::from(active_duty.get_attestation_slot()),
-                attestation_shard: active_duty.get_attestation_shard(),
-                committee_index: active_duty.get_committee_index(),
+                attestation_duty,
             };
             epoch_duties.insert(pub_keys[index].clone(), Some(epoch_duty));
         }
