@@ -2,7 +2,7 @@ use beacon_chain::BeaconChain as RawBeaconChain;
 use beacon_chain::{
     db::ClientDB,
     fork_choice::ForkChoice,
-    parking_lot::RwLockReadGuard,
+    parking_lot::{RwLockReadGuard, RwLockWriteGuard},
     slot_clock::SlotClock,
     types::{BeaconState, ChainSpec, Signature},
     AttestationValidationError, BlockProductionError,
@@ -15,6 +15,8 @@ pub trait BeaconChain: Send + Sync {
     fn get_spec(&self) -> &ChainSpec;
 
     fn get_state(&self) -> RwLockReadGuard<BeaconState>;
+
+    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState>;
 
     fn process_block(&self, block: BeaconBlock)
         -> Result<BlockProcessingOutcome, BeaconChainError>;
@@ -44,6 +46,10 @@ where
 
     fn get_state(&self) -> RwLockReadGuard<BeaconState> {
         self.state.read()
+    }
+
+    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState> {
+        self.state.write()
     }
 
     fn process_block(
