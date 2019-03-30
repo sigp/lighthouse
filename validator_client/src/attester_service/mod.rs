@@ -1,13 +1,29 @@
-mod grpc;
 mod beacon_node_attestation;
+mod grpc;
 
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
-use super::block_proposer::beacon_node_block::BeaconNodeError;
+//TODO: Move these higher up in the crate
+use super::block_producer::{BeaconNodeError, ValidatorEvent};
+use crate::signer::Signer;
+use beacon_node_attestation::BeaconNodeAttestation;
+use slog::{error, info, warn};
+use ssz::TreeHash;
+use types::{
+    AggregateSignature, Attestation, AttestationData, AttestationDataAndCustodyBit,
+    AttestationDuty, Bitfield,
+};
 
+//TODO: Group these errors at a crate level
 #[derive(Debug, PartialEq)]
 pub enum Error {
     BeaconNodeError(BeaconNodeError),
+}
+
+impl From<BeaconNodeError> for Error {
+    fn from(e: BeaconNodeError) -> Error {
+        Error::BeaconNodeError(e)
+    }
 }
 
 /// This struct contains the logic for requesting and signing beacon attestations for a validator. The
@@ -15,8 +31,8 @@ pub enum Error {
 pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer> {
     /// The current fork.
     pub fork: Fork,
-    /// The current slot to produce an attestation for.
-    pub slot: Slot,
+    /// The attestation duty to perform.
+    pub duty: AttestationDuty,
     /// The current epoch.
     pub spec: Arc<ChainSpec>,
     /// The beacon node to connect to.
@@ -42,6 +58,9 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             Ok(ValidatorEvent::BeaconNodeUnableToProduceAttestation(_slot)) => {
                 error!(log, "Attestation production error"; "Error" => format!("Beacon node was unable to produce an attestation"))
             }
+            Ok(v) => {
+                warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v))
+            }
         }
     }
 
@@ -56,25 +75,23 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
     pub fn produce_attestation(&mut self) -> Result<ValidatorEvent, Error> {
-        let epoch = self.slot.epoch(self.spec.slots_per_epoch);
+        let epoch = self.duty.slot.epoch(self.spec.slots_per_epoch);
 
-        if let Some(attestation) = self
+        let attestation = self
             .beacon_node
-            .produce_attestation_data(self.slot, self.shard)?
-        {
-            if self.safe_to_produce(&attestation) {
-                let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
-                if let Some(attestation) = self.sign_attestation(attestation, domain) {
-                    self.beacon_node.publish_attestation(attestation)?;
-                    Ok(ValidatorEvent::AttestationProduced(self.slot))
-                } else {
-                    Ok(ValidatorEvent::SignerRejection(self.slot))
-                }
+            .produce_attestation_data(self.duty.slot, self.duty.shard)?;
+        if self.safe_to_produce(&attestation) {
+            let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
+            if let Some(attestation) = self.sign_attestation(attestation, self.duty, domain) {
+                self.beacon_node.publish_attestation(attestation)?;
+                Ok(ValidatorEvent::AttestationProduced(self.duty.slot))
             } else {
-                Ok(ValidatorEvent::SlashableAttestationNotProduced(self.slot))
+                Ok(ValidatorEvent::SignerRejection(self.duty.slot))
             }
         } else {
-            Ok(ValidatorEvent::BeaconNodeUnableToProduceAttestation(self.slot))
+            Ok(ValidatorEvent::SlashableAttestationNotProduced(
+                self.duty.slot,
+            ))
         }
     }
 
@@ -82,33 +99,39 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
     ///
     /// Important: this function will not check to ensure the attestation is not slashable. This must be
     /// done upstream.
-    fn sign_attestation(&mut self, mut attestation: Attestation, duties: AttestationDuties, domain: u64) -> Option<AggregateSignature> {
+    fn sign_attestation(
+        &mut self,
+        mut attestation: AttestationData,
+        duties: AttestationDuty,
+        domain: u64,
+    ) -> Option<Attestation> {
         self.store_produce(&attestation);
 
         // build the aggregate signature
-        let aggregate_sig = {
+        let aggregate_signature = {
             let message = AttestationDataAndCustodyBit {
-                                    data: attestation.clone(),
-                                    custody_bit: false,
-                        }.hash_tree_root();
+                data: attestation.clone(),
+                custody_bit: false,
+            }
+            .hash_tree_root();
 
             let sig = self.signer.sign_message(&message, domain)?;
 
             let mut agg_sig = AggregateSignature::new();
             agg_sig.add(&sig);
             agg_sig
-            }
+        };
 
-	    let mut aggregation_bitfield = Bitfield::with_capacity(duties.comitee_size);
-	    let custody_bitfield = Bitfield::with_capacity(duties.committee_size);
-	    aggregation_bitfield.set(duties.committee_index, true);
+        let mut aggregation_bitfield = Bitfield::with_capacity(duties.committee_len);
+        let custody_bitfield = Bitfield::with_capacity(duties.committee_len);
+        aggregation_bitfield.set(duties.committee_index, true);
 
-             Attestation {
-                    aggregation_bitfield,
-                    data,
-                    custody_bitfield,
-                    aggregate_signature,
-		}
+        Some(Attestation {
+            aggregation_bitfield,
+            data: attestation,
+            custody_bitfield,
+            aggregate_signature,
+        })
     }
 
     /// Returns `true` if signing an attestation is safe (non-slashable).
@@ -116,8 +139,8 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn safe_to_produce(&self, _block: &Attestation) -> bool {
-	//TODO: Implement slash protection
+    fn safe_to_produce(&self, _attestation: &AttestationData) -> bool {
+        //TODO: Implement slash protection
         true
     }
 
@@ -126,7 +149,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn store_produce(&mut self, _block: &BeaconBlock) {
+    fn store_produce(&mut self, _attestation: &AttestationData) {
         // TODO: Implement slash protection
     }
 }
