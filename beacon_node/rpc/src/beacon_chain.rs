@@ -5,10 +5,10 @@ use beacon_chain::{
     parking_lot::RwLockReadGuard,
     slot_clock::SlotClock,
     types::{BeaconState, ChainSpec, Signature},
-    BlockProductionError,
+    AttestationValidationError, BlockProductionError,
 };
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
-use types::BeaconBlock;
+use types::{Attestation, AttestationData, BeaconBlock};
 
 /// The RPC's API to the beacon chain.
 pub trait BeaconChain: Send + Sync {
@@ -23,6 +23,13 @@ pub trait BeaconChain: Send + Sync {
         &self,
         randao_reveal: Signature,
     ) -> Result<(BeaconBlock, BeaconState), BlockProductionError>;
+
+    fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, BeaconChainError>;
+
+    fn process_attestation(
+        &self,
+        attestation: Attestation,
+    ) -> Result<(), AttestationValidationError>;
 }
 
 impl<T, U, F> BeaconChain for RawBeaconChain<T, U, F>
@@ -51,5 +58,16 @@ where
         randao_reveal: Signature,
     ) -> Result<(BeaconBlock, BeaconState), BlockProductionError> {
         self.produce_block(randao_reveal)
+    }
+
+    fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, BeaconChainError> {
+        self.produce_attestation_data(shard)
+    }
+
+    fn process_attestation(
+        &self,
+        attestation: Attestation,
+    ) -> Result<(), AttestationValidationError> {
+        self.process_attestation(attestation)
     }
 }
