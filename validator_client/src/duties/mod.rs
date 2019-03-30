@@ -30,7 +30,6 @@ pub enum UpdateOutcome {
 #[derive(Debug, PartialEq)]
 pub enum Error {
     DutiesMapPoisoned,
-    EpochMapPoisoned,
     BeaconNodeDutiesError(BeaconNodeDutiesError),
     UnknownEpoch,
     UnknownValidator,
