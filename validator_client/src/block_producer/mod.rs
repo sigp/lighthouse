@@ -4,6 +4,7 @@ mod grpc;
 use self::beacon_block_node::{BeaconBlockNode, BeaconBlockNodeError};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
+use slog::{error, info};
 use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
@@ -23,8 +24,6 @@ pub enum ValidatorEvent {
     BeaconNodeUnableToProduceBlock(Slot),
     /// The signer failed to sign the message.
     SignerRejection(Slot),
-    /// The public key for this validator is not an active validator.
-    ValidatorIsUnknown(Slot),
 }
 
 /// This struct contains the logic for requesting and signing beacon blocks for a validator. The
@@ -43,6 +42,25 @@ pub struct BlockProducer<'a, B: BeaconBlockNode, S: Signer> {
 }
 
 impl<'a, B: BeaconBlockNode, S: Signer> BlockProducer<'a, B, S> {
+    /// Handle outputs and results from block production.
+    pub fn handle_produce_block(&mut self, log: slog::Logger) {
+        match self.produce_block() {
+            Ok(ValidatorEvent::BlockProduced(_slot)) => {
+                info!(log, "Block produced"; "Validator" => format!("{}", self.signer))
+            }
+            Err(e) => error!(log, "Block production error"; "Error" => format!("{:?}", e)),
+            Ok(ValidatorEvent::SignerRejection(_slot)) => {
+                error!(log, "Block production error"; "Error" => format!("Signer Could not sign the block"))
+            }
+            Ok(ValidatorEvent::SlashableBlockNotProduced(_slot)) => {
+                error!(log, "Block production error"; "Error" => format!("Rejected the block as it could have been slashed"))
+            }
+            Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(_slot)) => {
+                error!(log, "Block production error"; "Error" => format!("Beacon node was unable to produce a block"))
+            }
+        }
+    }
+
     /// Produce a block at some slot.
     ///
     /// Assumes that a block is required at this slot (does not check the duties).
@@ -53,7 +71,7 @@ impl<'a, B: BeaconBlockNode, S: Signer> BlockProducer<'a, B, S> {
     ///
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
-    fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
+    pub fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
         let epoch = self.slot.epoch(self.spec.slots_per_epoch);
 
         let randao_reveal = {
