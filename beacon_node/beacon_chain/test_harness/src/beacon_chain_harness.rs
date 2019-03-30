@@ -178,8 +178,8 @@ impl BeaconChainHarness {
                     agg_sig
                 };
 
-                let mut aggregation_bitfield = Bitfield::with_capacity(committee.committee.len());
-                let custody_bitfield = Bitfield::with_capacity(committee.committee.len());
+                let mut aggregation_bitfield = Bitfield::with_capacity(duties.committee_len);
+                let custody_bitfield = Bitfield::with_capacity(duties.committee_len);
 
                 aggregation_bitfield.set(duties.committee_index, true);
 
