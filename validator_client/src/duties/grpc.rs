@@ -53,7 +53,7 @@ impl BeaconNodeDuties for ValidatorServiceClient {
                 slot: Slot::from(active_duty.get_attestation_slot()),
                 shard: active_duty.get_attestation_shard(),
                 committee_index: active_duty.get_committee_index() as usize,
-                committee_len: 10,
+                committee_len: active_duty.get_committee_len() as usize,
             };
 
             let epoch_duty = EpochDuty {

@@ -167,6 +167,7 @@ impl ValidatorService for ValidatorServiceInstance {
             duty.set_committee_index(attestation_duties.committee_index as u64);
             duty.set_attestation_slot(attestation_duties.slot.as_u64());
             duty.set_attestation_shard(attestation_duties.shard);
+            duty.set_committee_len(attestation_duties.committee_len as u64);
 
             active_validator.set_duty(duty);
             resp_validators.push(active_validator);
