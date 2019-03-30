@@ -179,6 +179,19 @@ pub struct BeaconBlockRootsResponse {
     pub roots: Vec<BlockRootSlot>,
 }
 
+impl BeaconBlockRootsResponse {
+    /// Returns `true` if each `self.roots.slot[i]` is higher than the preceeding `i`.
+    pub fn slots_are_ascending(&self) -> bool {
+        for i in 1..self.roots.len() {
+            if self.roots[i - 1].slot >= self.roots[i].slot {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
 /// Contains a block root and associated slot.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlockRootSlot {
