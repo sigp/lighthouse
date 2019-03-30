@@ -27,6 +27,7 @@ use slog::{debug, error, info, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
@@ -36,6 +37,8 @@ use types::test_utils::generate_deterministic_keypairs;
 use types::{ChainSpec, Epoch, Fork, Slot};
 
 //TODO: This service should be simplified in the future. Can be made more steamlined.
+
+const POLL_INTERVAL_MILLIS: u64 = 100;
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
@@ -180,7 +183,7 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
         // and can check when a validator needs to perform a task.
         let duties_manager = Arc::new(DutiesManager {
             duties_map,
-            pubkeys: keypairs.iter().map(|keypair| keypair.pk.clone()).collect(),
+            signers: keypairs,
             beacon_node: validator_client,
         });
 
@@ -314,8 +317,21 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
                 }
                 if work_type.attestation_duty.is_some() {
                     // available AttestationDuty info
-                    let attestation_duty = work_type.attestation_duty.expect("Cannot be None");
-                    //TODO: Produce an attestation in a new thread
+                    /*
+                    let attestation_duty =
+                        work_type.attestation_duty.expect("Cannot be None");
+                    let attester_grpc_client = Arc::new(AttestationGrpcClient::new(
+                        service.attester_client.clone(),
+                    ));
+                    let signer = Arc::new(AttesterLocalSigner::new(keypair.clone()));
+                    let attester = Attester::new(attester_grpc_client, signer);
+                    let mut attester_service = AttesterService {
+                        attester,
+                        poll_interval_millis: POLL_INTERVAL_MILLIS,
+                        log: log.clone(),
+                    };
+                    attester_service.run();
+                    */
                 }
             }
         }

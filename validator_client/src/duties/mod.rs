@@ -12,7 +12,7 @@ use futures::Async;
 use slog::{debug, error, info};
 use std::sync::Arc;
 use std::sync::RwLock;
-use types::{Epoch, PublicKey, Slot};
+use types::{Epoch, Keypair, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum UpdateOutcome {
@@ -40,8 +40,9 @@ pub enum Error {
 /// This keeps track of all validator keys and required voting slots.
 pub struct DutiesManager<U: BeaconNodeDuties> {
     pub duties_map: RwLock<EpochDutiesMap>,
-    /// A list of all public keys known to the validator service.
-    pub pubkeys: Vec<PublicKey>,
+    /// A list of all signer objects known to the validator service.
+    // TODO: Generalise the signers, so that they're not just keypairs
+    pub signers: Arc<Vec<Keypair>>,
     pub beacon_node: Arc<U>,
 }
 
@@ -50,7 +51,7 @@ impl<U: BeaconNodeDuties> DutiesManager<U> {
     ///
     /// be a wall-clock (e.g., system time, remote server time, etc.).
     fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
-        let duties = self.beacon_node.request_duties(epoch, &self.pubkeys)?;
+        let duties = self.beacon_node.request_duties(epoch, &self.signers)?;
         {
             // If these duties were known, check to see if they're updates or identical.
             if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
@@ -91,17 +92,18 @@ impl<U: BeaconNodeDuties> DutiesManager<U> {
 
     /// Returns a list of (Public, WorkInfo) indicating all the validators that have work to perform
     /// this slot.
-    pub fn get_current_work(&self, slot: Slot) -> Option<Vec<(PublicKey, WorkInfo)>> {
-        let mut current_work: Vec<(PublicKey, WorkInfo)> = Vec::new();
+    pub fn get_current_work(&self, slot: Slot) -> Option<Vec<(Keypair, WorkInfo)>> {
+        let mut current_work: Vec<(Keypair, WorkInfo)> = Vec::new();
 
         // if the map is poisoned, return None
         let duties = self.duties_map.read().ok()?;
 
-        for validator_pk in &self.pubkeys {
-            match duties.is_work_slot(slot, &validator_pk) {
-                Ok(Some(work_type)) => current_work.push((validator_pk.clone(), work_type)),
+        for validator_signer in self.signers.iter() {
+            match duties.is_work_slot(slot, &validator_signer) {
+                Ok(Some(work_type)) => current_work.push((validator_signer.clone(), work_type)),
                 Ok(None) => {} // No work for this validator
-                Err(_) => {}   // Unknown epoch or validator, no work
+                //TODO: This should really log an error, as we shouldn't end up with an err here.
+                Err(_) => {} // Unknown epoch or validator, no work
             }
         }
         if current_work.is_empty() {
@@ -136,9 +138,9 @@ impl From<EpochDutiesMapError> for Error {
 fn print_duties(log: &slog::Logger, duties: EpochDuties) {
     for (pk, duty) in duties.iter() {
         if let Some(display_duty) = duty {
-            info!(log, "Validator: {}",pk; "Duty" => format!("{}",display_duty));
+            info!(log, "Validator: {:?}",pk; "Duty" => format!("{}",display_duty));
         } else {
-            info!(log, "Validator: {}",pk; "Duty" => "None");
+            info!(log, "Validator: {:?}",pk; "Duty" => "None");
         }
     }
 }
