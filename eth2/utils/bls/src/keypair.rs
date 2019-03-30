@@ -1,5 +1,6 @@
 use super::{PublicKey, SecretKey};
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,5 +31,11 @@ impl Hash for Keypair {
     /// Use `ssz::Encode` to obtain the bytes required for consensus hashing.
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.pk.as_uncompressed_bytes().hash(state)
+    }
+}
+
+impl fmt::Display for Keypair {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.pk)
     }
 }

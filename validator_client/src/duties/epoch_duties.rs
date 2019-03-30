@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
-use types::{AttestationDuty, Epoch, Keypair, Slot};
+use types::{AttestationDuty, Epoch, PublicKey, Slot};
 
 /// When work needs to be performed by a validator, this type is given back to the main service
 /// which indicates all the information that required to process the work.
@@ -72,7 +72,7 @@ impl fmt::Display for EpochDuty {
 }
 
 /// Maps a list of keypairs (many validators) to an EpochDuty.
-pub type EpochDuties = HashMap<Keypair, Option<EpochDuty>>;
+pub type EpochDuties = HashMap<PublicKey, Option<EpochDuty>>;
 
 pub enum EpochDutiesMapError {
     UnknownEpoch,
@@ -113,7 +113,7 @@ impl EpochDutiesMap {
     pub fn is_work_slot(
         &self,
         slot: Slot,
-        signer: &Keypair,
+        signer: &PublicKey,
     ) -> Result<Option<WorkInfo>, EpochDutiesMapError> {
         let epoch = slot.epoch(self.slots_per_epoch);
 
