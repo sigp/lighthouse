@@ -41,9 +41,7 @@ use types::{ChainSpec, Epoch, Fork, Slot};
 /// duties.
 //TODO: Generalize the BeaconNode types to use testing
 pub struct Service<B: BeaconNodeDuties + 'static> {
-    /// The node we currently connected to.
-    connected_node_version: String,
-    /// The chain id we are processing on.
+    /// The node's current fork version we are processing on.
     fork: Fork,
     /// The slot clock for this service.
     slot_clock: SystemTimeSlotClock,
@@ -67,7 +65,10 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
     ///
     ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
     ///  and returns an instance of the service.
-    fn initialize_service(config: ValidatorConfig, log: slog::Logger) -> error_chain::Result<Self> {
+    fn initialize_service(
+        config: ValidatorConfig,
+        log: slog::Logger,
+    ) -> error_chain::Result<Service<ValidatorServiceClient>> {
         // initialise the beacon node client to check for a connection
 
         let env = Arc::new(EnvBuilder::new().build());
@@ -162,8 +163,6 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
             .map_err(|e| ErrorKind::SlotClockError(e))?
             .expect("Genesis must be in the future");
 
-        let spec = Arc::new(config.spec);
-
         /* Generate the duties manager */
 
         // generate keypairs
@@ -185,8 +184,9 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
             beacon_node: validator_client,
         });
 
-        Ok(Self {
-            connected_node_version: node_info.version,
+        let spec = Arc::new(config.spec);
+
+        Ok(Service {
             fork,
             slot_clock,
             current_slot,
@@ -199,9 +199,10 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
     }
 
     /// Initialise the service then run the core thread.
+    // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
     pub fn start(config: ValidatorConfig, log: slog::Logger) -> error_chain::Result<()> {
         // connect to the node and retrieve its properties and initialize the gRPC clients
-        let service = Service::initialize_service(config, log)?;
+        let mut service = Service::<ValidatorServiceClient>::initialize_service(config, log)?;
 
         // we have connected to a node and established its parameters. Spin up the core service
 
@@ -221,7 +222,7 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
         // set up the validator work interval - start at next slot and proceed every slot
         let interval = {
             // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
+            let slot_duration = Duration::from_secs(service.spec.seconds_per_slot);
             //TODO: Handle checked add correctly
             Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };
@@ -236,7 +237,7 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
                     Ok(())
                 })
                 .map_err(|e| format!("Service thread failed: {:?}", e)),
-        );
+        )?;
         // validator client exited
         Ok(())
     }
@@ -300,11 +301,13 @@ impl<B: BeaconNodeDuties + 'static> Service<B> {
                 if work_type.produce_block {
                     // spawns a thread to produce a beacon block
                     std::thread::spawn(move || {
+                        /*
                         let block_producer = BlockProducer {
                             fork: self.fork,
                             slot: self.current_slot,
                             spec: self.spec.clone(),
                         };
+                        */
                     });
 
                     // TODO: Produce a beacon block in a new thread
