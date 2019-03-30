@@ -33,9 +33,11 @@ impl BooleanBitfield {
     }
 
     /// Create a new bitfield with the given length `initial_len` and all values set to `bit`.
-    pub fn from_elem(inital_len: usize, bit: bool) -> Self {
+    pub fn from_elem(initial_len: usize, bit: bool) -> Self {
+        // BitVec can panic if we don't set the len to be a multiple of 8.
+        let len = ((initial_len + 7) / 8) * 8;
         Self {
-            0: BitVec::from_elem(inital_len, bit),
+            0: BitVec::from_elem(len, bit),
         }
     }
 
