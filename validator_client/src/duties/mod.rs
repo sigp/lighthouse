@@ -140,9 +140,9 @@ impl From<EpochDutiesMapError> for Error {
 fn print_duties(log: &slog::Logger, duties: EpochDuties) {
     for (pk, duty) in duties.iter() {
         if let Some(display_duty) = duty {
-            info!(log, "Validator: {:?}",pk; "Duty" => format!("{}",display_duty));
+            info!(log, "Validator: {}",pk; "Duty" => format!("{}",display_duty));
         } else {
-            info!(log, "Validator: {:?}",pk; "Duty" => "None");
+            info!(log, "Validator: {}",pk; "Duty" => "None");
         }
     }
 }
