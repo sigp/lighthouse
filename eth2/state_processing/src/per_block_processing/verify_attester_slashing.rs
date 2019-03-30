@@ -47,6 +47,25 @@ pub fn gather_attester_slashing_indices(
     attester_slashing: &AttesterSlashing,
     spec: &ChainSpec,
 ) -> Result<Vec<u64>, Error> {
+    gather_attester_slashing_indices_modular(
+        state,
+        attester_slashing,
+        |_, validator| validator.slashed,
+        spec,
+    )
+}
+
+/// Same as `gather_attester_slashing_indices` but allows the caller to specify the criteria
+/// for determining whether a given validator should be considered slashed.
+pub fn gather_attester_slashing_indices_modular<F>(
+    state: &BeaconState,
+    attester_slashing: &AttesterSlashing,
+    is_slashed: F,
+    spec: &ChainSpec,
+) -> Result<Vec<u64>, Error>
+where
+    F: Fn(u64, &Validator) -> bool,
+{
     let slashable_attestation_1 = &attester_slashing.slashable_attestation_1;
     let slashable_attestation_2 = &attester_slashing.slashable_attestation_2;
 
@@ -57,7 +76,7 @@ pub fn gather_attester_slashing_indices(
             .get(*i as usize)
             .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(*i)))?;
 
-        if slashable_attestation_2.validator_indices.contains(&i) & !validator.slashed {
+        if slashable_attestation_2.validator_indices.contains(&i) & !is_slashed(*i, validator) {
             // TODO: verify that we should reject any slashable attestation which includes a
             // withdrawn validator. PH has asked the question on gitter, awaiting response.
             verify!(

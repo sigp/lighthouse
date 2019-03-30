@@ -35,6 +35,11 @@ impl FakeAggregateSignature {
         // Do nothing.
     }
 
+    /// Does glorious nothing.
+    pub fn add_aggregate(&mut self, _agg_sig: &FakeAggregateSignature) {
+        // Do nothing.
+    }
+
     /// _Always_ returns `true`.
     pub fn verify(
         &self,
