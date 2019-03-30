@@ -2,7 +2,7 @@ mod beacon_node_attestation;
 mod grpc;
 
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
+use types::{ChainSpec, Domain, Fork};
 //TODO: Move these higher up in the crate
 use super::block_producer::{BeaconNodeError, PublishOutcome, ValidatorEvent};
 use crate::signer::Signer;
@@ -50,19 +50,16 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             }
             Err(e) => error!(log, "Attestation production error"; "Error" => format!("{:?}", e)),
             Ok(ValidatorEvent::SignerRejection(_slot)) => {
-                error!(log, "Attestation production error"; "Error" => format!("Signer could not sign the attestation"))
+                error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string())
             }
             Ok(ValidatorEvent::SlashableAttestationNotProduced(_slot)) => {
-                error!(log, "Attestation production error"; "Error" => format!("Rejected the attestation as it could have been slashed"))
-            }
-            Ok(ValidatorEvent::BeaconNodeUnableToProduceAttestation(_slot)) => {
-                error!(log, "Attestation production error"; "Error" => format!("Beacon node was unable to produce an attestation"))
+                error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string())
             }
             Ok(ValidatorEvent::PublishAttestationFailed) => {
-                error!(log, "Attestation production error"; "Error" => format!("Beacon node was unable to publish an attestation"))
+                error!(log, "Attestation production error"; "Error" => "Beacon node was unable to publish an attestation".to_string())
             }
             Ok(ValidatorEvent::InvalidAttestation) => {
-                error!(log, "Attestation production error"; "Error" => format!("The signed attestation was invalid"))
+                error!(log, "Attestation production error"; "Error" => "The signed attestation was invalid".to_string())
             }
             Ok(v) => {
                 warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v))
