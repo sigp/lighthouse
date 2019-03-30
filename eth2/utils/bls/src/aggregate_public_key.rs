@@ -1,7 +1,7 @@
 use super::PublicKey;
 use bls_aggregates::AggregatePublicKey as RawAggregatePublicKey;
 
-/// A single BLS signature.
+/// A BLS aggregate public key.
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
@@ -17,7 +17,7 @@ impl AggregatePublicKey {
         self.0.add(public_key.as_raw())
     }
 
-    /// Returns the underlying signature.
+    /// Returns the underlying public key.
     pub fn as_raw(&self) -> &RawAggregatePublicKey {
         &self.0
     }

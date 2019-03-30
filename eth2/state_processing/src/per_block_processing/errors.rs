@@ -390,6 +390,11 @@ pub enum TransferInvalid {
     ///
     /// (state_slot, transfer_slot)
     StateSlotMismatch(Slot, Slot),
+    /// The `transfer.slot` is in the past relative to the state slot.
+    ///
+    ///
+    /// (state_slot, transfer_slot)
+    TransferSlotInPast(Slot, Slot),
     /// The `transfer.from` validator has been activated and is not withdrawable.
     ///
     /// (from_validator)

@@ -1,4 +1,3 @@
-use self::verify_proposer_slashing::verify_proposer_slashing;
 use crate::common::slash_validator;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
@@ -6,13 +5,20 @@ use ssz::{SignedRoot, TreeHash};
 use types::*;
 
 pub use self::verify_attester_slashing::{
-    gather_attester_slashing_indices, verify_attester_slashing,
+    gather_attester_slashing_indices, gather_attester_slashing_indices_modular,
+    verify_attester_slashing,
 };
-pub use validate_attestation::{validate_attestation, validate_attestation_without_signature};
+pub use self::verify_proposer_slashing::verify_proposer_slashing;
+pub use validate_attestation::{
+    validate_attestation, validate_attestation_time_independent_only,
+    validate_attestation_without_signature,
+};
 pub use verify_deposit::{get_existing_validator_index, verify_deposit, verify_deposit_index};
-pub use verify_exit::verify_exit;
+pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
 pub use verify_slashable_attestation::verify_slashable_attestation;
-pub use verify_transfer::{execute_transfer, verify_transfer};
+pub use verify_transfer::{
+    execute_transfer, verify_transfer, verify_transfer_time_independent_only,
+};
 
 pub mod errors;
 mod validate_attestation;
@@ -316,13 +322,7 @@ pub fn process_attestations(
 
     // Update the state in series.
     for attestation in attestations {
-        let pending_attestation = PendingAttestation {
-            data: attestation.data.clone(),
-            aggregation_bitfield: attestation.aggregation_bitfield.clone(),
-            custody_bitfield: attestation.custody_bitfield.clone(),
-            inclusion_slot: state.slot,
-        };
-
+        let pending_attestation = PendingAttestation::from_attestation(attestation, state.slot);
         let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
 
         if attestation_epoch == state.current_epoch(spec) {
