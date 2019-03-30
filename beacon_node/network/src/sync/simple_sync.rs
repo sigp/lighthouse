@@ -563,12 +563,9 @@ impl SimpleSync {
             "peer" => format!("{:?}", peer_id),
         );
 
-        // Awaiting a proper operations pool before we can import attestations.
-        //
-        // https://github.com/sigp/lighthouse/issues/281
         match self.chain.process_attestation(msg) {
-            Ok(_) => panic!("Impossible, method not implemented."),
-            Err(_) => error!(self.log, "Attestation processing not implemented!"),
+            Ok(()) => info!(self.log, "ImportedAttestation"),
+            Err(e) => warn!(self.log, "InvalidAttestation"; "error" => format!("{:?}", e)),
         }
     }
 
