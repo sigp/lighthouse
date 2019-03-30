@@ -3,8 +3,7 @@ use types::{Keypair, PublicKey, Signature};
 
 /// Signs message using an internally-maintained private key.
 pub trait Signer: Display + Send + Sync + Clone {
-    fn sign_block_proposal(&self, message: &[u8], domain: u64) -> Option<Signature>;
-    fn sign_randao_reveal(&self, message: &[u8], domain: u64) -> Option<Signature>;
+    fn sign_message(&self, message: &[u8], domain: u64) -> Option<Signature>;
     /// Returns a public key for the signer object.
     fn to_public(&self) -> PublicKey;
 }
@@ -16,17 +15,7 @@ impl Signer for Keypair {
         self.pk.clone()
     }
 
-    fn sign_block_proposal(&self, message: &[u8], domain: u64) -> Option<Signature> {
+    fn sign_message(&self, message: &[u8], domain: u64) -> Option<Signature> {
         Some(Signature::new(message, domain, &self.sk))
     }
-
-    fn sign_randao_reveal(&self, message: &[u8], domain: u64) -> Option<Signature> {
-        Some(Signature::new(message, domain, &self.sk))
-    }
-
-    /*
-        fn sign_attestation_message(&self, message: &[u8], domain: u64) -> Option<Signature> {
-            Some(Signature::new(message, domain, &self.sk))
-    }
-    */
 }

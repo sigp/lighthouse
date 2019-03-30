@@ -1,59 +1,131 @@
 mod grpc;
-/*
-use attester::{Attester, BeaconNode, DutiesReader, PollOutcome as AttesterPollOutcome, Signer};
-use slog::{error, info, warn, Logger};
-use slot_clock::SlotClock;
-use std::time::Duration;
+mod beacon_node_attestation;
 
-pub use self::attestation_grpc_client::AttestationGrpcClient;
+use std::sync::Arc;
+use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 
-pub struct AttesterService<U: BeaconNode, W: Signer> {
-    pub attester: Attester<U, W>,
-    pub poll_interval_millis: u64,
-    pub log: Logger,
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    BeaconNodeError(BeaconNodeError),
 }
 
+/// This struct contains the logic for requesting and signing beacon attestations for a validator. The
+/// validator can abstractly sign via the Signer trait object.
+pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer> {
+    /// The current fork.
+    pub fork: Fork,
+    /// The current slot to produce an attestation for.
+    pub slot: Slot,
+    /// The current epoch.
+    pub spec: Arc<ChainSpec>,
+    /// The beacon node to connect to.
+    pub beacon_node: Arc<B>,
+    /// The signer to sign the block.
+    pub signer: &'a S,
+}
 
-impl<U: BeaconNode, W: Signer> AttesterService<U, W> {
-    /// Run a loop which polls the Attester each `poll_interval_millis` millseconds.
+impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
+    /// Handle outputs and results from attestation production.
+    pub fn handle_produce_attestation(&mut self, log: slog::Logger) {
+        match self.produce_attestation() {
+            Ok(ValidatorEvent::AttestationProduced(_slot)) => {
+                info!(log, "Attestation produced"; "Validator" => format!("{}", self.signer))
+            }
+            Err(e) => error!(log, "Attestation production error"; "Error" => format!("{:?}", e)),
+            Ok(ValidatorEvent::SignerRejection(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => format!("Signer could not sign the attestation"))
+            }
+            Ok(ValidatorEvent::SlashableAttestationNotProduced(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => format!("Rejected the attestation as it could have been slashed"))
+            }
+            Ok(ValidatorEvent::BeaconNodeUnableToProduceAttestation(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => format!("Beacon node was unable to produce an attestation"))
+            }
+        }
+    }
+
+    /// Produce an attestation, sign it and send it back
     ///
-    /// Logs the results of the polls.
-    pub fn run(&mut self) {
-        loop {
-            /* We don't do the polling any more...
-            match self.attester.poll() {
-                Err(error) => {
-                    error!(self.log, "Attester poll error"; "error" => format!("{:?}", error))
+    /// Assumes that an attestation is required at this slot (does not check the duties).
+    ///
+    /// Ensures the message is not slashable.
+    ///
+    /// !!! UNSAFE !!!
+    ///
+    /// The slash-protection code is not yet implemented. There is zero protection against
+    /// slashing.
+    pub fn produce_attestation(&mut self) -> Result<ValidatorEvent, Error> {
+        let epoch = self.slot.epoch(self.spec.slots_per_epoch);
+
+        if let Some(attestation) = self
+            .beacon_node
+            .produce_attestation_data(self.slot, self.shard)?
+        {
+            if self.safe_to_produce(&attestation) {
+                let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
+                if let Some(attestation) = self.sign_attestation(attestation, domain) {
+                    self.beacon_node.publish_attestation(attestation)?;
+                    Ok(ValidatorEvent::AttestationProduced(self.slot))
+                } else {
+                    Ok(ValidatorEvent::SignerRejection(self.slot))
                 }
-                Ok(AttesterPollOutcome::AttestationProduced(slot)) => {
-                    info!(self.log, "Produced Attestation"; "slot" => slot)
-                }
-                Ok(AttesterPollOutcome::SlashableAttestationNotProduced(slot)) => {
-                    warn!(self.log, "Slashable attestation was not produced"; "slot" => slot)
-                }
-                Ok(AttesterPollOutcome::AttestationNotRequired(slot)) => {
-                    info!(self.log, "Attestation not required"; "slot" => slot)
-                }
-                Ok(AttesterPollOutcome::ProducerDutiesUnknown(slot)) => {
-                    error!(self.log, "Attestation duties unknown"; "slot" => slot)
-                }
-                Ok(AttesterPollOutcome::SlotAlreadyProcessed(slot)) => {
-                    warn!(self.log, "Attempted to re-process slot"; "slot" => slot)
-                }
-                Ok(AttesterPollOutcome::BeaconNodeUnableToProduceAttestation(slot)) => {
-                    error!(self.log, "Beacon node unable to produce attestation"; "slot" => slot)
-                }
-                Ok(AttesterPollOutcome::SignerRejection(slot)) => {
-                    error!(self.log, "The cryptographic signer refused to sign the attestation"; "slot" => slot)
-                }
-                Ok(AttesterPollOutcome::ValidatorIsUnknown(slot)) => {
-                    error!(self.log, "The Beacon Node does not recognise the validator"; "slot" => slot)
-                }
-            };
-            */
-println!("Legacy polling still happening...");
-std::thread::sleep(Duration::from_millis(self.poll_interval_millis));
+            } else {
+                Ok(ValidatorEvent::SlashableAttestationNotProduced(self.slot))
+            }
+        } else {
+            Ok(ValidatorEvent::BeaconNodeUnableToProduceAttestation(self.slot))
+        }
+    }
+
+    /// Consumes an attestation, returning the attestation signed by the validators private key.
+    ///
+    /// Important: this function will not check to ensure the attestation is not slashable. This must be
+    /// done upstream.
+    fn sign_attestation(&mut self, mut attestation: Attestation, duties: AttestationDuties, domain: u64) -> Option<AggregateSignature> {
+        self.store_produce(&attestation);
+
+        // build the aggregate signature
+        let aggregate_sig = {
+            let message = AttestationDataAndCustodyBit {
+                                    data: attestation.clone(),
+                                    custody_bit: false,
+                        }.hash_tree_root();
+
+            let sig = self.signer.sign_message(&message, domain)?;
+
+            let mut agg_sig = AggregateSignature::new();
+            agg_sig.add(&sig);
+            agg_sig
+            }
+
+	    let mut aggregation_bitfield = Bitfield::with_capacity(duties.comitee_size);
+	    let custody_bitfield = Bitfield::with_capacity(duties.committee_size);
+	    aggregation_bitfield.set(duties.committee_index, true);
+
+             Attestation {
+                    aggregation_bitfield,
+                    data,
+                    custody_bitfield,
+                    aggregate_signature,
+		}
+    }
+
+    /// Returns `true` if signing an attestation is safe (non-slashable).
+    ///
+    /// !!! UNSAFE !!!
+    ///
+    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
+    fn safe_to_produce(&self, _block: &Attestation) -> bool {
+	//TODO: Implement slash protection
+        true
+    }
+
+    /// Record that an attestation was produced so that slashable votes may not be made in the future.
+    ///
+    /// !!! UNSAFE !!!
+    ///
+    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
+    fn store_produce(&mut self, _block: &BeaconBlock) {
+        // TODO: Implement slash protection
+    }
 }
-}
-}
-*/
