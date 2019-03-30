@@ -302,20 +302,23 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             for (signer_index, work_type) in work {
                 if work_type.produce_block {
                     // spawns a thread to produce a beacon block
-                    let signers = self.duties_manager.signers.clone();
+                    let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
                     let slot = self.current_slot.clone();
                     let spec = self.spec.clone();
                     let beacon_node = self.beacon_block_client.clone();
+                    let log = self.log.clone();
                     std::thread::spawn(move || {
+                        info!(log, "Producing a block"; "Validator"=> format!("{}", signers[signer_index]));
                         let signer = &signers[signer_index];
-                        let block_producer = BlockProducer {
+                        let mut block_producer = BlockProducer {
                             fork,
                             slot,
                             spec,
                             beacon_node,
                             signer,
                         };
+                        block_producer.handle_produce_block(log);
                     });
 
                     // TODO: Produce a beacon block in a new thread

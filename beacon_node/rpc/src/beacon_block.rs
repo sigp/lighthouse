@@ -3,7 +3,7 @@ use crossbeam_channel;
 use eth2_libp2p::rpc::methods::BlockRootSlot;
 use eth2_libp2p::PubsubMessage;
 use futures::Future;
-use grpcio::{RpcContext, UnarySink};
+use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
 use protos::services::{
     BeaconBlock as BeaconBlockProto, ProduceBeaconBlockRequest, ProduceBeaconBlockResponse,
@@ -11,10 +11,10 @@ use protos::services::{
 };
 use protos::services_grpc::BeaconBlockService;
 use slog::Logger;
-use slog::{debug, error, info, warn};
-use ssz::{Decodable, TreeHash};
+use slog::{error, info, trace, warn};
+use ssz::{ssz_encode, Decodable, TreeHash};
 use std::sync::Arc;
-use types::{BeaconBlock, Hash256, Slot};
+use types::{BeaconBlock, Hash256, Signature, Slot};
 
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance {
@@ -31,11 +31,44 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
         req: ProduceBeaconBlockRequest,
         sink: UnarySink<ProduceBeaconBlockResponse>,
     ) {
-        println!("producing at slot {}", req.get_slot());
+        trace!(self.log, "Generating a beacon block"; "req" => format!("{:?}", req));
 
-        // TODO: build a legit block.
+        // decode the request
+        // TODO: requested slot currently unused, see: https://github.com/sigp/lighthouse/issues/336
+        let _requested_slot = Slot::from(req.get_slot());
+        let (randao_reveal, _index) = match Signature::ssz_decode(req.get_randao_reveal(), 0) {
+            Ok(v) => v,
+            Err(_) => {
+                // decode error, incorrect signature
+                let log_clone = self.log.clone();
+                let f = sink
+                    .fail(RpcStatus::new(
+                        RpcStatusCode::InvalidArgument,
+                        Some(format!("Invalid randao reveal signature")),
+                    ))
+                    .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
+                return ctx.spawn(f);
+            }
+        };
+
+        let produced_block = match self.chain.produce_block(randao_reveal) {
+            Ok((block, _state)) => block,
+            Err(e) => {
+                // could not produce a block
+                let log_clone = self.log.clone();
+                warn!(self.log, "RPC Error"; "Error" => format!("Could not produce a block:{:?}",e));
+                let f = sink
+                    .fail(RpcStatus::new(
+                        RpcStatusCode::Unknown,
+                        Some(format!("Could not produce a block: {:?}", e)),
+                    ))
+                    .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
+                return ctx.spawn(f);
+            }
+        };
+
         let mut block = BeaconBlockProto::new();
-        block.set_ssz(b"cats".to_vec());
+        block.set_ssz(ssz_encode(&produced_block));
 
         let mut resp = ProduceBeaconBlockResponse::new();
         resp.set_block(block);
@@ -81,11 +114,16 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
                                 slot: block.slot,
                             });
 
-                            println!("Sending beacon block to gossipsub");
-                            self.network_chan.send(NetworkMessage::Publish {
+                            match self.network_chan.send(NetworkMessage::Publish {
                                 topics: vec![topic],
                                 message,
-                            });
+                            }) {
+                                Ok(_) => {}
+                                Err(_) => warn!(
+                                    self.log,
+                                    "Could not send published block to the network service"
+                                ),
+                            }
 
                             resp.set_success(true);
                         } else if outcome.is_invalid() {

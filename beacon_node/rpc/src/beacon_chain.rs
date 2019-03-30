@@ -4,7 +4,8 @@ use beacon_chain::{
     fork_choice::ForkChoice,
     parking_lot::RwLockReadGuard,
     slot_clock::SlotClock,
-    types::{BeaconState, ChainSpec},
+    types::{BeaconState, ChainSpec, Signature},
+    BlockProductionError,
 };
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
 use types::BeaconBlock;
@@ -17,6 +18,11 @@ pub trait BeaconChain: Send + Sync {
 
     fn process_block(&self, block: BeaconBlock)
         -> Result<BlockProcessingOutcome, BeaconChainError>;
+
+    fn produce_block(
+        &self,
+        randao_reveal: Signature,
+    ) -> Result<(BeaconBlock, BeaconState), BlockProductionError>;
 }
 
 impl<T, U, F> BeaconChain for RawBeaconChain<T, U, F>
@@ -38,5 +44,12 @@ where
         block: BeaconBlock,
     ) -> Result<BlockProcessingOutcome, BeaconChainError> {
         self.process_block(block)
+    }
+
+    fn produce_block(
+        &self,
+        randao_reveal: Signature,
+    ) -> Result<(BeaconBlock, BeaconState), BlockProductionError> {
+        self.produce_block(randao_reveal)
     }
 }
