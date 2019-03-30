@@ -4,7 +4,7 @@ use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{ActiveValidator, GetDutiesRequest, GetDutiesResponse, ValidatorDuty};
 use protos::services_grpc::ValidatorService;
-use slog::{debug, info, warn, Logger};
+use slog::{trace, warn};
 use ssz::Decodable;
 use std::sync::Arc;
 use types::{Epoch, RelativeEpoch};
@@ -12,7 +12,7 @@ use types::{Epoch, RelativeEpoch};
 #[derive(Clone)]
 pub struct ValidatorServiceInstance {
     pub chain: Arc<BeaconChain>,
-    pub log: Logger,
+    pub log: slog::Logger,
 }
 //TODO: Refactor Errors
 
@@ -27,13 +27,23 @@ impl ValidatorService for ValidatorServiceInstance {
         sink: UnarySink<GetDutiesResponse>,
     ) {
         let validators = req.get_validators();
-        debug!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
+        trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
+
+        let spec = self.chain.get_spec();
+        // update the caches if necessary
+        {
+            let mut mut_state = self.chain.get_mut_state();
+
+            let _ = mut_state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, spec);
+
+            let _ = mut_state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec);
+            let _ = mut_state.update_pubkey_cache();
+        }
 
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
 
-        let spec = self.chain.get_spec();
         let state = self.chain.get_state();
 
         let relative_epoch =
