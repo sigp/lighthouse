@@ -475,11 +475,7 @@ where
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         trace!("BeaconChain::produce_attestation: shard: {}", shard);
-        let source_epoch = self.state.read().current_justified_epoch;
-        let source_root = *self.state.read().get_block_root(
-            source_epoch.start_slot(self.spec.slots_per_epoch),
-            &self.spec,
-        )?;
+        let state = self.state.read();
 
         let target_root = *self.state.read().get_block_root(
             self.state
@@ -500,8 +496,8 @@ where
                 epoch: self.state.read().slot.epoch(self.spec.slots_per_epoch),
                 crosslink_data_root: Hash256::zero(),
             },
-            source_epoch,
-            source_root,
+            source_epoch: state.current_justified_epoch,
+            source_root: state.current_justified_root,
         })
     }
 
