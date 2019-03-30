@@ -3,6 +3,7 @@ mod beacon_node_attestation;
 
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
+use super::block_proposer::beacon_node_block::BeaconNodeError;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
