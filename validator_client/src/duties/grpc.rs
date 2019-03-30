@@ -6,7 +6,7 @@ use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::time::Duration;
-use types::{Epoch, PublicKey, Slot};
+use types::{AttestationDuty, Epoch, PublicKey, Slot};
 
 impl BeaconNodeDuties for ValidatorServiceClient {
     /// Requests all duties (block signing and committee attesting) from the Beacon Node (BN).
@@ -49,11 +49,11 @@ impl BeaconNodeDuties for ValidatorServiceClient {
             };
 
             let attestation_duty = AttestationDuty {
-            slot: Slot::from(active_duty.get_attestation_slot()),
-            shard: active_duty.get_attestation_shard(),
-            committee_index: active_duty.get_committee_index(),
-            comittee_size: 10,
-            }
+                slot: Slot::from(active_duty.get_attestation_slot()),
+                shard: active_duty.get_attestation_shard(),
+                committee_index: active_duty.get_committee_index() as usize,
+                committee_len: 10,
+            };
 
             let epoch_duty = EpochDuty {
                 block_production_slot,

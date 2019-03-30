@@ -1,5 +1,6 @@
 //TODO: generalise these enums to the crate
-use super::block_producer::{BeaconNodeError, PublishOutcome};
+use crate::block_producer::{BeaconNodeError, PublishOutcome};
+use types::{Attestation, AttestationData, Slot};
 
 /// Defines the methods required to produce and publish attestations on a Beacon Node. Abstracts the
 /// actual beacon node.

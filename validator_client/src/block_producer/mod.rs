@@ -1,10 +1,11 @@
 mod beacon_node_block;
 mod grpc;
 
-use self::beacon_node_block::{BeaconNodeBlock, BeaconNodeError};
+use self::beacon_node_block::BeaconNodeBlock;
+pub use self::beacon_node_block::{BeaconNodeError, PublishOutcome};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
-use slog::{error, info};
+use slog::{error, info, warn};
 use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
@@ -18,10 +19,16 @@ pub enum Error {
 pub enum ValidatorEvent {
     /// A new block was produced.
     BlockProduced(Slot),
+    /// A new attestation was produced.
+    AttestationProduced(Slot),
     /// A block was not produced as it would have been slashable.
     SlashableBlockNotProduced(Slot),
+    /// An attestation was not produced as it would have been slashable.
+    SlashableAttestationNotProduced(Slot),
     /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(Slot),
+    /// The Beacon Node was unable to produce an attestation at that slot.
+    BeaconNodeUnableToProduceAttestation(Slot),
     /// The signer failed to sign the message.
     SignerRejection(Slot),
 }
@@ -58,6 +65,9 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
             Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(_slot)) => {
                 error!(log, "Block production error"; "Error" => format!("Beacon node was unable to produce a block"))
             }
+            Ok(v) => {
+                warn!(log, "Unknown result for block production"; "Error" => format!("{:?}",v))
+            }
         }
     }
 
@@ -76,7 +86,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
 
         let randao_reveal = {
             let message = epoch.hash_tree_root();
-            let randao_reveal = match self.signer.sign_randao_reveal(
+            let randao_reveal = match self.signer.sign_message(
                 &message,
                 self.spec.get_domain(epoch, Domain::Randao, &self.fork),
             ) {
@@ -113,10 +123,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     fn sign_block(&mut self, mut block: BeaconBlock, domain: u64) -> Option<BeaconBlock> {
         self.store_produce(&block);
 
-        match self
-            .signer
-            .sign_block_proposal(&block.signed_root()[..], domain)
-        {
+        match self.signer.sign_message(&block.signed_root()[..], domain) {
             None => None,
             Some(signature) => {
                 block.signature = signature;
