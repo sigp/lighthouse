@@ -19,7 +19,7 @@ pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
         .collect::<Vec<usize>>()
         .par_iter()
         .map(|&i| {
-            let secret = int_to_bytes48(i as u64 + 1);
+            let secret = int_to_bytes48(i as u64 + 1000);
             let sk = SecretKey::from_bytes(&secret).unwrap();
             let pk = PublicKey::from_secret_key(&sk);
             Keypair { sk, pk }
