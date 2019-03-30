@@ -8,15 +8,13 @@
 /// When a validator needs to either produce a block or sign an attestation, it requests the
 /// data from the beacon node and performs the signing before publishing the block to the beacon
 /// node.
-//use crate::attester_service::{AttestationGrpcClient, AttesterService};
+use crate::attestation_producer::AttestationProducer;
 use crate::block_producer::{BeaconBlockGrpcClient, BlockProducer};
 use crate::config::Config as ValidatorConfig;
-use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap, UpdateOutcome};
+use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::error::ErrorKind;
 use crate::signer::Signer;
-use attester::test_utils::EpochMap;
-use attester::{test_utils::LocalSigner as AttesterLocalSigner, Attester};
 use bls::Keypair;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services::Empty;
@@ -24,11 +22,10 @@ use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
     ValidatorServiceClient,
 };
-use slog::{debug, error, info, warn};
+use slog::{error, info, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
@@ -55,7 +52,7 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static> {
     /// The beacon block GRPC client.
     beacon_block_client: Arc<BeaconBlockGrpcClient>,
     /// The attester GRPC client.
-    attester_client: Arc<AttestationServiceClient>,
+    attestation_client: Arc<AttestationServiceClient>,
     /// The validator client logger.
     log: slog::Logger,
 }
@@ -148,7 +145,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         };
 
         //Beacon node gRPC attester endpoints.
-        let attester_client = {
+        let attestation_client = {
             let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
             Arc::new(AttestationServiceClient::new(ch))
         };
@@ -194,7 +191,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             spec,
             duties_manager,
             beacon_block_client,
-            attester_client,
+            attestation_client,
             log,
         })
     }
@@ -301,6 +298,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         if let Some(work) = self.duties_manager.get_current_work(self.current_slot) {
             for (signer_index, work_type) in work {
                 if work_type.produce_block {
+                    // we need to produce a block
                     // spawns a thread to produce a beacon block
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
@@ -320,26 +318,27 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                         };
                         block_producer.handle_produce_block(log);
                     });
-
-                    // TODO: Produce a beacon block in a new thread
                 }
                 if work_type.attestation_duty.is_some() {
-                    // available AttestationDuty info
-                    /*
-                    let attestation_duty =
-                        work_type.attestation_duty.expect("Cannot be None");
-                    let attester_grpc_client = Arc::new(AttestationGrpcClient::new(
-                        service.attester_client.clone(),
-                    ));
-                    let signer = Arc::new(AttesterLocalSigner::new(keypair.clone()));
-                    let attester = Attester::new(attester_grpc_client, signer);
-                    let mut attester_service = AttesterService {
-                        attester,
-                        poll_interval_millis: POLL_INTERVAL_MILLIS,
-                        log: log.clone(),
-                    };
-                    attester_service.run();
-                    */
+                    // we need to produce an attestation
+                    // spawns a thread to produce and sign an attestation
+                    let signers = self.duties_manager.signers.clone(); // this is an arc
+                    let fork = self.fork.clone();
+                    let spec = self.spec.clone();
+                    let beacon_node = self.attestation_client.clone();
+                    let log = self.log.clone();
+                    std::thread::spawn(move || {
+                        info!(log, "Producing an attestation"; "Validator"=> format!("{}", signers[signer_index]));
+                        let signer = &signers[signer_index];
+                        let mut attestation_producer = AttestationProducer {
+                            fork,
+                            duty: work_type.attestation_duty.expect("Should never be none"),
+                            spec,
+                            beacon_node,
+                            signer,
+                        };
+                        attestation_producer.handle_produce_attestation(log);
+                    });
                 }
             }
         }
