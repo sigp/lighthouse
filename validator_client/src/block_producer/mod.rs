@@ -31,6 +31,10 @@ pub enum ValidatorEvent {
     BeaconNodeUnableToProduceAttestation(Slot),
     /// The signer failed to sign the message.
     SignerRejection(Slot),
+    /// Publishing an attestation failed.
+    PublishAttestationFailed,
+    /// Beacon node rejected the attestation.
+    InvalidAttestation,
 }
 
 /// This struct contains the logic for requesting and signing beacon blocks for a validator. The

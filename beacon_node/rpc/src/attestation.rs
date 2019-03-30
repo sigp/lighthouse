@@ -25,7 +25,7 @@ impl AttestationService for AttestationServiceInstance {
         req: ProduceAttestationDataRequest,
         sink: UnarySink<ProduceAttestationDataResponse>,
     ) {
-        warn!(
+        trace!(
             &self.log,
             "Attempting to produce attestation at slot {}",
             req.get_slot()
@@ -92,7 +92,7 @@ impl AttestationService for AttestationServiceInstance {
         req: PublishAttestationRequest,
         sink: UnarySink<PublishAttestationResponse>,
     ) {
-        warn!(self.log, "Publishing attestation");
+        trace!(self.log, "Publishing attestation");
 
         let mut resp = PublishAttestationResponse::new();
         let ssz_serialized_attestation = req.get_attestation().get_ssz();
@@ -128,6 +128,7 @@ impl AttestationService for AttestationServiceInstance {
                     self.log,
                     "PublishAttestation";
                     "type" => "invalid_attestation",
+                    "error" => format!("{:?}", e),
                 );
                 resp.set_success(false);
                 resp.set_msg(format!("InvalidAttestation: {:?}", e).as_bytes().to_vec());
