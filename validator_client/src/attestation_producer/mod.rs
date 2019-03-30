@@ -4,7 +4,7 @@ mod grpc;
 use std::sync::Arc;
 use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 //TODO: Move these higher up in the crate
-use super::block_producer::{BeaconNodeError, ValidatorEvent};
+use super::block_producer::{BeaconNodeError, PublishOutcome, ValidatorEvent};
 use crate::signer::Signer;
 use beacon_node_attestation::BeaconNodeAttestation;
 use slog::{error, info, warn};
@@ -58,6 +58,12 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             Ok(ValidatorEvent::BeaconNodeUnableToProduceAttestation(_slot)) => {
                 error!(log, "Attestation production error"; "Error" => format!("Beacon node was unable to produce an attestation"))
             }
+            Ok(ValidatorEvent::PublishAttestationFailed) => {
+                error!(log, "Attestation production error"; "Error" => format!("Beacon node was unable to publish an attestation"))
+            }
+            Ok(ValidatorEvent::InvalidAttestation) => {
+                error!(log, "Attestation production error"; "Error" => format!("The signed attestation was invalid"))
+            }
             Ok(v) => {
                 warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v))
             }
@@ -83,8 +89,15 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
         if self.safe_to_produce(&attestation) {
             let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
             if let Some(attestation) = self.sign_attestation(attestation, self.duty, domain) {
-                self.beacon_node.publish_attestation(attestation)?;
-                Ok(ValidatorEvent::AttestationProduced(self.duty.slot))
+                match self.beacon_node.publish_attestation(attestation) {
+                    Ok(PublishOutcome::InvalidAttestation(_string)) => {
+                        Ok(ValidatorEvent::InvalidAttestation)
+                    }
+                    Ok(PublishOutcome::Valid) => {
+                        Ok(ValidatorEvent::AttestationProduced(self.duty.slot))
+                    }
+                    Err(_) | Ok(_) => Ok(ValidatorEvent::PublishAttestationFailed),
+                }
             } else {
                 Ok(ValidatorEvent::SignerRejection(self.duty.slot))
             }
@@ -101,7 +114,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
     /// done upstream.
     fn sign_attestation(
         &mut self,
-        mut attestation: AttestationData,
+        attestation: AttestationData,
         duties: AttestationDuty,
         domain: u64,
     ) -> Option<Attestation> {
