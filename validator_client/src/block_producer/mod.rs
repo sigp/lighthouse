@@ -1,7 +1,7 @@
-mod beacon_block_node;
+mod beacon_node_block;
 mod grpc;
 
-use self::beacon_block_node::{BeaconBlockNode, BeaconBlockNodeError};
+use self::beacon_node_block::{BeaconNodeBlock, BeaconNodeError};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
 use slog::{error, info};
@@ -11,7 +11,7 @@ use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    BeaconBlockNodeError(BeaconBlockNodeError),
+    BeaconNodeError(BeaconNodeError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -28,7 +28,7 @@ pub enum ValidatorEvent {
 
 /// This struct contains the logic for requesting and signing beacon blocks for a validator. The
 /// validator can abstractly sign via the Signer trait object.
-pub struct BlockProducer<'a, B: BeaconBlockNode, S: Signer> {
+pub struct BlockProducer<'a, B: BeaconNodeBlock, S: Signer> {
     /// The current fork.
     pub fork: Fork,
     /// The current slot to produce a block for.
@@ -41,7 +41,7 @@ pub struct BlockProducer<'a, B: BeaconBlockNode, S: Signer> {
     pub signer: &'a S,
 }
 
-impl<'a, B: BeaconBlockNode, S: Signer> BlockProducer<'a, B, S> {
+impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     /// Handle outputs and results from block production.
     pub fn handle_produce_block(&mut self, log: slog::Logger) {
         match self.produce_block() {
@@ -147,9 +147,9 @@ impl<'a, B: BeaconBlockNode, S: Signer> BlockProducer<'a, B, S> {
     }
 }
 
-impl From<BeaconBlockNodeError> for Error {
-    fn from(e: BeaconBlockNodeError) -> Error {
-        Error::BeaconBlockNodeError(e)
+impl From<BeaconNodeError> for Error {
+    fn from(e: BeaconNodeError) -> Error {
+        Error::BeaconNodeError(e)
     }
 }
 

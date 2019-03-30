@@ -8,7 +8,7 @@
 /// When a validator needs to either produce a block or sign an attestation, it requests the
 /// data from the beacon node and performs the signing before publishing the block to the beacon
 /// node.
-use crate::attester_service::{AttestationGrpcClient, AttesterService};
+//use crate::attester_service::{AttestationGrpcClient, AttesterService};
 use crate::block_producer::{BeaconBlockGrpcClient, BlockProducer};
 use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap, UpdateOutcome};

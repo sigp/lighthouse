@@ -1,4 +1,5 @@
-mod attestation_grpc_client;
+mod grpc;
+/*
 use attester::{Attester, BeaconNode, DutiesReader, PollOutcome as AttesterPollOutcome, Signer};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -6,10 +7,8 @@ use std::time::Duration;
 
 pub use self::attestation_grpc_client::AttestationGrpcClient;
 
-pub struct AttesterService {}
-/*
 pub struct AttesterService<U: BeaconNode, W: Signer> {
-    //    pub attester: Attester<U, W>,
+    pub attester: Attester<U, W>,
     pub poll_interval_millis: u64,
     pub log: Logger,
 }
