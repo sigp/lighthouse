@@ -1,5 +1,5 @@
 use super::EpochDuties;
-use types::{Epoch, PublicKey};
+use types::{Epoch, Keypair};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconNodeDutiesError {
@@ -15,6 +15,6 @@ pub trait BeaconNodeDuties: Send + Sync {
     fn request_duties(
         &self,
         epoch: Epoch,
-        pubkeys: &[PublicKey],
+        signers: &[Keypair],
     ) -> Result<EpochDuties, BeaconNodeDutiesError>;
 }

@@ -6,21 +6,21 @@ use protos::services_grpc::ValidatorServiceClient;
 use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::time::Duration;
-use types::{Epoch, PublicKey, Slot};
+use types::{Epoch, Keypair, Slot};
 
 impl BeaconNodeDuties for ValidatorServiceClient {
     /// Requests all duties (block signing and committee attesting) from the Beacon Node (BN).
     fn request_duties(
         &self,
         epoch: Epoch,
-        pubkeys: &[PublicKey],
+        signers: &[Keypair],
     ) -> Result<EpochDuties, BeaconNodeDutiesError> {
         // Get the required duties from all validators
         // build the request
         let mut req = GetDutiesRequest::new();
         req.set_epoch(epoch.as_u64());
         let mut validators = Validators::new();
-        validators.set_public_keys(pubkeys.iter().map(|v| ssz_encode(v)).collect());
+        validators.set_public_keys(signers.iter().map(|v| ssz_encode(&v.pk)).collect());
         req.set_validators(validators);
 
         // set a timeout for requests
@@ -31,11 +31,11 @@ impl BeaconNodeDuties for ValidatorServiceClient {
             .get_validator_duties(&req)
             .map_err(|err| BeaconNodeDutiesError::RemoteFailure(format!("{:?}", err)))?;
 
-        let mut epoch_duties: HashMap<PublicKey, Option<EpochDuty>> = HashMap::new();
+        let mut epoch_duties: HashMap<Keypair, Option<EpochDuty>> = HashMap::new();
         for (index, validator_duty) in reply.get_active_validators().iter().enumerate() {
             if !validator_duty.has_duty() {
                 // validator is inactive
-                epoch_duties.insert(pubkeys[index].clone(), None);
+                epoch_duties.insert(signers[index].clone(), None);
                 continue;
             }
             // active validator
@@ -53,7 +53,7 @@ impl BeaconNodeDuties for ValidatorServiceClient {
                 attestation_shard: active_duty.get_attestation_shard(),
                 committee_index: active_duty.get_committee_index(),
             };
-            epoch_duties.insert(pubkeys[index].clone(), Some(epoch_duty));
+            epoch_duties.insert(signers[index].clone(), Some(epoch_duty));
         }
         Ok(epoch_duties)
     }

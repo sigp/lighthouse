@@ -50,12 +50,12 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectBeaconNode<T, U, F> {
 }
 
 impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterBeaconNode for DirectBeaconNode<T, U, F> {
-    fn produce_attestation(
+    fn produce_attestation_data(
         &self,
         _slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, NodeError> {
-        match self.beacon_chain.produce_attestation(shard) {
+        match self.beacon_chain.produce_attestation_data(shard) {
             Ok(attestation_data) => Ok(Some(attestation_data)),
             Err(e) => Err(NodeError::RemoteFailure(format!("{:?}", e))),
         }
