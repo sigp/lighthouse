@@ -89,7 +89,7 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice> {
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
     pub attestation_aggregator: RwLock<AttestationAggregator>,
-    pub op_pool: RwLock<OperationPool>,
+    pub op_pool: OperationPool,
     canonical_head: RwLock<CheckPoint>,
     finalized_head: RwLock<CheckPoint>,
     pub state: RwLock<BeaconState>,
@@ -143,7 +143,7 @@ where
             state_store,
             slot_clock,
             attestation_aggregator,
-            op_pool: RwLock::new(OperationPool::new()),
+            op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
             finalized_head,
             canonical_head,
@@ -545,7 +545,6 @@ where
         attestation: Attestation,
     ) -> Result<(), AttestationValidationError> {
         self.op_pool
-            .write()
             .insert_attestation(attestation, &*self.state.read(), &self.spec)
     }
 
@@ -555,21 +554,18 @@ where
         deposit: Deposit,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
         self.op_pool
-            .write()
             .insert_deposit(deposit, &*self.state.read(), &self.spec)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
         self.op_pool
-            .write()
             .insert_voluntary_exit(exit, &*self.state.read(), &self.spec)
     }
 
     /// Accept some transfer and queue it for inclusion in an appropriate block.
     pub fn process_transfer(&self, transfer: Transfer) -> Result<(), TransferValidationError> {
         self.op_pool
-            .write()
             .insert_transfer(transfer, &*self.state.read(), &self.spec)
     }
 
@@ -578,11 +574,8 @@ where
         &self,
         proposer_slashing: ProposerSlashing,
     ) -> Result<(), ProposerSlashingValidationError> {
-        self.op_pool.write().insert_proposer_slashing(
-            proposer_slashing,
-            &*self.state.read(),
-            &self.spec,
-        )
+        self.op_pool
+            .insert_proposer_slashing(proposer_slashing, &*self.state.read(), &self.spec)
     }
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
@@ -590,11 +583,8 @@ where
         &self,
         attester_slashing: AttesterSlashing,
     ) -> Result<(), AttesterSlashingValidationError> {
-        self.op_pool.write().insert_attester_slashing(
-            attester_slashing,
-            &*self.state.read(),
-            &self.spec,
-        )
+        self.op_pool
+            .insert_attester_slashing(attester_slashing, &*self.state.read(), &self.spec)
     }
 
     /// Accept some block and attempt to add it to block DAG.
@@ -705,24 +695,12 @@ where
 
         trace!("Finding attestations for new block...");
 
-        let attestations = self
-            .op_pool
-            .read()
-            .get_attestations(&*self.state.read(), &self.spec);
-
-        trace!(
-            "Inserting {} attestation(s) into new block.",
-            attestations.len()
-        );
-
         let previous_block_root = *state
             .get_block_root(state.slot - 1, &self.spec)
             .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?;
 
-        let (proposer_slashings, attester_slashings) = self
-            .op_pool
-            .read()
-            .get_slashings(&*self.state.read(), &self.spec);
+        let (proposer_slashings, attester_slashings) =
+            self.op_pool.get_slashings(&*self.state.read(), &self.spec);
 
         let mut block = BeaconBlock {
             slot: state.slot,
@@ -738,19 +716,14 @@ where
                 },
                 proposer_slashings,
                 attester_slashings,
-                attestations,
-                deposits: self
+                attestations: self
                     .op_pool
-                    .read()
-                    .get_deposits(&*self.state.read(), &self.spec),
+                    .get_attestations(&*self.state.read(), &self.spec),
+                deposits: self.op_pool.get_deposits(&*self.state.read(), &self.spec),
                 voluntary_exits: self
                     .op_pool
-                    .read()
                     .get_voluntary_exits(&*self.state.read(), &self.spec),
-                transfers: self
-                    .op_pool
-                    .read()
-                    .get_transfers(&*self.state.read(), &self.spec),
+                transfers: self.op_pool.get_transfers(&*self.state.read(), &self.spec),
             },
         };
 
