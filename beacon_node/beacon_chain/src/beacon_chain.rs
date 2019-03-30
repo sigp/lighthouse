@@ -692,7 +692,10 @@ where
             },
         };
 
-        trace!("BeaconChain::produce_block: updating state for new block.",);
+        debug!(
+            "Produced block with {} attestations, updating state.",
+            block.body.attestations.len()
+        );
 
         per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
 
