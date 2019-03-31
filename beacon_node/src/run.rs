@@ -27,12 +27,22 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
 
     match config.db_type {
         DBType::RocksDB => {
+            info!(
+                log,
+                "BeaconNode starting";
+                "type" => "DiskDBTestingClientType"
+            );
             let client: Client<DiskDBTestingClientType> =
                 Client::new(config, log.clone(), &executor)?;
 
             run(client, executor, runtime, log)
         }
         DBType::Memory => {
+            info!(
+                log,
+                "BeaconNode starting";
+                "type" => "MemoryDBTestingClientType"
+            );
             let client: Client<MemoryDBTestingClientType> =
                 Client::new(config, log.clone(), &executor)?;
 
