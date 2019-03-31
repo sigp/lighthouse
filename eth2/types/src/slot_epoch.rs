@@ -114,6 +114,16 @@ mod epoch_tests {
     all_tests!(Epoch);
 
     #[test]
+    fn epoch_start_end() {
+        let slots_per_epoch = 8;
+
+        let epoch = Epoch::new(0);
+
+        assert_eq!(epoch.start_slot(slots_per_epoch), Slot::new(0));
+        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(7));
+    }
+
+    #[test]
     fn slot_iter() {
         let slots_per_epoch = 8;
 
