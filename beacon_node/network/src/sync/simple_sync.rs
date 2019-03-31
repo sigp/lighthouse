@@ -1,10 +1,11 @@
 use super::import_queue::ImportQueue;
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BlockProcessingOutcome, InvalidBlock};
 use crate::message_handler::NetworkContext;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, warn};
+use ssz::TreeHash;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +16,10 @@ const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
 /// The amount of seconds a block (or partial block) may exist in the import queue.
 const QUEUE_STALE_SECS: u64 = 60;
+
+/// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
+/// Otherwise we queue it.
+const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
@@ -536,65 +541,130 @@ impl SimpleSync {
     }
 
     /// Process a gossip message declaring a new block.
+    ///
+    /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
     pub fn on_block_gossip(
         &mut self,
         peer_id: PeerId,
         block: BeaconBlock,
         network: &mut NetworkContext,
-    ) {
+    ) -> bool {
         info!(
             self.log,
             "NewGossipBlock";
             "peer" => format!("{:?}", peer_id),
         );
 
-        /*
         // Ignore any block from a finalized slot.
-        if self.slot_is_finalized(msg.slot) {
+        if self.slot_is_finalized(block.slot) {
             warn!(
                 self.log, "NewGossipBlock";
                 "msg" => "new block slot is finalized.",
-                "slot" => msg.slot,
+                "block_slot" => block.slot,
             );
-            return;
+            return false;
         }
+
+        let block_root = Hash256::from_slice(&block.hash_tree_root());
 
         // Ignore any block that the chain already knows about.
-        if self.chain_has_seen_block(&msg.block_root) {
-            return;
+        if self.chain_has_seen_block(&block_root) {
+            println!("this happened");
+            // TODO: Age confirm that we shouldn't forward a block if we already know of it.
+            return false;
         }
 
-        // k
-        if msg.slot == self.chain.hello_message().best_slot + 1 {
-            self.request_block_headers(
-                peer_id,
-                BeaconBlockHeadersRequest {
-                    start_root: msg.block_root,
-                    start_slot: msg.slot,
-                    max_headers: 1,
-                    skip_slots: 0,
-                },
-                network,
-            )
+        debug!(
+            self.log,
+            "NewGossipBlock";
+            "peer" => format!("{:?}", peer_id),
+            "msg" => "processing block",
+        );
+        match self.chain.process_block(block.clone()) {
+            Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::ParentUnknown)) => {
+                // get the parent.
+                true
+            }
+            Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::FutureSlot {
+                present_slot,
+                block_slot,
+            })) => {
+                if block_slot - present_slot > FUTURE_SLOT_TOLERANCE {
+                    // The block is too far in the future, drop it.
+                    warn!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "future block rejected",
+                        "present_slot" => present_slot,
+                        "block_slot" => block_slot,
+                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Do not forward the block around to peers.
+                    false
+                } else {
+                    // The block is in the future, but not too far.
+                    warn!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "queuing future block",
+                        "present_slot" => present_slot,
+                        "block_slot" => block_slot,
+                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Queue the block for later processing.
+                    self.import_queue.enqueue_full_blocks(vec![block], peer_id);
+                    // Forward the block around to peers.
+                    true
+                }
+            }
+            Ok(outcome) => {
+                if outcome.is_invalid() {
+                    // The peer has sent a block which is fundamentally invalid.
+                    warn!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "invalid block from peer",
+                        "outcome" => format!("{:?}", outcome),
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Disconnect the peer
+                    network.disconnect(peer_id, GoodbyeReason::Fault);
+                    // Do not forward the block to peers.
+                    false
+                } else if outcome.sucessfully_processed() {
+                    // The block was valid and we processed it successfully.
+                    info!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "block import successful",
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Forward the block to peers
+                    true
+                } else {
+                    // The block wasn't necessarily invalid but we didn't process it successfully.
+                    // This condition shouldn't be reached.
+                    error!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "unexpected condition in processing block.",
+                        "outcome" => format!("{:?}", outcome),
+                    );
+                    // Do not forward the block on.
+                    false
+                }
+            }
+            Err(e) => {
+                // We encountered an error whilst processing the block.
+                //
+                // Blocks should not be able to trigger errors, instead they should be flagged as
+                // invalid.
+                error!(
+                    self.log, "NewGossipBlock";
+                    "msg" => "internal error in processing block.",
+                    "error" => format!("{:?}", e),
+                );
+                // Do not forward the block to peers.
+                false
+            }
         }
-
-        // TODO: if the block is a few more slots ahead, try to get all block roots from then until
-        // now.
-        //
-        // Note: only requests the new block -- will fail if we don't have its parents.
-        if !self.chain_has_seen_block(&msg.block_root) {
-            self.request_block_headers(
-                peer_id,
-                BeaconBlockHeadersRequest {
-                    start_root: msg.block_root,
-                    start_slot: msg.slot,
-                    max_headers: 1,
-                    skip_slots: 0,
-                },
-                network,
-            )
-        }
-        */
     }
 
     /// Process a gossip message declaring a new attestation.
@@ -724,6 +794,18 @@ impl SimpleSync {
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockBodies(req));
     }
 
+    /// Returns `true` if `self.chain` has not yet processed this block.
+    pub fn chain_has_seen_block(&self, block_root: &Hash256) -> bool {
+        !self
+            .chain
+            .is_new_block_root(&block_root)
+            .unwrap_or_else(|_| {
+                error!(self.log, "Unable to determine if block is new.");
+                false
+            })
+    }
+
+    /// Returns `true` if the given slot is finalized in our chain.
     fn slot_is_finalized(&self, slot: Slot) -> bool {
         slot <= self
             .chain
