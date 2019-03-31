@@ -10,7 +10,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::HelloMessage;
 use types::{Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
-pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
+pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome, InvalidBlock};
 
 /// The network's API to the beacon chain.
 pub trait BeaconChain: Send + Sync {

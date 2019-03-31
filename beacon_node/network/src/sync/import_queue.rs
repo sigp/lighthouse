@@ -104,7 +104,7 @@ impl ImportQueue {
     }
 
     /// Returns `true` if `self.chain` has not yet processed this block.
-    pub fn is_new_block(&self, block_root: &Hash256) -> bool {
+    pub fn chain_has_not_seen_block(&self, block_root: &Hash256) -> bool {
         self.chain
             .is_new_block_root(&block_root)
             .unwrap_or_else(|_| {
@@ -125,7 +125,7 @@ impl ImportQueue {
         let new_roots: Vec<BlockRootSlot> = block_roots
             .iter()
             // Ignore any roots already processed by the chain.
-            .filter(|brs| self.is_new_block(&brs.block_root))
+            .filter(|brs| self.chain_has_not_seen_block(&brs.block_root))
             // Ignore any roots already stored in the queue.
             .filter(|brs| !self.partials.iter().any(|p| p.block_root == brs.block_root))
             .cloned()
@@ -168,7 +168,7 @@ impl ImportQueue {
         for header in headers {
             let block_root = Hash256::from_slice(&header.hash_tree_root()[..]);
 
-            if self.is_new_block(&block_root) {
+            if self.chain_has_not_seen_block(&block_root) {
                 self.insert_header(block_root, header, sender.clone());
                 required_bodies.push(block_root)
             }
@@ -183,6 +183,12 @@ impl ImportQueue {
     pub fn enqueue_bodies(&mut self, bodies: Vec<BeaconBlockBody>, sender: PeerId) {
         for body in bodies {
             self.insert_body(body, sender.clone());
+        }
+    }
+
+    pub fn enqueue_full_blocks(&mut self, blocks: Vec<BeaconBlock>, sender: PeerId) {
+        for block in blocks {
+            self.insert_full_block(block, sender.clone());
         }
     }
 
@@ -238,6 +244,32 @@ impl ImportQueue {
                 }
             }
         });
+    }
+
+    /// Updates an existing `partial` with the completed block, or adds a new (complete) partial.
+    ///
+    /// If the partial already existed, the `inserted` time is set to `now`.
+    fn insert_full_block(&mut self, block: BeaconBlock, sender: PeerId) {
+        let block_root = Hash256::from_slice(&block.hash_tree_root()[..]);
+
+        let partial = PartialBeaconBlock {
+            slot: block.slot,
+            block_root,
+            header: Some(block.block_header()),
+            body: Some(block.body),
+            inserted: Instant::now(),
+            sender,
+        };
+
+        if let Some(i) = self
+            .partials
+            .iter()
+            .position(|p| p.block_root == block_root)
+        {
+            self.partials[i] = partial;
+        } else {
+            self.partials.push(partial)
+        }
     }
 }
 
