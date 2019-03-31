@@ -34,9 +34,9 @@ impl ClientTypes for StandardClientType {
     }
 }
 
-pub struct TestingClientType;
+pub struct MemoryDBTestingClientType;
 
-impl ClientTypes for TestingClientType {
+impl ClientTypes for MemoryDBTestingClientType {
     type DB = MemoryDB;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = BitwiseLMDGhost<MemoryDB>;
@@ -44,6 +44,20 @@ impl ClientTypes for TestingClientType {
     fn initialise_beacon_chain(
         config: &ClientConfig,
     ) -> Arc<BeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice>> {
-        initialise::initialise_test_beacon_chain(&config.spec, None)
+        initialise::initialise_test_beacon_chain_with_memory_db(&config.spec, None)
+    }
+}
+
+pub struct DiskDBTestingClientType;
+
+impl ClientTypes for DiskDBTestingClientType {
+    type DB = DiskDB;
+    type SlotClock = SystemTimeSlotClock;
+    type ForkChoice = BitwiseLMDGhost<DiskDB>;
+
+    fn initialise_beacon_chain(
+        config: &ClientConfig,
+    ) -> Arc<BeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice>> {
+        initialise::initialise_test_beacon_chain_with_disk_db(&config.spec, Some(&config.db_name))
     }
 }

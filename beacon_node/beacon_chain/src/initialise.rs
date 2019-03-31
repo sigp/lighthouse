@@ -61,11 +61,52 @@ pub fn initialise_beacon_chain(
 }
 
 /// Initialisation of a test beacon chain, uses an in memory db with fixed genesis time.
-pub fn initialise_test_beacon_chain(
+pub fn initialise_test_beacon_chain_with_memory_db(
     spec: &ChainSpec,
     _db_name: Option<&PathBuf>,
 ) -> Arc<BeaconChain<MemoryDB, SystemTimeSlotClock, BitwiseLMDGhost<MemoryDB>>> {
     let db = Arc::new(MemoryDB::open());
+    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
+    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
+
+    let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, spec);
+    let (genesis_state, _keypairs) = state_builder.build();
+
+    let mut genesis_block = BeaconBlock::empty(spec);
+    genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+
+    // Slot clock
+    let slot_clock = SystemTimeSlotClock::new(
+        spec.genesis_slot,
+        genesis_state.genesis_time,
+        spec.seconds_per_slot,
+    )
+    .expect("Unable to load SystemTimeSlotClock");
+    // Choose the fork choice
+    let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
+
+    // Genesis chain
+    //TODO: Handle error correctly
+    Arc::new(
+        BeaconChain::from_genesis(
+            state_store.clone(),
+            block_store.clone(),
+            slot_clock,
+            genesis_state,
+            genesis_block,
+            spec.clone(),
+            fork_choice,
+        )
+        .expect("Terminate if beacon chain generation fails"),
+    )
+}
+
+/// Initialisation of a test beacon chain, uses an in memory db with fixed genesis time.
+pub fn initialise_test_beacon_chain_with_disk_db(
+    spec: &ChainSpec,
+    db_name: Option<&PathBuf>,
+) -> Arc<BeaconChain<DiskDB, SystemTimeSlotClock, BitwiseLMDGhost<DiskDB>>> {
+    let db = Arc::new(DiskDB::open(db_name.expect("Must have DB path"), None));
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));
 
