@@ -482,14 +482,37 @@ where
         trace!("BeaconChain::produce_attestation: shard: {}", shard);
         let state = self.state.read();
 
-        let target_root = *self.state.read().get_block_root(
-            self.state
+        let current_epoch_start_slot = self
+            .state
+            .read()
+            .slot
+            .epoch(self.spec.slots_per_epoch)
+            .start_slot(self.spec.slots_per_epoch);
+
+        let target_root = if state.slot == current_epoch_start_slot {
+            // If we're on the first slot of the state's epoch.
+            if self.head().beacon_block.slot == state.slot {
+                // If the current head block is from the current slot, use its block root.
+                self.head().beacon_block_root
+            } else {
+                // If the current head block is not from this slot, use the slot from the previous
+                // epoch.
+                let root = *self.state.read().get_block_root(
+                    current_epoch_start_slot - self.spec.slots_per_epoch,
+                    &self.spec,
+                )?;
+
+                root
+            }
+        } else {
+            // If we're not on the first slot of the epoch.
+            let root = *self
+                .state
                 .read()
-                .slot
-                .epoch(self.spec.slots_per_epoch)
-                .start_slot(self.spec.slots_per_epoch),
-            &self.spec,
-        )?;
+                .get_block_root(current_epoch_start_slot, &self.spec)?;
+
+            root
+        };
 
         Ok(AttestationData {
             slot: self.state.read().slot,
