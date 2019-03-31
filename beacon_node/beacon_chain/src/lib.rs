@@ -4,9 +4,7 @@ mod errors;
 pub mod initialise;
 pub mod test_utils;
 
-pub use self::beacon_chain::{
-    AttestationValidationError, BeaconChain, BlockProcessingOutcome, InvalidBlock, ValidBlock,
-};
+pub use self::beacon_chain::{BeaconChain, BlockProcessingOutcome, InvalidBlock, ValidBlock};
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use db;
