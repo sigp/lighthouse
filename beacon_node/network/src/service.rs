@@ -161,7 +161,7 @@ fn network_service(
                             libp2p_service.swarm.send_rpc(peer_id, rpc_event);
                         }
                         OutgoingMessage::NotifierTest => {
-                            debug!(log, "Received message from notifier");
+                            // debug!(log, "Received message from notifier");
                         }
                     };
                 }

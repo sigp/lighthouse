@@ -1,4 +1,4 @@
-use block_proposer::{BeaconNode, BeaconNodeError, PublishOutcome};
+use super::beacon_node_block::*;
 use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
@@ -7,6 +7,7 @@ use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
 use types::{BeaconBlock, Signature, Slot};
 
+//TODO: Remove this new type. Do not need to wrap
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
 /// implemented upon it.
 pub struct BeaconBlockGrpcClient {
@@ -19,7 +20,7 @@ impl BeaconBlockGrpcClient {
     }
 }
 
-impl BeaconNode for BeaconBlockGrpcClient {
+impl BeaconNodeBlock for BeaconBlockGrpcClient {
     /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
     ///
     /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
@@ -27,17 +28,20 @@ impl BeaconNode for BeaconBlockGrpcClient {
     fn produce_beacon_block(
         &self,
         slot: Slot,
-        // TODO: use randao_reveal, when proto APIs have been updated.
-        _randao_reveal: &Signature,
+        randao_reveal: &Signature,
     ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
+        // request a beacon block from the node
         let mut req = ProduceBeaconBlockRequest::new();
         req.set_slot(slot.as_u64());
+        req.set_randao_reveal(ssz_encode(randao_reveal));
 
+        //TODO: Determine if we want an explicit timeout
         let reply = self
             .client
             .produce_beacon_block(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
+        // format the reply
         if reply.has_block() {
             let block = reply.get_block();
             let ssz = block.get_ssz();
@@ -60,7 +64,6 @@ impl BeaconNode for BeaconBlockGrpcClient {
 
         let ssz = ssz_encode(&block);
 
-        // TODO: this conversion is incomplete; fix it.
         let mut grpc_block = GrpcBeaconBlock::new();
         grpc_block.set_ssz(ssz);
 
@@ -72,7 +75,7 @@ impl BeaconNode for BeaconBlockGrpcClient {
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
         if reply.get_success() {
-            Ok(PublishOutcome::ValidBlock)
+            Ok(PublishOutcome::Valid)
         } else {
             // TODO: distinguish between different errors
             Ok(PublishOutcome::InvalidBlock("Publish failed".to_string()))

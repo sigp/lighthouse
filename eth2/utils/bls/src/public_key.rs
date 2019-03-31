@@ -7,6 +7,7 @@ use ssz::{
     decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
 };
 use std::default;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// A single BLS signature.
@@ -51,6 +52,12 @@ impl PublicKey {
         let bytes = ssz_encode(self);
         let end_bytes = &bytes[bytes.len().saturating_sub(6)..bytes.len()];
         hex_encode(end_bytes)
+    }
+}
+
+impl fmt::Display for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.concatenated_hex_id())
     }
 }
 

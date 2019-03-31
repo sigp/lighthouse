@@ -290,7 +290,7 @@ where
     /// fork-choice rule).
     ///
     /// It is important to note that the `beacon_state` returned may not match the present slot. It
-    /// is the state as it was when the head block was recieved, which could be some slots prior to
+    /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
     pub fn head(&self) -> RwLockReadGuard<CheckPoint> {
         self.canonical_head.read()
