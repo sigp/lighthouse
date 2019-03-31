@@ -99,6 +99,9 @@ fn validate_attestation_parametric(
         crosslink_data_root: attestation.data.crosslink_data_root,
         epoch: attestation.data.slot.epoch(spec.slots_per_epoch),
     };
+    dbg!(attestation.clone());
+    dbg!(state.latest_crosslinks[attestation.data.shard as usize].clone());
+    dbg!(potential_crosslink.clone());
     verify!(
         (attestation.data.previous_crosslink
             == state.latest_crosslinks[attestation.data.shard as usize])

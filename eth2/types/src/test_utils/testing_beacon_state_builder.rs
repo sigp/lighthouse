@@ -6,6 +6,8 @@ use dirs;
 use log::debug;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
+//TODO: testing only
+use std::time::{Duration, SystemTime};
 
 pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
 
@@ -120,7 +122,13 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
-        let genesis_time = 1553977336; // arbitrary
+        //TODO: Testing only
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 30;
+        let genesis_time = now; // arbitrary
 
         let mut state = BeaconState::genesis(
             genesis_time,
