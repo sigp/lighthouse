@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 use types::{AttestationDuty, Epoch, PublicKey, Slot};
 
@@ -22,9 +23,7 @@ pub struct WorkInfo {
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub struct EpochDuty {
     pub block_production_slot: Option<Slot>,
-    pub attestation_slot: Slot,
-    pub attestation_shard: u64,
-    pub committee_index: u64,
+    pub attestation_duty: AttestationDuty,
 }
 
 impl EpochDuty {
@@ -38,12 +37,8 @@ impl EpochDuty {
 
         // if the validator is required to attest to a shard, create the data
         let mut attestation_duty = None;
-        if self.attestation_slot == slot {
-            attestation_duty = Some(AttestationDuty {
-                slot,
-                shard: self.attestation_shard,
-                committee_index: self.committee_index as usize,
-            });
+        if self.attestation_duty.slot == slot {
+            attestation_duty = Some(self.attestation_duty)
         }
 
         if produce_block | attestation_duty.is_some() {
@@ -55,11 +50,25 @@ impl EpochDuty {
         None
     }
 }
-/// Maps a list of public keys (many validators) to an EpochDuty.
+
+impl fmt::Display for EpochDuty {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut display_block = String::from("None");
+        if let Some(block_slot) = self.block_production_slot {
+            display_block = block_slot.to_string();
+        }
+        write!(
+            f,
+            "produce block slot: {}, attestation slot: {}, attestation shard: {}",
+            display_block, self.attestation_duty.slot, self.attestation_duty.shard
+        )
+    }
+}
+
+/// Maps a list of keypairs (many validators) to an EpochDuty.
 pub type EpochDuties = HashMap<PublicKey, Option<EpochDuty>>;
 
 pub enum EpochDutiesMapError {
-    Poisoned,
     UnknownEpoch,
     UnknownValidator,
 }
@@ -98,7 +107,7 @@ impl EpochDutiesMap {
     pub fn is_work_slot(
         &self,
         slot: Slot,
-        pubkey: &PublicKey,
+        signer: &PublicKey,
     ) -> Result<Option<WorkInfo>, EpochDutiesMapError> {
         let epoch = slot.epoch(self.slots_per_epoch);
 
@@ -106,7 +115,7 @@ impl EpochDutiesMap {
             .map
             .get(&epoch)
             .ok_or_else(|| EpochDutiesMapError::UnknownEpoch)?;
-        if let Some(epoch_duty) = epoch_duties.get(pubkey) {
+        if let Some(epoch_duty) = epoch_duties.get(signer) {
             if let Some(duty) = epoch_duty {
                 // Retrieves the duty for a validator at a given slot
                 return Ok(duty.is_work_slot(slot));

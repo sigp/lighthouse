@@ -6,7 +6,7 @@ pub mod test_utils;
 
 pub use self::beacon_chain::{BeaconChain, BlockProcessingOutcome, InvalidBlock, ValidBlock};
 pub use self::checkpoint::CheckPoint;
-pub use self::errors::BeaconChainError;
+pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use db;
 pub use fork_choice;
 pub use parking_lot;
