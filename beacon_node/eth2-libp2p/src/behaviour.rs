@@ -1,4 +1,3 @@
-use crate::rpc::methods::BlockRootSlot;
 use crate::rpc::{RPCEvent, RPCMessage, Rpc};
 use crate::NetworkConfig;
 use futures::prelude::*;
@@ -15,8 +14,7 @@ use libp2p::{
 };
 use slog::{debug, o, warn};
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
-use ssz_derive::{Decode, Encode};
-use types::Attestation;
+use types::{Attestation, BeaconBlock};
 use types::{Topic, TopicHash};
 
 /// Builds the network behaviour for the libp2p Swarm.
@@ -198,7 +196,7 @@ pub enum BehaviourEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage {
     /// Gossipsub message providing notification of a new block.
-    Block(BlockRootSlot),
+    Block(BeaconBlock),
     /// Gossipsub message providing notification of a new attestation.
     Attestation(Attestation),
 }
@@ -224,7 +222,7 @@ impl Decodable for PubsubMessage {
         let (id, index) = u32::ssz_decode(bytes, index)?;
         match id {
             0 => {
-                let (block, index) = BlockRootSlot::ssz_decode(bytes, index)?;
+                let (block, index) = BeaconBlock::ssz_decode(bytes, index)?;
                 Ok((PubsubMessage::Block(block), index))
             }
             1 => {
@@ -243,10 +241,7 @@ mod test {
 
     #[test]
     fn ssz_encoding() {
-        let original = PubsubMessage::Block(BlockRootSlot {
-            block_root: Hash256::from_slice(&[42; 32]),
-            slot: Slot::new(4),
-        });
+        let original = PubsubMessage::Block(BeaconBlock::empty(&ChainSpec::foundation()));
 
         let encoded = ssz_encode(&original);
 

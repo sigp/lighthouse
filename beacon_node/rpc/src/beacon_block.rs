@@ -1,6 +1,5 @@
 use crate::beacon_chain::BeaconChain;
 use crossbeam_channel;
-use eth2_libp2p::rpc::methods::BlockRootSlot;
 use eth2_libp2p::PubsubMessage;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
@@ -12,9 +11,9 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockService;
 use slog::Logger;
 use slog::{error, info, trace, warn};
-use ssz::{ssz_encode, Decodable, TreeHash};
+use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::{BeaconBlock, Hash256, Signature, Slot};
+use types::{BeaconBlock, Signature, Slot};
 
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance {
@@ -94,8 +93,6 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
 
         match BeaconBlock::ssz_decode(ssz_serialized_block, 0) {
             Ok((block, _i)) => {
-                let block_root = Hash256::from_slice(&block.hash_tree_root()[..]);
-
                 match self.chain.process_block(block.clone()) {
                     Ok(outcome) => {
                         if outcome.sucessfully_processed() {
@@ -111,21 +108,22 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
                             // TODO: Obtain topics from the network service properly.
                             let topic =
                                 types::TopicBuilder::new("beacon_chain".to_string()).build();
-                            let message = PubsubMessage::Block(BlockRootSlot {
-                                block_root,
-                                slot: block.slot,
-                            });
+                            let message = PubsubMessage::Block(block);
 
-                            match self.network_chan.send(NetworkMessage::Publish {
-                                topics: vec![topic],
-                                message,
-                            }) {
-                                Ok(_) => {}
-                                Err(_) => warn!(
-                                    self.log,
-                                    "Could not send published block to the network service"
-                                ),
-                            }
+                            // Publish the block to the p2p network via gossipsub.
+                            self.network_chan
+                                .send(NetworkMessage::Publish {
+                                    topics: vec![topic],
+                                    message,
+                                })
+                                .unwrap_or_else(|e| {
+                                    error!(
+                                        self.log,
+                                        "PublishBeaconBlock";
+                                        "type" => "failed to publish to gossipsub",
+                                        "error" => format!("{:?}", e)
+                                    );
+                                });
 
                             resp.set_success(true);
                         } else if outcome.is_invalid() {
