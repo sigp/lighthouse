@@ -8,7 +8,7 @@ use slog::{debug, error, info, o, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{Attestation, Epoch, Hash256, Slot};
+use types::{Attestation, BeaconBlock, Epoch, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
@@ -539,7 +539,7 @@ impl SimpleSync {
     pub fn on_block_gossip(
         &mut self,
         peer_id: PeerId,
-        msg: BlockRootSlot,
+        block: BeaconBlock,
         network: &mut NetworkContext,
     ) {
         info!(
@@ -548,6 +548,7 @@ impl SimpleSync {
             "peer" => format!("{:?}", peer_id),
         );
 
+        /*
         // Ignore any block from a finalized slot.
         if self.slot_is_finalized(msg.slot) {
             warn!(
@@ -558,11 +559,13 @@ impl SimpleSync {
             return;
         }
 
-        // TODO: if the block is a few more slots ahead, try to get all block roots from then until
-        // now.
-        //
-        // Note: only requests the new block -- will fail if we don't have its parents.
-        if self.import_queue.is_new_block(&msg.block_root) {
+        // Ignore any block that the chain already knows about.
+        if self.chain_has_seen_block(&msg.block_root) {
+            return;
+        }
+
+        // k
+        if msg.slot == self.chain.hello_message().best_slot + 1 {
             self.request_block_headers(
                 peer_id,
                 BeaconBlockHeadersRequest {
@@ -574,6 +577,24 @@ impl SimpleSync {
                 network,
             )
         }
+
+        // TODO: if the block is a few more slots ahead, try to get all block roots from then until
+        // now.
+        //
+        // Note: only requests the new block -- will fail if we don't have its parents.
+        if !self.chain_has_seen_block(&msg.block_root) {
+            self.request_block_headers(
+                peer_id,
+                BeaconBlockHeadersRequest {
+                    start_root: msg.block_root,
+                    start_slot: msg.slot,
+                    max_headers: 1,
+                    skip_slots: 0,
+                },
+                network,
+            )
+        }
+        */
     }
 
     /// Process a gossip message declaring a new attestation.
