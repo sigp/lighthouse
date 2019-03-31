@@ -22,8 +22,6 @@ impl BeaconNodeAttestation for AttestationServiceClient {
             .produce_attestation_data(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
-        dbg!("Produced Attestation Data");
-
         let (attestation_data, _index) =
             AttestationData::ssz_decode(reply.get_attestation_data().get_ssz(), 0)
                 .map_err(|_| BeaconNodeError::DecodeFailure)?;
