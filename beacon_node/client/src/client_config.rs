@@ -119,6 +119,12 @@ impl ClientConfig {
             }
         }
 
+        match args.value_of("db") {
+            Some("rocks") => config.db_type = DBType::RocksDB,
+            Some("memory") => config.db_type = DBType::Memory,
+            _ => unreachable!(), // clap prevents this.
+        };
+
         Ok(config)
     }
 }
