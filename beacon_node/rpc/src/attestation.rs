@@ -37,14 +37,29 @@ impl AttestationService for AttestationServiceInstance {
             let state = self.chain.get_state();
 
             // Start by performing some checks
-            // Check that the the AttestionData is for the current slot (otherwise it will not be valid)
-            if slot_requested != state.slot.as_u64() {
+            // Check that the AttestionData is for the current slot (otherwise it will not be valid)
+            if slot_requested > state.slot.as_u64() {
                 let log_clone = self.log.clone();
                 let f = sink
                     .fail(RpcStatus::new(
                         RpcStatusCode::OutOfRange,
                         Some(format!(
-                            "AttestationData request for a slot that is not the current slot."
+                            "AttestationData request for a slot that is in the future."
+                        )),
+                    ))
+                    .map_err(move |e| {
+                        error!(log_clone, "Failed to reply with failure {:?}: {:?}", req, e)
+                    });
+                return ctx.spawn(f);
+            }
+            // currently cannot handle past slots. TODO: Handle this case
+            else if slot_requested < state.slot.as_u64() {
+                let log_clone = self.log.clone();
+                let f = sink
+                    .fail(RpcStatus::new(
+                        RpcStatusCode::InvalidArgument,
+                        Some(format!(
+                            "AttestationData request for a slot that is in the past."
                         )),
                     ))
                     .map_err(move |e| {
@@ -70,6 +85,9 @@ impl AttestationService for AttestationServiceInstance {
                 return ctx.spawn(f);
             }
         };
+
+        dbg!("Produced attestation");
+        dbg!(attestation_data.clone());
 
         let mut attestation_data_proto = AttestationDataProto::new();
         attestation_data_proto.set_ssz(ssz_encode(&attestation_data));

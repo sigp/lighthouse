@@ -30,21 +30,10 @@ impl ValidatorService for ValidatorServiceInstance {
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
         let spec = self.chain.get_spec();
-        // update the caches if necessary
-        {
-            let mut mut_state = self.chain.get_mut_state();
-
-            let _ = mut_state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, spec);
-
-            let _ = mut_state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec);
-            let _ = mut_state.update_pubkey_cache();
-        }
-
+        let state = self.chain.get_state();
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
-
-        let state = self.chain.get_state();
 
         let relative_epoch =
             match RelativeEpoch::from_epoch(state.slot.epoch(spec.slots_per_epoch), epoch) {

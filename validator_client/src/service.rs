@@ -29,10 +29,14 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
-use tokio::timer::Interval;
+use tokio::timer::{Delay, Interval};
 use tokio_timer::clock::Clock;
 use types::test_utils::generate_deterministic_keypairs;
 use types::{ChainSpec, Epoch, Fork, Slot};
+
+/// A fixed amount of time after a slot to perform operations. This gives the node time to complete
+/// per-slot processes.
+const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(200);
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
@@ -230,6 +234,8 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         runtime.block_on(
             interval
                 .for_each(move |_| {
+                    // wait for node to process
+                    std::thread::sleep(TIME_DELAY_FROM_SLOT);
                     // if a non-fatal error occurs, proceed to the next slot.
                     let _ignore_error = service.per_slot_execution();
                     // completed a slot process
