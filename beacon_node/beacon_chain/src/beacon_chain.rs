@@ -130,10 +130,7 @@ where
             state_root,
         ));
 
-        genesis_state.build_epoch_cache(RelativeEpoch::Previous, &spec)?;
-        genesis_state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
-        genesis_state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)?;
-        genesis_state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)?;
+        genesis_state.build_all_caches(&spec)?;
 
         Ok(Self {
             block_store,
@@ -318,6 +315,8 @@ where
             per_slot_processing(&mut state, &latest_block_header, &self.spec)?;
         }
 
+        state.build_all_caches(&self.spec)?;
+
         *self.state.write() = state;
 
         Ok(())
@@ -342,11 +341,17 @@ where
 
             per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
         }
-        state.build_epoch_cache(RelativeEpoch::Previous, &self.spec)?;
-        state.build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
-        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
-        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
-        state.update_pubkey_cache()?;
+
+        state.build_all_caches(&self.spec)?;
+
+        Ok(())
+    }
+
+    /// Build all of the caches on the current state.
+    ///
+    /// Ideally this shouldn't be required, however we leave it here for testing.
+    pub fn ensure_state_caches_are_built(&self) -> Result<(), Error> {
+        self.state.write().build_all_caches(&self.spec)?;
 
         Ok(())
     }
