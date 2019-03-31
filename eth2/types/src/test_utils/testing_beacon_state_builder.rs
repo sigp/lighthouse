@@ -122,12 +122,7 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            - 30;
-        let genesis_time = now; // arbitrary
+        let genesis_time = 1554069200; // arbitrary
 
         let mut state = BeaconState::genesis(
             genesis_time,
