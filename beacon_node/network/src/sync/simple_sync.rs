@@ -358,31 +358,50 @@ impl SimpleSync {
         if res.roots.is_empty() {
             warn!(
                 self.log,
-                "Peer returned empty block roots response. PeerId: {:?}", peer_id
+                "Peer returned empty block roots response";
+                "peer_id" => format!("{:?}", peer_id)
             );
             return;
         }
 
-        let new_root_index = self.import_queue.first_new_root(&res.roots);
-
-        // If a new block root is found, request it and all the headers following it.
-        //
-        // We make an assumption here that if we don't know a block then we don't know of all
-        // it's parents. This might not be the case if syncing becomes more sophisticated.
-        if let Some(i) = new_root_index {
-            let new = &res.roots[i];
-
-            self.request_block_headers(
-                peer_id,
-                BeaconBlockHeadersRequest {
-                    start_root: new.block_root,
-                    start_slot: new.slot,
-                    max_headers: (res.roots.len() - i) as u64,
-                    skip_slots: 0,
-                },
-                network,
-            )
+        // The wire protocol specifies that slots must be in ascending order.
+        if !res.slots_are_ascending() {
+            warn!(
+                self.log,
+                "Peer returned block roots response with bad slot ordering";
+                "peer_id" => format!("{:?}", peer_id)
+            );
+            return;
         }
+
+        let new_roots = self
+            .import_queue
+            .enqueue_block_roots(&res.roots, peer_id.clone());
+
+        // No new roots means nothing to do.
+        //
+        // This check protects against future panics.
+        if new_roots.is_empty() {
+            return;
+        }
+
+        // Determine the first (earliest) and last (latest) `BlockRootSlot` items.
+        //
+        // This logic relies upon slots to be in ascending order, which is enforced earlier.
+        let first = new_roots.first().expect("Non-empty list must have first");
+        let last = new_roots.last().expect("Non-empty list must have last");
+
+        // Request all headers between the earliest and latest new `BlockRootSlot` items.
+        self.request_block_headers(
+            peer_id,
+            BeaconBlockHeadersRequest {
+                start_root: first.block_root,
+                start_slot: first.slot,
+                max_headers: (last.slot - first.slot + 1).as_u64(),
+                skip_slots: 0,
+            },
+            network,
+        )
     }
 
     /// Handle a `BeaconBlockHeaders` request from the peer.
@@ -528,8 +547,17 @@ impl SimpleSync {
             "NewGossipBlock";
             "peer" => format!("{:?}", peer_id),
         );
-        // TODO: filter out messages that a prior to the finalized slot.
-        //
+
+        // Ignore any block from a finalized slot.
+        if self.slot_is_finalized(msg.slot) {
+            warn!(
+                self.log, "NewGossipBlock";
+                "msg" => "new block slot is finalized.",
+                "slot" => msg.slot,
+            );
+            return;
+        }
+
         // TODO: if the block is a few more slots ahead, try to get all block roots from then until
         // now.
         //
@@ -563,12 +591,9 @@ impl SimpleSync {
             "peer" => format!("{:?}", peer_id),
         );
 
-        // Awaiting a proper operations pool before we can import attestations.
-        //
-        // https://github.com/sigp/lighthouse/issues/281
         match self.chain.process_attestation(msg) {
-            Ok(_) => panic!("Impossible, method not implemented."),
-            Err(_) => error!(self.log, "Attestation processing not implemented!"),
+            Ok(()) => info!(self.log, "ImportedAttestation"),
+            Err(e) => warn!(self.log, "InvalidAttestation"; "error" => format!("{:?}", e)),
         }
     }
 
@@ -676,6 +701,14 @@ impl SimpleSync {
         );
 
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockBodies(req));
+    }
+
+    fn slot_is_finalized(&self, slot: Slot) -> bool {
+        slot <= self
+            .chain
+            .hello_message()
+            .latest_finalized_epoch
+            .start_slot(self.chain.get_spec().slots_per_epoch)
     }
 
     /// Generates our current state in the form of a HELLO RPC message.

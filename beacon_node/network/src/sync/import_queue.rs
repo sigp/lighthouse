@@ -5,7 +5,7 @@ use slog::{debug, error};
 use ssz::TreeHash;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256};
+use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256, Slot};
 
 /// Provides a queue for fully and partially built `BeaconBlock`s.
 ///
@@ -113,11 +113,36 @@ impl ImportQueue {
             })
     }
 
-    /// Returns the index of the first new root in the list of block roots.
-    pub fn first_new_root(&mut self, roots: &[BlockRootSlot]) -> Option<usize> {
-        roots
+    /// Adds the `block_roots` to the partials queue.
+    ///
+    /// If a `block_root` is not in the queue and has not been processed by the chain it is added
+    /// to the queue and it's block root is included in the output.
+    pub fn enqueue_block_roots(
+        &mut self,
+        block_roots: &[BlockRootSlot],
+        sender: PeerId,
+    ) -> Vec<BlockRootSlot> {
+        let new_roots: Vec<BlockRootSlot> = block_roots
             .iter()
-            .position(|brs| self.is_new_block(&brs.block_root))
+            // Ignore any roots already processed by the chain.
+            .filter(|brs| self.is_new_block(&brs.block_root))
+            // Ignore any roots already stored in the queue.
+            .filter(|brs| !self.partials.iter().any(|p| p.block_root == brs.block_root))
+            .cloned()
+            .collect();
+
+        new_roots.iter().for_each(|brs| {
+            self.partials.push(PartialBeaconBlock {
+                slot: brs.slot,
+                block_root: brs.block_root,
+                sender: sender.clone(),
+                header: None,
+                body: None,
+                inserted: Instant::now(),
+            })
+        });
+
+        new_roots
     }
 
     /// Adds the `headers` to the `partials` queue. Returns a list of `Hash256` block roots for
@@ -171,11 +196,21 @@ impl ImportQueue {
             .iter()
             .position(|p| p.block_root == block_root)
         {
+            // Case 1: there already exists a partial with a matching block root.
+            //
+            // The `inserted` time is set to now and the header is replaced, regardless of whether
+            // it existed or not.
+            self.partials[i].header = Some(header);
             self.partials[i].inserted = Instant::now();
         } else {
+            // Case 2: there was no partial with a matching block root.
+            //
+            // A new partial is added. This case permits adding a header without already known the
+            // root -- this is not possible in the wire protocol however we support it anyway.
             self.partials.push(PartialBeaconBlock {
+                slot: header.slot,
                 block_root,
-                header,
+                header: Some(header),
                 body: None,
                 inserted: Instant::now(),
                 sender,
@@ -192,12 +227,14 @@ impl ImportQueue {
         let body_root = Hash256::from_slice(&body.hash_tree_root()[..]);
 
         self.partials.iter_mut().for_each(|mut p| {
-            if body_root == p.header.block_body_root {
-                p.inserted = Instant::now();
+            if let Some(header) = &mut p.header {
+                if body_root == header.block_body_root {
+                    p.inserted = Instant::now();
 
-                if p.body.is_none() {
-                    p.body = Some(body.clone());
-                    p.sender = sender.clone();
+                    if p.body.is_none() {
+                        p.body = Some(body.clone());
+                        p.sender = sender.clone();
+                    }
                 }
             }
         });
@@ -208,9 +245,10 @@ impl ImportQueue {
 /// `BeaconBlock`.
 #[derive(Clone, Debug)]
 pub struct PartialBeaconBlock {
+    pub slot: Slot,
     /// `BeaconBlock` root.
     pub block_root: Hash256,
-    pub header: BeaconBlockHeader,
+    pub header: Option<BeaconBlockHeader>,
     pub body: Option<BeaconBlockBody>,
     /// The instant at which this record was created or last meaningfully modified. Used to
     /// determine if an entry is stale and should be removed.
@@ -225,7 +263,7 @@ impl PartialBeaconBlock {
     pub fn complete(self) -> Option<(Hash256, BeaconBlock, PeerId)> {
         Some((
             self.block_root,
-            self.header.into_block(self.body?),
+            self.header?.into_block(self.body?),
             self.sender,
         ))
     }

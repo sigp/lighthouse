@@ -48,7 +48,8 @@ test_cases:
         - slot: 63
           num_validators: 1003
           num_previous_epoch_attestations: 0
-          num_current_epoch_attestations: 10
+          # slots_per_epoch - attestation_inclusion_delay - skip_slots
+          num_current_epoch_attestations: 57
           slashed_validators: [11, 12, 13, 14, 42]
           exited_validators: []
           exit_initiated_validators: [50]
