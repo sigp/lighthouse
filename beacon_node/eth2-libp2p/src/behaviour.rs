@@ -12,7 +12,7 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
-use slog::{debug, o, warn};
+use slog::{debug, o, trace, warn};
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use types::{Attestation, BeaconBlock};
 use types::{Topic, TopicHash};
@@ -47,7 +47,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(gs_msg) => {
-                debug!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
+                trace!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
 
                 let pubsub_message = match PubsubMessage::ssz_decode(&gs_msg.data, 0) {
                     //TODO: Punish peer on error
