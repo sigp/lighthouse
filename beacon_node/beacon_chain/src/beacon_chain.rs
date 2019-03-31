@@ -492,10 +492,7 @@ where
             beacon_block_root: self.head().beacon_block_root,
             target_root,
             crosslink_data_root: Hash256::zero(),
-            previous_crosslink: Crosslink {
-                epoch: self.state.read().slot.epoch(self.spec.slots_per_epoch),
-                crosslink_data_root: Hash256::zero(),
-            },
+            previous_crosslink: state.latest_crosslinks[shard as usize].clone(),
             source_epoch: state.current_justified_epoch,
             source_root: state.current_justified_root,
         })
