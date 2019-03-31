@@ -227,7 +227,7 @@ impl ValidatorStatuses {
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
-                let relative_epoch = RelativeEpoch::from_slot(state.slot, a.data.slot, spec)?;
+                let relative_epoch = RelativeEpoch::from_slot(state.slot, a.inclusion_slot, spec)?;
                 status.inclusion_info = Some(InclusionInfo {
                     slot: a.inclusion_slot,
                     distance: inclusion_distance(a),
