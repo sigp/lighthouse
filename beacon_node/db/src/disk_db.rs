@@ -2,6 +2,7 @@ extern crate rocksdb;
 
 use super::rocksdb::Error as RocksError;
 use super::rocksdb::{Options, DB};
+use super::stores::COLUMNS;
 use super::{ClientDB, DBError, DBValue};
 use std::fs;
 use std::path::Path;
@@ -23,31 +24,32 @@ impl DiskDB {
     ///
     /// Panics if the database is unable to be created.
     pub fn open(path: &Path, columns: Option<&[&str]>) -> Self {
-        /*
-         * Initialise the options
-         */
+        // Rocks options.
         let mut options = Options::default();
         options.create_if_missing(true);
 
-        // TODO: ensure that columns are created (and remove
-        // the dead_code allow)
-
-        /*
-         * Initialise the path
-         */
+        // Ensure the path exists.
         fs::create_dir_all(&path).unwrap_or_else(|_| panic!("Unable to create {:?}", &path));
         let db_path = path.join("database");
 
-        /*
-         * Open the database
-         */
-        let db = match columns {
-            None => DB::open(&options, db_path),
-            Some(columns) => DB::open_cf(&options, db_path, columns),
-        }
-        .expect("Unable to open local database");;
+        let columns = columns.unwrap_or(&COLUMNS);
 
-        Self { db }
+        if db_path.exists() {
+            Self {
+                db: DB::open_cf(&options, db_path, &COLUMNS)
+                    .expect("Unable to open local database"),
+            }
+        } else {
+            let mut db = Self {
+                db: DB::open(&options, db_path).expect("Unable to open local database"),
+            };
+
+            for cf in columns {
+                db.create_col(cf).unwrap();
+            }
+
+            db
+        }
     }
 
     /// Create a RocksDB column family. Corresponds to the
