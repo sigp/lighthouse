@@ -86,9 +86,6 @@ impl AttestationService for AttestationServiceInstance {
             }
         };
 
-        dbg!("Produced attestation");
-        dbg!(attestation_data.clone());
-
         let mut attestation_data_proto = AttestationDataProto::new();
         attestation_data_proto.set_ssz(ssz_encode(&attestation_data));
 
