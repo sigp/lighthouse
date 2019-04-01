@@ -21,8 +21,9 @@ pub fn verify_proposer_slashing(
         })?;
 
     verify!(
-        proposer_slashing.header_1.slot == proposer_slashing.header_2.slot,
-        Invalid::ProposalSlotMismatch(
+        proposer_slashing.header_1.slot.epoch(spec.slots_per_epoch)
+            == proposer_slashing.header_2.slot.epoch(spec.slots_per_epoch),
+        Invalid::ProposalEpochMismatch(
             proposer_slashing.header_1.slot,
             proposer_slashing.header_2.slot
         )

@@ -271,10 +271,10 @@ pub enum ProposerSlashingValidationError {
 pub enum ProposerSlashingInvalid {
     /// The proposer index is not a known validator.
     ProposerUnknown(u64),
-    /// The two proposal have different slots.
+    /// The two proposal have different epochs.
     ///
     /// (proposal_1_slot, proposal_2_slot)
-    ProposalSlotMismatch(Slot, Slot),
+    ProposalEpochMismatch(Slot, Slot),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
     /// The specified proposer has already been slashed.
