@@ -16,6 +16,7 @@ fn main() {
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
+        // file system related arguments
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
@@ -23,6 +24,7 @@ fn main() {
                 .help("Data directory for keys and databases.")
                 .takes_value(true),
         )
+        // network related arguments
         .arg(
             Arg::with_name("listen_address")
                 .long("listen-address")
@@ -37,6 +39,14 @@ fn main() {
                 .help("Network listen port for p2p connections.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("boot-nodes")
+                .long("boot-nodes")
+                .value_name("BOOTNODES")
+                .help("A list of comma separated multi addresses representing bootnodes to connect to.")
+                .takes_value(true),
+        )
+        // rpc related arguments
         .arg(
             Arg::with_name("rpc")
                 .long("rpc")
