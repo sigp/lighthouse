@@ -582,7 +582,23 @@ impl SimpleSync {
         );
         match self.chain.process_block(block.clone()) {
             Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::ParentUnknown)) => {
-                // get the parent.
+                // The block was valid and we processed it successfully.
+                debug!(
+                    self.log, "NewGossipBlock";
+                    "msg" => "parent block unknown",
+                    "parent_root" => format!("{}", block.previous_block_root),
+                    "peer" => format!("{:?}", peer_id),
+                );
+                // Send a hello to learn of the clients best slot so we can then sync the require
+                // parent(s).
+                network.send_rpc_request(
+                    peer_id.clone(),
+                    RPCRequest::Hello(self.chain.hello_message()),
+                );
+                // Forward the block onto our peers.
+                //
+                // Note: this may need to be changed if we decide to only forward blocks if we have
+                // all required info.
                 true
             }
             Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::FutureSlot {
