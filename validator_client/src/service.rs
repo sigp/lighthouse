@@ -292,11 +292,13 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         let current_epoch = self.current_slot.epoch(self.spec.slots_per_epoch);
         // spawn a new thread separate to the runtime
         // TODO: Handle thread termination/timeout
-        std::thread::spawn(move || {
-            // the return value is a future which returns ready.
-            // built to be compatible with the tokio runtime.
-            let _empty = cloned_manager.run_update(current_epoch, cloned_log.clone());
-        });
+        // TODO: Add duties thread back in, with channel to process duties in duty change.
+        // leave sequential for now.
+        //std::thread::spawn(move || {
+        // the return value is a future which returns ready.
+        // built to be compatible with the tokio runtime.
+        let _empty = cloned_manager.run_update(current_epoch, cloned_log.clone());
+        //});
     }
 
     /// If there are any duties to process, spawn a separate thread and perform required actions.

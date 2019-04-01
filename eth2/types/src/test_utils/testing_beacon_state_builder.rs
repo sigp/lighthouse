@@ -122,12 +122,17 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
+        // TODO: Testing only. Burn with fire later.
+        // set genesis to the last 30 minute block.
+        // this is used for testing only. Allows multiple nodes to connect within a 30min window
+        // and agree on a genesis
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_secs()
-            - 30;
-        let genesis_time = now; // arbitrary
+            .as_secs();
+        let secs_after_last_period = now.checked_rem(30 * 60).unwrap_or(0);
+        // genesis is now the last 30 minute block.
+        let genesis_time = now - secs_after_last_period;
 
         let mut state = BeaconState::genesis(
             genesis_time,
