@@ -726,6 +726,7 @@ impl SimpleSync {
                             "reason" => format!("{:?}", outcome),
                         );
                         network.disconnect(sender, GoodbyeReason::Fault);
+                        break;
                     }
 
                     // If this results to true, the item will be removed from the queue.
