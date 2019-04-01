@@ -1,7 +1,7 @@
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
-use types::{Attestation, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 #[derive(Debug)]
 /// Available Serenity Libp2p RPC methods
