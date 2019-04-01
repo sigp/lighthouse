@@ -83,7 +83,7 @@ impl ValidatorService for ValidatorServiceInstance {
                             RpcStatusCode::InvalidArgument,
                             Some("Invalid public_key".to_string()),
                         ))
-                        .map_err(move |e| warn!(log_clone, "failed to reply {:?}", req));
+                        .map_err(move |_| warn!(log_clone, "failed to reply {:?}", req));
                     return ctx.spawn(f);
                 }
             };
