@@ -15,7 +15,7 @@ use types::{Attestation, BeaconBlock, Epoch, Hash256, Slot};
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
 /// The amount of seconds a block (or partial block) may exist in the import queue.
-const QUEUE_STALE_SECS: u64 = 60;
+const QUEUE_STALE_SECS: u64 = 600;
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
@@ -589,6 +589,9 @@ impl SimpleSync {
                     "parent_root" => format!("{}", block.previous_block_root),
                     "peer" => format!("{:?}", peer_id),
                 );
+                // Queue the block for later processing.
+                self.import_queue
+                    .enqueue_full_blocks(vec![block], peer_id.clone());
                 // Send a hello to learn of the clients best slot so we can then sync the require
                 // parent(s).
                 network.send_rpc_request(
