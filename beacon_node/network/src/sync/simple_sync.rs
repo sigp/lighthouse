@@ -733,6 +733,14 @@ impl SimpleSync {
                     if outcome.sucessfully_processed() {
                         successful += 1;
                         self.import_queue.remove(block_root);
+                    } else {
+                        debug!(
+                            self.log,
+                            "ProcessImportQueue";
+                            "msg" => "Block not imported",
+                            "outcome" => format!("{:?}", outcome),
+                            "peer" => format!("{:?}", sender),
+                        );
                     }
                 }
                 Err(e) => {
