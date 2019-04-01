@@ -1,0 +1,13 @@
+[package]
+name = "db_encode_derive"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+description = "Procedural derive macros for `db_encode` encoding and decoding."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "0.15"
+quote = "0.6"
