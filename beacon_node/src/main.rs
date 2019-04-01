@@ -26,7 +26,7 @@ fn main() {
         )
         // network related arguments
         .arg(
-            Arg::with_name("listen_address")
+            Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("Listen Address")
                 .help("The Network address to listen for p2p connections.")
