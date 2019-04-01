@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use types::multiaddr::Protocol;
 use types::multiaddr::ToMultiaddr;
 use types::ChainSpec;
+use types::Multiaddr;
 
 /// Stores the client configuration for this Lighthouse instance.
 #[derive(Debug, Clone)]
@@ -84,6 +85,17 @@ impl ClientConfig {
                 config.net_conf.listen_addresses = vec![multiaddr];
             } else {
                 error!(log, "Invalid IP Address"; "Address" => listen_address_str);
+                return Err("Invalid IP Address");
+            }
+        }
+
+        // Custom bootnodes
+        // TODO: Handle list of addresses
+        if let Some(boot_addresses_str) = args.value_of("boot_nodes") {
+            if let Ok(boot_address) = boot_addresses_str.parse::<Multiaddr>() {
+                config.net_conf.boot_nodes.append(&mut vec![boot_address]);
+            } else {
+                error!(log, "Invalid Bootnode multiaddress"; "Multiaddr" => boot_addresses_str);
                 return Err("Invalid IP Address");
             }
         }
