@@ -1,6 +1,7 @@
 use super::Slot;
 use crate::test_utils::TestRandom;
 use bls::{PublicKey, Signature};
+use derivative::Derivative;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz::TreeHash;
@@ -12,7 +13,6 @@ use test_random_derive::TestRandom;
 /// Spec v0.5.0
 #[derive(
     Debug,
-    PartialEq,
     Clone,
     Serialize,
     Deserialize,
@@ -21,7 +21,9 @@ use test_random_derive::TestRandom;
     TreeHash,
     TestRandom,
     SignedRoot,
+    Derivative,
 )]
+#[derivative(PartialEq, Eq, Hash)]
 pub struct Transfer {
     pub sender: u64,
     pub recipient: u64,
@@ -29,6 +31,7 @@ pub struct Transfer {
     pub fee: u64,
     pub slot: Slot,
     pub pubkey: PublicKey,
+    #[derivative(Hash = "ignore")]
     pub signature: Signature,
 }
 

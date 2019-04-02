@@ -28,6 +28,29 @@ pub struct Attestation {
     pub aggregate_signature: AggregateSignature,
 }
 
+impl Attestation {
+    /// Are the aggregation bitfields of these attestations disjoint?
+    pub fn signers_disjoint_from(&self, other: &Attestation) -> bool {
+        self.aggregation_bitfield
+            .intersection(&other.aggregation_bitfield)
+            .is_zero()
+    }
+
+    /// Aggregate another Attestation into this one.
+    ///
+    /// The aggregation bitfields must be disjoint, and the data must be the same.
+    pub fn aggregate(&mut self, other: &Attestation) {
+        debug_assert_eq!(self.data, other.data);
+        debug_assert!(self.signers_disjoint_from(other));
+
+        self.aggregation_bitfield
+            .union_inplace(&other.aggregation_bitfield);
+        self.custody_bitfield.union_inplace(&other.custody_bitfield);
+        self.aggregate_signature
+            .add_aggregate(&other.aggregate_signature);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
