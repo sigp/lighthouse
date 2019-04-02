@@ -6,7 +6,6 @@ edition = "2018"
 
 [build-dependencies]
 reqwest = "0.9"
-tempdir = "0.3"
 
 [dependencies]
 
