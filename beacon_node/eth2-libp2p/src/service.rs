@@ -113,7 +113,7 @@ impl Stream for Service {
                         topics,
                         message,
                     } => {
-                        debug!(self.log, "Pubsub message received: {:?}", message);
+                        trace!(self.log, "Pubsub message received: {:?}", message);
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
                             source,
                             topics,

@@ -15,13 +15,11 @@ use futures::{future::Future, Stream};
 use network::Service as NetworkService;
 use slog::{error, info, o};
 use slot_clock::SlotClock;
-use ssz::TreeHash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::Hash256;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.

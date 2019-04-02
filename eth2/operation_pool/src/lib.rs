@@ -183,6 +183,8 @@ impl OperationPool {
                     || key.domain_bytes_match(&curr_domain_bytes)
             })
             .flat_map(|(_, attestations)| attestations)
+            // That are not superseded by an attestation included in the state...
+            .filter(|attestation| !superior_attestation_exists_in_state(state, attestation))
             // That are valid...
             .filter(|attestation| validate_attestation(state, attestation, spec).is_ok())
             // Scored by the number of new attestations they introduce (descending)
@@ -473,6 +475,31 @@ impl OperationPool {
         self.prune_voluntary_exits(finalized_state, spec);
         self.prune_transfers(finalized_state);
     }
+}
+
+/// Returns `true` if the state already contains a `PendingAttestation` that is superior to the
+/// given `attestation`.
+///
+/// A validator has nothing to gain from re-including an attestation and it adds load to the
+/// network.
+///
+/// An existing `PendingAttestation` is superior to an existing `attestation` if:
+///
+/// - Their `AttestationData` is equal.
+/// - `attestation` does not contain any signatures that `PendingAttestation` does not have.
+fn superior_attestation_exists_in_state(state: &BeaconState, attestation: &Attestation) -> bool {
+    state
+        .current_epoch_attestations
+        .iter()
+        .chain(state.previous_epoch_attestations.iter())
+        .any(|existing_attestation| {
+            let bitfield = &attestation.aggregation_bitfield;
+            let existing_bitfield = &existing_attestation.aggregation_bitfield;
+
+            existing_attestation.data == attestation.data
+                && bitfield.intersection(existing_bitfield).num_set_bits()
+                    == bitfield.num_set_bits()
+        })
 }
 
 /// Filter up to a maximum number of operations out of an iterator.

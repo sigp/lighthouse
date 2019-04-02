@@ -6,6 +6,8 @@ use dirs;
 use log::debug;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
+//TODO: testing only
+use std::time::{Duration, SystemTime};
 
 pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
 
@@ -120,7 +122,17 @@ impl TestingBeaconStateBuilder {
             })
             .collect();
 
-        let genesis_time = 1553753928; // arbitrary
+        // TODO: Testing only. Burn with fire later.
+        // set genesis to the last 30 minute block.
+        // this is used for testing only. Allows multiple nodes to connect within a 30min window
+        // and agree on a genesis
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let secs_after_last_period = now.checked_rem(30 * 60).unwrap_or(0);
+        // genesis is now the last 30 minute block.
+        let genesis_time = now - secs_after_last_period;
 
         let mut state = BeaconState::genesis(
             genesis_time,

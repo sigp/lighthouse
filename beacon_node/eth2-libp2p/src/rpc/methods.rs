@@ -1,7 +1,7 @@
 use ssz::{Decodable, DecodeError, Encodable, SszStream};
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
-use types::{Attestation, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 #[derive(Debug)]
 /// Available Serenity Libp2p RPC methods
@@ -177,6 +177,19 @@ pub struct BeaconBlockRootsRequest {
 pub struct BeaconBlockRootsResponse {
     /// List of requested blocks and associated slots.
     pub roots: Vec<BlockRootSlot>,
+}
+
+impl BeaconBlockRootsResponse {
+    /// Returns `true` if each `self.roots.slot[i]` is higher than the preceeding `i`.
+    pub fn slots_are_ascending(&self) -> bool {
+        for i in 1..self.roots.len() {
+            if self.roots[i - 1].slot >= self.roots[i].slot {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 /// Contains a block root and associated slot.
