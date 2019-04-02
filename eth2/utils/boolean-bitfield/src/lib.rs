@@ -6,7 +6,7 @@ use bit_vec::BitVec;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
-use ssz::Decodable;
+use ssz::{Decodable, Encodable};
 use std::cmp;
 use std::default;
 
@@ -144,14 +144,14 @@ impl std::ops::BitAnd for BooleanBitfield {
     }
 }
 
-impl ssz::Encodable for BooleanBitfield {
+impl Encodable for BooleanBitfield {
     // ssz_append encodes Self according to the `ssz` spec.
     fn ssz_append(&self, s: &mut ssz::SszStream) {
         s.append_vec(&self.to_bytes())
     }
 }
 
-impl ssz::Decodable for BooleanBitfield {
+impl Decodable for BooleanBitfield {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), ssz::DecodeError> {
         let len = ssz::decode::decode_length(bytes, index, ssz::LENGTH_BYTES)?;
         if (ssz::LENGTH_BYTES + len) > bytes.len() {
@@ -186,7 +186,7 @@ impl Serialize for BooleanBitfield {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&encode(&ssz::ssz_encode(self)))
+        serializer.serialize_str(&encode(&self.to_bytes()))
     }
 }
 
@@ -197,9 +197,7 @@ impl<'de> Deserialize<'de> for BooleanBitfield {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let (bitfield, _) = <_>::ssz_decode(&bytes[..], 0)
-            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
-        Ok(bitfield)
+        Ok(BooleanBitfield::from_bytes(&bytes))
     }
 }
 
@@ -212,7 +210,7 @@ impl ssz::TreeHash for BooleanBitfield {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz::{ssz_encode, Decodable, SszStream};
+    use ssz::{decode, ssz_encode, SszStream};
 
     #[test]
     fn test_new_bitfield() {
@@ -380,12 +378,12 @@ mod tests {
 
         let mut stream = SszStream::new();
         stream.append(&field);
-        assert_eq!(stream.drain(), vec![0, 0, 0, 2, 225, 192]);
+        assert_eq!(stream.drain(), vec![2, 0, 0, 0, 225, 192]);
 
         let field = BooleanBitfield::from_elem(18, true);
         let mut stream = SszStream::new();
         stream.append(&field);
-        assert_eq!(stream.drain(), vec![0, 0, 0, 3, 255, 255, 192]);
+        assert_eq!(stream.drain(), vec![3, 0, 0, 0, 255, 255, 192]);
     }
 
     fn create_test_bitfield() -> BooleanBitfield {
@@ -401,13 +399,13 @@ mod tests {
 
     #[test]
     fn test_ssz_decode() {
-        let encoded = vec![0, 0, 0, 2, 225, 192];
-        let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
+        let encoded = vec![2, 0, 0, 0, 225, 192];
+        let field = decode::<BooleanBitfield>(&encoded).unwrap();
         let expected = create_test_bitfield();
         assert_eq!(field, expected);
 
-        let encoded = vec![0, 0, 0, 3, 255, 255, 3];
-        let (field, _): (BooleanBitfield, usize) = ssz::decode_ssz(&encoded, 0).unwrap();
+        let encoded = vec![3, 0, 0, 0, 255, 255, 3];
+        let field = decode::<BooleanBitfield>(&encoded).unwrap();
         let expected = BooleanBitfield::from_bytes(&[255, 255, 3]);
         assert_eq!(field, expected);
     }
@@ -416,7 +414,7 @@ mod tests {
     fn test_ssz_round_trip() {
         let original = BooleanBitfield::from_bytes(&vec![18; 12][..]);
         let ssz = ssz_encode(&original);
-        let (decoded, _) = BooleanBitfield::ssz_decode(&ssz, 0).unwrap();
+        let decoded = decode::<BooleanBitfield>(&ssz).unwrap();
         assert_eq!(original, decoded);
     }
 

@@ -1,0 +1,1924 @@
+title: UInt Bounds
+summary: Integers right at or beyond the bounds of the allowed value range
+fork: phase0-0.2.0
+test_cases:
+- type: uint8
+  valid: true
+  value: '0'
+  ssz: '0x00'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint8
+  valid: true
+  value: '255'
+  ssz: '0xff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint16
+  valid: true
+  value: '0'
+  ssz: '0x0000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint16
+  valid: true
+  value: '65535'
+  ssz: '0xffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint24
+  valid: true
+  value: '0'
+  ssz: '0x000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint24
+  valid: true
+  value: '16777215'
+  ssz: '0xffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint32
+  valid: true
+  value: '0'
+  ssz: '0x00000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint32
+  valid: true
+  value: '4294967295'
+  ssz: '0xffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint40
+  valid: true
+  value: '0'
+  ssz: '0x0000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint40
+  valid: true
+  value: '1099511627775'
+  ssz: '0xffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint48
+  valid: true
+  value: '0'
+  ssz: '0x000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint48
+  valid: true
+  value: '281474976710655'
+  ssz: '0xffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint56
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint56
+  valid: true
+  value: '72057594037927935'
+  ssz: '0xffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint64
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint64
+  valid: true
+  value: '18446744073709551615'
+  ssz: '0xffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint72
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint72
+  valid: true
+  value: '4722366482869645213695'
+  ssz: '0xffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint80
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint80
+  valid: true
+  value: '1208925819614629174706175'
+  ssz: '0xffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint88
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint88
+  valid: true
+  value: '309485009821345068724781055'
+  ssz: '0xffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint96
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint96
+  valid: true
+  value: '79228162514264337593543950335'
+  ssz: '0xffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint104
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint104
+  valid: true
+  value: '20282409603651670423947251286015'
+  ssz: '0xffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint112
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint112
+  valid: true
+  value: '5192296858534827628530496329220095'
+  ssz: '0xffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint120
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint120
+  valid: true
+  value: '1329227995784915872903807060280344575'
+  ssz: '0xffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint128
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint128
+  valid: true
+  value: '340282366920938463463374607431768211455'
+  ssz: '0xffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint136
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint136
+  valid: true
+  value: '87112285931760246646623899502532662132735'
+  ssz: '0xffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint144
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint144
+  valid: true
+  value: '22300745198530623141535718272648361505980415'
+  ssz: '0xffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint152
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint152
+  valid: true
+  value: '5708990770823839524233143877797980545530986495'
+  ssz: '0xffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint160
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint160
+  valid: true
+  value: '1461501637330902918203684832716283019655932542975'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint168
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint168
+  valid: true
+  value: '374144419156711147060143317175368453031918731001855'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint176
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint176
+  valid: true
+  value: '95780971304118053647396689196894323976171195136475135'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint184
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint184
+  valid: true
+  value: '24519928653854221733733552434404946937899825954937634815'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint192
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint192
+  valid: true
+  value: '6277101735386680763835789423207666416102355444464034512895'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint200
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint200
+  valid: true
+  value: '1606938044258990275541962092341162602522202993782792835301375'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint208
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint208
+  valid: true
+  value: '411376139330301510538742295639337626245683966408394965837152255'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint216
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint216
+  valid: true
+  value: '105312291668557186697918027683670432318895095400549111254310977535'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint224
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint224
+  valid: true
+  value: '26959946667150639794667015087019630673637144422540572481103610249215'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint232
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint232
+  valid: true
+  value: '6901746346790563787434755862277025452451108972170386555162524223799295'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint240
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint240
+  valid: true
+  value: '1766847064778384329583297500742918515827483896875618958121606201292619775'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint248
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint248
+  valid: true
+  value: '452312848583266388373324160190187140051835877600158453279131187530910662655'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint256
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint256
+  valid: true
+  value: '115792089237316195423570985008687907853269984665640564039457584007913129639935'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint264
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint264
+  valid: true
+  value: '29642774844752946028434172162224104410437116074403984394101141506025761187823615'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint272
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint272
+  valid: true
+  value: '7588550360256754183279148073529370729071901715047420004889892225542594864082845695'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint280
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint280
+  valid: true
+  value: '1942668892225729070919461906823518906642406839052139521251812409738904285205208498175'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint288
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint288
+  valid: true
+  value: '497323236409786642155382248146820840100456150797347717440463976893159497012533375533055'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint296
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint296
+  valid: true
+  value: '127314748520905380391777855525586135065716774604121015664758778084648831235208544136462335'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint304
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint304
+  valid: true
+  value: '32592575621351777380295131014550050576823494298654980010178247189670100796213387298934358015'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint312
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint312
+  valid: true
+  value: '8343699359066055009355553539724812947666814540455674882605631280555545803830627148527195652095'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint320
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint320
+  valid: true
+  value: '2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936575'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint328
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint328
+  valid: true
+  value: '546812681195752981093125556779405341338292357723303109106442651602488249799843980805878294255763455'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint336
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint336
+  valid: true
+  value: '139984046386112763159840142535527767382602843577165595931249318810236991948760059086304843329475444735'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint344
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint344
+  valid: true
+  value: '35835915874844867368919076489095108449946327955754392558399825615420669938882575126094039892345713852415'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint352
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint352
+  valid: true
+  value: '9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218495'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint360
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint360
+  valid: true
+  value: '2348542582773833227889480596789337027375682548908319870707290971532209025114608443463698998384768703031934975'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint368
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint368
+  valid: true
+  value: '601226901190101306339707032778070279008174732520529886901066488712245510429339761526706943586500787976175353855'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint376
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint376
+  valid: true
+  value: '153914086704665934422965000391185991426092731525255651046673021110334850669910978950836977558144201721900890587135'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint384
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint384
+  valid: true
+  value: '39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306815'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint392
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint392
+  valid: true
+  value: '10086913586276986678343434265636765134100413253239154346994763111486904773503285916522052161250538404046496765518544895'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint400
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint400
+  valid: true
+  value: '2582249878086908589655919172003011874329705792829223512830659356540647622016841194629645353280137831435903171972747493375'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint408
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint408
+  valid: true
+  value: '661055968790248598951915308032771039828404682964281219284648795274405791236311345825189210439715284847591212025023358304255'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint416
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint416
+  valid: true
+  value: '169230328010303641331690318856389386196071598838855992136870091590247882556495704531248437872567112920983350278405979725889535'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint424
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint424
+  valid: true
+  value: '43322963970637732180912721627235682866194329302747133987038743447103457934462900359999600095377180907771737671271930809827721215'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint432
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint432
+  valid: true
+  value: '11090678776483259438313656736572334813745748301503266300681918322458485231222502492159897624416558312389564843845614287315896631295'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint440
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint440
+  valid: true
+  value: '2839213766779714416208296124562517712318911565184836172974571090549372219192960637992933791850638927971728600024477257552869537611775'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint448
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint448
+  valid: true
+  value: '726838724295606890549323807888004534353641360687318060281490199180639288113397923326191050713763565560762521606266177933534601628614655'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint456
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint456
+  valid: true
+  value: '186070713419675363980626894819329160794532188335953423432061490990243657757029868371504908982723472783555205531204141550984858016925351935'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint464
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint464
+  valid: true
+  value: '47634102635436893179040485073748265163400240214004076398607741693502376385799646303105256699577209032590132615988260237052123652332890095615'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint472
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint472
+  valid: true
+  value: '12194330274671844653834364178879555881830461494785043558043581873536608354764709453594945715091765512343073949692994620685343654997219864477695'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint480
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint480
+  valid: true
+  value: '3121748550315992231381597229793166305748598142664971150859156959625371738819765620120306103063491971159826931121406622895447975679288285306290175'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint488
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint488
+  valid: true
+  value: '799167628880894011233688890827050574271641124522232614619944181664095165137859998750798362384253944616915694367080095461234681773897801038410285055'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint496
+  valid: true
+  value: '0'
+  ssz: '0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint496
+  valid: true
+  value: '204586912993508866875824356051724947013540127877691549342705710506008362275292159680204380770369009821930417757972504438076078534117837065833032974335'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint504
+  valid: true
+  value: '0'
+  ssz: '0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint504
+  valid: true
+  value: '52374249726338269920211035149241586435466272736689036631732661889538140742474792878132321477214466514414186946040961136147476104734166288853256441430015'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint512
+  valid: true
+  value: '0'
+  ssz: '0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+  tags:
+  - atomic
+  - uint
+  - uint_lower_bound
+- type: uint512
+  valid: true
+  value: '13407807929942597099574024998205846127479365820592393377723561443721764030073546976801874298166903427690031858186486050853753882811946569946433649006084095'
+  ssz: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  tags:
+  - atomic
+  - uint
+  - uint_upper_bound
+- type: uint8
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint8
+  valid: false
+  value: '256'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint16
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint16
+  valid: false
+  value: '65536'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint24
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint24
+  valid: false
+  value: '16777216'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint32
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint32
+  valid: false
+  value: '4294967296'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint40
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint40
+  valid: false
+  value: '1099511627776'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint48
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint48
+  valid: false
+  value: '281474976710656'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint56
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint56
+  valid: false
+  value: '72057594037927936'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint64
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint64
+  valid: false
+  value: '18446744073709551616'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint72
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint72
+  valid: false
+  value: '4722366482869645213696'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint80
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint80
+  valid: false
+  value: '1208925819614629174706176'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint88
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint88
+  valid: false
+  value: '309485009821345068724781056'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint96
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint96
+  valid: false
+  value: '79228162514264337593543950336'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint104
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint104
+  valid: false
+  value: '20282409603651670423947251286016'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint112
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint112
+  valid: false
+  value: '5192296858534827628530496329220096'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint120
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint120
+  valid: false
+  value: '1329227995784915872903807060280344576'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint128
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint128
+  valid: false
+  value: '340282366920938463463374607431768211456'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint136
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint136
+  valid: false
+  value: '87112285931760246646623899502532662132736'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint144
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint144
+  valid: false
+  value: '22300745198530623141535718272648361505980416'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint152
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint152
+  valid: false
+  value: '5708990770823839524233143877797980545530986496'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint160
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint160
+  valid: false
+  value: '1461501637330902918203684832716283019655932542976'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint168
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint168
+  valid: false
+  value: '374144419156711147060143317175368453031918731001856'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint176
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint176
+  valid: false
+  value: '95780971304118053647396689196894323976171195136475136'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint184
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint184
+  valid: false
+  value: '24519928653854221733733552434404946937899825954937634816'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint192
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint192
+  valid: false
+  value: '6277101735386680763835789423207666416102355444464034512896'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint200
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint200
+  valid: false
+  value: '1606938044258990275541962092341162602522202993782792835301376'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint208
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint208
+  valid: false
+  value: '411376139330301510538742295639337626245683966408394965837152256'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint216
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint216
+  valid: false
+  value: '105312291668557186697918027683670432318895095400549111254310977536'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint224
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint224
+  valid: false
+  value: '26959946667150639794667015087019630673637144422540572481103610249216'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint232
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint232
+  valid: false
+  value: '6901746346790563787434755862277025452451108972170386555162524223799296'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint240
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint240
+  valid: false
+  value: '1766847064778384329583297500742918515827483896875618958121606201292619776'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint248
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint248
+  valid: false
+  value: '452312848583266388373324160190187140051835877600158453279131187530910662656'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint256
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint256
+  valid: false
+  value: '115792089237316195423570985008687907853269984665640564039457584007913129639936'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint264
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint264
+  valid: false
+  value: '29642774844752946028434172162224104410437116074403984394101141506025761187823616'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint272
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint272
+  valid: false
+  value: '7588550360256754183279148073529370729071901715047420004889892225542594864082845696'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint280
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint280
+  valid: false
+  value: '1942668892225729070919461906823518906642406839052139521251812409738904285205208498176'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint288
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint288
+  valid: false
+  value: '497323236409786642155382248146820840100456150797347717440463976893159497012533375533056'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint296
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint296
+  valid: false
+  value: '127314748520905380391777855525586135065716774604121015664758778084648831235208544136462336'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint304
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint304
+  valid: false
+  value: '32592575621351777380295131014550050576823494298654980010178247189670100796213387298934358016'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint312
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint312
+  valid: false
+  value: '8343699359066055009355553539724812947666814540455674882605631280555545803830627148527195652096'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint320
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint320
+  valid: false
+  value: '2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint328
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint328
+  valid: false
+  value: '546812681195752981093125556779405341338292357723303109106442651602488249799843980805878294255763456'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint336
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint336
+  valid: false
+  value: '139984046386112763159840142535527767382602843577165595931249318810236991948760059086304843329475444736'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint344
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint344
+  valid: false
+  value: '35835915874844867368919076489095108449946327955754392558399825615420669938882575126094039892345713852416'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint352
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint352
+  valid: false
+  value: '9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218496'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint360
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint360
+  valid: false
+  value: '2348542582773833227889480596789337027375682548908319870707290971532209025114608443463698998384768703031934976'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint368
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint368
+  valid: false
+  value: '601226901190101306339707032778070279008174732520529886901066488712245510429339761526706943586500787976175353856'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint376
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint376
+  valid: false
+  value: '153914086704665934422965000391185991426092731525255651046673021110334850669910978950836977558144201721900890587136'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint384
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint384
+  valid: false
+  value: '39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint392
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint392
+  valid: false
+  value: '10086913586276986678343434265636765134100413253239154346994763111486904773503285916522052161250538404046496765518544896'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint400
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint400
+  valid: false
+  value: '2582249878086908589655919172003011874329705792829223512830659356540647622016841194629645353280137831435903171972747493376'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint408
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint408
+  valid: false
+  value: '661055968790248598951915308032771039828404682964281219284648795274405791236311345825189210439715284847591212025023358304256'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint416
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint416
+  valid: false
+  value: '169230328010303641331690318856389386196071598838855992136870091590247882556495704531248437872567112920983350278405979725889536'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint424
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint424
+  valid: false
+  value: '43322963970637732180912721627235682866194329302747133987038743447103457934462900359999600095377180907771737671271930809827721216'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint432
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint432
+  valid: false
+  value: '11090678776483259438313656736572334813745748301503266300681918322458485231222502492159897624416558312389564843845614287315896631296'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint440
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint440
+  valid: false
+  value: '2839213766779714416208296124562517712318911565184836172974571090549372219192960637992933791850638927971728600024477257552869537611776'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint448
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint448
+  valid: false
+  value: '726838724295606890549323807888004534353641360687318060281490199180639288113397923326191050713763565560762521606266177933534601628614656'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint456
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint456
+  valid: false
+  value: '186070713419675363980626894819329160794532188335953423432061490990243657757029868371504908982723472783555205531204141550984858016925351936'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint464
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint464
+  valid: false
+  value: '47634102635436893179040485073748265163400240214004076398607741693502376385799646303105256699577209032590132615988260237052123652332890095616'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint472
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint472
+  valid: false
+  value: '12194330274671844653834364178879555881830461494785043558043581873536608354764709453594945715091765512343073949692994620685343654997219864477696'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint480
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint480
+  valid: false
+  value: '3121748550315992231381597229793166305748598142664971150859156959625371738819765620120306103063491971159826931121406622895447975679288285306290176'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint488
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint488
+  valid: false
+  value: '799167628880894011233688890827050574271641124522232614619944181664095165137859998750798362384253944616915694367080095461234681773897801038410285056'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint496
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint496
+  valid: false
+  value: '204586912993508866875824356051724947013540127877691549342705710506008362275292159680204380770369009821930417757972504438076078534117837065833032974336'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint504
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint504
+  valid: false
+  value: '52374249726338269920211035149241586435466272736689036631732661889538140742474792878132321477214466514414186946040961136147476104734166288853256441430016'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow
+- type: uint512
+  valid: false
+  value: '-1'
+  tags:
+  - atomic
+  - uint
+  - uint_underflow
+- type: uint512
+  valid: false
+  value: '13407807929942597099574024998205846127479365820592393377723561443721764030073546976801874298166903427690031858186486050853753882811946569946433649006084096'
+  tags:
+  - atomic
+  - uint
+  - uint_overflow

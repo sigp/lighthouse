@@ -3,10 +3,9 @@
 extern crate ethereum_types;
 extern crate ssz;
 
-use ethereum_types::{Address, H256};
-use ssz::{DecodeError, Decodable};
+use ssz::{decode, DecodeError, Decodable};
 
 // Fuzz ssz_decode()
 fuzz_target!(|data: &[u8]| {
-    let _result: Result<(Vec<u8>, usize), DecodeError> = Decodable::ssz_decode(data, 0);
+    let _result: Result<Vec<u8>, DecodeError> = decode(data);
 });
