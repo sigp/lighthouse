@@ -1,6 +1,9 @@
-use state_processing::{per_block_processing, per_block_processing_without_verifying_block_signature, per_slot_processing};
 use serde_derive::Deserialize;
 use serde_yaml;
+use state_processing::{
+    per_block_processing, per_block_processing_without_verifying_block_signature,
+    per_slot_processing,
+};
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::*;
 #[allow(unused_imports)]
@@ -79,17 +82,22 @@ fn run_state_transition_tests_small() {
         for block in test_case.blocks.iter() {
             while block.slot > state.slot {
                 let latest_block_header = state.latest_block_header.clone();
-                let res = per_slot_processing(&mut state, &latest_block_header, &test_case.config).unwrap();
+                let res = per_slot_processing(&mut state, &latest_block_header, &test_case.config)
+                    .unwrap();
             }
             if test_case.verify_signatures {
                 let res = per_block_processing(&mut state, &block, &test_case.config);
-                if  res.is_err() {
+                if res.is_err() {
                     println!("{:?}", i);
                     println!("{:?}", res);
                 };
             } else {
-                let res = per_block_processing_without_verifying_block_signature(&mut state, &block, &test_case.config);
-                if  res.is_err() {
+                let res = per_block_processing_without_verifying_block_signature(
+                    &mut state,
+                    &block,
+                    &test_case.config,
+                );
+                if res.is_err() {
                     println!("{:?}", i);
                     println!("{:?}", res);
                 }
