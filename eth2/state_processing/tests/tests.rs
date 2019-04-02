@@ -27,61 +27,28 @@ pub struct TestDoc {
     pub test_cases: Vec<TestCase>,
 }
 
-#[test]
-fn test_read_yaml() {
-    // Test sanity-check_small-config_32-vals.yaml
+fn load_test_case(test_name: &str) -> TestDoc {
     let mut file = {
         let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        file_path_buf.push("yaml_utils/specs/sanity-check_small-config_32-vals.yaml");
+        file_path_buf.push(format!("yaml_utils/specs/{}", test_name));
 
         File::open(file_path_buf).unwrap()
     };
-
     let mut yaml_str = String::new();
-
     file.read_to_string(&mut yaml_str).unwrap();
-
     yaml_str = yaml_str.to_lowercase();
 
-    let _doc: TestDoc = serde_yaml::from_str(&yaml_str.as_str()).unwrap();
-
-    // Test sanity-check_default-config_100-vals.yaml
-    file = {
-        let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        file_path_buf.push("yaml_utils/specs/sanity-check_default-config_100-vals.yaml");
-
-        File::open(file_path_buf).unwrap()
-    };
-
-    yaml_str = String::new();
-
-    file.read_to_string(&mut yaml_str).unwrap();
-
-    yaml_str = yaml_str.to_lowercase();
-
-    let _doc: TestDoc = serde_yaml::from_str(&yaml_str.as_str()).unwrap();
+    serde_yaml::from_str(&yaml_str.as_str()).unwrap()
 }
 
-#[test]
-#[cfg(not(debug_assertions))]
-fn run_state_transition_tests_small() {
-    // Test sanity-check_small-config_32-vals.yaml
-    let mut file = {
-        let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        file_path_buf.push("yaml_utils/specs/sanity-check_small-config_32-vals.yaml");
-
-        File::open(file_path_buf).unwrap()
-    };
-    let mut yaml_str = String::new();
-    file.read_to_string(&mut yaml_str).unwrap();
-    yaml_str = yaml_str.to_lowercase();
-
-    let doc: TestDoc = serde_yaml::from_str(&yaml_str.as_str()).unwrap();
+fn run_state_transition_test(test_name: &str) {
+    let doc = load_test_case(test_name);
 
     // Run Tests
+    let mut ok = true;
     for (i, test_case) in doc.test_cases.iter().enumerate() {
         let mut state = test_case.initial_state.clone();
-        for block in test_case.blocks.iter() {
+        for (j, block) in test_case.blocks.iter().enumerate() {
             while block.slot > state.slot {
                 let latest_block_header = state.latest_block_header.clone();
                 per_slot_processing(&mut state, &latest_block_header, &test_case.config).unwrap();
@@ -89,8 +56,9 @@ fn run_state_transition_tests_small() {
             if test_case.verify_signatures {
                 let res = per_block_processing(&mut state, &block, &test_case.config);
                 if res.is_err() {
-                    println!("{:?}", i);
+                    println!("Error in {} (#{}), on block {}", test_case.name, i, j);
                     println!("{:?}", res);
+                    ok = false;
                 };
             } else {
                 let res = per_block_processing_without_verifying_block_signature(
@@ -99,10 +67,32 @@ fn run_state_transition_tests_small() {
                     &test_case.config,
                 );
                 if res.is_err() {
-                    println!("{:?}", i);
+                    println!("Error in {} (#{}), on block {}", test_case.name, i, j);
                     println!("{:?}", res);
+                    ok = false;
                 }
             }
         }
     }
+
+    assert!(ok, "one or more tests failed, see above");
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
+fn test_read_yaml() {
+    load_test_case("sanity-check_small-config_32-vals.yaml");
+    load_test_case("sanity-check_default-config_100-vals.yaml");
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
+fn run_state_transition_tests_small() {
+    run_state_transition_test("sanity-check_small-config_32-vals.yaml");
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
+fn run_state_transition_tests_large() {
+    run_state_transition_test("sanity-check_default-config_100-vals.yaml");
 }
