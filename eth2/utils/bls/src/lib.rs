@@ -6,22 +6,22 @@ mod keypair;
 mod public_key;
 mod secret_key;
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 mod aggregate_signature;
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 mod signature;
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 pub use crate::aggregate_signature::AggregateSignature;
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 pub use crate::signature::Signature;
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 mod fake_aggregate_signature;
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 mod fake_signature;
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 pub use crate::fake_aggregate_signature::FakeAggregateSignature as AggregateSignature;
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 pub use crate::fake_signature::FakeSignature as Signature;
 
 pub use crate::aggregate_public_key::AggregatePublicKey;

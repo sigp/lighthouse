@@ -30,3 +30,6 @@ tree_hash = { path = "../utils/tree_hash" }
 tree_hash_derive = { path = "../utils/tree_hash_derive" }
 types = { path = "../types" }
 rayon = "1.0"
+
+[features]
+fake_crypto = ["bls/fake_crypto"]
