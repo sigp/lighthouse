@@ -11,7 +11,7 @@ use operation_pool::OperationPool;
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use ssz::ssz_encode;
-pub use state_processing::per_block_processing::errors::{
+use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
@@ -130,10 +130,7 @@ where
             state_root,
         ));
 
-        genesis_state.build_epoch_cache(RelativeEpoch::Previous, &spec)?;
-        genesis_state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
-        genesis_state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)?;
-        genesis_state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)?;
+        genesis_state.build_all_caches(&spec)?;
 
         Ok(Self {
             block_store,
@@ -293,7 +290,7 @@ where
     /// fork-choice rule).
     ///
     /// It is important to note that the `beacon_state` returned may not match the present slot. It
-    /// is the state as it was when the head block was recieved, which could be some slots prior to
+    /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
     pub fn head(&self) -> RwLockReadGuard<CheckPoint> {
         self.canonical_head.read()
@@ -317,6 +314,8 @@ where
         for _ in state.slot.as_u64()..present_slot.as_u64() {
             per_slot_processing(&mut state, &latest_block_header, &self.spec)?;
         }
+
+        state.build_all_caches(&self.spec)?;
 
         *self.state.write() = state;
 
@@ -342,11 +341,17 @@ where
 
             per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
         }
-        state.build_epoch_cache(RelativeEpoch::Previous, &self.spec)?;
-        state.build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
-        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
-        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
-        state.update_pubkey_cache()?;
+
+        state.build_all_caches(&self.spec)?;
+
+        Ok(())
+    }
+
+    /// Build all of the caches on the current state.
+    ///
+    /// Ideally this shouldn't be required, however we leave it here for testing.
+    pub fn ensure_state_caches_are_built(&self) -> Result<(), Error> {
+        self.state.write().build_all_caches(&self.spec)?;
 
         Ok(())
     }
@@ -477,14 +482,37 @@ where
         trace!("BeaconChain::produce_attestation: shard: {}", shard);
         let state = self.state.read();
 
-        let target_root = *self.state.read().get_block_root(
-            self.state
+        let current_epoch_start_slot = self
+            .state
+            .read()
+            .slot
+            .epoch(self.spec.slots_per_epoch)
+            .start_slot(self.spec.slots_per_epoch);
+
+        let target_root = if state.slot == current_epoch_start_slot {
+            // If we're on the first slot of the state's epoch.
+            if self.head().beacon_block.slot == state.slot {
+                // If the current head block is from the current slot, use its block root.
+                self.head().beacon_block_root
+            } else {
+                // If the current head block is not from this slot, use the slot from the previous
+                // epoch.
+                let root = *self.state.read().get_block_root(
+                    current_epoch_start_slot - self.spec.slots_per_epoch,
+                    &self.spec,
+                )?;
+
+                root
+            }
+        } else {
+            // If we're not on the first slot of the epoch.
+            let root = *self
+                .state
                 .read()
-                .slot
-                .epoch(self.spec.slots_per_epoch)
-                .start_slot(self.spec.slots_per_epoch),
-            &self.spec,
-        )?;
+                .get_block_root(current_epoch_start_slot, &self.spec)?;
+
+            root
+        };
 
         Ok(AttestationData {
             slot: self.state.read().slot,
@@ -492,10 +520,7 @@ where
             beacon_block_root: self.head().beacon_block_root,
             target_root,
             crosslink_data_root: Hash256::zero(),
-            previous_crosslink: Crosslink {
-                epoch: self.state.read().slot.epoch(self.spec.slots_per_epoch),
-                crosslink_data_root: Hash256::zero(),
-            },
+            previous_crosslink: state.latest_crosslinks[shard as usize].clone(),
             source_epoch: state.current_justified_epoch,
             source_root: state.current_justified_root,
         })

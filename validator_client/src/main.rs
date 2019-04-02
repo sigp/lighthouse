@@ -1,14 +1,17 @@
-mod attester_service;
-mod block_producer_service;
+mod attestation_producer;
+mod block_producer;
 mod config;
 mod duties;
 pub mod error;
 mod service;
+mod signer;
 
 use crate::config::Config as ValidatorClientConfig;
 use clap::{App, Arg};
+use protos::services_grpc::ValidatorServiceClient;
 use service::Service as ValidatorService;
 use slog::{error, info, o, Drain};
+use types::Keypair;
 
 fn main() {
     // Logging
@@ -52,7 +55,8 @@ fn main() {
         .expect("Unable to build a configuration for the validator client.");
 
     // start the validator service.
-    match ValidatorService::start(config, log.clone()) {
+    // this specifies the GRPC and signer type to use as the duty manager beacon node.
+    match ValidatorService::<ValidatorServiceClient, Keypair>::start(config, log.clone()) {
         Ok(_) => info!(log, "Validator client shutdown successfully."),
         Err(e) => error!(log, "Validator exited due to: {}", e.to_string()),
     }

@@ -543,7 +543,7 @@ fn sync_two_nodes() {
     // A provides block bodies to B.
     node_a.tee_block_body_response(&node_b);
 
-    std::thread::sleep(Duration::from_secs(10));
+    std::thread::sleep(Duration::from_secs(20));
 
     node_b.harness.run_fork_choice();
 
