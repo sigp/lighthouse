@@ -99,7 +99,7 @@ fn per_block_processing_signature_optional(
 
 /// Processes the block header.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_block_header(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -107,11 +107,8 @@ pub fn process_block_header(
 ) -> Result<(), Error> {
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
-    // NOTE: this is not to spec. I think spec is broken. See:
-    //
-    // https://github.com/ethereum/eth2.0-specs/issues/797
     verify!(
-        block.previous_block_root == *state.get_block_root(state.slot - 1, spec)?,
+        block.previous_block_root == Hash256::from_slice(&state.latest_block_header.signed_root()),
         Invalid::ParentBlockRootMismatch
     );
 
