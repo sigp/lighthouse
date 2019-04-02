@@ -11,12 +11,52 @@ use types::*;
 use yaml_utils;
 
 #[derive(Debug, Deserialize)]
+pub struct ExpectedState {
+    pub slot: Option<Slot>,
+    pub genesis_time: Option<u64>,
+    pub fork: Option<Fork>,
+    pub validator_registry: Option<Vec<Validator>>,
+    pub validator_balances: Option<Vec<u64>>,
+}
+
+impl ExpectedState {
+    // Return a list of fields that differ, and a string representation of the beacon state's field.
+    fn check(&self, state: &BeaconState) -> Vec<(&str, String)> {
+        // Check field equality
+        macro_rules! cfe {
+            ($field_name:ident) => {
+                if self.$field_name.as_ref().map_or(true, |$field_name| {
+                    println!("  > Checking {}", stringify!($field_name));
+                    $field_name == &state.$field_name
+                }) {
+                    vec![]
+                } else {
+                    vec![(stringify!($field_name), format!("{:#?}", state.$field_name))]
+                }
+            };
+        }
+
+        vec![
+            cfe!(slot),
+            cfe!(genesis_time),
+            cfe!(fork),
+            cfe!(validator_registry),
+            cfe!(validator_balances),
+        ]
+        .into_iter()
+        .flat_map(|x| x)
+        .collect()
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TestCase {
     pub name: String,
     pub config: ChainSpec,
     pub verify_signatures: bool,
     pub initial_state: BeaconState,
     pub blocks: Vec<BeaconBlock>,
+    pub expected_state: ExpectedState,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +109,18 @@ fn run_state_transition_test(test_name: &str) {
                 println!("{:?}", res);
                 ok = false;
             };
+        }
+
+        let mismatched_fields = test_case.expected_state.check(&state);
+        if !mismatched_fields.is_empty() {
+            println!(
+                "Error in expected state, these fields didn't match: {:?}",
+                mismatched_fields.iter().map(|(f, _)| f).collect::<Vec<_>>()
+            );
+            for (field_name, state_val) in mismatched_fields {
+                println!("state.{} was: {}", field_name, state_val);
+            }
+            ok = false;
         }
     }
 
