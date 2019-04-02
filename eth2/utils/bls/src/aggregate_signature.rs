@@ -38,7 +38,8 @@ impl AggregateSignature {
 
     /// Add (aggregate) another `AggregateSignature`.
     pub fn add_aggregate(&mut self, agg_signature: &AggregateSignature) {
-        self.0.add_aggregate(&agg_signature.0)
+        self.aggregate_signature
+            .add_aggregate(&agg_signature.aggregate_signature)
     }
 
     /// Verify the `AggregateSignature` against an `AggregatePublicKey`.
