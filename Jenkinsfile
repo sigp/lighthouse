@@ -12,6 +12,13 @@ pipeline {
 				sh 'cargo build --verbose --all --release'
 			}
 		}
+        stage('Check') {
+            steps {
+                sh 'cargo fmt --all -- --check'
+                // No clippy until later...
+                //sh 'cargo clippy'
+            }
+        }
 		stage('Test') {
 			steps {
 				sh 'cargo test --verbose --all'
