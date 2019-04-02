@@ -1,12 +1,10 @@
-use super::serde_vistors::HexVisitor;
-use super::{PublicKey, SecretKey};
+use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
 use bls_aggregates::Signature as RawSignature;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use ssz::{
-    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
-};
+use serde_hex::HexVisitor;
+use ssz::{decode, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A single BLS signature.
 ///
@@ -63,7 +61,7 @@ impl Signature {
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
         // Set RawSignature = infinity
-        let mut empty: Vec<u8> = vec![0; 96];
+        let mut empty: Vec<u8> = vec![0; BLS_SIG_BYTE_SIZE];
         empty[0] += u8::pow(2, 6) + u8::pow(2, 7);
         Signature {
             signature: RawSignature::from_bytes(&empty).unwrap(),
@@ -102,15 +100,17 @@ impl Signature {
 
 impl Encodable for Signature {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.as_bytes());
+        s.append_encoded_raw(&self.as_bytes());
     }
 }
 
 impl Decodable for Signature {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let signature = Signature::from_bytes(&sig_bytes)?;
-        Ok((signature, i))
+        if bytes.len() - i < BLS_SIG_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        let signature = Signature::from_bytes(&bytes[i..(i + BLS_SIG_BYTE_SIZE)])?;
+        Ok((signature, i + BLS_SIG_BYTE_SIZE))
     }
 }
 
@@ -121,6 +121,7 @@ impl TreeHash for Signature {
 }
 
 impl Serialize for Signature {
+    /// Serde serialization is compliant the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -130,14 +131,15 @@ impl Serialize for Signature {
 }
 
 impl<'de> Deserialize<'de> for Signature {
+    /// Serde serialization is compliant the Ethereum YAML test format.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let (pubkey, _) = <_>::ssz_decode(&bytes[..], 0)
+        let signature = decode(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
-        Ok(pubkey)
+        Ok(signature)
     }
 }
 
@@ -154,7 +156,7 @@ mod tests {
         let original = Signature::new(&[42, 42], 0, &keypair.sk);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = Signature::ssz_decode(&bytes, 0).unwrap();
+        let decoded = decode::<Signature>(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }
@@ -165,7 +167,7 @@ mod tests {
 
         let sig_as_bytes: Vec<u8> = sig.as_raw().as_bytes();
 
-        assert_eq!(sig_as_bytes.len(), 96);
+        assert_eq!(sig_as_bytes.len(), BLS_SIG_BYTE_SIZE);
         for (i, one_byte) in sig_as_bytes.iter().enumerate() {
             if i == 0 {
                 assert_eq!(*one_byte, u8::pow(2, 6) + u8::pow(2, 7));

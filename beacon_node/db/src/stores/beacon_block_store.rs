@@ -1,6 +1,6 @@
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
-use ssz::Decodable;
+use ssz::decode;
 use std::sync::Arc;
 use types::{BeaconBlock, Hash256, Slot};
 
@@ -30,7 +30,7 @@ impl<T: ClientDB> BeaconBlockStore<T> {
         match self.get(&hash)? {
             None => Ok(None),
             Some(ssz) => {
-                let (block, _) = BeaconBlock::ssz_decode(&ssz, 0).map_err(|_| DBError {
+                let block = decode::<BeaconBlock>(&ssz).map_err(|_| DBError {
                     message: "Bad BeaconBlock SSZ.".to_string(),
                 })?;
                 Ok(Some(block))

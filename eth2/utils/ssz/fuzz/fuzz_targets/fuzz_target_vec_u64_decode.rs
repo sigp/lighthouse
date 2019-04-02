@@ -2,9 +2,9 @@
 #[macro_use] extern crate libfuzzer_sys;
 extern crate ssz;
 
-use ssz::{DecodeError, Decodable};
+use ssz::{decode, DecodeError};
 
 // Fuzz ssz_decode()
 fuzz_target!(|data: &[u8]| {
-    let _result: Result<(Vec<u64>, usize), DecodeError> = Decodable::ssz_decode(data, 0);
+    let _result: Result<Vec<u64>, DecodeError> = decode(data);
 });
