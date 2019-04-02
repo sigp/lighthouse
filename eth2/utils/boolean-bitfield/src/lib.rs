@@ -1,8 +1,8 @@
 extern crate bit_vec;
 extern crate ssz;
 
+use bit_reverse::LookupReverse;
 use bit_vec::BitVec;
-
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
@@ -236,24 +236,36 @@ impl Decodable for BooleanBitfield {
     }
 }
 
+// Reverse the bit order of a whole byte vec, so that the ith bit
+// of the input vec is placed in the (N - i)th bit of the output vec.
+// This function is necessary for converting bitfields to and from YAML,
+// as the BitVec library and the hex-parser use opposing bit orders.
+fn reverse_bit_order(mut bytes: Vec<u8>) -> Vec<u8> {
+    bytes.reverse();
+    bytes.into_iter().map(|b| b.swap_bits()).collect()
+}
+
 impl Serialize for BooleanBitfield {
-    /// Serde serialization is compliant the Ethereum YAML test format.
+    /// Serde serialization is compliant with the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&encode(&self.to_bytes()))
+        serializer.serialize_str(&encode(&reverse_bit_order(self.to_bytes())))
     }
 }
 
 impl<'de> Deserialize<'de> for BooleanBitfield {
-    /// Serde serialization is compliant the Ethereum YAML test format.
+    /// Serde serialization is compliant with the Ethereum YAML test format.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
+        // We reverse the bit-order so that the BitVec library can read its 0th
+        // bit from the end of the hex string, e.g.
+        // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        Ok(BooleanBitfield::from_bytes(&bytes))
+        Ok(BooleanBitfield::from_bytes(&reverse_bit_order(bytes)))
     }
 }
 
@@ -262,6 +274,7 @@ tree_hash_ssz_encoding_as_list!(BooleanBitfield);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_yaml;
     use ssz::{decode, ssz_encode, SszStream};
 
     #[test]
@@ -460,6 +473,27 @@ mod tests {
         let field = decode::<BooleanBitfield>(&encoded).unwrap();
         let expected = BooleanBitfield::from_bytes(&[255, 255, 3]);
         assert_eq!(field, expected);
+    }
+
+    #[test]
+    fn test_serialize_deserialize() {
+        use serde_yaml::Value;
+
+        let data: &[(_, &[_])] = &[
+            ("0x01", &[0b10000000]),
+            ("0xf301", &[0b10000000, 0b11001111]),
+        ];
+        for (hex_data, bytes) in data {
+            let bitfield = BooleanBitfield::from_bytes(bytes);
+            assert_eq!(
+                serde_yaml::from_str::<BooleanBitfield>(hex_data).unwrap(),
+                bitfield
+            );
+            assert_eq!(
+                serde_yaml::to_value(&bitfield).unwrap(),
+                Value::String(hex_data.to_string())
+            );
+        }
     }
 
     #[test]

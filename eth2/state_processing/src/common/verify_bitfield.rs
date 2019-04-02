@@ -18,3 +18,16 @@ pub fn verify_bitfield_length(bitfield: &Bitfield, committee_size: usize) -> boo
 
     true
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn bitfield_length() {
+        assert!(verify_bitfield_length(
+            &Bitfield::from_bytes(&[0b10000000]),
+            4
+        ));
+    }
+}
