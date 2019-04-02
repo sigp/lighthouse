@@ -92,6 +92,7 @@ impl EpochCache {
                         slot,
                         shard,
                         committee_index: k,
+                        committee_len: crosslink_committee.committee.len(),
                     };
                     attestation_duties[*validator_index] = Some(attestation_duty)
                 }
