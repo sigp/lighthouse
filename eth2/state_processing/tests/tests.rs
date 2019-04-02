@@ -47,31 +47,28 @@ fn run_state_transition_test(test_name: &str) {
     // Run Tests
     let mut ok = true;
     for (i, test_case) in doc.test_cases.iter().enumerate() {
+        let fake_crypto = cfg!(feature = "fake_crypto");
+        if !test_case.verify_signatures == fake_crypto {
+            println!("Running {}", test_case.name);
+        } else {
+            println!(
+                "Skipping {} (fake_crypto: {}, need fake: {})",
+                test_case.name, fake_crypto, !test_case.verify_signatures
+            );
+            continue;
+        }
         let mut state = test_case.initial_state.clone();
         for (j, block) in test_case.blocks.iter().enumerate() {
             while block.slot > state.slot {
                 let latest_block_header = state.latest_block_header.clone();
                 per_slot_processing(&mut state, &latest_block_header, &test_case.config).unwrap();
             }
-            if test_case.verify_signatures {
-                let res = per_block_processing(&mut state, &block, &test_case.config);
-                if res.is_err() {
-                    println!("Error in {} (#{}), on block {}", test_case.name, i, j);
-                    println!("{:?}", res);
-                    ok = false;
-                };
-            } else {
-                let res = per_block_processing_without_verifying_block_signature(
-                    &mut state,
-                    &block,
-                    &test_case.config,
-                );
-                if res.is_err() {
-                    println!("Error in {} (#{}), on block {}", test_case.name, i, j);
-                    println!("{:?}", res);
-                    ok = false;
-                }
-            }
+            let res = per_block_processing(&mut state, &block, &test_case.config);
+            if res.is_err() {
+                println!("Error in {} (#{}), on block {}", test_case.name, i, j);
+                println!("{:?}", res);
+                ok = false;
+            };
         }
     }
 
