@@ -83,8 +83,6 @@ where
     T: ClientDB,
 {
     /// Put `item` in the store as `key`.
-    ///
-    /// The `item` must implement `DBRecord` which defines the db column used.
     fn put<I>(&self, key: &Hash256, item: &I) -> Result<(), Error>
     where
         I: DBRecord,
@@ -96,9 +94,7 @@ where
         self.db.put(column, key, &val).map_err(|e| e.into())
     }
 
-    /// Retrieves an `Ok(Some(item)` from the store if `key` exists, otherwise returns `Ok(None)`.
-    ///
-    /// The `item` must implement `DBRecord` which defines the db column used.
+    /// Retrieves an `Ok(Some(item))` from the store if `key` exists, otherwise returns `Ok(None)`.
     fn get<I>(&self, key: &Hash256) -> Result<Option<I>, Error>
     where
         I: DBRecord,
@@ -113,6 +109,28 @@ where
             }
             None => Ok(None),
         }
+    }
+
+    /// Returns `Ok(true)` `key` exists in the store.
+    fn exists<I>(&self, key: &Hash256) -> Result<bool, Error>
+    where
+        I: DBRecord,
+    {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.db.exists(column, key).map_err(|e| e.into())
+    }
+
+    /// Returns `Ok(())` if `key` was deleted from the database or did not exist.
+    fn delete<I>(&self, key: &Hash256) -> Result<(), Error>
+    where
+        I: DBRecord,
+    {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.db.delete(column, key).map_err(|e| e.into())
     }
 }
 
@@ -136,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn memorydb_can_store() {
+    fn memorydb_can_store_and_retrieve() {
         let store = Store::new_in_memory();
 
         let key = Hash256::random();
@@ -147,5 +165,22 @@ mod tests {
         let retrieved = store.get(&key).unwrap().unwrap();
 
         assert_eq!(item, retrieved);
+    }
+
+    #[test]
+    fn exists() {
+        let store = Store::new_in_memory();
+        let key = Hash256::random();
+        let item = StorableThing { a: 1, b: 42 };
+
+        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+
+        store.put(&key, &item).unwrap();
+
+        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), true);
+
+        store.delete::<StorableThing>(&key).unwrap();
+
+        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
     }
 }
