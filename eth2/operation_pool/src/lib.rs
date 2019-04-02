@@ -695,6 +695,7 @@ mod tests {
 
     /// Create a signed attestation for use in tests.
     /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
+    #[cfg(not(debug_assertions))]
     fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>>(
         committee: &CrosslinkCommittee,
         keypairs: &[Keypair],
@@ -727,6 +728,7 @@ mod tests {
     }
 
     /// Test state for attestation-related tests.
+    #[cfg(not(debug_assertions))]
     fn attestation_test_state(
         spec: &ChainSpec,
         num_committees: usize,
@@ -743,6 +745,7 @@ mod tests {
     }
 
     /// Set the latest crosslink in the state to match the attestation.
+    #[cfg(not(debug_assertions))]
     fn fake_latest_crosslink(att: &Attestation, state: &mut BeaconState, spec: &ChainSpec) {
         state.latest_crosslinks[att.data.shard as usize] = Crosslink {
             crosslink_data_root: att.data.crosslink_data_root,
@@ -751,6 +754,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(debug_assertions))]
     fn test_attestation_score() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -782,6 +786,7 @@ mod tests {
 
     /// End-to-end test of basic attestation handling.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_aggregation_insert_get_prune() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -847,6 +852,7 @@ mod tests {
 
     /// Adding an attestation already in the pool should not increase the size of the pool.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_duplicate() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -873,6 +879,7 @@ mod tests {
     /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
     /// attestations.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_pairwise_overlapping() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -915,6 +922,7 @@ mod tests {
     /// high-quality attestations. To ensure that no aggregation occurs, ALL attestations
     /// are also signed by the 0th member of the committee.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_get_max() {
         let spec = &ChainSpec::foundation();
         let small_step_size = 2;
