@@ -25,13 +25,10 @@ impl Default for ClientConfig {
         fs::create_dir_all(&data_dir)
             .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
 
+        // currently lighthouse spec
         let default_spec = ChainSpec::lighthouse_testnet();
-        let default_pubsub_topics = vec![
-            default_spec.beacon_chain_topic.clone(),
-            default_spec.shard_topic_prefix.clone(),
-        ]; // simple singular attestation topic for now.
-        let default_net_conf =
-            NetworkConfig::new(default_spec.boot_nodes.clone(), default_pubsub_topics);
+        // builds a chain-specific network config
+        let net_conf = NetworkConfig::from(default_spec.chain_id);
 
         Self {
             data_dir: PathBuf::from(".lighthouse"),
