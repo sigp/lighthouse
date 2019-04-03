@@ -136,8 +136,11 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                     "type" => "valid_attestation",
                 );
 
+                // get the network topic to send on
+                let topic_string = self.chain.get_spec().shard_topic_prefix.clone();
+
                 // valid attestation, propagate to the network
-                let topic = types::TopicBuilder::new("attestations".to_string()).build();
+                let topic = types::TopicBuilder::new(topic_string).build();
                 let message = PubsubMessage::Attestation(attestation);
 
                 self.network_chan
