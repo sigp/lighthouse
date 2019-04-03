@@ -82,6 +82,3 @@ pub type ProposerMap = HashMap<u64, usize>;
 
 pub use bls::{AggregatePublicKey, AggregateSignature, Keypair, PublicKey, SecretKey, Signature};
 pub use fixed_len_vec::{typenum, typenum::Unsigned, FixedLenVec};
-pub use libp2p::floodsub::{Topic, TopicBuilder, TopicHash};
-pub use libp2p::multiaddr;
-pub use libp2p::Multiaddr;
