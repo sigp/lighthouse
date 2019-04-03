@@ -533,6 +533,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     // Add this block to the queue
                     self.import_queue
                         .enqueue_full_blocks(vec![block], peer_id.clone());
+                    trace!(
+                        self.log,
+                        "NewGossipBlock";
+                        "peer" => format!("{:?}", peer_id),
+                    );
 
                     // Unless the parent is in the queue, request the parent block from the peer.
                     //
