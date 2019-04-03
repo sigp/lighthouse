@@ -522,9 +522,30 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 BlockProcessingOutcome::ParentUnknown { .. } => {
                     self.import_queue
                         .enqueue_full_blocks(vec![block], peer_id.clone());
+        trace!(
+            self.log,
+            "NewGossipBlock";
+            "peer" => format!("{:?}", peer_id),
+        );
 
-                    SHOULD_FORWARD_GOSSIP_BLOCK
-                }
+        // Ignore any block from a finalized slot.
+        if self.slot_is_finalized(block.slot) {
+            warn!(
+                self.log, "NewGossipBlock";
+                "msg" => "new block slot is finalized.",
+                "block_slot" => block.slot,
+            );
+            return false;
+        }
+
+        let block_root = Hash256::from_slice(&block.hash_tree_root());
+
+        // Ignore any block that the chain already knows about.
+        if self.chain_has_seen_block(&block_root) {
+            println!("this happened");
+            // TODO: Age confirm that we shouldn't forward a block if we already know of it.
+            return false;
+        }
                 BlockProcessingOutcome::FutureSlot {
                     present_slot,
                     block_slot,
