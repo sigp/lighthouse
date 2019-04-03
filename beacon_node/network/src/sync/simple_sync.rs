@@ -65,7 +65,7 @@ pub enum PeerStatus {
 }
 
 impl PeerStatus {
-    pub fn should_handshake(&self) -> bool {
+    pub fn should_handshake(self) -> bool {
         match self {
             PeerStatus::DifferentNetworkId => false,
             PeerStatus::FinalizedEpochNotInChain => false,

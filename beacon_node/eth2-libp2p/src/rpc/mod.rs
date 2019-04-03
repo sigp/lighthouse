@@ -26,7 +26,7 @@ pub struct Rpc<TSubstream> {
     /// Pins the generic substream.
     marker: PhantomData<TSubstream>,
     /// Slog logger for RPC behaviour.
-    log: slog::Logger,
+    _log: slog::Logger,
 }
 
 impl<TSubstream> Rpc<TSubstream> {
@@ -35,7 +35,7 @@ impl<TSubstream> Rpc<TSubstream> {
         Rpc {
             events: Vec::new(),
             marker: PhantomData,
-            log,
+            _log: log,
         }
     }
 
@@ -65,7 +65,7 @@ where
 
     fn inject_connected(&mut self, peer_id: PeerId, connected_point: ConnectedPoint) {
         // if initialised the connection, report this upwards to send the HELLO request
-        if let ConnectedPoint::Dialer { address: _ } = connected_point {
+        if let ConnectedPoint::Dialer { .. } = connected_point {
             self.events.push(NetworkBehaviourAction::GenerateEvent(
                 RPCMessage::PeerDialed(peer_id),
             ));

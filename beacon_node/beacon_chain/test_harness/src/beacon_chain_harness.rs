@@ -211,9 +211,8 @@ impl BeaconChainHarness {
 
         // Ensure the validators slot clock is accurate.
         self.validators[proposer].set_slot(present_slot);
-        let block = self.validators[proposer].produce_block().unwrap();
 
-        block
+        self.validators[proposer].produce_block().unwrap()
     }
 
     /// Advances the chain with a BeaconBlock and attestations from all validators.
@@ -245,7 +244,7 @@ impl BeaconChainHarness {
             .for_each(|(i, attestation)| {
                 self.beacon_chain
                     .process_attestation(attestation.clone())
-                    .expect(&format!("Attestation {} invalid: {:?}", i, attestation));
+                    .unwrap_or_else(|_| panic!("Attestation {} invalid: {:?}", i, attestation));
             });
 
         debug!("Attestations processed.");
