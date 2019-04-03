@@ -4,6 +4,7 @@ use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
 use crate::{TopicBuilder, TopicHash};
+use crate::{BEACON_PUBSUB_TOPIC, SHARD_TOPIC_PREFIX};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -88,8 +89,8 @@ impl Service {
         let mut topics = vec![];
         //TODO: Handle multiple shard attestations. For now we simply use a separate topic for
         //attestations
-        topics.push(config.shard_prefix);
-        topics.push(config.beacon_chain_topic);
+        topics.push(SHARD_TOPIC_PREFIX.to_string());
+        topics.push(BEACON_PUBSUB_TOPIC.to_string());
 
         topics.append(&mut config.topics.clone());
 

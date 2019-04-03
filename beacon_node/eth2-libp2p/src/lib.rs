@@ -9,7 +9,7 @@ pub mod rpc;
 mod service;
 
 pub use behaviour::PubsubMessage;
-pub use config::Config as NetworkConfig;
+pub use config::{ChainType, Config as NetworkConfig, BEACON_PUBSUB_TOPIC, SHARD_TOPIC_PREFIX};
 pub use libp2p::floodsub::{Topic, TopicBuilder, TopicHash};
 pub use libp2p::multiaddr;
 pub use libp2p::Multiaddr;
