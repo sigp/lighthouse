@@ -81,7 +81,7 @@ pub struct BeaconState {
 
     // Recent state
     pub latest_crosslinks: TreeHashVector<Crosslink>,
-    latest_block_roots: TreeHashVector<Hash256>,
+    pub latest_block_roots: TreeHashVector<Hash256>,
     latest_state_roots: TreeHashVector<Hash256>,
     latest_active_index_roots: TreeHashVector<Hash256>,
     latest_slashed_balances: TreeHashVector<u64>,
