@@ -1,5 +1,6 @@
 use serde_derive::Deserialize;
 use serde_yaml;
+#[cfg(not(debug_assertions))]
 use state_processing::{
     per_block_processing, per_block_processing_without_verifying_block_signature,
     per_slot_processing,
@@ -62,6 +63,7 @@ fn test_read_yaml() {
 }
 
 #[test]
+#[cfg(not(debug_assertions))]
 fn run_state_transition_tests_small() {
     // Test sanity-check_small-config_32-vals.yaml
     let mut file = {
