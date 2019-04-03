@@ -2,6 +2,7 @@ use clap::ArgMatches;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use serde_derive::{Deserialize, Serialize};
 use types::multiaddr::{Error as MultiaddrError, Multiaddr};
+//use std::time::Duration;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -30,19 +31,21 @@ impl Default for Config {
             listen_addresses: vec!["/ip4/127.0.0.1/tcp/9000".to_string()],
             gs_config: GossipsubConfigBuilder::new()
                 .max_gossip_size(4_000_000)
+                //                .inactivity_timeout(Duration::from_secs(90))
                 .build(),
             identify_config: IdentifyConfig::default(),
             boot_nodes: vec![],
             client_version: version::version(),
-            topics: vec![String::from("beacon_chain")],
+            topics: Vec::new(),
         }
     }
 }
 
 impl Config {
-    pub fn new(boot_nodes: Vec<String>) -> Self {
+    pub fn new(boot_nodes: Vec<Multiaddr>, topics: Vec<String>) -> Self {
         let mut conf = Config::default();
         conf.boot_nodes = boot_nodes;
+        conf.topics = topics;
 
         conf
     }
