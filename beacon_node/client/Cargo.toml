@@ -9,6 +9,7 @@ beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
 store = { path = "../store" }
 http_server = { path = "../http_server" }
+eth2-libp2p = { path = "../eth2-libp2p" }
 rpc = { path = "../rpc" }
 prometheus = "^0.6"
 types = { path = "../../eth2/types" }

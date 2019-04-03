@@ -1,7 +1,13 @@
 use clap::ArgMatches;
+use eth2_libp2p::multiaddr::Protocol;
+use eth2_libp2p::multiaddr::ToMultiaddr;
+use eth2_libp2p::Multiaddr;
+use fork_choice::ForkChoiceAlgorithm;
 use http_server::HttpServerConfig;
 use network::NetworkConfig;
+use network::{ChainType, NetworkConfig};
 use serde_derive::{Deserialize, Serialize};
+use slog::error;
 use std::fs;
 use std::path::PathBuf;
 
@@ -27,8 +33,9 @@ impl Default for ClientConfig {
 
         // currently lighthouse spec
         let default_spec = ChainSpec::lighthouse_testnet();
+        let chain_type = ChainType::from(default_spec.chain_id);
         // builds a chain-specific network config
-        let net_conf = NetworkConfig::from(default_spec.chain_id);
+        let net_conf = NetworkConfig::from(chain_type);
 
         Self {
             data_dir: PathBuf::from(".lighthouse"),
