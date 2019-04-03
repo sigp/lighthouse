@@ -1,8 +1,8 @@
 use clap::ArgMatches;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use serde_derive::{Deserialize, Serialize};
+use std::time::Duration;
 use types::multiaddr::{Error as MultiaddrError, Multiaddr};
-//use std::time::Duration;
 
 /// The beacon node topic string to subscribe to.
 pub const BEACON_PUBSUB_TOPIC: &str = "beacon_node";
@@ -35,7 +35,7 @@ impl Default for Config {
             listen_addresses: vec!["/ip4/127.0.0.1/tcp/9000".to_string()],
             gs_config: GossipsubConfigBuilder::new()
                 .max_gossip_size(4_000_000)
-                //                .inactivity_timeout(Duration::from_secs(90))
+                .inactivity_timeout(Duration::from_secs(90))
                 .build(),
             identify_config: IdentifyConfig::default(),
             boot_nodes: vec![],
