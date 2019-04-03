@@ -1,14 +1,9 @@
 use serde_derive::Deserialize;
 use serde_yaml;
 #[cfg(not(debug_assertions))]
-use state_processing::{
-    per_block_processing, per_block_processing_without_verifying_block_signature,
-    per_slot_processing,
-};
+use state_processing::{per_block_processing, per_slot_processing};
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::*;
-#[allow(unused_imports)]
-use yaml_utils;
 
 #[derive(Debug, Deserialize)]
 pub struct ExpectedState {
@@ -17,6 +12,11 @@ pub struct ExpectedState {
     pub fork: Option<Fork>,
     pub validator_registry: Option<Vec<Validator>>,
     pub validator_balances: Option<Vec<u64>>,
+    pub previous_epoch_attestations: Option<Vec<PendingAttestation>>,
+    pub current_epoch_attestations: Option<Vec<PendingAttestation>>,
+    pub historical_roots: Option<Vec<Hash256>>,
+    pub finalized_epoch: Option<Epoch>,
+    pub latest_block_roots: Option<Vec<Hash256>>,
 }
 
 impl ExpectedState {
@@ -42,6 +42,11 @@ impl ExpectedState {
             cfe!(fork),
             cfe!(validator_registry),
             cfe!(validator_balances),
+            cfe!(previous_epoch_attestations),
+            cfe!(current_epoch_attestations),
+            cfe!(historical_roots),
+            cfe!(finalized_epoch),
+            cfe!(latest_block_roots),
         ]
         .into_iter()
         .flat_map(|x| x)
@@ -108,7 +113,7 @@ fn run_state_transition_test(test_name: &str) {
                 println!("Error in {} (#{}), on block {}", test_case.name, i, j);
                 println!("{:?}", res);
                 ok = false;
-            };
+            }
         }
 
         let mismatched_fields = test_case.expected_state.check(&state);
