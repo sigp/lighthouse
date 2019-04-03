@@ -288,7 +288,7 @@ impl EpochCrosslinkCommitteesBuilder {
                 self.active_validator_indices,
                 spec.shuffle_round_count,
                 &self.shuffling_seed[..],
-                true,
+                false,
             )
             .ok_or_else(|| Error::UnableToShuffle)?
         };
