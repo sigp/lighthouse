@@ -104,9 +104,9 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                                 "block_root" => format!("{}", block_root),
                             );
 
-                            // TODO: Obtain topics from the network service properly.
-                            let topic =
-                                types::TopicBuilder::new("beacon_chain".to_string()).build();
+                            // get the network topic to send on
+                            let topic_string = self.chain.get_spec().beacon_chain_topic.clone();
+                            let topic = types::TopicBuilder::new(topic_string).build();
                             let message = PubsubMessage::Block(block);
 
                             // Publish the block to the p2p network via gossipsub.
