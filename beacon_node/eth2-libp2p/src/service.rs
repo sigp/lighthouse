@@ -3,6 +3,7 @@ use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
+use crate::{TopicBuilder, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -17,7 +18,6 @@ use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use types::{TopicBuilder, TopicHash};
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
@@ -85,9 +85,17 @@ impl Service {
         }
 
         // subscribe to default gossipsub topics
+        let mut topics = vec![];
+        //TODO: Handle multiple shard attestations. For now we simply use a separate topic for
+        //attestations
+        topics.push(config.shard_prefix);
+        topics.push(config.beacon_chain_topic);
+
+        topics.append(&mut config.topics.clone());
+
         let mut subscribed_topics = vec![];
-        for topic in config.topics {
-            let t = TopicBuilder::new(topic.to_string()).build();
+        for topic in topics {
+            let t = TopicBuilder::new(topic.clone()).build();
             if swarm.subscribe(t) {
                 trace!(log, "Subscribed to topic: {:?}", topic);
                 subscribed_topics.push(topic);

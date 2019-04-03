@@ -10,6 +10,9 @@ mod service;
 
 pub use behaviour::PubsubMessage;
 pub use config::Config as NetworkConfig;
+pub use libp2p::floodsub::{Topic, TopicBuilder, TopicHash};
+pub use libp2p::multiaddr;
+pub use libp2p::Multiaddr;
 pub use libp2p::{
     gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
     PeerId,
@@ -17,5 +20,3 @@ pub use libp2p::{
 pub use rpc::RPCEvent;
 pub use service::Libp2pEvent;
 pub use service::Service;
-pub use types::multiaddr;
-pub use types::Multiaddr;

@@ -20,8 +20,12 @@ pub struct Config {
     boot_nodes: Vec<String>,
     /// Client version
     pub client_version: String,
-    /// List of topics to subscribe to as strings
+    /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<String>,
+    /// Shard pubsub topic prefix.
+    pub shard_prefix: String,
+    /// The main beacon chain topic to subscribe to.
+    pub beacon_chain_topic: String,
 }
 
 impl Default for Config {
@@ -37,17 +41,16 @@ impl Default for Config {
             boot_nodes: vec![],
             client_version: version::version(),
             topics: Vec::new(),
+            beacon_chain_topic: String::from("beacon_chain"),
+            shard_prefix: String::from("attestations"), // single topic for all attestation for the moment.
         }
     }
 }
 
+/// Generates a default Config.
 impl Config {
-    pub fn new(boot_nodes: Vec<Multiaddr>, topics: Vec<String>) -> Self {
-        let mut conf = Config::default();
-        conf.boot_nodes = boot_nodes;
-        conf.topics = topics;
-
-        conf
+    pub fn new() -> Self {
+        Config::default()
     }
 
     pub fn listen_addresses(&self) -> Result<Vec<Multiaddr>, MultiaddrError> {
@@ -87,6 +90,46 @@ impl Default for IdentifyConfig {
         Self {
             version: "/eth/serenity/1.0".to_string(),
             user_agent: version::version(),
+        }
+    }
+}
+
+/// Creates a standard network config from a chain_id.
+///
+/// This creates specified network parameters for each chain type.
+impl From<ChainType> for Config {
+    fn from(chain_type: ChainType) -> Self {
+        match chain_type {
+            ChainType::Foundation => Config::default(),
+
+            ChainType::LighthouseTestnet => {
+                let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
+                    .parse()
+                    .expect("correct multiaddr")];
+                Self {
+                    boot_nodes,
+                    ..Config::default()
+                }
+            }
+
+            ChainType::Other => Config::default(),
+        }
+    }
+}
+
+pub enum ChainType {
+    Foundation,
+    LighthouseTestnet,
+    Other,
+}
+
+/// Maps a chain id to a ChainType.
+impl From<u8> for ChainType {
+    fn from(chain_id: u8) -> Self {
+        match chain_id {
+            1 => ChainType::Foundation,
+            2 => ChainType::LighthouseTestnet,
+            _ => ChainType::Other,
         }
     }
 }

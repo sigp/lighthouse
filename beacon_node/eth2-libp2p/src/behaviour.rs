@@ -1,5 +1,6 @@
 use crate::rpc::{RPCEvent, RPCMessage, Rpc};
 use crate::NetworkConfig;
+use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use libp2p::{
     core::{
@@ -15,7 +16,6 @@ use libp2p::{
 use slog::{debug, o, trace, warn};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use types::{Attestation, BeaconBlock};
-use types::{Topic, TopicHash};
 
 /// Builds the network behaviour for the libp2p Swarm.
 /// Implements gossipsub message routing.
