@@ -82,8 +82,7 @@ fn run_state_transition_tests_small() {
         for block in test_case.blocks.iter() {
             while block.slot > state.slot {
                 let latest_block_header = state.latest_block_header.clone();
-                let res = per_slot_processing(&mut state, &latest_block_header, &test_case.config)
-                    .unwrap();
+                per_slot_processing(&mut state, &latest_block_header, &test_case.config).unwrap();
             }
             if test_case.verify_signatures {
                 let res = per_block_processing(&mut state, &block, &test_case.config);

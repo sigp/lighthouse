@@ -29,7 +29,7 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
-use tokio::timer::{Delay, Interval};
+use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
 use types::test_utils::generate_deterministic_keypairs;
 use types::{ChainSpec, Epoch, Fork, Slot};

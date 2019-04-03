@@ -52,6 +52,7 @@ impl StateCheck {
     /// # Panics
     ///
     /// Panics with an error message if any test fails.
+    #[allow(clippy::cyclomatic_complexity)]
     pub fn assert_valid(&self, state: &BeaconState, spec: &ChainSpec) {
         let state_epoch = state.slot.epoch(spec.slots_per_epoch);
 

@@ -43,7 +43,7 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
                 let f = sink
                     .fail(RpcStatus::new(
                         RpcStatusCode::InvalidArgument,
-                        Some(format!("Invalid randao reveal signature")),
+                        Some("Invalid randao reveal signature".to_string()),
                     ))
                     .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
                 return ctx.spawn(f);
@@ -114,7 +114,7 @@ impl BeaconBlockService for BeaconBlockServiceInstance {
                             self.network_chan
                                 .send(NetworkMessage::Publish {
                                     topics: vec![topic],
-                                    message,
+                                    message: Box::new(message),
                                 })
                                 .unwrap_or_else(|e| {
                                     error!(

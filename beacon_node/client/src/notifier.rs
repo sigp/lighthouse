@@ -14,7 +14,7 @@ pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exi
     // notification heartbeat
     let interval = Interval::new(Instant::now(), Duration::from_secs(5));
 
-    let log = client.log.new(o!("Service" => "Notifier"));
+    let _log = client.log.new(o!("Service" => "Notifier"));
 
     // TODO: Debugging only
     let counter = Arc::new(Mutex::new(0));

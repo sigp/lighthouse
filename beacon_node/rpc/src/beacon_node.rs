@@ -24,7 +24,7 @@ impl BeaconNodeService for BeaconNodeServiceInstance {
         // get the chain state
         let state = self.chain.get_state();
         let state_fork = state.fork.clone();
-        let genesis_time = state.genesis_time.clone();
+        let genesis_time = state.genesis_time;
 
         // build the rpc fork struct
         let mut fork = Fork::new();
@@ -35,7 +35,7 @@ impl BeaconNodeService for BeaconNodeServiceInstance {
         node_info.set_fork(fork);
         node_info.set_genesis_time(genesis_time);
         node_info.set_genesis_slot(self.chain.get_spec().genesis_slot.as_u64());
-        node_info.set_chain_id(self.chain.get_spec().chain_id as u32);
+        node_info.set_chain_id(u32::from(self.chain.get_spec().chain_id));
 
         // send the node_info the requester
         let error_log = self.log.clone();

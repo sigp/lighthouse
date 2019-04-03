@@ -6,8 +6,7 @@ use dirs;
 use log::debug;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-//TODO: testing only
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
 

@@ -497,21 +497,17 @@ where
             } else {
                 // If the current head block is not from this slot, use the slot from the previous
                 // epoch.
-                let root = *self.state.read().get_block_root(
+                *self.state.read().get_block_root(
                     current_epoch_start_slot - self.spec.slots_per_epoch,
                     &self.spec,
-                )?;
-
-                root
+                )?
             }
         } else {
             // If we're not on the first slot of the epoch.
-            let root = *self
+            *self
                 .state
                 .read()
-                .get_block_root(current_epoch_start_slot, &self.spec)?;
-
-            root
+                .get_block_root(current_epoch_start_slot, &self.spec)?
         };
 
         Ok(AttestationData {
