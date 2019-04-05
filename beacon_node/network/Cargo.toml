@@ -13,7 +13,7 @@ beacon_chain =  { path = "../beacon_chain" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
-slog = "2.4.1"
+slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_debug"] }
 ssz = { path = "../../eth2/utils/ssz" }
 futures = "0.1.25"
 error-chain = "0.12.0"

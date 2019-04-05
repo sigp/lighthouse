@@ -4,7 +4,7 @@ use self::bytes::{BufMut, BytesMut};
 use super::VALIDATOR_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use bls::PublicKey;
-use ssz::{ssz_encode, Decodable};
+use ssz::{decode, ssz_encode};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
@@ -69,8 +69,8 @@ impl<T: ClientDB> ValidatorStore<T> {
         let val = self.db.get(DB_COLUMN, &key[..])?;
         match val {
             None => Ok(None),
-            Some(val) => match PublicKey::ssz_decode(&val, 0) {
-                Ok((key, _)) => Ok(Some(key)),
+            Some(val) => match decode::<PublicKey>(&val) {
+                Ok(key) => Ok(Some(key)),
                 Err(_) => Err(ValidatorStoreError::DecodeError),
             },
         }

@@ -1,20 +1,25 @@
 use super::import_queue::ImportQueue;
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BlockProcessingOutcome, InvalidBlock};
 use crate::message_handler::NetworkContext;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, warn};
+use ssz::TreeHash;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{Attestation, Epoch, Hash256, Slot};
+use types::{Attestation, BeaconBlock, Epoch, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
 /// The amount of seconds a block (or partial block) may exist in the import queue.
-const QUEUE_STALE_SECS: u64 = 60;
+const QUEUE_STALE_SECS: u64 = 600;
+
+/// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
+/// Otherwise we queue it.
+const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
@@ -60,7 +65,7 @@ pub enum PeerStatus {
 }
 
 impl PeerStatus {
-    pub fn should_handshake(&self) -> bool {
+    pub fn should_handshake(self) -> bool {
         match self {
             PeerStatus::DifferentNetworkId => false,
             PeerStatus::FinalizedEpochNotInChain => false,
@@ -358,31 +363,50 @@ impl SimpleSync {
         if res.roots.is_empty() {
             warn!(
                 self.log,
-                "Peer returned empty block roots response. PeerId: {:?}", peer_id
+                "Peer returned empty block roots response";
+                "peer_id" => format!("{:?}", peer_id)
             );
             return;
         }
 
-        let new_root_index = self.import_queue.first_new_root(&res.roots);
-
-        // If a new block root is found, request it and all the headers following it.
-        //
-        // We make an assumption here that if we don't know a block then we don't know of all
-        // it's parents. This might not be the case if syncing becomes more sophisticated.
-        if let Some(i) = new_root_index {
-            let new = &res.roots[i];
-
-            self.request_block_headers(
-                peer_id,
-                BeaconBlockHeadersRequest {
-                    start_root: new.block_root,
-                    start_slot: new.slot,
-                    max_headers: (res.roots.len() - i) as u64,
-                    skip_slots: 0,
-                },
-                network,
-            )
+        // The wire protocol specifies that slots must be in ascending order.
+        if !res.slots_are_ascending() {
+            warn!(
+                self.log,
+                "Peer returned block roots response with bad slot ordering";
+                "peer_id" => format!("{:?}", peer_id)
+            );
+            return;
         }
+
+        let new_roots = self
+            .import_queue
+            .enqueue_block_roots(&res.roots, peer_id.clone());
+
+        // No new roots means nothing to do.
+        //
+        // This check protects against future panics.
+        if new_roots.is_empty() {
+            return;
+        }
+
+        // Determine the first (earliest) and last (latest) `BlockRootSlot` items.
+        //
+        // This logic relies upon slots to be in ascending order, which is enforced earlier.
+        let first = new_roots.first().expect("Non-empty list must have first");
+        let last = new_roots.last().expect("Non-empty list must have last");
+
+        // Request all headers between the earliest and latest new `BlockRootSlot` items.
+        self.request_block_headers(
+            peer_id,
+            BeaconBlockHeadersRequest {
+                start_root: first.block_root,
+                start_slot: first.slot,
+                max_headers: (last.slot - first.slot + 1).as_u64(),
+                skip_slots: 0,
+            },
+            network,
+        )
     }
 
     /// Handle a `BeaconBlockHeaders` request from the peer.
@@ -517,34 +541,148 @@ impl SimpleSync {
     }
 
     /// Process a gossip message declaring a new block.
+    ///
+    /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
     pub fn on_block_gossip(
         &mut self,
         peer_id: PeerId,
-        msg: BlockRootSlot,
+        block: BeaconBlock,
         network: &mut NetworkContext,
-    ) {
+    ) -> bool {
         info!(
             self.log,
             "NewGossipBlock";
             "peer" => format!("{:?}", peer_id),
         );
-        // TODO: filter out messages that a prior to the finalized slot.
-        //
-        // TODO: if the block is a few more slots ahead, try to get all block roots from then until
-        // now.
-        //
-        // Note: only requests the new block -- will fail if we don't have its parents.
-        if self.import_queue.is_new_block(&msg.block_root) {
-            self.request_block_headers(
-                peer_id,
-                BeaconBlockHeadersRequest {
-                    start_root: msg.block_root,
-                    start_slot: msg.slot,
-                    max_headers: 1,
-                    skip_slots: 0,
-                },
-                network,
-            )
+
+        // Ignore any block from a finalized slot.
+        if self.slot_is_finalized(block.slot) {
+            warn!(
+                self.log, "NewGossipBlock";
+                "msg" => "new block slot is finalized.",
+                "block_slot" => block.slot,
+            );
+            return false;
+        }
+
+        let block_root = Hash256::from_slice(&block.hash_tree_root());
+
+        // Ignore any block that the chain already knows about.
+        if self.chain_has_seen_block(&block_root) {
+            println!("this happened");
+            // TODO: Age confirm that we shouldn't forward a block if we already know of it.
+            return false;
+        }
+
+        debug!(
+            self.log,
+            "NewGossipBlock";
+            "peer" => format!("{:?}", peer_id),
+            "msg" => "processing block",
+        );
+        match self.chain.process_block(block.clone()) {
+            Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::ParentUnknown)) => {
+                // The block was valid and we processed it successfully.
+                debug!(
+                    self.log, "NewGossipBlock";
+                    "msg" => "parent block unknown",
+                    "parent_root" => format!("{}", block.previous_block_root),
+                    "peer" => format!("{:?}", peer_id),
+                );
+                // Queue the block for later processing.
+                self.import_queue
+                    .enqueue_full_blocks(vec![block], peer_id.clone());
+                // Send a hello to learn of the clients best slot so we can then sync the require
+                // parent(s).
+                network.send_rpc_request(
+                    peer_id.clone(),
+                    RPCRequest::Hello(self.chain.hello_message()),
+                );
+                // Forward the block onto our peers.
+                //
+                // Note: this may need to be changed if we decide to only forward blocks if we have
+                // all required info.
+                true
+            }
+            Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::FutureSlot {
+                present_slot,
+                block_slot,
+            })) => {
+                if block_slot - present_slot > FUTURE_SLOT_TOLERANCE {
+                    // The block is too far in the future, drop it.
+                    warn!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "future block rejected",
+                        "present_slot" => present_slot,
+                        "block_slot" => block_slot,
+                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Do not forward the block around to peers.
+                    false
+                } else {
+                    // The block is in the future, but not too far.
+                    warn!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "queuing future block",
+                        "present_slot" => present_slot,
+                        "block_slot" => block_slot,
+                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Queue the block for later processing.
+                    self.import_queue.enqueue_full_blocks(vec![block], peer_id);
+                    // Forward the block around to peers.
+                    true
+                }
+            }
+            Ok(outcome) => {
+                if outcome.is_invalid() {
+                    // The peer has sent a block which is fundamentally invalid.
+                    warn!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "invalid block from peer",
+                        "outcome" => format!("{:?}", outcome),
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Disconnect the peer
+                    network.disconnect(peer_id, GoodbyeReason::Fault);
+                    // Do not forward the block to peers.
+                    false
+                } else if outcome.sucessfully_processed() {
+                    // The block was valid and we processed it successfully.
+                    info!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "block import successful",
+                        "peer" => format!("{:?}", peer_id),
+                    );
+                    // Forward the block to peers
+                    true
+                } else {
+                    // The block wasn't necessarily invalid but we didn't process it successfully.
+                    // This condition shouldn't be reached.
+                    error!(
+                        self.log, "NewGossipBlock";
+                        "msg" => "unexpected condition in processing block.",
+                        "outcome" => format!("{:?}", outcome),
+                    );
+                    // Do not forward the block on.
+                    false
+                }
+            }
+            Err(e) => {
+                // We encountered an error whilst processing the block.
+                //
+                // Blocks should not be able to trigger errors, instead they should be flagged as
+                // invalid.
+                error!(
+                    self.log, "NewGossipBlock";
+                    "msg" => "internal error in processing block.",
+                    "error" => format!("{:?}", e),
+                );
+                // Do not forward the block to peers.
+                false
+            }
         }
     }
 
@@ -563,12 +701,9 @@ impl SimpleSync {
             "peer" => format!("{:?}", peer_id),
         );
 
-        // Awaiting a proper operations pool before we can import attestations.
-        //
-        // https://github.com/sigp/lighthouse/issues/281
         match self.chain.process_attestation(msg) {
-            Ok(_) => panic!("Impossible, method not implemented."),
-            Err(_) => error!(self.log, "Attestation processing not implemented!"),
+            Ok(()) => info!(self.log, "ImportedAttestation"),
+            Err(e) => warn!(self.log, "InvalidAttestation"; "error" => format!("{:?}", e)),
         }
     }
 
@@ -594,12 +729,21 @@ impl SimpleSync {
                             "reason" => format!("{:?}", outcome),
                         );
                         network.disconnect(sender, GoodbyeReason::Fault);
+                        break;
                     }
 
                     // If this results to true, the item will be removed from the queue.
                     if outcome.sucessfully_processed() {
                         successful += 1;
                         self.import_queue.remove(block_root);
+                    } else {
+                        debug!(
+                            self.log,
+                            "ProcessImportQueue";
+                            "msg" => "Block not imported",
+                            "outcome" => format!("{:?}", outcome),
+                            "peer" => format!("{:?}", sender),
+                        );
                     }
                 }
                 Err(e) => {
@@ -676,6 +820,26 @@ impl SimpleSync {
         );
 
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockBodies(req));
+    }
+
+    /// Returns `true` if `self.chain` has not yet processed this block.
+    pub fn chain_has_seen_block(&self, block_root: &Hash256) -> bool {
+        !self
+            .chain
+            .is_new_block_root(&block_root)
+            .unwrap_or_else(|_| {
+                error!(self.log, "Unable to determine if block is new.");
+                false
+            })
+    }
+
+    /// Returns `true` if the given slot is finalized in our chain.
+    fn slot_is_finalized(&self, slot: Slot) -> bool {
+        slot <= self
+            .chain
+            .hello_message()
+            .latest_finalized_epoch
+            .start_slot(self.chain.get_spec().slots_per_epoch)
     }
 
     /// Generates our current state in the form of a HELLO RPC message.

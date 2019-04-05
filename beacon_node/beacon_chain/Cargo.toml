@@ -15,6 +15,7 @@ hashing = { path = "../../eth2/utils/hashing" }
 fork_choice = { path = "../../eth2/fork_choice" }
 parking_lot = "0.7"
 log = "0.4"
+operation_pool = { path = "../../eth2/operation_pool" }
 env_logger = "0.6"
 serde = "1.0"
 serde_derive = "1.0"

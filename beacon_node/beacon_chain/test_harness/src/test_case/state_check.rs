@@ -16,6 +16,10 @@ pub struct StateCheck {
     pub slot: Slot,
     /// Checked against `beacon_state.validator_registry.len()`.
     pub num_validators: Option<usize>,
+    /// The number of pending attestations from the previous epoch that should be in the state.
+    pub num_previous_epoch_attestations: Option<usize>,
+    /// The number of pending attestations from the current epoch that should be in the state.
+    pub num_current_epoch_attestations: Option<usize>,
     /// A list of validator indices which have been penalized. Must be in ascending order.
     pub slashed_validators: Option<Vec<u64>>,
     /// A list of validator indices which have been fully exited. Must be in ascending order.
@@ -34,6 +38,8 @@ impl StateCheck {
         Self {
             slot: Slot::from(as_u64(&yaml, "slot").expect("State must specify slot")),
             num_validators: as_usize(&yaml, "num_validators"),
+            num_previous_epoch_attestations: as_usize(&yaml, "num_previous_epoch_attestations"),
+            num_current_epoch_attestations: as_usize(&yaml, "num_current_epoch_attestations"),
             slashed_validators: as_vec_u64(&yaml, "slashed_validators"),
             exited_validators: as_vec_u64(&yaml, "exited_validators"),
             exit_initiated_validators: as_vec_u64(&yaml, "exit_initiated_validators"),
@@ -46,6 +52,7 @@ impl StateCheck {
     /// # Panics
     ///
     /// Panics with an error message if any test fails.
+    #[allow(clippy::cyclomatic_complexity)]
     pub fn assert_valid(&self, state: &BeaconState, spec: &ChainSpec) {
         let state_epoch = state.slot.epoch(spec.slots_per_epoch);
 
@@ -58,6 +65,7 @@ impl StateCheck {
             "State slot is invalid."
         );
 
+        // Check the validator count
         if let Some(num_validators) = self.num_validators {
             assert_eq!(
                 state.validator_registry.len(),
@@ -65,6 +73,26 @@ impl StateCheck {
                 "State validator count != expected."
             );
             info!("OK: num_validators = {}.", num_validators);
+        }
+
+        // Check the previous epoch attestations
+        if let Some(n) = self.num_previous_epoch_attestations {
+            assert_eq!(
+                state.previous_epoch_attestations.len(),
+                n,
+                "previous epoch attestations count != expected."
+            );
+            info!("OK: num_previous_epoch_attestations = {}.", n);
+        }
+
+        // Check the current epoch attestations
+        if let Some(n) = self.num_current_epoch_attestations {
+            assert_eq!(
+                state.current_epoch_attestations.len(),
+                n,
+                "current epoch attestations count != expected."
+            );
+            info!("OK: num_current_epoch_attestations = {}.", n);
         }
 
         // Check for slashed validators.

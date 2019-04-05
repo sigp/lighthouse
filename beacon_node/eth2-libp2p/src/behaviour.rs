@@ -1,4 +1,3 @@
-use crate::rpc::methods::BlockRootSlot;
 use crate::rpc::{RPCEvent, RPCMessage, Rpc};
 use crate::NetworkConfig;
 use futures::prelude::*;
@@ -13,10 +12,9 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
-use slog::{debug, o, warn};
+use slog::{debug, o, trace, warn};
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
-use ssz_derive::{Decode, Encode};
-use types::Attestation;
+use types::{Attestation, BeaconBlock};
 use types::{Topic, TopicHash};
 
 /// Builds the network behaviour for the libp2p Swarm.
@@ -49,7 +47,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(gs_msg) => {
-                debug!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
+                trace!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
 
                 let pubsub_message = match PubsubMessage::ssz_decode(&gs_msg.data, 0) {
                     //TODO: Punish peer on error
@@ -67,17 +65,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
                 self.events.push(BehaviourEvent::GossipMessage {
                     source: gs_msg.source,
                     topics: gs_msg.topics,
-                    message: pubsub_message,
+                    message: Box::new(pubsub_message),
                 });
             }
-            GossipsubEvent::Subscribed {
-                peer_id: _,
-                topic: _,
-            }
-            | GossipsubEvent::Unsubscribed {
-                peer_id: _,
-                topic: _,
-            } => {}
+            GossipsubEvent::Subscribed { .. } => {}
+            GossipsubEvent::Unsubscribed { .. } => {}
         }
     }
 }
@@ -112,7 +104,8 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     );
                     info.listen_addrs.truncate(20);
                 }
-                self.events.push(BehaviourEvent::Identified(peer_id, info));
+                self.events
+                    .push(BehaviourEvent::Identified(peer_id, Box::new(info)));
             }
             IdentifyEvent::Error { .. } => {}
             IdentifyEvent::SendBack { .. } => {}
@@ -185,12 +178,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 pub enum BehaviourEvent {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
-    Identified(PeerId, IdentifyInfo),
+    Identified(PeerId, Box<IdentifyInfo>),
     // TODO: This is a stub at the moment
     GossipMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: PubsubMessage,
+        message: Box<PubsubMessage>,
     },
 }
 
@@ -198,7 +191,7 @@ pub enum BehaviourEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage {
     /// Gossipsub message providing notification of a new block.
-    Block(BlockRootSlot),
+    Block(BeaconBlock),
     /// Gossipsub message providing notification of a new attestation.
     Attestation(Attestation),
 }
@@ -224,7 +217,7 @@ impl Decodable for PubsubMessage {
         let (id, index) = u32::ssz_decode(bytes, index)?;
         match id {
             0 => {
-                let (block, index) = BlockRootSlot::ssz_decode(bytes, index)?;
+                let (block, index) = BeaconBlock::ssz_decode(bytes, index)?;
                 Ok((PubsubMessage::Block(block), index))
             }
             1 => {
@@ -243,10 +236,7 @@ mod test {
 
     #[test]
     fn ssz_encoding() {
-        let original = PubsubMessage::Block(BlockRootSlot {
-            block_root: Hash256::from_slice(&[42; 32]),
-            slot: Slot::new(4),
-        });
+        let original = PubsubMessage::Block(BeaconBlock::empty(&ChainSpec::foundation()));
 
         let encoded = ssz_encode(&original);
 

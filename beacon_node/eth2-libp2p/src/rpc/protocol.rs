@@ -31,7 +31,7 @@ impl Default for RPCProtocol {
 }
 
 /// A monotonic counter for ordering `RPCRequest`s.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RequestId(u64);
 
 impl RequestId {
@@ -47,6 +47,12 @@ impl RequestId {
 }
 
 impl Eq for RequestId {}
+
+impl PartialEq for RequestId {
+    fn eq(&self, other: &RequestId) -> bool {
+        self.0 == other.0
+    }
+}
 
 impl Hash for RequestId {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -104,17 +110,15 @@ impl UpgradeInfo for RPCEvent {
     }
 }
 
+type FnDecodeRPCEvent = fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>;
+
 impl<TSocket> InboundUpgrade<TSocket> for RPCProtocol
 where
     TSocket: AsyncRead + AsyncWrite,
 {
     type Output = RPCEvent;
     type Error = DecodeError;
-    type Future = upgrade::ReadOneThen<
-        upgrade::Negotiated<TSocket>,
-        (),
-        fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>,
-    >;
+    type Future = upgrade::ReadOneThen<upgrade::Negotiated<TSocket>, (), FnDecodeRPCEvent>;
 
     fn upgrade_inbound(self, socket: upgrade::Negotiated<TSocket>, _: Self::Info) -> Self::Future {
         upgrade::read_one_then(socket, MAX_READ_SIZE, (), |packet, ()| Ok(decode(packet)?))

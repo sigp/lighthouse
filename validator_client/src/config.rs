@@ -81,6 +81,7 @@ impl Config {
     }
 
     /// Try to load keys from validator_dir, returning None if none are found or an error.
+    #[allow(dead_code)]
     pub fn fetch_keys(&self, log: &slog::Logger) -> Option<Vec<Keypair>> {
         let key_pairs: Vec<Keypair> = fs::read_dir(&self.data_dir)
             .unwrap()
@@ -144,6 +145,7 @@ impl Config {
     }
 
     /// Saves a keypair to a file inside the appropriate validator directory. Returns the saved path filename.
+    #[allow(dead_code)]
     pub fn save_key(&self, key: &Keypair) -> Result<PathBuf, Error> {
         let validator_config_path = self.data_dir.join(key.identifier());
         let key_path = validator_config_path.join(DEFAULT_PRIVATE_KEY_FILENAME);

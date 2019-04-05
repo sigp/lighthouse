@@ -19,13 +19,16 @@ use std::io::{Error, ErrorKind};
 use std::time::Duration;
 use types::{TopicBuilder, TopicHash};
 
+type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
+type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
+
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Boxed<(PeerId, StreamMuxerBox), Error>, Behaviour<Substream<StreamMuxerBox>>>,
+    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
     /// This node's PeerId.
-    local_peer_id: PeerId,
+    _local_peer_id: PeerId,
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
@@ -89,7 +92,7 @@ impl Service {
         info!(log, "Subscribed to topics: {:?}", subscribed_topics);
 
         Ok(Service {
-            local_peer_id,
+            _local_peer_id: local_peer_id,
             swarm,
             log,
         })
@@ -113,7 +116,7 @@ impl Stream for Service {
                         topics,
                         message,
                     } => {
-                        debug!(self.log, "Pubsub message received: {:?}", message);
+                        trace!(self.log, "Pubsub message received: {:?}", message);
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
                             source,
                             topics,
@@ -179,11 +182,11 @@ pub enum Libp2pEvent {
     /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
     /// Received information about a peer on the network.
-    Identified(PeerId, IdentifyInfo),
+    Identified(PeerId, Box<IdentifyInfo>),
     /// Received pubsub message.
     PubsubMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: PubsubMessage,
+        message: Box<PubsubMessage>,
     },
 }

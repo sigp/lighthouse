@@ -19,7 +19,9 @@ service BeaconNodeService {
 
 /// Service that handles block production
 service BeaconBlockService {
+    // Requests a block to be signed from the beacon node.
     rpc ProduceBeaconBlock(ProduceBeaconBlockRequest) returns (ProduceBeaconBlockResponse);
+    // Responds to the node the signed block to be published.
     rpc PublishBeaconBlock(PublishBeaconBlockRequest) returns (PublishBeaconBlockResponse);
 }
 
@@ -33,7 +35,7 @@ service ValidatorService {
 
 /// Service that handles validator attestations
 service AttestationService {
-	rpc ProduceAttestation(ProduceAttestationRequest) returns (ProduceAttestationResponse);
+	rpc ProduceAttestationData(ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
 	rpc PublishAttestation(PublishAttestationRequest) returns (PublishAttestationResponse);
 }
 
@@ -64,6 +66,7 @@ message Empty {}
 // Validator requests an unsigned proposal.
 message ProduceBeaconBlockRequest {
     uint64 slot = 1;
+    bytes randao_reveal = 2;
 }
 
 // Beacon node returns an unsigned proposal.
@@ -122,23 +125,28 @@ message ValidatorDuty {
 	uint64 attestation_slot = 3;
 	uint64 attestation_shard = 4;
     uint64 committee_index = 5;
+    uint64 committee_len = 6;
 }
 
 /*
  * Attestation Service Messages
  */
 
-message ProduceAttestationRequest {
+message ProduceAttestationDataRequest {
 	uint64 slot = 1;
 	uint64 shard = 2;
 }
 
-message ProduceAttestationResponse {
-	Attestation attestation_data = 1;
+message ProduceAttestationDataResponse {
+	AttestationData attestation_data = 1;
 }
 
 message PublishAttestationRequest {
-	FreeAttestation free_attestation = 1;
+	Attestation attestation = 1;
+}
+
+message Attestation {
+    bytes ssz = 1;
 }
 
 message PublishAttestationResponse {
@@ -146,26 +154,6 @@ message PublishAttestationResponse {
 	bytes msg = 2;
 }
 
-message Crosslink {
-	uint64 epoch = 1;
-	bytes crosslink_data_root = 2;
-
-}
-
-message Attestation {
-	uint64 slot = 1;
-	uint64 shard = 2;
-	bytes beacon_block_root = 3;
-	bytes epoch_boundary_root = 4;
-	bytes crosslink_data_root = 5;
-	Crosslink latest_crosslink = 6;
-	uint64 justified_epoch = 7;
-	bytes justified_block_root = 8;
-
-}
-
-message FreeAttestation {
-	Attestation attestation_data = 1;
-	bytes signature = 2;
-	uint64 validator_index = 3;
+message AttestationData {
+    bytes ssz = 1;
 }

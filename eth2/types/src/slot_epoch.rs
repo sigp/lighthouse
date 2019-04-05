@@ -114,6 +114,16 @@ mod epoch_tests {
     all_tests!(Epoch);
 
     #[test]
+    fn epoch_start_end() {
+        let slots_per_epoch = 8;
+
+        let epoch = Epoch::new(0);
+
+        assert_eq!(epoch.start_slot(slots_per_epoch), Slot::new(0));
+        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(7));
+    }
+
+    #[test]
     fn slot_iter() {
         let slots_per_epoch = 8;
 
@@ -129,5 +139,16 @@ mod epoch_tests {
         for i in 0..slots_per_epoch {
             assert_eq!(Slot::from(i), slots[i as usize])
         }
+    }
+
+    #[test]
+    fn max_epoch_ssz() {
+        let max_epoch = Epoch::max_value();
+        let mut ssz = SszStream::new();
+        ssz.append(&max_epoch);
+        let encoded = ssz.drain();
+        assert_eq!(&encoded, &[255, 255, 255, 255, 255, 255, 255, 255]);
+        let (decoded, _i): (Epoch, usize) = <_>::ssz_decode(&encoded, 0).unwrap();
+        assert_eq!(max_epoch, decoded);
     }
 }
