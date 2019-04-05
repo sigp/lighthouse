@@ -69,7 +69,7 @@ Syntax:
 
 | Shorthand    | Meaning                                             |
 |:-------------|:----------------------------------------------------|
-| `big`        | ``big endian``                                      |
+| `little`        | ``little endian``                                      |
 | `to_bytes`   | convert to bytes. Params: ``(size, byte order)``    |
 | `from_bytes` | convert from bytes. Params: ``(bytes, byte order)`` |
 | `value`      | the value to serialize                              |
@@ -82,7 +82,7 @@ Syntax:
 
 Convert directly to bytes the size of the int. (e.g. ``int16 = 2 bytes``)
 
-All integers are serialized as **big endian**.
+All integers are serialized as **little endian**.
 
 | Check to perform       | Code                    |
 |:-----------------------|:------------------------|
@@ -92,7 +92,7 @@ All integers are serialized as **big endian**.
 
 ```python
 buffer_size = int_size / 8
-return value.to_bytes(buffer_size, 'big')
+return value.to_bytes(buffer_size, 'little')
 ```
 
 #### Address
@@ -131,7 +131,7 @@ For general `byte` type:
    value_bytes ]``
 
 ```python
-byte_length = (len(value)).to_bytes(4, 'big')
+byte_length = (len(value)).to_bytes(4, 'little')
 return byte_length + value
 ```
 
@@ -175,12 +175,12 @@ At each step, the following checks should be made:
 Convert directly from bytes into integer utilising the number of bytes the same
 size as the integer length. (e.g. ``int16 == 2 bytes``)
 
-All integers are interpreted as **big endian**.
+All integers are interpreted as **little endian**.
 
 ```python
 byte_length = int_size / 8
 new_index = current_index + int_size
-return int.from_bytes(rawbytes[current_index:current_index+int_size], 'big'), new_index
+return int.from_bytes(rawbytes[current_index:current_index+int_size], 'little'), new_index
 ```
 
 #### Address
@@ -206,7 +206,7 @@ return rawbytes[current_index:current_index+32], new_index
 Get the length of the bytes, return the bytes.
 
 ```python
-bytes_length = int.from_bytes(rawbytes[current_index:current_index+4], 'big')
+bytes_length = int.from_bytes(rawbytes[current_index:current_index+4], 'little')
 new_index = current_index + 4 + bytes_lenth
 return rawbytes[current_index+4:current_index+4+bytes_length], new_index
 ```
@@ -224,7 +224,7 @@ entire length of the list.
 | rawbytes has enough left for length | ``len(rawbytes) > current_index + 4`` |
 
 ```python
-total_length = int.from_bytes(rawbytes[current_index:current_index+4], 'big')
+total_length = int.from_bytes(rawbytes[current_index:current_index+4], 'little')
 new_index = current_index + 4 + total_length
 item_index = current_index + 4
 deserialized_list = []

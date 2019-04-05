@@ -2,12 +2,12 @@ use super::EpochDuties;
 use types::{Epoch, PublicKey};
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum BeaconNodeError {
+pub enum BeaconNodeDutiesError {
     RemoteFailure(String),
 }
 
 /// Defines the methods required to obtain a validators shuffling from a Beacon Node.
-pub trait BeaconNode: Send + Sync {
+pub trait BeaconNodeDuties: Send + Sync {
     /// Gets the duties for all validators.
     ///
     /// Returns a vector of EpochDuties for each validator public key. The entry will be None for
@@ -15,6 +15,6 @@ pub trait BeaconNode: Send + Sync {
     fn request_duties(
         &self,
         epoch: Epoch,
-        pubkeys: &[PublicKey],
-    ) -> Result<EpochDuties, BeaconNodeError>;
+        pub_keys: &[PublicKey],
+    ) -> Result<EpochDuties, BeaconNodeDutiesError>;
 }

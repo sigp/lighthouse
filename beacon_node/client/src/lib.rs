@@ -15,21 +15,19 @@ use futures::{future::Future, Stream};
 use network::Service as NetworkService;
 use slog::{error, info, o};
 use slot_clock::SlotClock;
-use ssz::TreeHash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::Hash256;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
 pub struct Client<T: ClientTypes> {
     /// Configuration for the lighthouse client.
-    config: ClientConfig,
+    _config: ClientConfig,
     /// The beacon chain for the running client.
-    beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>>,
+    _beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>>,
     /// Reference to the network service.
     pub network: Arc<NetworkService>,
     /// Signal to terminate the RPC server.
@@ -92,17 +90,18 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             network_logger,
         )?;
 
-        let mut rpc_exit_signal = None;
         // spawn the RPC server
-        if config.rpc_conf.enabled {
-            rpc_exit_signal = Some(rpc::start_server(
+        let rpc_exit_signal = if config.rpc_conf.enabled {
+            Some(rpc::start_server(
                 &config.rpc_conf,
                 executor,
                 network_send,
                 beacon_chain.clone(),
                 &log,
-            ));
-        }
+            ))
+        } else {
+            None
+        };
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
@@ -131,8 +130,8 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         }
 
         Ok(Client {
-            config,
-            beacon_chain,
+            _config: config,
+            _beacon_chain: beacon_chain,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
             log,

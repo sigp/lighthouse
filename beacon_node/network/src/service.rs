@@ -17,7 +17,7 @@ use types::Topic;
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
-    libp2p_exit: oneshot::Sender<()>,
+    _libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
     //message_handler: MessageHandler,
     //message_handler_send: Sender<HandlerMessage>,
@@ -54,7 +54,7 @@ impl Service {
             log,
         )?;
         let network_service = Service {
-            libp2p_exit,
+            _libp2p_exit: libp2p_exit,
             network_send: network_send.clone(),
         };
 
@@ -131,9 +131,7 @@ fn network_service(
                         );
                     }
                     Libp2pEvent::PubsubMessage {
-                        source,
-                        topics: _,
-                        message,
+                        source, message, ..
                     } => {
                         //TODO: Decide if we need to propagate the topic upwards. (Potentially for
                         //attestations)
@@ -161,13 +159,13 @@ fn network_service(
                             libp2p_service.swarm.send_rpc(peer_id, rpc_event);
                         }
                         OutgoingMessage::NotifierTest => {
-                            debug!(log, "Received message from notifier");
+                            // debug!(log, "Received message from notifier");
                         }
                     };
                 }
                 Ok(NetworkMessage::Publish { topics, message }) => {
                     debug!(log, "Sending pubsub message on topics {:?}", topics);
-                    libp2p_service.swarm.publish(topics, message);
+                    libp2p_service.swarm.publish(topics, *message);
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -190,7 +188,7 @@ pub enum NetworkMessage {
     /// Publish a message to pubsub mechanism.
     Publish {
         topics: Vec<Topic>,
-        message: PubsubMessage,
+        message: Box<PubsubMessage>,
     },
 }
 

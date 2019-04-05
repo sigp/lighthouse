@@ -1,12 +1,8 @@
-use super::{fake_signature::FakeSignature, AggregatePublicKey};
+use super::{fake_signature::FakeSignature, AggregatePublicKey, BLS_AGG_SIG_BYTE_SIZE};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{
-    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
-};
-
-const SIGNATURE_LENGTH: usize = 48;
+use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
 
 /// A BLS aggregate signature.
 ///
@@ -26,12 +22,17 @@ impl FakeAggregateSignature {
     /// Creates a new all-zero's signature
     pub fn zero() -> Self {
         Self {
-            bytes: vec![0; SIGNATURE_LENGTH],
+            bytes: vec![0; BLS_AGG_SIG_BYTE_SIZE],
         }
     }
 
     /// Does glorious nothing.
     pub fn add(&mut self, _signature: &FakeSignature) {
+        // Do nothing.
+    }
+
+    /// Does glorious nothing.
+    pub fn add_aggregate(&mut self, _agg_sig: &FakeAggregateSignature) {
         // Do nothing.
     }
 
@@ -58,14 +59,21 @@ impl FakeAggregateSignature {
 
 impl Encodable for FakeAggregateSignature {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.bytes);
+        s.append_encoded_raw(&self.bytes);
     }
 }
 
 impl Decodable for FakeAggregateSignature {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        Ok((FakeAggregateSignature { bytes: sig_bytes }, i))
+        if bytes.len() - i < BLS_AGG_SIG_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        Ok((
+            FakeAggregateSignature {
+                bytes: bytes[i..(i + BLS_AGG_SIG_BYTE_SIZE)].to_vec(),
+            },
+            i + BLS_AGG_SIG_BYTE_SIZE,
+        ))
     }
 }
 

@@ -9,7 +9,7 @@ types = { path = "../eth2/types" }
 client = { path = "client" }
 version = { path = "version" }
 clap = "2.32.0"
-slog = "^2.2.3"
+slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_debug"] }
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
 ctrlc = { version = "3.1.1", features = ["termination"] }

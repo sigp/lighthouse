@@ -14,7 +14,7 @@ pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exi
     // notification heartbeat
     let interval = Interval::new(Instant::now(), Duration::from_secs(5));
 
-    let log = client.log.new(o!("Service" => "Notifier"));
+    let _log = client.log.new(o!("Service" => "Notifier"));
 
     // TODO: Debugging only
     let counter = Arc::new(Mutex::new(0));
@@ -22,13 +22,13 @@ pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exi
 
     // build heartbeat logic here
     let heartbeat = move |_| {
-        debug!(log, "Temp heartbeat output");
+        //debug!(log, "Temp heartbeat output");
         //TODO: Remove this logic. Testing only
         let mut count = counter.lock().unwrap();
         *count += 1;
 
         if *count % 5 == 0 {
-            debug!(log, "Sending Message");
+            //            debug!(log, "Sending Message");
             network.send_message();
         }
 

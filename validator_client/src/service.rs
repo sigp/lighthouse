@@ -1,14 +1,20 @@
-/// The validator service. Connects to a beacon node and signs blocks when required.
-use crate::attester_service::{AttestationGrpcClient, AttesterService};
-use crate::block_producer_service::{BeaconBlockGrpcClient, BlockProducerService};
+/// The Validator Client service.
+///
+/// Connects to a beacon node and negotiates the correct chain id.
+///
+/// Once connected, the service loads known validators keypairs from disk. Every slot,
+/// the service pings the beacon node, asking for new duties for each of the validators.
+///
+/// When a validator needs to either produce a block or sign an attestation, it requests the
+/// data from the beacon node and performs the signing before publishing the block to the beacon
+/// node.
+use crate::attestation_producer::AttestationProducer;
+use crate::block_producer::{BeaconBlockGrpcClient, BlockProducer};
 use crate::config::Config as ValidatorConfig;
-use crate::duties::UpdateOutcome;
-use crate::duties::{DutiesManager, EpochDutiesMap};
+use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::error::ErrorKind;
-use attester::test_utils::EpochMap;
-use attester::{test_utils::LocalSigner as AttesterLocalSigner, Attester};
-use block_proposer::{test_utils::LocalSigner as BlockProposerLocalSigner, BlockProducer};
+use crate::signer::Signer;
 use bls::Keypair;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services::Empty;
@@ -16,7 +22,7 @@ use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
     ValidatorServiceClient,
 };
-use slog::{debug, error, info, warn};
+use slog::{error, info, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -26,55 +32,54 @@ use tokio::runtime::Builder;
 use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
 use types::test_utils::generate_deterministic_keypairs;
-use types::{Epoch, Fork, Slot};
+use types::{ChainSpec, Epoch, Fork, Slot};
 
-//TODO: This service should be simplified in the future. Can be made more steamlined.
+/// A fixed amount of time after a slot to perform operations. This gives the node time to complete
+/// per-slot processes.
+const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(200);
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
-pub struct Service {
-    /// The node we currently connected to.
-    connected_node_version: String,
-    /// The chain id we are processing on.
-    chain_id: u16,
-    /// The fork state we processing on.
+//TODO: Generalize the BeaconNode types to use testing
+pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static> {
+    /// The node's current fork version we are processing on.
     fork: Fork,
     /// The slot clock for this service.
     slot_clock: SystemTimeSlotClock,
     /// The current slot we are processing.
     current_slot: Slot,
-    /// The number of slots per epoch to allow for converting slots to epochs.
-    slots_per_epoch: u64,
+    /// The chain specification for this clients instance.
+    spec: Arc<ChainSpec>,
+    /// The duties manager which maintains the state of when to perform actions.
+    duties_manager: Arc<DutiesManager<B, S>>,
     // GRPC Clients
     /// The beacon block GRPC client.
-    beacon_block_client: Arc<BeaconBlockServiceClient>,
-    /// The validator GRPC client.
-    validator_client: Arc<ValidatorServiceClient>,
+    beacon_block_client: Arc<BeaconBlockGrpcClient>,
     /// The attester GRPC client.
-    attester_client: Arc<AttestationServiceClient>,
+    attestation_client: Arc<AttestationServiceClient>,
     /// The validator client logger.
     log: slog::Logger,
 }
 
-impl Service {
+impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
     ///  Initial connection to the beacon node to determine its properties.
     ///
     ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
     ///  and returns an instance of the service.
     fn initialize_service(
-        config: &ValidatorConfig,
+        config: ValidatorConfig,
         log: slog::Logger,
-    ) -> error_chain::Result<Self> {
+    ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair>> {
         // initialise the beacon node client to check for a connection
 
         let env = Arc::new(EnvBuilder::new().build());
         // Beacon node gRPC beacon node endpoints.
         let beacon_node_client = {
             let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
-            Arc::new(BeaconNodeServiceClient::new(ch))
+            BeaconNodeServiceClient::new(ch)
         };
 
-        // retrieve node information
+        // retrieve node information and validate the beacon node
         let node_info = loop {
             match beacon_node_client.info(&Empty::new()) {
                 Err(e) => {
@@ -84,17 +89,26 @@ impl Service {
                     continue;
                 }
                 Ok(info) => {
+                    // verify the node's genesis time
                     if SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
                         .as_secs()
                         < info.genesis_time
                     {
-                        warn!(
+                        error!(
                             log,
                             "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
                         );
                         return Err("Genesis time in the future".into());
+                    }
+                    // verify the node's chain id
+                    if config.spec.chain_id != info.chain_id as u8 {
+                        error!(
+                            log,
+                            "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
+                        );
+                        return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", config.spec.chain_id, info.chain_id).into());
                     }
                     break info;
                 }
@@ -123,7 +137,9 @@ impl Service {
         // Beacon node gRPC beacon block endpoints.
         let beacon_block_client = {
             let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
-            Arc::new(BeaconBlockServiceClient::new(ch))
+            let beacon_block_service_client = Arc::new(BeaconBlockServiceClient::new(ch));
+            // a wrapper around the service client to implement the beacon block node trait
+            Arc::new(BeaconBlockGrpcClient::new(beacon_block_service_client))
         };
 
         // Beacon node gRPC validator endpoints.
@@ -133,7 +149,7 @@ impl Service {
         };
 
         //Beacon node gRPC attester endpoints.
-        let attester_client = {
+        let attestation_client = {
             let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
             Arc::new(AttestationServiceClient::new(ch))
         };
@@ -145,27 +161,51 @@ impl Service {
 
         let current_slot = slot_clock
             .present_slot()
-            .map_err(|e| ErrorKind::SlotClockError(e))?
+            .map_err(ErrorKind::SlotClockError)?
             .expect("Genesis must be in the future");
 
-        Ok(Self {
-            connected_node_version: node_info.version,
-            chain_id: node_info.chain_id as u16,
+        /* Generate the duties manager */
+
+        // generate keypairs
+
+        // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
+        // https://github.com/sigp/lighthouse/issues/160
+        let keypairs = Arc::new(generate_deterministic_keypairs(8));
+
+        // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
+        // where EpochDuty contains slot numbers and attestation data that each validator needs to
+        // produce work on.
+        let duties_map = RwLock::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
+
+        // builds a manager which maintains the list of current duties for all known validators
+        // and can check when a validator needs to perform a task.
+        let duties_manager = Arc::new(DutiesManager {
+            duties_map,
+            // these are abstract objects capable of signing
+            signers: keypairs,
+            beacon_node: validator_client,
+        });
+
+        let spec = Arc::new(config.spec);
+
+        Ok(Service {
             fork,
             slot_clock,
             current_slot,
-            slots_per_epoch: config.spec.slots_per_epoch,
+            spec,
+            duties_manager,
             beacon_block_client,
-            validator_client,
-            attester_client,
+            attestation_client,
             log,
         })
     }
 
     /// Initialise the service then run the core thread.
+    // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
     pub fn start(config: ValidatorConfig, log: slog::Logger) -> error_chain::Result<()> {
         // connect to the node and retrieve its properties and initialize the gRPC clients
-        let service = Service::initialize_service(&config, log)?;
+        let mut service =
+            Service::<ValidatorServiceClient, Keypair>::initialize_service(config, log)?;
 
         // we have connected to a node and established its parameters. Spin up the core service
 
@@ -185,144 +225,130 @@ impl Service {
         // set up the validator work interval - start at next slot and proceed every slot
         let interval = {
             // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
+            let slot_duration = Duration::from_secs(service.spec.seconds_per_slot);
             //TODO: Handle checked add correctly
             Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };
 
-        /* kick off core service */
-
-        // generate keypairs
-
-        // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
-        // https://github.com/sigp/lighthouse/issues/160
-        let keypairs = Arc::new(generate_deterministic_keypairs(8));
-
-        /* build requisite objects to pass to core thread */
-
-        // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
-        // where EpochDuty contains slot numbers and attestation data that each validator needs to
-        // produce work on.
-        let duties_map = RwLock::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
-
-        // builds a manager which maintains the list of current duties for all known validators
-        // and can check when a validator needs to perform a task.
-        let manager = Arc::new(DutiesManager {
-            duties_map,
-            pubkeys: keypairs.iter().map(|keypair| keypair.pk.clone()).collect(),
-            beacon_node: service.validator_client.clone(),
-        });
-
-        // run the core thread
+        /* kick off the core service */
         runtime.block_on(
             interval
                 .for_each(move |_| {
-                    let log = service.log.clone();
-
-                    /* get the current slot and epoch */
-                    let current_slot = match service.slot_clock.present_slot() {
-                        Err(e) => {
-                            error!(log, "SystemTimeError {:?}", e);
-                            return Ok(());
-                        }
-                        Ok(slot) => slot.expect("Genesis is in the future"),
-                    };
-
-                    let current_epoch = current_slot.epoch(service.slots_per_epoch);
-
-                    debug_assert!(
-                        current_slot > service.current_slot,
-                        "The Timer should poll a new slot"
-                    );
-
-                    info!(log, "Processing slot: {}", current_slot.as_u64());
-
-                    /* check for new duties */
-
-                    let cloned_manager = manager.clone();
-                    let cloned_log = log.clone();
-                    // spawn a new thread separate to the runtime
-                    std::thread::spawn(move || {
-                        cloned_manager.run_update(current_epoch.clone(), cloned_log.clone());
-                        dbg!("Finished thread");
-                    });
-
-                    /* execute any specified duties */
-
-                    if let Some(work) = manager.get_current_work(current_slot) {
-                        for (_public_key, work_type) in work {
-                            if work_type.produce_block {
-                                // TODO: Produce a beacon block in a new thread
-                            }
-                            if work_type.attestation_duty.is_some() {
-                                // available AttestationDuty info
-                                let attestation_duty =
-                                    work_type.attestation_duty.expect("Cannot be None");
-                                //TODO: Produce an attestation in a new thread
-                            }
-                        }
-                    }
-
+                    // wait for node to process
+                    std::thread::sleep(TIME_DELAY_FROM_SLOT);
+                    // if a non-fatal error occurs, proceed to the next slot.
+                    let _ignore_error = service.per_slot_execution();
+                    // completed a slot process
                     Ok(())
                 })
                 .map_err(|e| format!("Service thread failed: {:?}", e)),
-        );
-
-        // completed a slot process
+        )?;
+        // validator client exited
         Ok(())
     }
 
-    /*
+    /// The execution logic that runs every slot.
+    // Errors are logged to output, and core execution continues unless fatal errors occur.
+    fn per_slot_execution(&mut self) -> error_chain::Result<()> {
+        /* get the new current slot and epoch */
+        self.update_current_slot()?;
 
-        // Spawn a new thread to perform block production for the validator.
-        let producer_thread = {
-            let spec = spec.clone();
-            let signer = Arc::new(BlockProposerLocalSigner::new(keypair.clone()));
-            let duties_map = duties_map.clone();
-            let slot_clock = slot_clock.clone();
-            let log = log.clone();
-            let client = Arc::new(BeaconBlockGrpcClient::new(beacon_block_grpc_client.clone()));
-            thread::spawn(move || {
-                let block_producer =
-                    BlockProducer::new(spec, duties_map, slot_clock, client, signer);
-                let mut block_producer_service = BlockProducerService {
-                    block_producer,
-                    poll_interval_millis,
-                    log,
-                };
+        /* check for new duties */
+        self.check_for_duties();
 
-                block_producer_service.run();
-            })
-        };
+        /* process any required duties for validators */
+        self.process_duties();
 
-        // Spawn a new thread for attestation for the validator.
-        let attester_thread = {
-            let signer = Arc::new(AttesterLocalSigner::new(keypair.clone()));
-            let epoch_map = epoch_map_for_attester.clone();
-            let slot_clock = slot_clock.clone();
-            let log = log.clone();
-            let client = Arc::new(AttestationGrpcClient::new(attester_grpc_client.clone()));
-            thread::spawn(move || {
-                let attester = Attester::new(epoch_map, slot_clock, client, signer);
-                let mut attester_service = AttesterService {
-                    attester,
-                    poll_interval_millis,
-                    log,
-                };
-
-                attester_service.run();
-            })
-        };
-
-        threads.push((duties_manager_thread, producer_thread, attester_thread));
+        Ok(())
     }
 
-    // Naively wait for all the threads to complete.
-    for tuple in threads {
-        let (manager, producer, attester) = tuple;
-        let _ = producer.join();
-        let _ = manager.join();
-        let _ = attester.join();
+    /// Updates the known current slot and epoch.
+    fn update_current_slot(&mut self) -> error_chain::Result<()> {
+        let current_slot = match self.slot_clock.present_slot() {
+            Err(e) => {
+                error!(self.log, "SystemTimeError {:?}", e);
+                return Err("Could not read system time".into());
+            }
+            Ok(slot) => slot.expect("Genesis is in the future"),
+        };
+
+        let current_epoch = current_slot.epoch(self.spec.slots_per_epoch);
+
+        // this is a fatal error. If the slot clock repeats, there is something wrong with
+        // the timer, terminate immediately.
+        assert!(
+            current_slot > self.current_slot,
+            "The Timer should poll a new slot"
+        );
+        self.current_slot = current_slot;
+        info!(self.log, "Processing"; "slot" => current_slot.as_u64(), "epoch" => current_epoch.as_u64());
+        Ok(())
     }
-    */
+
+    /// For all known validator keypairs, update any known duties from the beacon node.
+    fn check_for_duties(&mut self) {
+        let cloned_manager = self.duties_manager.clone();
+        let cloned_log = self.log.clone();
+        let current_epoch = self.current_slot.epoch(self.spec.slots_per_epoch);
+        // spawn a new thread separate to the runtime
+        // TODO: Handle thread termination/timeout
+        // TODO: Add duties thread back in, with channel to process duties in duty change.
+        // leave sequential for now.
+        //std::thread::spawn(move || {
+        // the return value is a future which returns ready.
+        // built to be compatible with the tokio runtime.
+        let _empty = cloned_manager.run_update(current_epoch, cloned_log.clone());
+        //});
+    }
+
+    /// If there are any duties to process, spawn a separate thread and perform required actions.
+    fn process_duties(&mut self) {
+        if let Some(work) = self.duties_manager.get_current_work(self.current_slot) {
+            for (signer_index, work_type) in work {
+                if work_type.produce_block {
+                    // we need to produce a block
+                    // spawns a thread to produce a beacon block
+                    let signers = self.duties_manager.signers.clone(); // this is an arc
+                    let fork = self.fork.clone();
+                    let slot = self.current_slot;
+                    let spec = self.spec.clone();
+                    let beacon_node = self.beacon_block_client.clone();
+                    let log = self.log.clone();
+                    std::thread::spawn(move || {
+                        info!(log, "Producing a block"; "Validator"=> format!("{}", signers[signer_index]));
+                        let signer = &signers[signer_index];
+                        let mut block_producer = BlockProducer {
+                            fork,
+                            slot,
+                            spec,
+                            beacon_node,
+                            signer,
+                        };
+                        block_producer.handle_produce_block(log);
+                    });
+                }
+                if work_type.attestation_duty.is_some() {
+                    // we need to produce an attestation
+                    // spawns a thread to produce and sign an attestation
+                    let signers = self.duties_manager.signers.clone(); // this is an arc
+                    let fork = self.fork.clone();
+                    let spec = self.spec.clone();
+                    let beacon_node = self.attestation_client.clone();
+                    let log = self.log.clone();
+                    std::thread::spawn(move || {
+                        info!(log, "Producing an attestation"; "Validator"=> format!("{}", signers[signer_index]));
+                        let signer = &signers[signer_index];
+                        let mut attestation_producer = AttestationProducer {
+                            fork,
+                            duty: work_type.attestation_duty.expect("Should never be none"),
+                            spec,
+                            beacon_node,
+                            signer,
+                        };
+                        attestation_producer.handle_produce_attestation(log);
+                    });
+                }
+            }
+        }
+    }
 }

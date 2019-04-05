@@ -14,9 +14,6 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::{AttestationData, BeaconBlock, FreeAttestation, Signature, Slot};
 
-// mod attester;
-// mod producer;
-
 /// Connect directly to a borrowed `BeaconChain` instance so an attester/producer can request/submit
 /// blocks/attestations.
 ///
@@ -42,20 +39,15 @@ impl<T: ClientDB, U: SlotClock, F: ForkChoice> DirectBeaconNode<T, U, F> {
     pub fn last_published_block(&self) -> Option<BeaconBlock> {
         Some(self.published_blocks.read().last()?.clone())
     }
-
-    /// Get the last published attestation (if any).
-    pub fn last_published_free_attestation(&self) -> Option<FreeAttestation> {
-        Some(self.published_attestations.read().last()?.clone())
-    }
 }
 
 impl<T: ClientDB, U: SlotClock, F: ForkChoice> AttesterBeaconNode for DirectBeaconNode<T, U, F> {
-    fn produce_attestation(
+    fn produce_attestation_data(
         &self,
         _slot: Slot,
         shard: u64,
     ) -> Result<Option<AttestationData>, NodeError> {
-        match self.beacon_chain.produce_attestation(shard) {
+        match self.beacon_chain.produce_attestation_data(shard) {
             Ok(attestation_data) => Ok(Some(attestation_data)),
             Err(e) => Err(NodeError::RemoteFailure(format!("{:?}", e))),
         }

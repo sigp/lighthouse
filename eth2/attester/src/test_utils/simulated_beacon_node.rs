@@ -26,7 +26,7 @@ impl SimulatedBeaconNode {
 }
 
 impl BeaconNode for SimulatedBeaconNode {
-    fn produce_attestation(&self, slot: Slot, shard: u64) -> ProduceResult {
+    fn produce_attestation_data(&self, slot: Slot, shard: u64) -> ProduceResult {
         *self.produce_input.write().unwrap() = Some((slot, shard));
         match *self.produce_result.read().unwrap() {
             Some(ref r) => r.clone(),

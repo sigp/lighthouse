@@ -9,7 +9,7 @@ fuzz_target!(|data: &[u8]| {
     let mut ssz = SszStream::new();
     let mut number_u64 = 0;
     if data.len() >= 8 {
-        number_u64 = u64::from_be_bytes([
+        number_u64 = u64::from_le_bytes([
             data[0],
             data[1],
             data[2],
@@ -24,10 +24,8 @@ fuzz_target!(|data: &[u8]| {
     ssz.append(&number_u64);
     let ssz = ssz.drain();
 
-    // TODO: change to little endian bytes
-    // https://github.com/sigp/lighthouse/issues/215
     assert_eq!(ssz.len(), 8);
-    assert_eq!(number_u64, u64::from_be_bytes([
+    assert_eq!(number_u64, u64::from_le_bytes([
         ssz[0],
         ssz[1],
         ssz[2],

@@ -4,15 +4,15 @@ use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{ActiveValidator, GetDutiesRequest, GetDutiesResponse, ValidatorDuty};
 use protos::services_grpc::ValidatorService;
-use slog::{debug, info, warn, Logger};
-use ssz::Decodable;
+use slog::{trace, warn};
+use ssz::decode;
 use std::sync::Arc;
 use types::{Epoch, RelativeEpoch};
 
 #[derive(Clone)]
 pub struct ValidatorServiceInstance {
     pub chain: Arc<BeaconChain>,
-    pub log: Logger,
+    pub log: slog::Logger,
 }
 //TODO: Refactor Errors
 
@@ -27,14 +27,13 @@ impl ValidatorService for ValidatorServiceInstance {
         sink: UnarySink<GetDutiesResponse>,
     ) {
         let validators = req.get_validators();
-        debug!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
-
-        let epoch = Epoch::from(req.get_epoch());
-        let mut resp = GetDutiesResponse::new();
-        let resp_validators = resp.mut_active_validators();
+        trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
         let spec = self.chain.get_spec();
         let state = self.chain.get_state();
+        let epoch = Epoch::from(req.get_epoch());
+        let mut resp = GetDutiesResponse::new();
+        let resp_validators = resp.mut_active_validators();
 
         let relative_epoch =
             match RelativeEpoch::from_epoch(state.slot.epoch(spec.slots_per_epoch), epoch) {
@@ -75,8 +74,8 @@ impl ValidatorService for ValidatorServiceInstance {
         for validator_pk in validators.get_public_keys() {
             let mut active_validator = ActiveValidator::new();
 
-            let public_key = match PublicKey::ssz_decode(validator_pk, 0) {
-                Ok((v, _index)) => v,
+            let public_key = match decode::<PublicKey>(validator_pk) {
+                Ok(v) => v,
                 Err(_) => {
                     let log_clone = self.log.clone();
                     let f = sink
@@ -84,7 +83,7 @@ impl ValidatorService for ValidatorServiceInstance {
                             RpcStatusCode::InvalidArgument,
                             Some("Invalid public_key".to_string()),
                         ))
-                        .map_err(move |e| warn!(log_clone, "failed to reply {:?}", req));
+                        .map_err(move |_| warn!(log_clone, "failed to reply {:?}", req));
                     return ctx.spawn(f);
                 }
             };
@@ -157,6 +156,7 @@ impl ValidatorService for ValidatorServiceInstance {
             duty.set_committee_index(attestation_duties.committee_index as u64);
             duty.set_attestation_slot(attestation_duties.slot.as_u64());
             duty.set_attestation_shard(attestation_duties.shard);
+            duty.set_committee_len(attestation_duties.committee_len as u64);
 
             active_validator.set_duty(duty);
             resp_validators.push(active_validator);
