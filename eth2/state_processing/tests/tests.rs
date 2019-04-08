@@ -105,8 +105,7 @@ fn run_state_transition_test(test_name: &str) {
         let mut state = test_case.initial_state.clone();
         for (j, block) in test_case.blocks.iter().enumerate() {
             while block.slot > state.slot {
-                let latest_block_header = state.latest_block_header.clone();
-                per_slot_processing(&mut state, &latest_block_header, &test_case.config).unwrap();
+                per_slot_processing(&mut state, &test_case.config).unwrap();
             }
             let res = per_block_processing(&mut state, &block, &test_case.config);
             if res.is_err() {
