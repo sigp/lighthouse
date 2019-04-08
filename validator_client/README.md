@@ -75,8 +75,9 @@ The configuration directory structure looks like:
 
 Where the hex value of the directory is a portion of the validator public key.
 
-Validator keys must be generated using the separate `accounts_manager` binary, which will
+Validator keys must be generated using the separate `account_manager` binary, which will
 place the keys into this directory structure in a format compatible with the validator client.
+Be sure to check the readme for `account_manager`.
 
 The chain specification (slot length, BLS domain, etc.) defaults to foundation
 parameters, however is temporary and an upgrade will allow these parameters to be

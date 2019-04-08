@@ -16,6 +16,7 @@ mod testing_transfer_builder;
 mod testing_voluntary_exit_builder;
 
 pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
+pub use generate_deterministic_keypairs::generate_deterministic_keypair;
 pub use keypairs_file::KeypairsFile;
 pub use rand::{prng::XorShiftRng, SeedableRng};
 pub use serde_utils::{fork_from_hex_str, u8_from_hex_str};
