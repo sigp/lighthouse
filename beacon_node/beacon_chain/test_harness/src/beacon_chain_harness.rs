@@ -10,10 +10,10 @@ use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
 use ssz::TreeHash;
-use std::collections::HashSet;
-use std::iter::FromIterator;
 use std::sync::Arc;
 use types::{test_utils::TestingBeaconStateBuilder, *};
+
+type TestingBeaconChain = BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>;
 
 /// The beacon chain harness simulates a single beacon node with `validator_count` validators connected
 /// to it. Each validator is provided a borrow to the beacon chain, where it may read
@@ -23,7 +23,7 @@ use types::{test_utils::TestingBeaconStateBuilder, *};
 /// is not useful for testing that multiple beacon nodes can reach consensus.
 pub struct BeaconChainHarness {
     pub db: Arc<MemoryDB>,
-    pub beacon_chain: Arc<BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>>,
+    pub beacon_chain: Arc<TestingBeaconChain>,
     pub block_store: Arc<BeaconBlockStore<MemoryDB>>,
     pub state_store: Arc<BeaconStateStore<MemoryDB>>,
     pub validators: Vec<ValidatorHarness>,
@@ -36,18 +36,38 @@ impl BeaconChainHarness {
     /// - A keypair, `BlockProducer` and `Attester` for each validator.
     /// - A new BeaconChain struct where the given validators are in the genesis.
     pub fn new(spec: ChainSpec, validator_count: usize) -> Self {
+        let state_builder =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+        Self::from_beacon_state_builder(state_builder, spec)
+    }
+
+    pub fn from_beacon_state_builder(
+        state_builder: TestingBeaconStateBuilder,
+        spec: ChainSpec,
+    ) -> Self {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
         let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
 
-        let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
-        let (genesis_state, keypairs) = state_builder.build();
+        let (mut genesis_state, keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::Previous, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::Current, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)
+            .unwrap();
+        genesis_state
+            .build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)
+            .unwrap();
 
         // Create the Beacon Chain
         let beacon_chain = Arc::new(
@@ -109,55 +129,70 @@ impl BeaconChainHarness {
         );
 
         self.beacon_chain.slot_clock.set_slot(slot.as_u64());
-        self.beacon_chain.advance_state(slot).unwrap();
+        self.beacon_chain
+            .catchup_state()
+            .expect("Failed to catch state");
         slot
     }
 
-    /// Gather the `FreeAttestation`s from the valiators.
-    ///
-    /// Note: validators will only produce attestations _once per slot_. So, if you call this twice
-    /// you'll only get attestations on the first run.
-    pub fn gather_free_attesations(&mut self) -> Vec<FreeAttestation> {
+    pub fn gather_attesations(&mut self) -> Vec<Attestation> {
         let present_slot = self.beacon_chain.present_slot();
+        let state = self.beacon_chain.state.read();
 
-        let attesting_validators = self
-            .beacon_chain
-            .state
-            .read()
+        let mut attestations = vec![];
+
+        for committee in state
             .get_crosslink_committees_at_slot(present_slot, &self.spec)
             .unwrap()
-            .iter()
-            .fold(vec![], |mut acc, c| {
-                acc.append(&mut c.committee.clone());
-                acc
-            });
-        let attesting_validators: HashSet<usize> =
-            HashSet::from_iter(attesting_validators.iter().cloned());
+        {
+            for &validator in &committee.committee {
+                let duties = state
+                    .get_attestation_duties(validator, &self.spec)
+                    .unwrap()
+                    .expect("Attesting validators by definition have duties");
 
-        let free_attestations: Vec<FreeAttestation> = self
-            .validators
-            .par_iter_mut()
-            .enumerate()
-            .filter_map(|(i, validator)| {
-                if attesting_validators.contains(&i) {
-                    // Advance the validator slot.
-                    validator.set_slot(present_slot);
+                // Obtain `AttestationData` from the beacon chain.
+                let data = self
+                    .beacon_chain
+                    .produce_attestation_data(duties.shard)
+                    .unwrap();
 
-                    // Prompt the validator to produce an attestation (if required).
-                    validator.produce_free_attestation().ok()
-                } else {
-                    None
-                }
-            })
-            .collect();
+                // Produce an aggregate signature with a single signature.
+                let aggregate_signature = {
+                    let message = AttestationDataAndCustodyBit {
+                        data: data.clone(),
+                        custody_bit: false,
+                    }
+                    .hash_tree_root();
+                    let domain = self.spec.get_domain(
+                        state.slot.epoch(self.spec.slots_per_epoch),
+                        Domain::Attestation,
+                        &state.fork,
+                    );
+                    let sig =
+                        Signature::new(&message, domain, &self.validators[validator].keypair.sk);
 
-        debug!(
-            "Gathered {} FreeAttestations for slot {}.",
-            free_attestations.len(),
-            present_slot
-        );
+                    let mut agg_sig = AggregateSignature::new();
+                    agg_sig.add(&sig);
 
-        free_attestations
+                    agg_sig
+                };
+
+                let mut aggregation_bitfield = Bitfield::with_capacity(duties.committee_len);
+                let custody_bitfield = Bitfield::with_capacity(duties.committee_len);
+
+                aggregation_bitfield.set(duties.committee_index, true);
+
+                attestations.push(Attestation {
+                    aggregation_bitfield,
+                    data,
+                    custody_bitfield,
+                    aggregate_signature,
+                })
+            }
+        }
+
+        attestations
     }
 
     /// Get the block from the proposer for the slot.
@@ -176,6 +211,7 @@ impl BeaconChainHarness {
 
         // Ensure the validators slot clock is accurate.
         self.validators[proposer].set_slot(present_slot);
+
         self.validators[proposer].produce_block().unwrap()
     }
 
@@ -183,33 +219,37 @@ impl BeaconChainHarness {
     ///
     /// This is the ideal scenario for the Beacon Chain, 100% honest participation from
     /// validators.
-    pub fn advance_chain_with_block(&mut self) {
+    pub fn advance_chain_with_block(&mut self) -> BeaconBlock {
         self.increment_beacon_chain_slot();
 
         // Produce a new block.
-        debug!("Producing block...");
         let block = self.produce_block();
         debug!("Submitting block for processing...");
-        match self.beacon_chain.process_block(block) {
+        match self.beacon_chain.process_block(block.clone()) {
             Ok(BlockProcessingOutcome::ValidBlock(_)) => {}
             other => panic!("block processing failed with {:?}", other),
         };
         debug!("...block processed by BeaconChain.");
 
-        debug!("Producing free attestations...");
+        debug!("Producing attestations...");
 
         // Produce new attestations.
-        let free_attestations = self.gather_free_attesations();
+        let attestations = self.gather_attesations();
 
-        debug!("Processing free attestations...");
+        debug!("Processing {} attestations...", attestations.len());
 
-        free_attestations.par_iter().for_each(|free_attestation| {
-            self.beacon_chain
-                .process_free_attestation(free_attestation.clone())
-                .unwrap();
-        });
+        attestations
+            .par_iter()
+            .enumerate()
+            .for_each(|(i, attestation)| {
+                self.beacon_chain
+                    .process_attestation(attestation.clone())
+                    .unwrap_or_else(|_| panic!("Attestation {} invalid: {:?}", i, attestation));
+            });
 
-        debug!("Free attestations processed.");
+        debug!("Attestations processed.");
+
+        block
     }
 
     /// Signs a message using some validators secret key with the `Fork` info from the latest state
@@ -260,7 +300,7 @@ impl BeaconChainHarness {
     /// If a new `ValidatorHarness` was created, the validator should become fully operational as
     /// if the validator were created during `BeaconChainHarness` instantiation.
     pub fn add_deposit(&mut self, deposit: Deposit, keypair: Option<Keypair>) {
-        self.beacon_chain.receive_deposit_for_inclusion(deposit);
+        self.beacon_chain.process_deposit(deposit).unwrap();
 
         // If a keypair is present, add a new `ValidatorHarness` to the rig.
         if let Some(keypair) = keypair {
@@ -276,24 +316,26 @@ impl BeaconChainHarness {
     /// will stop receiving duties from the beacon chain and just do nothing when prompted to
     /// produce/attest.
     pub fn add_exit(&mut self, exit: VoluntaryExit) {
-        self.beacon_chain.receive_exit_for_inclusion(exit);
+        self.beacon_chain.process_voluntary_exit(exit).unwrap();
     }
 
     /// Submit an transfer to the `BeaconChain` for inclusion in some block.
     pub fn add_transfer(&mut self, transfer: Transfer) {
-        self.beacon_chain.receive_transfer_for_inclusion(transfer);
+        self.beacon_chain.process_transfer(transfer).unwrap();
     }
 
     /// Submit a proposer slashing to the `BeaconChain` for inclusion in some block.
     pub fn add_proposer_slashing(&mut self, proposer_slashing: ProposerSlashing) {
         self.beacon_chain
-            .receive_proposer_slashing_for_inclusion(proposer_slashing);
+            .process_proposer_slashing(proposer_slashing)
+            .unwrap();
     }
 
     /// Submit an attester slashing to the `BeaconChain` for inclusion in some block.
     pub fn add_attester_slashing(&mut self, attester_slashing: AttesterSlashing) {
         self.beacon_chain
-            .receive_attester_slashing_for_inclusion(attester_slashing);
+            .process_attester_slashing(attester_slashing)
+            .unwrap();
     }
 
     /// Executes the fork choice rule on the `BeaconChain`, selecting a new canonical head.

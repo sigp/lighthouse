@@ -3,20 +3,21 @@ use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::NetworkConfig;
 use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
-use eth2_libp2p::RPCEvent;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{Libp2pEvent, PeerId};
+use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::sync::oneshot;
 use futures::Stream;
 use slog::{debug, info, o, trace};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
+use types::Topic;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
-    libp2p_exit: oneshot::Sender<()>,
+    _libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
     //message_handler: MessageHandler,
     //message_handler_send: Sender<HandlerMessage>,
@@ -53,7 +54,7 @@ impl Service {
             log,
         )?;
         let network_service = Service {
-            libp2p_exit,
+            _libp2p_exit: libp2p_exit,
             network_send: network_send.clone(),
         };
 
@@ -99,6 +100,7 @@ fn spawn_service(
     Ok(network_exit)
 }
 
+//TODO: Potentially handle channel errors
 fn network_service(
     mut libp2p_service: LibP2PService,
     network_recv: crossbeam_channel::Receiver<NetworkMessage>,
@@ -128,10 +130,15 @@ fn network_service(
                             "We have identified peer: {:?} with {:?}", peer_id, info
                         );
                     }
-                    Libp2pEvent::Message(m) => debug!(
-                        libp2p_service.log,
-                        "Network Service: Message received: {}", m
-                    ),
+                    Libp2pEvent::PubsubMessage {
+                        source, message, ..
+                    } => {
+                        //TODO: Decide if we need to propagate the topic upwards. (Potentially for
+                        //attestations)
+                        message_handler_send
+                            .send(HandlerMessage::PubsubMessage(source, message))
+                            .map_err(|_| " failed to send pubsub message to handler")?;
+                    }
                 },
                 Ok(Async::Ready(None)) => unreachable!("Stream never ends"),
                 Ok(Async::NotReady) => break,
@@ -152,9 +159,13 @@ fn network_service(
                             libp2p_service.swarm.send_rpc(peer_id, rpc_event);
                         }
                         OutgoingMessage::NotifierTest => {
-                            debug!(log, "Received message from notifier");
+                            // debug!(log, "Received message from notifier");
                         }
                     };
+                }
+                Ok(NetworkMessage::Publish { topics, message }) => {
+                    debug!(log, "Sending pubsub message on topics {:?}", topics);
+                    libp2p_service.swarm.publish(topics, *message);
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -174,6 +185,11 @@ pub enum NetworkMessage {
     /// Send a message to libp2p service.
     //TODO: Define typing for messages across the wire
     Send(PeerId, OutgoingMessage),
+    /// Publish a message to pubsub mechanism.
+    Publish {
+        topics: Vec<Topic>,
+        message: Box<PubsubMessage>,
+    },
 }
 
 /// Type of outgoing messages that can be sent through the network service.

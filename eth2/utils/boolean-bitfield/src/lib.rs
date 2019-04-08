@@ -33,10 +33,21 @@ impl BooleanBitfield {
     }
 
     /// Create a new bitfield with the given length `initial_len` and all values set to `bit`.
-    pub fn from_elem(inital_len: usize, bit: bool) -> Self {
-        Self {
-            0: BitVec::from_elem(inital_len, bit),
+    ///
+    /// Note: if `initial_len` is not a multiple of 8, the remaining bits will be set to `false`
+    /// regardless of `bit`.
+    pub fn from_elem(initial_len: usize, bit: bool) -> Self {
+        // BitVec can panic if we don't set the len to be a multiple of 8.
+        let full_len = ((initial_len + 7) / 8) * 8;
+        let mut bitfield = BitVec::from_elem(full_len, false);
+
+        if bit {
+            for i in 0..initial_len {
+                bitfield.set(i, true);
+            }
         }
+
+        Self { 0: bitfield }
     }
 
     /// Create a new bitfield using the supplied `bytes` as input
@@ -89,6 +100,11 @@ impl BooleanBitfield {
         self.len() == 0
     }
 
+    /// Returns true if all bits are set to 0.
+    pub fn is_zero(&self) -> bool {
+        self.0.none()
+    }
+
     /// Returns the number of bytes required to represent this bitfield.
     pub fn num_bytes(&self) -> usize {
         self.to_bytes().len()
@@ -103,6 +119,44 @@ impl BooleanBitfield {
     /// Note that this returns the bit layout of the underlying implementation in the `bit-vec` crate.
     pub fn to_bytes(&self) -> Vec<u8> {
         self.0.to_bytes()
+    }
+
+    /// Compute the intersection (binary-and) of this bitfield with another. Lengths must match.
+    pub fn intersection(&self, other: &Self) -> Self {
+        let mut res = self.clone();
+        res.intersection_inplace(other);
+        res
+    }
+
+    /// Like `intersection` but in-place (updates `self`).
+    pub fn intersection_inplace(&mut self, other: &Self) {
+        self.0.intersect(&other.0);
+    }
+
+    /// Compute the union (binary-or) of this bitfield with another. Lengths must match.
+    pub fn union(&self, other: &Self) -> Self {
+        let mut res = self.clone();
+        res.union_inplace(other);
+        res
+    }
+
+    /// Like `union` but in-place (updates `self`).
+    pub fn union_inplace(&mut self, other: &Self) {
+        self.0.union(&other.0);
+    }
+
+    /// Compute the difference (binary-minus) of this bitfield with another. Lengths must match.
+    ///
+    /// Computes `self - other`.
+    pub fn difference(&self, other: &Self) -> Self {
+        let mut res = self.clone();
+        res.difference_inplace(other);
+        res
+    }
+
+    /// Like `difference` but in-place (updates `self`).
+    pub fn difference_inplace(&mut self, other: &Self) {
+        self.0.difference(&other.0);
     }
 }
 
@@ -125,10 +179,11 @@ impl cmp::PartialEq for BooleanBitfield {
 /// Create a new bitfield that is a union of two other bitfields.
 ///
 /// For example `union(0101, 1000) == 1101`
-impl std::ops::BitAnd for BooleanBitfield {
+// TODO: length-independent intersection for BitAnd
+impl std::ops::BitOr for BooleanBitfield {
     type Output = Self;
 
-    fn bitand(self, other: Self) -> Self {
+    fn bitor(self, other: Self) -> Self {
         let (biggest, smallest) = if self.len() > other.len() {
             (&self, &other)
         } else {
@@ -419,10 +474,59 @@ mod tests {
     }
 
     #[test]
-    fn test_bitand() {
+    fn test_bitor() {
         let a = BooleanBitfield::from_bytes(&vec![2, 8, 1][..]);
         let b = BooleanBitfield::from_bytes(&vec![4, 8, 16][..]);
         let c = BooleanBitfield::from_bytes(&vec![6, 8, 17][..]);
-        assert_eq!(c, a & b);
+        assert_eq!(c, a | b);
+    }
+
+    #[test]
+    fn test_is_zero() {
+        let yes_data: &[&[u8]] = &[&[], &[0], &[0, 0], &[0, 0, 0]];
+        for bytes in yes_data {
+            assert!(BooleanBitfield::from_bytes(bytes).is_zero());
+        }
+        let no_data: &[&[u8]] = &[&[1], &[6], &[0, 1], &[0, 0, 1], &[0, 0, 255]];
+        for bytes in no_data {
+            assert!(!BooleanBitfield::from_bytes(bytes).is_zero());
+        }
+    }
+
+    #[test]
+    fn test_intersection() {
+        let a = BooleanBitfield::from_bytes(&[0b1100, 0b0001]);
+        let b = BooleanBitfield::from_bytes(&[0b1011, 0b1001]);
+        let c = BooleanBitfield::from_bytes(&[0b1000, 0b0001]);
+        assert_eq!(a.intersection(&b), c);
+        assert_eq!(b.intersection(&a), c);
+        assert_eq!(a.intersection(&c), c);
+        assert_eq!(b.intersection(&c), c);
+        assert_eq!(a.intersection(&a), a);
+        assert_eq!(b.intersection(&b), b);
+        assert_eq!(c.intersection(&c), c);
+    }
+
+    #[test]
+    fn test_union() {
+        let a = BooleanBitfield::from_bytes(&[0b1100, 0b0001]);
+        let b = BooleanBitfield::from_bytes(&[0b1011, 0b1001]);
+        let c = BooleanBitfield::from_bytes(&[0b1111, 0b1001]);
+        assert_eq!(a.union(&b), c);
+        assert_eq!(b.union(&a), c);
+        assert_eq!(a.union(&a), a);
+        assert_eq!(b.union(&b), b);
+        assert_eq!(c.union(&c), c);
+    }
+
+    #[test]
+    fn test_difference() {
+        let a = BooleanBitfield::from_bytes(&[0b1100, 0b0001]);
+        let b = BooleanBitfield::from_bytes(&[0b1011, 0b1001]);
+        let a_b = BooleanBitfield::from_bytes(&[0b0100, 0b0000]);
+        let b_a = BooleanBitfield::from_bytes(&[0b0011, 0b1000]);
+        assert_eq!(a.difference(&b), a_b);
+        assert_eq!(b.difference(&a), b_a);
+        assert!(a.difference(&a).is_zero());
     }
 }

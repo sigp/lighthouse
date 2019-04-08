@@ -112,6 +112,7 @@ A few basic steps are needed to get set up:
    5. Install build dependencies (Arch packages are listed here, your distribution will likely be similar):
 	  - `clang`: required by RocksDB.
 	  - `protobuf`: required for protobuf serialization (gRPC).
+	  - `cmake`: required for building protobuf
    6. Navigate to the working directory.
    7. Run the test by using command `cargo test --all`. By running, it will pass all the required test cases.
         If you are doing it for the first time, then you can grab a coffee in the meantime. Usually, it takes time

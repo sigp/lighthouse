@@ -1,21 +1,23 @@
+mod beacon_node_duties;
 mod epoch_duties;
 mod grpc;
-mod service;
-#[cfg(test)]
-mod test_node;
-mod traits;
+// TODO: reintroduce tests
+//#[cfg(test)]
+//mod test_node;
 
-pub use self::epoch_duties::EpochDutiesMap;
+pub use self::beacon_node_duties::{BeaconNodeDuties, BeaconNodeDutiesError};
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
-pub use self::service::DutiesManagerService;
-use self::traits::{BeaconNode, BeaconNodeError};
-use bls::PublicKey;
-use slot_clock::SlotClock;
+pub use self::epoch_duties::{EpochDutiesMap, WorkInfo};
+use super::signer::Signer;
+use futures::Async;
+use slog::{debug, error, info};
+use std::fmt::Display;
 use std::sync::Arc;
-use types::{ChainSpec, Epoch};
+use std::sync::RwLock;
+use types::{Epoch, PublicKey, Slot};
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum PollOutcome {
+#[derive(Debug, PartialEq, Clone)]
+pub enum UpdateOutcome {
     /// The `EpochDuties` were not updated during this poll.
     NoChange(Epoch),
     /// The `EpochDuties` for the `epoch` were previously unknown, but obtained in the poll.
@@ -23,79 +25,128 @@ pub enum PollOutcome {
     /// New `EpochDuties` were obtained, different to those which were previously known. This is
     /// likely to be the result of chain re-organisation.
     DutiesChanged(Epoch, EpochDuties),
-    /// The Beacon Node was unable to return the duties as the validator is unknown, or the
-    /// shuffling for the epoch is unknown.
-    UnknownValidatorOrEpoch(Epoch),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    SlotClockError,
-    SlotUnknowable,
-    EpochMapPoisoned,
-    BeaconNodeError(BeaconNodeError),
+    DutiesMapPoisoned,
+    BeaconNodeDutiesError(BeaconNodeDutiesError),
+    UnknownEpoch,
+    UnknownValidator,
 }
 
 /// A polling state machine which ensures the latest `EpochDuties` are obtained from the Beacon
 /// Node.
 ///
-/// There is a single `DutiesManager` per validator instance.
-pub struct DutiesManager<T: SlotClock, U: BeaconNode> {
-    pub duties_map: Arc<EpochDutiesMap>,
-    /// The validator's public key.
-    pub pubkey: PublicKey,
-    pub spec: Arc<ChainSpec>,
-    pub slot_clock: Arc<T>,
+/// This keeps track of all validator keys and required voting slots.
+pub struct DutiesManager<U: BeaconNodeDuties, S: Signer> {
+    pub duties_map: RwLock<EpochDutiesMap>,
+    /// A list of all signer objects known to the validator service.
+    pub signers: Arc<Vec<S>>,
     pub beacon_node: Arc<U>,
 }
 
-impl<T: SlotClock, U: BeaconNode> DutiesManager<T, U> {
-    /// Poll the Beacon Node for `EpochDuties`.
+impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
+    /// Check the Beacon Node for `EpochDuties`.
     ///
-    /// The present `epoch` will be learned from the supplied `SlotClock`. In production this will
     /// be a wall-clock (e.g., system time, remote server time, etc.).
-    pub fn poll(&self) -> Result<PollOutcome, Error> {
-        let slot = self
-            .slot_clock
-            .present_slot()
-            .map_err(|_| Error::SlotClockError)?
-            .ok_or(Error::SlotUnknowable)?;
-
-        let epoch = slot.epoch(self.spec.slots_per_epoch);
-
-        if let Some(duties) = self.beacon_node.request_shuffling(epoch, &self.pubkey)? {
+    fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
+        let public_keys: Vec<PublicKey> = self.signers.iter().map(|s| s.to_public()).collect();
+        let duties = self.beacon_node.request_duties(epoch, &public_keys)?;
+        {
             // If these duties were known, check to see if they're updates or identical.
-            let result = if let Some(known_duties) = self.duties_map.get(epoch)? {
-                if known_duties == duties {
-                    Ok(PollOutcome::NoChange(epoch))
-                } else {
-                    Ok(PollOutcome::DutiesChanged(epoch, duties))
+            if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
+                if *known_duties == duties {
+                    return Ok(UpdateOutcome::NoChange(epoch));
                 }
-            } else {
-                Ok(PollOutcome::NewDuties(epoch, duties))
-            };
-            self.duties_map.insert(epoch, duties)?;
-            result
-        } else {
-            Ok(PollOutcome::UnknownValidatorOrEpoch(epoch))
+            }
         }
+        if !self.duties_map.read()?.contains_key(&epoch) {
+            //TODO: Remove clone by removing duties from outcome
+            self.duties_map.write()?.insert(epoch, duties.clone());
+            return Ok(UpdateOutcome::NewDuties(epoch, duties));
+        }
+        // duties have changed
+        //TODO: Duties could be large here. Remove from display and avoid the clone.
+        self.duties_map.write()?.insert(epoch, duties.clone());
+        Ok(UpdateOutcome::DutiesChanged(epoch, duties))
+    }
+
+    /// A future wrapping around `update()`. This will perform logic based upon the update
+    /// process and complete once the update has completed.
+    pub fn run_update(&self, epoch: Epoch, log: slog::Logger) -> Result<Async<()>, ()> {
+        match self.update(epoch) {
+            Err(error) => error!(log, "Epoch duties poll error"; "error" => format!("{:?}", error)),
+            Ok(UpdateOutcome::NoChange(epoch)) => {
+                debug!(log, "No change in duties"; "epoch" => epoch)
+            }
+            Ok(UpdateOutcome::DutiesChanged(epoch, duties)) => {
+                info!(log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+            }
+            Ok(UpdateOutcome::NewDuties(epoch, duties)) => {
+                info!(log, "New duties obtained"; "epoch" => epoch);
+                print_duties(&log, duties);
+            }
+        };
+        Ok(Async::Ready(()))
+    }
+
+    /// Returns a list of (index, WorkInfo) indicating all the validators that have work to perform
+    /// this slot.
+    pub fn get_current_work(&self, slot: Slot) -> Option<Vec<(usize, WorkInfo)>> {
+        let mut current_work: Vec<(usize, WorkInfo)> = Vec::new();
+
+        // if the map is poisoned, return None
+        let duties = self.duties_map.read().ok()?;
+
+        for (index, validator_signer) in self.signers.iter().enumerate() {
+            match duties.is_work_slot(slot, &validator_signer.to_public()) {
+                Ok(Some(work_type)) => current_work.push((index, work_type)),
+                Ok(None) => {} // No work for this validator
+                //TODO: This should really log an error, as we shouldn't end up with an err here.
+                Err(_) => {} // Unknown epoch or validator, no work
+            }
+        }
+        if current_work.is_empty() {
+            return None;
+        }
+        Some(current_work)
     }
 }
 
-impl From<BeaconNodeError> for Error {
-    fn from(e: BeaconNodeError) -> Error {
-        Error::BeaconNodeError(e)
+//TODO: Use error_chain to handle errors
+impl From<BeaconNodeDutiesError> for Error {
+    fn from(e: BeaconNodeDutiesError) -> Error {
+        Error::BeaconNodeDutiesError(e)
     }
 }
 
+//TODO: Use error_chain to handle errors
+impl<T> From<std::sync::PoisonError<T>> for Error {
+    fn from(_e: std::sync::PoisonError<T>) -> Error {
+        Error::DutiesMapPoisoned
+    }
+}
 impl From<EpochDutiesMapError> for Error {
     fn from(e: EpochDutiesMapError) -> Error {
         match e {
-            EpochDutiesMapError::Poisoned => Error::EpochMapPoisoned,
+            EpochDutiesMapError::UnknownEpoch => Error::UnknownEpoch,
+            EpochDutiesMapError::UnknownValidator => Error::UnknownValidator,
         }
     }
 }
 
+fn print_duties(log: &slog::Logger, duties: EpochDuties) {
+    for (pk, duty) in duties.iter() {
+        if let Some(display_duty) = duty {
+            info!(log, "Validator: {}",pk; "Duty" => format!("{}",display_duty));
+        } else {
+            info!(log, "Validator: {}",pk; "Duty" => "None");
+        }
+    }
+}
+
+/* TODO: Modify tests for new Duties Manager form
 #[cfg(test)]
 mod tests {
     use super::test_node::TestBeaconNode;
@@ -108,6 +159,7 @@ mod tests {
     // https://github.com/sigp/lighthouse/issues/160
     //
     // These tests should serve as a good example for future tests.
+
 
     #[test]
     pub fn polling() {
@@ -159,3 +211,4 @@ mod tests {
         );
     }
 }
+*/

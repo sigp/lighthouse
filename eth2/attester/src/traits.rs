@@ -20,7 +20,7 @@ pub trait BeaconNode: Send + Sync {
         shard: u64,
     ) -> Result<Option<AttestationData>, BeaconNodeError>;
 
-    fn publish_attestation_data(
+    fn publish_attestation(
         &self,
         free_attestation: FreeAttestation,
     ) -> Result<PublishOutcome, BeaconNodeError>;

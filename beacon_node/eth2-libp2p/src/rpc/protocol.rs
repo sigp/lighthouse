@@ -1,6 +1,7 @@
 use super::methods::*;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use ssz::{ssz_encode, Decodable, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError as SSZDecodeError, Encodable, SszStream};
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -29,16 +30,71 @@ impl Default for RPCProtocol {
     }
 }
 
+/// A monotonic counter for ordering `RPCRequest`s.
+#[derive(Debug, Clone, Default)]
+pub struct RequestId(u64);
+
+impl RequestId {
+    /// Increment the request id.
+    pub fn increment(&mut self) {
+        self.0 += 1
+    }
+
+    /// Return the previous id.
+    pub fn previous(&self) -> Self {
+        Self(self.0 - 1)
+    }
+}
+
+impl Eq for RequestId {}
+
+impl PartialEq for RequestId {
+    fn eq(&self, other: &RequestId) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Hash for RequestId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl From<u64> for RequestId {
+    fn from(x: u64) -> RequestId {
+        RequestId(x)
+    }
+}
+
+impl Into<u64> for RequestId {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
+impl Encodable for RequestId {
+    fn ssz_append(&self, s: &mut SszStream) {
+        self.0.ssz_append(s);
+    }
+}
+
+impl Decodable for RequestId {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), SSZDecodeError> {
+        let (id, index) = u64::ssz_decode(bytes, index)?;
+        Ok((Self::from(id), index))
+    }
+}
+
 /// The RPC types which are sent/received in this protocol.
 #[derive(Debug, Clone)]
 pub enum RPCEvent {
     Request {
-        id: u64,
+        id: RequestId,
         method_id: u16,
         body: RPCRequest,
     },
     Response {
-        id: u64,
+        id: RequestId,
         method_id: u16, //TODO: Remove and process decoding upstream
         result: RPCResponse,
     },
@@ -54,17 +110,15 @@ impl UpgradeInfo for RPCEvent {
     }
 }
 
+type FnDecodeRPCEvent = fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>;
+
 impl<TSocket> InboundUpgrade<TSocket> for RPCProtocol
 where
     TSocket: AsyncRead + AsyncWrite,
 {
     type Output = RPCEvent;
     type Error = DecodeError;
-    type Future = upgrade::ReadOneThen<
-        upgrade::Negotiated<TSocket>,
-        (),
-        fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>,
-    >;
+    type Future = upgrade::ReadOneThen<upgrade::Negotiated<TSocket>, (), FnDecodeRPCEvent>;
 
     fn upgrade_inbound(self, socket: upgrade::Negotiated<TSocket>, _: Self::Info) -> Self::Future {
         upgrade::read_one_then(socket, MAX_READ_SIZE, (), |packet, ()| Ok(decode(packet)?))
@@ -75,7 +129,7 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
     // decode the header of the rpc
     // request/response
     let (request, index) = bool::ssz_decode(&packet, 0)?;
-    let (id, index) = u64::ssz_decode(&packet, index)?;
+    let (id, index) = RequestId::ssz_decode(&packet, index)?;
     let (method_id, index) = u16::ssz_decode(&packet, index)?;
 
     if request {
@@ -85,8 +139,8 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
                 RPCRequest::Hello(hello_body)
             }
             RPCMethod::Goodbye => {
-                let (goodbye_code, _index) = u64::ssz_decode(&packet, index)?;
-                RPCRequest::Goodbye(goodbye_code)
+                let (goodbye_reason, _index) = GoodbyeReason::ssz_decode(&packet, index)?;
+                RPCRequest::Goodbye(goodbye_reason)
             }
             RPCMethod::BeaconBlockRoots => {
                 let (block_roots_request, _index) =

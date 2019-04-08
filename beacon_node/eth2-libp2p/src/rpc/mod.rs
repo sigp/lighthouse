@@ -2,7 +2,7 @@
 ///
 /// This is purpose built for Ethereum 2.0 serenity and the protocol listens on
 /// `/eth/serenity/rpc/1.0.0`
-mod methods;
+pub mod methods;
 mod protocol;
 
 use futures::prelude::*;
@@ -12,7 +12,7 @@ use libp2p::core::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
-pub use protocol::{RPCEvent, RPCProtocol};
+pub use protocol::{RPCEvent, RPCProtocol, RequestId};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -26,7 +26,7 @@ pub struct Rpc<TSubstream> {
     /// Pins the generic substream.
     marker: PhantomData<TSubstream>,
     /// Slog logger for RPC behaviour.
-    log: slog::Logger,
+    _log: slog::Logger,
 }
 
 impl<TSubstream> Rpc<TSubstream> {
@@ -35,7 +35,7 @@ impl<TSubstream> Rpc<TSubstream> {
         Rpc {
             events: Vec::new(),
             marker: PhantomData,
-            log,
+            _log: log,
         }
     }
 
@@ -65,7 +65,7 @@ where
 
     fn inject_connected(&mut self, peer_id: PeerId, connected_point: ConnectedPoint) {
         // if initialised the connection, report this upwards to send the HELLO request
-        if let ConnectedPoint::Dialer { address: _ } = connected_point {
+        if let ConnectedPoint::Dialer { .. } = connected_point {
             self.events.push(NetworkBehaviourAction::GenerateEvent(
                 RPCMessage::PeerDialed(peer_id),
             ));
