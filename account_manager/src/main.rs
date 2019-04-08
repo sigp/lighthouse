@@ -2,8 +2,8 @@ use bls::Keypair;
 use clap::{App, Arg, SubCommand};
 use slog::{debug, info, o, Drain};
 use std::path::PathBuf;
-use validator_client::Config as ValidatorClientConfig;
 use types::test_utils::generate_deterministic_keypair;
+use validator_client::Config as ValidatorClientConfig;
 
 fn main() {
     // Logging
@@ -42,8 +42,8 @@ fn main() {
                         .value_name("index")
                         .help("The index of the validator, for which the test key is generated")
                         .takes_value(true)
-                        .required(true)
-                )
+                        .required(true),
+                ),
         )
         .get_matches();
 
@@ -66,7 +66,7 @@ fn main() {
                 keypair.identifier(),
                 key_path.to_string_lossy()
             );
-        },
+        }
         ("generate_deterministic", Some(gen_d_matches)) => {
             let validator_index = gen_d_matches
                 .value_of("validator index")
@@ -83,7 +83,7 @@ fn main() {
                 keypair.identifier(),
                 key_path.to_string_lossy()
             );
-        },
+        }
         _ => panic!(
             "The account manager must be run with a subcommand. See help for more information."
         ),
