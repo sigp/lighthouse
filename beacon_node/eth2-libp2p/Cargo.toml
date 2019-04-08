@@ -19,3 +19,4 @@ version = { path = "../version" }
 tokio = "0.1.16"
 futures = "0.1.25"
 error-chain = "0.12.0"
+tokio-timer = "0.2.10"
