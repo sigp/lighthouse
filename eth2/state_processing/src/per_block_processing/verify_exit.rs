@@ -13,6 +13,25 @@ pub fn verify_exit(
     exit: &VoluntaryExit,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    verify_exit_parametric(state, exit, spec, false)
+}
+
+/// Like `verify_exit` but doesn't run checks which may become true in future states.
+pub fn verify_exit_time_independent_only(
+    state: &BeaconState,
+    exit: &VoluntaryExit,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    verify_exit_parametric(state, exit, spec, true)
+}
+
+/// Parametric version of `verify_exit` that skips some checks if `time_independent_only` is true.
+fn verify_exit_parametric(
+    state: &BeaconState,
+    exit: &VoluntaryExit,
+    spec: &ChainSpec,
+    time_independent_only: bool,
+) -> Result<(), Error> {
     let validator = state
         .validator_registry
         .get(exit.validator_index as usize)
@@ -32,7 +51,7 @@ pub fn verify_exit(
 
     // Exits must specify an epoch when they become valid; they are not valid before then.
     verify!(
-        state.current_epoch(spec) >= exit.epoch,
+        time_independent_only || state.current_epoch(spec) >= exit.epoch,
         Invalid::FutureEpoch {
             state: state.current_epoch(spec),
             exit: exit.epoch

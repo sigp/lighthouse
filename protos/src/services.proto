@@ -12,27 +12,61 @@ syntax = "proto3";
 
 package ethereum.beacon.rpc.v1;
 
+// Service that currently identifies a beacon node
+service BeaconNodeService {
+    rpc Info(Empty) returns (NodeInfoResponse);
+}
+
+/// Service that handles block production
 service BeaconBlockService {
+    // Requests a block to be signed from the beacon node.
     rpc ProduceBeaconBlock(ProduceBeaconBlockRequest) returns (ProduceBeaconBlockResponse);
+    // Responds to the node the signed block to be published.
     rpc PublishBeaconBlock(PublishBeaconBlockRequest) returns (PublishBeaconBlockResponse);
 }
 
+/// Service that provides the validator client with requisite knowledge about
+//its public keys
 service ValidatorService {
-    // rpc ValidatorAssignment(ValidatorAssignmentRequest) returns (ValidatorAssignmentResponse);
-	rpc ProposeBlockSlot(ProposeBlockSlotRequest) returns (ProposeBlockSlotResponse);
-	rpc ValidatorIndex(PublicKey) returns (IndexResponse);
+    // Gets the block proposer slot and comittee slot that a validator needs to
+    // perform work on.
+	rpc GetValidatorDuties(GetDutiesRequest) returns (GetDutiesResponse);
 }
 
-message BeaconBlock {
-	uint64 slot = 1;
-	bytes block_root = 2;
-	bytes randao_reveal = 3;
-	bytes signature = 4;
+/// Service that handles validator attestations
+service AttestationService {
+	rpc ProduceAttestationData(ProduceAttestationDataRequest) returns (ProduceAttestationDataResponse);
+	rpc PublishAttestation(PublishAttestationRequest) returns (PublishAttestationResponse);
 }
+
+/*
+ * Beacon Node Service Message
+ */
+message NodeInfoResponse {
+    string version = 1;
+    Fork fork = 2;
+    uint32 chain_id = 3;
+    uint64 genesis_time = 4;
+    uint64 genesis_slot = 5;
+}
+
+message Fork {
+    bytes previous_version = 1;
+    bytes current_version = 2;
+    uint64 epoch = 3;
+}
+
+message Empty {}
+
+
+/*
+ * Block Production Service Messages
+ */
 
 // Validator requests an unsigned proposal.
 message ProduceBeaconBlockRequest {
     uint64 slot = 1;
+    bytes randao_reveal = 2;
 }
 
 // Beacon node returns an unsigned proposal.
@@ -51,44 +85,75 @@ message PublishBeaconBlockResponse {
     bytes msg = 2;
 }
 
-// A validators duties for some epoch.
-// TODO: add shard duties.
-message ValidatorAssignment {
-	oneof block_production_slot_oneof {
-		bool block_production_slot_none = 1;
-		uint64 block_production_slot = 2;
-	}
-}
-
-message ValidatorAssignmentRequest {
-	uint64 epoch = 1;
-	bytes validator_index = 2;
+message BeaconBlock {
+	bytes ssz = 1;
 }
 
 /*
- * Propose slot
+ * Validator Service Messages
  */
 
-message ProposeBlockSlotRequest {
-	uint64 epoch = 1;
-	uint64 validator_index = 2;
+// Validator Assignment
+
+// the public keys of the validators
+message Validators {
+	repeated bytes public_keys = 1;
 }
 
-message ProposeBlockSlotResponse {
-	oneof slot_oneof {
+// Propose slot
+message GetDutiesRequest {
+	uint64 epoch = 1;
+	Validators validators = 2;
+}
+
+message GetDutiesResponse {
+	repeated ActiveValidator active_validators = 1;
+}
+
+message ActiveValidator {
+    oneof duty_oneof {
 		bool none = 1;
-		uint64 slot = 2;
+        ValidatorDuty duty = 2;
 	}
 }
 
-/*
- * Validator Assignment
- */
-
-message PublicKey {
-	bytes public_key = 1;
+message ValidatorDuty {
+    oneof block_oneof {
+        bool none = 1;
+        uint64 block_production_slot = 2;
+    }
+	uint64 attestation_slot = 3;
+	uint64 attestation_shard = 4;
+    uint64 committee_index = 5;
+    uint64 committee_len = 6;
 }
 
-message IndexResponse {
-	uint64 index = 1;
+/*
+ * Attestation Service Messages
+ */
+
+message ProduceAttestationDataRequest {
+	uint64 slot = 1;
+	uint64 shard = 2;
+}
+
+message ProduceAttestationDataResponse {
+	AttestationData attestation_data = 1;
+}
+
+message PublishAttestationRequest {
+	Attestation attestation = 1;
+}
+
+message Attestation {
+    bytes ssz = 1;
+}
+
+message PublishAttestationResponse {
+	bool success = 1;
+	bytes msg = 2;
+}
+
+message AttestationData {
+    bytes ssz = 1;
 }

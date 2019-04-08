@@ -661,6 +661,17 @@ impl BeaconState {
         })
     }
 
+    /// Build all the caches, if they need to be built.
+    pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        self.build_epoch_cache(RelativeEpoch::Previous, spec)?;
+        self.build_epoch_cache(RelativeEpoch::Current, spec)?;
+        self.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, spec)?;
+        self.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec)?;
+        self.update_pubkey_cache()?;
+
+        Ok(())
+    }
+
     /// Build an epoch cache, unless it is has already been built.
     pub fn build_epoch_cache(
         &mut self,

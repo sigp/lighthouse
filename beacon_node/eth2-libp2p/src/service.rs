@@ -1,4 +1,4 @@
-use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
 use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
@@ -17,15 +17,18 @@ use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use types::TopicBuilder;
+use types::{TopicBuilder, TopicHash};
+
+type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
+type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Boxed<(PeerId, StreamMuxerBox), Error>, Behaviour<Substream<StreamMuxerBox>>>,
+    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
     /// This node's PeerId.
-    local_peer_id: PeerId,
+    _local_peer_id: PeerId,
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
@@ -89,7 +92,7 @@ impl Service {
         info!(log, "Subscribed to topics: {:?}", subscribed_topics);
 
         Ok(Service {
-            local_peer_id,
+            _local_peer_id: local_peer_id,
             swarm,
             log,
         })
@@ -108,9 +111,17 @@ impl Stream for Service {
                 //Behaviour events
                 Ok(Async::Ready(Some(event))) => match event {
                     // TODO: Stub here for debugging
-                    BehaviourEvent::Message(m) => {
-                        debug!(self.log, "Message received: {}", m);
-                        return Ok(Async::Ready(Some(Libp2pEvent::Message(m))));
+                    BehaviourEvent::GossipMessage {
+                        source,
+                        topics,
+                        message,
+                    } => {
+                        trace!(self.log, "Pubsub message received: {:?}", message);
+                        return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                            source,
+                            topics,
+                            message,
+                        })));
                     }
                     BehaviourEvent::RPC(peer_id, event) => {
                         return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
@@ -171,7 +182,11 @@ pub enum Libp2pEvent {
     /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
     /// Received information about a peer on the network.
-    Identified(PeerId, IdentifyInfo),
-    // TODO: Pub-sub testing only.
-    Message(String),
+    Identified(PeerId, Box<IdentifyInfo>),
+    /// Received pubsub message.
+    PubsubMessage {
+        source: PeerId,
+        topics: Vec<TopicHash>,
+        message: Box<PubsubMessage>,
+    },
 }

@@ -1,3 +1,4 @@
+use ssz::{Decodable, DecodeError, Encodable, SszStream};
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
@@ -53,11 +54,25 @@ impl Into<u16> for RPCMethod {
 #[derive(Debug, Clone)]
 pub enum RPCRequest {
     Hello(HelloMessage),
-    Goodbye(u64),
+    Goodbye(GoodbyeReason),
     BeaconBlockRoots(BeaconBlockRootsRequest),
     BeaconBlockHeaders(BeaconBlockHeadersRequest),
     BeaconBlockBodies(BeaconBlockBodiesRequest),
     BeaconChainState(BeaconChainStateRequest),
+}
+
+impl RPCRequest {
+    pub fn method_id(&self) -> u16 {
+        let method = match self {
+            RPCRequest::Hello(_) => RPCMethod::Hello,
+            RPCRequest::Goodbye(_) => RPCMethod::Goodbye,
+            RPCRequest::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
+            RPCRequest::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
+            RPCRequest::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
+            RPCRequest::BeaconChainState(_) => RPCMethod::BeaconChainState,
+        };
+        method.into()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +82,19 @@ pub enum RPCResponse {
     BeaconBlockHeaders(BeaconBlockHeadersResponse),
     BeaconBlockBodies(BeaconBlockBodiesResponse),
     BeaconChainState(BeaconChainStateResponse),
+}
+
+impl RPCResponse {
+    pub fn method_id(&self) -> u16 {
+        let method = match self {
+            RPCResponse::Hello(_) => RPCMethod::Hello,
+            RPCResponse::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
+            RPCResponse::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
+            RPCResponse::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
+            RPCResponse::BeaconChainState(_) => RPCMethod::BeaconChainState,
+        };
+        method.into()
+    }
 }
 
 /* Request/Response data structures for RPC methods */
@@ -86,76 +114,138 @@ pub struct HelloMessage {
     pub best_slot: Slot,
 }
 
+/// The reason given for a `Goodbye` message.
+///
+/// Note: any unknown `u64::into(n)` will resolve to `GoodbyeReason::Unknown` for any unknown `n`,
+/// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
+/// re-serializing may not return the same bytes.
+#[derive(Debug, Clone)]
+pub enum GoodbyeReason {
+    ClientShutdown,
+    IrreleventNetwork,
+    Fault,
+    Unknown,
+}
+
+impl From<u64> for GoodbyeReason {
+    fn from(id: u64) -> GoodbyeReason {
+        match id {
+            1 => GoodbyeReason::ClientShutdown,
+            2 => GoodbyeReason::IrreleventNetwork,
+            3 => GoodbyeReason::Fault,
+            _ => GoodbyeReason::Unknown,
+        }
+    }
+}
+
+impl Into<u64> for GoodbyeReason {
+    fn into(self) -> u64 {
+        match self {
+            GoodbyeReason::Unknown => 0,
+            GoodbyeReason::ClientShutdown => 1,
+            GoodbyeReason::IrreleventNetwork => 2,
+            GoodbyeReason::Fault => 3,
+        }
+    }
+}
+
+impl Encodable for GoodbyeReason {
+    fn ssz_append(&self, s: &mut SszStream) {
+        let id: u64 = (*self).clone().into();
+        id.ssz_append(s);
+    }
+}
+
+impl Decodable for GoodbyeReason {
+    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
+        let (id, index) = u64::ssz_decode(bytes, index)?;
+        Ok((Self::from(id), index))
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockRootsRequest {
     /// The starting slot of the requested blocks.
-    start_slot: Slot,
+    pub start_slot: Slot,
     /// The number of blocks from the start slot.
-    count: u64, // this must be less than 32768. //TODO: Enforce this in the lower layers
+    pub count: u64, // this must be less than 32768. //TODO: Enforce this in the lower layers
 }
 
 /// Response containing a number of beacon block roots from a peer.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockRootsResponse {
     /// List of requested blocks and associated slots.
-    roots: Vec<BlockRootSlot>,
+    pub roots: Vec<BlockRootSlot>,
+}
+
+impl BeaconBlockRootsResponse {
+    /// Returns `true` if each `self.roots.slot[i]` is higher than the preceeding `i`.
+    pub fn slots_are_ascending(&self) -> bool {
+        for i in 1..self.roots.len() {
+            if self.roots[i - 1].slot >= self.roots[i].slot {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 /// Contains a block root and associated slot.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlockRootSlot {
     /// The block root.
-    block_root: Hash256,
+    pub block_root: Hash256,
     /// The block slot.
-    slot: Slot,
+    pub slot: Slot,
 }
 
 /// Request a number of beacon block headers from a peer.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockHeadersRequest {
     /// The starting header hash of the requested headers.
-    start_root: Hash256,
+    pub start_root: Hash256,
     /// The starting slot of the requested headers.
-    start_slot: Slot,
+    pub start_slot: Slot,
     /// The maximum number of headers than can be returned.
-    max_headers: u64,
+    pub max_headers: u64,
     /// The maximum number of slots to skip between blocks.
-    skip_slots: u64,
+    pub skip_slots: u64,
 }
 
 /// Response containing requested block headers.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockHeadersResponse {
     /// The list of requested beacon block headers.
-    headers: Vec<BeaconBlockHeader>,
+    pub headers: Vec<BeaconBlockHeader>,
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockBodiesRequest {
     /// The list of beacon block bodies being requested.
-    block_roots: Hash256,
+    pub block_roots: Vec<Hash256>,
 }
 
 /// Response containing the list of requested beacon block bodies.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockBodiesResponse {
     /// The list of beacon block bodies being requested.
-    block_bodies: Vec<BeaconBlockBody>,
+    pub block_bodies: Vec<BeaconBlockBody>,
 }
 
 /// Request values for tree hashes which yield a blocks `state_root`.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconChainStateRequest {
     /// The tree hashes that a value is requested for.
-    hashes: Vec<Hash256>,
+    pub hashes: Vec<Hash256>,
 }
 
 /// Request values for tree hashes which yield a blocks `state_root`.
 // Note: TBD
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconChainStateResponse {
     /// The values corresponding the to the requested tree hashes.
-    values: bool, //TBD - stubbed with encodeable bool
+    pub values: bool, //TBD - stubbed with encodeable bool
 }

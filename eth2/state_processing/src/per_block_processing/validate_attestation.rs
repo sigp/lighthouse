@@ -14,7 +14,16 @@ pub fn validate_attestation(
     attestation: &Attestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    validate_attestation_signature_optional(state, attestation, spec, true)
+    validate_attestation_parametric(state, attestation, spec, true, false)
+}
+
+/// Like `validate_attestation` but doesn't run checks which may become true in future states.
+pub fn validate_attestation_time_independent_only(
+    state: &BeaconState,
+    attestation: &Attestation,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    validate_attestation_parametric(state, attestation, spec, true, true)
 }
 
 /// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
@@ -28,7 +37,7 @@ pub fn validate_attestation_without_signature(
     attestation: &Attestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    validate_attestation_signature_optional(state, attestation, spec, false)
+    validate_attestation_parametric(state, attestation, spec, false, false)
 }
 
 /// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
@@ -36,15 +45,13 @@ pub fn validate_attestation_without_signature(
 ///
 ///
 /// Spec v0.5.0
-fn validate_attestation_signature_optional(
+fn validate_attestation_parametric(
     state: &BeaconState,
     attestation: &Attestation,
     spec: &ChainSpec,
     verify_signature: bool,
+    time_independent_only: bool,
 ) -> Result<(), Error> {
-    let state_epoch = state.slot.epoch(spec.slots_per_epoch);
-    let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
-
     // Can't submit pre-historic attestations.
     verify!(
         attestation.data.slot >= spec.genesis_slot,
@@ -65,7 +72,8 @@ fn validate_attestation_signature_optional(
 
     // Can't submit attestation too quickly.
     verify!(
-        attestation.data.slot + spec.min_attestation_inclusion_delay <= state.slot,
+        time_independent_only
+            || attestation.data.slot + spec.min_attestation_inclusion_delay <= state.slot,
         Invalid::IncludedTooEarly {
             state: state.slot,
             delay: spec.min_attestation_inclusion_delay,
@@ -74,40 +82,8 @@ fn validate_attestation_signature_optional(
     );
 
     // Verify the justified epoch and root is correct.
-    if attestation_epoch >= state_epoch {
-        verify!(
-            attestation.data.source_epoch == state.current_justified_epoch,
-            Invalid::WrongJustifiedEpoch {
-                state: state.current_justified_epoch,
-                attestation: attestation.data.source_epoch,
-                is_current: true,
-            }
-        );
-        verify!(
-            attestation.data.source_root == state.current_justified_root,
-            Invalid::WrongJustifiedRoot {
-                state: state.current_justified_root,
-                attestation: attestation.data.source_root,
-                is_current: true,
-            }
-        );
-    } else {
-        verify!(
-            attestation.data.source_epoch == state.previous_justified_epoch,
-            Invalid::WrongJustifiedEpoch {
-                state: state.previous_justified_epoch,
-                attestation: attestation.data.source_epoch,
-                is_current: false,
-            }
-        );
-        verify!(
-            attestation.data.source_root == state.previous_justified_root,
-            Invalid::WrongJustifiedRoot {
-                state: state.previous_justified_root,
-                attestation: attestation.data.source_root,
-                is_current: true,
-            }
-        );
+    if !time_independent_only {
+        verify_justified_epoch_and_root(attestation, state, spec)?;
     }
 
     // Check that the crosslink data is valid.
@@ -185,6 +161,56 @@ fn validate_attestation_signature_optional(
         Invalid::ShardBlockRootNotZero
     );
 
+    Ok(())
+}
+
+/// Verify that the `source_epoch` and `source_root` of an `Attestation` correctly
+/// match the current (or previous) justified epoch and root from the state.
+///
+/// Spec v0.5.0
+fn verify_justified_epoch_and_root(
+    attestation: &Attestation,
+    state: &BeaconState,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let state_epoch = state.slot.epoch(spec.slots_per_epoch);
+    let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
+
+    if attestation_epoch >= state_epoch {
+        verify!(
+            attestation.data.source_epoch == state.current_justified_epoch,
+            Invalid::WrongJustifiedEpoch {
+                state: state.current_justified_epoch,
+                attestation: attestation.data.source_epoch,
+                is_current: true,
+            }
+        );
+        verify!(
+            attestation.data.source_root == state.current_justified_root,
+            Invalid::WrongJustifiedRoot {
+                state: state.current_justified_root,
+                attestation: attestation.data.source_root,
+                is_current: true,
+            }
+        );
+    } else {
+        verify!(
+            attestation.data.source_epoch == state.previous_justified_epoch,
+            Invalid::WrongJustifiedEpoch {
+                state: state.previous_justified_epoch,
+                attestation: attestation.data.source_epoch,
+                is_current: false,
+            }
+        );
+        verify!(
+            attestation.data.source_root == state.previous_justified_root,
+            Invalid::WrongJustifiedRoot {
+                state: state.previous_justified_root,
+                attestation: attestation.data.source_root,
+                is_current: true,
+            }
+        );
+    }
     Ok(())
 }
 
