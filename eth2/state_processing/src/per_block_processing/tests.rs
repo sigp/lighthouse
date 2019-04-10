@@ -92,5 +92,20 @@ fn runs_without_error() {
 //          Invalid::TooYoungToLeave
 //          Invalid::BadSignature
 
+//  process_transfers
+//      Invalid::MaxTransfersExceed
+//      verify_transfer
+//          Invalid::FromValidatorUnknown
+//          Invalid::FeeOverflow
+//          Invalid::FromBalanceInsufficient (amount)
+//          Invalid::FromBalanceInsufficient (fee)
+//          Invalid::InvalidResultingFromBalance
+//          Invalid::TransferSlotInPast
+//          Invalid::StateSlotMismatch
+//          Invalid::FromValidatorUnknown (???)
+//          Invalid::FromValidatorIneligableForTransfer
+//          Invalid::WithdrawalCredentialsMismatch
+//          Invalid::BadSignature
+
 
 
