@@ -1,5 +1,6 @@
 use super::*;
-use int_to_bytes::int_to_bytes32;
+use crate::Encodable;
+use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 
 #[derive(Clone)]
 pub struct Inner {
@@ -11,6 +12,10 @@ pub struct Inner {
 
 impl CachedTreeHash for Inner {
     type Item = Self;
+
+    fn item_type() -> ItemType {
+        ItemType::Composite
+    }
 
     fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
@@ -60,6 +65,10 @@ impl CachedTreeHash for Inner {
         num_nodes(leaves) + children - 1
     }
 
+    fn packed_encoding(&self) -> Vec<u8> {
+        panic!("Struct should never be packed")
+    }
+
     fn cached_hash_tree_root(
         &self,
         other: &Self,
@@ -96,6 +105,10 @@ pub struct Outer {
 
 impl CachedTreeHash for Outer {
     type Item = Self;
+
+    fn item_type() -> ItemType {
+        ItemType::Composite
+    }
 
     fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
@@ -137,6 +150,10 @@ impl CachedTreeHash for Outer {
         offsets.push(self.c.num_child_nodes() + 1);
 
         Ok(offsets)
+    }
+
+    fn packed_encoding(&self) -> Vec<u8> {
+        panic!("Struct should never be packed")
     }
 
     fn cached_hash_tree_root(
@@ -371,6 +388,64 @@ fn large_vec_of_u64_builds() {
 
     assert_eq!(expected, cache);
 }
+*/
+
+#[test]
+fn vec_of_inner_builds() {
+    let numbers: Vec<u64> = (0..12).collect();
+
+    let mut leaves = vec![];
+    let mut full_bytes = vec![];
+
+    for n in numbers.chunks(4) {
+        let mut merkle = merkleize(join(vec![
+            int_to_bytes32(n[0]),
+            int_to_bytes32(n[1]),
+            int_to_bytes32(n[2]),
+            int_to_bytes32(n[3]),
+        ]));
+        leaves.append(&mut merkle[0..HASHSIZE].to_vec());
+        full_bytes.append(&mut merkle);
+    }
+
+    let mut expected = merkleize(leaves);
+    expected.splice(3 * HASHSIZE.., full_bytes);
+    expected.append(&mut vec![0; HASHSIZE]);
+
+    let my_vec = vec![
+        Inner {
+            a: 0,
+            b: 1,
+            c: 2,
+            d: 3,
+        },
+        Inner {
+            a: 4,
+            b: 5,
+            c: 6,
+            d: 7,
+        },
+        Inner {
+            a: 8,
+            b: 9,
+            c: 10,
+            d: 11,
+        },
+    ];
+
+    let cache: Vec<u8> = TreeHashCache::new(&my_vec).unwrap().into();
+
+    assert_trees_eq(&expected, &cache);
+}
+
+/// Provides detailed assertions when comparing merkle trees.
+fn assert_trees_eq(a: &[u8], b: &[u8]) {
+    assert_eq!(a.len(), b.len(), "Byte lens different");
+    for i in 0..a.len() / HASHSIZE {
+        let range = i * HASHSIZE..(i + 1) * HASHSIZE;
+        assert_eq!(a[range.clone()], b[range], "Chunk {} different", i);
+    }
+}
 
 #[test]
 fn vec_of_u64_builds() {
@@ -387,11 +462,10 @@ fn vec_of_u64_builds() {
 
     let my_vec = vec![1, 2, 3, 4, 5];
 
-    let cache = my_vec.build_cache_bytes();
+    let cache: Vec<u8> = TreeHashCache::new(&my_vec).unwrap().into();
 
     assert_eq!(expected, cache);
 }
-*/
 
 #[test]
 fn merkleize_odd() {
