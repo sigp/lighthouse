@@ -21,6 +21,8 @@ pub use verify_transfer::{
 };
 
 pub mod errors;
+pub mod tests;
+pub mod block_processing_builder;
 mod validate_attestation;
 mod verify_attester_slashing;
 mod verify_deposit;
