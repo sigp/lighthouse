@@ -1,6 +1,7 @@
 #![cfg(test)]
 use crate::per_block_processing;
 use super::block_processing_builder::BlockProcessingBuilder;
+use super::errors::*;
 use types::*;
 
 pub const VALIDATOR_COUNT: usize = 10;
@@ -8,22 +9,42 @@ pub const VALIDATOR_COUNT: usize = 10;
 #[test]
 fn runs_without_error() {
     let spec = ChainSpec::foundation();
+    let (block, mut state) = get_block_state(&spec);
+
+    per_block_processing(&mut state, &block, &spec).unwrap();
+}
+
+#[test]
+fn process_block_header_invalid_state_slot() {
+    let spec = ChainSpec::foundation();
+    let (mut block, mut state) = get_block_state(&spec);
+
+    state.slot = Slot::new(133713);
+    block.slot = Slot::new(424242);
+
+    let result = per_block_processing(&mut state, &block, &spec);
+
+    assert_eq!(result, Err(BlockProcessingError::Invalid(BlockInvalid::StateSlotMismatch)));
+}
+
+#[test]
+#[ignore]
+fn process_block_header_invalid_parent_block_root() {
+    // this will be changed in spec 0.5.1 to use signed root
+}
+
+fn get_block_state(spec: &ChainSpec) -> (BeaconBlock, BeaconState) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
 
     // Set the state and block to be in the last slot of the 4th epoch.
     let last_slot_of_epoch = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
     builder.set_slot(last_slot_of_epoch, &spec);
-
     builder.build_caches(&spec);
-    
-    let (block, mut state) = builder.build(&spec);
 
-    per_block_processing(&mut state, &block, &spec).unwrap();
+    let (block, state) = builder.build(&spec);
+
+    (block, state)
 }
-
-//  process_block_header
-//      Invalid::StateSlotMismatch
-//      Invalid::ParentBlockRootMismatch
 
 //  verify_block_signature
 //      Invalid::BadSignature
