@@ -69,6 +69,10 @@ impl CachedTreeHash for Inner {
         panic!("Struct should never be packed")
     }
 
+    fn packing_factor() -> usize {
+        1
+    }
+
     fn cached_hash_tree_root(
         &self,
         other: &Self,
@@ -154,6 +158,10 @@ impl CachedTreeHash for Outer {
 
     fn packed_encoding(&self) -> Vec<u8> {
         panic!("Struct should never be packed")
+    }
+
+    fn packing_factor() -> usize {
+        1
     }
 
     fn cached_hash_tree_root(
@@ -339,7 +347,6 @@ fn outer_builds() {
     assert_eq!(merkle, cache);
 }
 
-/*
 #[test]
 fn partial_modification_u64_vec() {
     let n: u64 = 50;
@@ -347,7 +354,7 @@ fn partial_modification_u64_vec() {
     let original_vec: Vec<u64> = (0..n).collect();
 
     // Generate initial cache.
-    let original_cache = original_vec.build_cache_bytes();
+    let original_cache: Vec<u8> = TreeHashCache::new(&original_vec).unwrap().into();
 
     // Modify the vec
     let mut modified_vec = original_vec.clone();
@@ -355,7 +362,9 @@ fn partial_modification_u64_vec() {
 
     // Perform a differential hash
     let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
-    modified_vec.cached_hash_tree_root(&original_vec, &mut cache_struct, 0);
+    modified_vec
+        .cached_hash_tree_root(&original_vec, &mut cache_struct, 0)
+        .unwrap();
     let modified_cache: Vec<u8> = cache_struct.into();
 
     // Generate reference data.
@@ -376,7 +385,7 @@ fn large_vec_of_u64_builds() {
     let my_vec: Vec<u64> = (0..n).collect();
 
     // Generate function output.
-    let cache = my_vec.build_cache_bytes();
+    let cache: Vec<u8> = TreeHashCache::new(&my_vec).unwrap().into();
 
     // Generate reference data.
     let mut data = vec![];
@@ -388,7 +397,6 @@ fn large_vec_of_u64_builds() {
 
     assert_eq!(expected, cache);
 }
-*/
 
 #[test]
 fn vec_of_inner_builds() {

@@ -46,6 +46,8 @@ pub trait CachedTreeHash {
 
     fn packed_encoding(&self) -> Vec<u8>;
 
+    fn packing_factor() -> usize;
+
     fn cached_hash_tree_root(
         &self,
         other: &Self::Item,
@@ -165,16 +167,19 @@ impl TreeHashCache {
         self.cache.splice(byte_start..byte_end, replace_with)
     }
 
-    pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Option<()> {
+    pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
 
         if !self.chunk_equals(chunk, to)? {
-            self.cache.get_mut(start..end)?.copy_from_slice(to);
+            self.cache
+                .get_mut(start..end)
+                .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))?
+                .copy_from_slice(to);
             self.chunk_modified[chunk] = true;
         }
 
-        Some(())
+        Ok(())
     }
 
     pub fn modify_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
@@ -191,11 +196,25 @@ impl TreeHashCache {
         Ok(())
     }
 
-    pub fn chunk_equals(&mut self, chunk: usize, other: &[u8]) -> Option<bool> {
+    pub fn chunk_equals(&mut self, chunk: usize, other: &[u8]) -> Result<bool, Error> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
 
-        Some(self.cache.get(start..end)? == other)
+        Ok(self
+            .cache
+            .get(start..end)
+            .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))?
+            == other)
+    }
+
+    pub fn set_changed(&mut self, chunk: usize, to: bool) -> Result<(), Error> {
+        if chunk < self.chunk_modified.len() {
+            self.chunk_modified[chunk] = to;
+
+            Ok(())
+        } else {
+            Err(Error::NoModifiedFieldForChunk(chunk))
+        }
     }
 
     pub fn changed(&self, chunk: usize) -> Result<bool, Error> {

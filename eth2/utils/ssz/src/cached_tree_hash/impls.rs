@@ -28,6 +28,10 @@ impl CachedTreeHash for u64 {
         ssz_encode(self)
     }
 
+    fn packing_factor() -> usize {
+        32 / 8
+    }
+
     fn cached_hash_tree_root(
         &self,
         other: &Self,
@@ -55,20 +59,7 @@ where
 
     fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         match T::item_type() {
-            ItemType::Basic => {
-                let num_packed_bytes = self.num_bytes();
-                let num_leaves = num_sanitized_leaves(num_packed_bytes);
-
-                let mut packed = Vec::with_capacity(num_leaves * HASHSIZE);
-
-                for item in self {
-                    packed.append(&mut item.packed_encoding());
-                }
-
-                let packed = sanitise_bytes(packed);
-
-                TreeHashCache::from_bytes(merkleize(packed))
-            }
+            ItemType::Basic => TreeHashCache::from_bytes(merkleize(get_packed_leaves(self))),
             ItemType::Composite | ItemType::List => {
                 let subtrees = self
                     .iter()
@@ -81,11 +72,18 @@ where
     }
 
     fn offsets(&self) -> Result<Vec<usize>, Error> {
-        let mut offsets = vec![];
+        let offsets = match T::item_type() {
+            ItemType::Basic => vec![1; self.len() / T::packing_factor()],
+            ItemType::Composite | ItemType::List => {
+                let mut offsets = vec![];
 
-        for item in self {
-            offsets.push(item.offsets()?.iter().sum())
-        }
+                for item in self {
+                    offsets.push(item.offsets()?.iter().sum())
+                }
+
+                offsets
+            }
+        };
 
         Ok(offsets)
     }
@@ -103,60 +101,58 @@ where
         panic!("List should never be packed")
     }
 
+    fn packing_factor() -> usize {
+        1
+    }
+
     fn cached_hash_tree_root(
         &self,
         other: &Self::Item,
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Result<usize, Error> {
-        /*
-        let num_packed_bytes = self.num_bytes();
-        let num_leaves = num_sanitized_leaves(num_packed_bytes);
+        let offset_handler = OffsetHandler::new(self, chunk)?;
 
-        if num_leaves != num_sanitized_leaves(other.num_bytes()) {
-            panic!("Need to handle a change in leaf count");
+        match T::item_type() {
+            ItemType::Basic => {
+                let leaves = get_packed_leaves(self);
+
+                for (i, chunk) in offset_handler.iter_leaf_nodes().enumerate() {
+                    if let Some(latest) = leaves.get(i * HASHSIZE..(i + 1) * HASHSIZE) {
+                        if !cache.chunk_equals(*chunk, latest)? {
+                            dbg!(chunk);
+                            cache.set_changed(*chunk, true)?;
+                        }
+                    }
+                }
+                let first_leaf_chunk = offset_handler.first_leaf_node()?;
+                cache.chunk_splice(first_leaf_chunk..offset_handler.next_node, leaves);
+            }
+            _ => panic!("not implemented"),
         }
 
-        let mut packed = Vec::with_capacity(num_leaves * HASHSIZE);
-
-        // TODO: try and avoid fully encoding the whole list
-        for item in self {
-            packed.append(&mut ssz_encode(item));
-        }
-
-        let packed = sanitise_bytes(packed);
-
-        let num_nodes = num_nodes(num_leaves);
-        let num_internal_nodes = num_nodes - num_leaves;
-
-        {
-            let mut chunk = chunk + num_internal_nodes;
-            for new_chunk_bytes in packed.chunks(HASHSIZE) {
-                cache.maybe_update_chunk(chunk, new_chunk_bytes)?;
-                chunk += 1;
+        for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
+            if cache.either_modified(children)? {
+                cache.modify_chunk(parent, &cache.hash_children(children)?)?;
             }
         }
 
-        // Iterate backwards through the internal nodes, rehashing any node where it's children
-        // have changed.
-        for chunk in (chunk..chunk + num_internal_nodes).into_iter().rev() {
-            if cache.children_modified(chunk)? {
-                cache.modify_chunk(chunk, &cache.hash_children(chunk)?)?;
-            }
-        }
-
-        Some(chunk + num_nodes)
-        */
-        // TODO
-        Ok(42)
+        Ok(offset_handler.next_node())
     }
 }
 
-/*
-fn get_packed_leaves<T>(vec: Vec<T>) -> Vec<u8>
+fn get_packed_leaves<T>(vec: &Vec<T>) -> Vec<u8>
 where
-    T: Encodable,
+    T: CachedTreeHash,
 {
-    //
+    let num_packed_bytes = vec.num_bytes();
+    let num_leaves = num_sanitized_leaves(num_packed_bytes);
+
+    let mut packed = Vec::with_capacity(num_leaves * HASHSIZE);
+
+    for item in vec {
+        packed.append(&mut item.packed_encoding());
+    }
+
+    sanitise_bytes(packed)
 }
-*/
