@@ -1,9 +1,7 @@
 use super::*;
 use crate::{ssz_encode, Encodable};
 
-impl CachedTreeHash for u64 {
-    type Item = Self;
-
+impl CachedTreeHash<u64> for u64 {
     fn item_type() -> ItemType {
         ItemType::Basic
     }
@@ -47,12 +45,10 @@ impl CachedTreeHash for u64 {
     }
 }
 
-impl<T> CachedTreeHash for Vec<T>
+impl<T> CachedTreeHash<Vec<T>> for Vec<T>
 where
-    T: CachedTreeHash,
+    T: CachedTreeHash<T>,
 {
-    type Item = Self;
-
     fn item_type() -> ItemType {
         ItemType::List
     }
@@ -78,7 +74,7 @@ where
                 let mut offsets = vec![];
 
                 for item in self {
-                    offsets.push(item.offsets()?.iter().sum())
+                    offsets.push(OffsetHandler::new(item, 0)?.total_nodes())
                 }
 
                 offsets
@@ -107,11 +103,15 @@ where
 
     fn cached_hash_tree_root(
         &self,
-        other: &Self::Item,
+        other: &Vec<T>,
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Result<usize, Error> {
         let offset_handler = OffsetHandler::new(self, chunk)?;
+
+        if self.len() != other.len() {
+            panic!("variable sized lists not implemented");
+        }
 
         match T::item_type() {
             ItemType::Basic => {
@@ -119,20 +119,35 @@ where
 
                 for (i, chunk) in offset_handler.iter_leaf_nodes().enumerate() {
                     if let Some(latest) = leaves.get(i * HASHSIZE..(i + 1) * HASHSIZE) {
-                        if !cache.chunk_equals(*chunk, latest)? {
-                            dbg!(chunk);
-                            cache.set_changed(*chunk, true)?;
-                        }
+                        cache.maybe_update_chunk(*chunk, latest)?;
                     }
                 }
                 let first_leaf_chunk = offset_handler.first_leaf_node()?;
                 cache.chunk_splice(first_leaf_chunk..offset_handler.next_node, leaves);
             }
-            _ => panic!("not implemented"),
+            ItemType::Composite | ItemType::List => {
+                let mut i = offset_handler.num_leaf_nodes;
+                for start_chunk in offset_handler.iter_leaf_nodes().rev() {
+                    i -= 1;
+                    match (other.get(i), self.get(i)) {
+                        // The item existed in the previous list and exsits in the current list.
+                        (Some(old), Some(new)) => {
+                            new.cached_hash_tree_root(old, cache, *start_chunk)?;
+                        },
+                        // The item didn't exist in the old list and doesn't exist in the new list,
+                        // nothing to do.
+                        (None, None) => {},
+                        _ => panic!("variable sized lists not implemented")
+                    };
+                }
+                // this thing
+            }
         }
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
             if cache.either_modified(children)? {
+                dbg!(parent);
+                dbg!(children);
                 cache.modify_chunk(parent, &cache.hash_children(children)?)?;
             }
         }
@@ -143,7 +158,7 @@ where
 
 fn get_packed_leaves<T>(vec: &Vec<T>) -> Vec<u8>
 where
-    T: CachedTreeHash,
+    T: CachedTreeHash<T>,
 {
     let num_packed_bytes = vec.num_bytes();
     let num_leaves = num_sanitized_leaves(num_packed_bytes);
