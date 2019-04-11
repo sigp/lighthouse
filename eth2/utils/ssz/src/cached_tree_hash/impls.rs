@@ -109,8 +109,8 @@ where
     ) -> Result<usize, Error> {
         let offset_handler = OffsetHandler::new(self, chunk)?;
 
-        if self.len() != other.len() {
-            panic!("variable sized lists not implemented");
+        if self.len().next_power_of_two() != other.len().next_power_of_two() {
+            panic!("not implemented: vary between power-of-two boundary");
         }
 
         match T::item_type() {

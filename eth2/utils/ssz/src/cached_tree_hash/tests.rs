@@ -343,35 +343,78 @@ fn outer_builds() {
     assert_eq!(merkle, cache);
 }
 
-#[test]
-fn partial_modification_u64_vec() {
-    let n: u64 = 50;
-
-    let original_vec: Vec<u64> = (0..n).collect();
-
+/// Generic test that covers:
+///
+/// 1. Produce a new cache from `original`.
+/// 2. Do a differential hash between `original` and `modified`.
+/// 3. Test that the cache generated matches the one we generate manually.
+///
+/// In effect it ensures that we can do a differential hash between two `Vec<u64>`.
+fn test_u64_vec_modifications(original: Vec<u64>, modified: Vec<u64>) {
     // Generate initial cache.
-    let original_cache: Vec<u8> = TreeHashCache::new(&original_vec).unwrap().into();
-
-    // Modify the vec
-    let mut modified_vec = original_vec.clone();
-    modified_vec[n as usize - 1] = 42;
+    let original_cache: Vec<u8> = TreeHashCache::new(&original).unwrap().into();
 
     // Perform a differential hash
     let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
-    modified_vec
-        .cached_hash_tree_root(&original_vec, &mut cache_struct, 0)
+    modified
+        .cached_hash_tree_root(&original, &mut cache_struct, 0)
         .unwrap();
     let modified_cache: Vec<u8> = cache_struct.into();
 
     // Generate reference data.
     let mut data = vec![];
-    for i in &modified_vec {
+    for i in &modified {
         data.append(&mut int_to_bytes8(*i));
     }
     let data = sanitise_bytes(data);
     let expected = merkleize(data);
 
     assert_eq!(expected, modified_cache);
+}
+
+#[test]
+fn partial_modification_u64_vec() {
+    let n: u64 = 2_u64.pow(5);
+
+    let original_vec: Vec<u64> = (0..n).collect();
+
+    let mut modified_vec = original_vec.clone();
+    modified_vec[n as usize - 1] = 42;
+
+    test_u64_vec_modifications(original_vec, modified_vec);
+}
+
+#[test]
+fn shortened_u64_vec_len_within_pow_2_boundary() {
+    let n: u64 = 2_u64.pow(5) - 1;
+
+    let original_vec: Vec<u64> = (0..n).collect();
+
+    let mut modified_vec = original_vec.clone();
+    modified_vec.pop();
+
+    test_u64_vec_modifications(original_vec, modified_vec);
+}
+
+#[test]
+fn extended_u64_vec_len_within_pow_2_boundary() {
+    let n: u64 = 2_u64.pow(5) - 2;
+
+    let original_vec: Vec<u64> = (0..n).collect();
+
+    let mut modified_vec = original_vec.clone();
+    modified_vec.push(42);
+
+    test_u64_vec_modifications(original_vec, modified_vec);
+}
+
+#[test]
+fn extended_u64_vec_len_outside_pow_2_boundary() {
+    let original_vec: Vec<u64> = (0..2_u64.pow(5)).collect();
+
+    let modified_vec: Vec<u64> = (0..2_u64.pow(6)).collect();
+
+    test_u64_vec_modifications(original_vec, modified_vec);
 }
 
 #[test]
