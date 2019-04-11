@@ -133,14 +133,13 @@ where
                         // The item existed in the previous list and exsits in the current list.
                         (Some(old), Some(new)) => {
                             new.cached_hash_tree_root(old, cache, *start_chunk)?;
-                        },
+                        }
                         // The item didn't exist in the old list and doesn't exist in the new list,
                         // nothing to do.
-                        (None, None) => {},
-                        _ => panic!("variable sized lists not implemented")
+                        (None, None) => {}
+                        _ => panic!("variable sized lists not implemented"),
                     };
                 }
-                // this thing
             }
         }
 
