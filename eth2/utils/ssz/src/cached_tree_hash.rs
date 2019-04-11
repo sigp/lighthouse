@@ -195,15 +195,18 @@ impl TreeHashCache {
         Ok(())
     }
 
-    pub fn chunk_equals(&mut self, chunk: usize, other: &[u8]) -> Result<bool, Error> {
+    pub fn get_chunk(&self, chunk: usize) -> Result<&[u8], Error> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
 
         Ok(self
             .cache
             .get(start..end)
-            .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))?
-            == other)
+            .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))?)
+    }
+
+    pub fn chunk_equals(&mut self, chunk: usize, other: &[u8]) -> Result<bool, Error> {
+        Ok(self.get_chunk(chunk)? == other)
     }
 
     pub fn changed(&self, chunk: usize) -> Result<bool, Error> {
@@ -218,15 +221,11 @@ impl TreeHashCache {
     }
 
     pub fn hash_children(&self, children: (&usize, &usize)) -> Result<Vec<u8>, Error> {
-        let start = children.0 * BYTES_PER_CHUNK;
-        let end = start + BYTES_PER_CHUNK * 2;
+        let mut child_bytes = Vec::with_capacity(BYTES_PER_CHUNK * 2);
+        child_bytes.append(&mut self.get_chunk(*children.0)?.to_vec());
+        child_bytes.append(&mut self.get_chunk(*children.1)?.to_vec());
 
-        let children = &self
-            .cache
-            .get(start..end)
-            .ok_or_else(|| Error::NoChildrenForHashing((*children.0, *children.1)))?;
-
-        Ok(hash(children))
+        Ok(hash(&child_bytes))
     }
 
     pub fn into_merkle_tree(self) -> Vec<u8> {
