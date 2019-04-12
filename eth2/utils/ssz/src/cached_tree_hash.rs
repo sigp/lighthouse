@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::vec::Splice;
 
 mod impls;
+mod resize;
 mod tests;
 
 const BYTES_PER_CHUNK: usize = 32;

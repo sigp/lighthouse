@@ -170,23 +170,6 @@ where
     }
 }
 
-/// New vec is bigger than old vec.
-fn grow_merkle_cache(cache: Vec<u8>, to: usize) -> Vec<u8> {
-    let new = Vec::with_capacity(to * HASHSIZE);
-
-    let i = cache.len() / HASHSIZE;
-    let j = to;
-
-    assert_eq!(i.next_power_of_two(), i);
-    assert_eq!(j.next_power_of_two(), j);
-
-    while i > 0 {
-        
-    }
-
-    new
-}
-
 fn get_packed_leaves<T>(vec: &Vec<T>) -> Vec<u8>
 where
     T: CachedTreeHash<T>,
