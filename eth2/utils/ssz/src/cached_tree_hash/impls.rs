@@ -153,7 +153,6 @@ where
                         // The item didn't exist in the old list and doesn't exist in the new list,
                         // nothing to do.
                         (None, None) => {}
-                        _ => panic!("variable sized lists not implemented"),
                     };
                 }
             }

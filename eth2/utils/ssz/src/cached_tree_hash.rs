@@ -145,30 +145,20 @@ impl TreeHashCache {
         })
     }
 
-    pub fn single_chunk_splice<I>(&mut self, chunk: usize, replace_with: I) -> Splice<I::IntoIter>
-    where
-        I: IntoIterator<Item = u8>,
-    {
-        self.chunk_splice(chunk..chunk + 1, replace_with)
+    pub fn single_chunk_splice<I>(&mut self, chunk: usize, replace_with: Vec<u8>) {
+        self.chunk_splice(chunk..chunk + 1, replace_with);
     }
 
-    pub fn chunk_splice<I>(
-        &mut self,
-        chunk_range: Range<usize>,
-        replace_with: I,
-    ) -> Splice<I::IntoIter>
-    where
-        I: IntoIterator<Item = u8>,
-    {
+    pub fn chunk_splice(&mut self, chunk_range: Range<usize>, replace_with: Vec<u8>) {
         let byte_start = chunk_range.start * BYTES_PER_CHUNK;
         let byte_end = chunk_range.end * BYTES_PER_CHUNK;
 
         // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
         self.chunk_modified.splice(
             chunk_range.clone(),
-            vec![true; chunk_range.end - chunk_range.start],
+            vec![true; replace_with.len() / HASHSIZE],
         );
-        self.cache.splice(byte_start..byte_end, replace_with)
+        self.cache.splice(byte_start..byte_end, replace_with);
     }
 
     pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
