@@ -163,6 +163,11 @@ impl TreeHashCache {
         let byte_start = chunk_range.start * BYTES_PER_CHUNK;
         let byte_end = chunk_range.end * BYTES_PER_CHUNK;
 
+        // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
+        self.chunk_modified.splice(
+            chunk_range.clone(),
+            vec![true; chunk_range.end - chunk_range.start],
+        );
         self.cache.splice(byte_start..byte_end, replace_with)
     }
 
