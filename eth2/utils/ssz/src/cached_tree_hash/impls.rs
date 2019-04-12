@@ -127,12 +127,28 @@ where
             }
             ItemType::Composite | ItemType::List => {
                 let mut i = offset_handler.num_leaf_nodes;
-                for start_chunk in offset_handler.iter_leaf_nodes().rev() {
+                for &start_chunk in offset_handler.iter_leaf_nodes().rev() {
                     i -= 1;
                     match (other.get(i), self.get(i)) {
                         // The item existed in the previous list and exsits in the current list.
                         (Some(old), Some(new)) => {
-                            new.cached_hash_tree_root(old, cache, *start_chunk)?;
+                            new.cached_hash_tree_root(old, cache, start_chunk)?;
+                        }
+                        // The item existed in the previous list but does not exist in this list.
+                        //
+                        // I.e., the list has been shortened.
+                        (Some(old), None) => {
+                            // Splice out the entire tree of the removed node, replacing it with a
+                            // single padding node.
+                            let end_chunk = OffsetHandler::new(old, start_chunk)?.next_node();
+                            cache.chunk_splice(start_chunk..end_chunk, vec![0; HASHSIZE]);
+                        }
+                        // The item existed in the previous list but does exist in this list.
+                        //
+                        // I.e., the list has been lengthened.
+                        (None, Some(new)) => {
+                            let bytes: Vec<u8> = TreeHashCache::new(new)?.into();
+                            cache.chunk_splice(start_chunk..start_chunk + 1, bytes);
                         }
                         // The item didn't exist in the old list and doesn't exist in the new list,
                         // nothing to do.
