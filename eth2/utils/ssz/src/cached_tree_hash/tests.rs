@@ -473,9 +473,14 @@ fn test_inner_vec_modifications(original: Vec<Inner>, modified: Vec<Inner>, refe
         full_bytes.append(&mut merkle);
     }
 
+    let num_leaves = leaves.len() / HASHSIZE;
+
     let mut expected = merkleize(leaves);
     expected.splice(3 * HASHSIZE.., full_bytes);
-    expected.append(&mut vec![0; HASHSIZE]);
+
+    for _ in num_leaves..num_leaves.next_power_of_two() {
+        expected.append(&mut vec![0; HASHSIZE]);
+    }
 
     // Compare the cached tree to the reference tree.
     assert_trees_eq(&expected, &modified_cache);
