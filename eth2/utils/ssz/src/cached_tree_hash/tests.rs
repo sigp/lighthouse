@@ -355,7 +355,7 @@ fn test_u64_vec_modifications(original: Vec<u64>, modified: Vec<u64>) {
     let original_cache: Vec<u8> = TreeHashCache::new(&original).unwrap().into();
 
     // Perform a differential hash
-    let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone()).unwrap();
+    let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone(), false).unwrap();
     modified
         .cached_hash_tree_root(&original, &mut cache_struct, 0)
         .unwrap();
@@ -723,7 +723,7 @@ fn generic_test(index: usize) {
         _ => panic!("bad index"),
     };
 
-    let mut cache_struct = TreeHashCache::from_bytes(cache.clone()).unwrap();
+    let mut cache_struct = TreeHashCache::from_bytes(cache.clone(), false).unwrap();
 
     changed_inner
         .cached_hash_tree_root(&inner, &mut cache_struct, 0)

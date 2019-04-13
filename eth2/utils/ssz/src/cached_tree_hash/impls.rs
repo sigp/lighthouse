@@ -7,7 +7,10 @@ impl CachedTreeHash<u64> for u64 {
     }
 
     fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
-        Ok(TreeHashCache::from_bytes(merkleize(ssz_encode(self)))?)
+        Ok(TreeHashCache::from_bytes(
+            merkleize(ssz_encode(self)),
+            false,
+        )?)
     }
 
     fn num_bytes(&self) -> usize {
@@ -55,7 +58,7 @@ where
 
     fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         match T::item_type() {
-            ItemType::Basic => TreeHashCache::from_bytes(merkleize(get_packed_leaves(self))),
+            ItemType::Basic => TreeHashCache::from_bytes(merkleize(get_packed_leaves(self)), false),
             ItemType::Composite | ItemType::List => {
                 let subtrees = self
                     .iter()
@@ -123,7 +126,11 @@ where
                     }
                 }
                 let first_leaf_chunk = offset_handler.first_leaf_node()?;
-                cache.chunk_splice(first_leaf_chunk..offset_handler.next_node, leaves);
+
+                cache.splice(
+                    first_leaf_chunk..offset_handler.next_node,
+                    TreeHashCache::from_bytes(leaves, true)?,
+                );
             }
             ItemType::Composite | ItemType::List => {
                 let mut i = offset_handler.num_leaf_nodes;
@@ -141,14 +148,22 @@ where
                             // Splice out the entire tree of the removed node, replacing it with a
                             // single padding node.
                             let end_chunk = OffsetHandler::new(old, start_chunk)?.next_node();
-                            cache.chunk_splice(start_chunk..end_chunk, vec![0; HASHSIZE]);
+
+                            cache.splice(
+                                start_chunk..end_chunk,
+                                TreeHashCache::from_bytes(vec![0; HASHSIZE], true)?,
+                            );
                         }
                         // The item existed in the previous list but does exist in this list.
                         //
                         // I.e., the list has been lengthened.
                         (None, Some(new)) => {
                             let bytes: Vec<u8> = TreeHashCache::new(new)?.into();
-                            cache.chunk_splice(start_chunk..start_chunk + 1, bytes);
+
+                            cache.splice(
+                                start_chunk..start_chunk + 1,
+                                TreeHashCache::from_bytes(bytes, true)?,
+                            );
                         }
                         // The item didn't exist in the old list and doesn't exist in the new list,
                         // nothing to do.
