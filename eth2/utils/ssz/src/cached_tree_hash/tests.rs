@@ -1,5 +1,5 @@
+#![cfg(test)]
 use super::*;
-use crate::Encodable;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 
 #[derive(Clone, Debug)]

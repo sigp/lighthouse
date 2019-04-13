@@ -1,5 +1,6 @@
+use super::resize::grow_merkle_cache;
 use super::*;
-use crate::{ssz_encode, Encodable};
+use crate::ssz_encode;
 
 impl CachedTreeHash<u64> for u64 {
     fn item_type() -> ItemType {
@@ -112,8 +113,10 @@ where
     ) -> Result<usize, Error> {
         let offset_handler = OffsetHandler::new(self, chunk)?;
 
-        if self.len().next_power_of_two() != other.len().next_power_of_two() {
-            panic!("not implemented: vary between power-of-two boundary");
+        if other.len().next_power_of_two() > self.len().next_power_of_two() {
+            //
+        } else if other.len().next_power_of_two() < self.len().next_power_of_two() {
+            panic!("shrinking below power of two is not implemented")
         }
 
         match T::item_type() {
