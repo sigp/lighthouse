@@ -124,6 +124,17 @@ impl TreeHashCache {
         })
     }
 
+    pub fn from_bytes(bytes: Vec<u8>, initial_modified_state: bool) -> Result<Self, Error> {
+        if bytes.len() % BYTES_PER_CHUNK > 0 {
+            return Err(Error::BytesAreNotEvenChunks(bytes.len()));
+        }
+
+        Ok(Self {
+            chunk_modified: vec![initial_modified_state; bytes.len() / BYTES_PER_CHUNK],
+            cache: bytes,
+        })
+    }
+
     pub fn bytes_len(&self) -> usize {
         self.cache.len()
     }
@@ -135,22 +146,19 @@ impl TreeHashCache {
             .and_then(|slice| Ok(slice.to_vec()))
     }
 
-    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
-        if bytes.len() % BYTES_PER_CHUNK > 0 {
-            return Err(Error::BytesAreNotEvenChunks(bytes.len()));
-        }
+    pub fn splice(&mut self, chunk_range: Range<usize>, replace_with: Self) {
+        let (bytes, bools) = replace_with.into_components();
 
-        Ok(Self {
-            chunk_modified: vec![false; bytes.len() / BYTES_PER_CHUNK],
-            cache: bytes,
-        })
+        // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
+        self.chunk_modified.splice(
+            chunk_range.clone(),
+            bools,
+        );
+        self.cache.splice(node_range_to_byte_range(chunk_range), bytes);
     }
 
-    pub fn single_chunk_splice<I>(&mut self, chunk: usize, replace_with: Vec<u8>) {
-        self.chunk_splice(chunk..chunk + 1, replace_with);
-    }
-
-    pub fn chunk_splice(&mut self, chunk_range: Range<usize>, replace_with: Vec<u8>) {
+    /*
+    pub fn byte_splice(&mut self, chunk_range: Range<usize>, replace_with: Vec<u8>) {
         let byte_start = chunk_range.start * BYTES_PER_CHUNK;
         let byte_end = chunk_range.end * BYTES_PER_CHUNK;
 
@@ -161,6 +169,7 @@ impl TreeHashCache {
         );
         self.cache.splice(byte_start..byte_end, replace_with);
     }
+    */
 
     pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
         let start = chunk * BYTES_PER_CHUNK;
@@ -227,6 +236,10 @@ impl TreeHashCache {
     pub fn into_merkle_tree(self) -> Vec<u8> {
         self.cache
     }
+
+    pub fn into_components(self) -> (Vec<u8>, Vec<bool>) {
+        (self.cache, self.chunk_modified)
+    }
 }
 
 fn children(parent: usize) -> (usize, usize) {
@@ -235,6 +248,10 @@ fn children(parent: usize) -> (usize, usize) {
 
 fn num_nodes(num_leaves: usize) -> usize {
     2 * num_leaves - 1
+}
+
+fn node_range_to_byte_range(node_range: Range<usize>) -> Range<usize> {
+    node_range.start * HASHSIZE..node_range.end * HASHSIZE
 }
 
 #[derive(Debug)]
