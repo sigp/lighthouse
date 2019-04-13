@@ -24,8 +24,6 @@ fn grow_merkle_cache(
 
     // Loop through all internal levels of the tree (skipping the final, leaves level).
     for i in 0..from_height - 1 as usize {
-        dbg!(i);
-        dbg!(bytes.len());
         // If we're on the leaf slice, grab the first byte and all the of the bytes after that.
         // This is required because we can have an arbitrary number of bytes at the leaf level
         // (e.g., the case where there are subtrees as leaves).
@@ -37,8 +35,6 @@ fn grow_merkle_cache(
             old_bytes.get(byte_range_at_height(i))
         }?;
 
-        dbg!(byte_range_at_height(i + to_height - from_height));
-
         let new_slice = bytes
             .get_mut(byte_range_at_height(i + to_height - from_height))?
             .get_mut(0..old_slice.len())?;
@@ -47,6 +43,27 @@ fn grow_merkle_cache(
     }
 
     Some(bytes)
+}
+
+/*
+fn copy_bytes(
+    from_range: Range<usize>,
+    to_range: Range<usize>,
+    from: &[u8],
+    to: &mut Vec<u8>,
+) -> Option<()> {
+    let from_slice = from.get(node_range_to_byte_range(from_range));
+
+    let to_slice = to
+        .get_mut(byte_range_at_height(i + to_height - from_height))?
+        .get_mut(0..old_slice.len())?;
+
+    Ok(())
+}
+*/
+
+fn node_range_to_byte_range(node_range: Range<usize>) -> Range<usize> {
+    node_range.start * HASHSIZE..node_range.end * HASHSIZE
 }
 
 fn byte_range_at_height(h: usize) -> Range<usize> {
