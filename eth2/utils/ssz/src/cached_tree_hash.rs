@@ -1,9 +1,7 @@
 use hashing::hash;
 use std::fmt::Debug;
-use std::iter::IntoIterator;
 use std::iter::Iterator;
 use std::ops::Range;
-use std::vec::Splice;
 
 mod impls;
 mod resize;
@@ -21,7 +19,6 @@ pub enum Error {
     BytesAreNotEvenChunks(usize),
     NoModifiedFieldForChunk(usize),
     NoBytesForChunk(usize),
-    NoChildrenForHashing((usize, usize)),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -150,26 +147,10 @@ impl TreeHashCache {
         let (bytes, bools) = replace_with.into_components();
 
         // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
-        self.chunk_modified.splice(
-            chunk_range.clone(),
-            bools,
-        );
-        self.cache.splice(node_range_to_byte_range(chunk_range), bytes);
+        self.chunk_modified.splice(chunk_range.clone(), bools);
+        self.cache
+            .splice(node_range_to_byte_range(chunk_range), bytes);
     }
-
-    /*
-    pub fn byte_splice(&mut self, chunk_range: Range<usize>, replace_with: Vec<u8>) {
-        let byte_start = chunk_range.start * BYTES_PER_CHUNK;
-        let byte_end = chunk_range.end * BYTES_PER_CHUNK;
-
-        // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
-        self.chunk_modified.splice(
-            chunk_range.clone(),
-            vec![true; replace_with.len() / HASHSIZE],
-        );
-        self.cache.splice(byte_start..byte_end, replace_with);
-    }
-    */
 
     pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
         let start = chunk * BYTES_PER_CHUNK;
