@@ -146,7 +146,7 @@ fn run_state_transition_tests_small() {
 
 // Run with --ignored to run this test
 #[test]
-#[ignored]
+#[ignore]
 fn run_state_transition_tests_large() {
     run_state_transition_test("sanity-check_default-config_100-vals.yaml");
 }
