@@ -1,4 +1,4 @@
-use super::resize::grow_merkle_cache;
+use super::resize::{grow_merkle_cache, shrink_merkle_cache};
 use super::*;
 use crate::ssz_encode;
 
@@ -112,35 +112,41 @@ where
         chunk: usize,
     ) -> Result<usize, Error> {
         let offset_handler = OffsetHandler::new(self, chunk)?;
+        let old_offset_handler = OffsetHandler::new(other, chunk)?;
 
-        // Check to see if the length of the list has changed length beyond a power-of-two
-        // boundary. In such a case we need to resize the merkle tree bytes.
-        if self.len().next_power_of_two() > other.len().next_power_of_two() {
+        if offset_handler.num_leaf_nodes != old_offset_handler.num_leaf_nodes {
             let old_offset_handler = OffsetHandler::new(other, chunk)?;
-
-            dbg!(old_offset_handler.node_range());
 
             // Get slices of the exsiting tree from the cache.
             let (old_bytes, old_flags) = cache
                 .slices(old_offset_handler.node_range())
                 .ok_or_else(|| Error::UnableToObtainSlices)?;
 
-            // From the existing slices build new, expanded Vecs.
-            let (new_bytes, new_flags) = grow_merkle_cache(
-                old_bytes,
-                old_flags,
-                old_offset_handler.height(),
-                offset_handler.height(),
-            ).ok_or_else(|| Error::UnableToGrowMerkleTree)?;
+            let (new_bytes, new_flags) =
+                if offset_handler.num_leaf_nodes > old_offset_handler.num_leaf_nodes {
+                    grow_merkle_cache(
+                        old_bytes,
+                        old_flags,
+                        old_offset_handler.height(),
+                        offset_handler.height(),
+                    )
+                    .ok_or_else(|| Error::UnableToGrowMerkleTree)?
+                } else {
+                    shrink_merkle_cache(
+                        old_bytes,
+                        old_flags,
+                        old_offset_handler.height(),
+                        offset_handler.height(),
+                        offset_handler.total_nodes(),
+                    )
+                    .ok_or_else(|| Error::UnableToGrowMerkleTree)?
+                };
 
             // Create a `TreeHashCache` from the raw elements.
             let expanded_cache = TreeHashCache::from_elems(new_bytes, new_flags);
 
             // Splice the newly created `TreeHashCache` over the existing, smaller elements.
             cache.splice(old_offset_handler.node_range(), expanded_cache);
-        //
-        } else if self.len().next_power_of_two() < other.len().next_power_of_two() {
-            panic!("shrinking below power of two is not implemented")
         }
 
         match T::item_type() {
