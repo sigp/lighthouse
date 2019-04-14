@@ -113,9 +113,27 @@ where
     ) -> Result<usize, Error> {
         let offset_handler = OffsetHandler::new(self, chunk)?;
 
-        if other.len().next_power_of_two() > self.len().next_power_of_two() {
-            //
-        } else if other.len().next_power_of_two() < self.len().next_power_of_two() {
+        if self.len().next_power_of_two() > other.len().next_power_of_two() {
+            // Get slices of the exsiting tree from the cache.
+            let (old_bytes, old_flags) = cache
+                .slices(offset_handler.node_range()?)
+                .ok_or_else(|| Error::UnableToObtainSlices)?;
+
+            // From the existing slices build new, expanded Vecs.
+            let (new_bytes, new_flags) = grow_merkle_cache(
+                old_bytes,
+                old_flags,
+                other.len().next_power_of_two().leading_zeros() as usize,
+                self.len().next_power_of_two().leading_zeros() as usize,
+            ).ok_or_else(|| Error::UnableToGrowMerkleTree)?;
+
+            // Create a `TreeHashCache` from the raw elements.
+            let expanded_cache = TreeHashCache::from_elems(new_bytes, new_flags);
+
+            // Splice the newly created `TreeHashCache` over the existing, smaller elements.
+            cache.splice(offset_handler.node_range()?, expanded_cache);
+        //
+        } else if self.len().next_power_of_two() < other.len().next_power_of_two() {
             panic!("shrinking below power of two is not implemented")
         }
 
