@@ -397,6 +397,15 @@ fn shortened_u64_vec_len_within_pow_2_boundary() {
 }
 
 #[test]
+fn shortened_u64_vec_len_outside_pow_2_boundary() {
+    let original_vec: Vec<u64> = (0..2_u64.pow(6)).collect();
+
+    let modified_vec: Vec<u64> = (0..2_u64.pow(5)).collect();
+
+    test_u64_vec_modifications(original_vec, modified_vec);
+}
+
+#[test]
 fn extended_u64_vec_len_within_pow_2_boundary() {
     let n: u64 = 2_u64.pow(5) - 2;
 
