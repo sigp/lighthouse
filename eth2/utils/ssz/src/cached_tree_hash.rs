@@ -14,7 +14,7 @@ const MERKLE_HASH_CHUNCK: usize = 2 * BYTES_PER_CHUNK;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
-    ShouldNotProduceOffsetHandler,
+    ShouldNotProduceBTreeOverlay,
     NoFirstNode,
     NoBytesForRoot,
     UnableToObtainSlices,
@@ -92,7 +92,7 @@ impl TreeHashCache {
     where
         T: CachedTreeHash<T>,
     {
-        let offset_handler = OffsetHandler::new(item, 0)?;
+        let offset_handler = BTreeOverlay::new(item, 0)?;
 
         // Note how many leaves were provided. If is not a power-of-two, we'll need to pad it out
         // later.
@@ -263,7 +263,7 @@ fn node_range_to_byte_range(node_range: &Range<usize>) -> Range<usize> {
 }
 
 #[derive(Debug)]
-pub struct OffsetHandler {
+pub struct BTreeOverlay {
     num_internal_nodes: usize,
     pub num_leaf_nodes: usize,
     first_node: usize,
@@ -271,7 +271,7 @@ pub struct OffsetHandler {
     offsets: Vec<usize>,
 }
 
-impl OffsetHandler {
+impl BTreeOverlay {
     pub fn new<T>(item: &T, initial_offset: usize) -> Result<Self, Error>
     where
         T: CachedTreeHash<T>,
