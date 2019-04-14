@@ -212,6 +212,12 @@ where
             }
         }
 
+        // If the root node or the length has changed, mix in the length of the list.
+        let root_node = offset_handler.root();
+        if cache.changed(root_node)? | (self.len() != other.len()) {
+            cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
+        }
+
         Ok(offset_handler.next_node())
     }
 }

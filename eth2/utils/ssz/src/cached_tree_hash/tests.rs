@@ -343,6 +343,13 @@ fn outer_builds() {
     assert_eq!(merkle, cache);
 }
 
+fn mix_in_length(root: &mut [u8], len: usize) {
+    let mut bytes = root.to_vec();
+    bytes.append(&mut int_to_bytes32(len as u64));
+
+    root.copy_from_slice(&hash(&bytes));
+}
+
 /// Generic test that covers:
 ///
 /// 1. Produce a new cache from `original`.
@@ -367,7 +374,9 @@ fn test_u64_vec_modifications(original: Vec<u64>, modified: Vec<u64>) {
         data.append(&mut int_to_bytes8(*i));
     }
     let data = sanitise_bytes(data);
-    let expected = merkleize(data);
+    let mut expected = merkleize(data);
+
+    mix_in_length(&mut expected[0..HASHSIZE], modified.len());
 
     assert_eq!(expected, modified_cache);
 }
@@ -489,6 +498,8 @@ fn test_inner_vec_modifications(original: Vec<Inner>, modified: Vec<Inner>, refe
     for _ in num_leaves..num_leaves.next_power_of_two() {
         expected.append(&mut vec![0; HASHSIZE]);
     }
+
+    mix_in_length(&mut expected[0..HASHSIZE], modified.len());
 
     // Compare the cached tree to the reference tree.
     assert_trees_eq(&expected, &modified_cache);
