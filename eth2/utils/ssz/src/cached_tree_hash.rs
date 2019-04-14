@@ -255,6 +255,7 @@ fn node_range_to_byte_range(node_range: &Range<usize>) -> Range<usize> {
 pub struct OffsetHandler {
     num_internal_nodes: usize,
     pub num_leaf_nodes: usize,
+    first_node: usize,
     next_node: usize,
     offsets: Vec<usize>,
 }
@@ -293,12 +294,17 @@ impl OffsetHandler {
             num_internal_nodes,
             num_leaf_nodes,
             offsets,
+            first_node: offset,
             next_node,
         })
     }
 
-    pub fn node_range(&self) -> Result<Range<usize>, Error> {
-        Ok(*self.offsets.first().ok_or_else(|| Error::NoFirstNode)?..self.next_node())
+    pub fn height(&self) -> usize {
+        self.num_leaf_nodes.trailing_zeros() as usize
+    }
+
+    pub fn node_range(&self) -> Range<usize> {
+        self.first_node..self.next_node
     }
 
     pub fn total_nodes(&self) -> usize {
