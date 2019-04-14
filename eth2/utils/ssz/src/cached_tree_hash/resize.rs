@@ -7,22 +7,20 @@ pub fn grow_merkle_cache(
     from_height: usize,
     to_height: usize,
 ) -> Option<(Vec<u8>, Vec<bool>)> {
-    let to_nodes = (1 << to_height.next_power_of_two()) - 1;
-
     // Determine the size of our new tree. It is not just a simple `1 << to_height` as there can be
-    // an arbitrary number of bytes in `old_bytes` leaves.
-    let new_byte_count = {
-        let additional_from_nodes = old_bytes.len() / HASHSIZE - ((1 << from_height) - 1);
-        ((1 << to_height + additional_from_nodes) - 1) * HASHSIZE
+    // an arbitrary number of nodes in `old_bytes` leaves if those leaves are subtrees.
+    let to_nodes = {
+        let old_nodes = old_bytes.len() / HASHSIZE;
+        let additional_nodes = old_nodes - nodes_in_tree_of_height(from_height);
+        nodes_in_tree_of_height(to_height) + additional_nodes
     };
 
-    let mut bytes = vec![0; new_byte_count];
+    let mut bytes = vec![0; to_nodes * HASHSIZE];
     let mut flags = vec![true; to_nodes];
 
-    let leaf_level = from_height - 1;
+    let leaf_level = from_height;
 
-    // Loop through all internal levels of the tree (skipping the final, leaves level).
-    for i in 0..from_height as usize {
+    for i in 0..=from_height as usize {
         // If we're on the leaf slice, grab the first byte and all the of the bytes after that.
         // This is required because we can have an arbitrary number of bytes at the leaf level
         // (e.g., the case where there are subtrees as leaves).
@@ -36,7 +34,7 @@ pub fn grow_merkle_cache(
         } else {
             (
                 old_bytes.get(byte_range_at_height(i))?,
-                old_flags.get(node_range_at_height(i))?
+                old_flags.get(node_range_at_height(i))?,
             )
         };
 
@@ -53,12 +51,17 @@ pub fn grow_merkle_cache(
     Some((bytes, flags))
 }
 
+fn nodes_in_tree_of_height(h: usize) -> usize {
+    2 * (1 << h) - 1
+}
+
 fn byte_range_at_height(h: usize) -> Range<usize> {
-    first_byte_at_height(h)..last_node_at_height(h) * HASHSIZE
+    let node_range = node_range_at_height(h);
+    node_range.start * HASHSIZE..node_range.end * HASHSIZE
 }
 
 fn node_range_at_height(h: usize) -> Range<usize> {
-    first_node_at_height(h)..last_node_at_height(h)
+    first_node_at_height(h)..last_node_at_height(h) + 1
 }
 
 fn first_byte_at_height(h: usize) -> usize {
@@ -70,7 +73,7 @@ fn first_node_at_height(h: usize) -> usize {
 }
 
 fn last_node_at_height(h: usize) -> usize {
-    (1 << (h + 1)) - 1
+    (1 << (h + 1)) - 2
 }
 
 #[cfg(test)]
@@ -88,8 +91,8 @@ mod test {
         let (new_bytes, new_flags) = grow_merkle_cache(
             &old_bytes,
             &old_flags,
-            (from + 1).trailing_zeros() as usize,
-            (to + 1).trailing_zeros() as usize,
+            (from + 1).trailing_zeros() as usize - 1,
+            (to + 1).trailing_zeros() as usize - 1,
         )
         .unwrap();
 
@@ -145,8 +148,8 @@ mod test {
         let (new_bytes, new_flags) = grow_merkle_cache(
             &old_bytes,
             &old_flags,
-            (from + 1).trailing_zeros() as usize,
-            (to + 1).trailing_zeros() as usize,
+            (from + 1).trailing_zeros() as usize - 1,
+            (to + 1).trailing_zeros() as usize - 1,
         )
         .unwrap();
 
