@@ -16,6 +16,8 @@ pub enum Error {
     ShouldNotProduceOffsetHandler,
     NoFirstNode,
     NoBytesForRoot,
+    UnableToObtainSlices,
+    UnableToGrowMerkleTree,
     BytesAreNotEvenChunks(usize),
     NoModifiedFieldForChunk(usize),
     NoBytesForChunk(usize),
@@ -72,6 +74,13 @@ impl TreeHashCache {
         T: CachedTreeHash<T>,
     {
         item.build_tree_hash_cache()
+    }
+
+    pub fn from_elems(cache: Vec<u8>, chunk_modified: Vec<bool>) -> Self {
+        Self {
+            cache,
+            chunk_modified,
+        }
     }
 
     pub fn from_leaves_and_subtrees<T>(
@@ -149,7 +158,7 @@ impl TreeHashCache {
         // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
         self.chunk_modified.splice(chunk_range.clone(), bools);
         self.cache
-            .splice(node_range_to_byte_range(chunk_range), bytes);
+            .splice(node_range_to_byte_range(&chunk_range), bytes);
     }
 
     pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
@@ -165,6 +174,13 @@ impl TreeHashCache {
         }
 
         Ok(())
+    }
+
+    pub fn slices(&self, chunk_range: Range<usize>) -> Option<(&[u8], &[bool])> {
+        Some((
+            self.cache.get(node_range_to_byte_range(&chunk_range))?,
+            self.chunk_modified.get(chunk_range)?,
+        ))
     }
 
     pub fn modify_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
@@ -231,7 +247,7 @@ fn num_nodes(num_leaves: usize) -> usize {
     2 * num_leaves - 1
 }
 
-fn node_range_to_byte_range(node_range: Range<usize>) -> Range<usize> {
+fn node_range_to_byte_range(node_range: &Range<usize>) -> Range<usize> {
     node_range.start * HASHSIZE..node_range.end * HASHSIZE
 }
 
@@ -279,6 +295,10 @@ impl OffsetHandler {
             offsets,
             next_node,
         })
+    }
+
+    pub fn node_range(&self) -> Result<Range<usize>, Error> {
+        Ok(*self.offsets.first().ok_or_else(|| Error::NoFirstNode)?..self.next_node())
     }
 
     pub fn total_nodes(&self) -> usize {
