@@ -472,9 +472,10 @@ fn test_inner_vec_modifications(original: Vec<Inner>, modified: Vec<Inner>, refe
     }
 
     let num_leaves = leaves.len() / HASHSIZE;
-
     let mut expected = merkleize(leaves);
-    expected.splice(3 * HASHSIZE.., full_bytes);
+
+    let num_internal_nodes = num_leaves.next_power_of_two() - 1;
+    expected.splice(num_internal_nodes * HASHSIZE.., full_bytes);
 
     for _ in num_leaves..num_leaves.next_power_of_two() {
         expected.append(&mut vec![0; HASHSIZE]);
@@ -585,6 +586,48 @@ fn lengthened_vec_of_inner_within_power_of_two_boundary() {
     });
 
     let reference_vec: Vec<u64> = (0..16).collect();
+
+    test_inner_vec_modifications(original, modified, reference_vec);
+}
+
+#[test]
+fn lengthened_vec_of_inner_outside_power_of_two_boundary() {
+    let original = vec![
+        Inner {
+            a: 0,
+            b: 1,
+            c: 2,
+            d: 3,
+        },
+        Inner {
+            a: 4,
+            b: 5,
+            c: 6,
+            d: 7,
+        },
+        Inner {
+            a: 8,
+            b: 9,
+            c: 10,
+            d: 11,
+        },
+        Inner {
+            a: 12,
+            b: 13,
+            c: 14,
+            d: 15,
+        },
+    ];
+
+    let mut modified = original.clone();
+    modified.push(Inner {
+        a: 16,
+        b: 17,
+        c: 18,
+        d: 19,
+    });
+
+    let reference_vec: Vec<u64> = (0..20).collect();
 
     test_inner_vec_modifications(original, modified, reference_vec);
 }

@@ -26,7 +26,7 @@ pub fn grow_merkle_cache(
         // (e.g., the case where there are subtrees as leaves).
         //
         // If we're not on a leaf level, the number of nodes is fixed and known.
-        let (byte_slice, flag_slice) = if i == leaf_level {
+        let (old_byte_slice, old_flag_slice) = if i == leaf_level {
             (
                 old_bytes.get(first_byte_at_height(i)..)?,
                 old_flags.get(first_node_at_height(i)..)?,
@@ -38,14 +38,25 @@ pub fn grow_merkle_cache(
             )
         };
 
-        bytes
-            .get_mut(byte_range_at_height(i + to_height - from_height))?
-            .get_mut(0..byte_slice.len())?
-            .copy_from_slice(byte_slice);
-        flags
-            .get_mut(node_range_at_height(i + to_height - from_height))?
-            .get_mut(0..flag_slice.len())?
-            .copy_from_slice(flag_slice);
+        let new_i = i + to_height - from_height;
+        let (new_byte_slice, new_flag_slice) = if i == leaf_level {
+            (
+                bytes.get_mut(first_byte_at_height(new_i)..)?,
+                flags.get_mut(first_node_at_height(new_i)..)?,
+            )
+        } else {
+            (
+                bytes.get_mut(byte_range_at_height(new_i))?,
+                flags.get_mut(node_range_at_height(new_i))?,
+            )
+        };
+
+        new_byte_slice
+            .get_mut(0..old_byte_slice.len())?
+            .copy_from_slice(old_byte_slice);
+        new_flag_slice
+            .get_mut(0..old_flag_slice.len())?
+            .copy_from_slice(old_flag_slice);
     }
 
     Some((bytes, flags))
