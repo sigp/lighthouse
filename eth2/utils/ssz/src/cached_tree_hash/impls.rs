@@ -119,7 +119,7 @@ where
 
             // Get slices of the exsiting tree from the cache.
             let (old_bytes, old_flags) = cache
-                .slices(old_offset_handler.node_range())
+                .slices(old_offset_handler.chunk_range())
                 .ok_or_else(|| Error::UnableToObtainSlices)?;
 
             let (new_bytes, new_flags) =
@@ -137,16 +137,16 @@ where
                         old_flags,
                         old_offset_handler.height(),
                         offset_handler.height(),
-                        offset_handler.total_nodes(),
+                        offset_handler.total_chunks(),
                     )
-                    .ok_or_else(|| Error::UnableToGrowMerkleTree)?
+                    .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
                 };
 
             // Create a `TreeHashCache` from the raw elements.
-            let expanded_cache = TreeHashCache::from_elems(new_bytes, new_flags);
+            let modified_cache = TreeHashCache::from_elems(new_bytes, new_flags);
 
-            // Splice the newly created `TreeHashCache` over the existing, smaller elements.
-            cache.splice(old_offset_handler.node_range(), expanded_cache);
+            // Splice the newly created `TreeHashCache` over the existing elements.
+            cache.splice(old_offset_handler.chunk_range(), modified_cache);
         }
 
         match T::item_type() {
@@ -208,8 +208,6 @@ where
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
             if cache.either_modified(children)? {
-                dbg!(parent);
-                dbg!(children);
                 cache.modify_chunk(parent, &cache.hash_children(children)?)?;
             }
         }

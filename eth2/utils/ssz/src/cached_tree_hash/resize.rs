@@ -73,11 +73,10 @@ pub fn shrink_merkle_cache(
     let mut bytes = vec![0; to_nodes * HASHSIZE];
     let mut flags = vec![true; to_nodes];
 
-    let leaf_level = to_height;
-
-    for i in 0..=leaf_level as usize {
+    for i in 0..=to_height as usize {
         let from_i = i + from_height - to_height;
-        let (from_byte_slice, from_flag_slice) = if from_i == leaf_level {
+
+        let (from_byte_slice, from_flag_slice) = if from_i == from_height {
             (
                 from_bytes.get(first_byte_at_height(from_i)..)?,
                 from_flags.get(first_node_at_height(from_i)..)?,
@@ -89,7 +88,7 @@ pub fn shrink_merkle_cache(
             )
         };
 
-        let (to_byte_slice, to_flag_slice) = if i == leaf_level {
+        let (to_byte_slice, to_flag_slice) = if i == to_height {
             (
                 bytes.get_mut(first_byte_at_height(i)..)?,
                 flags.get_mut(first_node_at_height(i)..)?,
