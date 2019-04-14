@@ -19,7 +19,7 @@ impl CachedTreeHash<u64> for u64 {
     }
 
     fn offsets(&self) -> Result<Vec<usize>, Error> {
-        Err(Error::ShouldNotProduceOffsetHandler)
+        Err(Error::ShouldNotProduceBTreeOverlay)
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -78,7 +78,7 @@ where
                 let mut offsets = vec![];
 
                 for item in self {
-                    offsets.push(OffsetHandler::new(item, 0)?.total_nodes())
+                    offsets.push(BTreeOverlay::new(item, 0)?.total_nodes())
                 }
 
                 offsets
@@ -111,11 +111,11 @@ where
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Result<usize, Error> {
-        let offset_handler = OffsetHandler::new(self, chunk)?;
-        let old_offset_handler = OffsetHandler::new(other, chunk)?;
+        let offset_handler = BTreeOverlay::new(self, chunk)?;
+        let old_offset_handler = BTreeOverlay::new(other, chunk)?;
 
         if offset_handler.num_leaf_nodes != old_offset_handler.num_leaf_nodes {
-            let old_offset_handler = OffsetHandler::new(other, chunk)?;
+            let old_offset_handler = BTreeOverlay::new(other, chunk)?;
 
             // Get slices of the exsiting tree from the cache.
             let (old_bytes, old_flags) = cache
@@ -180,7 +180,7 @@ where
                         (Some(old), None) => {
                             // Splice out the entire tree of the removed node, replacing it with a
                             // single padding node.
-                            let end_chunk = OffsetHandler::new(old, start_chunk)?.next_node();
+                            let end_chunk = BTreeOverlay::new(old, start_chunk)?.next_node();
 
                             cache.splice(
                                 start_chunk..end_chunk,

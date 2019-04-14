@@ -77,7 +77,7 @@ impl CachedTreeHash<Inner> for Inner {
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Result<usize, Error> {
-        let offset_handler = OffsetHandler::new(self, chunk)?;
+        let offset_handler = BTreeOverlay::new(self, chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
         {
@@ -166,7 +166,7 @@ impl CachedTreeHash<Outer> for Outer {
         cache: &mut TreeHashCache,
         chunk: usize,
     ) -> Result<usize, Error> {
-        let offset_handler = OffsetHandler::new(self, chunk)?;
+        let offset_handler = BTreeOverlay::new(self, chunk)?;
 
         // Skip past the internal nodes and update any changed leaf nodes.
         {
