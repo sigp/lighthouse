@@ -18,6 +18,7 @@ pub enum Error {
     NoBytesForRoot,
     UnableToObtainSlices,
     UnableToGrowMerkleTree,
+    UnableToShrinkMerkleTree,
     BytesAreNotEvenChunks(usize),
     NoModifiedFieldForChunk(usize),
     NoBytesForChunk(usize),
@@ -303,8 +304,12 @@ impl OffsetHandler {
         self.num_leaf_nodes.trailing_zeros() as usize
     }
 
-    pub fn node_range(&self) -> Range<usize> {
+    pub fn chunk_range(&self) -> Range<usize> {
         self.first_node..self.next_node
+    }
+
+    pub fn total_chunks(&self) -> usize {
+        self.next_node - self.first_node
     }
 
     pub fn total_nodes(&self) -> usize {

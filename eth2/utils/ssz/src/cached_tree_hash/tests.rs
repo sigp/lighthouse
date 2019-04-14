@@ -564,6 +564,49 @@ fn shortened_vec_of_inner_within_power_of_two_boundary() {
 }
 
 #[test]
+fn shortened_vec_of_inner_outside_power_of_two_boundary() {
+    let original = vec![
+        Inner {
+            a: 0,
+            b: 1,
+            c: 2,
+            d: 3,
+        },
+        Inner {
+            a: 4,
+            b: 5,
+            c: 6,
+            d: 7,
+        },
+        Inner {
+            a: 8,
+            b: 9,
+            c: 10,
+            d: 11,
+        },
+        Inner {
+            a: 12,
+            b: 13,
+            c: 14,
+            d: 15,
+        },
+        Inner {
+            a: 16,
+            b: 17,
+            c: 18,
+            d: 19,
+        },
+    ];
+
+    let mut modified = original.clone();
+    modified.pop(); // remove the last element from the list.
+
+    let reference_vec: Vec<u64> = (0..16).collect();
+
+    test_inner_vec_modifications(original, modified, reference_vec);
+}
+
+#[test]
 fn lengthened_vec_of_inner_within_power_of_two_boundary() {
     let original = vec![
         Inner {
