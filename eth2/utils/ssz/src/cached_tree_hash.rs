@@ -1,4 +1,5 @@
 use hashing::hash;
+use int_to_bytes::int_to_bytes32;
 use std::fmt::Debug;
 use std::iter::Iterator;
 use std::ops::Range;
@@ -231,6 +232,15 @@ impl TreeHashCache {
         Ok(hash(&child_bytes))
     }
 
+    pub fn mix_in_length(&self, chunk: usize, length: usize) -> Result<Vec<u8>, Error> {
+        let mut bytes = Vec::with_capacity(2 * BYTES_PER_CHUNK);
+
+        bytes.append(&mut self.get_chunk(chunk)?.to_vec());
+        bytes.append(&mut int_to_bytes32(length as u64));
+
+        Ok(hash(&bytes))
+    }
+
     pub fn into_merkle_tree(self) -> Vec<u8> {
         self.cache
     }
@@ -298,6 +308,10 @@ impl OffsetHandler {
             first_node: offset,
             next_node,
         })
+    }
+
+    pub fn root(&self) -> usize {
+        self.first_node
     }
 
     pub fn height(&self) -> usize {
