@@ -2,18 +2,14 @@ use super::*;
 
 impl<T> CachedTreeHashSubTree<Vec<T>> for Vec<T>
 where
-    T: CachedTreeHashSubTree<T>,
+    T: CachedTreeHashSubTree<T> + TreeHash,
 {
-    fn item_type() -> ItemType {
-        ItemType::List
-    }
-
     fn new_cache(&self) -> Result<TreeHashCache, Error> {
-        match T::item_type() {
-            ItemType::Basic => {
+        match T::tree_hash_type() {
+            TreeHashType::Basic => {
                 TreeHashCache::from_bytes(merkleize(get_packed_leaves(self)?), false)
             }
-            ItemType::Composite | ItemType::List => {
+            TreeHashType::Composite | TreeHashType::List => {
                 let subtrees = self
                     .iter()
                     .map(|item| TreeHashCache::new(item))
@@ -25,9 +21,9 @@ where
     }
 
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
-        let lengths = match T::item_type() {
-            ItemType::Basic => vec![1; self.len() / T::packing_factor()],
-            ItemType::Composite | ItemType::List => {
+        let lengths = match T::tree_hash_type() {
+            TreeHashType::Basic => vec![1; self.len() / T::tree_hash_packing_factor()],
+            TreeHashType::Composite | TreeHashType::List => {
                 let mut lengths = vec![];
 
                 for item in self {
@@ -39,14 +35,6 @@ where
         };
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
-    }
-
-    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
-        Err(Error::ShouldNeverBePacked(Self::item_type()))
-    }
-
-    fn packing_factor() -> usize {
-        1
     }
 
     fn update_cache(
@@ -93,8 +81,8 @@ where
             cache.splice(old_offset_handler.chunk_range(), modified_cache);
         }
 
-        match T::item_type() {
-            ItemType::Basic => {
+        match T::tree_hash_type() {
+            TreeHashType::Basic => {
                 let leaves = get_packed_leaves(self)?;
 
                 for (i, chunk) in offset_handler.iter_leaf_nodes().enumerate() {
@@ -109,7 +97,7 @@ where
                     TreeHashCache::from_bytes(leaves, true)?,
                 );
             }
-            ItemType::Composite | ItemType::List => {
+            TreeHashType::Composite | TreeHashType::List => {
                 let mut i = offset_handler.num_leaf_nodes;
                 for &start_chunk in offset_handler.iter_leaf_nodes().rev() {
                     i -= 1;
@@ -170,13 +158,13 @@ fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
 where
     T: CachedTreeHashSubTree<T>,
 {
-    let num_packed_bytes = (BYTES_PER_CHUNK / T::packing_factor()) * vec.len();
+    let num_packed_bytes = (BYTES_PER_CHUNK / T::tree_hash_packing_factor()) * vec.len();
     let num_leaves = num_sanitized_leaves(num_packed_bytes);
 
     let mut packed = Vec::with_capacity(num_leaves * HASHSIZE);
 
     for item in vec {
-        packed.append(&mut item.packed_encoding()?);
+        packed.append(&mut item.tree_hash_packed_encoding());
     }
 
     Ok(sanitise_bytes(packed))

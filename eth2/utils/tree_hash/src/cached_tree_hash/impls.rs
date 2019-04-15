@@ -5,10 +5,6 @@ use ssz::ssz_encode;
 mod vec;
 
 impl CachedTreeHashSubTree<u64> for u64 {
-    fn item_type() -> ItemType {
-        ItemType::Basic
-    }
-
     fn new_cache(&self) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
             merkleize(ssz_encode(self)),
@@ -18,14 +14,6 @@ impl CachedTreeHashSubTree<u64> for u64 {
 
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         BTreeOverlay::from_lengths(chunk_offset, vec![1])
-    }
-
-    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
-        Ok(ssz_encode(self))
-    }
-
-    fn packing_factor() -> usize {
-        HASHSIZE / 8
     }
 
     fn update_cache(
