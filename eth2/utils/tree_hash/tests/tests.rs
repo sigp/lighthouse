@@ -55,8 +55,8 @@ impl CachedTreeHash<Inner> for Inner {
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
-    fn packed_encoding(&self) -> Vec<u8> {
-        panic!("Struct should never be packed")
+    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::ShouldNeverBePacked(Self::item_type()))
     }
 
     fn packing_factor() -> usize {
@@ -133,8 +133,8 @@ impl CachedTreeHash<Outer> for Outer {
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
-    fn packed_encoding(&self) -> Vec<u8> {
-        panic!("Struct should never be packed")
+    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::ShouldNeverBePacked(Self::item_type()))
     }
 
     fn packing_factor() -> usize {

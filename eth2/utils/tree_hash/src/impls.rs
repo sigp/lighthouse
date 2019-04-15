@@ -22,8 +22,8 @@ impl CachedTreeHash<u64> for u64 {
         8
     }
 
-    fn packed_encoding(&self) -> Vec<u8> {
-        ssz_encode(self)
+    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
+        Ok(ssz_encode(self))
     }
 
     fn packing_factor() -> usize {
@@ -55,7 +55,9 @@ where
 
     fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         match T::item_type() {
-            ItemType::Basic => TreeHashCache::from_bytes(merkleize(get_packed_leaves(self)), false),
+            ItemType::Basic => {
+                TreeHashCache::from_bytes(merkleize(get_packed_leaves(self)?), false)
+            }
             ItemType::Composite | ItemType::List => {
                 let subtrees = self
                     .iter()
@@ -88,8 +90,8 @@ where
         self.iter().fold(0, |acc, item| acc + item.num_bytes())
     }
 
-    fn packed_encoding(&self) -> Vec<u8> {
-        panic!("List should never be packed")
+    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::ShouldNeverBePacked(Self::item_type()))
     }
 
     fn packing_factor() -> usize {
@@ -142,7 +144,7 @@ where
 
         match T::item_type() {
             ItemType::Basic => {
-                let leaves = get_packed_leaves(self);
+                let leaves = get_packed_leaves(self)?;
 
                 for (i, chunk) in offset_handler.iter_leaf_nodes().enumerate() {
                     if let Some(latest) = leaves.get(i * HASHSIZE..(i + 1) * HASHSIZE) {
@@ -213,7 +215,7 @@ where
     }
 }
 
-fn get_packed_leaves<T>(vec: &Vec<T>) -> Vec<u8>
+fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
 where
     T: CachedTreeHash<T>,
 {
@@ -223,8 +225,8 @@ where
     let mut packed = Vec::with_capacity(num_leaves * HASHSIZE);
 
     for item in vec {
-        packed.append(&mut item.packed_encoding());
+        packed.append(&mut item.packed_encoding()?);
     }
 
-    sanitise_bytes(packed)
+    Ok(sanitise_bytes(packed))
 }
