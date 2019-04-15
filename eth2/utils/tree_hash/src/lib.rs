@@ -47,8 +47,6 @@ pub trait CachedTreeHash<Item>: Debug {
 
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;
 
-    fn num_child_nodes(&self) -> usize;
-
     fn packed_encoding(&self) -> Vec<u8>;
 
     fn packing_factor() -> usize;
