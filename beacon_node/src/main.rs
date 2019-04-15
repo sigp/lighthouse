@@ -1,5 +1,3 @@
-extern crate slog;
-
 mod run;
 
 use clap::{App, Arg};
@@ -14,11 +12,6 @@ pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-    let logger = slog::Logger::root(drain, o!());
-
     let matches = App::new("Lighthouse")
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
@@ -116,7 +109,28 @@ fn main() {
                 .short("r")
                 .help("When present, genesis will be within 30 minutes prior. Only for testing"),
         )
+        .arg(
+            Arg::with_name("verbosity")
+                .short("v")
+                .multiple(true)
+                .help("Sets the verbosity level")
+                .takes_value(true),
+        )
         .get_matches();
+
+    // build the initial logger
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build();
+
+    let drain = match matches.occurrences_of("verbosity") {
+        0 => drain.filter_level(Level::Info),
+        1 => drain.filter_level(Level::Debug),
+        2 => drain.filter_level(Level::Trace),
+        _ => drain.filter_level(Level::Info),
+    };
+
+    let logger = slog::Logger::root(drain.fuse(), o!());
 
     let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
         Ok(dir) => dir,
@@ -128,7 +142,7 @@ fn main() {
 
     let client_config_path = data_dir.join(CLIENT_CONFIG_FILENAME);
 
-    // Attempt to lead the `ClientConfig` from disk.
+    // Attempt to load the `ClientConfig` from disk.
     //
     // If file doesn't exist, create a new, default one.
     let mut client_config = match read_from_file::<ClientConfig>(client_config_path.clone()) {

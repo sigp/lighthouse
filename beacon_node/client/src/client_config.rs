@@ -7,7 +7,7 @@ use http_server::HttpServerConfig;
 use network::NetworkConfig;
 use network::{ChainType, NetworkConfig};
 use serde_derive::{Deserialize, Serialize};
-use slog::error;
+use slog::{error, o, Drain, Level};
 use std::fs;
 use std::path::PathBuf;
 
@@ -57,13 +57,6 @@ impl ClientConfig {
             .and_then(|path| Some(path.join(&self.db_name)))
     }
 
-    /// Returns the core path for the client.
-    pub fn data_dir(&self) -> Option<PathBuf> {
-        let path = dirs::home_dir()?.join(&self.data_dir);
-        fs::create_dir_all(&path).ok()?;
-        Some(path)
-    }
-
     /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
     ///
     /// Returns an error if arguments are obviously invalid. May succeed even if some values are
@@ -81,6 +74,6 @@ impl ClientConfig {
         self.rpc.apply_cli_args(args)?;
         self.http.apply_cli_args(args)?;
 
-        Ok(())
+        Ok(log)
     }
 }
