@@ -4,6 +4,7 @@
 /// This crate builds and manages the libp2p services required by the beacon node.
 pub mod behaviour;
 mod config;
+mod discovery;
 pub mod error;
 pub mod rpc;
 mod service;
