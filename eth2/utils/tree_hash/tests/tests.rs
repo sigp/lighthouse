@@ -44,15 +44,15 @@ impl CachedTreeHash<Inner> for Inner {
         bytes
     }
 
-    fn offsets(&self) -> Result<Vec<usize>, Error> {
-        let mut offsets = vec![];
+    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+        let mut lengths = vec![];
 
-        offsets.push(self.a.num_child_nodes() + 1);
-        offsets.push(self.b.num_child_nodes() + 1);
-        offsets.push(self.c.num_child_nodes() + 1);
-        offsets.push(self.d.num_child_nodes() + 1);
+        lengths.push(self.a.num_child_nodes() + 1);
+        lengths.push(self.b.num_child_nodes() + 1);
+        lengths.push(self.c.num_child_nodes() + 1);
+        lengths.push(self.d.num_child_nodes() + 1);
 
-        Ok(offsets)
+        BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -98,7 +98,7 @@ impl CachedTreeHash<Inner> for Inner {
             }
         }
 
-        Ok(offset_handler.next_node())
+        Ok(offset_handler.next_node)
     }
 }
 
@@ -146,14 +146,14 @@ impl CachedTreeHash<Outer> for Outer {
         num_nodes(leaves) + children - 1
     }
 
-    fn offsets(&self) -> Result<Vec<usize>, Error> {
-        let mut offsets = vec![];
+    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+        let mut lengths = vec![];
 
-        offsets.push(self.a.num_child_nodes() + 1);
-        offsets.push(self.b.num_child_nodes() + 1);
-        offsets.push(self.c.num_child_nodes() + 1);
+        lengths.push(self.a.num_child_nodes() + 1);
+        lengths.push(self.b.num_child_nodes() + 1);
+        lengths.push(self.c.num_child_nodes() + 1);
 
-        Ok(offsets)
+        BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
     fn packed_encoding(&self) -> Vec<u8> {
@@ -186,7 +186,7 @@ impl CachedTreeHash<Outer> for Outer {
             }
         }
 
-        Ok(offset_handler.next_node())
+        Ok(offset_handler.next_node)
     }
 }
 
