@@ -35,7 +35,7 @@ pub enum ItemType {
     Composite,
 }
 
-pub trait CachedTreeHash<T>: CachedTreeHashSubtree<T> + Sized {
+pub trait CachedTreeHash<T>: CachedTreeHashSubTree<T> + Sized {
     fn update_internal_tree_hash_cache(self, old: T) -> Result<(Self, Self), Error>;
 
     fn cached_tree_hash_root(&self) -> Option<Vec<u8>>;
@@ -43,7 +43,7 @@ pub trait CachedTreeHash<T>: CachedTreeHashSubtree<T> + Sized {
     fn clone_without_tree_hash_cache(&self) -> Self;
 }
 
-pub trait CachedTreeHashSubtree<Item> {
+pub trait CachedTreeHashSubTree<Item> {
     fn item_type() -> ItemType;
 
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;

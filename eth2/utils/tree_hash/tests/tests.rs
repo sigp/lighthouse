@@ -63,7 +63,7 @@ fn works_when_embedded() {
     assert_eq!(&merkle[0..32], &root[..]);
 }
 
-impl CachedTreeHashSubtree<InternalCache> for InternalCache {
+impl CachedTreeHashSubTree<InternalCache> for InternalCache {
     fn item_type() -> ItemType {
         ItemType::Composite
     }
@@ -131,7 +131,7 @@ pub struct Inner {
     pub d: u64,
 }
 
-impl CachedTreeHashSubtree<Inner> for Inner {
+impl CachedTreeHashSubTree<Inner> for Inner {
     fn item_type() -> ItemType {
         ItemType::Composite
     }
@@ -203,7 +203,7 @@ pub struct Outer {
     pub c: u64,
 }
 
-impl CachedTreeHashSubtree<Outer> for Outer {
+impl CachedTreeHashSubTree<Outer> for Outer {
     fn item_type() -> ItemType {
         ItemType::Composite
     }

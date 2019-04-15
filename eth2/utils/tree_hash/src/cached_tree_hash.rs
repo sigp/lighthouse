@@ -15,7 +15,7 @@ impl Into<Vec<u8>> for TreeHashCache {
 impl TreeHashCache {
     pub fn new<T>(item: &T) -> Result<Self, Error>
     where
-        T: CachedTreeHashSubtree<T>,
+        T: CachedTreeHashSubTree<T>,
     {
         item.new_cache()
     }
@@ -32,7 +32,7 @@ impl TreeHashCache {
         leaves_and_subtrees: Vec<Self>,
     ) -> Result<Self, Error>
     where
-        T: CachedTreeHashSubtree<T>,
+        T: CachedTreeHashSubTree<T>,
     {
         let offset_handler = BTreeOverlay::new(item, 0)?;
 
