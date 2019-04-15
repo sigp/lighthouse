@@ -19,8 +19,10 @@ slot_clock = { path = "../../eth2/utils/slot_clock" }
 serde = "1.0"
 serde_derive = "1.0"
 error-chain = "0.12.0"
-slog = "^2.2.3"
 eth2_ssz = { path = "../../eth2/utils/ssz" }
+slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_debug"] }
+slog-term = "^2.4.0"
+slog-async = "^2.3.0"
 tokio = "0.1.15"
 clap = "2.32.0"
 dirs = "1.0.3"
