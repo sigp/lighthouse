@@ -1,6 +1,6 @@
 use super::resize::{grow_merkle_cache, shrink_merkle_cache};
 use super::*;
-use crate::ssz_encode;
+use ssz::ssz_encode;
 
 impl CachedTreeHash<u64> for u64 {
     fn item_type() -> ItemType {

@@ -1,6 +1,10 @@
-#![cfg(test)]
-use super::*;
+use hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
+use tree_hash::*;
+
+fn num_nodes(num_leaves: usize) -> usize {
+    2 * num_leaves - 1
+}
 
 #[derive(Clone, Debug)]
 pub struct Inner {

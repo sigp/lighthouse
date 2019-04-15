@@ -1,0 +1,11 @@
+[package]
+name = "tree_hash"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+ethereum-types = "0.5"
+hashing = { path = "../hashing" }
+int_to_bytes = { path = "../int_to_bytes" }
+ssz = { path = "../ssz" }
