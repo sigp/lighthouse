@@ -33,17 +33,6 @@ impl CachedTreeHash<Inner> for Inner {
         Ok(tree)
     }
 
-    fn num_bytes(&self) -> usize {
-        let mut bytes = 0;
-
-        bytes += self.a.num_bytes();
-        bytes += self.b.num_bytes();
-        bytes += self.c.num_bytes();
-        bytes += self.d.num_bytes();
-
-        bytes
-    }
-
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
@@ -113,14 +102,6 @@ impl CachedTreeHash<Outer> for Outer {
         )?;
 
         Ok(tree)
-    }
-
-    fn num_bytes(&self) -> usize {
-        let mut bytes = 0;
-        bytes += self.a.num_bytes();
-        bytes += self.b.num_bytes();
-        bytes += self.c.num_bytes();
-        bytes
     }
 
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {

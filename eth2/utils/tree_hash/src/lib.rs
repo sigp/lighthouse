@@ -42,10 +42,6 @@ pub trait CachedTreeHash<Item>: Debug {
 
     fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error>;
 
-    /// Return the number of bytes when this element is encoded as raw SSZ _without_ length
-    /// prefixes.
-    fn num_bytes(&self) -> usize;
-
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;
 
     fn packed_encoding(&self) -> Result<Vec<u8>, Error>;
