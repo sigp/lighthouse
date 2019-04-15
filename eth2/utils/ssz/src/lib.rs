@@ -10,7 +10,6 @@
 extern crate bytes;
 extern crate ethereum_types;
 
-mod cached_tree_hash;
 pub mod decode;
 pub mod encode;
 mod signed_root;
