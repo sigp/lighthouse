@@ -17,7 +17,7 @@ pub enum Error {
     UnableToObtainSlices,
     UnableToGrowMerkleTree,
     UnableToShrinkMerkleTree,
-    ShouldNeverBePacked(ItemType),
+    ShouldNeverBePacked(TreeHashType),
     BytesAreNotEvenChunks(usize),
     NoModifiedFieldForChunk(usize),
     NoBytesForChunk(usize),
@@ -31,14 +31,8 @@ pub trait CachedTreeHash<T>: CachedTreeHashSubTree<T> + Sized {
     fn clone_without_tree_hash_cache(&self) -> Self;
 }
 
-pub trait CachedTreeHashSubTree<Item> {
-    fn item_type() -> ItemType;
-
+pub trait CachedTreeHashSubTree<Item>: TreeHash {
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;
-
-    fn packed_encoding(&self) -> Result<Vec<u8>, Error>;
-
-    fn packing_factor() -> usize;
 
     fn new_cache(&self) -> Result<TreeHashCache, Error>;
 

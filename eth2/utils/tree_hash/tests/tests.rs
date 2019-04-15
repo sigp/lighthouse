@@ -11,6 +11,29 @@ pub struct InternalCache {
     pub cache: Option<TreeHashCache>,
 }
 
+impl TreeHash for InternalCache {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Composite
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        let mut leaves = Vec::with_capacity(4 * HASHSIZE);
+
+        leaves.append(&mut self.a.tree_hash_root());
+        leaves.append(&mut self.b.tree_hash_root());
+
+        efficient_merkleize(&leaves)[0..32].to_vec()
+    }
+}
+
 impl CachedTreeHash<InternalCache> for InternalCache {
     fn update_internal_tree_hash_cache(mut self, mut old: Self) -> Result<(Self, Self), Error> {
         let mut local_cache = old.cache;
@@ -66,10 +89,6 @@ fn works_when_embedded() {
 }
 
 impl CachedTreeHashSubTree<InternalCache> for InternalCache {
-    fn item_type() -> ItemType {
-        ItemType::Composite
-    }
-
     fn new_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
@@ -86,14 +105,6 @@ impl CachedTreeHashSubTree<InternalCache> for InternalCache {
         lengths.push(BTreeOverlay::new(&self.b, 0)?.total_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
-    }
-
-    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
-        Err(Error::ShouldNeverBePacked(Self::item_type()))
-    }
-
-    fn packing_factor() -> usize {
-        1
     }
 
     fn update_cache(
@@ -134,31 +145,31 @@ pub struct Inner {
 }
 
 impl TreeHash for Inner {
-    fn tree_hash_item_type() -> ItemType {
-        ItemType::Composite
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Composite
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
         unreachable!("Struct should never be packed.")
     }
 
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
         let mut leaves = Vec::with_capacity(4 * HASHSIZE);
 
-        leaves.append(&mut self.a.hash_tree_root());
-        leaves.append(&mut self.b.hash_tree_root());
-        leaves.append(&mut self.c.hash_tree_root());
-        leaves.append(&mut self.d.hash_tree_root());
+        leaves.append(&mut self.a.tree_hash_root());
+        leaves.append(&mut self.b.tree_hash_root());
+        leaves.append(&mut self.c.tree_hash_root());
+        leaves.append(&mut self.d.tree_hash_root());
 
         efficient_merkleize(&leaves)[0..32].to_vec()
     }
 }
 
 impl CachedTreeHashSubTree<Inner> for Inner {
-    fn item_type() -> ItemType {
-        ItemType::Composite
-    }
-
     fn new_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
@@ -182,14 +193,6 @@ impl CachedTreeHashSubTree<Inner> for Inner {
         lengths.push(BTreeOverlay::new(&self.d, 0)?.total_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
-    }
-
-    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
-        Err(Error::ShouldNeverBePacked(Self::item_type()))
-    }
-
-    fn packing_factor() -> usize {
-        1
     }
 
     fn update_cache(
@@ -226,11 +229,31 @@ pub struct Outer {
     pub c: u64,
 }
 
-impl CachedTreeHashSubTree<Outer> for Outer {
-    fn item_type() -> ItemType {
-        ItemType::Composite
+impl TreeHash for Outer {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Composite
     }
 
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        let mut leaves = Vec::with_capacity(4 * HASHSIZE);
+
+        leaves.append(&mut self.a.tree_hash_root());
+        leaves.append(&mut self.b.tree_hash_root());
+        leaves.append(&mut self.c.tree_hash_root());
+
+        efficient_merkleize(&leaves)[0..32].to_vec()
+    }
+}
+
+impl CachedTreeHashSubTree<Outer> for Outer {
     fn new_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
@@ -252,14 +275,6 @@ impl CachedTreeHashSubTree<Outer> for Outer {
         lengths.push(BTreeOverlay::new(&self.c, 0)?.total_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
-    }
-
-    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
-        Err(Error::ShouldNeverBePacked(Self::item_type()))
-    }
-
-    fn packing_factor() -> usize {
-        1
     }
 
     fn update_cache(
@@ -481,7 +496,7 @@ fn test_u64_vec_modifications(original: Vec<u64>, modified: Vec<u64>) {
     mix_in_length(&mut expected[0..HASHSIZE], modified.len());
 
     assert_eq!(expected, modified_cache);
-    assert_eq!(&expected[0..32], &modified.hash_tree_root()[..]);
+    assert_eq!(&expected[0..32], &modified.tree_hash_root()[..]);
 }
 
 #[test]
@@ -604,7 +619,7 @@ fn test_inner_vec_modifications(original: Vec<Inner>, modified: Vec<Inner>, refe
 
     // Compare the cached tree to the reference tree.
     assert_trees_eq(&expected, &modified_cache);
-    assert_eq!(&expected[0..32], &modified.hash_tree_root()[..]);
+    assert_eq!(&expected[0..32], &modified.tree_hash_root()[..]);
 }
 
 #[test]

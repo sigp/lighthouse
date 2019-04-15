@@ -4,23 +4,29 @@ use int_to_bytes::int_to_bytes32;
 use ssz::ssz_encode;
 
 pub trait TreeHash {
-    fn tree_hash_item_type() -> ItemType;
+    fn tree_hash_type() -> TreeHashType;
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8>;
 
-    fn hash_tree_root(&self) -> Vec<u8>;
+    fn tree_hash_packing_factor() -> usize;
+
+    fn tree_hash_root(&self) -> Vec<u8>;
 }
 
 impl TreeHash for u64 {
-    fn tree_hash_item_type() -> ItemType {
-        ItemType::Basic
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Basic
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
         ssz_encode(self)
     }
 
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn tree_hash_packing_factor() -> usize {
+        HASHSIZE / 8
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
         int_to_bytes32(*self)
     }
 }
@@ -29,18 +35,23 @@ impl<T> TreeHash for Vec<T>
 where
     T: TreeHash,
 {
-    fn tree_hash_item_type() -> ItemType {
-        ItemType::List
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::List
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
         unreachable!("List should never be packed.")
     }
 
-    fn hash_tree_root(&self) -> Vec<u8> {
-        let leaves = match T::tree_hash_item_type() {
-            ItemType::Basic => {
-                let mut leaves = vec![];
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        let leaves = match T::tree_hash_type() {
+            TreeHashType::Basic => {
+                let mut leaves =
+                    Vec::with_capacity((HASHSIZE / T::tree_hash_packing_factor()) * self.len());
 
                 for item in self {
                     leaves.append(&mut item.tree_hash_packed_encoding());
@@ -48,11 +59,11 @@ where
 
                 leaves
             }
-            ItemType::Composite | ItemType::List => {
+            TreeHashType::Composite | TreeHashType::List => {
                 let mut leaves = Vec::with_capacity(self.len() * HASHSIZE);
 
                 for item in self {
-                    leaves.append(&mut item.hash_tree_root())
+                    leaves.append(&mut item.tree_hash_root())
                 }
 
                 leaves
