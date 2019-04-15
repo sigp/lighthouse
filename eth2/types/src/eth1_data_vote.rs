@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// A summation of votes for some `Eth1Data`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug, PartialEq, Clone, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]

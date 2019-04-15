@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// Specifies the block hash for a shard at an epoch.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     Clone,

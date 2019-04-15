@@ -9,7 +9,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// An exit voluntarily submitted a validator who wishes to withdraw.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     PartialEq,

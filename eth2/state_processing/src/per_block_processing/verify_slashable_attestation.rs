@@ -10,7 +10,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `SlashableAttestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn verify_slashable_attestation(
     state: &BeaconState,
     slashable_attestation: &SlashableAttestation,

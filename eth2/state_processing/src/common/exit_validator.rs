@@ -2,7 +2,7 @@ use types::{BeaconStateError as Error, *};
 
 /// Exit the validator of the given `index`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn exit_validator(
     state: &mut BeaconState,
     validator_index: usize,

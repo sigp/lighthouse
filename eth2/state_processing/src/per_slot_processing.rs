@@ -10,7 +10,7 @@ pub enum Error {
 
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn per_slot_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     cache_state(state, spec)?;
 

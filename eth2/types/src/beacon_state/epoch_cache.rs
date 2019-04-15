@@ -138,7 +138,7 @@ impl EpochCache {
 /// Returns a list of all `validator_registry` indices where the validator is active at the given
 /// `epoch`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
     let mut active = Vec::with_capacity(validators.len());
 

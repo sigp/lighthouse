@@ -46,7 +46,7 @@ pub enum Error {
 
 /// The state of the `BeaconChain` at some slot.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, TestRandom, Encode, Decode, TreeHash)]
 pub struct BeaconState {
     // Misc
@@ -120,7 +120,7 @@ impl BeaconState {
     /// This does not fully build a genesis beacon state, it omits processing of initial validator
     /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
@@ -192,7 +192,7 @@ impl BeaconState {
 
     /// Returns the `tree_hash_root` of the state.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
@@ -221,7 +221,7 @@ impl BeaconState {
 
     /// The epoch corresponding to `self.slot`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.slot.epoch(spec.slots_per_epoch)
     }
@@ -230,14 +230,14 @@ impl BeaconState {
     ///
     /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.current_epoch(&spec) - 1
     }
 
     /// The epoch following `self.current_epoch()`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.current_epoch(spec) + 1
     }
@@ -250,7 +250,7 @@ impl BeaconState {
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_cached_active_validator_indices(
         &self,
         relative_epoch: RelativeEpoch,
@@ -265,7 +265,7 @@ impl BeaconState {
     ///
     /// Does not utilize the cache, performs a full iteration over the validator registry.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_active_validator_indices(&self, epoch: Epoch) -> Vec<usize> {
         get_active_validator_indices(&self.validator_registry, epoch)
     }
@@ -274,7 +274,7 @@ impl BeaconState {
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
@@ -299,7 +299,7 @@ impl BeaconState {
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_crosslink_committee_for_shard(
         &self,
         epoch: Epoch,
@@ -325,7 +325,7 @@ impl BeaconState {
     ///
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_beacon_proposer_index(
         &self,
         slot: Slot,
@@ -354,7 +354,7 @@ impl BeaconState {
 
     /// Safely obtains the index for latest block roots, given some `slot`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     fn get_latest_block_roots_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
         if (slot < self.slot) && (self.slot <= slot + spec.slots_per_historical_root as u64) {
             let i = slot.as_usize() % spec.slots_per_historical_root;
@@ -370,7 +370,7 @@ impl BeaconState {
 
     /// Return the block root at a recent `slot`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_block_root(
         &self,
         slot: Slot,
@@ -382,7 +382,7 @@ impl BeaconState {
 
     /// Sets the block root for some given slot.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn set_block_root(
         &mut self,
         slot: Slot,
@@ -396,7 +396,7 @@ impl BeaconState {
 
     /// Safely obtains the index for `latest_randao_mixes`
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     fn get_randao_mix_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let current_epoch = self.current_epoch(spec);
 
@@ -420,7 +420,7 @@ impl BeaconState {
     ///
     /// See `Self::get_randao_mix`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn update_randao_mix(
         &mut self,
         epoch: Epoch,
@@ -438,7 +438,7 @@ impl BeaconState {
 
     /// Return the randao mix at a recent ``epoch``.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Result<&Hash256, Error> {
         let i = self.get_randao_mix_index(epoch, spec)?;
         Ok(&self.latest_randao_mixes[i])
@@ -446,7 +446,7 @@ impl BeaconState {
 
     /// Set the randao mix at a recent ``epoch``.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn set_randao_mix(
         &mut self,
         epoch: Epoch,
@@ -460,7 +460,7 @@ impl BeaconState {
 
     /// Safely obtains the index for `latest_active_index_roots`, given some `epoch`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     fn get_active_index_root_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let current_epoch = self.current_epoch(spec);
 
@@ -482,7 +482,7 @@ impl BeaconState {
 
     /// Return the `active_index_root` at a recent `epoch`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_active_index_root(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
         let i = self.get_active_index_root_index(epoch, spec)?;
         Ok(self.latest_active_index_roots[i])
@@ -490,7 +490,7 @@ impl BeaconState {
 
     /// Set the `active_index_root` at a recent `epoch`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn set_active_index_root(
         &mut self,
         epoch: Epoch,
@@ -504,7 +504,7 @@ impl BeaconState {
 
     /// Replace `active_index_roots` with clones of `index_root`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn fill_active_index_roots_with(&mut self, index_root: Hash256, spec: &ChainSpec) {
         self.latest_active_index_roots =
             vec![index_root; spec.latest_active_index_roots_length as usize].into()
@@ -512,7 +512,7 @@ impl BeaconState {
 
     /// Safely obtains the index for latest state roots, given some `slot`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     fn get_latest_state_roots_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
         if (slot < self.slot) && (self.slot <= slot + spec.slots_per_historical_root as u64) {
             let i = slot.as_usize() % spec.slots_per_historical_root;
@@ -528,7 +528,7 @@ impl BeaconState {
 
     /// Gets the state root for some slot.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_state_root(&mut self, slot: Slot, spec: &ChainSpec) -> Result<&Hash256, Error> {
         let i = self.get_latest_state_roots_index(slot, spec)?;
         Ok(&self.latest_state_roots[i])
@@ -536,7 +536,7 @@ impl BeaconState {
 
     /// Sets the latest state root for slot.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn set_state_root(
         &mut self,
         slot: Slot,
@@ -550,7 +550,7 @@ impl BeaconState {
 
     /// Safely obtains the index for `latest_slashed_balances`, given some `epoch`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     fn get_slashed_balance_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let i = epoch.as_usize() % spec.latest_slashed_exit_length;
 
@@ -565,7 +565,7 @@ impl BeaconState {
 
     /// Gets the total slashed balances for some epoch.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_slashed_balance(&self, epoch: Epoch, spec: &ChainSpec) -> Result<u64, Error> {
         let i = self.get_slashed_balance_index(epoch, spec)?;
         Ok(self.latest_slashed_balances[i])
@@ -573,7 +573,7 @@ impl BeaconState {
 
     /// Sets the total slashed balances for some epoch.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn set_slashed_balance(
         &mut self,
         epoch: Epoch,
@@ -587,7 +587,7 @@ impl BeaconState {
 
     /// Generate a seed for the given `epoch`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn generate_seed(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
         let mut input = self
             .get_randao_mix(epoch - spec.min_seed_lookahead, spec)?
@@ -603,7 +603,7 @@ impl BeaconState {
 
     /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_effective_balance(
         &self,
         validator_index: usize,
@@ -618,14 +618,14 @@ impl BeaconState {
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
     ///
-    ///  Spec v0.5.0
+    ///  Spec v0.5.1
     pub fn get_delayed_activation_exit_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
         epoch + 1 + spec.activation_exit_delay
     }
 
     /// Initiate an exit for the validator of the given `index`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn initiate_validator_exit(&mut self, validator_index: usize) {
         self.validator_registry[validator_index].initiated_exit = true;
     }
@@ -637,7 +637,7 @@ impl BeaconState {
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_attestation_duties(
         &self,
         validator_index: usize,
@@ -653,7 +653,7 @@ impl BeaconState {
 
     /// Return the combined effective balance of an array of validators.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_total_balance(
         &self,
         validator_indices: &[usize],

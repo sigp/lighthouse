@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlockBody {
     pub randao_reveal: Signature,

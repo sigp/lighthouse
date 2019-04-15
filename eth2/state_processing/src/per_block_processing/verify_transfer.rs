@@ -10,7 +10,7 @@ use types::*;
 ///
 /// Note: this function is incomplete.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn verify_transfer(
     state: &BeaconState,
     transfer: &Transfer,
@@ -122,7 +122,7 @@ fn verify_transfer_parametric(
 ///
 /// Does not check that the transfer is valid, however checks for overflow in all actions.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn execute_transfer(
     state: &mut BeaconState,
     transfer: &Transfer,

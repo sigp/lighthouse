@@ -32,7 +32,7 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     // Ensure the previous and next epoch caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
@@ -86,7 +86,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
 
 /// Maybe resets the eth1 period.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
     let next_epoch = state.next_epoch(spec);
     let voting_period = spec.epochs_per_eth1_voting_period;
@@ -108,7 +108,7 @@ pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
 /// - `justified_epoch`
 /// - `previous_justified_epoch`
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn update_justification_and_finalization(
     state: &mut BeaconState,
     total_balances: &TotalBalances,
@@ -178,7 +178,7 @@ pub fn update_justification_and_finalization(
 ///
 /// Also returns a `WinningRootHashSet` for later use during epoch processing.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_crosslinks(
     state: &mut BeaconState,
     spec: &ChainSpec,
@@ -221,7 +221,7 @@ pub fn process_crosslinks(
 
 /// Finish up an epoch update.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);

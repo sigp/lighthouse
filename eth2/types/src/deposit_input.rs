@@ -10,7 +10,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     PartialEq,
@@ -33,7 +33,7 @@ pub struct DepositInput {
 impl DepositInput {
     /// Generate the 'proof_of_posession' signature for a given DepositInput details.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn create_proof_of_possession(
         &self,
         secret_key: &SecretKey,
@@ -49,7 +49,7 @@ impl DepositInput {
 
     /// Verify that proof-of-possession is valid.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn validate_proof_of_possession(
         &self,
         epoch: Epoch,

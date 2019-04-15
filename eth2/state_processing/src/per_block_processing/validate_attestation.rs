@@ -8,7 +8,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn validate_attestation(
     state: &BeaconState,
     attestation: &Attestation,
@@ -31,7 +31,7 @@ pub fn validate_attestation_time_independent_only(
 ///
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn validate_attestation_without_signature(
     state: &BeaconState,
     attestation: &Attestation,
@@ -44,7 +44,7 @@ pub fn validate_attestation_without_signature(
 /// given state, optionally validating the aggregate signature.
 ///
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn validate_attestation_parametric(
     state: &BeaconState,
     attestation: &Attestation,
@@ -167,7 +167,7 @@ fn validate_attestation_parametric(
 /// Verify that the `source_epoch` and `source_root` of an `Attestation` correctly
 /// match the current (or previous) justified epoch and root from the state.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn verify_justified_epoch_and_root(
     attestation: &Attestation,
     state: &BeaconState,
@@ -222,7 +222,7 @@ fn verify_justified_epoch_and_root(
 ///  - `custody_bitfield` does not have a bit for each index of `committee`.
 ///  - A `validator_index` in `committee` is not in `state.validator_registry`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn verify_attestation_signature(
     state: &BeaconState,
     committee: &[usize],
