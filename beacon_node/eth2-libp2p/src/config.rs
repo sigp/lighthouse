@@ -36,6 +36,7 @@ impl Default for Config {
             gs_config: GossipsubConfigBuilder::new()
                 .max_gossip_size(4_000_000)
                 .inactivity_timeout(Duration::from_secs(90))
+                .heartbeat_interval(Duration::from_secs(20))
                 .build(),
             identify_config: IdentifyConfig::default(),
             boot_nodes: vec![],
