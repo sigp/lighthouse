@@ -137,7 +137,8 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<KademliaOu
 {
     fn inject_event(&mut self, out: KademliaOut) {
         match out {
-            KademliaOut::Discovered { .. } => {
+            KademliaOut::Discovered { peer_id, .. } => {
+                debug!(self.log, "Kademlia peer discovered: {:?}", peer_id);
                 // send this to our topology behaviour
             }
             KademliaOut::KBucketAdded { .. } => {
