@@ -1,5 +1,7 @@
 use hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
+use tree_hash::cached_tree_hash::*;
+use tree_hash::standard_tree_hash::*;
 use tree_hash::*;
 
 #[derive(Clone, Debug)]
@@ -129,6 +131,27 @@ pub struct Inner {
     pub b: u64,
     pub c: u64,
     pub d: u64,
+}
+
+impl TreeHash for Inner {
+    fn tree_hash_item_type() -> ItemType {
+        ItemType::Composite
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn hash_tree_root(&self) -> Vec<u8> {
+        let mut leaves = Vec::with_capacity(4 * HASHSIZE);
+
+        leaves.append(&mut self.a.hash_tree_root());
+        leaves.append(&mut self.b.hash_tree_root());
+        leaves.append(&mut self.c.hash_tree_root());
+        leaves.append(&mut self.d.hash_tree_root());
+
+        efficient_merkleize(&leaves)[0..32].to_vec()
+    }
 }
 
 impl CachedTreeHashSubTree<Inner> for Inner {
@@ -458,6 +481,7 @@ fn test_u64_vec_modifications(original: Vec<u64>, modified: Vec<u64>) {
     mix_in_length(&mut expected[0..HASHSIZE], modified.len());
 
     assert_eq!(expected, modified_cache);
+    assert_eq!(&expected[0..32], &modified.hash_tree_root()[..]);
 }
 
 #[test]
@@ -580,6 +604,7 @@ fn test_inner_vec_modifications(original: Vec<Inner>, modified: Vec<Inner>, refe
 
     // Compare the cached tree to the reference tree.
     assert_trees_eq(&expected, &modified_cache);
+    assert_eq!(&expected[0..32], &modified.hash_tree_root()[..]);
 }
 
 #[test]
