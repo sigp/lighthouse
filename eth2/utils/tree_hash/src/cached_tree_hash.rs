@@ -15,7 +15,7 @@ impl Into<Vec<u8>> for TreeHashCache {
 impl TreeHashCache {
     pub fn new<T>(item: &T) -> Result<Self, Error>
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHashSubtree<T>,
     {
         item.new_cache()
     }
@@ -32,7 +32,7 @@ impl TreeHashCache {
         leaves_and_subtrees: Vec<Self>,
     ) -> Result<Self, Error>
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHashSubtree<T>,
     {
         let offset_handler = BTreeOverlay::new(item, 0)?;
 
@@ -55,7 +55,7 @@ impl TreeHashCache {
         // Iterate through all of the leaves/subtrees, adding their root as a leaf node and then
         // concatenating their merkle trees.
         for t in leaves_and_subtrees {
-            leaves.append(&mut t.root()?);
+            leaves.append(&mut t.root().ok_or_else(|| Error::NoBytesForRoot)?.to_vec());
             cache.append(&mut t.into_merkle_tree());
         }
 
@@ -89,11 +89,8 @@ impl TreeHashCache {
         self.cache.len()
     }
 
-    pub fn root(&self) -> Result<Vec<u8>, Error> {
-        self.cache
-            .get(0..HASHSIZE)
-            .ok_or_else(|| Error::NoBytesForRoot)
-            .and_then(|slice| Ok(slice.to_vec()))
+    pub fn root(&self) -> Option<&[u8]> {
+        self.cache.get(0..HASHSIZE)
     }
 
     pub fn splice(&mut self, chunk_range: Range<usize>, replace_with: Self) {

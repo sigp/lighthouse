@@ -2,6 +2,123 @@ use hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 use tree_hash::*;
 
+#[derive(Clone, Debug)]
+pub struct InternalCache {
+    pub a: u64,
+    pub b: u64,
+    pub cache: Option<TreeHashCache>,
+}
+
+impl CachedTreeHash<InternalCache> for InternalCache {
+    fn update_internal_tree_hash_cache(mut self, mut old: Self) -> Result<(Self, Self), Error> {
+        let mut local_cache = old.cache;
+        old.cache = None;
+
+        if let Some(ref mut local_cache) = local_cache {
+            self.update_cache(&old, local_cache, 0)?;
+        } else {
+            local_cache = Some(self.new_cache()?)
+        }
+
+        self.cache = local_cache;
+
+        Ok((old, self))
+    }
+
+    fn cached_tree_hash_root(&self) -> Option<Vec<u8>> {
+        match &self.cache {
+            None => None,
+            Some(c) => Some(c.root()?.to_vec()),
+        }
+    }
+
+    fn clone_without_tree_hash_cache(&self) -> Self {
+        Self {
+            a: self.a,
+            b: self.b,
+            cache: None,
+        }
+    }
+}
+
+#[test]
+fn works_when_embedded() {
+    let old = InternalCache {
+        a: 99,
+        b: 99,
+        cache: None,
+    };
+
+    let mut new = old.clone_without_tree_hash_cache();
+    new.a = 1;
+    new.b = 2;
+
+    let (_old, new) = new.update_internal_tree_hash_cache(old).unwrap();
+
+    let root = new.cached_tree_hash_root().unwrap();
+
+    let leaves = vec![int_to_bytes32(1), int_to_bytes32(2)];
+    let merkle = merkleize(join(leaves));
+
+    assert_eq!(&merkle[0..32], &root[..]);
+}
+
+impl CachedTreeHashSubtree<InternalCache> for InternalCache {
+    fn item_type() -> ItemType {
+        ItemType::Composite
+    }
+
+    fn new_cache(&self) -> Result<TreeHashCache, Error> {
+        let tree = TreeHashCache::from_leaves_and_subtrees(
+            self,
+            vec![self.a.new_cache()?, self.b.new_cache()?],
+        )?;
+
+        Ok(tree)
+    }
+
+    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+        let mut lengths = vec![];
+
+        lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.b, 0)?.total_nodes());
+
+        BTreeOverlay::from_lengths(chunk_offset, lengths)
+    }
+
+    fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::ShouldNeverBePacked(Self::item_type()))
+    }
+
+    fn packing_factor() -> usize {
+        1
+    }
+
+    fn update_cache(
+        &self,
+        other: &Self,
+        cache: &mut TreeHashCache,
+        chunk: usize,
+    ) -> Result<usize, Error> {
+        let offset_handler = BTreeOverlay::new(self, chunk)?;
+
+        // Skip past the internal nodes and update any changed leaf nodes.
+        {
+            let chunk = offset_handler.first_leaf_node()?;
+            let chunk = self.a.update_cache(&other.a, cache, chunk)?;
+            let _chunk = self.b.update_cache(&other.b, cache, chunk)?;
+        }
+
+        for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
+            if cache.either_modified(children)? {
+                cache.modify_chunk(parent, &cache.hash_children(children)?)?;
+            }
+        }
+
+        Ok(offset_handler.next_node)
+    }
+}
+
 fn num_nodes(num_leaves: usize) -> usize {
     2 * num_leaves - 1
 }
@@ -14,7 +131,7 @@ pub struct Inner {
     pub d: u64,
 }
 
-impl CachedTreeHash<Inner> for Inner {
+impl CachedTreeHashSubtree<Inner> for Inner {
     fn item_type() -> ItemType {
         ItemType::Composite
     }
@@ -86,7 +203,7 @@ pub struct Outer {
     pub c: u64,
 }
 
-impl CachedTreeHash<Outer> for Outer {
+impl CachedTreeHashSubtree<Outer> for Outer {
     fn item_type() -> ItemType {
         ItemType::Composite
     }
