@@ -2,6 +2,7 @@ mod run;
 
 use clap::{App, Arg};
 use client::{ClientConfig, Eth2Config};
+use env_logger::{Builder, Env};
 use eth2_config::{get_data_dir, read_from_file, write_to_file};
 use slog::{crit, o, Drain};
 use std::path::PathBuf;
@@ -12,6 +13,9 @@ pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
+    // debugging output for libp2p and external crates
+    Builder::from_env(Env::default()).init();
+
     let matches = App::new("Lighthouse")
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")

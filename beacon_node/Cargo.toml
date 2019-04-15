@@ -23,3 +23,4 @@ futures = "0.1.25"
 exit-future = "0.1.3"
 state_processing = { path = "../eth2/state_processing" }
 slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_debug"] }
+env_logger = "0.6.1"
