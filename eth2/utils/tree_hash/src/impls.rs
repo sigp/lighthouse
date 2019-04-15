@@ -18,16 +18,12 @@ impl CachedTreeHash<u64> for u64 {
         BTreeOverlay::from_lengths(chunk_offset, vec![1])
     }
 
-    fn num_bytes(&self) -> usize {
-        8
-    }
-
     fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
         Ok(ssz_encode(self))
     }
 
     fn packing_factor() -> usize {
-        32 / 8
+        HASHSIZE / 8
     }
 
     fn cached_hash_tree_root(
@@ -84,10 +80,6 @@ where
         };
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
-    }
-
-    fn num_bytes(&self) -> usize {
-        self.iter().fold(0, |acc, item| acc + item.num_bytes())
     }
 
     fn packed_encoding(&self) -> Result<Vec<u8>, Error> {
@@ -219,7 +211,7 @@ fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
 where
     T: CachedTreeHash<T>,
 {
-    let num_packed_bytes = vec.num_bytes();
+    let num_packed_bytes = (BYTES_PER_CHUNK / T::packing_factor()) * vec.len();
     let num_leaves = num_sanitized_leaves(num_packed_bytes);
 
     let mut packed = Vec::with_capacity(num_leaves * HASHSIZE);
