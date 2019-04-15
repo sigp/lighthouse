@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// Historical block and state roots.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct HistoricalBatch {
     pub block_roots: TreeHashVector<Hash256>,

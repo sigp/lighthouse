@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// A deposit to potentially become a beacon chain validator.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Deposit {
     pub proof: TreeHashVector<Hash256>,

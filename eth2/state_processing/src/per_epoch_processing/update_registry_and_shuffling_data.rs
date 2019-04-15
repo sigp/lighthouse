@@ -4,7 +4,7 @@ use types::*;
 
 /// Peforms a validator registry update, if required.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn update_registry_and_shuffling_data(
     state: &mut BeaconState,
     current_total_balance: u64,
@@ -49,7 +49,7 @@ pub fn update_registry_and_shuffling_data(
 
 /// Returns `true` if the validator registry should be updated during an epoch processing.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn should_update_validator_registry(
     state: &BeaconState,
     spec: &ChainSpec,
@@ -78,7 +78,7 @@ pub fn should_update_validator_registry(
 ///
 /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn update_validator_registry(
     state: &mut BeaconState,
     current_total_balance: u64,
@@ -133,7 +133,7 @@ pub fn update_validator_registry(
 
 /// Activate the validator of the given ``index``.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn activate_validator(
     state: &mut BeaconState,
     validator_index: usize,

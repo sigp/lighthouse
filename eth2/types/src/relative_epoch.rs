@@ -10,7 +10,7 @@ pub enum Error {
 /// Defines the epochs relative to some epoch. Most useful when referring to the committees prior
 /// to and following some epoch.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RelativeEpoch {
     /// The prior epoch.
@@ -32,7 +32,7 @@ pub enum RelativeEpoch {
 impl RelativeEpoch {
     /// Returns the `epoch` that `self` refers to, with respect to the `base` epoch.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn into_epoch(self, base: Epoch) -> Epoch {
         match self {
             RelativeEpoch::Previous => base - 1,
@@ -51,7 +51,7 @@ impl RelativeEpoch {
     /// - `AmbiguiousNextEpoch` whenever `other` is one after `base`, because it's unknowable if
     ///   there will be a registry change.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn from_epoch(base: Epoch, other: Epoch) -> Result<Self, Error> {
         if other == base - 1 {
             Ok(RelativeEpoch::Previous)

@@ -7,7 +7,7 @@ use tree_hash_derive::TreeHash;
 
 /// Used for pairing an attestation with a proof-of-custody.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TreeHash)]
 pub struct AttestationDataAndCustodyBit {
     pub data: AttestationData,

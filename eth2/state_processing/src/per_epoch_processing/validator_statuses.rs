@@ -160,7 +160,7 @@ impl ValidatorStatuses {
     /// - Active validators
     /// - Total balances for the current and previous epochs.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn new(state: &BeaconState, spec: &ChainSpec) -> Result<Self, BeaconStateError> {
         let mut statuses = Vec::with_capacity(state.validator_registry.len());
         let mut total_balances = TotalBalances::default();
@@ -195,7 +195,7 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn process_attestations(
         &mut self,
         state: &BeaconState,
@@ -261,7 +261,7 @@ impl ValidatorStatuses {
     /// Update the `statuses` for each validator based upon whether or not they attested to the
     /// "winning" shard block root for the previous epoch.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn process_winning_roots(
         &mut self,
         state: &BeaconState,
@@ -297,14 +297,14 @@ impl ValidatorStatuses {
 /// Returns the distance between when the attestation was created and when it was included in a
 /// block.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn inclusion_distance(a: &PendingAttestation) -> Slot {
     a.inclusion_slot - a.data.slot
 }
 
 /// Returns `true` if some `PendingAttestation` is from the supplied `epoch`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool {
     a.data.slot.epoch(spec.slots_per_epoch) == epoch
 }
@@ -312,7 +312,7 @@ fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the first slot of the given epoch.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn has_common_epoch_boundary_root(
     a: &PendingAttestation,
     state: &BeaconState,
@@ -328,7 +328,7 @@ fn has_common_epoch_boundary_root(
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn has_common_beacon_block_root(
     a: &PendingAttestation,
     state: &BeaconState,

@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// Two conflicting proposals from the same proposer (validator).
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ProposerSlashing {
     pub proposer_index: u64,

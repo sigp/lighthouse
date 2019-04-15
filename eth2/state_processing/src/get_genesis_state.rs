@@ -9,7 +9,7 @@ pub enum GenesisError {
 
 /// Returns the genesis `BeaconState`
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn get_genesis_state(
     genesis_validator_deposits: &[Deposit],
     genesis_time: u64,
