@@ -14,16 +14,12 @@ impl CachedTreeHash<u64> for u64 {
         )?)
     }
 
-    fn btree_overlay(&self, _chunk_offset: usize) -> Result<BTreeOverlay, Error> {
-        Err(Error::ShouldNotProduceBTreeOverlay)
+    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+        BTreeOverlay::from_lengths(chunk_offset, vec![1])
     }
 
     fn num_bytes(&self) -> usize {
         8
-    }
-
-    fn num_child_nodes(&self) -> usize {
-        0
     }
 
     fn packed_encoding(&self) -> Vec<u8> {
@@ -72,7 +68,6 @@ where
     }
 
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
-        //
         let lengths = match T::item_type() {
             ItemType::Basic => vec![1; self.len() / T::packing_factor()],
             ItemType::Composite | ItemType::List => {
@@ -87,11 +82,6 @@ where
         };
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
-    }
-
-    fn num_child_nodes(&self) -> usize {
-        // TODO
-        42
     }
 
     fn num_bytes(&self) -> usize {

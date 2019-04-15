@@ -47,24 +47,12 @@ impl CachedTreeHash<Inner> for Inner {
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
-        lengths.push(self.a.num_child_nodes() + 1);
-        lengths.push(self.b.num_child_nodes() + 1);
-        lengths.push(self.c.num_child_nodes() + 1);
-        lengths.push(self.d.num_child_nodes() + 1);
+        lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.b, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.c, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.d, 0)?.total_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
-    }
-
-    fn num_child_nodes(&self) -> usize {
-        let mut children = 0;
-        let leaves = 4;
-
-        children += self.a.num_child_nodes();
-        children += self.b.num_child_nodes();
-        children += self.c.num_child_nodes();
-        children += self.d.num_child_nodes();
-
-        num_nodes(leaves) + children - 1
     }
 
     fn packed_encoding(&self) -> Vec<u8> {
@@ -135,23 +123,12 @@ impl CachedTreeHash<Outer> for Outer {
         bytes
     }
 
-    fn num_child_nodes(&self) -> usize {
-        let mut children = 0;
-        let leaves = 3;
-
-        children += self.a.num_child_nodes();
-        children += self.b.num_child_nodes();
-        children += self.c.num_child_nodes();
-
-        num_nodes(leaves) + children - 1
-    }
-
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
-        lengths.push(self.a.num_child_nodes() + 1);
-        lengths.push(self.b.num_child_nodes() + 1);
-        lengths.push(self.c.num_child_nodes() + 1);
+        lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.b, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.c, 0)?.total_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
