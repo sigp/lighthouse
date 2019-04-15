@@ -19,14 +19,14 @@ impl CachedTreeHash<Inner> for Inner {
         ItemType::Composite
     }
 
-    fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
+    fn new_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
             vec![
-                self.a.build_tree_hash_cache()?,
-                self.b.build_tree_hash_cache()?,
-                self.c.build_tree_hash_cache()?,
-                self.d.build_tree_hash_cache()?,
+                self.a.new_cache()?,
+                self.b.new_cache()?,
+                self.c.new_cache()?,
+                self.d.new_cache()?,
             ],
         )?;
 
@@ -52,7 +52,7 @@ impl CachedTreeHash<Inner> for Inner {
         1
     }
 
-    fn cached_hash_tree_root(
+    fn update_cache(
         &self,
         other: &Self,
         cache: &mut TreeHashCache,
@@ -63,10 +63,10 @@ impl CachedTreeHash<Inner> for Inner {
         // Skip past the internal nodes and update any changed leaf nodes.
         {
             let chunk = offset_handler.first_leaf_node()?;
-            let chunk = self.a.cached_hash_tree_root(&other.a, cache, chunk)?;
-            let chunk = self.b.cached_hash_tree_root(&other.b, cache, chunk)?;
-            let chunk = self.c.cached_hash_tree_root(&other.c, cache, chunk)?;
-            let _chunk = self.d.cached_hash_tree_root(&other.d, cache, chunk)?;
+            let chunk = self.a.update_cache(&other.a, cache, chunk)?;
+            let chunk = self.b.update_cache(&other.b, cache, chunk)?;
+            let chunk = self.c.update_cache(&other.c, cache, chunk)?;
+            let _chunk = self.d.update_cache(&other.d, cache, chunk)?;
         }
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
@@ -91,13 +91,13 @@ impl CachedTreeHash<Outer> for Outer {
         ItemType::Composite
     }
 
-    fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
+    fn new_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
             vec![
-                self.a.build_tree_hash_cache()?,
-                self.b.build_tree_hash_cache()?,
-                self.c.build_tree_hash_cache()?,
+                self.a.new_cache()?,
+                self.b.new_cache()?,
+                self.c.new_cache()?,
             ],
         )?;
 
@@ -122,7 +122,7 @@ impl CachedTreeHash<Outer> for Outer {
         1
     }
 
-    fn cached_hash_tree_root(
+    fn update_cache(
         &self,
         other: &Self,
         cache: &mut TreeHashCache,
@@ -133,9 +133,9 @@ impl CachedTreeHash<Outer> for Outer {
         // Skip past the internal nodes and update any changed leaf nodes.
         {
             let chunk = offset_handler.first_leaf_node()?;
-            let chunk = self.a.cached_hash_tree_root(&other.a, cache, chunk)?;
-            let chunk = self.b.cached_hash_tree_root(&other.b, cache, chunk)?;
-            let _chunk = self.c.cached_hash_tree_root(&other.c, cache, chunk)?;
+            let chunk = self.a.update_cache(&other.a, cache, chunk)?;
+            let chunk = self.b.update_cache(&other.b, cache, chunk)?;
+            let _chunk = self.c.update_cache(&other.c, cache, chunk)?;
         }
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
@@ -186,7 +186,7 @@ fn partial_modification_to_inner_struct() {
     let mut cache_struct = TreeHashCache::new(&original_outer).unwrap();
 
     modified_outer
-        .cached_hash_tree_root(&original_outer, &mut cache_struct, 0)
+        .update_cache(&original_outer, &mut cache_struct, 0)
         .unwrap();
 
     let modified_cache: Vec<u8> = cache_struct.into();
@@ -240,7 +240,7 @@ fn partial_modification_to_outer() {
     let mut cache_struct = TreeHashCache::new(&original_outer).unwrap();
 
     modified_outer
-        .cached_hash_tree_root(&original_outer, &mut cache_struct, 0)
+        .update_cache(&original_outer, &mut cache_struct, 0)
         .unwrap();
 
     let modified_cache: Vec<u8> = cache_struct.into();
@@ -326,7 +326,7 @@ fn test_u64_vec_modifications(original: Vec<u64>, modified: Vec<u64>) {
     // Perform a differential hash
     let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone(), false).unwrap();
     modified
-        .cached_hash_tree_root(&original, &mut cache_struct, 0)
+        .update_cache(&original, &mut cache_struct, 0)
         .unwrap();
     let modified_cache: Vec<u8> = cache_struct.into();
 
@@ -430,9 +430,7 @@ fn large_vec_of_u64_builds() {
 fn test_inner_vec_modifications(original: Vec<Inner>, modified: Vec<Inner>, reference: Vec<u64>) {
     let mut cache = TreeHashCache::new(&original).unwrap();
 
-    modified
-        .cached_hash_tree_root(&original, &mut cache, 0)
-        .unwrap();
+    modified.update_cache(&original, &mut cache, 0).unwrap();
     let modified_cache: Vec<u8> = cache.into();
 
     // Build the reference vec.
@@ -792,7 +790,7 @@ fn generic_test(index: usize) {
     let mut cache_struct = TreeHashCache::from_bytes(cache.clone(), false).unwrap();
 
     changed_inner
-        .cached_hash_tree_root(&inner, &mut cache_struct, 0)
+        .update_cache(&inner, &mut cache_struct, 0)
         .unwrap();
 
     // assert_eq!(*cache_struct.hash_count, 3);

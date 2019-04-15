@@ -17,7 +17,7 @@ impl TreeHashCache {
     where
         T: CachedTreeHash<T>,
     {
-        item.build_tree_hash_cache()
+        item.new_cache()
     }
 
     pub fn from_elems(cache: Vec<u8>, chunk_modified: Vec<bool>) -> Self {

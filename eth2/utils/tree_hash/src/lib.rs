@@ -40,15 +40,15 @@ pub enum ItemType {
 pub trait CachedTreeHash<Item>: Debug {
     fn item_type() -> ItemType;
 
-    fn build_tree_hash_cache(&self) -> Result<TreeHashCache, Error>;
-
     fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;
 
     fn packed_encoding(&self) -> Result<Vec<u8>, Error>;
 
     fn packing_factor() -> usize;
 
-    fn cached_hash_tree_root(
+    fn new_cache(&self) -> Result<TreeHashCache, Error>;
+
+    fn update_cache(
         &self,
         other: &Item,
         cache: &mut TreeHashCache,
