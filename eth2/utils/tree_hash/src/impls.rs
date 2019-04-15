@@ -14,12 +14,12 @@ impl CachedTreeHash<u64> for u64 {
         )?)
     }
 
-    fn num_bytes(&self) -> usize {
-        8
+    fn btree_overlay(&self, _chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+        Err(Error::ShouldNotProduceBTreeOverlay)
     }
 
-    fn offsets(&self) -> Result<Vec<usize>, Error> {
-        Err(Error::ShouldNotProduceBTreeOverlay)
+    fn num_bytes(&self) -> usize {
+        8
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -71,21 +71,22 @@ where
         }
     }
 
-    fn offsets(&self) -> Result<Vec<usize>, Error> {
-        let offsets = match T::item_type() {
+    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+        //
+        let lengths = match T::item_type() {
             ItemType::Basic => vec![1; self.len() / T::packing_factor()],
             ItemType::Composite | ItemType::List => {
-                let mut offsets = vec![];
+                let mut lengths = vec![];
 
                 for item in self {
-                    offsets.push(BTreeOverlay::new(item, 0)?.total_nodes())
+                    lengths.push(BTreeOverlay::new(item, 0)?.total_nodes())
                 }
 
-                offsets
+                lengths
             }
         };
 
-        Ok(offsets)
+        BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
     fn num_child_nodes(&self) -> usize {
@@ -180,7 +181,7 @@ where
                         (Some(old), None) => {
                             // Splice out the entire tree of the removed node, replacing it with a
                             // single padding node.
-                            let end_chunk = BTreeOverlay::new(old, start_chunk)?.next_node();
+                            let end_chunk = BTreeOverlay::new(old, start_chunk)?.next_node;
 
                             cache.splice(
                                 start_chunk..end_chunk,
@@ -218,7 +219,7 @@ where
             cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
         }
 
-        Ok(offset_handler.next_node())
+        Ok(offset_handler.next_node)
     }
 }
 
