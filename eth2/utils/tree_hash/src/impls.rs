@@ -4,7 +4,7 @@ use ssz::ssz_encode;
 
 mod vec;
 
-impl CachedTreeHash<u64> for u64 {
+impl CachedTreeHashSubtree<u64> for u64 {
     fn item_type() -> ItemType {
         ItemType::Basic
     }

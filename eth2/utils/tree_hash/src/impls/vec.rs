@@ -1,8 +1,8 @@
 use super::*;
 
-impl<T> CachedTreeHash<Vec<T>> for Vec<T>
+impl<T> CachedTreeHashSubtree<Vec<T>> for Vec<T>
 where
-    T: CachedTreeHash<T>,
+    T: CachedTreeHashSubtree<T>,
 {
     fn item_type() -> ItemType {
         ItemType::List
@@ -168,7 +168,7 @@ where
 
 fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
 where
-    T: CachedTreeHash<T>,
+    T: CachedTreeHashSubtree<T>,
 {
     let num_packed_bytes = (BYTES_PER_CHUNK / T::packing_factor()) * vec.len();
     let num_leaves = num_sanitized_leaves(num_packed_bytes);
