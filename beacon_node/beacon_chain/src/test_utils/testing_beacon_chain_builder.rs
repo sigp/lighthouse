@@ -5,8 +5,8 @@ use db::{
 };
 use fork_choice::BitwiseLMDGhost;
 use slot_clock::TestingSlotClock;
-use ssz::TreeHash;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
 
@@ -27,7 +27,7 @@ impl TestingBeaconChainBuilder {
         let (genesis_state, _keypairs) = self.state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
-        genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+        genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
         // Create the Beacon Chain
         BeaconChain::from_genesis(

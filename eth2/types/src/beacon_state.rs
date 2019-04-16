@@ -5,9 +5,11 @@ use int_to_bytes::int_to_bytes32;
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{hash, ssz_encode, TreeHash};
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz::{hash, ssz_encode};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 mod epoch_cache;
 mod pubkey_cache;
@@ -186,11 +188,11 @@ impl BeaconState {
         }
     }
 
-    /// Returns the `hash_tree_root` of the state.
+    /// Returns the `tree_hash_root` of the state.
     ///
     /// Spec v0.5.0
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.hash_tree_root()[..])
+        Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
     pub fn historical_batch(&self) -> HistoricalBatch {

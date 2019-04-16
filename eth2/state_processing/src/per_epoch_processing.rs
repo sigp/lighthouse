@@ -3,8 +3,8 @@ use errors::EpochProcessingError as Error;
 use process_ejections::process_ejections;
 use process_exit_queue::process_exit_queue;
 use process_slashings::process_slashings;
-use ssz::TreeHash;
 use std::collections::HashMap;
+use tree_hash::TreeHash;
 use types::*;
 use update_registry_and_shuffling_data::update_registry_and_shuffling_data;
 use validator_statuses::{TotalBalances, ValidatorStatuses};
@@ -236,7 +236,7 @@ pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<
         let active_index_root = Hash256::from_slice(
             &state
                 .get_active_validator_indices(next_epoch + spec.activation_exit_delay)
-                .hash_tree_root()[..],
+                .tree_hash_root()[..],
         );
         state.set_active_index_root(next_epoch, active_index_root, spec)?;
 
@@ -261,7 +261,7 @@ pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<
         let historical_batch: HistoricalBatch = state.historical_batch();
         state
             .historical_roots
-            .push(Hash256::from_slice(&historical_batch.hash_tree_root()[..]));
+            .push(Hash256::from_slice(&historical_batch.tree_hash_root()[..]));
     }
 
     state.previous_epoch_attestations = state.current_epoch_attestations.clone();

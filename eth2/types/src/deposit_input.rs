@@ -3,9 +3,10 @@ use crate::*;
 use bls::{PublicKey, Signature};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{SignedRoot, TreeHash};
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::{SignedRoot, TreeHash};
+use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// The data supplied by the user to the deposit contract.
 ///

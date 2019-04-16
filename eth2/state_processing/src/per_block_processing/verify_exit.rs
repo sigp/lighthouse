@@ -1,5 +1,5 @@
 use super::errors::{ExitInvalid as Invalid, ExitValidationError as Error};
-use ssz::SignedRoot;
+use tree_hash::SignedRoot;
 use types::*;
 
 /// Indicates if an `Exit` is valid to be included in a block in the current epoch of the given

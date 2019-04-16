@@ -3,9 +3,10 @@ use crate::*;
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
+use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// A header of a `BeaconBlock`.
 ///
@@ -32,11 +33,11 @@ pub struct BeaconBlockHeader {
 }
 
 impl BeaconBlockHeader {
-    /// Returns the `hash_tree_root` of the header.
+    /// Returns the `tree_hash_root` of the header.
     ///
     /// Spec v0.5.0
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.hash_tree_root()[..])
+        Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.

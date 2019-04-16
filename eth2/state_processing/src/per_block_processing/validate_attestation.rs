@@ -1,6 +1,6 @@
 use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
 use crate::common::verify_bitfield_length;
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 use types::*;
 
 /// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
@@ -270,14 +270,14 @@ fn verify_attestation_signature(
         data: a.data.clone(),
         custody_bit: false,
     }
-    .hash_tree_root();
+    .tree_hash_root();
 
     // Message when custody bitfield is `true`
     let message_1 = AttestationDataAndCustodyBit {
         data: a.data.clone(),
         custody_bit: true,
     }
-    .hash_tree_root();
+    .tree_hash_root();
 
     let mut messages = vec![];
     let mut keys = vec![];

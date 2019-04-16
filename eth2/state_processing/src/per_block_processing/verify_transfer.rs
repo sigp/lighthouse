@@ -1,6 +1,6 @@
 use super::errors::{TransferInvalid as Invalid, TransferValidationError as Error};
 use bls::get_withdrawal_credentials;
-use ssz::SignedRoot;
+use tree_hash::SignedRoot;
 use types::*;
 
 /// Indicates if a `Transfer` is valid to be included in a block in the current epoch of the given

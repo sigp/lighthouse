@@ -1,5 +1,5 @@
 use super::errors::{ProposerSlashingInvalid as Invalid, ProposerSlashingValidationError as Error};
-use ssz::SignedRoot;
+use tree_hash::SignedRoot;
 use types::*;
 
 /// Indicates if a `ProposerSlashing` is valid to be included in a block in the current epoch of the given

@@ -5,8 +5,9 @@ use crate::{
 use int_to_bytes::int_to_bytes4;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///

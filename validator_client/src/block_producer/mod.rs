@@ -86,7 +86,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     pub fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
         let epoch = self.slot.epoch(self.spec.slots_per_epoch);
 
-        let message = epoch.hash_tree_root();
+        let message = epoch.tree_hash_root();
         let randao_reveal = match self.signer.sign_message(
             &message,
             self.spec.get_domain(epoch, Domain::Randao, &self.fork),

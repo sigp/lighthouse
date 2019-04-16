@@ -2,8 +2,8 @@ pub mod test_utils;
 mod traits;
 
 use slot_clock::SlotClock;
-use ssz::TreeHash;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::{AttestationData, AttestationDataAndCustodyBit, FreeAttestation, Signature, Slot};
 
 pub use self::traits::{
@@ -141,7 +141,8 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
             data: attestation_data.clone(),
             custody_bit: PHASE_0_CUSTODY_BIT,
         }
-        .hash_tree_root();
+        .tree_hash_root
+            | update();
 
         self.signer
             .sign_attestation_message(&message[..], DOMAIN_ATTESTATION)
