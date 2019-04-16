@@ -24,6 +24,7 @@ use test_random_derive::TestRandom;
 pub struct VoluntaryExit {
     pub epoch: Epoch,
     pub validator_index: u64,
+    #[signed_root(skip_hashing)]
     pub signature: Signature,
 }
 
