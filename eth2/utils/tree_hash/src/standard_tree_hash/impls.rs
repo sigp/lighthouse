@@ -1,0 +1,97 @@
+use super::*;
+use ethereum_types::H256;
+
+macro_rules! impl_for_bitsize {
+    ($type: ident, $bit_size: expr) => {
+        impl TreeHash for $type {
+            fn tree_hash_type() -> TreeHashType {
+                TreeHashType::Basic
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                ssz_encode(self)
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                HASHSIZE / ($bit_size / 8)
+            }
+
+            fn tree_hash_root(&self) -> Vec<u8> {
+                int_to_bytes32(*self as u64)
+            }
+        }
+    };
+}
+
+impl_for_bitsize!(u8, 8);
+impl_for_bitsize!(u16, 16);
+impl_for_bitsize!(u32, 32);
+impl_for_bitsize!(u64, 64);
+impl_for_bitsize!(usize, 64);
+impl_for_bitsize!(bool, 8);
+
+impl TreeHash for H256 {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Basic
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        ssz_encode(self)
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        1
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        ssz_encode(self)
+    }
+}
+
+impl<T> TreeHash for Vec<T>
+where
+    T: TreeHash,
+{
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        let leaves = match T::tree_hash_type() {
+            TreeHashType::Basic => {
+                let mut leaves =
+                    Vec::with_capacity((HASHSIZE / T::tree_hash_packing_factor()) * self.len());
+
+                for item in self {
+                    leaves.append(&mut item.tree_hash_packed_encoding());
+                }
+
+                leaves
+            }
+            TreeHashType::Composite | TreeHashType::List => {
+                let mut leaves = Vec::with_capacity(self.len() * HASHSIZE);
+
+                for item in self {
+                    leaves.append(&mut item.tree_hash_root())
+                }
+
+                leaves
+            }
+        };
+
+        // Mix in the length
+        let mut root_and_len = Vec::with_capacity(HASHSIZE * 2);
+        root_and_len.append(&mut merkle_root(&leaves));
+        root_and_len.append(&mut int_to_bytes32(self.len() as u64));
+
+        hash(&root_and_len)
+    }
+}

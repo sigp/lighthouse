@@ -149,7 +149,7 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
                     leaves.append(&mut self.#idents.tree_hash_root());
                 )*
 
-                tree_hash::efficient_merkleize(&leaves)[0..32].to_vec()
+                tree_hash::merkle_root(&leaves)
             }
         }
     };
@@ -191,7 +191,7 @@ pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
                     leaves.append(&mut self.#idents.tree_hash_root());
                 )*
 
-                tree_hash::efficient_merkleize(&leaves)[0..32].to_vec()
+                tree_hash::merkle_root(&leaves)
             }
         }
     };
