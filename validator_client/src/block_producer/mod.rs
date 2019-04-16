@@ -6,8 +6,8 @@ pub use self::beacon_node_block::{BeaconNodeError, PublishOutcome};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
 use slog::{error, info, warn};
-use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
+use tree_hash::{SignedRoot, TreeHash};
 use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 
 #[derive(Debug, PartialEq)]

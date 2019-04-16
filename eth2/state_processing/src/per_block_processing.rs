@@ -1,7 +1,7 @@
 use crate::common::slash_validator;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
-use ssz::{SignedRoot, TreeHash};
+use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
 pub use self::verify_attester_slashing::{

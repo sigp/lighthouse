@@ -4,7 +4,8 @@ use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{decode, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::impl_tree_hash_for_ssz_bytes;
 
 /// A single BLS signature.
 ///
@@ -114,11 +115,7 @@ impl Decodable for Signature {
     }
 }
 
-impl TreeHash for Signature {
-    fn tree_hash_root(&self) -> Vec<u8> {
-        hash(&self.as_bytes())
-    }
-}
+impl_tree_hash_for_ssz_bytes!(Signature);
 
 impl Serialize for Signature {
     /// Serde serialization is compliant the Ethereum YAML test format.

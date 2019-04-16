@@ -141,8 +141,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> Attester<T, U, V, 
             data: attestation_data.clone(),
             custody_bit: PHASE_0_CUSTODY_BIT,
         }
-        .tree_hash_root
-            | update();
+        .tree_hash_root();
 
         self.signer
             .sign_attestation_message(&message[..], DOMAIN_ATTESTATION)

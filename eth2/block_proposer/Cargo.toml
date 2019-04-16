@@ -8,4 +8,5 @@ edition = "2018"
 int_to_bytes = { path = "../utils/int_to_bytes" }
 slot_clock = { path = "../utils/slot_clock" }
 ssz = { path = "../utils/ssz" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path = "../types" }

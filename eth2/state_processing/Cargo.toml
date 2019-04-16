@@ -26,5 +26,7 @@ log = "0.4"
 merkle_proof = { path = "../utils/merkle_proof" }
 ssz = { path = "../utils/ssz" }
 ssz_derive = { path = "../utils/ssz_derive" }
+tree_hash = { path = "../utils/tree_hash" }
+tree_hash_derive = { path = "../utils/tree_hash_derive" }
 types = { path = "../types" }
 rayon = "1.0"
