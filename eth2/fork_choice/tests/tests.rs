@@ -1,3 +1,4 @@
+#![cfg(not(debug_assertions))]
 // Tests the available fork-choice algorithms
 
 extern crate beacon_chain;
