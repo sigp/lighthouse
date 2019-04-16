@@ -2,8 +2,8 @@ pub mod test_utils;
 mod traits;
 
 use slot_clock::SlotClock;
-use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
+use tree_hash::{SignedRoot, TreeHash};
 use types::{BeaconBlock, ChainSpec, Domain, Slot};
 
 pub use self::traits::{
