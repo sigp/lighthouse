@@ -12,17 +12,12 @@ extern crate ethereum_types;
 
 pub mod decode;
 pub mod encode;
-mod signed_root;
-pub mod tree_hash;
 
 mod impl_decode;
 mod impl_encode;
-mod impl_tree_hash;
 
 pub use crate::decode::{decode, decode_ssz_list, Decodable, DecodeError};
 pub use crate::encode::{Encodable, SszStream};
-pub use crate::signed_root::SignedRoot;
-pub use crate::tree_hash::{merkle_hash, TreeHash};
 
 pub use hashing::hash;
 
