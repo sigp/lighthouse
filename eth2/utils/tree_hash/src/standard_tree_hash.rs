@@ -25,9 +25,14 @@ pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
     let nodes = num_nodes(leaves);
     let internal_nodes = nodes - leaves;
 
-    let num_bytes = internal_nodes * HASHSIZE + bytes.len();
+    let num_bytes = std::cmp::max(internal_nodes, 1) * HASHSIZE + bytes.len();
 
     let mut o: Vec<u8> = vec![0; internal_nodes * HASHSIZE];
+
+    if o.len() < HASHSIZE {
+        o.resize(HASHSIZE, 0);
+    }
+
     o.append(&mut bytes.to_vec());
 
     assert_eq!(o.len(), num_bytes);

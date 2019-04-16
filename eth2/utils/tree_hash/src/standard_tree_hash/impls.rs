@@ -30,6 +30,24 @@ impl_for_bitsize!(u64, 64);
 impl_for_bitsize!(usize, 64);
 impl_for_bitsize!(bool, 8);
 
+impl TreeHash for [u8; 4] {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        panic!("bytesN should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        panic!("bytesN should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        merkle_root(&ssz::ssz_encode(self))
+    }
+}
+
 impl TreeHash for H256 {
     fn tree_hash_type() -> TreeHashType {
         TreeHashType::Basic
@@ -94,4 +112,21 @@ where
 
         hash(&root_and_len)
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn bool() {
+        let mut true_bytes: Vec<u8> = vec![1];
+        true_bytes.append(&mut vec![0; 31]);
+
+        let false_bytes: Vec<u8> = vec![0; 32];
+
+        assert_eq!(true.tree_hash_root(), true_bytes);
+        assert_eq!(false.tree_hash_root(), false_bytes);
+    }
+
 }

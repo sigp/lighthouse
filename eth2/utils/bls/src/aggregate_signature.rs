@@ -166,7 +166,7 @@ impl<'de> Deserialize<'de> for AggregateSignature {
 }
 
 impl TreeHash for AggregateSignature {
-    fn hash_tree_root(&self) -> Vec<u8> {
+    fn tree_hash_root(&self) -> Vec<u8> {
         hash(&self.as_bytes())
     }
 }

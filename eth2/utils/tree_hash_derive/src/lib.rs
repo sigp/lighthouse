@@ -31,12 +31,10 @@ fn get_hashable_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<
 ///
 /// The field attribute is: `#[tree_hash(skip_hashing)]`
 fn should_skip_hashing(field: &syn::Field) -> bool {
-    for attr in &field.attrs {
-        if attr.tts.to_string() == "( skip_hashing )" {
-            return true;
-        }
-    }
-    false
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.into_token_stream().to_string() == "# [ tree_hash ( skip_hashing ) ]")
 }
 
 /// Implements `tree_hash::CachedTreeHashSubTree` for some `struct`.

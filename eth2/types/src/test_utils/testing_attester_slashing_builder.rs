@@ -1,5 +1,5 @@
 use crate::*;
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 
 /// Builds an `AttesterSlashing`.
 ///
@@ -66,7 +66,7 @@ impl TestingAttesterSlashingBuilder {
                 data: attestation.data.clone(),
                 custody_bit: false,
             };
-            let message = attestation_data_and_custody_bit.hash_tree_root();
+            let message = attestation_data_and_custody_bit.tree_hash_root();
 
             for (i, validator_index) in validator_indices.iter().enumerate() {
                 attestation.custody_bitfield.set(i, false);

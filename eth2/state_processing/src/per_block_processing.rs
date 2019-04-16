@@ -162,7 +162,7 @@ pub fn process_randao(
     // Verify the RANDAO is a valid signature of the proposer.
     verify!(
         block.body.randao_reveal.verify(
-            &state.current_epoch(spec).hash_tree_root()[..],
+            &state.current_epoch(spec).tree_hash_root()[..],
             spec.get_domain(
                 block.slot.epoch(spec.slots_per_epoch),
                 Domain::Randao,

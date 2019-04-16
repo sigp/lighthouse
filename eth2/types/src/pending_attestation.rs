@@ -2,8 +2,9 @@ use crate::test_utils::TestRandom;
 use crate::{Attestation, AttestationData, Bitfield, Slot};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///

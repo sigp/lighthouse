@@ -1,5 +1,5 @@
 use super::per_block_processing::{errors::BlockProcessingError, process_deposits};
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 use types::*;
 
 pub enum GenesisError {
@@ -36,7 +36,7 @@ pub fn get_genesis_state(
     let active_validator_indices = state
         .get_cached_active_validator_indices(RelativeEpoch::Current, spec)?
         .to_vec();
-    let genesis_active_index_root = Hash256::from_slice(&active_validator_indices.hash_tree_root());
+    let genesis_active_index_root = Hash256::from_slice(&active_validator_indices.tree_hash_root());
     state.fill_active_index_roots_with(genesis_active_index_root, spec);
 
     // Generate the current shuffling seed.
