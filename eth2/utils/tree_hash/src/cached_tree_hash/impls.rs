@@ -5,18 +5,18 @@ use ssz::ssz_encode;
 mod vec;
 
 impl CachedTreeHashSubTree<u64> for u64 {
-    fn new_cache(&self) -> Result<TreeHashCache, Error> {
+    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
             merkleize(ssz_encode(self)),
             false,
         )?)
     }
 
-    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         BTreeOverlay::from_lengths(chunk_offset, vec![1])
     }
 
-    fn update_cache(
+    fn update_tree_hash_cache(
         &self,
         other: &Self,
         cache: &mut TreeHashCache,

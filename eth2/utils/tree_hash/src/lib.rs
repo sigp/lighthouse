@@ -5,8 +5,8 @@ pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
 pub const MERKLE_HASH_CHUNCK: usize = 2 * BYTES_PER_CHUNK;
 
-pub use cached_tree_hash::CachedTreeHashSubTree;
-pub use standard_tree_hash::TreeHash;
+pub use cached_tree_hash::{BTreeOverlay, CachedTreeHashSubTree, Error, TreeHashCache};
+pub use standard_tree_hash::{efficient_merkleize, TreeHash};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TreeHashType {
