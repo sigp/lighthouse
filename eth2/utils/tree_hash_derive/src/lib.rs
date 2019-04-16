@@ -2,7 +2,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{parse_macro_input, DeriveInput};
 
 /// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
@@ -154,4 +154,70 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
         }
     };
     output.into()
+}
+
+/// Implements `tree_hash::TreeHash` for some `struct`, whilst excluding any fields following and
+/// including a field that is of type "Signature" or "AggregateSignature".
+///
+/// See:
+/// https://github.com/ethereum/eth2.0-specs/blob/master/specs/simple-serialize.md#signed-roots
+///
+/// This is a rather horrendous macro, it will read the type of the object as a string and decide
+/// if it's a signature by matching that string against "Signature" or "AggregateSignature". So,
+/// it's important that you use those exact words as your type -- don't alias it to something else.
+///
+/// If you can think of a better way to do this, please make an issue!
+///
+/// Fields are processed in the order they are defined.
+#[proc_macro_derive(SignedRoot, attributes(signed_root))]
+pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(input as DeriveInput);
+
+    let name = &item.ident;
+
+    let struct_data = match &item.data {
+        syn::Data::Struct(s) => s,
+        _ => panic!("tree_hash_derive only supports structs."),
+    };
+
+    let idents = get_signed_root_named_field_idents(&struct_data);
+
+    let output = quote! {
+        impl tree_hash::SignedRoot for #name {
+            fn signed_root(&self) -> Vec<u8> {
+                let mut leaves = Vec::with_capacity(4 * tree_hash::HASHSIZE);
+
+                #(
+                    leaves.append(&mut self.#idents.tree_hash_root());
+                )*
+
+                tree_hash::efficient_merkleize(&leaves)[0..32].to_vec()
+            }
+        }
+    };
+    output.into()
+}
+
+fn get_signed_root_named_field_idents(struct_data: &syn::DataStruct) -> Vec<&syn::Ident> {
+    struct_data
+        .fields
+        .iter()
+        .filter_map(|f| {
+            if should_skip_signed_root(&f) {
+                None
+            } else {
+                Some(match &f.ident {
+                    Some(ref ident) => ident,
+                    _ => panic!("tree_hash_derive only supports named struct fields"),
+                })
+            }
+        })
+        .collect()
+}
+
+fn should_skip_signed_root(field: &syn::Field) -> bool {
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.into_token_stream().to_string() == "# [ signed_root ( skip_hashing ) ]")
 }
