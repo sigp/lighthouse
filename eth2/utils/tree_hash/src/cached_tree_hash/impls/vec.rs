@@ -4,7 +4,7 @@ impl<T> CachedTreeHashSubTree<Vec<T>> for Vec<T>
 where
     T: CachedTreeHashSubTree<T> + TreeHash,
 {
-    fn new_cache(&self) -> Result<TreeHashCache, Error> {
+    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         match T::tree_hash_type() {
             TreeHashType::Basic => {
                 TreeHashCache::from_bytes(merkleize(get_packed_leaves(self)?), false)
@@ -20,7 +20,7 @@ where
         }
     }
 
-    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let lengths = match T::tree_hash_type() {
             TreeHashType::Basic => vec![1; self.len() / T::tree_hash_packing_factor()],
             TreeHashType::Composite | TreeHashType::List => {
@@ -37,7 +37,7 @@ where
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
-    fn update_cache(
+    fn update_tree_hash_cache(
         &self,
         other: &Vec<T>,
         cache: &mut TreeHashCache,
@@ -104,7 +104,7 @@ where
                     match (other.get(i), self.get(i)) {
                         // The item existed in the previous list and exsits in the current list.
                         (Some(old), Some(new)) => {
-                            new.update_cache(old, cache, start_chunk)?;
+                            new.update_tree_hash_cache(old, cache, start_chunk)?;
                         }
                         // The item existed in the previous list but does not exist in this list.
                         //

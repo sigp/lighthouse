@@ -14,7 +14,7 @@ impl BTreeOverlay {
     where
         T: CachedTreeHashSubTree<T>,
     {
-        item.btree_overlay(initial_offset)
+        item.tree_hash_cache_overlay(initial_offset)
     }
 
     pub fn from_lengths(offset: usize, mut lengths: Vec<usize>) -> Result<Self, Error> {

@@ -32,11 +32,11 @@ pub trait CachedTreeHash<T>: CachedTreeHashSubTree<T> + Sized {
 }
 
 pub trait CachedTreeHashSubTree<Item>: TreeHash {
-    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;
 
-    fn new_cache(&self) -> Result<TreeHashCache, Error>;
+    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error>;
 
-    fn update_cache(
+    fn update_tree_hash_cache(
         &self,
         other: &Item,
         cache: &mut TreeHashCache,
@@ -136,7 +136,7 @@ impl TreeHashCache {
     where
         T: CachedTreeHashSubTree<T>,
     {
-        item.new_cache()
+        item.new_tree_hash_cache()
     }
 
     pub fn from_elems(cache: Vec<u8>, chunk_modified: Vec<bool>) -> Self {

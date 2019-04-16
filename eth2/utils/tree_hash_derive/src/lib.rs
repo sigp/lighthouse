@@ -39,9 +39,9 @@ fn should_skip_hashing(field: &syn::Field) -> bool {
     false
 }
 
-/// Implements `ssz::Encodable` for some `struct`.
+/// Implements `tree_hash::CachedTreeHashSubTree` for some `struct`.
 ///
-/// Fields are encoded in the order they are defined.
+/// Fields are hashed in the order they are defined.
 #[proc_macro_derive(CachedTreeHashSubTree, attributes(tree_hash))]
 pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
@@ -60,16 +60,12 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
 
     let output = quote! {
         impl tree_hash::CachedTreeHashSubTree<#name> for #name {
-            fn item_type() -> tree_hash::ItemType {
-                tree_hash::ItemType::Composite
-            }
-
-            fn new_cache(&self) -> Result<tree_hash::TreeHashCache, tree_hash::Error> {
+            fn new_tree_hash_cache(&self) -> Result<tree_hash::TreeHashCache, tree_hash::Error> {
                 let tree = tree_hash::TreeHashCache::from_leaves_and_subtrees(
                     self,
                     vec![
                         #(
-                            self.#idents_a.new_cache()?,
+                            self.#idents_a.new_tree_hash_cache()?,
                         )*
                     ],
                 )?;
@@ -77,7 +73,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 Ok(tree)
             }
 
-            fn btree_overlay(&self, chunk_offset: usize) -> Result<tree_hash::BTreeOverlay, tree_hash::Error> {
+            fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<tree_hash::BTreeOverlay, tree_hash::Error> {
                 let mut lengths = vec![];
 
                 #(
@@ -87,15 +83,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 tree_hash::BTreeOverlay::from_lengths(chunk_offset, lengths)
             }
 
-            fn packed_encoding(&self) -> Result<Vec<u8>, tree_hash::Error> {
-                Err(tree_hash::Error::ShouldNeverBePacked(Self::item_type()))
-            }
-
-            fn packing_factor() -> usize {
-                1
-            }
-
-            fn update_cache(
+            fn update_tree_hash_cache(
                 &self,
                 other: &Self,
                 cache: &mut tree_hash::TreeHashCache,
@@ -107,7 +95,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 {
                     let chunk = offset_handler.first_leaf_node()?;
                     #(
-                        let chunk = self.#idents_c.update_cache(&other.#idents_d, cache, chunk)?;
+                        let chunk = self.#idents_c.update_tree_hash_cache(&other.#idents_d, cache, chunk)?;
                     )*
                 }
 
@@ -118,6 +106,50 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 }
 
                 Ok(offset_handler.next_node)
+            }
+        }
+    };
+    output.into()
+}
+
+/// Implements `tree_hash::TreeHash` for some `struct`.
+///
+/// Fields are hashed in the order they are defined.
+#[proc_macro_derive(TreeHash, attributes(tree_hash))]
+pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(input as DeriveInput);
+
+    let name = &item.ident;
+
+    let struct_data = match &item.data {
+        syn::Data::Struct(s) => s,
+        _ => panic!("tree_hash_derive only supports structs."),
+    };
+
+    let idents = get_hashable_named_field_idents(&struct_data);
+
+    let output = quote! {
+        impl tree_hash::TreeHash for #name {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::Composite
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("Struct should never be packed.")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("Struct should never be packed.")
+            }
+
+            fn tree_hash_root(&self) -> Vec<u8> {
+                let mut leaves = Vec::with_capacity(4 * tree_hash::HASHSIZE);
+
+                #(
+                    leaves.append(&mut self.#idents.tree_hash_root());
+                )*
+
+                tree_hash::efficient_merkleize(&leaves)[0..32].to_vec()
             }
         }
     };

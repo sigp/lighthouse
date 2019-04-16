@@ -40,9 +40,9 @@ impl CachedTreeHash<InternalCache> for InternalCache {
         old.cache = None;
 
         if let Some(ref mut local_cache) = local_cache {
-            self.update_cache(&old, local_cache, 0)?;
+            self.update_tree_hash_cache(&old, local_cache, 0)?;
         } else {
-            local_cache = Some(self.new_cache()?)
+            local_cache = Some(self.new_tree_hash_cache()?)
         }
 
         self.cache = local_cache;
@@ -89,16 +89,16 @@ fn works_when_embedded() {
 }
 
 impl CachedTreeHashSubTree<InternalCache> for InternalCache {
-    fn new_cache(&self) -> Result<TreeHashCache, Error> {
+    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
-            vec![self.a.new_cache()?, self.b.new_cache()?],
+            vec![self.a.new_tree_hash_cache()?, self.b.new_tree_hash_cache()?],
         )?;
 
         Ok(tree)
     }
 
-    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
         lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
@@ -107,7 +107,7 @@ impl CachedTreeHashSubTree<InternalCache> for InternalCache {
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
-    fn update_cache(
+    fn update_tree_hash_cache(
         &self,
         other: &Self,
         cache: &mut TreeHashCache,
@@ -118,8 +118,8 @@ impl CachedTreeHashSubTree<InternalCache> for InternalCache {
         // Skip past the internal nodes and update any changed leaf nodes.
         {
             let chunk = offset_handler.first_leaf_node()?;
-            let chunk = self.a.update_cache(&other.a, cache, chunk)?;
-            let _chunk = self.b.update_cache(&other.b, cache, chunk)?;
+            let chunk = self.a.update_tree_hash_cache(&other.a, cache, chunk)?;
+            let _chunk = self.b.update_tree_hash_cache(&other.b, cache, chunk)?;
         }
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
@@ -170,21 +170,21 @@ impl TreeHash for Inner {
 }
 
 impl CachedTreeHashSubTree<Inner> for Inner {
-    fn new_cache(&self) -> Result<TreeHashCache, Error> {
+    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
             vec![
-                self.a.new_cache()?,
-                self.b.new_cache()?,
-                self.c.new_cache()?,
-                self.d.new_cache()?,
+                self.a.new_tree_hash_cache()?,
+                self.b.new_tree_hash_cache()?,
+                self.c.new_tree_hash_cache()?,
+                self.d.new_tree_hash_cache()?,
             ],
         )?;
 
         Ok(tree)
     }
 
-    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
         lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
@@ -195,7 +195,7 @@ impl CachedTreeHashSubTree<Inner> for Inner {
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
-    fn update_cache(
+    fn update_tree_hash_cache(
         &self,
         other: &Self,
         cache: &mut TreeHashCache,
@@ -206,10 +206,10 @@ impl CachedTreeHashSubTree<Inner> for Inner {
         // Skip past the internal nodes and update any changed leaf nodes.
         {
             let chunk = offset_handler.first_leaf_node()?;
-            let chunk = self.a.update_cache(&other.a, cache, chunk)?;
-            let chunk = self.b.update_cache(&other.b, cache, chunk)?;
-            let chunk = self.c.update_cache(&other.c, cache, chunk)?;
-            let _chunk = self.d.update_cache(&other.d, cache, chunk)?;
+            let chunk = self.a.update_tree_hash_cache(&other.a, cache, chunk)?;
+            let chunk = self.b.update_tree_hash_cache(&other.b, cache, chunk)?;
+            let chunk = self.c.update_tree_hash_cache(&other.c, cache, chunk)?;
+            let _chunk = self.d.update_tree_hash_cache(&other.d, cache, chunk)?;
         }
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
@@ -254,20 +254,20 @@ impl TreeHash for Outer {
 }
 
 impl CachedTreeHashSubTree<Outer> for Outer {
-    fn new_cache(&self) -> Result<TreeHashCache, Error> {
+    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
             vec![
-                self.a.new_cache()?,
-                self.b.new_cache()?,
-                self.c.new_cache()?,
+                self.a.new_tree_hash_cache()?,
+                self.b.new_tree_hash_cache()?,
+                self.c.new_tree_hash_cache()?,
             ],
         )?;
 
         Ok(tree)
     }
 
-    fn btree_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
         lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
@@ -277,7 +277,7 @@ impl CachedTreeHashSubTree<Outer> for Outer {
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
-    fn update_cache(
+    fn update_tree_hash_cache(
         &self,
         other: &Self,
         cache: &mut TreeHashCache,
@@ -288,9 +288,9 @@ impl CachedTreeHashSubTree<Outer> for Outer {
         // Skip past the internal nodes and update any changed leaf nodes.
         {
             let chunk = offset_handler.first_leaf_node()?;
-            let chunk = self.a.update_cache(&other.a, cache, chunk)?;
-            let chunk = self.b.update_cache(&other.b, cache, chunk)?;
-            let _chunk = self.c.update_cache(&other.c, cache, chunk)?;
+            let chunk = self.a.update_tree_hash_cache(&other.a, cache, chunk)?;
+            let chunk = self.b.update_tree_hash_cache(&other.b, cache, chunk)?;
+            let _chunk = self.c.update_tree_hash_cache(&other.c, cache, chunk)?;
         }
 
         for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
@@ -341,7 +341,7 @@ fn partial_modification_to_inner_struct() {
     let mut cache_struct = TreeHashCache::new(&original_outer).unwrap();
 
     modified_outer
-        .update_cache(&original_outer, &mut cache_struct, 0)
+        .update_tree_hash_cache(&original_outer, &mut cache_struct, 0)
         .unwrap();
 
     let modified_cache: Vec<u8> = cache_struct.into();
@@ -395,7 +395,7 @@ fn partial_modification_to_outer() {
     let mut cache_struct = TreeHashCache::new(&original_outer).unwrap();
 
     modified_outer
-        .update_cache(&original_outer, &mut cache_struct, 0)
+        .update_tree_hash_cache(&original_outer, &mut cache_struct, 0)
         .unwrap();
 
     let modified_cache: Vec<u8> = cache_struct.into();
@@ -481,7 +481,7 @@ fn test_u64_vec_modifications(original: Vec<u64>, modified: Vec<u64>) {
     // Perform a differential hash
     let mut cache_struct = TreeHashCache::from_bytes(original_cache.clone(), false).unwrap();
     modified
-        .update_cache(&original, &mut cache_struct, 0)
+        .update_tree_hash_cache(&original, &mut cache_struct, 0)
         .unwrap();
     let modified_cache: Vec<u8> = cache_struct.into();
 
@@ -586,7 +586,9 @@ fn large_vec_of_u64_builds() {
 fn test_inner_vec_modifications(original: Vec<Inner>, modified: Vec<Inner>, reference: Vec<u64>) {
     let mut cache = TreeHashCache::new(&original).unwrap();
 
-    modified.update_cache(&original, &mut cache, 0).unwrap();
+    modified
+        .update_tree_hash_cache(&original, &mut cache, 0)
+        .unwrap();
     let modified_cache: Vec<u8> = cache.into();
 
     // Build the reference vec.
@@ -947,12 +949,12 @@ fn generic_test(index: usize) {
     let mut cache_struct = TreeHashCache::from_bytes(cache.clone(), false).unwrap();
 
     changed_inner
-        .update_cache(&inner, &mut cache_struct, 0)
+        .update_tree_hash_cache(&inner, &mut cache_struct, 0)
         .unwrap();
 
     // assert_eq!(*cache_struct.hash_count, 3);
 
-    let new_cache: Vec<u8> = cache_struct.into();
+    let new_tree_hash_cache: Vec<u8> = cache_struct.into();
 
     let data1 = int_to_bytes32(1);
     let data2 = int_to_bytes32(2);
@@ -965,7 +967,7 @@ fn generic_test(index: usize) {
 
     let expected = merkleize(join(data));
 
-    assert_eq!(expected, new_cache);
+    assert_eq!(expected, new_tree_hash_cache);
 }
 
 #[test]
