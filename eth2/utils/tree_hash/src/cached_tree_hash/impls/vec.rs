@@ -9,7 +9,7 @@ where
             TreeHashType::Basic => {
                 TreeHashCache::from_bytes(merkleize(get_packed_leaves(self)?), false)
             }
-            TreeHashType::Composite | TreeHashType::List => {
+            TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
                 let subtrees = self
                     .iter()
                     .map(|item| TreeHashCache::new(item))
@@ -23,7 +23,7 @@ where
     fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let lengths = match T::tree_hash_type() {
             TreeHashType::Basic => vec![1; self.len() / T::tree_hash_packing_factor()],
-            TreeHashType::Composite | TreeHashType::List => {
+            TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
                 let mut lengths = vec![];
 
                 for item in self {
@@ -97,7 +97,7 @@ where
                     TreeHashCache::from_bytes(leaves, true)?,
                 );
             }
-            TreeHashType::Composite | TreeHashType::List => {
+            TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
                 let mut i = offset_handler.num_leaf_nodes;
                 for &start_chunk in offset_handler.iter_leaf_nodes().rev() {
                     i -= 1;

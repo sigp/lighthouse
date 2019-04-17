@@ -13,8 +13,9 @@ pub use standard_tree_hash::{merkle_root, TreeHash};
 #[derive(Debug, PartialEq, Clone)]
 pub enum TreeHashType {
     Basic,
+    Vector,
     List,
-    Composite,
+    Container,
 }
 
 fn num_sanitized_leaves(num_bytes: usize) -> usize {
@@ -31,19 +32,42 @@ macro_rules! impl_tree_hash_for_ssz_bytes {
     ($type: ident) => {
         impl tree_hash::TreeHash for $type {
             fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::List
+                tree_hash::TreeHashType::Vector
             }
 
             fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                panic!("bytesN should never be packed.")
+                unreachable!("Vector should never be packed.")
             }
 
             fn tree_hash_packing_factor() -> usize {
-                panic!("bytesN should never be packed.")
+                unreachable!("Vector should never be packed.")
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
                 tree_hash::merkle_root(&ssz::ssz_encode(self))
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_vec_as_fixed_len {
+    ($type: ty) => {
+        impl tree_hash::TreeHash for $type {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::Vector
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("Vector should never be packed.")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("Vector should never be packed.")
+            }
+
+            fn tree_hash_root(&self) -> Vec<u8> {
+                tree_hash::standard_tree_hash::vec_tree_hash_root(self)
             }
         }
     };
