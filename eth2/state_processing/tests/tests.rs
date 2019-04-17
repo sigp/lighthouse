@@ -1,6 +1,7 @@
+#![cfg(not(debug_assertions))]
+
 use serde_derive::Deserialize;
 use serde_yaml;
-#[cfg(not(debug_assertions))]
 use state_processing::{per_block_processing, per_slot_processing};
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::*;

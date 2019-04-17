@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))]
+
 use env_logger::{Builder, Env};
 use log::debug;
 use test_harness::BeaconChainHarness;

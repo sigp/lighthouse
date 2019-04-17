@@ -9,7 +9,6 @@ use serde_hex::{encode, PrefixedHexVisitor};
 use ssz::{Decodable, Encodable};
 use std::cmp;
 use std::default;
-use tree_hash::tree_hash_ssz_encoding_as_list;
 
 /// A BooleanBitfield represents a set of booleans compactly stored as a vector of bits.
 /// The BooleanBitfield is given a fixed size during construction. Reads outside of the current size return an out-of-bounds error. Writes outside of the current size expand the size of the set.
