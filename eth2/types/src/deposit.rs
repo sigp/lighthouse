@@ -1,4 +1,4 @@
-use super::{DepositData, Hash256};
+use super::{DepositData, Hash256, TreeHashVector};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use tree_hash_derive::TreeHash;
 /// Spec v0.5.0
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Deposit {
-    pub proof: Vec<Hash256>,
+    pub proof: TreeHashVector<Hash256>,
     pub index: u64,
     pub deposit_data: DepositData,
 }
