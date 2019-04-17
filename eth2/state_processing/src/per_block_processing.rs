@@ -139,6 +139,8 @@ pub fn verify_block_signature(
         &state.fork,
     );
 
+    println!("verify {:?}", &block);
+
     verify!(
         block
             .signature

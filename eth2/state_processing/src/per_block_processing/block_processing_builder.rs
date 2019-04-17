@@ -30,7 +30,7 @@ impl BlockProcessingBuilder {
         self.state_builder.build_caches(&spec).unwrap();
     }
 
-    pub fn build(mut self, spec: &ChainSpec) -> (BeaconBlock, BeaconState) {
+    pub fn build(mut self, randao_sk: Option<SecretKey>, spec: &ChainSpec) -> (BeaconBlock, BeaconState) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -41,10 +41,14 @@ impl BlockProcessingBuilder {
             .unwrap();
         let keypair = &keypairs[proposer_index];
 
-        builder.set_randao_reveal(&keypair.sk, &state.fork, spec);
+        match randao_sk {
+            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
+            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+        }
 
         let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
 
         (block, state)
     }
+
 }
