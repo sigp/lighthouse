@@ -15,7 +15,7 @@ pub fn get_genesis_state(
     genesis_time: u64,
     genesis_eth1_data: Eth1Data,
     spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
+) -> Result<BeaconState, BlockProcessingError> {
     // Get the genesis `BeaconState`
     let mut state = BeaconState::genesis(genesis_time, genesis_eth1_data, spec);
 
@@ -42,7 +42,7 @@ pub fn get_genesis_state(
     // Generate the current shuffling seed.
     state.current_shuffling_seed = state.generate_seed(spec.genesis_epoch, spec)?;
 
-    Ok(())
+    Ok(state)
 }
 
 impl From<BlockProcessingError> for GenesisError {
