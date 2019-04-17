@@ -27,7 +27,7 @@ impl ExpectedState {
             ($field_name:ident) => {
                 if self.$field_name.as_ref().map_or(true, |$field_name| {
                     println!("  > Checking {}", stringify!($field_name));
-                    &state.$field_name == $field_name
+                    $field_name == &state.$field_name
                 }) {
                     vec![]
                 } else {
