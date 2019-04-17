@@ -1,5 +1,5 @@
 use crate::*;
-use tree_hash::TreeHash;
+use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -38,7 +38,7 @@ fn cache_state(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
         state.latest_block_header.state_root = previous_slot_state_root
     }
 
-    let latest_block_root = Hash256::from_slice(&state.latest_block_header.tree_hash_root()[..]);
+    let latest_block_root = Hash256::from_slice(&state.latest_block_header.signed_root()[..]);
     state.set_block_root(previous_slot, latest_block_root, spec)?;
 
     // Set the state slot back to what it should be.
