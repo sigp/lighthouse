@@ -67,7 +67,10 @@ impl_from_beacon_state_error!(BlockProcessingError);
 #[derive(Debug, PartialEq)]
 pub enum BlockInvalid {
     StateSlotMismatch,
-    ParentBlockRootMismatch,
+    ParentBlockRootMismatch {
+        state: Hash256,
+        block: Hash256,
+    },
     BadSignature,
     BadRandaoSignature,
     MaxAttestationsExceeded,
