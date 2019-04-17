@@ -11,7 +11,7 @@ pub const VALIDATOR_COUNT: usize = 10;
 fn valid_block_ok() {
     let spec = ChainSpec::foundation();
     let builder = get_builder(&spec);
-    let (block, mut state) = builder.build(&spec);
+    let (block, mut state) = builder.build(None, &spec);
 
     let result = per_block_processing(&mut state, &block, &spec);
 
@@ -22,7 +22,7 @@ fn valid_block_ok() {
 fn invalid_block_header_state_slot() {
     let spec = ChainSpec::foundation();
     let builder = get_builder(&spec);
-    let (mut block, mut state) = builder.build(&spec);
+    let (mut block, mut state) = builder.build(None, &spec);
 
     state.slot = Slot::new(133713);
     block.slot = Slot::new(424242);
@@ -47,7 +47,7 @@ fn invalid_parent_block_root() {
 fn invalid_block_signature() {
     let spec = ChainSpec::foundation();
     let builder = get_builder(&spec);
-    let (mut block, mut state) = builder.build(&spec);
+    let (mut block, mut state) = builder.build(None, &spec);
 
     // sign the block with a keypair that is not the expected proposer
     let keypair = Keypair::random();
@@ -63,6 +63,24 @@ fn invalid_block_signature() {
     assert_eq!(
         result,
         Err(BlockProcessingError::Invalid(BlockInvalid::BadSignature))
+    );
+}
+
+#[test]
+fn invalid_randao_reveal_signature() {
+    let spec = ChainSpec::foundation();
+    let builder = get_builder(&spec);
+
+    // sign randao reveal with random keypair
+    let keypair = Keypair::random();
+    let (block, mut state) = builder.build(Some(keypair.sk), &spec);
+    
+    let result = per_block_processing(&mut state, &block, &spec);
+
+    // should get a BadRandaoSignature error
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::Invalid(BlockInvalid::BadRandaoSignature))
     );
 }
 

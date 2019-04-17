@@ -33,6 +33,7 @@ impl TestingBeaconBlockBuilder {
     /// Modifying the block after signing may invalidate the signature.
     pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.block.signed_root();
+        println!("block set {:?}", self.block);
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
         let domain = spec.get_domain(epoch, Domain::BeaconBlock, fork);
         self.block.signature = Signature::new(&message, domain, sk);
@@ -46,6 +47,11 @@ impl TestingBeaconBlockBuilder {
         let message = epoch.hash_tree_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
         self.block.body.randao_reveal = Signature::new(&message, domain, sk);
+    }
+
+    /// Has the randao reveal been set?
+    pub fn randao_reveal_not_set(&mut self) -> bool {
+        self.block.body.randao_reveal.is_empty()
     }
 
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
