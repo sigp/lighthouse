@@ -8,4 +8,3 @@ edition = "2018"
 ethereum-types = "0.5"
 hashing = { path = "../hashing" }
 int_to_bytes = { path = "../int_to_bytes" }
-ssz = { path = "../ssz" }

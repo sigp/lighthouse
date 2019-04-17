@@ -1,7 +1,6 @@
 use super::*;
 use hashing::hash;
 use int_to_bytes::int_to_bytes32;
-use ssz::ssz_encode;
 
 pub use impls::vec_tree_hash_root;
 

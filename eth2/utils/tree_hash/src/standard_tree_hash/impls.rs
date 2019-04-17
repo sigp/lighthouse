@@ -9,7 +9,7 @@ macro_rules! impl_for_bitsize {
             }
 
             fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                ssz_encode(self)
+                self.to_le_bytes().to_vec()
             }
 
             fn tree_hash_packing_factor() -> usize {
@@ -28,7 +28,24 @@ impl_for_bitsize!(u16, 16);
 impl_for_bitsize!(u32, 32);
 impl_for_bitsize!(u64, 64);
 impl_for_bitsize!(usize, 64);
-impl_for_bitsize!(bool, 8);
+
+impl TreeHash for bool {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Basic
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        (*self as u8).tree_hash_packed_encoding()
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        u8::tree_hash_packing_factor()
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        int_to_bytes32(*self as u64)
+    }
+}
 
 impl TreeHash for [u8; 4] {
     fn tree_hash_type() -> TreeHashType {
@@ -44,7 +61,7 @@ impl TreeHash for [u8; 4] {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&ssz::ssz_encode(self))
+        merkle_root(&self[..])
     }
 }
 
@@ -54,7 +71,7 @@ impl TreeHash for H256 {
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        ssz_encode(self)
+        self.as_bytes().to_vec()
     }
 
     fn tree_hash_packing_factor() -> usize {
@@ -62,7 +79,7 @@ impl TreeHash for H256 {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&ssz::ssz_encode(self))
+        merkle_root(&self.as_bytes().to_vec())
     }
 }
 
