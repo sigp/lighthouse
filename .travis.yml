@@ -6,11 +6,12 @@ before_install:
   - sudo mv protoc3/include/* /usr/local/include/
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
+env:
+  - BUILD=
+  - BUILD=--release
 script:
-  - cargo build --verbose --all
-  - cargo build --verbose --release --all
-  - cargo test --verbose --all
-  - cargo test --verbose --release --all
+  - cargo build --verbose $BUILD --all
+  - cargo test --verbose $BUILD --all
   - cargo test --manifest-path eth2/state_processing/Cargo.toml --verbose --release --features fake_crypto
   - cargo fmt --all -- --check
   # No clippy until later...
