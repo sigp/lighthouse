@@ -107,9 +107,14 @@ pub fn process_block_header(
 ) -> Result<(), Error> {
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
+    let expected_previous_block_root =
+        Hash256::from_slice(&state.latest_block_header.signed_root());
     verify!(
-        block.previous_block_root == Hash256::from_slice(&state.latest_block_header.signed_root()),
-        Invalid::ParentBlockRootMismatch
+        block.previous_block_root == expected_previous_block_root,
+        Invalid::ParentBlockRootMismatch {
+            state: expected_previous_block_root,
+            block: block.previous_block_root,
+        }
     );
 
     state.latest_block_header = block.temporary_block_header(spec);
