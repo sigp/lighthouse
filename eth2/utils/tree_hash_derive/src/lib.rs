@@ -129,7 +129,7 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     let output = quote! {
         impl tree_hash::TreeHash for #name {
             fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::Composite
+                tree_hash::TreeHashType::Container
             }
 
             fn tree_hash_packed_encoding(&self) -> Vec<u8> {
@@ -154,19 +154,6 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-/// Implements `tree_hash::TreeHash` for some `struct`, whilst excluding any fields following and
-/// including a field that is of type "Signature" or "AggregateSignature".
-///
-/// See:
-/// https://github.com/ethereum/eth2.0-specs/blob/master/specs/simple-serialize.md#signed-roots
-///
-/// This is a rather horrendous macro, it will read the type of the object as a string and decide
-/// if it's a signature by matching that string against "Signature" or "AggregateSignature". So,
-/// it's important that you use those exact words as your type -- don't alias it to something else.
-///
-/// If you can think of a better way to do this, please make an issue!
-///
-/// Fields are processed in the order they are defined.
 #[proc_macro_derive(SignedRoot, attributes(signed_root))]
 pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);

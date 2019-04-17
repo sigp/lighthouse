@@ -13,7 +13,7 @@ pub struct InternalCache {
 
 impl TreeHash for InternalCache {
     fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Composite
+        TreeHashType::Container
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
@@ -146,7 +146,7 @@ pub struct Inner {
 
 impl TreeHash for Inner {
     fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Composite
+        TreeHashType::Container
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
@@ -231,7 +231,7 @@ pub struct Outer {
 
 impl TreeHash for Outer {
     fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Composite
+        TreeHashType::Container
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
@@ -894,9 +894,37 @@ fn vec_of_u64_builds() {
 
     let my_vec = vec![1, 2, 3, 4, 5];
 
+    //
+    // Note: the length is not mixed-in in this example. The user must ensure the length is
+    // mixed-in.
+    //
+
     let cache: Vec<u8> = TreeHashCache::new(&my_vec).unwrap().into();
 
     assert_eq!(expected, cache);
+}
+
+#[test]
+fn vec_does_mix_in_len() {
+    let data = join(vec![
+        int_to_bytes8(1),
+        int_to_bytes8(2),
+        int_to_bytes8(3),
+        int_to_bytes8(4),
+        int_to_bytes8(5),
+        vec![0; 32 - 8], // padding
+    ]);
+
+    let tree = merkleize(data);
+
+    let my_vec: Vec<u64> = vec![1, 2, 3, 4, 5];
+
+    let mut expected = vec![0; 32];
+    expected.copy_from_slice(&tree[0..HASHSIZE]);
+    expected.append(&mut int_to_bytes32(my_vec.len() as u64));
+    let expected = hash(&expected);
+
+    assert_eq!(&expected[0..HASHSIZE], &my_vec.tree_hash_root()[..]);
 }
 
 #[test]

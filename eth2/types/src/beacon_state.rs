@@ -60,7 +60,7 @@ pub struct BeaconState {
     pub validator_registry_update_epoch: Epoch,
 
     // Randomness and committees
-    pub latest_randao_mixes: Vec<Hash256>,
+    pub latest_randao_mixes: TreeHashVector<Hash256>,
     pub previous_shuffling_start_shard: u64,
     pub current_shuffling_start_shard: u64,
     pub previous_shuffling_epoch: Epoch,
@@ -80,11 +80,11 @@ pub struct BeaconState {
     pub finalized_root: Hash256,
 
     // Recent state
-    pub latest_crosslinks: Vec<Crosslink>,
-    latest_block_roots: Vec<Hash256>,
-    latest_state_roots: Vec<Hash256>,
-    latest_active_index_roots: Vec<Hash256>,
-    latest_slashed_balances: Vec<u64>,
+    pub latest_crosslinks: TreeHashVector<Crosslink>,
+    latest_block_roots: TreeHashVector<Hash256>,
+    latest_state_roots: TreeHashVector<Hash256>,
+    latest_active_index_roots: TreeHashVector<Hash256>,
+    latest_slashed_balances: TreeHashVector<u64>,
     pub latest_block_header: BeaconBlockHeader,
     pub historical_roots: Vec<Hash256>,
 
@@ -139,7 +139,8 @@ impl BeaconState {
             validator_registry_update_epoch: spec.genesis_epoch,
 
             // Randomness and committees
-            latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize],
+            latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize]
+                .into(),
             previous_shuffling_start_shard: spec.genesis_start_shard,
             current_shuffling_start_shard: spec.genesis_start_shard,
             previous_shuffling_epoch: spec.genesis_epoch,
@@ -159,11 +160,12 @@ impl BeaconState {
             finalized_root: spec.zero_hash,
 
             // Recent state
-            latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize],
-            latest_block_roots: vec![spec.zero_hash; spec.slots_per_historical_root],
-            latest_state_roots: vec![spec.zero_hash; spec.slots_per_historical_root],
-            latest_active_index_roots: vec![spec.zero_hash; spec.latest_active_index_roots_length],
-            latest_slashed_balances: vec![0; spec.latest_slashed_exit_length],
+            latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize].into(),
+            latest_block_roots: vec![spec.zero_hash; spec.slots_per_historical_root].into(),
+            latest_state_roots: vec![spec.zero_hash; spec.slots_per_historical_root].into(),
+            latest_active_index_roots: vec![spec.zero_hash; spec.latest_active_index_roots_length]
+                .into(),
+            latest_slashed_balances: vec![0; spec.latest_slashed_exit_length].into(),
             latest_block_header: BeaconBlock::empty(spec).temporary_block_header(spec),
             historical_roots: vec![],
 
@@ -505,7 +507,7 @@ impl BeaconState {
     /// Spec v0.5.0
     pub fn fill_active_index_roots_with(&mut self, index_root: Hash256, spec: &ChainSpec) {
         self.latest_active_index_roots =
-            vec![index_root; spec.latest_active_index_roots_length as usize]
+            vec![index_root; spec.latest_active_index_roots_length as usize].into()
     }
 
     /// Safely obtains the index for latest state roots, given some `slot`.

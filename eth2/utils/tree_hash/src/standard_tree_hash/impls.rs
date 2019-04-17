@@ -50,7 +50,7 @@ impl TreeHash for [u8; 4] {
 
 impl TreeHash for H256 {
     fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Basic
+        TreeHashType::Vector
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
@@ -62,7 +62,7 @@ impl TreeHash for H256 {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        ssz_encode(self)
+        merkle_root(&ssz::ssz_encode(self))
     }
 }
 
@@ -83,35 +83,41 @@ where
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        let leaves = match T::tree_hash_type() {
-            TreeHashType::Basic => {
-                let mut leaves =
-                    Vec::with_capacity((HASHSIZE / T::tree_hash_packing_factor()) * self.len());
-
-                for item in self {
-                    leaves.append(&mut item.tree_hash_packed_encoding());
-                }
-
-                leaves
-            }
-            TreeHashType::Composite | TreeHashType::List => {
-                let mut leaves = Vec::with_capacity(self.len() * HASHSIZE);
-
-                for item in self {
-                    leaves.append(&mut item.tree_hash_root())
-                }
-
-                leaves
-            }
-        };
-
-        // Mix in the length
         let mut root_and_len = Vec::with_capacity(HASHSIZE * 2);
-        root_and_len.append(&mut merkle_root(&leaves));
+        root_and_len.append(&mut vec_tree_hash_root(self));
         root_and_len.append(&mut int_to_bytes32(self.len() as u64));
 
         hash(&root_and_len)
     }
+}
+
+pub fn vec_tree_hash_root<T>(vec: &[T]) -> Vec<u8>
+where
+    T: TreeHash,
+{
+    let leaves = match T::tree_hash_type() {
+        TreeHashType::Basic => {
+            let mut leaves =
+                Vec::with_capacity((HASHSIZE / T::tree_hash_packing_factor()) * vec.len());
+
+            for item in vec {
+                leaves.append(&mut item.tree_hash_packed_encoding());
+            }
+
+            leaves
+        }
+        TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
+            let mut leaves = Vec::with_capacity(vec.len() * HASHSIZE);
+
+            for item in vec {
+                leaves.append(&mut item.tree_hash_root())
+            }
+
+            leaves
+        }
+    };
+
+    merkle_root(&leaves)
 }
 
 #[cfg(test)]

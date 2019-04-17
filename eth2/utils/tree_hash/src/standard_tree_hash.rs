@@ -3,6 +3,8 @@ use hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use ssz::ssz_encode;
 
+pub use impls::vec_tree_hash_root;
+
 mod impls;
 
 pub trait TreeHash {
@@ -16,11 +18,18 @@ pub trait TreeHash {
 }
 
 pub fn merkle_root(bytes: &[u8]) -> Vec<u8> {
-    // TODO: replace this with a _more_ efficient fn which is more memory efficient.
+    // TODO: replace this with a more memory efficient method.
     efficient_merkleize(&bytes)[0..32].to_vec()
 }
 
 pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
+    // If the bytes are just one chunk (or less than one chunk) just return them.
+    if bytes.len() <= HASHSIZE {
+        let mut o = bytes.to_vec();
+        o.resize(HASHSIZE, 0);
+        return o;
+    }
+
     let leaves = num_sanitized_leaves(bytes.len());
     let nodes = num_nodes(leaves);
     let internal_nodes = nodes - leaves;
@@ -28,10 +37,6 @@ pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
     let num_bytes = std::cmp::max(internal_nodes, 1) * HASHSIZE + bytes.len();
 
     let mut o: Vec<u8> = vec![0; internal_nodes * HASHSIZE];
-
-    if o.len() < HASHSIZE {
-        o.resize(HASHSIZE, 0);
-    }
 
     o.append(&mut bytes.to_vec());
 
