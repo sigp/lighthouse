@@ -166,11 +166,12 @@ pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
     };
 
     let idents = get_signed_root_named_field_idents(&struct_data);
+    let num_elems = idents.len();
 
     let output = quote! {
         impl tree_hash::SignedRoot for #name {
             fn signed_root(&self) -> Vec<u8> {
-                let mut leaves = Vec::with_capacity(4 * tree_hash::HASHSIZE);
+                let mut leaves = Vec::with_capacity(#num_elems * tree_hash::HASHSIZE);
 
                 #(
                     leaves.append(&mut self.#idents.tree_hash_root());
