@@ -5,7 +5,7 @@ use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
+use tree_hash::{SignedRoot, TreeHash};
 use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// A header of a `BeaconBlock`.
@@ -37,7 +37,7 @@ impl BeaconBlockHeader {
     ///
     /// Spec v0.5.1
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.tree_hash_root()[..])
+        Hash256::from_slice(&self.signed_root()[..])
     }
 
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
