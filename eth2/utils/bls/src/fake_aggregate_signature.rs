@@ -3,7 +3,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
-use tree_hash::impl_tree_hash_for_ssz_bytes;
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.
 ///
@@ -99,7 +99,7 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
     }
 }
 
-impl_tree_hash_for_ssz_bytes!(FakeAggregateSignature);
+tree_hash_ssz_encoding_as_vector!(FakeAggregateSignature);
 
 #[cfg(test)]
 mod tests {

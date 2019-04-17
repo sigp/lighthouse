@@ -7,7 +7,7 @@ use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use std::default;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use tree_hash::impl_tree_hash_for_ssz_bytes;
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -105,7 +105,7 @@ impl<'de> Deserialize<'de> for PublicKey {
     }
 }
 
-impl_tree_hash_for_ssz_bytes!(PublicKey);
+tree_hash_ssz_encoding_as_vector!(PublicKey);
 
 impl PartialEq for PublicKey {
     fn eq(&self, other: &PublicKey) -> bool {

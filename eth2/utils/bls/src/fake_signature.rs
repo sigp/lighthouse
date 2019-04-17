@@ -4,7 +4,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
-use tree_hash::impl_tree_hash_for_ssz_bytes;
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -74,7 +74,7 @@ impl Decodable for FakeSignature {
     }
 }
 
-impl_tree_hash_for_ssz_bytes!(FakeSignature);
+tree_hash_ssz_encoding_as_vector!(FakeSignature);
 
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

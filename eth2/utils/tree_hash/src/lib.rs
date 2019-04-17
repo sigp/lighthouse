@@ -28,7 +28,7 @@ fn num_nodes(num_leaves: usize) -> usize {
 }
 
 #[macro_export]
-macro_rules! impl_tree_hash_for_ssz_bytes {
+macro_rules! tree_hash_ssz_encoding_as_vector {
     ($type: ident) => {
         impl tree_hash::TreeHash for $type {
             fn tree_hash_type() -> tree_hash::TreeHashType {
@@ -45,6 +45,28 @@ macro_rules! impl_tree_hash_for_ssz_bytes {
 
             fn tree_hash_root(&self) -> Vec<u8> {
                 tree_hash::merkle_root(&ssz::ssz_encode(self))
+            }
+        }
+    };
+}
+#[macro_export]
+macro_rules! tree_hash_ssz_encoding_as_list {
+    ($type: ident) => {
+        impl tree_hash::TreeHash for $type {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::List
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("List should never be packed.")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("List should never be packed.")
+            }
+
+            fn tree_hash_root(&self) -> Vec<u8> {
+                ssz::ssz_encode(self).tree_hash_root()
             }
         }
     };
