@@ -25,9 +25,55 @@ mod test {
 
     #[test]
     fn bitfield_length() {
-        assert!(verify_bitfield_length(
-            &Bitfield::from_bytes(&[0b10000000]),
-            4
-        ));
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0000_0001]), 4),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0001_0001]), 4),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0000_0000]), 4),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b1000_0000]), 8),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b1000_0000, 0b0000_0000]), 16),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b1000_0000, 0b0000_0000]), 15),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0000_0000, 0b0000_0000]), 8),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(
+                &Bitfield::from_bytes(&[0b0000_0000, 0b0000_0000, 0b0000_0000]),
+                8
+            ),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(
+                &Bitfield::from_bytes(&[0b0000_0000, 0b0000_0000, 0b0000_0000]),
+                24
+            ),
+            true
+        );
     }
 }

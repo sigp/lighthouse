@@ -54,8 +54,13 @@ impl BooleanBitfield {
     /// Create a new bitfield using the supplied `bytes` as input
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self {
-            0: BitVec::from_bytes(bytes),
+            0: BitVec::from_bytes(&reverse_bit_order(bytes.to_vec())),
         }
+    }
+
+    /// Returns a vector of bytes representing the bitfield
+    pub fn to_bytes(&self) -> Vec<u8> {
+        reverse_bit_order(self.0.to_bytes().to_vec())
     }
 
     /// Read the value of a bit.
@@ -86,11 +91,6 @@ impl BooleanBitfield {
         previous
     }
 
-    /// Returns the index of the highest set bit. Some(n) if some bit is set, None otherwise.
-    pub fn highest_set_bit(&self) -> Option<usize> {
-        self.0.iter().rposition(|bit| bit)
-    }
-
     /// Returns the number of bits in this bitfield.
     pub fn len(&self) -> usize {
         self.0.len()
@@ -114,12 +114,6 @@ impl BooleanBitfield {
     /// Returns the number of `1` bits in the bitfield
     pub fn num_set_bits(&self) -> usize {
         self.0.iter().filter(|&bit| bit).count()
-    }
-
-    /// Returns a vector of bytes representing the bitfield
-    /// Note that this returns the bit layout of the underlying implementation in the `bit-vec` crate.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes()
     }
 
     /// Compute the intersection (binary-and) of this bitfield with another. Lengths must match.
@@ -218,17 +212,7 @@ impl Decodable for BooleanBitfield {
             Ok((BooleanBitfield::new(), index + ssz::LENGTH_BYTES))
         } else {
             let bytes = &bytes[(index + 4)..(index + len + 4)];
-
-            let count = len * 8;
-            let mut field = BooleanBitfield::with_capacity(count);
-            for (byte_index, byte) in bytes.iter().enumerate() {
-                for i in 0..8 {
-                    let bit = byte & (128 >> i);
-                    if bit != 0 {
-                        field.set(8 * byte_index + i, true);
-                    }
-                }
-            }
+            let field = BooleanBitfield::from_bytes(bytes);
 
             let index = index + ssz::LENGTH_BYTES + len;
             Ok((field, index))
@@ -251,7 +235,7 @@ impl Serialize for BooleanBitfield {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&encode(&reverse_bit_order(self.to_bytes())))
+        serializer.serialize_str(&encode(self.to_bytes()))
     }
 }
 
@@ -265,11 +249,27 @@ impl<'de> Deserialize<'de> for BooleanBitfield {
         // bit from the end of the hex string, e.g.
         // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        Ok(BooleanBitfield::from_bytes(&reverse_bit_order(bytes)))
+        Ok(BooleanBitfield::from_bytes(&bytes))
     }
 }
 
-tree_hash_ssz_encoding_as_list!(BooleanBitfield);
+impl tree_hash::TreeHash for BooleanBitfield {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        self.to_bytes().tree_hash_root()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(field.num_set_bits(), 100);
     }
 
-    const INPUT: &[u8] = &[0b0000_0010, 0b0000_0010];
+    const INPUT: &[u8] = &[0b0100_0000, 0b0100_0000];
 
     #[test]
     fn test_get_from_bitfield() {
@@ -346,18 +346,6 @@ mod tests {
         assert!(previous);
         let previous = field.get(6).unwrap();
         assert!(!previous);
-    }
-
-    #[test]
-    fn test_highest_set_bit() {
-        let field = BooleanBitfield::from_bytes(INPUT);
-        assert_eq!(field.highest_set_bit().unwrap(), 14);
-
-        let field = BooleanBitfield::from_bytes(&[0b0000_0011]);
-        assert_eq!(field.highest_set_bit().unwrap(), 7);
-
-        let field = BooleanBitfield::new();
-        assert_eq!(field.highest_set_bit(), None);
     }
 
     #[test]
@@ -440,15 +428,30 @@ mod tests {
     #[test]
     fn test_ssz_encode() {
         let field = create_test_bitfield();
-
         let mut stream = SszStream::new();
         stream.append(&field);
-        assert_eq!(stream.drain(), vec![2, 0, 0, 0, 225, 192]);
+        assert_eq!(stream.drain(), vec![2, 0, 0, 0, 0b0000_0011, 0b1000_0111]);
 
         let field = BooleanBitfield::from_elem(18, true);
         let mut stream = SszStream::new();
         stream.append(&field);
-        assert_eq!(stream.drain(), vec![3, 0, 0, 0, 255, 255, 192]);
+        assert_eq!(
+            stream.drain(),
+            vec![3, 0, 0, 0, 0b0000_0011, 0b1111_1111, 0b1111_1111]
+        );
+
+        let mut b = BooleanBitfield::new();
+        b.set(1, true);
+        assert_eq!(
+            ssz_encode(&b),
+            vec![
+                0b0000_0001,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0010
+            ]
+        );
     }
 
     fn create_test_bitfield() -> BooleanBitfield {
@@ -464,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_ssz_decode() {
-        let encoded = vec![2, 0, 0, 0, 225, 192];
+        let encoded = vec![2, 0, 0, 0, 0b0000_0011, 0b1000_0111];
         let field = decode::<BooleanBitfield>(&encoded).unwrap();
         let expected = create_test_bitfield();
         assert_eq!(field, expected);
@@ -480,8 +483,8 @@ mod tests {
         use serde_yaml::Value;
 
         let data: &[(_, &[_])] = &[
-            ("0x01", &[0b10000000]),
-            ("0xf301", &[0b10000000, 0b11001111]),
+            ("0x01", &[0b00000001]),
+            ("0xf301", &[0b11110011, 0b00000001]),
         ];
         for (hex_data, bytes) in data {
             let bitfield = BooleanBitfield::from_bytes(bytes);
