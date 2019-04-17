@@ -49,26 +49,3 @@ macro_rules! impl_tree_hash_for_ssz_bytes {
         }
     };
 }
-
-#[macro_export]
-macro_rules! impl_vec_as_fixed_len {
-    ($type: ty) => {
-        impl tree_hash::TreeHash for $type {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::Vector
-            }
-
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("Vector should never be packed.")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unreachable!("Vector should never be packed.")
-            }
-
-            fn tree_hash_root(&self) -> Vec<u8> {
-                tree_hash::standard_tree_hash::vec_tree_hash_root(self)
-            }
-        }
-    };
-}

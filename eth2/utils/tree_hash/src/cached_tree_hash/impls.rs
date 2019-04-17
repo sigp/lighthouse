@@ -1,13 +1,12 @@
 use super::resize::{grow_merkle_cache, shrink_merkle_cache};
 use super::*;
-use ssz::ssz_encode;
 
 mod vec;
 
 impl CachedTreeHashSubTree<u64> for u64 {
     fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
-            merkleize(ssz_encode(self)),
+            merkleize(self.to_le_bytes().to_vec()),
             false,
         )?)
     }
@@ -23,7 +22,7 @@ impl CachedTreeHashSubTree<u64> for u64 {
         chunk: usize,
     ) -> Result<usize, Error> {
         if self != other {
-            let leaf = merkleize(ssz_encode(self));
+            let leaf = merkleize(self.to_le_bytes().to_vec());
             cache.modify_chunk(chunk, &leaf)?;
         }
 
