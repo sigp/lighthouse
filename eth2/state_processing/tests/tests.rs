@@ -16,7 +16,7 @@ pub struct ExpectedState {
     pub current_epoch_attestations: Option<Vec<PendingAttestation>>,
     pub historical_roots: Option<Vec<Hash256>>,
     pub finalized_epoch: Option<Epoch>,
-    pub latest_block_roots: Option<Vec<Hash256>>,
+    pub latest_block_roots: Option<TreeHashVector<Hash256>>,
 }
 
 impl ExpectedState {
