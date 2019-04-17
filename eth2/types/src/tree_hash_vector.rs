@@ -33,6 +33,12 @@ impl<T> DerefMut for TreeHashVector<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq<Vec<T>> for TreeHashVector<T> {
+    fn eq(&self, other: &Vec<T>) -> bool {
+        &self.0 == other
+    }
+}
+
 impl<T> tree_hash::TreeHash for TreeHashVector<T>
 where
     T: TreeHash,
