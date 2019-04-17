@@ -38,6 +38,9 @@ fn cache_state(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
         state.latest_block_header.state_root = previous_slot_state_root
     }
 
+    // Store the previous slot's post state transition root.
+    state.set_state_root(previous_slot, previous_slot_state_root, spec)?;
+
     let latest_block_root = Hash256::from_slice(&state.latest_block_header.signed_root()[..]);
     state.set_block_root(previous_slot, latest_block_root, spec)?;
 
