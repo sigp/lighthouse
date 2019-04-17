@@ -7,12 +7,12 @@ before_install:
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
 env:
-  - BUILD=
-  - BUILD=--release
+  - BUILD=--all
+  - BUILD=--release --all
+  - BUILD= --manifest-path eth2/state_processing/Cargo.toml --release --features fake_crypto
 script:
-  - cargo build --verbose $BUILD --all
-  - cargo test --verbose $BUILD --all
-  - cargo test --manifest-path eth2/state_processing/Cargo.toml --verbose --release --features fake_crypto
+  - cargo build --verbose $BUILD
+  - cargo test --verbose $BUILD
   - cargo fmt --all -- --check
   # No clippy until later...
   #- cargo clippy
