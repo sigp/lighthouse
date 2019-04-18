@@ -33,7 +33,6 @@ impl TestingBeaconBlockBuilder {
     /// Modifying the block after signing may invalidate the signature.
     pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.block.signed_root();
-        println!("block set {:?}", self.block);
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
         let domain = spec.get_domain(epoch, Domain::BeaconBlock, fork);
         self.block.signature = Signature::new(&message, domain, sk);
