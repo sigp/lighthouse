@@ -83,18 +83,9 @@ where
         NetworkBehaviour::new_handler(&mut self.discovery)
     }
 
-    // TODO: we store all peers in known_peers, when upgrading to discv5 we will avoid duplication
-    // of peer storage.
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        if let Some(addresses) = self.known_peers.get(peer_id) {
-            addresses.clone()
-        } else {
-            debug!(
-                self.log,
-                "Tried to dial: {:?} but no address stored", peer_id
-            );
-            Vec::new()
-        }
+        // Let discovery track possible known peers.
+        self.discovery.addresses_of_peer(peer_id)
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
@@ -151,11 +142,6 @@ where
                             peer_id, addresses, ..
                         } => {
                             debug!(self.log, "Kademlia peer discovered"; "Peer"=> format!("{:?}", peer_id), "Addresses" => format!("{:?}", addresses));
-                            (*self
-                                .known_peers
-                                .entry(peer_id.clone())
-                                .or_insert_with(|| vec![]))
-                            .extend(addresses.clone());
                         }
                         KademliaOut::FindNodeResult { closer_peers, .. } => {
                             debug!(
@@ -163,6 +149,8 @@ where
                                 "Kademlia query found {} peers",
                                 closer_peers.len()
                             );
+                            debug!(self.log, "Kademlia peers discovered"; "Peer"=> format!("{:?}", closer_peers));
+
                             if closer_peers.is_empty() {
                                 debug!(self.log, "Kademlia random query yielded empty results");
                             }
