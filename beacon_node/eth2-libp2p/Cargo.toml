@@ -15,7 +15,7 @@ serde = "1.0"
 serde_derive = "1.0"
 ssz = { path = "../../eth2/utils/ssz" }
 ssz_derive = { path = "../../eth2/utils/ssz_derive" }
-slog = "2.4.1"
+slog = "^2.2.3" 
 version = { path = "../version" }
 tokio = "0.1.16"
 futures = "0.1.25"
