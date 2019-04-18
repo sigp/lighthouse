@@ -24,6 +24,15 @@ matrix:
   allow_failures:
     - rust: nightly
   fast_finish: true
+  exclude:
+      - rust: beta
+        env: BUILD=--release --all
+      - rust: beta
+        env: BUILD= --manifest-path eth2/state_processing/Cargo.toml --release --features fake_crypto
+      - rust: nightly
+        env: BUILD=--release --all
+      - rust: nightly
+        env: BUILD= --manifest-path eth2/state_processing/Cargo.toml --release --features fake_crypto
 install:
   - rustup component add rustfmt
   - rustup component add clippy
