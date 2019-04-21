@@ -1,4 +1,3 @@
-use super::resize::{grow_merkle_cache, shrink_merkle_cache};
 use super::*;
 
 mod vec;
@@ -13,7 +12,7 @@ impl CachedTreeHashSubTree<u64> for u64 {
     }
 
     fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
-        BTreeOverlay::from_lengths(chunk_offset, vec![1])
+        BTreeOverlay::from_lengths(chunk_offset, 1, vec![1])
     }
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {

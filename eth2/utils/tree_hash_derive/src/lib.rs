@@ -55,6 +55,8 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let idents_b = idents_a.clone();
     let idents_c = idents_a.clone();
 
+    let num_items = idents_a.len();
+
     let output = quote! {
         impl tree_hash::CachedTreeHashSubTree<#name> for #name {
             fn new_tree_hash_cache(&self) -> Result<tree_hash::TreeHashCache, tree_hash::Error> {
@@ -77,11 +79,11 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                     lengths.push(tree_hash::BTreeOverlay::new(&self.#idents_b, 0)?.num_nodes());
                 )*
 
-                tree_hash::BTreeOverlay::from_lengths(chunk_offset, lengths)
+                tree_hash::BTreeOverlay::from_lengths(chunk_offset, #num_items, lengths)
             }
 
             fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
-                let overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
+                let overlay = BTreeOverlay::new(self, cache.chunk_index)?;
 
                 // Skip the chunk index to the first leaf node of this struct.
                 cache.chunk_index = overlay.first_leaf_node();

@@ -37,7 +37,8 @@ where
                 let num_leaves = (self.len() + T::tree_hash_packing_factor() - 1)
                     / T::tree_hash_packing_factor();
 
-                vec![1; num_leaves]
+                // Disallow zero-length as an empty list still has one all-padding node.
+                vec![1; std::cmp::max(1, num_leaves)]
             }
             TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
                 let mut lengths = vec![];
@@ -50,7 +51,7 @@ where
             }
         };
 
-        BTreeOverlay::from_lengths(chunk_offset, lengths)
+        BTreeOverlay::from_lengths(chunk_offset, self.len(), lengths)
     }
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
@@ -65,7 +66,7 @@ where
         // This grows/shrinks the bytes to accomodate the new tree, preserving as much of the tree
         // as possible.
         if new_overlay.num_leaf_nodes() != old_overlay.num_leaf_nodes() {
-            cache.replace_overlay(cache.overlay_index, new_overlay.clone())?;
+            cache.replace_overlay(cache.overlay_index, cache.chunk_index, new_overlay.clone())?;
         }
 
         match T::tree_hash_type() {
@@ -132,10 +133,20 @@ where
 
         cache.update_internal_nodes(&new_overlay)?;
 
-        // Always update the root node as we don't have a reliable check to know if the list len
-        // has changed.
+        // Mix in length.
         let root_node = new_overlay.root();
-        cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
+        if cache.changed(root_node)? {
+            dbg!(cache.get_chunk(12));
+            cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
+        } else if old_overlay.num_items != new_overlay.num_items {
+            if new_overlay.num_internal_nodes() == 0 {
+                cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
+            } else {
+                let children = new_overlay.child_chunks(0);
+                cache.modify_chunk(root_node, &cache.hash_children(children)?)?;
+                cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
+            }
+        }
 
         cache.chunk_index = new_overlay.next_node();
 
