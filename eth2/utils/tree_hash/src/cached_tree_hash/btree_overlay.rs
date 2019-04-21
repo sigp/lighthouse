@@ -3,7 +3,8 @@ use super::*;
 #[derive(Debug, PartialEq, Clone)]
 pub struct BTreeOverlay {
     pub offset: usize,
-    lengths: Vec<usize>,
+    pub num_items: usize,
+    pub lengths: Vec<usize>,
 }
 
 impl BTreeOverlay {
@@ -14,11 +15,19 @@ impl BTreeOverlay {
         item.tree_hash_cache_overlay(initial_offset)
     }
 
-    pub fn from_lengths(offset: usize, lengths: Vec<usize>) -> Result<Self, Error> {
+    pub fn from_lengths(
+        offset: usize,
+        num_items: usize,
+        lengths: Vec<usize>,
+    ) -> Result<Self, Error> {
         if lengths.is_empty() {
             Err(Error::TreeCannotHaveZeroNodes)
         } else {
-            Ok(Self { offset, lengths })
+            Ok(Self {
+                offset,
+                num_items,
+                lengths,
+            })
         }
     }
 
@@ -47,7 +56,8 @@ impl BTreeOverlay {
     }
 
     pub fn next_node(&self) -> usize {
-        self.first_node() + self.lengths.iter().sum::<usize>()
+        self.first_node() + self.num_internal_nodes() + self.num_leaf_nodes() - self.lengths.len()
+            + self.lengths.iter().sum::<usize>()
     }
 
     pub fn height(&self) -> usize {
@@ -78,17 +88,28 @@ impl BTreeOverlay {
         }
     }
 
-    /// Returns an iterator visiting each internal node, providing the left and right child chunks
-    /// for the node.
+    pub fn child_chunks(&self, parent: usize) -> (usize, usize) {
+        let children = children(parent);
+
+        if children.1 < self.num_internal_nodes() {
+            (children.0 + self.offset, children.1 + self.offset)
+        } else {
+            let chunks = self.n_leaf_node_chunks(children.1);
+            (chunks[chunks.len() - 2], chunks[chunks.len() - 1])
+        }
+    }
+
+    /// (parent, (left_child, right_child))
     pub fn internal_parents_and_children(&self) -> Vec<(usize, (usize, usize))> {
+        let mut chunks = Vec::with_capacity(self.num_nodes());
+        chunks.append(&mut self.internal_node_chunks());
+        chunks.append(&mut self.leaf_node_chunks());
+
         (0..self.num_internal_nodes())
             .into_iter()
             .map(|parent| {
                 let children = children(parent);
-                (
-                    parent + self.offset,
-                    (children.0 + self.offset, children.1 + self.offset),
-                )
+                (chunks[parent], (chunks[children.0], chunks[children.1]))
             })
             .collect()
     }
@@ -96,5 +117,93 @@ impl BTreeOverlay {
     // Returns a `Vec` of chunk indices for each internal node of the tree.
     pub fn internal_node_chunks(&self) -> Vec<usize> {
         (self.offset..self.offset + self.num_internal_nodes()).collect()
+    }
+
+    // Returns a `Vec` of the first chunk index for each leaf node of the tree.
+    pub fn leaf_node_chunks(&self) -> Vec<usize> {
+        self.n_leaf_node_chunks(self.num_leaf_nodes())
+    }
+
+    // Returns a `Vec` of the first chunk index for the first `n` leaf nodes of the tree.
+    fn n_leaf_node_chunks(&self, n: usize) -> Vec<usize> {
+        let mut chunks = Vec::with_capacity(n);
+
+        let mut chunk = self.offset + self.num_internal_nodes();
+        for i in 0..n {
+            chunks.push(chunk);
+
+            match self.lengths.get(i) {
+                Some(len) => {
+                    chunk += len;
+                }
+                None => chunk += 1,
+            }
+        }
+
+        chunks
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn get_tree_a(n: usize) -> BTreeOverlay {
+        BTreeOverlay::from_lengths(0, n, vec![1; n]).unwrap()
+    }
+
+    #[test]
+    fn leaf_node_chunks() {
+        let tree = get_tree_a(4);
+
+        assert_eq!(tree.leaf_node_chunks(), vec![3, 4, 5, 6])
+    }
+
+    #[test]
+    fn internal_node_chunks() {
+        let tree = get_tree_a(4);
+
+        assert_eq!(tree.internal_node_chunks(), vec![0, 1, 2])
+    }
+
+    #[test]
+    fn internal_parents_and_children() {
+        let tree = get_tree_a(4);
+
+        assert_eq!(
+            tree.internal_parents_and_children(),
+            vec![(0, (1, 2)), (1, (3, 4)), (2, (5, 6))]
+        )
+    }
+
+    #[test]
+    fn chunk_range() {
+        let tree = get_tree_a(4);
+        assert_eq!(tree.chunk_range(), 0..7);
+
+        let tree = get_tree_a(1);
+        assert_eq!(tree.chunk_range(), 0..1);
+
+        let tree = get_tree_a(2);
+        assert_eq!(tree.chunk_range(), 0..3);
+
+        let tree = BTreeOverlay::from_lengths(11, 4, vec![1, 1]).unwrap();
+        assert_eq!(tree.chunk_range(), 11..14);
+    }
+
+    #[test]
+    fn root_of_one_node() {
+        let tree = get_tree_a(1);
+
+        assert_eq!(tree.root(), 0);
+        assert_eq!(tree.num_internal_nodes(), 0);
+        assert_eq!(tree.num_leaf_nodes(), 1);
+    }
+
+    #[test]
+    fn child_chunks() {
+        let tree = get_tree_a(4);
+
+        assert_eq!(tree.child_chunks(0), (1, 2))
     }
 }
