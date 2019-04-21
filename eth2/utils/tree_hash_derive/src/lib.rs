@@ -54,7 +54,6 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let idents_a = get_hashable_named_field_idents(&struct_data);
     let idents_b = idents_a.clone();
     let idents_c = idents_a.clone();
-    let idents_d = idents_a.clone();
 
     let output = quote! {
         impl tree_hash::CachedTreeHashSubTree<#name> for #name {
@@ -75,35 +74,29 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 let mut lengths = vec![];
 
                 #(
-                    lengths.push(tree_hash::BTreeOverlay::new(&self.#idents_b, 0)?.total_nodes());
+                    lengths.push(tree_hash::BTreeOverlay::new(&self.#idents_b, 0)?.num_nodes());
                 )*
 
                 tree_hash::BTreeOverlay::from_lengths(chunk_offset, lengths)
             }
 
-            fn update_tree_hash_cache(
-                &self,
-                other: &Self,
-                cache: &mut tree_hash::TreeHashCache,
-                chunk: usize,
-            ) -> Result<usize, tree_hash::Error> {
-                let offset_handler = tree_hash::BTreeOverlay::new(self, chunk)?;
+            fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
+                let overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
 
-                // Skip past the internal nodes and update any changed leaf nodes.
-                {
-                    let chunk = offset_handler.first_leaf_node()?;
-                    #(
-                        let chunk = self.#idents_c.update_tree_hash_cache(&other.#idents_d, cache, chunk)?;
-                    )*
-                }
+                // Skip the chunk index to the first leaf node of this struct.
+                cache.chunk_index = overlay.first_leaf_node();
+                // Skip the overlay index to the first leaf node of this struct.
+                cache.overlay_index += 1;
 
-                for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
-                    if cache.either_modified(children)? {
-                        cache.modify_chunk(parent, &cache.hash_children(children)?)?;
-                    }
-                }
+                // Recurse into the struct items, updating their caches.
+                #(
+                    self.#idents_c.update_tree_hash_cache(cache)?;
+                )*
 
-                Ok(offset_handler.next_node)
+                // Iterate through the internal nodes, updating them if their children have changed.
+                cache.update_internal_nodes(&overlay)?;
+
+                Ok(())
             }
         }
     };

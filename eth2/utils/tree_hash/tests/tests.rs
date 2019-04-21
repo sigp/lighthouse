@@ -1,9 +1,275 @@
-use hashing::hash;
-use int_to_bytes::{int_to_bytes32, int_to_bytes8};
+use int_to_bytes::int_to_bytes32;
 use tree_hash::cached_tree_hash::*;
 use tree_hash::standard_tree_hash::*;
 use tree_hash::*;
+use tree_hash_derive::{CachedTreeHashSubTree, TreeHash};
 
+#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+pub struct Nested {
+    pub a: u64,
+    pub b: Inner,
+}
+
+#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+pub struct Thing {
+    pub a: u64,
+    pub b: Inner,
+    pub c: Vec<u64>,
+}
+
+fn test_routine<T>(original: T, modified: Vec<T>)
+where
+    T: CachedTreeHashSubTree<T>,
+{
+    let mut cache = original.new_tree_hash_cache().unwrap();
+
+    let standard_root = original.tree_hash_root();
+    let cached_root = cache.root().unwrap().to_vec();
+    assert_eq!(standard_root, cached_root, "Initial cache build failed.");
+
+    for (i, modified) in modified.iter().enumerate() {
+        // Test after a modification
+        modified.update_tree_hash_cache(&mut cache).unwrap();
+        let standard_root = modified.tree_hash_root();
+        let cached_root = cache.root().unwrap().to_vec();
+        assert_eq!(standard_root, cached_root, "Modification {} failed.", i);
+    }
+}
+
+#[test]
+fn test_nested() {
+    let original = Nested {
+        a: 42,
+        b: Inner {
+            a: 12,
+            b: 13,
+            c: 14,
+            d: 15,
+        },
+    };
+    let modified = vec![Nested {
+        a: 99,
+        ..original.clone()
+    }];
+
+    test_routine(original, modified);
+}
+
+#[test]
+fn test_inner() {
+    let original = Inner {
+        a: 12,
+        b: 13,
+        c: 14,
+        d: 15,
+    };
+
+    let modified = vec![Inner {
+        a: 99,
+        ..original.clone()
+    }];
+
+    test_routine(original, modified);
+}
+
+#[test]
+fn test_thing() {
+    let original = Thing {
+        a: 42,
+        b: Inner {
+            a: 12,
+            b: 13,
+            c: 14,
+            d: 15,
+        },
+        c: vec![1, 2, 3, 4, 5],
+    };
+
+    let modified = vec![Thing {
+        a: 99,
+        ..original.clone()
+    }];
+
+    test_routine(original, modified);
+}
+
+#[test]
+fn test_vec() {
+    let original = vec![1, 2, 3, 4, 5];
+
+    let modified = vec![vec![1, 2, 3, 4, 42]];
+
+    test_routine(original, modified);
+}
+
+#[derive(Clone, Debug)]
+pub struct Inner {
+    pub a: u64,
+    pub b: u64,
+    pub c: u64,
+    pub d: u64,
+}
+
+impl TreeHash for Inner {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Container
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        let mut leaves = Vec::with_capacity(4 * HASHSIZE);
+
+        leaves.append(&mut self.a.tree_hash_root());
+        leaves.append(&mut self.b.tree_hash_root());
+        leaves.append(&mut self.c.tree_hash_root());
+        leaves.append(&mut self.d.tree_hash_root());
+
+        efficient_merkleize(&leaves)[0..32].to_vec()
+    }
+}
+
+impl CachedTreeHashSubTree<Inner> for Inner {
+    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
+        let tree = TreeHashCache::from_leaves_and_subtrees(
+            self,
+            vec![
+                self.a.new_tree_hash_cache()?,
+                self.b.new_tree_hash_cache()?,
+                self.c.new_tree_hash_cache()?,
+                self.d.new_tree_hash_cache()?,
+            ],
+        )?;
+
+        Ok(tree)
+    }
+
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
+        let mut lengths = vec![];
+
+        lengths.push(BTreeOverlay::new(&self.a, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.b, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.c, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.d, 0)?.num_nodes());
+
+        BTreeOverlay::from_lengths(chunk_offset, lengths)
+    }
+
+    fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
+        let overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
+        dbg!(&overlay);
+
+        // Skip the chunk index to the first leaf node of this struct.
+        cache.chunk_index = overlay.first_leaf_node();
+        // Skip the overlay index to the first leaf node of this struct.
+        cache.overlay_index += 1;
+
+        // Recurse into the struct items, updating their caches.
+        self.a.update_tree_hash_cache(cache)?;
+        self.b.update_tree_hash_cache(cache)?;
+        self.c.update_tree_hash_cache(cache)?;
+        self.d.update_tree_hash_cache(cache)?;
+
+        // Iterate through the internal nodes, updating them if their children have changed.
+        cache.update_internal_nodes(&overlay)?;
+
+        Ok(())
+    }
+}
+
+fn generic_test(index: usize) {
+    let inner = Inner {
+        a: 1,
+        b: 2,
+        c: 3,
+        d: 4,
+    };
+
+    let mut cache = TreeHashCache::new(&inner).unwrap();
+
+    let changed_inner = match index {
+        0 => Inner {
+            a: 42,
+            ..inner.clone()
+        },
+        1 => Inner {
+            b: 42,
+            ..inner.clone()
+        },
+        2 => Inner {
+            c: 42,
+            ..inner.clone()
+        },
+        3 => Inner {
+            d: 42,
+            ..inner.clone()
+        },
+        _ => panic!("bad index"),
+    };
+
+    changed_inner.update_tree_hash_cache(&mut cache).unwrap();
+
+    let data1 = int_to_bytes32(1);
+    let data2 = int_to_bytes32(2);
+    let data3 = int_to_bytes32(3);
+    let data4 = int_to_bytes32(4);
+
+    let mut data = vec![data1, data2, data3, data4];
+
+    data[index] = int_to_bytes32(42);
+
+    let expected = merkleize(join(data));
+
+    let cache_bytes: Vec<u8> = cache.into();
+
+    assert_eq!(expected, cache_bytes);
+}
+
+#[test]
+fn cached_hash_on_inner() {
+    generic_test(0);
+    generic_test(1);
+    generic_test(2);
+    generic_test(3);
+}
+
+#[test]
+fn inner_builds() {
+    let data1 = int_to_bytes32(1);
+    let data2 = int_to_bytes32(2);
+    let data3 = int_to_bytes32(3);
+    let data4 = int_to_bytes32(4);
+
+    let data = join(vec![data1, data2, data3, data4]);
+    let expected = merkleize(data);
+
+    let inner = Inner {
+        a: 1,
+        b: 2,
+        c: 3,
+        d: 4,
+    };
+
+    let cache: Vec<u8> = TreeHashCache::new(&inner).unwrap().into();
+
+    assert_eq!(expected, cache);
+}
+
+fn join(many: Vec<Vec<u8>>) -> Vec<u8> {
+    let mut all = vec![];
+    for one in many {
+        all.extend_from_slice(&mut one.clone())
+    }
+    all
+}
+
+/*
 #[derive(Clone, Debug)]
 pub struct InternalCache {
     pub a: u64,
@@ -101,8 +367,8 @@ impl CachedTreeHashSubTree<InternalCache> for InternalCache {
     fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
-        lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
-        lengths.push(BTreeOverlay::new(&self.b, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.a, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.b, 0)?.num_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
@@ -187,10 +453,10 @@ impl CachedTreeHashSubTree<Inner> for Inner {
     fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
-        lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
-        lengths.push(BTreeOverlay::new(&self.b, 0)?.total_nodes());
-        lengths.push(BTreeOverlay::new(&self.c, 0)?.total_nodes());
-        lengths.push(BTreeOverlay::new(&self.d, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.a, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.b, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.c, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.d, 0)?.num_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
@@ -270,9 +536,9 @@ impl CachedTreeHashSubTree<Outer> for Outer {
     fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let mut lengths = vec![];
 
-        lengths.push(BTreeOverlay::new(&self.a, 0)?.total_nodes());
-        lengths.push(BTreeOverlay::new(&self.b, 0)?.total_nodes());
-        lengths.push(BTreeOverlay::new(&self.c, 0)?.total_nodes());
+        lengths.push(BTreeOverlay::new(&self.a, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.b, 0)?.num_nodes());
+        lengths.push(BTreeOverlay::new(&self.c, 0)?.num_nodes());
 
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
@@ -1078,3 +1344,4 @@ fn merkleize_4_leaves() {
         assert_eq!(chunk, &expected[..], "failed at {}", i);
     }
 }
+*/

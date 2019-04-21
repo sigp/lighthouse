@@ -5,10 +5,14 @@ where
     T: CachedTreeHashSubTree<T> + TreeHash,
 {
     fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
-        match T::tree_hash_type() {
-            TreeHashType::Basic => {
-                TreeHashCache::from_bytes(merkleize(get_packed_leaves(self)?), false)
-            }
+        let overlay = self.tree_hash_cache_overlay(0)?;
+
+        let mut cache = match T::tree_hash_type() {
+            TreeHashType::Basic => TreeHashCache::from_bytes(
+                merkleize(get_packed_leaves(self)?),
+                false,
+                overlay.clone(),
+            ),
             TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
                 let subtrees = self
                     .iter()
@@ -17,17 +21,29 @@ where
 
                 TreeHashCache::from_leaves_and_subtrees(self, subtrees)
             }
-        }
+        }?;
+
+        // Mix in the length of the list.
+        let root_node = overlay.root();
+        cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
+
+        Ok(cache)
     }
 
     fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
         let lengths = match T::tree_hash_type() {
-            TreeHashType::Basic => vec![1; self.len() / T::tree_hash_packing_factor()],
+            TreeHashType::Basic => {
+                // Ceil division.
+                let num_leaves = (self.len() + T::tree_hash_packing_factor() - 1)
+                    / T::tree_hash_packing_factor();
+
+                vec![1; num_leaves]
+            }
             TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
                 let mut lengths = vec![];
 
                 for item in self {
-                    lengths.push(BTreeOverlay::new(item, 0)?.total_nodes())
+                    lengths.push(BTreeOverlay::new(item, 0)?.num_nodes())
                 }
 
                 lengths
@@ -37,120 +53,93 @@ where
         BTreeOverlay::from_lengths(chunk_offset, lengths)
     }
 
-    fn update_tree_hash_cache(
-        &self,
-        other: &Vec<T>,
-        cache: &mut TreeHashCache,
-        chunk: usize,
-    ) -> Result<usize, Error> {
-        let offset_handler = BTreeOverlay::new(self, chunk)?;
-        let old_offset_handler = BTreeOverlay::new(other, chunk)?;
+    fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
+        let new_overlay = BTreeOverlay::new(self, cache.chunk_index)?;
+        let old_overlay = cache
+            .get_overlay(cache.overlay_index, cache.chunk_index)?
+            .clone();
 
-        if offset_handler.num_leaf_nodes != old_offset_handler.num_leaf_nodes {
-            let old_offset_handler = BTreeOverlay::new(other, chunk)?;
-
-            // Get slices of the exsiting tree from the cache.
-            let (old_bytes, old_flags) = cache
-                .slices(old_offset_handler.chunk_range())
-                .ok_or_else(|| Error::UnableToObtainSlices)?;
-
-            let (new_bytes, new_flags) =
-                if offset_handler.num_leaf_nodes > old_offset_handler.num_leaf_nodes {
-                    grow_merkle_cache(
-                        old_bytes,
-                        old_flags,
-                        old_offset_handler.height(),
-                        offset_handler.height(),
-                    )
-                    .ok_or_else(|| Error::UnableToGrowMerkleTree)?
-                } else {
-                    shrink_merkle_cache(
-                        old_bytes,
-                        old_flags,
-                        old_offset_handler.height(),
-                        offset_handler.height(),
-                        offset_handler.total_chunks(),
-                    )
-                    .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
-                };
-
-            // Create a `TreeHashCache` from the raw elements.
-            let modified_cache = TreeHashCache::from_elems(new_bytes, new_flags);
-
-            // Splice the newly created `TreeHashCache` over the existing elements.
-            cache.splice(old_offset_handler.chunk_range(), modified_cache);
+        // If the merkle tree required to represent the new list is of a different size to the one
+        // required for the previous list, then update our cache.
+        //
+        // This grows/shrinks the bytes to accomodate the new tree, preserving as much of the tree
+        // as possible.
+        if new_overlay.num_leaf_nodes() != old_overlay.num_leaf_nodes() {
+            cache.replace_overlay(cache.overlay_index, new_overlay.clone())?;
         }
 
         match T::tree_hash_type() {
             TreeHashType::Basic => {
-                let leaves = get_packed_leaves(self)?;
+                let mut buf = vec![0; HASHSIZE];
+                let item_bytes = HASHSIZE / T::tree_hash_packing_factor();
 
-                for (i, chunk) in offset_handler.iter_leaf_nodes().enumerate() {
-                    if let Some(latest) = leaves.get(i * HASHSIZE..(i + 1) * HASHSIZE) {
-                        cache.maybe_update_chunk(*chunk, latest)?;
+                // Iterate through each of the leaf nodes.
+                for i in 0..new_overlay.num_leaf_nodes() {
+                    // Iterate through the number of items that may be packing into the leaf node.
+                    for j in 0..T::tree_hash_packing_factor() {
+                        // Create a mut slice that can either be filled with a serialized item or
+                        // padding.
+                        let buf_slice = &mut buf[j * item_bytes..(j + 1) * item_bytes];
+
+                        // Attempt to get the item for this portion of the chunk. If it exists,
+                        // update `buf` with it's serialized bytes. If it doesn't exist, update
+                        // `buf` with padding.
+                        match self.get(i * T::tree_hash_packing_factor() + j) {
+                            Some(item) => {
+                                buf_slice.copy_from_slice(&item.tree_hash_packed_encoding());
+                            }
+                            None => buf_slice.copy_from_slice(&vec![0; item_bytes]),
+                        }
                     }
-                }
-                let first_leaf_chunk = offset_handler.first_leaf_node()?;
 
-                cache.splice(
-                    first_leaf_chunk..offset_handler.next_node,
-                    TreeHashCache::from_bytes(leaves, true)?,
-                );
+                    // Update the chunk if the generated `buf` is not the same as the cache.
+                    let chunk = new_overlay.first_leaf_node() + i;
+                    cache.maybe_update_chunk(chunk, &buf)?;
+                }
             }
             TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
-                let mut i = offset_handler.num_leaf_nodes;
-                for &start_chunk in offset_handler.iter_leaf_nodes().rev() {
-                    i -= 1;
-                    match (other.get(i), self.get(i)) {
-                        // The item existed in the previous list and exsits in the current list.
-                        (Some(old), Some(new)) => {
-                            new.update_tree_hash_cache(old, cache, start_chunk)?;
+                for i in (0..new_overlay.num_leaf_nodes()).rev() {
+                    match (old_overlay.get_leaf_node(i)?, new_overlay.get_leaf_node(i)?) {
+                        // The item existed in the previous list and exists in the current list.
+                        (Some(_old), Some(new)) => {
+                            cache.chunk_index = new.start;
+                            self[i].update_tree_hash_cache(cache)?;
                         }
                         // The item existed in the previous list but does not exist in this list.
                         //
-                        // I.e., the list has been shortened.
+                        // Viz., the list has been shortened.
                         (Some(old), None) => {
                             // Splice out the entire tree of the removed node, replacing it with a
                             // single padding node.
-                            let end_chunk = BTreeOverlay::new(old, start_chunk)?.next_node;
-
-                            cache.splice(
-                                start_chunk..end_chunk,
-                                TreeHashCache::from_bytes(vec![0; HASHSIZE], true)?,
-                            );
+                            cache.splice(old, vec![0; HASHSIZE], vec![true]);
                         }
-                        // The item existed in the previous list but does exist in this list.
+                        // The item did not exist in the previous list but does exist in this list.
                         //
-                        // I.e., the list has been lengthened.
+                        // Viz., the list has been lengthened.
                         (None, Some(new)) => {
-                            let bytes: Vec<u8> = TreeHashCache::new(new)?.into();
+                            let bytes: Vec<u8> = TreeHashCache::new(&self[i])?.into();
+                            let bools = vec![true; bytes.len() / HASHSIZE];
 
-                            cache.splice(
-                                start_chunk..start_chunk + 1,
-                                TreeHashCache::from_bytes(bytes, true)?,
-                            );
+                            cache.splice(new.start..new.start + 1, bytes, bools);
                         }
                         // The item didn't exist in the old list and doesn't exist in the new list,
                         // nothing to do.
                         (None, None) => {}
-                    };
+                    }
                 }
             }
         }
 
-        for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
-            if cache.either_modified(children)? {
-                cache.modify_chunk(parent, &cache.hash_children(children)?)?;
-            }
-        }
+        cache.update_internal_nodes(&new_overlay)?;
 
-        // If the root node or the length has changed, mix in the length of the list.
-        let root_node = offset_handler.root();
-        if cache.changed(root_node)? | (self.len() != other.len()) {
-            cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
-        }
+        // Always update the root node as we don't have a reliable check to know if the list len
+        // has changed.
+        let root_node = new_overlay.root();
+        cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
 
-        Ok(offset_handler.next_node)
+        cache.chunk_index = new_overlay.next_node();
+
+        Ok(())
     }
 }
 

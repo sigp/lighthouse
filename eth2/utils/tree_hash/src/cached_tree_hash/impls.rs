@@ -8,6 +8,7 @@ impl CachedTreeHashSubTree<u64> for u64 {
         Ok(TreeHashCache::from_bytes(
             merkleize(self.to_le_bytes().to_vec()),
             false,
+            self.tree_hash_cache_overlay(0)?,
         )?)
     }
 
@@ -15,17 +16,13 @@ impl CachedTreeHashSubTree<u64> for u64 {
         BTreeOverlay::from_lengths(chunk_offset, vec![1])
     }
 
-    fn update_tree_hash_cache(
-        &self,
-        other: &Self,
-        cache: &mut TreeHashCache,
-        chunk: usize,
-    ) -> Result<usize, Error> {
-        if self != other {
-            let leaf = merkleize(self.to_le_bytes().to_vec());
-            cache.modify_chunk(chunk, &leaf)?;
-        }
+    fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
+        let leaf = merkleize(self.to_le_bytes().to_vec());
+        cache.maybe_update_chunk(cache.chunk_index, &leaf)?;
 
-        Ok(chunk + 1)
+        cache.chunk_index += 1;
+        cache.overlay_index += 1;
+
+        Ok(())
     }
 }
