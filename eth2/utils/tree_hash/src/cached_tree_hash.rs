@@ -17,10 +17,13 @@ pub enum Error {
     UnableToObtainSlices,
     UnableToGrowMerkleTree,
     UnableToShrinkMerkleTree,
+    TreeCannotHaveZeroNodes,
     ShouldNeverBePacked(TreeHashType),
     BytesAreNotEvenChunks(usize),
     NoModifiedFieldForChunk(usize),
     NoBytesForChunk(usize),
+    NoOverlayForIndex(usize),
+    NotLeafNode(usize),
 }
 
 pub trait CachedTreeHash<T>: CachedTreeHashSubTree<T> + Sized {
@@ -36,12 +39,7 @@ pub trait CachedTreeHashSubTree<Item>: TreeHash {
 
     fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error>;
 
-    fn update_tree_hash_cache(
-        &self,
-        other: &Item,
-        cache: &mut TreeHashCache,
-        chunk: usize,
-    ) -> Result<usize, Error>;
+    fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error>;
 }
 
 fn children(parent: usize) -> (usize, usize) {
@@ -123,6 +121,10 @@ fn num_bytes(num_leaves: usize) -> usize {
 pub struct TreeHashCache {
     cache: Vec<u8>,
     chunk_modified: Vec<bool>,
+    overlays: Vec<BTreeOverlay>,
+
+    pub chunk_index: usize,
+    pub overlay_index: usize,
 }
 
 impl Into<Vec<u8>> for TreeHashCache {
@@ -139,10 +141,17 @@ impl TreeHashCache {
         item.new_tree_hash_cache()
     }
 
-    pub fn from_elems(cache: Vec<u8>, chunk_modified: Vec<bool>) -> Self {
+    pub fn from_elems(
+        cache: Vec<u8>,
+        chunk_modified: Vec<bool>,
+        overlays: Vec<BTreeOverlay>,
+    ) -> Self {
         Self {
             cache,
             chunk_modified,
+            overlays,
+            chunk_index: 0,
+            overlay_index: 0,
         }
     }
 
@@ -153,7 +162,7 @@ impl TreeHashCache {
     where
         T: CachedTreeHashSubTree<T>,
     {
-        let offset_handler = BTreeOverlay::new(item, 0)?;
+        let overlay = BTreeOverlay::new(item, 0)?;
 
         // Note how many leaves were provided. If is not a power-of-two, we'll need to pad it out
         // later.
@@ -161,7 +170,7 @@ impl TreeHashCache {
 
         // Allocate enough bytes to store the internal nodes and the leaves and subtrees, then fill
         // all the to-be-built internal nodes with zeros and append the leaves and subtrees.
-        let internal_node_bytes = offset_handler.num_internal_nodes * BYTES_PER_CHUNK;
+        let internal_node_bytes = overlay.num_internal_nodes() * BYTES_PER_CHUNK;
         let leaves_and_subtrees_bytes = leaves_and_subtrees
             .iter()
             .fold(0, |acc, t| acc + t.bytes_len());
@@ -169,13 +178,19 @@ impl TreeHashCache {
         cache.resize(internal_node_bytes, 0);
 
         // Allocate enough bytes to store all the leaves.
-        let mut leaves = Vec::with_capacity(offset_handler.num_leaf_nodes * HASHSIZE);
+        let mut leaves = Vec::with_capacity(overlay.num_leaf_nodes() * HASHSIZE);
+        let mut overlays = Vec::with_capacity(leaves_and_subtrees.len());
+        overlays.push(overlay);
 
         // Iterate through all of the leaves/subtrees, adding their root as a leaf node and then
         // concatenating their merkle trees.
         for t in leaves_and_subtrees {
             leaves.append(&mut t.root().ok_or_else(|| Error::NoBytesForRoot)?.to_vec());
-            cache.append(&mut t.into_merkle_tree());
+
+            let (mut bytes, _bools, mut t_overlays) = t.into_components();
+
+            cache.append(&mut bytes);
+            overlays.append(&mut t_overlays);
         }
 
         // Pad the leaves to an even power-of-two, using zeros.
@@ -190,10 +205,17 @@ impl TreeHashCache {
         Ok(Self {
             chunk_modified: vec![false; cache.len() / BYTES_PER_CHUNK],
             cache,
+            overlays,
+            chunk_index: 0,
+            overlay_index: 0,
         })
     }
 
-    pub fn from_bytes(bytes: Vec<u8>, initial_modified_state: bool) -> Result<Self, Error> {
+    pub fn from_bytes(
+        bytes: Vec<u8>,
+        initial_modified_state: bool,
+        overlay: BTreeOverlay,
+    ) -> Result<Self, Error> {
         if bytes.len() % BYTES_PER_CHUNK > 0 {
             return Err(Error::BytesAreNotEvenChunks(bytes.len()));
         }
@@ -201,7 +223,82 @@ impl TreeHashCache {
         Ok(Self {
             chunk_modified: vec![initial_modified_state; bytes.len() / BYTES_PER_CHUNK],
             cache: bytes,
+            overlays: vec![overlay],
+            chunk_index: 0,
+            overlay_index: 0,
         })
+    }
+
+    pub fn get_overlay(
+        &self,
+        overlay_index: usize,
+        chunk_index: usize,
+    ) -> Result<BTreeOverlay, Error> {
+        let mut overlay = self
+            .overlays
+            .get(overlay_index)
+            .ok_or_else(|| Error::NoOverlayForIndex(overlay_index))?
+            .clone();
+
+        overlay.offset = chunk_index;
+
+        Ok(overlay)
+    }
+
+    pub fn replace_overlay(
+        &mut self,
+        overlay_index: usize,
+        new_overlay: BTreeOverlay,
+    ) -> Result<BTreeOverlay, Error> {
+        let old_overlay = self
+            .overlays
+            .get(overlay_index)
+            .ok_or_else(|| Error::NoOverlayForIndex(overlay_index))?;
+
+        // Get slices of the exsiting tree from the cache.
+        let (old_bytes, old_flags) = self
+            .slices(old_overlay.chunk_range())
+            .ok_or_else(|| Error::UnableToObtainSlices)?;
+
+        let (new_bytes, new_bools) = if new_overlay.num_leaf_nodes() > old_overlay.num_leaf_nodes()
+        {
+            resize::grow_merkle_cache(
+                old_bytes,
+                old_flags,
+                old_overlay.height(),
+                new_overlay.height(),
+            )
+            .ok_or_else(|| Error::UnableToGrowMerkleTree)?
+        } else {
+            resize::shrink_merkle_cache(
+                old_bytes,
+                old_flags,
+                old_overlay.height(),
+                new_overlay.height(),
+                new_overlay.total_chunks(),
+            )
+            .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
+        };
+
+        // Splice the newly created `TreeHashCache` over the existing elements.
+        self.splice(old_overlay.chunk_range(), new_bytes, new_bools);
+
+        Ok(std::mem::replace(
+            &mut self.overlays[overlay_index],
+            new_overlay,
+        ))
+    }
+
+    pub fn update_internal_nodes(&mut self, overlay: &BTreeOverlay) -> Result<(), Error> {
+        for (parent, children) in overlay.internal_parents_and_children().into_iter().rev() {
+            dbg!(parent);
+            dbg!(&children);
+            if self.either_modified(children)? {
+                self.modify_chunk(parent, &self.hash_children(children)?)?;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn bytes_len(&self) -> usize {
@@ -212,9 +309,7 @@ impl TreeHashCache {
         self.cache.get(0..HASHSIZE)
     }
 
-    pub fn splice(&mut self, chunk_range: Range<usize>, replace_with: Self) {
-        let (bytes, bools) = replace_with.into_components();
-
+    pub fn splice(&mut self, chunk_range: Range<usize>, bytes: Vec<u8>, bools: Vec<bool>) {
         // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
         self.chunk_modified.splice(chunk_range.clone(), bools);
         self.cache
@@ -278,14 +373,14 @@ impl TreeHashCache {
             .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))
     }
 
-    pub fn either_modified(&self, children: (&usize, &usize)) -> Result<bool, Error> {
-        Ok(self.changed(*children.0)? | self.changed(*children.1)?)
+    pub fn either_modified(&self, children: (usize, usize)) -> Result<bool, Error> {
+        Ok(self.changed(children.0)? | self.changed(children.1)?)
     }
 
-    pub fn hash_children(&self, children: (&usize, &usize)) -> Result<Vec<u8>, Error> {
+    pub fn hash_children(&self, children: (usize, usize)) -> Result<Vec<u8>, Error> {
         let mut child_bytes = Vec::with_capacity(BYTES_PER_CHUNK * 2);
-        child_bytes.append(&mut self.get_chunk(*children.0)?.to_vec());
-        child_bytes.append(&mut self.get_chunk(*children.1)?.to_vec());
+        child_bytes.append(&mut self.get_chunk(children.0)?.to_vec());
+        child_bytes.append(&mut self.get_chunk(children.1)?.to_vec());
 
         Ok(hash(&child_bytes))
     }
@@ -299,11 +394,7 @@ impl TreeHashCache {
         Ok(hash(&bytes))
     }
 
-    pub fn into_merkle_tree(self) -> Vec<u8> {
-        self.cache
-    }
-
-    pub fn into_components(self) -> (Vec<u8>, Vec<bool>) {
-        (self.cache, self.chunk_modified)
+    pub fn into_components(self) -> (Vec<u8>, Vec<bool>, Vec<BTreeOverlay>) {
+        (self.cache, self.chunk_modified, self.overlays)
     }
 }

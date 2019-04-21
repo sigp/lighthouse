@@ -1,12 +1,9 @@
 use super::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BTreeOverlay {
-    pub num_internal_nodes: usize,
-    pub num_leaf_nodes: usize,
-    pub first_node: usize,
-    pub next_node: usize,
-    offsets: Vec<usize>,
+    pub offset: usize,
+    lengths: Vec<usize>,
 }
 
 impl BTreeOverlay {
@@ -17,84 +14,87 @@ impl BTreeOverlay {
         item.tree_hash_cache_overlay(initial_offset)
     }
 
-    pub fn from_lengths(offset: usize, mut lengths: Vec<usize>) -> Result<Self, Error> {
-        // Extend it to the next power-of-two, if it is not already.
-        let num_leaf_nodes = if lengths.len().is_power_of_two() {
-            lengths.len()
+    pub fn from_lengths(offset: usize, lengths: Vec<usize>) -> Result<Self, Error> {
+        if lengths.is_empty() {
+            Err(Error::TreeCannotHaveZeroNodes)
         } else {
-            let num_leaf_nodes = lengths.len().next_power_of_two();
-            lengths.resize(num_leaf_nodes, 1);
-            num_leaf_nodes
-        };
-
-        let num_nodes = num_nodes(num_leaf_nodes);
-        let num_internal_nodes = num_nodes - num_leaf_nodes;
-
-        let mut offsets = Vec::with_capacity(num_nodes);
-        offsets.append(&mut (offset..offset + num_internal_nodes).collect());
-
-        let mut next_node = num_internal_nodes + offset;
-        for i in 0..num_leaf_nodes {
-            offsets.push(next_node);
-            next_node += lengths[i];
+            Ok(Self { offset, lengths })
         }
+    }
 
-        Ok(Self {
-            num_internal_nodes,
-            num_leaf_nodes,
-            offsets,
-            first_node: offset,
-            next_node,
-        })
+    pub fn num_leaf_nodes(&self) -> usize {
+        self.lengths.len().next_power_of_two()
+    }
+
+    fn num_padding_leaves(&self) -> usize {
+        self.num_leaf_nodes() - self.lengths.len()
+    }
+
+    pub fn num_nodes(&self) -> usize {
+        2 * self.num_leaf_nodes() - 1
+    }
+
+    pub fn num_internal_nodes(&self) -> usize {
+        self.num_leaf_nodes() - 1
+    }
+
+    fn first_node(&self) -> usize {
+        self.offset
     }
 
     pub fn root(&self) -> usize {
-        self.first_node
+        self.first_node()
+    }
+
+    pub fn next_node(&self) -> usize {
+        self.first_node() + self.lengths.iter().sum::<usize>()
     }
 
     pub fn height(&self) -> usize {
-        self.num_leaf_nodes.trailing_zeros() as usize
+        self.num_leaf_nodes().trailing_zeros() as usize
     }
 
     pub fn chunk_range(&self) -> Range<usize> {
-        self.first_node..self.next_node
+        self.first_node()..self.next_node()
     }
 
     pub fn total_chunks(&self) -> usize {
-        self.next_node - self.first_node
+        self.next_node() - self.first_node()
     }
 
-    pub fn total_nodes(&self) -> usize {
-        self.num_internal_nodes + self.num_leaf_nodes
+    pub fn first_leaf_node(&self) -> usize {
+        self.offset + self.num_internal_nodes()
     }
 
-    pub fn first_leaf_node(&self) -> Result<usize, Error> {
-        self.offsets
-            .get(self.num_internal_nodes)
-            .cloned()
-            .ok_or_else(|| Error::NoFirstNode)
+    pub fn get_leaf_node(&self, i: usize) -> Result<Option<Range<usize>>, Error> {
+        if i >= self.num_leaf_nodes() {
+            return Err(Error::NotLeafNode(i));
+        } else if i >= self.num_leaf_nodes() - self.num_padding_leaves() {
+            Ok(None)
+        } else {
+            let first_node = self.offset + self.lengths.iter().take(i).sum::<usize>();
+            let last_node = first_node + self.lengths[i];
+            Ok(Some(first_node..last_node))
+        }
     }
 
     /// Returns an iterator visiting each internal node, providing the left and right child chunks
     /// for the node.
-    pub fn iter_internal_nodes<'a>(
-        &'a self,
-    ) -> impl DoubleEndedIterator<Item = (&'a usize, (&'a usize, &'a usize))> {
-        let internal_nodes = &self.offsets[0..self.num_internal_nodes];
-
-        internal_nodes.iter().enumerate().map(move |(i, parent)| {
-            let children = children(i);
-            (
-                parent,
-                (&self.offsets[children.0], &self.offsets[children.1]),
-            )
-        })
+    pub fn internal_parents_and_children(&self) -> Vec<(usize, (usize, usize))> {
+        (0..self.num_internal_nodes())
+            .into_iter()
+            .map(|parent| {
+                let children = children(parent);
+                (
+                    parent + self.offset,
+                    (children.0 + self.offset, children.1 + self.offset),
+                )
+            })
+            .collect()
     }
 
-    /// Returns an iterator visiting each leaf node, providing the chunk for that node.
-    pub fn iter_leaf_nodes<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a usize> {
-        let leaf_nodes = &self.offsets[self.num_internal_nodes..];
-
-        leaf_nodes.iter()
+    // Returns a `Vec` of chunk indices for each internal node of the tree.
+    pub fn internal_node_chunks(&self) -> Vec<usize> {
+        (self.offset..self.offset + self.num_internal_nodes()).collect()
     }
 }
