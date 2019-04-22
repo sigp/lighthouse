@@ -177,6 +177,47 @@ fn test_nested_list_of_u64() {
         vec![],
         vec![vec![1], vec![2], vec![3]],
         vec![vec![1, 2, 3, 4, 5, 6], vec![1, 2, 3, 4, 5, 6, 7]],
+        vec![vec![], vec![], vec![]],
+        vec![vec![0, 0, 0], vec![0], vec![0]],
+    ];
+
+    test_routine(original, modified);
+}
+
+#[test]
+fn test_list_of_struct_with_vec() {
+    let a = StructWithVec {
+        a: 42,
+        b: Inner {
+            a: 12,
+            b: 13,
+            c: 14,
+            d: 15,
+        },
+        c: vec![1, 2, 3, 4, 5],
+    };
+    let b = StructWithVec {
+        c: vec![],
+        ..a.clone()
+    };
+    let c = StructWithVec {
+        b: Inner {
+            a: 99,
+            b: 100,
+            c: 101,
+            d: 102,
+        },
+        ..a.clone()
+    };
+    let d = StructWithVec { a: 0, ..a.clone() };
+
+    let original: Vec<StructWithVec> = vec![a.clone(), c.clone()];
+
+    let modified = vec![
+        vec![a.clone(), c.clone()],
+        // vec![a.clone(), b.clone(), c.clone(), d.clone()],
+        // vec![b.clone(), a.clone(), c.clone(), d.clone()],
+        vec![],
     ];
 
     test_routine(original, modified);
@@ -254,6 +295,8 @@ impl CachedTreeHashSubTree<Inner> for Inner {
         self.b.update_tree_hash_cache(cache)?;
         self.c.update_tree_hash_cache(cache)?;
         self.d.update_tree_hash_cache(cache)?;
+
+        dbg!(cache.overlay_index);
 
         // Iterate through the internal nodes, updating them if their children have changed.
         cache.update_internal_nodes(&overlay)?;

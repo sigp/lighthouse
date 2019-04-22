@@ -63,6 +63,11 @@ where
         let new_overlay = BTreeOverlay::new(self, cache.chunk_index)?;
         let old_overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
 
+        dbg!(cache.overlay_index);
+
+        // dbg!(&new_overlay);
+        // dbg!(&old_overlay);
+
         // If the merkle tree required to represent the new list is of a different size to the one
         // required for the previous list, then update our cache.
         //
@@ -106,7 +111,6 @@ where
             TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
                 let mut local_overlay_index = cache.overlay_index;
 
-
                 for i in 0..new_overlay.num_leaf_nodes() {
                     cache.overlay_index = local_overlay_index;
 
@@ -122,7 +126,6 @@ where
                         (Some(_old), Some(new)) => {
                             cache.chunk_index = new.start;
 
-
                             self[i].update_tree_hash_cache(cache)?;
 
                             local_overlay_index += 1;
@@ -131,7 +134,7 @@ where
                         //
                         // Viz., the list has been shortened.
                         (Some(old), None) => {
-                            if new_overlay.num_items == 0  {
+                            if new_overlay.num_items == 0 {
                                 // In this case, the list has been made empty and we should make
                                 // this node padding.
                                 cache.maybe_update_chunk(new_overlay.root(), &[0; HASHSIZE])?;
@@ -187,6 +190,8 @@ where
         }
 
         cache.chunk_index = new_overlay.next_node();
+
+        dbg!(&cache.overlay_index);
 
         Ok(())
     }
