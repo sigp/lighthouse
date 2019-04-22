@@ -85,6 +85,8 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
             fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
                 let overlay = BTreeOverlay::new(self, cache.chunk_index)?;
 
+                println!("start derive - cache.overlay_index: {}", cache.overlay_index);
+
                 // Skip the chunk index to the first leaf node of this struct.
                 cache.chunk_index = overlay.first_leaf_node();
                 // Skip the overlay index to the first leaf node of this struct.
@@ -94,6 +96,8 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 #(
                     self.#idents_c.update_tree_hash_cache(cache)?;
                 )*
+
+                println!("end derive - cache.overlay_index: {}", cache.overlay_index);
 
                 // Iterate through the internal nodes, updating them if their children have changed.
                 cache.update_internal_nodes(&overlay)?;

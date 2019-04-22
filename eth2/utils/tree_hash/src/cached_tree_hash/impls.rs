@@ -19,8 +19,12 @@ impl CachedTreeHashSubTree<u64> for u64 {
         let leaf = merkleize(self.to_le_bytes().to_vec());
         cache.maybe_update_chunk(cache.chunk_index, &leaf)?;
 
+        dbg!(cache.overlay_index);
+
         cache.chunk_index += 1;
         cache.overlay_index += 1;
+
+        dbg!(cache.overlay_index);
 
         Ok(())
     }
