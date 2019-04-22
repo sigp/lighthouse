@@ -1,4 +1,5 @@
 use super::*;
+use std::cmp::min;
 
 /// New vec is bigger than old vec.
 pub fn grow_merkle_cache(
@@ -100,8 +101,15 @@ pub fn shrink_merkle_cache(
             )
         };
 
-        to_byte_slice.copy_from_slice(from_byte_slice.get(0..to_byte_slice.len())?);
-        to_flag_slice.copy_from_slice(from_flag_slice.get(0..to_flag_slice.len())?);
+        let num_bytes = min(from_byte_slice.len(), to_byte_slice.len());
+        let num_flags = min(from_flag_slice.len(), to_flag_slice.len());
+
+        to_byte_slice
+            .get_mut(0..num_bytes)?
+            .copy_from_slice(from_byte_slice.get(0..num_bytes)?);
+        to_flag_slice
+            .get_mut(0..num_flags)?
+            .copy_from_slice(from_flag_slice.get(0..num_flags)?);
     }
 
     Some((bytes, flags))
