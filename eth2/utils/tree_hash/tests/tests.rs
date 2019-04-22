@@ -163,7 +163,7 @@ fn test_vec() {
 }
 
 #[test]
-fn test_nested_list() {
+fn test_nested_list_of_u64() {
     let original: Vec<Vec<u64>> = vec![vec![1]];
 
     let modified = vec![
@@ -175,6 +175,8 @@ fn test_nested_list() {
         vec![],
         vec![vec![1, 2], vec![3], vec![4, 5, 6, 7, 8]],
         vec![],
+        vec![vec![1], vec![2], vec![3]],
+        vec![vec![1, 2, 3, 4, 5, 6], vec![1, 2, 3, 4, 5, 6, 7]],
     ];
 
     test_routine(original, modified);
