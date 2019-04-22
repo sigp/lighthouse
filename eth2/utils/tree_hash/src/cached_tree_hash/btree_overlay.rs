@@ -35,7 +35,7 @@ impl BTreeOverlay {
         self.lengths.len().next_power_of_two()
     }
 
-    fn num_padding_leaves(&self) -> usize {
+    pub fn num_padding_leaves(&self) -> usize {
         self.num_leaf_nodes() - self.lengths.len()
     }
 
@@ -76,14 +76,31 @@ impl BTreeOverlay {
         self.offset + self.num_internal_nodes()
     }
 
+    /// Returns the chunk-range for a given leaf node.
+    ///
+    /// Returns `None` if:
+    ///     - The specified node is internal.
+    ///     - The specified node is padding.
+    ///     - The specified node is OOB of the tree.
     pub fn get_leaf_node(&self, i: usize) -> Result<Option<Range<usize>>, Error> {
-        if i >= self.num_leaf_nodes() {
-            return Err(Error::NotLeafNode(i));
-        } else if i >= self.num_leaf_nodes() - self.num_padding_leaves() {
+        if i >= self.num_nodes() - self.num_padding_leaves() {
+            Ok(None)
+        /*
+        } else if i < self.num_internal_nodes() {
+            Ok(None)
+        */
+        } else if (i == self.num_internal_nodes()) && (self.num_items == 0) {
+            // If this is the first leaf node and the overlay contains zero items, return `None` as
+            // this node must be padding.
             Ok(None)
         } else {
-            let first_node = self.offset + self.lengths.iter().take(i).sum::<usize>();
+            let i = i - self.num_internal_nodes();
+
+            let first_node = self.offset
+                + self.num_internal_nodes()
+                + self.lengths.iter().take(i).sum::<usize>();
             let last_node = first_node + self.lengths[i];
+
             Ok(Some(first_node..last_node))
         }
     }
@@ -189,6 +206,16 @@ mod test {
 
         let tree = BTreeOverlay::from_lengths(11, 4, vec![1, 1]).unwrap();
         assert_eq!(tree.chunk_range(), 11..14);
+    }
+
+    #[test]
+    fn get_leaf_node() {
+        let tree = get_tree_a(4);
+
+        assert_eq!(tree.get_leaf_node(3), Ok(Some(3..4)));
+        assert_eq!(tree.get_leaf_node(4), Ok(Some(4..5)));
+        assert_eq!(tree.get_leaf_node(5), Ok(Some(5..6)));
+        assert_eq!(tree.get_leaf_node(6), Ok(Some(6..7)));
     }
 
     #[test]

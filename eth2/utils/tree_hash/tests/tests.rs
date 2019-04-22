@@ -28,6 +28,7 @@ where
     assert_eq!(standard_root, cached_root, "Initial cache build failed.");
 
     for (i, modified) in modified.iter().enumerate() {
+        println!("-- Start of modification {} --", i);
         // Test after a modification
         hasher
             .update(modified)
@@ -156,6 +157,24 @@ fn test_vec() {
         vec![1, 2, 3, 4, 42],
         vec![1, 2, 3],
         vec![1],
+    ];
+
+    test_routine(original, modified);
+}
+
+#[test]
+fn test_nested_list() {
+    let original: Vec<Vec<u64>> = vec![vec![1]];
+
+    let modified = vec![
+        vec![vec![1]],
+        vec![vec![1], vec![2]],
+        vec![vec![1], vec![3], vec![4]],
+        vec![],
+        vec![vec![1], vec![3], vec![4]],
+        vec![],
+        vec![vec![1, 2], vec![3], vec![4, 5, 6, 7, 8]],
+        vec![],
     ];
 
     test_routine(original, modified);
