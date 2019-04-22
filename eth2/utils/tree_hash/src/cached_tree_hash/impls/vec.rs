@@ -47,6 +47,11 @@ where
                     lengths.push(BTreeOverlay::new(item, 0)?.num_nodes())
                 }
 
+                // Disallow zero-length as an empty list still has one all-padding node.
+                if lengths.is_empty() {
+                    lengths.push(1);
+                }
+
                 lengths
             }
         };
@@ -56,9 +61,7 @@ where
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
         let new_overlay = BTreeOverlay::new(self, cache.chunk_index)?;
-        let old_overlay = cache
-            .get_overlay(cache.overlay_index, cache.chunk_index)?
-            .clone();
+        let old_overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
 
         // If the merkle tree required to represent the new list is of a different size to the one
         // required for the previous list, then update our cache.
@@ -69,6 +72,8 @@ where
             cache.replace_overlay(cache.overlay_index, cache.chunk_index, new_overlay.clone())?;
         }
 
+        cache.overlay_index += 1;
+
         match T::tree_hash_type() {
             TreeHashType::Basic => {
                 let mut buf = vec![0; HASHSIZE];
@@ -78,7 +83,7 @@ where
                 for i in 0..new_overlay.num_leaf_nodes() {
                     // Iterate through the number of items that may be packing into the leaf node.
                     for j in 0..T::tree_hash_packing_factor() {
-                        // Create a mut slice that can either be filled with a serialized item or
+                        // Create a mut slice that can be filled with either a serialized item or
                         // padding.
                         let buf_slice = &mut buf[j * item_bytes..(j + 1) * item_bytes];
 
@@ -99,20 +104,47 @@ where
                 }
             }
             TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
-                for i in (0..new_overlay.num_leaf_nodes()).rev() {
-                    match (old_overlay.get_leaf_node(i)?, new_overlay.get_leaf_node(i)?) {
+                let mut local_overlay_index = cache.overlay_index;
+
+
+                for i in 0..new_overlay.num_leaf_nodes() {
+                    cache.overlay_index = local_overlay_index;
+
+                    // Adjust `i` so it is a leaf node for each of the overlays.
+                    let old_i = i + old_overlay.num_internal_nodes();
+                    let new_i = i + new_overlay.num_internal_nodes();
+
+                    match (
+                        old_overlay.get_leaf_node(old_i)?,
+                        new_overlay.get_leaf_node(new_i)?,
+                    ) {
                         // The item existed in the previous list and exists in the current list.
                         (Some(_old), Some(new)) => {
                             cache.chunk_index = new.start;
+
+
                             self[i].update_tree_hash_cache(cache)?;
+
+                            local_overlay_index += 1;
                         }
                         // The item existed in the previous list but does not exist in this list.
                         //
                         // Viz., the list has been shortened.
                         (Some(old), None) => {
-                            // Splice out the entire tree of the removed node, replacing it with a
-                            // single padding node.
-                            cache.splice(old, vec![0; HASHSIZE], vec![true]);
+                            if new_overlay.num_items == 0  {
+                                // In this case, the list has been made empty and we should make
+                                // this node padding.
+                                cache.maybe_update_chunk(new_overlay.root(), &[0; HASHSIZE])?;
+                            } else {
+                                // In this case, there are some items in the new list and we should
+                                // splice out the entire tree of the removed node, replacing it
+                                // with a single padding node.
+                                cache.splice(old, vec![0; HASHSIZE], vec![true]);
+
+                                cache.overlays.remove(cache.overlay_index);
+                            }
+
+                            local_overlay_index += 1;
                         }
                         // The item did not exist in the previous list but does exist in this list.
                         //
@@ -122,6 +154,13 @@ where
                             let bools = vec![true; bytes.len() / HASHSIZE];
 
                             cache.splice(new.start..new.start + 1, bytes, bools);
+
+                            cache.overlays.insert(
+                                std::cmp::min(cache.overlay_index, cache.overlays.len()),
+                                BTreeOverlay::new(&self[i], 0)?,
+                            );
+
+                            local_overlay_index += 1;
                         }
                         // The item didn't exist in the old list and doesn't exist in the new list,
                         // nothing to do.
@@ -136,7 +175,6 @@ where
         // Mix in length.
         let root_node = new_overlay.root();
         if cache.changed(root_node)? {
-            dbg!(cache.get_chunk(12));
             cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
         } else if old_overlay.num_items != new_overlay.num_items {
             if new_overlay.num_internal_nodes() == 0 {
