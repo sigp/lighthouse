@@ -59,45 +59,42 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
 
     let output = quote! {
         impl tree_hash::CachedTreeHashSubTree<#name> for #name {
-            fn new_tree_hash_cache(&self) -> Result<tree_hash::TreeHashCache, tree_hash::Error> {
+            fn new_tree_hash_cache(&self, depth: usize) -> Result<tree_hash::TreeHashCache, tree_hash::Error> {
                 let tree = tree_hash::TreeHashCache::from_leaves_and_subtrees(
                     self,
                     vec![
                         #(
-                            self.#idents_a.new_tree_hash_cache()?,
+                            self.#idents_a.new_tree_hash_cache(depth)?,
                         )*
                     ],
+                    depth
                 )?;
 
                 Ok(tree)
             }
 
-            fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<tree_hash::BTreeOverlay, tree_hash::Error> {
+            fn tree_hash_cache_overlay(&self, chunk_offset: usize, depth: usize) -> Result<tree_hash::BTreeOverlay, tree_hash::Error> {
                 let mut lengths = vec![];
 
                 #(
-                    lengths.push(tree_hash::BTreeOverlay::new(&self.#idents_b, 0)?.num_nodes());
+                    lengths.push(tree_hash::BTreeOverlay::new(&self.#idents_b, 0, depth)?.num_nodes());
                 )*
 
-                tree_hash::BTreeOverlay::from_lengths(chunk_offset, #num_items, lengths)
+                tree_hash::BTreeOverlay::from_lengths(chunk_offset, #num_items, depth, lengths)
             }
 
             fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
-                let overlay = BTreeOverlay::new(self, cache.chunk_index)?;
-
-                println!("start derive - cache.overlay_index: {}", cache.overlay_index);
+                let overlay = BTreeOverlay::new(self, cache.chunk_index, 0)?;
 
                 // Skip the chunk index to the first leaf node of this struct.
                 cache.chunk_index = overlay.first_leaf_node();
                 // Skip the overlay index to the first leaf node of this struct.
-                cache.overlay_index += 1;
+                // cache.overlay_index += 1;
 
                 // Recurse into the struct items, updating their caches.
                 #(
                     self.#idents_c.update_tree_hash_cache(cache)?;
                 )*
-
-                println!("end derive - cache.overlay_index: {}", cache.overlay_index);
 
                 // Iterate through the internal nodes, updating them if their children have changed.
                 cache.update_internal_nodes(&overlay)?;

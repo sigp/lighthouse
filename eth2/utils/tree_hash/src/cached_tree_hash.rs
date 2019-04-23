@@ -20,7 +20,7 @@ impl CachedTreeHasher {
         T: CachedTreeHashSubTree<T>,
     {
         Ok(Self {
-            cache: TreeHashCache::new(item)?,
+            cache: TreeHashCache::new(item, 0)?,
         })
     }
 
@@ -73,9 +73,13 @@ pub trait CachedTreeHash<T>: CachedTreeHashSubTree<T> + Sized {
 }
 
 pub trait CachedTreeHashSubTree<Item>: TreeHash {
-    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error>;
+    fn tree_hash_cache_overlay(
+        &self,
+        chunk_offset: usize,
+        depth: usize,
+    ) -> Result<BTreeOverlay, Error>;
 
-    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error>;
+    fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error>;
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error>;
 }
@@ -172,21 +176,22 @@ impl Into<Vec<u8>> for TreeHashCache {
 }
 
 impl TreeHashCache {
-    pub fn new<T>(item: &T) -> Result<Self, Error>
+    pub fn new<T>(item: &T, depth: usize) -> Result<Self, Error>
     where
         T: CachedTreeHashSubTree<T>,
     {
-        item.new_tree_hash_cache()
+        item.new_tree_hash_cache(depth)
     }
 
     pub fn from_leaves_and_subtrees<T>(
         item: &T,
         leaves_and_subtrees: Vec<Self>,
+        depth: usize,
     ) -> Result<Self, Error>
     where
         T: CachedTreeHashSubTree<T>,
     {
-        let overlay = BTreeOverlay::new(item, 0)?;
+        let overlay = BTreeOverlay::new(item, 0, depth)?;
 
         // Note how many leaves were provided. If is not a power-of-two, we'll need to pad it out
         // later.
@@ -204,7 +209,10 @@ impl TreeHashCache {
         // Allocate enough bytes to store all the leaves.
         let mut leaves = Vec::with_capacity(overlay.num_leaf_nodes() * HASHSIZE);
         let mut overlays = Vec::with_capacity(leaves_and_subtrees.len());
-        overlays.push(overlay);
+
+        if T::tree_hash_type() == TreeHashType::List {
+            overlays.push(overlay);
+        }
 
         // Iterate through all of the leaves/subtrees, adding their root as a leaf node and then
         // concatenating their merkle trees.
@@ -238,16 +246,21 @@ impl TreeHashCache {
     pub fn from_bytes(
         bytes: Vec<u8>,
         initial_modified_state: bool,
-        overlay: BTreeOverlay,
+        overlay: Option<BTreeOverlay>,
     ) -> Result<Self, Error> {
         if bytes.len() % BYTES_PER_CHUNK > 0 {
             return Err(Error::BytesAreNotEvenChunks(bytes.len()));
         }
 
+        let overlays = match overlay {
+            Some(overlay) => vec![overlay],
+            None => vec![],
+        };
+
         Ok(Self {
             chunk_modified: vec![initial_modified_state; bytes.len() / BYTES_PER_CHUNK],
             cache: bytes,
-            overlays: vec![overlay],
+            overlays,
             chunk_index: 0,
             overlay_index: 0,
         })
@@ -315,6 +328,17 @@ impl TreeHashCache {
             &mut self.overlays[overlay_index],
             new_overlay,
         ))
+    }
+
+    pub fn remove_proceeding_child_overlays(&mut self, overlay_index: usize, depth: usize) {
+        let end = self
+            .overlays
+            .iter()
+            .skip(overlay_index)
+            .position(|o| o.depth <= depth)
+            .unwrap_or_else(|| self.overlays.len());
+
+        self.overlays.splice(overlay_index..end, vec![]);
     }
 
     pub fn update_internal_nodes(&mut self, overlay: &BTreeOverlay) -> Result<(), Error> {
