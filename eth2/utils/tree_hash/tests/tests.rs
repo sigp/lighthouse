@@ -217,13 +217,13 @@ fn test_list_of_struct_with_vec() {
         vec![a.clone(), c.clone()],
         // vec![a.clone(), b.clone(), c.clone(), d.clone()],
         // vec![b.clone(), a.clone(), c.clone(), d.clone()],
-        vec![],
+        // vec![],
     ];
 
     test_routine(original, modified);
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
 pub struct Inner {
     pub a: u64,
     pub b: u64,
@@ -231,6 +231,7 @@ pub struct Inner {
     pub d: u64,
 }
 
+/*
 impl TreeHash for Inner {
     fn tree_hash_type() -> TreeHashType {
         TreeHashType::Container
@@ -296,14 +297,13 @@ impl CachedTreeHashSubTree<Inner> for Inner {
         self.c.update_tree_hash_cache(cache)?;
         self.d.update_tree_hash_cache(cache)?;
 
-        dbg!(cache.overlay_index);
-
         // Iterate through the internal nodes, updating them if their children have changed.
         cache.update_internal_nodes(&overlay)?;
 
         Ok(())
     }
 }
+*/
 
 fn generic_test(index: usize) {
     let inner = Inner {
@@ -313,7 +313,7 @@ fn generic_test(index: usize) {
         d: 4,
     };
 
-    let mut cache = TreeHashCache::new(&inner).unwrap();
+    let mut cache = TreeHashCache::new(&inner, 0).unwrap();
 
     let changed_inner = match index {
         0 => Inner {
@@ -378,7 +378,7 @@ fn inner_builds() {
         d: 4,
     };
 
-    let cache: Vec<u8> = TreeHashCache::new(&inner).unwrap().into();
+    let cache: Vec<u8> = TreeHashCache::new(&inner, 0).unwrap().into();
 
     assert_eq!(expected, cache);
 }

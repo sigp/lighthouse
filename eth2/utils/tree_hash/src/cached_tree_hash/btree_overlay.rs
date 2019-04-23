@@ -3,21 +3,23 @@ use super::*;
 #[derive(Debug, PartialEq, Clone)]
 pub struct BTreeOverlay {
     pub offset: usize,
+    pub depth: usize,
     pub num_items: usize,
     pub lengths: Vec<usize>,
 }
 
 impl BTreeOverlay {
-    pub fn new<T>(item: &T, initial_offset: usize) -> Result<Self, Error>
+    pub fn new<T>(item: &T, initial_offset: usize, depth: usize) -> Result<Self, Error>
     where
         T: CachedTreeHashSubTree<T>,
     {
-        item.tree_hash_cache_overlay(initial_offset)
+        item.tree_hash_cache_overlay(initial_offset, depth)
     }
 
     pub fn from_lengths(
         offset: usize,
         num_items: usize,
+        depth: usize,
         lengths: Vec<usize>,
     ) -> Result<Self, Error> {
         if lengths.is_empty() {
@@ -26,6 +28,7 @@ impl BTreeOverlay {
             Ok(Self {
                 offset,
                 num_items,
+                depth,
                 lengths,
             })
         }
@@ -166,7 +169,7 @@ mod test {
     use super::*;
 
     fn get_tree_a(n: usize) -> BTreeOverlay {
-        BTreeOverlay::from_lengths(0, n, vec![1; n]).unwrap()
+        BTreeOverlay::from_lengths(0, n, 0, vec![1; n]).unwrap()
     }
 
     #[test]
@@ -204,7 +207,7 @@ mod test {
         let tree = get_tree_a(2);
         assert_eq!(tree.chunk_range(), 0..3);
 
-        let tree = BTreeOverlay::from_lengths(11, 4, vec![1, 1]).unwrap();
+        let tree = BTreeOverlay::from_lengths(11, 4, 0, vec![1, 1]).unwrap();
         assert_eq!(tree.chunk_range(), 11..14);
     }
 
