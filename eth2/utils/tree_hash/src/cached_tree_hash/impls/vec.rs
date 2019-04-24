@@ -5,7 +5,7 @@ where
     T: CachedTreeHashSubTree<T> + TreeHash,
 {
     fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error> {
-        let overlay = self.tree_hash_cache_overlay(0, depth)?;
+        let mut overlay = self.tree_hash_cache_overlay(0, depth)?;
 
         let mut cache = match T::tree_hash_type() {
             TreeHashType::Basic => TreeHashCache::from_bytes(
@@ -23,11 +23,16 @@ where
             }
         }?;
 
-        // Mix in the length of the list.
-        let root_node = overlay.root();
-        cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
+        cache.add_length_nodes(overlay.chunk_range(), self.len())?;
 
         Ok(cache)
+    }
+
+    fn num_tree_hash_cache_chunks(&self) -> usize {
+        BTreeOverlay::new(self, 0, 0)
+            .and_then(|o| Ok(o.num_chunks()))
+            .unwrap_or_else(|_| 1)
+            + 2
     }
 
     fn tree_hash_cache_overlay(
@@ -48,7 +53,7 @@ where
                 let mut lengths = vec![];
 
                 for item in self {
-                    lengths.push(BTreeOverlay::new(item, 0, depth)?.num_chunks())
+                    lengths.push(item.num_tree_hash_cache_chunks())
                 }
 
                 // Disallow zero-length as an empty list still has one all-padding node.
@@ -64,6 +69,9 @@ where
     }
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
+        // Skip the length-mixed-in root node.
+        cache.chunk_index += 1;
+
         let old_overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
         let new_overlay = BTreeOverlay::new(self, cache.chunk_index, old_overlay.depth)?;
 
@@ -113,9 +121,6 @@ where
                         // The item existed in the previous list and exists in the current list.
                         (Some(_old), Some(new)) => {
                             cache.chunk_index = new.start;
-                            if cache.chunk_index + 1 < cache.chunk_modified.len() {
-                                cache.chunk_modified[cache.chunk_index + 1] = true;
-                            }
 
                             self[i].update_tree_hash_cache(cache)?;
                         }
@@ -169,21 +174,11 @@ where
 
         cache.update_internal_nodes(&new_overlay)?;
 
-        // Mix in length.
-        let root_node = new_overlay.root();
-        if cache.changed(root_node)? {
-            cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
-        } else if old_overlay.num_items != new_overlay.num_items {
-            if new_overlay.num_internal_nodes() == 0 {
-                cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
-            } else {
-                let children = new_overlay.child_chunks(0);
-                cache.modify_chunk(root_node, &cache.hash_children(children)?)?;
-                cache.modify_chunk(root_node, &cache.mix_in_length(root_node, self.len())?)?;
-            }
-        }
+        // Mix in length
+        cache.mix_in_length(new_overlay.chunk_range(), self.len())?;
 
-        cache.chunk_index = new_overlay.next_node();
+        // Skip an extra node to clear the length node.
+        cache.chunk_index = new_overlay.next_node() + 1;
 
         Ok(())
     }

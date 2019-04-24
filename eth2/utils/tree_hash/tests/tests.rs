@@ -74,9 +74,9 @@ fn test_inner() {
 
 #[test]
 fn test_vec() {
-    let original = vec![1, 2, 3, 4, 5];
+    let original: Vec<u64> = vec![1, 2, 3, 4, 5];
 
-    let modified = vec![
+    let modified: Vec<Vec<u64>> = vec![
         vec![1, 2, 3, 4, 42],
         vec![1, 2, 3, 4],
         vec![],
@@ -93,7 +93,7 @@ fn test_vec() {
 
 #[test]
 fn test_nested_list_of_u64() {
-    let original: Vec<Vec<u64>> = vec![vec![1]];
+    let original: Vec<Vec<u64>> = vec![vec![42]];
 
     let modified = vec![
         vec![vec![1]],
