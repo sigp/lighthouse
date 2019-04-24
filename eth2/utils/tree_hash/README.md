@@ -17,7 +17,7 @@ fn main() {
 	let foo = Foo {
 		a: 42,
 		b: vec![1, 2, 3]
-	}
+	};
 
 	println!("root: {}", foo.tree_hash_root());
 }
@@ -68,7 +68,7 @@ fn main() {
 
 
     let mut hasher = CachedTreeHasher::new(&bar).unwrap();
-	hasher.update(&modified_bar);
+	hasher.update(&modified_bar).unwrap();
 
 	// Assert that the cached tree hash matches a standard tree hash.
 	assert_eq!(hasher.tree_hash_root(), modified_bar.tree_hash_root());
