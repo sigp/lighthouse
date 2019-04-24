@@ -1,8 +1,8 @@
 use super::*;
 
-impl<T> CachedTreeHashSubTree<Vec<T>> for Vec<T>
+impl<T> CachedTreeHash<Vec<T>> for Vec<T>
 where
-    T: CachedTreeHashSubTree<T> + TreeHash,
+    T: CachedTreeHash<T> + TreeHash,
 {
     fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error> {
         let mut overlay = self.tree_hash_cache_overlay(0, depth)?;
@@ -186,7 +186,7 @@ where
 
 fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
 where
-    T: CachedTreeHashSubTree<T>,
+    T: CachedTreeHash<T>,
 {
     let num_packed_bytes = (BYTES_PER_CHUNK / T::tree_hash_packing_factor()) * vec.len();
     let num_leaves = num_sanitized_leaves(num_packed_bytes);

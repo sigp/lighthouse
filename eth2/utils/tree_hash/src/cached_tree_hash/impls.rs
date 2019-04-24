@@ -2,7 +2,7 @@ use super::*;
 
 mod vec;
 
-impl CachedTreeHashSubTree<u64> for u64 {
+impl CachedTreeHash<u64> for u64 {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
             merkleize(self.to_le_bytes().to_vec()),
@@ -35,7 +35,7 @@ impl CachedTreeHashSubTree<u64> for u64 {
     }
 }
 
-impl CachedTreeHashSubTree<usize> for usize {
+impl CachedTreeHash<usize> for usize {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
             merkleize(self.to_le_bytes().to_vec()),

@@ -1,8 +1,8 @@
 use int_to_bytes::int_to_bytes32;
 use tree_hash::cached_tree_hash::*;
-use tree_hash_derive::{CachedTreeHashSubTree, TreeHash};
+use tree_hash_derive::{CachedTreeHash, TreeHash};
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct NestedStruct {
     pub a: u64,
     pub b: Inner,
@@ -10,7 +10,7 @@ pub struct NestedStruct {
 
 fn test_routine<T>(original: T, modified: Vec<T>)
 where
-    T: CachedTreeHashSubTree<T>,
+    T: CachedTreeHash<T>,
 {
     let mut hasher = CachedTreeHasher::new(&original).unwrap();
 
@@ -113,7 +113,7 @@ fn test_nested_list_of_u64() {
     test_routine(original, modified);
 }
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct StructWithVec {
     pub a: u64,
     pub b: Inner,
@@ -224,7 +224,7 @@ fn test_vec_of_struct_with_vec() {
     test_routine(original, modified);
 }
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct StructWithVecOfStructs {
     pub a: u64,
     pub b: Inner,
@@ -302,7 +302,7 @@ fn test_struct_with_vec_of_structs() {
     test_routine(f, variants);
 }
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct Inner {
     pub a: u64,
     pub b: u64,
@@ -481,7 +481,7 @@ fn works_when_embedded() {
     assert_eq!(&merkle[0..32], &root[..]);
 }
 
-impl CachedTreeHashSubTree<InternalCache> for InternalCache {
+impl CachedTreeHash<InternalCache> for InternalCache {
     fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
@@ -562,7 +562,7 @@ impl TreeHash for Inner {
     }
 }
 
-impl CachedTreeHashSubTree<Inner> for Inner {
+impl CachedTreeHash<Inner> for Inner {
     fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,
@@ -646,7 +646,7 @@ impl TreeHash for Outer {
     }
 }
 
-impl CachedTreeHashSubTree<Outer> for Outer {
+impl CachedTreeHash<Outer> for Outer {
     fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
         let tree = TreeHashCache::from_leaves_and_subtrees(
             self,

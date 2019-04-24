@@ -19,7 +19,7 @@ pub struct CachedTreeHasher {
 impl CachedTreeHasher {
     pub fn new<T>(item: &T) -> Result<Self, Error>
     where
-        T: CachedTreeHashSubTree<T>,
+        T: CachedTreeHash<T>,
     {
         Ok(Self {
             cache: TreeHashCache::new(item, 0)?,
@@ -28,7 +28,7 @@ impl CachedTreeHasher {
 
     pub fn update<T>(&mut self, item: &T) -> Result<(), Error>
     where
-        T: CachedTreeHashSubTree<T>,
+        T: CachedTreeHash<T>,
     {
         // Reset the per-hash counters.
         self.cache.chunk_index = 0;
@@ -66,15 +66,7 @@ pub enum Error {
     NotLeafNode(usize),
 }
 
-pub trait CachedTreeHash<T>: CachedTreeHashSubTree<T> + Sized {
-    fn update_internal_tree_hash_cache(self, old: T) -> Result<(Self, Self), Error>;
-
-    fn cached_tree_hash_root(&self) -> Option<Vec<u8>>;
-
-    fn clone_without_tree_hash_cache(&self) -> Self;
-}
-
-pub trait CachedTreeHashSubTree<Item>: TreeHash {
+pub trait CachedTreeHash<Item>: TreeHash {
     fn tree_hash_cache_overlay(
         &self,
         chunk_offset: usize,

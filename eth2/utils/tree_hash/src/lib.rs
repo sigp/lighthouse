@@ -6,7 +6,7 @@ pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
 pub const MERKLE_HASH_CHUNCK: usize = 2 * BYTES_PER_CHUNK;
 
-pub use cached_tree_hash::{BTreeOverlay, CachedTreeHashSubTree, Error, TreeHashCache};
+pub use cached_tree_hash::{BTreeOverlay, CachedTreeHash, Error, TreeHashCache};
 pub use signed_root::SignedRoot;
 pub use standard_tree_hash::{merkle_root, TreeHash};
 

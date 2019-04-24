@@ -19,7 +19,7 @@ impl Into<Vec<u8>> for TreeHashCache {
 impl TreeHashCache {
     pub fn new<T>(item: &T, depth: usize) -> Result<Self, Error>
     where
-        T: CachedTreeHashSubTree<T>,
+        T: CachedTreeHash<T>,
     {
         item.new_tree_hash_cache(depth)
     }
@@ -30,7 +30,7 @@ impl TreeHashCache {
         depth: usize,
     ) -> Result<Self, Error>
     where
-        T: CachedTreeHashSubTree<T>,
+        T: CachedTreeHash<T>,
     {
         let overlay = BTreeOverlay::new(item, 0, depth)?;
 

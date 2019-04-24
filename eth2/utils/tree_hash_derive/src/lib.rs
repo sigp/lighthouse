@@ -37,10 +37,10 @@ fn should_skip_hashing(field: &syn::Field) -> bool {
         .any(|attr| attr.into_token_stream().to_string() == "# [ tree_hash ( skip_hashing ) ]")
 }
 
-/// Implements `tree_hash::CachedTreeHashSubTree` for some `struct`.
+/// Implements `tree_hash::CachedTreeHash` for some `struct`.
 ///
 /// Fields are hashed in the order they are defined.
-#[proc_macro_derive(CachedTreeHashSubTree, attributes(tree_hash))]
+#[proc_macro_derive(CachedTreeHash, attributes(tree_hash))]
 pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
@@ -58,7 +58,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let num_items = idents_a.len();
 
     let output = quote! {
-        impl tree_hash::CachedTreeHashSubTree<#name> for #name {
+        impl tree_hash::CachedTreeHash<#name> for #name {
             fn new_tree_hash_cache(&self, depth: usize) -> Result<tree_hash::TreeHashCache, tree_hash::Error> {
                 let tree = tree_hash::TreeHashCache::from_leaves_and_subtrees(
                     self,
