@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))]
+
 use serde_derive::Deserialize;
 use serde_yaml;
 use state_processing::{per_block_processing, per_slot_processing};
@@ -15,7 +17,7 @@ pub struct ExpectedState {
     pub current_epoch_attestations: Option<Vec<PendingAttestation>>,
     pub historical_roots: Option<Vec<Hash256>>,
     pub finalized_epoch: Option<Epoch>,
-    pub latest_block_roots: Option<Vec<Hash256>>,
+    pub latest_block_roots: Option<TreeHashVector<Hash256>>,
 }
 
 impl ExpectedState {
@@ -26,7 +28,7 @@ impl ExpectedState {
             ($field_name:ident) => {
                 if self.$field_name.as_ref().map_or(true, |$field_name| {
                     println!("  > Checking {}", stringify!($field_name));
-                    &state.$field_name == $field_name
+                    $field_name == &state.$field_name
                 }) {
                     vec![]
                 } else {
