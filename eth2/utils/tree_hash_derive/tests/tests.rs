@@ -1,7 +1,7 @@
-use tree_hash::{CachedTreeHashSubTree, SignedRoot, TreeHash};
-use tree_hash_derive::{CachedTreeHashSubTree, SignedRoot, TreeHash};
+use tree_hash::{CachedTreeHash, SignedRoot, TreeHash};
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct Inner {
     pub a: u64,
     pub b: u64,
@@ -11,7 +11,7 @@ pub struct Inner {
 
 fn test_standard_and_cached<T>(original: &T, modified: &T)
 where
-    T: CachedTreeHashSubTree<T>,
+    T: CachedTreeHash<T>,
 {
     let mut cache = original.new_tree_hash_cache().unwrap();
 
@@ -44,7 +44,7 @@ fn inner_standard_vs_cached() {
     test_standard_and_cached(&original, &modified);
 }
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct Uneven {
     pub a: u64,
     pub b: u64,

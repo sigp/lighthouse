@@ -11,7 +11,7 @@ pub struct BTreeOverlay {
 impl BTreeOverlay {
     pub fn new<T>(item: &T, initial_offset: usize, depth: usize) -> Result<Self, Error>
     where
-        T: CachedTreeHashSubTree<T>,
+        T: CachedTreeHash<T>,
     {
         item.tree_hash_cache_overlay(initial_offset, depth)
     }
