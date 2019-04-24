@@ -73,11 +73,17 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 Ok(tree)
             }
 
+            fn num_tree_hash_cache_chunks(&self) -> usize {
+                tree_hash::BTreeOverlay::new(self, 0, 0)
+                    .and_then(|o| Ok(o.num_chunks()))
+                    .unwrap_or_else(|_| 1)
+            }
+
             fn tree_hash_cache_overlay(&self, chunk_offset: usize, depth: usize) -> Result<tree_hash::BTreeOverlay, tree_hash::Error> {
                 let mut lengths = vec![];
 
                 #(
-                    lengths.push(tree_hash::BTreeOverlay::new(&self.#idents_b, 0, depth)?.num_chunks());
+                    lengths.push(self.#idents_b.num_tree_hash_cache_chunks());
                 )*
 
                 tree_hash::BTreeOverlay::from_lengths(chunk_offset, #num_items, depth, lengths)
@@ -97,10 +103,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 )*
 
                 // Iterate through the internal nodes, updating them if their children have changed.
-                dbg!("START");
-                dbg!(overlay.offset);
                 cache.update_internal_nodes(&overlay)?;
-                dbg!("END");
 
                 Ok(())
             }
