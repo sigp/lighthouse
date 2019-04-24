@@ -42,6 +42,10 @@ impl BTreeOverlay {
         self.num_leaf_nodes() - self.lengths.len()
     }
 
+    /// Returns the number of nodes in the tree.
+    ///
+    /// Note: this is distinct from `num_chunks`, which returns the total number of chunks in
+    /// this tree.
     pub fn num_nodes(&self) -> usize {
         2 * self.num_leaf_nodes() - 1
     }
@@ -71,7 +75,11 @@ impl BTreeOverlay {
         self.first_node()..self.next_node()
     }
 
-    pub fn total_chunks(&self) -> usize {
+    /// Returns the number of chunks inside this tree (including subtrees).
+    ///
+    /// Note: this is distinct from `num_nodes` which returns the number of nodes in the binary
+    /// tree.
+    pub fn num_chunks(&self) -> usize {
         self.next_node() - self.first_node()
     }
 

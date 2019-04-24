@@ -215,9 +215,9 @@ fn test_list_of_struct_with_vec() {
 
     let modified = vec![
         vec![a.clone(), c.clone()],
-        // vec![a.clone(), b.clone(), c.clone(), d.clone()],
-        // vec![b.clone(), a.clone(), c.clone(), d.clone()],
-        // vec![],
+        vec![a.clone(), b.clone(), c.clone(), d.clone()],
+        vec![b.clone(), a.clone(), c.clone(), d.clone()],
+        vec![],
     ];
 
     test_routine(original, modified);

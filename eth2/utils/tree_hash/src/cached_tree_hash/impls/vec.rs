@@ -48,7 +48,7 @@ where
                 let mut lengths = vec![];
 
                 for item in self {
-                    lengths.push(BTreeOverlay::new(item, 0, depth)?.num_nodes())
+                    lengths.push(BTreeOverlay::new(item, 0, depth)?.num_chunks())
                 }
 
                 // Disallow zero-length as an empty list still has one all-padding node.
@@ -176,8 +176,6 @@ where
         }
 
         cache.update_internal_nodes(&new_overlay)?;
-
-        dbg!(&new_overlay);
 
         // Mix in length.
         let root_node = new_overlay.root();

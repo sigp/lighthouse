@@ -316,7 +316,7 @@ impl TreeHashCache {
                 old_flags,
                 old_overlay.height(),
                 new_overlay.height(),
-                new_overlay.total_chunks(),
+                new_overlay.num_chunks(),
             )
             .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
         };
