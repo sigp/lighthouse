@@ -67,14 +67,7 @@ where
         let old_overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
         let new_overlay = BTreeOverlay::new(self, cache.chunk_index, old_overlay.depth)?;
 
-        // If the merkle tree required to represent the new list is of a different size to the one
-        // required for the previous list, then update our cache.
-        //
-        // This grows/shrinks the bytes to accomodate the new tree, preserving as much of the tree
-        // as possible.
-        if new_overlay.num_leaf_nodes() != old_overlay.num_leaf_nodes() {
-            cache.replace_overlay(cache.overlay_index, cache.chunk_index, new_overlay.clone())?;
-        }
+        cache.replace_overlay(cache.overlay_index, cache.chunk_index, new_overlay.clone())?;
 
         cache.overlay_index += 1;
 
@@ -120,6 +113,9 @@ where
                         // The item existed in the previous list and exists in the current list.
                         (Some(_old), Some(new)) => {
                             cache.chunk_index = new.start;
+                            if cache.chunk_index + 1 < cache.chunk_modified.len() {
+                                cache.chunk_modified[cache.chunk_index + 1] = true;
+                            }
 
                             self[i].update_tree_hash_cache(cache)?;
                         }
@@ -157,11 +153,7 @@ where
                                 // splice out the entire tree of the removed node, replacing it
                                 // with a single padding node.
                                 cache.splice(old, vec![0; HASHSIZE], vec![true]);
-
-                                // cache.overlays.remove(cache.overlay_index);
                             }
-
-                            // local_overlay_index += 1;
                         }
                         // The item didn't exist in the old list and doesn't exist in the new list,
                         // nothing to do.

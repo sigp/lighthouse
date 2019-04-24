@@ -220,7 +220,6 @@ impl TreeHashCache {
             leaves.append(&mut t.root()?.to_vec());
 
             let (mut bytes, _bools, mut t_overlays) = t.into_components();
-
             cache.append(&mut bytes);
             overlays.append(&mut t_overlays);
         }
@@ -296,33 +295,40 @@ impl TreeHashCache {
     ) -> Result<BTreeOverlay, Error> {
         let old_overlay = self.get_overlay(overlay_index, chunk_index)?;
 
-        // Get slices of the exsiting tree from the cache.
-        let (old_bytes, old_flags) = self
-            .slices(old_overlay.chunk_range())
-            .ok_or_else(|| Error::UnableToObtainSlices)?;
+        // If the merkle tree required to represent the new list is of a different size to the one
+        // required for the previous list, then update our cache.
+        //
+        // This grows/shrinks the bytes to accomodate the new tree, preserving as much of the tree
+        // as possible.
+        if new_overlay.num_leaf_nodes() != old_overlay.num_leaf_nodes() {
+            // Get slices of the exsiting tree from the cache.
+            let (old_bytes, old_flags) = self
+                .slices(old_overlay.chunk_range())
+                .ok_or_else(|| Error::UnableToObtainSlices)?;
 
-        let (new_bytes, new_bools) = if new_overlay.num_leaf_nodes() > old_overlay.num_leaf_nodes()
-        {
-            resize::grow_merkle_cache(
-                old_bytes,
-                old_flags,
-                old_overlay.height(),
-                new_overlay.height(),
-            )
-            .ok_or_else(|| Error::UnableToGrowMerkleTree)?
-        } else {
-            resize::shrink_merkle_cache(
-                old_bytes,
-                old_flags,
-                old_overlay.height(),
-                new_overlay.height(),
-                new_overlay.num_chunks(),
-            )
-            .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
-        };
+            let (new_bytes, new_bools) =
+                if new_overlay.num_leaf_nodes() > old_overlay.num_leaf_nodes() {
+                    resize::grow_merkle_cache(
+                        old_bytes,
+                        old_flags,
+                        old_overlay.height(),
+                        new_overlay.height(),
+                    )
+                    .ok_or_else(|| Error::UnableToGrowMerkleTree)?
+                } else {
+                    resize::shrink_merkle_cache(
+                        old_bytes,
+                        old_flags,
+                        old_overlay.height(),
+                        new_overlay.height(),
+                        new_overlay.num_chunks(),
+                    )
+                    .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
+                };
 
-        // Splice the newly created `TreeHashCache` over the existing elements.
-        self.splice(old_overlay.chunk_range(), new_bytes, new_bools);
+            // Splice the newly created `TreeHashCache` over the existing elements.
+            self.splice(old_overlay.chunk_range(), new_bytes, new_bools);
+        }
 
         Ok(std::mem::replace(
             &mut self.overlays[overlay_index],

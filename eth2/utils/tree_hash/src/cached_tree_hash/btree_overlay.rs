@@ -96,10 +96,6 @@ impl BTreeOverlay {
     pub fn get_leaf_node(&self, i: usize) -> Result<Option<Range<usize>>, Error> {
         if i >= self.num_nodes() - self.num_padding_leaves() {
             Ok(None)
-        /*
-        } else if i < self.num_internal_nodes() {
-            Ok(None)
-        */
         } else if (i == self.num_internal_nodes()) && (self.num_items == 0) {
             // If this is the first leaf node and the overlay contains zero items, return `None` as
             // this node must be padding.

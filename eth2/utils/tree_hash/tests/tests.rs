@@ -1,20 +1,11 @@
 use int_to_bytes::int_to_bytes32;
 use tree_hash::cached_tree_hash::*;
-use tree_hash::standard_tree_hash::*;
-use tree_hash::*;
 use tree_hash_derive::{CachedTreeHashSubTree, TreeHash};
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
 pub struct NestedStruct {
     pub a: u64,
     pub b: Inner,
-}
-
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
-pub struct StructWithVec {
-    pub a: u64,
-    pub b: Inner,
-    pub c: Vec<u64>,
 }
 
 fn test_routine<T>(original: T, modified: Vec<T>)
@@ -82,6 +73,54 @@ fn test_inner() {
 }
 
 #[test]
+fn test_vec() {
+    let original = vec![1, 2, 3, 4, 5];
+
+    let modified = vec![
+        vec![1, 2, 3, 4, 42],
+        vec![1, 2, 3, 4],
+        vec![],
+        vec![42; 2_usize.pow(4)],
+        vec![],
+        vec![],
+        vec![1, 2, 3, 4, 42],
+        vec![1, 2, 3],
+        vec![1],
+    ];
+
+    test_routine(original, modified);
+}
+
+#[test]
+fn test_nested_list_of_u64() {
+    let original: Vec<Vec<u64>> = vec![vec![1]];
+
+    let modified = vec![
+        vec![vec![1]],
+        vec![vec![1], vec![2]],
+        vec![vec![1], vec![3], vec![4]],
+        vec![],
+        vec![vec![1], vec![3], vec![4]],
+        vec![],
+        vec![vec![1, 2], vec![3], vec![4, 5, 6, 7, 8]],
+        vec![],
+        vec![vec![1], vec![2], vec![3]],
+        vec![vec![1, 2, 3, 4, 5, 6], vec![1, 2, 3, 4, 5, 6, 7]],
+        vec![vec![], vec![], vec![]],
+        vec![vec![0, 0, 0], vec![0], vec![0]],
+    ];
+
+    test_routine(original, modified);
+}
+
+#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+pub struct StructWithVec {
+    pub a: u64,
+    pub b: Inner,
+    pub c: Vec<u64>,
+}
+
+#[test]
 fn test_struct_with_vec() {
     let original = StructWithVec {
         a: 42,
@@ -144,48 +183,7 @@ fn test_struct_with_vec() {
 }
 
 #[test]
-fn test_vec() {
-    let original = vec![1, 2, 3, 4, 5];
-
-    let modified = vec![
-        vec![1, 2, 3, 4, 42],
-        vec![1, 2, 3, 4],
-        vec![],
-        vec![42; 2_usize.pow(4)],
-        vec![],
-        vec![],
-        vec![1, 2, 3, 4, 42],
-        vec![1, 2, 3],
-        vec![1],
-    ];
-
-    test_routine(original, modified);
-}
-
-#[test]
-fn test_nested_list_of_u64() {
-    let original: Vec<Vec<u64>> = vec![vec![1]];
-
-    let modified = vec![
-        vec![vec![1]],
-        vec![vec![1], vec![2]],
-        vec![vec![1], vec![3], vec![4]],
-        vec![],
-        vec![vec![1], vec![3], vec![4]],
-        vec![],
-        vec![vec![1, 2], vec![3], vec![4, 5, 6, 7, 8]],
-        vec![],
-        vec![vec![1], vec![2], vec![3]],
-        vec![vec![1, 2, 3, 4, 5, 6], vec![1, 2, 3, 4, 5, 6, 7]],
-        vec![vec![], vec![], vec![]],
-        vec![vec![0, 0, 0], vec![0], vec![0]],
-    ];
-
-    test_routine(original, modified);
-}
-
-#[test]
-fn test_list_of_struct_with_vec() {
+fn test_vec_of_struct_with_vec() {
     let a = StructWithVec {
         a: 42,
         b: Inner {
@@ -211,16 +209,97 @@ fn test_list_of_struct_with_vec() {
     };
     let d = StructWithVec { a: 0, ..a.clone() };
 
-    let original: Vec<StructWithVec> = vec![a.clone(), c.clone()];
+    // let original: Vec<StructWithVec> = vec![a.clone(), c.clone()];
+    let original: Vec<StructWithVec> = vec![a.clone()];
 
     let modified = vec![
         vec![a.clone(), c.clone()],
         vec![a.clone(), b.clone(), c.clone(), d.clone()],
         vec![b.clone(), a.clone(), c.clone(), d.clone()],
         vec![],
+        vec![a.clone()],
+        vec![a.clone(), b.clone(), c.clone(), d.clone()],
     ];
 
     test_routine(original, modified);
+}
+
+#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+pub struct StructWithVecOfStructs {
+    pub a: u64,
+    pub b: Inner,
+    pub c: Vec<Inner>,
+}
+
+#[test]
+fn test_struct_with_vec_of_structs() {
+    let inner_a = Inner {
+        a: 12,
+        b: 13,
+        c: 14,
+        d: 15,
+    };
+
+    let inner_b = Inner {
+        a: 99,
+        b: 100,
+        c: 101,
+        d: 102,
+    };
+
+    let inner_c = Inner {
+        a: 255,
+        b: 256,
+        c: 257,
+        d: 0,
+    };
+
+    let a = StructWithVecOfStructs {
+        a: 42,
+        b: inner_a.clone(),
+        c: vec![inner_a.clone(), inner_b.clone(), inner_c.clone()],
+    };
+
+    let b = StructWithVecOfStructs {
+        c: vec![],
+        ..a.clone()
+    };
+
+    let c = StructWithVecOfStructs {
+        a: 800,
+        ..a.clone()
+    };
+
+    let d = StructWithVecOfStructs {
+        b: inner_c.clone(),
+        ..a.clone()
+    };
+
+    let e = StructWithVecOfStructs {
+        c: vec![inner_a.clone(), inner_b.clone()],
+        ..a.clone()
+    };
+
+    let f = StructWithVecOfStructs {
+        c: vec![inner_a.clone()],
+        ..a.clone()
+    };
+
+    let variants = vec![
+        a.clone(),
+        b.clone(),
+        c.clone(),
+        d.clone(),
+        e.clone(),
+        f.clone(),
+    ];
+
+    test_routine(a, variants.clone());
+    test_routine(b, variants.clone());
+    test_routine(c, variants.clone());
+    test_routine(d, variants.clone());
+    test_routine(e, variants.clone());
+    test_routine(f, variants);
 }
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
@@ -230,80 +309,6 @@ pub struct Inner {
     pub c: u64,
     pub d: u64,
 }
-
-/*
-impl TreeHash for Inner {
-    fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Container
-    }
-
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("Struct should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("Struct should never be packed.")
-    }
-
-    fn tree_hash_root(&self) -> Vec<u8> {
-        let mut leaves = Vec::with_capacity(4 * HASHSIZE);
-
-        leaves.append(&mut self.a.tree_hash_root());
-        leaves.append(&mut self.b.tree_hash_root());
-        leaves.append(&mut self.c.tree_hash_root());
-        leaves.append(&mut self.d.tree_hash_root());
-
-        efficient_merkleize(&leaves)[0..32].to_vec()
-    }
-}
-
-impl CachedTreeHashSubTree<Inner> for Inner {
-    fn new_tree_hash_cache(&self) -> Result<TreeHashCache, Error> {
-        let tree = TreeHashCache::from_leaves_and_subtrees(
-            self,
-            vec![
-                self.a.new_tree_hash_cache()?,
-                self.b.new_tree_hash_cache()?,
-                self.c.new_tree_hash_cache()?,
-                self.d.new_tree_hash_cache()?,
-            ],
-        )?;
-
-        Ok(tree)
-    }
-
-    fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<BTreeOverlay, Error> {
-        let mut lengths = vec![];
-
-        lengths.push(BTreeOverlay::new(&self.a, 0)?.num_nodes());
-        lengths.push(BTreeOverlay::new(&self.b, 0)?.num_nodes());
-        lengths.push(BTreeOverlay::new(&self.c, 0)?.num_nodes());
-        lengths.push(BTreeOverlay::new(&self.d, 0)?.num_nodes());
-
-        BTreeOverlay::from_lengths(chunk_offset, 4, lengths)
-    }
-
-    fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
-        let overlay = BTreeOverlay::new(self, cache.chunk_index)?;
-
-        // Skip the chunk index to the first leaf node of this struct.
-        cache.chunk_index = overlay.first_leaf_node();
-        // Skip the overlay index to the first leaf node of this struct.
-        cache.overlay_index += 1;
-
-        // Recurse into the struct items, updating their caches.
-        self.a.update_tree_hash_cache(cache)?;
-        self.b.update_tree_hash_cache(cache)?;
-        self.c.update_tree_hash_cache(cache)?;
-        self.d.update_tree_hash_cache(cache)?;
-
-        // Iterate through the internal nodes, updating them if their children have changed.
-        cache.update_internal_nodes(&overlay)?;
-
-        Ok(())
-    }
-}
-*/
 
 fn generic_test(index: usize) {
     let inner = Inner {
