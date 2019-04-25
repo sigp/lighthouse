@@ -50,7 +50,7 @@ where
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        tree_hash::standard_tree_hash::vec_tree_hash_root(self)
+        tree_hash::impls::vec_tree_hash_root(self)
     }
 }
 

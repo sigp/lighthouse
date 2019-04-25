@@ -1,4 +1,5 @@
 use super::*;
+use crate::merkleize::{merkleize, num_sanitized_leaves, sanitise_bytes};
 
 impl<T> CachedTreeHash<Vec<T>> for Vec<T>
 where
