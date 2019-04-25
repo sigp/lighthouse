@@ -17,14 +17,14 @@ macro_rules! ssz_tests {
         }
 
         #[test]
-        pub fn test_hash_tree_root() {
+        pub fn test_tree_hash_root() {
             use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-            use ssz::TreeHash;
+            use tree_hash::TreeHash;
 
             let mut rng = XorShiftRng::from_seed([42; 16]);
             let original = $type::random_for_test(&mut rng);
 
-            let result = original.hash_tree_root();
+            let result = original.tree_hash_root();
 
             assert_eq!(result.len(), 32);
             // TODO: Add further tests

@@ -1,5 +1,5 @@
 use crate::*;
-use ssz::TreeHash;
+use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -10,13 +10,9 @@ pub enum Error {
 
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
-/// Spec v0.5.0
-pub fn per_slot_processing(
-    state: &mut BeaconState,
-    latest_block_header: &BeaconBlockHeader,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    cache_state(state, latest_block_header, spec)?;
+/// Spec v0.5.1
+pub fn per_slot_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+    cache_state(state, spec)?;
 
     if (state.slot + 1) % spec.slots_per_epoch == 0 {
         per_epoch_processing(state, spec)?;
@@ -27,12 +23,8 @@ pub fn per_slot_processing(
     Ok(())
 }
 
-fn cache_state(
-    state: &mut BeaconState,
-    latest_block_header: &BeaconBlockHeader,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let previous_slot_state_root = Hash256::from_slice(&state.hash_tree_root()[..]);
+fn cache_state(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+    let previous_slot_state_root = Hash256::from_slice(&state.tree_hash_root()[..]);
 
     // Note: increment the state slot here to allow use of our `state_root` and `block_root`
     // getter/setter functions.
@@ -46,7 +38,10 @@ fn cache_state(
         state.latest_block_header.state_root = previous_slot_state_root
     }
 
-    let latest_block_root = Hash256::from_slice(&latest_block_header.hash_tree_root()[..]);
+    // Store the previous slot's post state transition root.
+    state.set_state_root(previous_slot, previous_slot_state_root, spec)?;
+
+    let latest_block_root = Hash256::from_slice(&state.latest_block_header.signed_root()[..]);
     state.set_block_root(previous_slot, latest_block_root, spec)?;
 
     // Set the state slot back to what it should be.

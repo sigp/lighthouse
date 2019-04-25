@@ -6,7 +6,7 @@ use crate::{
     *,
 };
 use rayon::prelude::*;
-use ssz::{SignedRoot, TreeHash};
+use tree_hash::{SignedRoot, TreeHash};
 
 /// Builds a beacon block to be used for testing purposes.
 ///
@@ -43,7 +43,7 @@ impl TestingBeaconBlockBuilder {
     /// Modifying the block's slot after signing may invalidate the signature.
     pub fn set_randao_reveal(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
-        let message = epoch.hash_tree_root();
+        let message = epoch.tree_hash_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
         self.block.body.randao_reveal = Signature::new(&message, domain, sk);
     }

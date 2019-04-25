@@ -1,7 +1,7 @@
 use crate::common::slash_validator;
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
-use ssz::{SignedRoot, TreeHash};
+use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -39,7 +39,7 @@ const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = false;
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn per_block_processing(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -54,7 +54,7 @@ pub fn per_block_processing(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn per_block_processing_without_verifying_block_signature(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -69,7 +69,7 @@ pub fn per_block_processing_without_verifying_block_signature(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn per_block_processing_signature_optional(
     mut state: &mut BeaconState,
     block: &BeaconBlock,
@@ -99,7 +99,7 @@ fn per_block_processing_signature_optional(
 
 /// Processes the block header.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_block_header(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -107,12 +107,14 @@ pub fn process_block_header(
 ) -> Result<(), Error> {
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
-    // NOTE: this is not to spec. I think spec is broken. See:
-    //
-    // https://github.com/ethereum/eth2.0-specs/issues/797
+    let expected_previous_block_root =
+        Hash256::from_slice(&state.latest_block_header.signed_root());
     verify!(
-        block.previous_block_root == *state.get_block_root(state.slot - 1, spec)?,
-        Invalid::ParentBlockRootMismatch
+        block.previous_block_root == expected_previous_block_root,
+        Invalid::ParentBlockRootMismatch {
+            state: expected_previous_block_root,
+            block: block.previous_block_root,
+        }
     );
 
     state.latest_block_header = block.temporary_block_header(spec);
@@ -122,7 +124,7 @@ pub fn process_block_header(
 
 /// Verifies the signature of a block.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn verify_block_signature(
     state: &BeaconState,
     block: &BeaconBlock,
@@ -150,7 +152,7 @@ pub fn verify_block_signature(
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_randao(
     state: &mut BeaconState,
     block: &BeaconBlock,
@@ -162,7 +164,7 @@ pub fn process_randao(
     // Verify the RANDAO is a valid signature of the proposer.
     verify!(
         block.body.randao_reveal.verify(
-            &state.current_epoch(spec).hash_tree_root()[..],
+            &state.current_epoch(spec).tree_hash_root()[..],
             spec.get_domain(
                 block.slot.epoch(spec.slots_per_epoch),
                 Domain::Randao,
@@ -181,7 +183,7 @@ pub fn process_randao(
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_eth1_data(state: &mut BeaconState, eth1_data: &Eth1Data) -> Result<(), Error> {
     // Attempt to find a `Eth1DataVote` with matching `Eth1Data`.
     let matching_eth1_vote_index = state
@@ -207,7 +209,7 @@ pub fn process_eth1_data(state: &mut BeaconState, eth1_data: &Eth1Data) -> Resul
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_proposer_slashings(
     state: &mut BeaconState,
     proposer_slashings: &[ProposerSlashing],
@@ -240,7 +242,7 @@ pub fn process_proposer_slashings(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_attester_slashings(
     state: &mut BeaconState,
     attester_slashings: &[AttesterSlashing],
@@ -298,7 +300,7 @@ pub fn process_attester_slashings(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_attestations(
     state: &mut BeaconState,
     attestations: &[Attestation],
@@ -340,7 +342,7 @@ pub fn process_attestations(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_deposits(
     state: &mut BeaconState,
     deposits: &[Deposit],
@@ -410,7 +412,7 @@ pub fn process_deposits(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_exits(
     state: &mut BeaconState,
     voluntary_exits: &[VoluntaryExit],
@@ -442,7 +444,7 @@ pub fn process_exits(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_transfers(
     state: &mut BeaconState,
     transfers: &[Transfer],

@@ -2,11 +2,12 @@ use super::AttestationData;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz_derive::{Decode, Encode};
+use tree_hash_derive::TreeHash;
 
 /// Used for pairing an attestation with a proof-of-custody.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Encode, Decode, TreeHash)]
 pub struct AttestationDataAndCustodyBit {
     pub data: AttestationData,

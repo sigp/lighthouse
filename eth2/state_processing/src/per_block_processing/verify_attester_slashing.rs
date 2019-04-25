@@ -7,7 +7,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn verify_attester_slashing(
     state: &BeaconState,
     attester_slashing: &AttesterSlashing,
@@ -41,7 +41,7 @@ pub fn verify_attester_slashing(
 ///
 /// Returns Ok(indices) if `indices.len() > 0`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn gather_attester_slashing_indices(
     state: &BeaconState,
     attester_slashing: &AttesterSlashing,

@@ -5,7 +5,7 @@ use types::*;
 /// Returns the distance between the first included attestation for some validator and this
 /// slot.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn inclusion_distance(
     state: &BeaconState,
     attestations: &[&PendingAttestation],
@@ -18,7 +18,7 @@ pub fn inclusion_distance(
 
 /// Returns the slot of the earliest included attestation for some validator.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn inclusion_slot(
     state: &BeaconState,
     attestations: &[&PendingAttestation],
@@ -31,7 +31,7 @@ pub fn inclusion_slot(
 
 /// Finds the earliest included attestation for some validator.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn earliest_included_attestation(
     state: &BeaconState,
     attestations: &[&PendingAttestation],

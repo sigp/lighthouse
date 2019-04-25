@@ -206,11 +206,21 @@ macro_rules! impl_ssz {
             }
         }
 
-        impl TreeHash for $type {
-            fn hash_tree_root(&self) -> Vec<u8> {
-                let mut result: Vec<u8> = vec![];
-                result.append(&mut self.0.hash_tree_root());
-                hash(&result)
+        impl tree_hash::TreeHash for $type {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::Basic
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                ssz_encode(self)
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                32 / 8
+            }
+
+            fn tree_hash_root(&self) -> Vec<u8> {
+                int_to_bytes::int_to_bytes32(self.0)
             }
         }
 

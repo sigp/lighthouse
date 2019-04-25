@@ -2,7 +2,7 @@ use super::errors::{
     SlashableAttestationInvalid as Invalid, SlashableAttestationValidationError as Error,
 };
 use crate::common::verify_bitfield_length;
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 use types::*;
 
 /// Indicates if a `SlashableAttestation` is valid to be included in a block in the current epoch of the given
@@ -10,7 +10,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `SlashableAttestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn verify_slashable_attestation(
     state: &BeaconState,
     slashable_attestation: &SlashableAttestation,
@@ -77,12 +77,12 @@ pub fn verify_slashable_attestation(
         data: slashable_attestation.data.clone(),
         custody_bit: false,
     }
-    .hash_tree_root();
+    .tree_hash_root();
     let message_1 = AttestationDataAndCustodyBit {
         data: slashable_attestation.data.clone(),
         custody_bit: true,
     }
-    .hash_tree_root();
+    .tree_hash_root();
 
     let mut messages = vec![];
     let mut keys = vec![];

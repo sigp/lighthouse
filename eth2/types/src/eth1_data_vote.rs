@@ -2,12 +2,13 @@ use super::Eth1Data;
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 
 /// A summation of votes for some `Eth1Data`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug, PartialEq, Clone, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
