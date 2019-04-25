@@ -1,4 +1,5 @@
 use super::*;
+use crate::merkleize::merkleize;
 
 mod vec;
 
@@ -17,8 +18,8 @@ impl CachedTreeHash<u64> for u64 {
 
     fn tree_hash_cache_overlay(
         &self,
-        chunk_offset: usize,
-        depth: usize,
+        _chunk_offset: usize,
+        _depth: usize,
     ) -> Result<BTreeOverlay, Error> {
         panic!("Basic should not produce overlay");
         // BTreeOverlay::from_lengths(chunk_offset, 1, depth, vec![1])
@@ -50,8 +51,8 @@ impl CachedTreeHash<usize> for usize {
 
     fn tree_hash_cache_overlay(
         &self,
-        chunk_offset: usize,
-        depth: usize,
+        _chunk_offset: usize,
+        _depth: usize,
     ) -> Result<BTreeOverlay, Error> {
         panic!("Basic should not produce overlay");
         // BTreeOverlay::from_lengths(chunk_offset, 1, depth, vec![1])

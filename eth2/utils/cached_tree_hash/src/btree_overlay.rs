@@ -168,6 +168,10 @@ impl BTreeOverlay {
     }
 }
 
+fn children(parent: usize) -> (usize, usize) {
+    ((2 * parent + 1), (2 * parent + 2))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

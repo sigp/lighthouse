@@ -1,4 +1,5 @@
-use tree_hash::{CachedTreeHash, SignedRoot, TreeHash};
+use cached_tree_hash::{CachedTreeHash, CachedTreeHasher};
+use tree_hash::{SignedRoot, TreeHash};
 use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]
@@ -13,18 +14,17 @@ fn test_standard_and_cached<T>(original: &T, modified: &T)
 where
     T: CachedTreeHash<T>,
 {
-    let mut cache = original.new_tree_hash_cache().unwrap();
+    // let mut cache = original.new_tree_hash_cache().unwrap();
+    let mut hasher = CachedTreeHasher::new(original).unwrap();
 
     let standard_root = original.tree_hash_root();
-    let cached_root = cache.root().unwrap().to_vec();
+    let cached_root = hasher.tree_hash_root().unwrap();
     assert_eq!(standard_root, cached_root);
 
     // Test after a modification
-    modified
-        .update_tree_hash_cache(&original, &mut cache, 0)
-        .unwrap();
+    hasher.update(modified).unwrap();
     let standard_root = modified.tree_hash_root();
-    let cached_root = cache.root().unwrap().to_vec();
+    let cached_root = hasher.tree_hash_root().unwrap();
     assert_eq!(standard_root, cached_root);
 }
 

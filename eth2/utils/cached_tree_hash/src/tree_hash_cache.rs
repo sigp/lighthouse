@@ -1,4 +1,6 @@
 use super::*;
+use crate::merkleize::{merkleize, pad_for_leaf_count};
+use int_to_bytes::int_to_bytes32;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct TreeHashCache {
@@ -327,4 +329,8 @@ impl TreeHashCache {
     pub fn into_components(self) -> (Vec<u8>, Vec<bool>, Vec<BTreeOverlay>) {
         (self.cache, self.chunk_modified, self.overlays)
     }
+}
+
+fn node_range_to_byte_range(node_range: &Range<usize>) -> Range<usize> {
+    node_range.start * HASHSIZE..node_range.end * HASHSIZE
 }

@@ -1,5 +1,6 @@
 use super::*;
 use ethereum_types::H256;
+use int_to_bytes::int_to_bytes32;
 
 macro_rules! impl_for_bitsize {
     ($type: ident, $bit_size: expr) => {
