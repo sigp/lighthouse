@@ -1,4 +1,9 @@
 language: rust
+cache:
+  directories:
+    - /home/travis/.cargo
+before_cache:
+  - rm -rf /home/travis/.cargo/registry
 before_install:
   - curl -OL https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-linux-x86_64.zip
   - unzip protoc-3.4.0-linux-x86_64.zip -d protoc3
