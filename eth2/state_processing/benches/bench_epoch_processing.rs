@@ -1,6 +1,5 @@
 use criterion::Criterion;
 use criterion::{black_box, Benchmark};
-use ssz::TreeHash;
 use state_processing::{
     per_epoch_processing,
     per_epoch_processing::{
@@ -9,6 +8,7 @@ use state_processing::{
         update_active_tree_index_roots, update_latest_slashed_balances,
     },
 };
+use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
 
@@ -256,7 +256,7 @@ fn bench_epoch_processing(c: &mut Criterion, state: &BeaconState, spec: &ChainSp
     c.bench(
         &format!("{}/epoch_processing", desc),
         Benchmark::new("tree_hash_state", move |b| {
-            b.iter(|| black_box(state_clone.hash_tree_root()))
+            b.iter(|| black_box(state_clone.tree_hash_root()))
         })
         .sample_size(SMALL_BENCHING_SAMPLE_SIZE),
     );

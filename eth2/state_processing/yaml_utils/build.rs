@@ -1,5 +1,4 @@
 extern crate reqwest;
-extern crate tempdir;
 
 use std::fs::File;
 use std::io::copy;

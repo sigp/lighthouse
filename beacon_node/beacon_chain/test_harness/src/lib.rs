@@ -8,7 +8,7 @@
 //! producing blocks and attestations.
 //!
 //! Example:
-//! ```
+//! ```rust,no_run
 //! use test_harness::BeaconChainHarness;
 //! use types::ChainSpec;
 //!

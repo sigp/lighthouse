@@ -3,13 +3,14 @@ use crate::*;
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
+use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// A block of the `BeaconChain`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     PartialEq,
@@ -34,7 +35,7 @@ pub struct BeaconBlock {
 impl BeaconBlock {
     /// Returns an empty block to be used during genesis.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn empty(spec: &ChainSpec) -> BeaconBlock {
         BeaconBlock {
             slot: spec.genesis_slot,
@@ -57,11 +58,11 @@ impl BeaconBlock {
         }
     }
 
-    /// Returns the `hash_tree_root` of the block.
+    /// Returns the `tree_hash_root | update` of the block.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.hash_tree_root()[..])
+        Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.
@@ -71,20 +72,20 @@ impl BeaconBlock {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
             previous_block_root: self.previous_block_root,
             state_root: self.state_root,
-            block_body_root: Hash256::from_slice(&self.body.hash_tree_root()[..]),
+            block_body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
             signature: self.signature.clone(),
         }
     }
 
     /// Returns a "temporary" header, where the `state_root` is `spec.zero_hash`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn temporary_block_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: spec.zero_hash,

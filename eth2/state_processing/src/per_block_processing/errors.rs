@@ -67,7 +67,10 @@ impl_from_beacon_state_error!(BlockProcessingError);
 #[derive(Debug, PartialEq)]
 pub enum BlockInvalid {
     StateSlotMismatch,
-    ParentBlockRootMismatch,
+    ParentBlockRootMismatch {
+        state: Hash256,
+        block: Hash256,
+    },
     BadSignature,
     BadRandaoSignature,
     MaxAttestationsExceeded,
@@ -271,10 +274,10 @@ pub enum ProposerSlashingValidationError {
 pub enum ProposerSlashingInvalid {
     /// The proposer index is not a known validator.
     ProposerUnknown(u64),
-    /// The two proposal have different slots.
+    /// The two proposal have different epochs.
     ///
     /// (proposal_1_slot, proposal_2_slot)
-    ProposalSlotMismatch(Slot, Slot),
+    ProposalEpochMismatch(Slot, Slot),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
     /// The specified proposer has already been slashed.

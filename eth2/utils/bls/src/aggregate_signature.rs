@@ -5,7 +5,8 @@ use bls_aggregates::{
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{decode, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{decode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.
 ///
@@ -165,11 +166,7 @@ impl<'de> Deserialize<'de> for AggregateSignature {
     }
 }
 
-impl TreeHash for AggregateSignature {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.as_bytes())
-    }
-}
+tree_hash_ssz_encoding_as_vector!(AggregateSignature);
 
 #[cfg(test)]
 mod tests {

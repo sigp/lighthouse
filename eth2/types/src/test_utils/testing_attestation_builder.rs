@@ -1,6 +1,6 @@
 use crate::test_utils::TestingAttestationDataBuilder;
 use crate::*;
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 
 /// Builds an attestation to be used for testing purposes.
 ///
@@ -74,7 +74,7 @@ impl TestingAttestationBuilder {
                 data: self.attestation.data.clone(),
                 custody_bit: false,
             }
-            .hash_tree_root();
+            .tree_hash_root();
 
             let domain = spec.get_domain(
                 self.attestation.data.slot.epoch(spec.slots_per_epoch),

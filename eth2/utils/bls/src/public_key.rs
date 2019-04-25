@@ -3,10 +3,11 @@ use bls_aggregates::PublicKey as RawPublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{decode, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use std::default;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -104,11 +105,7 @@ impl<'de> Deserialize<'de> for PublicKey {
     }
 }
 
-impl TreeHash for PublicKey {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.0.as_bytes())
-    }
-}
+tree_hash_ssz_encoding_as_vector!(PublicKey);
 
 impl PartialEq for PublicKey {
     fn eq(&self, other: &PublicKey) -> bool {
