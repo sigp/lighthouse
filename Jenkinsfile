@@ -24,7 +24,9 @@ pipeline {
 				sh 'cargo test --verbose --all'
 				sh 'cargo test --verbose --all --release'
                 sh 'cargo test --manifest-path eth2/state_processing/Cargo.toml --verbose \
-                               --release --features fake_crypto -- --include-ignored'
+                               --release --features fake_crypto'
+                sh 'cargo test --manifest-path eth2/state_processing/Cargo.toml --verbose \
+                               --release --features fake_crypto -- --ignored'
 
 			}
 		}
