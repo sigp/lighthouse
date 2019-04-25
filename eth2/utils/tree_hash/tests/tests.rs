@@ -231,8 +231,7 @@ pub struct StructWithVecOfStructs {
     pub c: Vec<Inner>,
 }
 
-#[test]
-fn test_struct_with_vec_of_structs() {
+fn get_struct_with_vec_of_structs() -> Vec<StructWithVecOfStructs> {
     let inner_a = Inner {
         a: 12,
         b: 13,
@@ -285,21 +284,62 @@ fn test_struct_with_vec_of_structs() {
         ..a.clone()
     };
 
+    vec![a, b, c, d, e, f]
+}
+
+#[test]
+fn test_struct_with_vec_of_structs() {
+    let variants = get_struct_with_vec_of_structs();
+
+    test_routine(variants[0].clone(), variants.clone());
+    test_routine(variants[1].clone(), variants.clone());
+    test_routine(variants[2].clone(), variants.clone());
+    test_routine(variants[3].clone(), variants.clone());
+    test_routine(variants[4].clone(), variants.clone());
+    test_routine(variants[5].clone(), variants.clone());
+}
+
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
+pub struct StructWithVecOfStructWithVecOfStructs {
+    pub a: Vec<StructWithVecOfStructs>,
+    pub b: u64,
+}
+
+#[test]
+fn test_struct_with_vec_of_struct_with_vec_of_structs() {
+    let structs = get_struct_with_vec_of_structs();
+
     let variants = vec![
-        a.clone(),
-        b.clone(),
-        c.clone(),
-        d.clone(),
-        e.clone(),
-        f.clone(),
+        StructWithVecOfStructWithVecOfStructs {
+            a: structs[..].to_vec(),
+            b: 99,
+        },
+        StructWithVecOfStructWithVecOfStructs { a: vec![], b: 99 },
+        StructWithVecOfStructWithVecOfStructs {
+            a: structs[0..2].to_vec(),
+            b: 99,
+        },
+        StructWithVecOfStructWithVecOfStructs {
+            a: structs[0..2].to_vec(),
+            b: 100,
+        },
+        StructWithVecOfStructWithVecOfStructs {
+            a: structs[0..1].to_vec(),
+            b: 100,
+        },
+        StructWithVecOfStructWithVecOfStructs {
+            a: structs[0..4].to_vec(),
+            b: 100,
+        },
+        StructWithVecOfStructWithVecOfStructs {
+            a: structs[0..5].to_vec(),
+            b: 8,
+        },
     ];
 
-    test_routine(a, variants.clone());
-    test_routine(b, variants.clone());
-    test_routine(c, variants.clone());
-    test_routine(d, variants.clone());
-    test_routine(e, variants.clone());
-    test_routine(f, variants);
+    for v in &variants {
+        test_routine(v.clone(), variants.clone());
+    }
 }
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]
