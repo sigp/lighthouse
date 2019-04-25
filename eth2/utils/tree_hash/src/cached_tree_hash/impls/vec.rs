@@ -5,7 +5,7 @@ where
     T: CachedTreeHash<T> + TreeHash,
 {
     fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error> {
-        let mut overlay = self.tree_hash_cache_overlay(0, depth)?;
+        let overlay = self.tree_hash_cache_overlay(0, depth)?;
 
         let mut cache = match T::tree_hash_type() {
             TreeHashType::Basic => TreeHashCache::from_bytes(

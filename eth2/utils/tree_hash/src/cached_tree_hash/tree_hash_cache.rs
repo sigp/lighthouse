@@ -183,6 +183,7 @@ impl TreeHashCache {
             .iter()
             .skip(overlay_index)
             .position(|o| o.depth <= depth)
+            .and_then(|i| Some(i + overlay_index))
             .unwrap_or_else(|| self.overlays.len());
 
         self.overlays.splice(overlay_index..end, vec![]);
