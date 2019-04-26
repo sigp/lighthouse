@@ -13,6 +13,6 @@ pub enum Error {
     BytesAreNotEvenChunks(usize),
     NoModifiedFieldForChunk(usize),
     NoBytesForChunk(usize),
-    NoOverlayForIndex(usize),
+    NoSchemaForIndex(usize),
     NotLeafNode(usize),
 }
