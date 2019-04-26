@@ -1,5 +1,7 @@
 use super::*;
+use crate::merkleize::merkle_root;
 use ethereum_types::H256;
+use hashing::hash;
 use int_to_bytes::int_to_bytes32;
 
 macro_rules! impl_for_bitsize {
