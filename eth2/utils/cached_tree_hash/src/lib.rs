@@ -4,7 +4,7 @@ use tree_hash::{TreeHash, TreeHashType, BYTES_PER_CHUNK, HASHSIZE};
 
 mod btree_overlay;
 mod errors;
-mod impls;
+pub mod impls;
 pub mod merkleize;
 mod resize;
 mod tree_hash_cache;

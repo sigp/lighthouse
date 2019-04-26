@@ -49,6 +49,7 @@ macro_rules! tree_hash_ssz_encoding_as_vector {
         }
     };
 }
+
 #[macro_export]
 macro_rules! tree_hash_ssz_encoding_as_list {
     ($type: ident) => {
