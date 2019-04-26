@@ -105,7 +105,11 @@ where
     U: TestRandom<T>,
 {
     fn random_for_test(rng: &mut T) -> Self {
-        Vec::random_for_test(rng).into()
+        TreeHashVector::from(vec![
+            U::random_for_test(rng),
+            U::random_for_test(rng),
+            U::random_for_test(rng),
+        ])
     }
 }
 
