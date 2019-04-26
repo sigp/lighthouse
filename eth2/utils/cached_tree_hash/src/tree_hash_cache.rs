@@ -3,31 +3,6 @@ use crate::merkleize::{merkleize, pad_for_leaf_count};
 use int_to_bytes::int_to_bytes32;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BTreeSchema {
-    pub depth: usize,
-    pub lengths: Vec<usize>,
-}
-
-impl BTreeSchema {
-    pub fn into_overlay(self, offset: usize) -> BTreeOverlay {
-        BTreeOverlay {
-            offset,
-            depth: self.depth,
-            lengths: self.lengths,
-        }
-    }
-}
-
-impl Into<BTreeSchema> for BTreeOverlay {
-    fn into(self) -> BTreeSchema {
-        BTreeSchema {
-            depth: self.depth,
-            lengths: self.lengths,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct TreeHashCache {
     pub cache: Vec<u8>,
     pub chunk_modified: Vec<bool>,
@@ -113,14 +88,14 @@ impl TreeHashCache {
     pub fn from_bytes(
         bytes: Vec<u8>,
         initial_modified_state: bool,
-        overlay: Option<BTreeOverlay>,
+        schema: Option<BTreeSchema>,
     ) -> Result<Self, Error> {
         if bytes.len() % BYTES_PER_CHUNK > 0 {
             return Err(Error::BytesAreNotEvenChunks(bytes.len()));
         }
 
-        let schemas = match overlay {
-            Some(overlay) => vec![overlay.into()],
+        let schemas = match schema {
+            Some(schema) => vec![schema],
             None => vec![],
         };
 

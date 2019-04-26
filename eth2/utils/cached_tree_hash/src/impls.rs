@@ -12,12 +12,8 @@ impl CachedTreeHash<u64> for u64 {
         )?)
     }
 
-    fn num_tree_hash_cache_chunks(&self) -> usize {
-        1
-    }
-
-    fn tree_hash_cache_overlay(&self, _chunk_offset: usize, _depth: usize) -> BTreeOverlay {
-        unreachable!("Basic should not produce overlay");
+    fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
+        BTreeSchema::from_lengths(depth, vec![1])
     }
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
@@ -40,12 +36,8 @@ impl CachedTreeHash<usize> for usize {
         )?)
     }
 
-    fn num_tree_hash_cache_chunks(&self) -> usize {
-        1
-    }
-
-    fn tree_hash_cache_overlay(&self, _chunk_offset: usize, _depth: usize) -> BTreeOverlay {
-        unreachable!("Basic should not produce overlay");
+    fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
+        BTreeSchema::from_lengths(depth, vec![1])
     }
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {

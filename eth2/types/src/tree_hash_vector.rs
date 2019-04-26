@@ -68,18 +68,8 @@ where
         Ok(cache)
     }
 
-    fn num_tree_hash_cache_chunks(&self) -> usize {
-        cached_tree_hash::BTreeOverlay::new(self, 0, 0)
-            .and_then(|o| Ok(o.num_chunks()))
-            .unwrap_or_else(|_| 1)
-    }
-
-    fn tree_hash_cache_overlay(
-        &self,
-        chunk_offset: usize,
-        depth: usize,
-    ) -> Result<cached_tree_hash::BTreeOverlay, cached_tree_hash::Error> {
-        cached_tree_hash::impls::vec::produce_overlay(self, chunk_offset, depth)
+    fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
+        cached_tree_hash::impls::vec::produce_schema(self, depth)
     }
 
     fn update_tree_hash_cache(

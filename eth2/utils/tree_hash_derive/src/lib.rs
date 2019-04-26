@@ -75,14 +75,14 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 cached_tree_hash::BTreeOverlay::new(self, 0, 0).num_chunks()
             }
 
-            fn tree_hash_cache_overlay(&self, chunk_offset: usize, depth: usize) ->cached_tree_hash::BTreeOverlay {
+            fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
                 let mut lengths = vec![];
 
                 #(
                     lengths.push(self.#idents_b.num_tree_hash_cache_chunks());
                 )*
 
-                cached_tree_hash::BTreeOverlay::from_lengths(chunk_offset, depth, lengths)
+                cached_tree_hash::BTreeSchema::from_lengths(depth, lengths)
             }
 
             fn update_tree_hash_cache(&self, cache: &mut cached_tree_hash::TreeHashCache) -> Result<(), cached_tree_hash::Error> {
