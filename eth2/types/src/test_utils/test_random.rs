@@ -44,11 +44,13 @@ where
     U: TestRandom<T>,
 {
     fn random_for_test(rng: &mut T) -> Self {
-        vec![
-            <U>::random_for_test(rng),
-            <U>::random_for_test(rng),
-            <U>::random_for_test(rng),
-        ]
+        let mut output = vec![];
+
+        for _ in 0..(usize::random_for_test(rng) % 4) {
+            output.push(<U>::random_for_test(rng));
+        }
+
+        output
     }
 }
 
