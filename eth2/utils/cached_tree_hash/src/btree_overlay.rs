@@ -228,6 +228,9 @@ mod test {
 
         let tree = BTreeSchema::from_lengths(0, vec![1, 1]).into_overlay(11);
         assert_eq!(tree.chunk_range(), 11..14);
+
+        let tree = BTreeSchema::from_lengths(0, vec![7, 7, 7]).into_overlay(0);
+        assert_eq!(tree.chunk_range(), 0..25);
     }
 
     #[test]

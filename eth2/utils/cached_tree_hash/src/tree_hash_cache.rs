@@ -77,7 +77,7 @@ impl TreeHashCache {
         cache.splice(0..internal_node_bytes, merkleized);
 
         Ok(Self {
-            chunk_modified: vec![false; cache.len() / BYTES_PER_CHUNK],
+            chunk_modified: vec![true; cache.len() / BYTES_PER_CHUNK],
             cache,
             schemas,
             chunk_index: 0,
@@ -141,7 +141,7 @@ impl TreeHashCache {
         // This grows/shrinks the bytes to accomodate the new tree, preserving as much of the tree
         // as possible.
         if new_overlay.num_leaf_nodes() != old_overlay.num_leaf_nodes() {
-            // Get slices of the exsiting tree from the cache.
+            // Get slices of the existing tree from the cache.
             let (old_bytes, old_flags) = self
                 .slices(old_overlay.chunk_range())
                 .ok_or_else(|| Error::UnableToObtainSlices)?;

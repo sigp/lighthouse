@@ -33,7 +33,7 @@ where
         cache.mix_in_length(new_overlay.chunk_range(), self.len())?;
 
         // Skip an extra node to clear the length node.
-        cache.chunk_index = new_overlay.next_node() + 1;
+        cache.chunk_index += 1;
 
         Ok(())
     }
@@ -94,11 +94,6 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
 ) -> Result<BTreeOverlay, Error> {
     let old_overlay = cache.get_overlay(cache.schema_index, cache.chunk_index)?;
     let new_overlay = BTreeOverlay::new(vec, cache.chunk_index, old_overlay.depth);
-
-    dbg!(cache.schema_index);
-    dbg!(cache.schemas.len());
-    dbg!(&old_overlay);
-    dbg!(&new_overlay);
 
     cache.replace_overlay(cache.schema_index, cache.chunk_index, new_overlay.clone())?;
 
@@ -178,10 +173,36 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
                             // this node padding.
                             cache.maybe_update_chunk(new_overlay.root(), &[0; HASHSIZE])?;
                         } else {
-                            // In this case, there are some items in the new list and we should
-                            // splice out the entire tree of the removed node, replacing it
-                            // with a single padding node.
-                            cache.splice(old, vec![0; HASHSIZE], vec![true]);
+                            let old_internal_nodes = old_overlay.num_internal_nodes();
+                            let new_internal_nodes = new_overlay.num_internal_nodes();
+
+                            // If the number of internal nodes have shifted between the two
+                            // overlays, the range for this node needs to be shifted to suit the
+                            // new overlay.
+                            let old = if old_internal_nodes > new_internal_nodes {
+                                let offset = old_internal_nodes - new_internal_nodes;
+
+                                old.start - offset..old.end - offset
+                            } else if old_internal_nodes < new_internal_nodes {
+                                let offset = new_internal_nodes - old_internal_nodes;
+
+                                old.start + offset..old.end + offset
+                            } else {
+                                old.start..old.end
+                            };
+
+                            // If there are still some old bytes left-over from this item, replace
+                            // them with a padding chunk.
+                            if old.start < new_overlay.chunk_range().end {
+                                let start_chunk = old.start;
+                                let end_chunk =
+                                    std::cmp::min(old.end, new_overlay.chunk_range().end);
+
+                                // In this case, there are some items in the new list and we should
+                                // splice out the entire tree of the removed node, replacing it
+                                // with a single padding node.
+                                cache.splice(start_chunk..end_chunk, vec![0; HASHSIZE], vec![true]);
+                            }
                         }
                     }
                     // The item didn't exist in the old list and doesn't exist in the new list,
@@ -197,6 +218,8 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
     }
 
     cache.update_internal_nodes(&new_overlay)?;
+
+    cache.chunk_index = new_overlay.next_node();
 
     Ok(new_overlay)
 }
