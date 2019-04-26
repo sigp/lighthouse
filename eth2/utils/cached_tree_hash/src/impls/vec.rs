@@ -95,6 +95,11 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
     let old_overlay = cache.get_overlay(cache.schema_index, cache.chunk_index)?;
     let new_overlay = BTreeOverlay::new(vec, cache.chunk_index, old_overlay.depth);
 
+    dbg!(cache.schema_index);
+    dbg!(cache.schemas.len());
+    dbg!(&old_overlay);
+    dbg!(&new_overlay);
+
     cache.replace_overlay(cache.schema_index, cache.chunk_index, new_overlay.clone())?;
 
     cache.schema_index += 1;

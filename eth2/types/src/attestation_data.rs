@@ -5,7 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// The data upon which an attestation is based.
 ///
@@ -21,6 +21,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
     SignedRoot,
 )]
@@ -47,4 +48,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(AttestationData);
+    cached_tree_hash_tests!(AttestationData);
 }

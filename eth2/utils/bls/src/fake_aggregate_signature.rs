@@ -1,4 +1,5 @@
 use super::{fake_signature::FakeSignature, AggregatePublicKey, BLS_AGG_SIG_BYTE_SIZE};
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -100,6 +101,7 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
 }
 
 tree_hash_ssz_encoding_as_vector!(FakeAggregateSignature);
+cached_tree_hash_ssz_encoding_as_vector!(FakeAggregateSignature, 96);
 
 #[cfg(test)]
 mod tests {

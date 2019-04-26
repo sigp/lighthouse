@@ -1,5 +1,6 @@
 use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
 use bls_aggregates::PublicKey as RawPublicKey;
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
@@ -106,6 +107,7 @@ impl<'de> Deserialize<'de> for PublicKey {
 }
 
 tree_hash_ssz_encoding_as_vector!(PublicKey);
+cached_tree_hash_ssz_encoding_as_vector!(PublicKey, 48);
 
 impl PartialEq for PublicKey {
     fn eq(&self, other: &PublicKey) -> bool {
@@ -129,6 +131,7 @@ impl Hash for PublicKey {
 mod tests {
     use super::*;
     use ssz::ssz_encode;
+    use tree_hash::TreeHash;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -139,5 +142,22 @@ mod tests {
         let (decoded, _) = PublicKey::ssz_decode(&bytes, 0).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    pub fn test_cached_tree_hash() {
+        let sk = SecretKey::random();
+        let original = PublicKey::from_secret_key(&sk);
+
+        let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+
+        assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+
+        let sk = SecretKey::random();
+        let modified = PublicKey::from_secret_key(&sk);
+
+        hasher.update(&modified).unwrap();
+
+        assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
     }
 }

@@ -3,6 +3,7 @@ extern crate ssz;
 
 use bit_reverse::LookupReverse;
 use bit_vec::BitVec;
+use cached_tree_hash::cached_tree_hash_bytes_as_list;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
@@ -270,11 +271,31 @@ impl tree_hash::TreeHash for BooleanBitfield {
     }
 }
 
+cached_tree_hash_bytes_as_list!(BooleanBitfield);
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_yaml;
     use ssz::{decode, ssz_encode, SszStream};
+    use tree_hash::TreeHash;
+
+    #[test]
+    pub fn test_cached_tree_hash() {
+        let original = BooleanBitfield::from_bytes(&vec![18; 12][..]);
+
+        let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+
+        assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+        /*
+
+        let modified = BooleanBitfield::from_bytes(&vec![2; 1][..]);
+
+        hasher.update(&modified).unwrap();
+
+        assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
+        */
+    }
 
     #[test]
     fn test_new_bitfield() {

@@ -60,7 +60,7 @@ fn last_leaf_needs_padding(num_bytes: usize) -> bool {
 }
 
 /// Rounds up
-fn num_unsanitized_leaves(num_bytes: usize) -> usize {
+pub fn num_unsanitized_leaves(num_bytes: usize) -> usize {
     (num_bytes + HASHSIZE - 1) / HASHSIZE
 }
 

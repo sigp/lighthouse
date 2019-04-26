@@ -1,4 +1,5 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -75,6 +76,7 @@ impl Decodable for FakeSignature {
 }
 
 tree_hash_ssz_encoding_as_vector!(FakeSignature);
+cached_tree_hash_ssz_encoding_as_vector!(FakeSignature, 96);
 
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
