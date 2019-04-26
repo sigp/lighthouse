@@ -96,12 +96,12 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
     vec: &Vec<T>,
     cache: &mut TreeHashCache,
 ) -> Result<BTreeOverlay, Error> {
-    let old_overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
+    let old_overlay = cache.get_overlay(cache.schema_index, cache.chunk_index)?;
     let new_overlay = BTreeOverlay::new(vec, cache.chunk_index, old_overlay.depth);
 
-    cache.replace_overlay(cache.overlay_index, cache.chunk_index, new_overlay.clone())?;
+    cache.replace_overlay(cache.schema_index, cache.chunk_index, new_overlay.clone())?;
 
-    cache.overlay_index += 1;
+    cache.schema_index += 1;
 
     match T::tree_hash_type() {
         TreeHashType::Basic => {
@@ -152,21 +152,21 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
                     //
                     // Viz., the list has been lengthened.
                     (None, Some(new)) => {
-                        let (bytes, mut bools, overlays) =
+                        let (bytes, mut bools, schemas) =
                             TreeHashCache::new(&vec[i], new_overlay.depth + 1)?.into_components();
 
-                        // Record the number of overlays, this will be used later in the fn.
-                        let num_overlays = overlays.len();
+                        // Record the number of schemas, this will be used later in the fn.
+                        let num_schemas = schemas.len();
 
                         // Flag the root node of the new tree as dirty.
                         bools[0] = true;
 
                         cache.splice(new.start..new.start + 1, bytes, bools);
                         cache
-                            .overlays
-                            .splice(cache.overlay_index..cache.overlay_index, overlays);
+                            .schemas
+                            .splice(cache.schema_index..cache.schema_index, schemas);
 
-                        cache.overlay_index += num_overlays;
+                        cache.schema_index += num_schemas;
                     }
                     // The item existed in the previous list but does not exist in this list.
                     //
@@ -189,9 +189,9 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
                 }
             }
 
-            // Clean out any excess overlays that may or may not be remaining if the list was
+            // Clean out any excess schemas that may or may not be remaining if the list was
             // shortened.
-            cache.remove_proceeding_child_overlays(cache.overlay_index, new_overlay.depth);
+            cache.remove_proceeding_child_schemas(cache.schema_index, new_overlay.depth);
         }
     }
 

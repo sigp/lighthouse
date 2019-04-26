@@ -44,7 +44,7 @@ impl CachedTreeHasher {
     {
         // Reset the per-hash counters.
         self.cache.chunk_index = 0;
-        self.cache.overlay_index = 0;
+        self.cache.schema_index = 0;
 
         // Reset the "modified" flags for the cache.
         self.cache.reset_modifications();
