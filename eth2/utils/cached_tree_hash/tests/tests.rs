@@ -209,15 +209,16 @@ fn test_vec_of_struct_with_vec() {
     };
     let d = StructWithVec { a: 0, ..a.clone() };
 
-    // let original: Vec<StructWithVec> = vec![a.clone(), c.clone()];
-    let original: Vec<StructWithVec> = vec![a.clone()];
+    let original: Vec<StructWithVec> = vec![a.clone(), c.clone()];
 
     let modified = vec![
         vec![a.clone(), c.clone()],
+        vec![],
         vec![a.clone(), b.clone(), c.clone(), d.clone()],
         vec![b.clone(), a.clone(), c.clone(), d.clone()],
         vec![],
         vec![a.clone()],
+        vec![],
         vec![a.clone(), b.clone(), c.clone(), d.clone()],
     ];
 
@@ -383,11 +384,10 @@ pub struct StructWithTwoVecs {
     pub b: Vec<Inner>,
 }
 
-#[test]
-fn test_struct_with_two_vecs() {
+fn get_struct_with_two_vecs() -> Vec<StructWithTwoVecs> {
     let inners = get_inners();
 
-    let variants = vec![
+    vec![
         StructWithTwoVecs {
             a: inners[..].to_vec(),
             b: inners[..].to_vec(),
@@ -416,7 +416,31 @@ fn test_struct_with_two_vecs() {
             a: inners[0..3].to_vec(),
             b: inners[0..1].to_vec(),
         },
+    ]
+}
+
+#[test]
+fn test_struct_with_two_vecs() {
+    let variants = get_struct_with_two_vecs();
+
+    for v in &variants {
+        test_routine(v.clone(), variants.clone());
+    }
+}
+
+#[test]
+fn test_vec_of_struct_with_two_vecs() {
+    let structs = get_struct_with_two_vecs();
+
+    let variants = vec![
+        structs[0..].to_vec(),
+        structs[0..2].to_vec(),
+        structs[2..3].to_vec(),
+        vec![],
+        structs[2..4].to_vec(),
     ];
+
+    test_routine(variants[0].clone(), vec![variants[2].clone()]);
 
     for v in &variants {
         test_routine(v.clone(), variants.clone());
