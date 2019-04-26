@@ -125,7 +125,8 @@ macro_rules! cached_tree_hash_bytes_as_list {
             }
 
             fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-                cached_tree_hash::impls::vec::produce_schema(&ssz::ssz_encode(self), depth)
+                let bytes = self.to_bytes();
+                cached_tree_hash::impls::vec::produce_schema(&bytes, depth)
             }
 
             fn update_tree_hash_cache(
@@ -145,7 +146,7 @@ macro_rules! cached_tree_hash_bytes_as_list {
                 cache.mix_in_length(new_overlay.chunk_range(), bytes.len())?;
 
                 // Skip an extra node to clear the length node.
-                cache.chunk_index = new_overlay.next_node() + 1;
+                cache.chunk_index += 1;
 
                 Ok(())
             }

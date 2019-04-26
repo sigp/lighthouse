@@ -88,6 +88,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
             fn update_tree_hash_cache(&self, cache: &mut cached_tree_hash::TreeHashCache) -> Result<(), cached_tree_hash::Error> {
                 let overlay = cached_tree_hash::BTreeOverlay::new(self, cache.chunk_index, 0);
 
+
                 // Skip the chunk index to the first leaf node of this struct.
                 cache.chunk_index = overlay.first_leaf_node();
                 // Skip the overlay index to the first leaf node of this struct.
