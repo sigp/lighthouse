@@ -1,7 +1,7 @@
 use super::*;
 use crate::merkleize::merkleize;
 
-mod vec;
+pub mod vec;
 
 impl CachedTreeHash<u64> for u64 {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {

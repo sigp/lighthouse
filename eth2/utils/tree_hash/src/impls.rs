@@ -56,11 +56,11 @@ impl TreeHash for [u8; 4] {
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        panic!("bytesN should never be packed.")
+        unreachable!("bytesN should never be packed.")
     }
 
     fn tree_hash_packing_factor() -> usize {
-        panic!("bytesN should never be packed.")
+        unreachable!("bytesN should never be packed.")
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
