@@ -1,5 +1,5 @@
 use cached_tree_hash::{CachedTreeHash, CachedTreeHasher};
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::{merkleize::merkle_root, SignedRoot, TreeHash};
 use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]
@@ -120,7 +120,7 @@ impl CryptoKitties {
         leaves.append(&mut self.best_kitty.tree_hash_root());
         leaves.append(&mut self.worst_kitty.tree_hash_root());
         leaves.append(&mut self.kitties.tree_hash_root());
-        tree_hash::merkle_root(&leaves)
+        merkle_root(&leaves)
     }
 }
 
@@ -158,14 +158,14 @@ impl Casper {
         let mut list = Vec::new();
         list.append(&mut self.friendly.tree_hash_root());
         list.append(&mut self.friends.tree_hash_root());
-        tree_hash::merkle_root(&list)
+        merkle_root(&list)
     }
 
     fn expected_tree_hash(&self) -> Vec<u8> {
         let mut list = Vec::new();
         list.append(&mut self.friendly.tree_hash_root());
         list.append(&mut self.dead.tree_hash_root());
-        tree_hash::merkle_root(&list)
+        merkle_root(&list)
     }
 }
 
