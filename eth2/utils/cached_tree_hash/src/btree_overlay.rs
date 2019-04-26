@@ -1,10 +1,39 @@
 use super::*;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BTreeOverlay {
-    pub offset: usize,
+pub struct BTreeSchema {
     pub depth: usize,
-    pub lengths: Vec<usize>,
+    lengths: Vec<usize>,
+}
+
+impl BTreeSchema {
+    pub fn from_lengths(depth: usize, lengths: Vec<usize>) -> Self {
+        Self { depth, lengths }
+    }
+
+    pub fn into_overlay(self, offset: usize) -> BTreeOverlay {
+        BTreeOverlay {
+            offset,
+            depth: self.depth,
+            lengths: self.lengths,
+        }
+    }
+}
+
+impl Into<BTreeSchema> for BTreeOverlay {
+    fn into(self) -> BTreeSchema {
+        BTreeSchema {
+            depth: self.depth,
+            lengths: self.lengths,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BTreeOverlay {
+    offset: usize,
+    pub depth: usize,
+    lengths: Vec<usize>,
 }
 
 impl BTreeOverlay {
@@ -12,15 +41,8 @@ impl BTreeOverlay {
     where
         T: CachedTreeHash<T>,
     {
-        item.tree_hash_cache_overlay(initial_offset, depth)
-    }
-
-    pub fn from_lengths(offset: usize, depth: usize, lengths: Vec<usize>) -> Self {
-        Self {
-            offset,
-            depth,
-            lengths,
-        }
+        item.tree_hash_cache_schema(depth)
+            .into_overlay(initial_offset)
     }
 
     pub fn num_leaf_nodes(&self) -> usize {
@@ -166,7 +188,7 @@ mod test {
     use super::*;
 
     fn get_tree_a(n: usize) -> BTreeOverlay {
-        BTreeOverlay::from_lengths(0, 0, vec![1; n])
+        BTreeSchema::from_lengths(0, vec![1; n]).into_overlay(0)
     }
 
     #[test]
@@ -204,7 +226,7 @@ mod test {
         let tree = get_tree_a(2);
         assert_eq!(tree.chunk_range(), 0..3);
 
-        let tree = BTreeOverlay::from_lengths(11, 0, vec![1, 1]);
+        let tree = BTreeSchema::from_lengths(0, vec![1, 1]).into_overlay(11);
         assert_eq!(tree.chunk_range(), 11..14);
     }
 

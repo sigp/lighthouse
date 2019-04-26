@@ -6,9 +6,9 @@ where
     T: CachedTreeHash<T> + TreeHash,
 {
     fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error> {
-        let (mut cache, overlay) = new_tree_hash_cache(self, depth)?;
+        let (mut cache, schema) = new_tree_hash_cache(self, depth)?;
 
-        cache.add_length_nodes(overlay.chunk_range(), self.len())?;
+        cache.add_length_nodes(schema.into_overlay(0).chunk_range(), self.len())?;
 
         Ok(cache)
     }
@@ -18,8 +18,8 @@ where
         BTreeOverlay::new(self, 0, 0).num_chunks() + 2
     }
 
-    fn tree_hash_cache_overlay(&self, chunk_offset: usize, depth: usize) -> BTreeOverlay {
-        produce_overlay(self, chunk_offset, depth)
+    fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
+        produce_schema(self, depth)
     }
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
@@ -42,14 +42,14 @@ where
 pub fn new_tree_hash_cache<T: CachedTreeHash<T>>(
     vec: &Vec<T>,
     depth: usize,
-) -> Result<(TreeHashCache, BTreeOverlay), Error> {
-    let overlay = vec.tree_hash_cache_overlay(0, depth);
+) -> Result<(TreeHashCache, BTreeSchema), Error> {
+    let schema = vec.tree_hash_cache_schema(depth);
 
     let cache = match T::tree_hash_type() {
         TreeHashType::Basic => TreeHashCache::from_bytes(
             merkleize(get_packed_leaves(vec)?),
             false,
-            Some(overlay.clone()),
+            Some(schema.clone()),
         ),
         TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
             let subtrees = vec
@@ -61,14 +61,10 @@ pub fn new_tree_hash_cache<T: CachedTreeHash<T>>(
         }
     }?;
 
-    Ok((cache, overlay))
+    Ok((cache, schema))
 }
 
-pub fn produce_overlay<T: CachedTreeHash<T>>(
-    vec: &Vec<T>,
-    chunk_offset: usize,
-    depth: usize,
-) -> BTreeOverlay {
+pub fn produce_schema<T: CachedTreeHash<T>>(vec: &Vec<T>, depth: usize) -> BTreeSchema {
     let lengths = match T::tree_hash_type() {
         TreeHashType::Basic => {
             // Ceil division.
@@ -89,7 +85,7 @@ pub fn produce_overlay<T: CachedTreeHash<T>>(
         }
     };
 
-    BTreeOverlay::from_lengths(chunk_offset, depth, lengths)
+    BTreeSchema::from_lengths(depth, lengths)
 }
 
 pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(

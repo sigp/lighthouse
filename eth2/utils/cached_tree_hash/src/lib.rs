@@ -9,14 +9,16 @@ pub mod merkleize;
 mod resize;
 mod tree_hash_cache;
 
-pub use btree_overlay::BTreeOverlay;
+pub use btree_overlay::{BTreeOverlay, BTreeSchema};
 pub use errors::Error;
 pub use tree_hash_cache::TreeHashCache;
 
 pub trait CachedTreeHash<Item>: TreeHash {
-    fn tree_hash_cache_overlay(&self, chunk_offset: usize, depth: usize) -> BTreeOverlay;
+    fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema;
 
-    fn num_tree_hash_cache_chunks(&self) -> usize;
+    fn num_tree_hash_cache_chunks(&self) -> usize {
+        self.tree_hash_cache_schema(0).into_overlay(0).num_chunks()
+    }
 
     fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error>;
 
