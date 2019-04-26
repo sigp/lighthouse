@@ -418,13 +418,9 @@ fn test_struct_with_two_vecs() {
         },
     ];
 
-    test_routine(variants[0].clone(), variants[6..7].to_vec());
-
-    /*
     for v in &variants {
         test_routine(v.clone(), variants.clone());
     }
-    */
 }
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]
