@@ -32,3 +32,29 @@ macro_rules! ssz_tests {
         }
     };
 }
+
+#[cfg(test)]
+#[macro_export]
+macro_rules! cached_tree_hash_tests {
+    ($type: ident) => {
+        #[test]
+        pub fn test_cached_tree_hash() {
+            use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+            use tree_hash::TreeHash;
+
+            let mut rng = XorShiftRng::from_seed([42; 16]);
+
+            let original = $type::random_for_test(&mut rng);
+
+            let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+
+            assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+
+            let modified = $type::random_for_test(&mut rng);
+
+            hasher.update(&modified).unwrap();
+
+            assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
+        }
+    };
+}

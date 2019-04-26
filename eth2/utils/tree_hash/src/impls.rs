@@ -52,7 +52,7 @@ impl TreeHash for bool {
 
 impl TreeHash for [u8; 4] {
     fn tree_hash_type() -> TreeHashType {
-        TreeHashType::List
+        TreeHashType::Vector
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {

@@ -231,6 +231,41 @@ pub struct StructWithVecOfStructs {
     pub c: Vec<Inner>,
 }
 
+fn get_inners() -> Vec<Inner> {
+    vec![
+        Inner {
+            a: 12,
+            b: 13,
+            c: 14,
+            d: 15,
+        },
+        Inner {
+            a: 99,
+            b: 100,
+            c: 101,
+            d: 102,
+        },
+        Inner {
+            a: 255,
+            b: 256,
+            c: 257,
+            d: 0,
+        },
+        Inner {
+            a: 1000,
+            b: 2000,
+            c: 3000,
+            d: 0,
+        },
+        Inner {
+            a: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+        },
+    ]
+}
+
 fn get_struct_with_vec_of_structs() -> Vec<StructWithVecOfStructs> {
     let inner_a = Inner {
         a: 12,
@@ -340,6 +375,56 @@ fn test_struct_with_vec_of_struct_with_vec_of_structs() {
     for v in &variants {
         test_routine(v.clone(), variants.clone());
     }
+}
+
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
+pub struct StructWithTwoVecs {
+    pub a: Vec<Inner>,
+    pub b: Vec<Inner>,
+}
+
+#[test]
+fn test_struct_with_two_vecs() {
+    let inners = get_inners();
+
+    let variants = vec![
+        StructWithTwoVecs {
+            a: inners[..].to_vec(),
+            b: inners[..].to_vec(),
+        },
+        StructWithTwoVecs {
+            a: inners[0..1].to_vec(),
+            b: inners[..].to_vec(),
+        },
+        StructWithTwoVecs {
+            a: inners[0..1].to_vec(),
+            b: inners[0..2].to_vec(),
+        },
+        StructWithTwoVecs {
+            a: inners[0..4].to_vec(),
+            b: inners[0..2].to_vec(),
+        },
+        StructWithTwoVecs {
+            a: vec![],
+            b: inners[..].to_vec(),
+        },
+        StructWithTwoVecs {
+            a: inners[..].to_vec(),
+            b: vec![],
+        },
+        StructWithTwoVecs {
+            a: inners[0..3].to_vec(),
+            b: inners[0..1].to_vec(),
+        },
+    ];
+
+    test_routine(variants[0].clone(), variants[6..7].to_vec());
+
+    /*
+    for v in &variants {
+        test_routine(v.clone(), variants.clone());
+    }
+    */
 }
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]

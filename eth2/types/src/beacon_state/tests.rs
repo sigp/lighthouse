@@ -3,6 +3,7 @@ use super::*;
 use crate::test_utils::*;
 
 ssz_tests!(BeaconState);
+cached_tree_hash_tests!(BeaconState);
 
 /// Test that
 ///

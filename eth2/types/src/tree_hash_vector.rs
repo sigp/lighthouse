@@ -108,3 +108,25 @@ where
         Vec::random_for_test(rng).into()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use tree_hash::TreeHash;
+
+    #[test]
+    pub fn test_cached_tree_hash() {
+        let original = TreeHashVector::from(vec![1_u64, 2, 3, 4]);
+
+        let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+
+        assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+
+        let modified = TreeHashVector::from(vec![1_u64, 1, 1, 1]);
+
+        hasher.update(&modified).unwrap();
+
+        assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
+    }
+
+}

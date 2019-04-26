@@ -9,7 +9,7 @@ use ssz::{hash, ssz_encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
+use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 mod epoch_cache;
 mod pubkey_cache;
@@ -47,7 +47,18 @@ pub enum Error {
 /// The state of the `BeaconChain` at some slot.
 ///
 /// Spec v0.5.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, TestRandom, Encode, Decode, TreeHash)]
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    TestRandom,
+    Encode,
+    Decode,
+    TreeHash,
+    CachedTreeHash,
+)]
 pub struct BeaconState {
     // Misc
     pub slot: Slot,
