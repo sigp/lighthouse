@@ -287,14 +287,12 @@ mod tests {
         let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
 
         assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
-        /*
 
         let modified = BooleanBitfield::from_bytes(&vec![2; 1][..]);
 
         hasher.update(&modified).unwrap();
 
         assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
-        */
     }
 
     #[test]
