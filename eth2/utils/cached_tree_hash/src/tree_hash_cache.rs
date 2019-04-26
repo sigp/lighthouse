@@ -34,7 +34,7 @@ impl TreeHashCache {
     where
         T: CachedTreeHash<T>,
     {
-        let overlay = BTreeOverlay::new(item, 0, depth)?;
+        let overlay = BTreeOverlay::new(item, 0, depth);
 
         // Note how many leaves were provided. If is not a power-of-two, we'll need to pad it out
         // later.

@@ -14,11 +14,7 @@ pub use errors::Error;
 pub use tree_hash_cache::TreeHashCache;
 
 pub trait CachedTreeHash<Item>: TreeHash {
-    fn tree_hash_cache_overlay(
-        &self,
-        chunk_offset: usize,
-        depth: usize,
-    ) -> Result<BTreeOverlay, Error>;
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize, depth: usize) -> BTreeOverlay;
 
     fn num_tree_hash_cache_chunks(&self) -> usize;
 

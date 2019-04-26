@@ -4,33 +4,22 @@ use super::*;
 pub struct BTreeOverlay {
     pub offset: usize,
     pub depth: usize,
-    pub num_items: usize,
     pub lengths: Vec<usize>,
 }
 
 impl BTreeOverlay {
-    pub fn new<T>(item: &T, initial_offset: usize, depth: usize) -> Result<Self, Error>
+    pub fn new<T>(item: &T, initial_offset: usize, depth: usize) -> Self
     where
         T: CachedTreeHash<T>,
     {
         item.tree_hash_cache_overlay(initial_offset, depth)
     }
 
-    pub fn from_lengths(
-        offset: usize,
-        num_items: usize,
-        depth: usize,
-        lengths: Vec<usize>,
-    ) -> Result<Self, Error> {
-        if lengths.is_empty() {
-            Err(Error::TreeCannotHaveZeroNodes)
-        } else {
-            Ok(Self {
-                offset,
-                num_items,
-                depth,
-                lengths,
-            })
+    pub fn from_lengths(offset: usize, depth: usize, lengths: Vec<usize>) -> Self {
+        Self {
+            offset,
+            depth,
+            lengths,
         }
     }
 
@@ -96,7 +85,7 @@ impl BTreeOverlay {
     pub fn get_leaf_node(&self, i: usize) -> Result<Option<Range<usize>>, Error> {
         if i >= self.num_nodes() - self.num_padding_leaves() {
             Ok(None)
-        } else if (i == self.num_internal_nodes()) && (self.num_items == 0) {
+        } else if (i == self.num_internal_nodes()) && (self.lengths.len() == 0) {
             // If this is the first leaf node and the overlay contains zero items, return `None` as
             // this node must be padding.
             Ok(None)
@@ -177,7 +166,7 @@ mod test {
     use super::*;
 
     fn get_tree_a(n: usize) -> BTreeOverlay {
-        BTreeOverlay::from_lengths(0, n, 0, vec![1; n]).unwrap()
+        BTreeOverlay::from_lengths(0, 0, vec![1; n])
     }
 
     #[test]
@@ -215,7 +204,7 @@ mod test {
         let tree = get_tree_a(2);
         assert_eq!(tree.chunk_range(), 0..3);
 
-        let tree = BTreeOverlay::from_lengths(11, 4, 0, vec![1, 1]).unwrap();
+        let tree = BTreeOverlay::from_lengths(11, 0, vec![1, 1]);
         assert_eq!(tree.chunk_range(), 11..14);
     }
 
