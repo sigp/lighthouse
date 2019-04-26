@@ -424,6 +424,45 @@ fn test_struct_with_two_vecs() {
 }
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]
+pub struct U64AndTwoStructs {
+    pub a: u64,
+    pub b: Inner,
+    pub c: Inner,
+}
+
+#[test]
+fn test_u64_and_two_structs() {
+    let inners = get_inners();
+
+    let variants = vec![
+        U64AndTwoStructs {
+            a: 99,
+            b: inners[0].clone(),
+            c: inners[1].clone(),
+        },
+        U64AndTwoStructs {
+            a: 10,
+            b: inners[2].clone(),
+            c: inners[3].clone(),
+        },
+        U64AndTwoStructs {
+            a: 0,
+            b: inners[1].clone(),
+            c: inners[1].clone(),
+        },
+        U64AndTwoStructs {
+            a: 0,
+            b: inners[1].clone(),
+            c: inners[1].clone(),
+        },
+    ];
+
+    for v in &variants {
+        test_routine(v.clone(), variants.clone());
+    }
+}
+
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct Inner {
     pub a: u64,
     pub b: u64,

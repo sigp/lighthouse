@@ -102,6 +102,8 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
                 // Iterate through the internal nodes, updating them if their children have changed.
                 cache.update_internal_nodes(&overlay)?;
 
+                cache.chunk_index = overlay.next_node();
+
                 Ok(())
             }
         }

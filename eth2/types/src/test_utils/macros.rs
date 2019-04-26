@@ -44,16 +44,14 @@ macro_rules! cached_tree_hash_tests {
 
             let mut rng = XorShiftRng::from_seed([42; 16]);
 
+            // Test the original hash
             let original = $type::random_for_test(&mut rng);
-
             let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
-
             assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
 
+            // Test the updated hash
             let modified = $type::random_for_test(&mut rng);
-
             hasher.update(&modified).unwrap();
-
             assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
         }
     };
