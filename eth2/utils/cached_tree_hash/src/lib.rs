@@ -28,7 +28,7 @@ pub trait CachedTreeHash<Item>: TreeHash {
 
 #[derive(Debug, PartialEq)]
 pub struct CachedTreeHasher {
-    cache: TreeHashCache,
+    pub cache: TreeHashCache,
 }
 
 impl CachedTreeHasher {
