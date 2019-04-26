@@ -14,17 +14,11 @@ where
     }
 
     fn num_tree_hash_cache_chunks(&self) -> usize {
-        BTreeOverlay::new(self, 0, 0)
-            .and_then(|o| Ok(o.num_chunks()))
-            .unwrap_or_else(|_| 1)
-            + 2 // Add two extra nodes to cater for the length.
+        // Add two extra nodes to cater for the node before and after to allow mixing-in length.
+        BTreeOverlay::new(self, 0, 0).num_chunks() + 2
     }
 
-    fn tree_hash_cache_overlay(
-        &self,
-        chunk_offset: usize,
-        depth: usize,
-    ) -> Result<BTreeOverlay, Error> {
+    fn tree_hash_cache_overlay(&self, chunk_offset: usize, depth: usize) -> BTreeOverlay {
         produce_overlay(self, chunk_offset, depth)
     }
 
@@ -49,7 +43,7 @@ pub fn new_tree_hash_cache<T: CachedTreeHash<T>>(
     vec: &Vec<T>,
     depth: usize,
 ) -> Result<(TreeHashCache, BTreeOverlay), Error> {
-    let overlay = vec.tree_hash_cache_overlay(0, depth)?;
+    let overlay = vec.tree_hash_cache_overlay(0, depth);
 
     let cache = match T::tree_hash_type() {
         TreeHashType::Basic => TreeHashCache::from_bytes(
@@ -74,7 +68,7 @@ pub fn produce_overlay<T: CachedTreeHash<T>>(
     vec: &Vec<T>,
     chunk_offset: usize,
     depth: usize,
-) -> Result<BTreeOverlay, Error> {
+) -> BTreeOverlay {
     let lengths = match T::tree_hash_type() {
         TreeHashType::Basic => {
             // Ceil division.
@@ -91,16 +85,11 @@ pub fn produce_overlay<T: CachedTreeHash<T>>(
                 lengths.push(item.num_tree_hash_cache_chunks())
             }
 
-            // Disallow zero-length as an empty list still has one all-padding node.
-            if lengths.is_empty() {
-                lengths.push(1);
-            }
-
             lengths
         }
     };
 
-    BTreeOverlay::from_lengths(chunk_offset, vec.len(), depth, lengths)
+    BTreeOverlay::from_lengths(chunk_offset, depth, lengths)
 }
 
 pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
@@ -108,7 +97,7 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
     cache: &mut TreeHashCache,
 ) -> Result<BTreeOverlay, Error> {
     let old_overlay = cache.get_overlay(cache.overlay_index, cache.chunk_index)?;
-    let new_overlay = BTreeOverlay::new(vec, cache.chunk_index, old_overlay.depth)?;
+    let new_overlay = BTreeOverlay::new(vec, cache.chunk_index, old_overlay.depth);
 
     cache.replace_overlay(cache.overlay_index, cache.chunk_index, new_overlay.clone())?;
 
@@ -183,7 +172,7 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
                     //
                     // Viz., the list has been shortened.
                     (Some(old), None) => {
-                        if new_overlay.num_items == 0 {
+                        if vec.len() == 0 {
                             // In this case, the list has been made empty and we should make
                             // this node padding.
                             cache.maybe_update_chunk(new_overlay.root(), &[0; HASHSIZE])?;
