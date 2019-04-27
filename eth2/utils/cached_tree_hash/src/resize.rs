@@ -1,56 +1,24 @@
 use super::*;
-use std::cmp::min;
 
 /// New vec is bigger than old vec.
-pub fn grow_merkle_cache(
+pub fn grow_merkle_tree(
     old_bytes: &[u8],
     old_flags: &[bool],
     from_height: usize,
     to_height: usize,
 ) -> Option<(Vec<u8>, Vec<bool>)> {
-    // Determine the size of our new tree. It is not just a simple `1 << to_height` as there can be
-    // an arbitrary number of nodes in `old_bytes` leaves if those leaves are subtrees.
-    let to_nodes = {
-        let old_nodes = old_bytes.len() / HASHSIZE;
-        let additional_nodes = old_nodes - nodes_in_tree_of_height(from_height);
-        nodes_in_tree_of_height(to_height) + additional_nodes
-    };
+    let to_nodes = nodes_in_tree_of_height(to_height);
 
     let mut bytes = vec![0; to_nodes * HASHSIZE];
     let mut flags = vec![true; to_nodes];
 
-    let leaf_level = from_height;
+    for i in 0..=from_height {
+        let old_byte_slice = old_bytes.get(byte_range_at_height(i))?;
+        let old_flag_slice = old_flags.get(node_range_at_height(i))?;
 
-    for i in 0..=from_height as usize {
-        // If we're on the leaf slice, grab the first byte and all the of the bytes after that.
-        // This is required because we can have an arbitrary number of bytes at the leaf level
-        // (e.g., the case where there are subtrees as leaves).
-        //
-        // If we're not on a leaf level, the number of nodes is fixed and known.
-        let (old_byte_slice, old_flag_slice) = if i == leaf_level {
-            (
-                old_bytes.get(first_byte_at_height(i)..)?,
-                old_flags.get(first_node_at_height(i)..)?,
-            )
-        } else {
-            (
-                old_bytes.get(byte_range_at_height(i))?,
-                old_flags.get(node_range_at_height(i))?,
-            )
-        };
-
-        let new_i = i + to_height - from_height;
-        let (new_byte_slice, new_flag_slice) = if i == leaf_level {
-            (
-                bytes.get_mut(first_byte_at_height(new_i)..)?,
-                flags.get_mut(first_node_at_height(new_i)..)?,
-            )
-        } else {
-            (
-                bytes.get_mut(byte_range_at_height(new_i))?,
-                flags.get_mut(node_range_at_height(new_i))?,
-            )
-        };
+        let offset = i + to_height - from_height;
+        let new_byte_slice = bytes.get_mut(byte_range_at_height(offset))?;
+        let new_flag_slice = flags.get_mut(node_range_at_height(offset))?;
 
         new_byte_slice
             .get_mut(0..old_byte_slice.len())?
@@ -64,58 +32,33 @@ pub fn grow_merkle_cache(
 }
 
 /// New vec is smaller than old vec.
-pub fn shrink_merkle_cache(
+pub fn shrink_merkle_tree(
     from_bytes: &[u8],
     from_flags: &[bool],
     from_height: usize,
     to_height: usize,
-    to_nodes: usize,
 ) -> Option<(Vec<u8>, Vec<bool>)> {
+    let to_nodes = nodes_in_tree_of_height(to_height);
+
     let mut bytes = vec![0; to_nodes * HASHSIZE];
     let mut flags = vec![true; to_nodes];
 
     for i in 0..=to_height as usize {
-        let from_i = i + from_height - to_height;
+        let offset = i + from_height - to_height;
+        let from_byte_slice = from_bytes.get(byte_range_at_height(offset))?;
+        let from_flag_slice = from_flags.get(node_range_at_height(offset))?;
 
-        let (from_byte_slice, from_flag_slice) = if from_i == from_height {
-            (
-                from_bytes.get(first_byte_at_height(from_i)..)?,
-                from_flags.get(first_node_at_height(from_i)..)?,
-            )
-        } else {
-            (
-                from_bytes.get(byte_range_at_height(from_i))?,
-                from_flags.get(node_range_at_height(from_i))?,
-            )
-        };
+        let to_byte_slice = bytes.get_mut(byte_range_at_height(i))?;
+        let to_flag_slice = flags.get_mut(node_range_at_height(i))?;
 
-        let (to_byte_slice, to_flag_slice) = if i == to_height {
-            (
-                bytes.get_mut(first_byte_at_height(i)..)?,
-                flags.get_mut(first_node_at_height(i)..)?,
-            )
-        } else {
-            (
-                bytes.get_mut(byte_range_at_height(i))?,
-                flags.get_mut(node_range_at_height(i))?,
-            )
-        };
-
-        let num_bytes = min(from_byte_slice.len(), to_byte_slice.len());
-        let num_flags = min(from_flag_slice.len(), to_flag_slice.len());
-
-        to_byte_slice
-            .get_mut(0..num_bytes)?
-            .copy_from_slice(from_byte_slice.get(0..num_bytes)?);
-        to_flag_slice
-            .get_mut(0..num_flags)?
-            .copy_from_slice(from_flag_slice.get(0..num_flags)?);
+        to_byte_slice.copy_from_slice(from_byte_slice.get(0..to_byte_slice.len())?);
+        to_flag_slice.copy_from_slice(from_flag_slice.get(0..to_flag_slice.len())?);
     }
 
     Some((bytes, flags))
 }
 
-fn nodes_in_tree_of_height(h: usize) -> usize {
+pub fn nodes_in_tree_of_height(h: usize) -> usize {
     2 * (1 << h) - 1
 }
 
@@ -126,10 +69,6 @@ fn byte_range_at_height(h: usize) -> Range<usize> {
 
 fn node_range_at_height(h: usize) -> Range<usize> {
     first_node_at_height(h)..last_node_at_height(h) + 1
-}
-
-fn first_byte_at_height(h: usize) -> usize {
-    first_node_at_height(h) * HASHSIZE
 }
 
 fn first_node_at_height(h: usize) -> usize {
@@ -152,7 +91,7 @@ mod test {
         let original_bytes = vec![42; small * HASHSIZE];
         let original_flags = vec![false; small];
 
-        let (grown_bytes, grown_flags) = grow_merkle_cache(
+        let (grown_bytes, grown_flags) = grow_merkle_tree(
             &original_bytes,
             &original_flags,
             (small + 1).trailing_zeros() as usize - 1,
@@ -200,12 +139,11 @@ mod test {
         assert_eq!(expected_bytes, grown_bytes);
         assert_eq!(expected_flags, grown_flags);
 
-        let (shrunk_bytes, shrunk_flags) = shrink_merkle_cache(
+        let (shrunk_bytes, shrunk_flags) = shrink_merkle_tree(
             &grown_bytes,
             &grown_flags,
             (big + 1).trailing_zeros() as usize - 1,
             (small + 1).trailing_zeros() as usize - 1,
-            small,
         )
         .unwrap();
 
@@ -221,7 +159,7 @@ mod test {
         let original_bytes = vec![42; small * HASHSIZE];
         let original_flags = vec![false; small];
 
-        let (grown_bytes, grown_flags) = grow_merkle_cache(
+        let (grown_bytes, grown_flags) = grow_merkle_tree(
             &original_bytes,
             &original_flags,
             (small + 1).trailing_zeros() as usize - 1,
@@ -269,12 +207,11 @@ mod test {
         assert_eq!(expected_bytes, grown_bytes);
         assert_eq!(expected_flags, grown_flags);
 
-        let (shrunk_bytes, shrunk_flags) = shrink_merkle_cache(
+        let (shrunk_bytes, shrunk_flags) = shrink_merkle_tree(
             &grown_bytes,
             &grown_flags,
             (big + 1).trailing_zeros() as usize - 1,
             (small + 1).trailing_zeros() as usize - 1,
-            small,
         )
         .unwrap();
 

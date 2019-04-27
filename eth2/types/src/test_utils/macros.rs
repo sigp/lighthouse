@@ -56,11 +56,6 @@ macro_rules! cached_tree_hash_tests {
             // Test the updated hash
             let modified = $type::random_for_test(&mut rng);
             hasher.update(&modified).unwrap();
-            dbg!(&hasher.cache.chunk_modified);
-            dbg!(hasher.cache.chunk_modified.len());
-            dbg!(hasher.cache.chunk_index);
-            dbg!(hasher.cache.schemas.len());
-            dbg!(hasher.cache.schema_index);
             assert_eq!(
                 hasher.tree_hash_root().unwrap(),
                 modified.tree_hash_root(),
