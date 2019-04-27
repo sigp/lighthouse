@@ -1,4 +1,5 @@
 use super::*;
+use crate::btree_overlay::LeafNode;
 use crate::merkleize::{merkleize, num_sanitized_leaves, sanitise_bytes};
 
 impl<T> CachedTreeHash<Vec<T>> for Vec<T>
@@ -104,7 +105,24 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
             let mut buf = vec![0; HASHSIZE];
             let item_bytes = HASHSIZE / T::tree_hash_packing_factor();
 
-            // Iterate through each of the leaf nodes.
+            // If the number of leaf nodes has changed, resize the cache.
+            if new_overlay.num_leaf_nodes() < old_overlay.num_leaf_nodes() {
+                let start = new_overlay.next_node();
+                let end = start + (old_overlay.num_leaf_nodes() - new_overlay.num_leaf_nodes());
+
+                cache.splice(start..end, vec![], vec![]);
+            } else if new_overlay.num_leaf_nodes() > old_overlay.num_leaf_nodes() {
+                let start = old_overlay.next_node();
+                let new_nodes = new_overlay.num_leaf_nodes() - old_overlay.num_leaf_nodes();
+
+                cache.splice(
+                    start..start,
+                    vec![0; new_nodes * HASHSIZE],
+                    vec![true; new_nodes],
+                );
+            }
+
+            // Iterate through each of the leaf nodes in the new list.
             for i in 0..new_overlay.num_leaf_nodes() {
                 // Iterate through the number of items that may be packing into the leaf node.
                 for j in 0..T::tree_hash_packing_factor() {
@@ -129,85 +147,92 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
             }
         }
         TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
-            for i in 0..new_overlay.num_leaf_nodes() {
-                // Adjust `i` so it is a leaf node for each of the overlays.
-                let old_i = i + old_overlay.num_internal_nodes();
-                let new_i = i + new_overlay.num_internal_nodes();
-
+            for i in 0..std::cmp::max(new_overlay.num_leaf_nodes(), old_overlay.num_leaf_nodes()) {
                 match (
-                    old_overlay.get_leaf_node(old_i)?,
-                    new_overlay.get_leaf_node(new_i)?,
+                    old_overlay.get_leaf_node(i + old_overlay.num_internal_nodes())?,
+                    new_overlay.get_leaf_node(i + new_overlay.num_internal_nodes())?,
                 ) {
                     // The item existed in the previous list and exists in the current list.
-                    (Some(_old), Some(new)) => {
+                    //
+                    // Update the item.
+                    (LeafNode::Exists(_old), LeafNode::Exists(new)) => {
                         cache.chunk_index = new.start;
 
                         vec[i].update_tree_hash_cache(cache)?;
                     }
-                    // The item did not exist in the previous list but does exist in this list.
+                    // The list has been lengthened and this is a new item that did not exist in
+                    // the previous list.
                     //
-                    // Viz., the list has been lengthened.
-                    (None, Some(new)) => {
-                        let (bytes, mut bools, schemas) =
-                            TreeHashCache::new(&vec[i], new_overlay.depth + 1)?.into_components();
+                    // Splice the tree for the new item into the current chunk_index.
+                    (LeafNode::DoesNotExist, LeafNode::Exists(new)) => {
+                        splice_in_new_tree(&vec[i], new.start..new.start, new_overlay.depth + 1, cache)?;
 
-                        // Record the number of schemas, this will be used later in the fn.
-                        let num_schemas = schemas.len();
-
-                        // Flag the root node of the new tree as dirty.
-                        bools[0] = true;
-
-                        cache.splice(new.start..new.start + 1, bytes, bools);
-                        cache
-                            .schemas
-                            .splice(cache.schema_index..cache.schema_index, schemas);
-
-                        cache.schema_index += num_schemas;
+                        cache.chunk_index = new.end;
                     }
-                    // The item existed in the previous list but does not exist in this list.
+                    // The list has been lengthened and this is a new item that was prevously a
+                    // padding item.
                     //
-                    // Viz., the list has been shortened.
-                    (Some(old), None) => {
-                        if vec.len() == 0 {
-                            // In this case, the list has been made empty and we should make
-                            // this node padding.
-                            cache.maybe_update_chunk(new_overlay.root(), &[0; HASHSIZE])?;
-                        } else {
-                            let old_internal_nodes = old_overlay.num_internal_nodes();
-                            let new_internal_nodes = new_overlay.num_internal_nodes();
+                    // Splice the tree for the new item over the padding chunk.
+                    (LeafNode::Padding, LeafNode::Exists(new)) => {
+                        splice_in_new_tree(&vec[i], new.start..new.start + 1, new_overlay.depth + 1, cache)?;
 
-                            // If the number of internal nodes have shifted between the two
-                            // overlays, the range for this node needs to be shifted to suit the
-                            // new overlay.
-                            let old = if old_internal_nodes > new_internal_nodes {
-                                let offset = old_internal_nodes - new_internal_nodes;
-
-                                old.start - offset..old.end - offset
-                            } else if old_internal_nodes < new_internal_nodes {
-                                let offset = new_internal_nodes - old_internal_nodes;
-
-                                old.start + offset..old.end + offset
-                            } else {
-                                old.start..old.end
-                            };
-
-                            // If there are still some old bytes left-over from this item, replace
-                            // them with a padding chunk.
-                            if old.start < new_overlay.chunk_range().end {
-                                let start_chunk = old.start;
-                                let end_chunk =
-                                    std::cmp::min(old.end, new_overlay.chunk_range().end);
-
-                                // In this case, there are some items in the new list and we should
-                                // splice out the entire tree of the removed node, replacing it
-                                // with a single padding node.
-                                cache.splice(start_chunk..end_chunk, vec![0; HASHSIZE], vec![true]);
-                            }
-                        }
+                        cache.chunk_index = new.end;
                     }
-                    // The item didn't exist in the old list and doesn't exist in the new list,
-                    // nothing to do.
-                    (None, None) => {}
+                    // The list has been shortened and this item was removed from the list and made
+                    // into padding.
+                    //
+                    // Splice a padding node over the number of nodes the previous item occupied,
+                    // starting at the current chunk_index.
+                    (LeafNode::Exists(old), LeafNode::Padding) => {
+                        let num_chunks = old.end - old.start;
+
+                        cache.splice(
+                            cache.chunk_index..cache.chunk_index + num_chunks,
+                            vec![0; HASHSIZE],
+                            vec![true],
+                        );
+
+                        cache.chunk_index += 1;
+                    }
+                    // The list has been shortened and the item for this leaf existed in the
+                    // previous list, but does not exist in this list.
+                    //
+                    // Remove the number of nodes the previous item occupied, starting at the
+                    // current chunk_index.
+                    (LeafNode::Exists(old), LeafNode::DoesNotExist) => {
+                        let num_chunks = old.end - old.start;
+
+                        cache.splice(
+                            cache.chunk_index..cache.chunk_index + num_chunks,
+                            vec![],
+                            vec![],
+                        );
+                    }
+                    // The list has been shortened and this leaf was padding in the previous list,
+                    // however it should not exist in this list.
+                    //
+                    // Remove one node, starting at the current `chunk_index`.
+                    (LeafNode::Padding, LeafNode::DoesNotExist) => {
+                        cache.splice(cache.chunk_index..cache.chunk_index + 1, vec![], vec![]);
+                    }
+                    // The list has been lengthened and this leaf did not exist in the previous
+                    // list, but should be padding for this list.
+                    //
+                    // Splice in a new padding node at the current chunk_index.
+                    (LeafNode::DoesNotExist, LeafNode::Padding) => {
+                        cache.splice(
+                            cache.chunk_index..cache.chunk_index,
+                            vec![0; HASHSIZE],
+                            vec![true],
+                        );
+
+                        cache.chunk_index += 1;
+                    }
+                    // This leaf was padding in both lists, there's nothing to do.
+                    (LeafNode::Padding, LeafNode::Padding) => (),
+                    // As we are looping through the larger of the lists of leaf nodes, it should
+                    // be impossible for either leaf to be non-existant.
+                    (LeafNode::DoesNotExist, LeafNode::DoesNotExist) => unreachable!(),
                 }
             }
 
@@ -222,6 +247,34 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
     cache.chunk_index = new_overlay.next_node();
 
     Ok(new_overlay)
+}
+
+fn splice_in_new_tree<T>(
+    item: &T,
+    chunks_to_replace: Range<usize>,
+    depth: usize,
+    cache: &mut TreeHashCache,
+) -> Result<(), Error>
+where T: CachedTreeHash<T>
+{
+    let (bytes, mut bools, schemas) =
+        TreeHashCache::new(item, depth)?.into_components();
+
+    // Record the number of schemas, this will be used later in the fn.
+    let num_schemas = schemas.len();
+
+    // Flag the root node of the new tree as dirty.
+    bools[0] = true;
+
+    cache.splice(chunks_to_replace, bytes, bools);
+    cache
+        .schemas
+        .splice(cache.schema_index..cache.schema_index, schemas);
+
+    cache.schema_index += num_schemas;
+
+    Ok(())
+    //
 }
 
 fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
