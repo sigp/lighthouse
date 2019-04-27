@@ -1,7 +1,7 @@
 use self::epoch_cache::{get_active_validator_indices, EpochCache, Error as EpochCacheError};
 use crate::test_utils::TestRandom;
 use crate::*;
-use cached_tree_hash::{TreeHashCache, Error as TreeHashCacheError};
+use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use int_to_bytes::int_to_bytes32;
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
@@ -827,7 +827,8 @@ impl BeaconState {
     /// Returns an error if the cache is not initialized or if an error is encountered during the
     /// cache update.
     pub fn cached_tree_hash_root(&self) -> Result<Hash256, Error> {
-        self.tree_hash_cache.root()
+        self.tree_hash_cache
+            .root()
             .and_then(|b| Ok(Hash256::from_slice(b)))
             .map_err(|e| e.into())
     }

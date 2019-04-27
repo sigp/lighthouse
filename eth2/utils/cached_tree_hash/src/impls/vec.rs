@@ -165,7 +165,12 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
                     //
                     // Splice the tree for the new item into the current chunk_index.
                     (LeafNode::DoesNotExist, LeafNode::Exists(new)) => {
-                        splice_in_new_tree(&vec[i], new.start..new.start, new_overlay.depth + 1, cache)?;
+                        splice_in_new_tree(
+                            &vec[i],
+                            new.start..new.start,
+                            new_overlay.depth + 1,
+                            cache,
+                        )?;
 
                         cache.chunk_index = new.end;
                     }
@@ -174,7 +179,12 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
                     //
                     // Splice the tree for the new item over the padding chunk.
                     (LeafNode::Padding, LeafNode::Exists(new)) => {
-                        splice_in_new_tree(&vec[i], new.start..new.start + 1, new_overlay.depth + 1, cache)?;
+                        splice_in_new_tree(
+                            &vec[i],
+                            new.start..new.start + 1,
+                            new_overlay.depth + 1,
+                            cache,
+                        )?;
 
                         cache.chunk_index = new.end;
                     }
@@ -255,10 +265,10 @@ fn splice_in_new_tree<T>(
     depth: usize,
     cache: &mut TreeHashCache,
 ) -> Result<(), Error>
-where T: CachedTreeHash<T>
+where
+    T: CachedTreeHash<T>,
 {
-    let (bytes, mut bools, schemas) =
-        TreeHashCache::new(item, depth)?.into_components();
+    let (bytes, mut bools, schemas) = TreeHashCache::new(item, depth)?.into_components();
 
     // Record the number of schemas, this will be used later in the fn.
     let num_schemas = schemas.len();
