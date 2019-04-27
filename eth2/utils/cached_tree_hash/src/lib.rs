@@ -45,17 +45,7 @@ impl CachedTreeHasher {
     where
         T: CachedTreeHash<T>,
     {
-        // Reset the per-hash counters.
-        self.cache.chunk_index = 0;
-        self.cache.schema_index = 0;
-
-        // Reset the "modified" flags for the cache.
-        self.cache.reset_modifications();
-
-        // Update the cache with the (maybe) changed object.
-        item.update_tree_hash_cache(&mut self.cache)?;
-
-        Ok(())
+        self.cache.update(item)
     }
 
     pub fn tree_hash_root(&self) -> Result<Vec<u8>, Error> {
