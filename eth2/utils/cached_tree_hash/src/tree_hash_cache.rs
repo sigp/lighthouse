@@ -12,6 +12,18 @@ pub struct TreeHashCache {
     pub schema_index: usize,
 }
 
+impl Default for TreeHashCache {
+    fn default() -> TreeHashCache {
+        TreeHashCache {
+            cache: vec![],
+            chunk_modified: vec![],
+            schemas: vec![],
+            chunk_index: 0,
+            schema_index: 0,
+        }
+    }
+}
+
 impl Into<Vec<u8>> for TreeHashCache {
     fn into(self) -> Vec<u8> {
         self.cache
@@ -24,6 +36,24 @@ impl TreeHashCache {
         T: CachedTreeHash<T>,
     {
         item.new_tree_hash_cache(depth)
+    }
+
+    pub fn update<T>(&mut self, item: &T) -> Result<(), Error>
+    where
+        T: CachedTreeHash<T>,
+    {
+        if self.is_empty() {
+            Err(Error::CacheNotInitialized)
+        } else {
+            // Reset the per-hash counters.
+            self.chunk_index = 0;
+            self.schema_index = 0;
+
+            // Reset the "modified" flags for the cache.
+            self.reset_modifications();
+
+            item.update_tree_hash_cache(self)
+        }
     }
 
     pub fn from_leaves_and_subtrees<T>(
@@ -106,6 +136,10 @@ impl TreeHashCache {
             chunk_index: 0,
             schema_index: 0,
         })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.chunk_modified.is_empty()
     }
 
     pub fn get_overlay(
@@ -210,9 +244,13 @@ impl TreeHashCache {
     }
 
     pub fn root(&self) -> Result<&[u8], Error> {
-        self.cache
-            .get(0..HASHSIZE)
-            .ok_or_else(|| Error::NoBytesForRoot)
+        if self.is_empty() {
+            Err(Error::CacheNotInitialized)
+        } else {
+            self.cache
+                .get(0..HASHSIZE)
+                .ok_or_else(|| Error::NoBytesForRoot)
+        }
     }
 
     pub fn splice(&mut self, chunk_range: Range<usize>, bytes: Vec<u8>, bools: Vec<bool>) {

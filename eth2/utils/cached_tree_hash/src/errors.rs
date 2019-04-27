@@ -9,6 +9,7 @@ pub enum Error {
     UnableToGrowMerkleTree,
     UnableToShrinkMerkleTree,
     TreeCannotHaveZeroNodes,
+    CacheNotInitialized,
     ShouldNeverBePacked(TreeHashType),
     BytesAreNotEvenChunks(usize),
     NoModifiedFieldForChunk(usize),
