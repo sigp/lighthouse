@@ -37,7 +37,6 @@ pub struct BTreeOverlay {
     offset: usize,
     pub depth: usize,
     lengths: Vec<usize>,
-    leaf_nodes: Vec<LeafNode>,
 }
 
 impl BTreeOverlay {
@@ -49,11 +48,17 @@ impl BTreeOverlay {
     }
 
     pub fn from_schema(schema: BTreeSchema, offset: usize) -> Self {
-        let num_leaf_nodes = schema.lengths.len().next_power_of_two();
-        let num_internal_nodes = num_leaf_nodes - 1;
+        Self {
+            offset,
+            depth: schema.depth,
+            lengths: schema.lengths,
+        }
+    }
 
-        let mut running_offset = offset + num_internal_nodes;
-        let leaf_nodes: Vec<LeafNode> = schema
+    pub fn get_leaf_nodes(&self, n: usize) -> Vec<LeafNode> {
+        let mut running_offset = self.offset + self.num_internal_nodes();
+
+        let mut leaf_nodes: Vec<LeafNode> = self
             .lengths
             .iter()
             .map(|length| {
@@ -63,12 +68,10 @@ impl BTreeOverlay {
             })
             .collect();
 
-        Self {
-            offset,
-            depth: schema.depth,
-            lengths: schema.lengths,
-            leaf_nodes,
-        }
+        leaf_nodes.resize(self.num_leaf_nodes(), LeafNode::Padding);
+        leaf_nodes.resize(n, LeafNode::DoesNotExist);
+
+        leaf_nodes
     }
 
     pub fn num_leaf_nodes(&self) -> usize {
@@ -126,28 +129,6 @@ impl BTreeOverlay {
 
     pub fn first_leaf_node(&self) -> usize {
         self.offset + self.num_internal_nodes()
-    }
-
-    /// Returns the chunk-range for a given leaf node.
-    ///
-    /// Returns `None` if:
-    ///     - The specified node is internal.
-    ///     - The specified node is padding.
-    ///     - The specified node is OOB of the tree.
-    pub fn get_leaf_node(&self, i: usize) -> Result<LeafNode, Error> {
-        if i >= self.num_nodes() {
-            Ok(LeafNode::DoesNotExist)
-        } else if i >= self.num_nodes() - self.num_padding_leaves() {
-            Ok(LeafNode::Padding)
-        } else if (i == self.num_internal_nodes()) && (self.lengths.len() == 0) {
-            // If this is the first leaf node and the overlay contains zero items, return `None` as
-            // this node must be padding.
-            Ok(LeafNode::Padding)
-        } else {
-            let i = i - self.num_internal_nodes();
-
-            Ok(self.leaf_nodes[i].clone())
-        }
     }
 
     pub fn child_chunks(&self, parent: usize) -> (usize, usize) {
@@ -263,33 +244,38 @@ mod test {
     #[test]
     fn get_leaf_node() {
         let tree = get_tree_a(4);
+        let leaves = tree.get_leaf_nodes(5);
 
-        assert_eq!(tree.get_leaf_node(3), Ok(LeafNode::Exists(3..4)));
-        assert_eq!(tree.get_leaf_node(4), Ok(LeafNode::Exists(4..5)));
-        assert_eq!(tree.get_leaf_node(5), Ok(LeafNode::Exists(5..6)));
-        assert_eq!(tree.get_leaf_node(6), Ok(LeafNode::Exists(6..7)));
-        assert_eq!(tree.get_leaf_node(7), Ok(LeafNode::DoesNotExist));
+        assert_eq!(leaves[0], LeafNode::Exists(3..4));
+        assert_eq!(leaves[1], LeafNode::Exists(4..5));
+        assert_eq!(leaves[2], LeafNode::Exists(5..6));
+        assert_eq!(leaves[3], LeafNode::Exists(6..7));
+        assert_eq!(leaves[4], LeafNode::DoesNotExist);
 
         let tree = get_tree_a(3);
+        let leaves = tree.get_leaf_nodes(5);
 
-        assert_eq!(tree.get_leaf_node(3), Ok(LeafNode::Exists(3..4)));
-        assert_eq!(tree.get_leaf_node(4), Ok(LeafNode::Exists(4..5)));
-        assert_eq!(tree.get_leaf_node(5), Ok(LeafNode::Exists(5..6)));
-        assert_eq!(tree.get_leaf_node(6), Ok(LeafNode::Padding));
-        assert_eq!(tree.get_leaf_node(7), Ok(LeafNode::DoesNotExist));
+        assert_eq!(leaves[0], LeafNode::Exists(3..4));
+        assert_eq!(leaves[1], LeafNode::Exists(4..5));
+        assert_eq!(leaves[2], LeafNode::Exists(5..6));
+        assert_eq!(leaves[3], LeafNode::Padding);
+        assert_eq!(leaves[4], LeafNode::DoesNotExist);
 
         let tree = get_tree_a(0);
+        let leaves = tree.get_leaf_nodes(2);
 
-        assert_eq!(tree.get_leaf_node(0), Ok(LeafNode::Padding));
-        assert_eq!(tree.get_leaf_node(1), Ok(LeafNode::DoesNotExist));
+        assert_eq!(leaves[0], LeafNode::Padding);
+        assert_eq!(leaves[1], LeafNode::DoesNotExist);
 
         let tree = BTreeSchema::from_lengths(0, vec![3]).into_overlay(0);
-        assert_eq!(tree.get_leaf_node(0), Ok(LeafNode::Exists(0..3)));
-        assert_eq!(tree.get_leaf_node(1), Ok(LeafNode::DoesNotExist));
+        let leaves = tree.get_leaf_nodes(2);
+        assert_eq!(leaves[0], LeafNode::Exists(0..3));
+        assert_eq!(leaves[1], LeafNode::DoesNotExist);
 
         let tree = BTreeSchema::from_lengths(0, vec![3]).into_overlay(10);
-        assert_eq!(tree.get_leaf_node(0), Ok(LeafNode::Exists(10..13)));
-        assert_eq!(tree.get_leaf_node(1), Ok(LeafNode::DoesNotExist));
+        let leaves = tree.get_leaf_nodes(2);
+        assert_eq!(leaves[0], LeafNode::Exists(10..13));
+        assert_eq!(leaves[1], LeafNode::DoesNotExist);
     }
 
     #[test]

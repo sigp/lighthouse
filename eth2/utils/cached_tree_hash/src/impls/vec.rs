@@ -147,11 +147,18 @@ pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
             }
         }
         TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
-            for i in 0..std::cmp::max(new_overlay.num_leaf_nodes(), old_overlay.num_leaf_nodes()) {
-                match (
-                    old_overlay.get_leaf_node(i + old_overlay.num_internal_nodes())?,
-                    new_overlay.get_leaf_node(i + new_overlay.num_internal_nodes())?,
-                ) {
+            let longest_len =
+                std::cmp::max(new_overlay.num_leaf_nodes(), old_overlay.num_leaf_nodes());
+
+            let old_leaf_nodes = old_overlay.get_leaf_nodes(longest_len);
+            let new_leaf_nodes = if old_overlay == new_overlay {
+                old_leaf_nodes.clone()
+            } else {
+                new_overlay.get_leaf_nodes(longest_len)
+            };
+
+            for i in 0..longest_len {
+                match (&old_leaf_nodes[i], &new_leaf_nodes[i]) {
                     // The item existed in the previous list and exists in the current list.
                     //
                     // Update the item.
