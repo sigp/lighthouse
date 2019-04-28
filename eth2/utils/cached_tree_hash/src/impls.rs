@@ -6,7 +6,7 @@ pub mod vec;
 
 macro_rules! impl_for_single_leaf_int {
     ($type: ident) => {
-        impl CachedTreeHash<$type> for $type {
+        impl CachedTreeHash for $type {
             fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
                 Ok(TreeHashCache::from_bytes(
                     merkleize(self.to_le_bytes().to_vec()),
@@ -37,7 +37,7 @@ impl_for_single_leaf_int!(u32);
 impl_for_single_leaf_int!(u64);
 impl_for_single_leaf_int!(usize);
 
-impl CachedTreeHash<bool> for bool {
+impl CachedTreeHash for bool {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
             merkleize((*self as u8).to_le_bytes().to_vec()),
@@ -60,7 +60,7 @@ impl CachedTreeHash<bool> for bool {
     }
 }
 
-impl CachedTreeHash<[u8; 4]> for [u8; 4] {
+impl CachedTreeHash for [u8; 4] {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
             merkleize(self.to_vec()),
@@ -83,7 +83,7 @@ impl CachedTreeHash<[u8; 4]> for [u8; 4] {
     }
 }
 
-impl CachedTreeHash<H256> for H256 {
+impl CachedTreeHash for H256 {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
             self.as_bytes().to_vec(),

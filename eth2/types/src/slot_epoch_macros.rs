@@ -224,7 +224,7 @@ macro_rules! impl_ssz {
             }
         }
 
-        impl cached_tree_hash::CachedTreeHash<$type> for $type {
+        impl cached_tree_hash::CachedTreeHash for $type {
             fn new_tree_hash_cache(
                 &self,
                 depth: usize,

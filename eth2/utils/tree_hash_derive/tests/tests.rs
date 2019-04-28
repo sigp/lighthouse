@@ -10,10 +10,7 @@ pub struct Inner {
     pub d: u64,
 }
 
-fn test_standard_and_cached<T>(original: &T, modified: &T)
-where
-    T: CachedTreeHash<T>,
-{
+fn test_standard_and_cached<T: CachedTreeHash>(original: &T, modified: &T) {
     // let mut cache = original.new_tree_hash_cache().unwrap();
     let mut hasher = CachedTreeHasher::new(original).unwrap();
 

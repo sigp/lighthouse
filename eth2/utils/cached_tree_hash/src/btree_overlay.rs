@@ -42,7 +42,7 @@ pub struct BTreeOverlay {
 impl BTreeOverlay {
     pub fn new<T>(item: &T, initial_offset: usize, depth: usize) -> Self
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHash,
     {
         Self::from_schema(item.tree_hash_cache_schema(depth), initial_offset)
     }

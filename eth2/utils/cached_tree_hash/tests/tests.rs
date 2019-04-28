@@ -34,7 +34,7 @@ pub struct NestedStruct {
 
 fn test_routine<T>(original: T, modified: Vec<T>)
 where
-    T: CachedTreeHash<T> + std::fmt::Debug,
+    T: CachedTreeHash + std::fmt::Debug,
 {
     let mut hasher = CachedTreeHasher::new(&original).unwrap();
 
