@@ -24,7 +24,8 @@ pub fn per_slot_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<
 }
 
 fn cache_state(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
-    let previous_slot_state_root = Hash256::from_slice(&state.tree_hash_root()[..]);
+    // let previous_slot_state_root = Hash256::from_slice(&state.tree_hash_root()[..]);
+    let previous_slot_state_root = state.update_tree_hash_cache()?;
 
     // Note: increment the state slot here to allow use of our `state_root` and `block_root`
     // getter/setter functions.
