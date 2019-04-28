@@ -55,9 +55,9 @@ where
     }
 }
 
-impl<T> CachedTreeHash<TreeHashVector<T>> for TreeHashVector<T>
+impl<T> CachedTreeHash for TreeHashVector<T>
 where
-    T: CachedTreeHash<T> + TreeHash,
+    T: CachedTreeHash + TreeHash,
 {
     fn new_tree_hash_cache(
         &self,

@@ -1,5 +1,4 @@
 use hashing::hash;
-use merkleize::num_unsanitized_leaves;
 use std::ops::Range;
 use tree_hash::{TreeHash, TreeHashType, BYTES_PER_CHUNK, HASHSIZE};
 
@@ -14,7 +13,7 @@ pub use btree_overlay::{BTreeOverlay, BTreeSchema};
 pub use errors::Error;
 pub use tree_hash_cache::TreeHashCache;
 
-pub trait CachedTreeHash<Item>: TreeHash {
+pub trait CachedTreeHash: TreeHash {
     fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema;
 
     fn num_tree_hash_cache_chunks(&self) -> usize {
@@ -34,7 +33,7 @@ pub struct CachedTreeHasher {
 impl CachedTreeHasher {
     pub fn new<T>(item: &T) -> Result<Self, Error>
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHash,
     {
         Ok(Self {
             cache: TreeHashCache::new(item, 0)?,
@@ -43,7 +42,7 @@ impl CachedTreeHasher {
 
     pub fn update<T>(&mut self, item: &T) -> Result<(), Error>
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHash,
     {
         self.cache.update(item)
     }
@@ -57,7 +56,7 @@ impl CachedTreeHasher {
 #[macro_export]
 macro_rules! cached_tree_hash_ssz_encoding_as_vector {
     ($type: ident, $num_bytes: expr) => {
-        impl cached_tree_hash::CachedTreeHash<$type> for $type {
+        impl cached_tree_hash::CachedTreeHash for $type {
             fn new_tree_hash_cache(
                 &self,
                 depth: usize,
@@ -94,7 +93,7 @@ macro_rules! cached_tree_hash_ssz_encoding_as_vector {
 #[macro_export]
 macro_rules! cached_tree_hash_bytes_as_list {
     ($type: ident) => {
-        impl cached_tree_hash::CachedTreeHash<$type> for $type {
+        impl cached_tree_hash::CachedTreeHash for $type {
             fn new_tree_hash_cache(
                 &self,
                 depth: usize,

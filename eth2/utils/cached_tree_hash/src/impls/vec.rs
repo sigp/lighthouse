@@ -2,9 +2,9 @@ use super::*;
 use crate::btree_overlay::LeafNode;
 use crate::merkleize::{merkleize, num_sanitized_leaves, sanitise_bytes};
 
-impl<T> CachedTreeHash<Vec<T>> for Vec<T>
+impl<T> CachedTreeHash for Vec<T>
 where
-    T: CachedTreeHash<T> + TreeHash,
+    T: CachedTreeHash + TreeHash,
 {
     fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error> {
         let (mut cache, schema) = new_tree_hash_cache(self, depth)?;
@@ -40,7 +40,7 @@ where
     }
 }
 
-pub fn new_tree_hash_cache<T: CachedTreeHash<T>>(
+pub fn new_tree_hash_cache<T: CachedTreeHash>(
     vec: &Vec<T>,
     depth: usize,
 ) -> Result<(TreeHashCache, BTreeSchema), Error> {
@@ -65,7 +65,7 @@ pub fn new_tree_hash_cache<T: CachedTreeHash<T>>(
     Ok((cache, schema))
 }
 
-pub fn produce_schema<T: CachedTreeHash<T>>(vec: &Vec<T>, depth: usize) -> BTreeSchema {
+pub fn produce_schema<T: CachedTreeHash>(vec: &Vec<T>, depth: usize) -> BTreeSchema {
     let lengths = match T::tree_hash_type() {
         TreeHashType::Basic => {
             // Ceil division.
@@ -89,7 +89,7 @@ pub fn produce_schema<T: CachedTreeHash<T>>(vec: &Vec<T>, depth: usize) -> BTree
     BTreeSchema::from_lengths(depth, lengths)
 }
 
-pub fn update_tree_hash_cache<T: CachedTreeHash<T>>(
+pub fn update_tree_hash_cache<T: CachedTreeHash>(
     vec: &Vec<T>,
     cache: &mut TreeHashCache,
 ) -> Result<BTreeOverlay, Error> {
@@ -273,7 +273,7 @@ fn splice_in_new_tree<T>(
     cache: &mut TreeHashCache,
 ) -> Result<(), Error>
 where
-    T: CachedTreeHash<T>,
+    T: CachedTreeHash,
 {
     let (bytes, mut bools, schemas) = TreeHashCache::new(item, depth)?.into_components();
 
@@ -296,7 +296,7 @@ where
 
 fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
 where
-    T: CachedTreeHash<T>,
+    T: CachedTreeHash,
 {
     let num_packed_bytes = (BYTES_PER_CHUNK / T::tree_hash_packing_factor()) * vec.len();
     let num_leaves = num_sanitized_leaves(num_packed_bytes);

@@ -33,14 +33,14 @@ impl Into<Vec<u8>> for TreeHashCache {
 impl TreeHashCache {
     pub fn new<T>(item: &T, depth: usize) -> Result<Self, Error>
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHash,
     {
         item.new_tree_hash_cache(depth)
     }
 
     pub fn update<T>(&mut self, item: &T) -> Result<(), Error>
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHash,
     {
         if self.is_empty() {
             Err(Error::CacheNotInitialized)
@@ -62,7 +62,7 @@ impl TreeHashCache {
         depth: usize,
     ) -> Result<Self, Error>
     where
-        T: CachedTreeHash<T>,
+        T: CachedTreeHash,
     {
         let overlay = BTreeOverlay::new(item, 0, depth);
 
