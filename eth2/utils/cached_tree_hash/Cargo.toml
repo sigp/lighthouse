@@ -4,7 +4,15 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[profile.release]
+debug = true
+
+[[bench]]
+name = "benches"
+harness = false
+
 [dev-dependencies]
+criterion = "0.2"
 tree_hash_derive = { path = "../tree_hash_derive" }
 
 [dependencies]
