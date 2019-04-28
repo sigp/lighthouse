@@ -12,11 +12,7 @@ impl BTreeSchema {
     }
 
     pub fn into_overlay(self, offset: usize) -> BTreeOverlay {
-        BTreeOverlay {
-            offset,
-            depth: self.depth,
-            lengths: self.lengths,
-        }
+        BTreeOverlay::from_schema(self, offset)
     }
 }
 
@@ -41,6 +37,7 @@ pub struct BTreeOverlay {
     offset: usize,
     pub depth: usize,
     lengths: Vec<usize>,
+    leaf_nodes: Vec<LeafNode>,
 }
 
 impl BTreeOverlay {
@@ -48,8 +45,30 @@ impl BTreeOverlay {
     where
         T: CachedTreeHash<T>,
     {
-        item.tree_hash_cache_schema(depth)
-            .into_overlay(initial_offset)
+        Self::from_schema(item.tree_hash_cache_schema(depth), initial_offset)
+    }
+
+    pub fn from_schema(schema: BTreeSchema, offset: usize) -> Self {
+        let num_leaf_nodes = schema.lengths.len().next_power_of_two();
+        let num_internal_nodes = num_leaf_nodes - 1;
+
+        let mut running_offset = offset + num_internal_nodes;
+        let leaf_nodes: Vec<LeafNode> = schema
+            .lengths
+            .iter()
+            .map(|length| {
+                let range = running_offset..running_offset + length;
+                running_offset += length;
+                LeafNode::Exists(range)
+            })
+            .collect();
+
+        Self {
+            offset,
+            depth: schema.depth,
+            lengths: schema.lengths,
+            leaf_nodes,
+        }
     }
 
     pub fn num_leaf_nodes(&self) -> usize {
@@ -127,12 +146,7 @@ impl BTreeOverlay {
         } else {
             let i = i - self.num_internal_nodes();
 
-            let first_node = self.offset
-                + self.num_internal_nodes()
-                + self.lengths.iter().take(i).sum::<usize>();
-            let last_node = first_node + self.lengths[i];
-
-            Ok(LeafNode::Exists(first_node..last_node))
+            Ok(self.leaf_nodes[i].clone())
         }
     }
 
@@ -271,6 +285,10 @@ mod test {
 
         let tree = BTreeSchema::from_lengths(0, vec![3]).into_overlay(0);
         assert_eq!(tree.get_leaf_node(0), Ok(LeafNode::Exists(0..3)));
+        assert_eq!(tree.get_leaf_node(1), Ok(LeafNode::DoesNotExist));
+
+        let tree = BTreeSchema::from_lengths(0, vec![3]).into_overlay(10);
+        assert_eq!(tree.get_leaf_node(0), Ok(LeafNode::Exists(10..13)));
         assert_eq!(tree.get_leaf_node(1), Ok(LeafNode::DoesNotExist));
     }
 
