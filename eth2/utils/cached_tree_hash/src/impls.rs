@@ -86,10 +86,14 @@ impl CachedTreeHash<[u8; 4]> for [u8; 4] {
 impl CachedTreeHash<H256> for H256 {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
         Ok(TreeHashCache::from_bytes(
-            merkleize(self.as_bytes().to_vec()),
+            self.as_bytes().to_vec(),
             false,
             None,
         )?)
+    }
+
+    fn num_tree_hash_cache_chunks(&self) -> usize {
+        1
     }
 
     fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
@@ -97,8 +101,7 @@ impl CachedTreeHash<H256> for H256 {
     }
 
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
-        let leaf = merkleize(self.as_bytes().to_vec());
-        cache.maybe_update_chunk(cache.chunk_index, &leaf)?;
+        cache.maybe_update_chunk(cache.chunk_index, self.as_bytes())?;
 
         cache.chunk_index += 1;
 

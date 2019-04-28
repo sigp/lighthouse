@@ -1,6 +1,30 @@
 use cached_tree_hash::{merkleize::merkleize, *};
+use ethereum_types::H256 as Hash256;
 use int_to_bytes::int_to_bytes32;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
+
+#[test]
+fn modifications() {
+    let n = 2048;
+
+    let vec: Vec<Hash256> = (0..n).map(|_| Hash256::random()).collect();
+
+    let mut cache = TreeHashCache::new(&vec, 0).unwrap();
+    cache.update(&vec).unwrap();
+
+    let modifications = cache.chunk_modified.iter().filter(|b| **b).count();
+
+    assert_eq!(modifications, 0);
+
+    let mut modified_vec = vec.clone();
+    modified_vec[n - 1] = Hash256::random();
+
+    cache.update(&modified_vec).unwrap();
+
+    let modifications = cache.chunk_modified.iter().filter(|b| **b).count();
+
+    assert_eq!(modifications, n.trailing_zeros() as usize + 2);
+}
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct NestedStruct {
@@ -102,6 +126,24 @@ fn test_inner() {
         a: 99,
         ..original.clone()
     }];
+
+    test_routine(original, modified);
+}
+
+#[test]
+fn test_vec_of_hash256() {
+    let n = 16;
+
+    let original: Vec<Hash256> = (0..n).map(|_| Hash256::random()).collect();
+
+    let modified: Vec<Vec<Hash256>> = vec![
+        original[..].to_vec(),
+        original[0..n / 2].to_vec(),
+        vec![],
+        original[0..1].to_vec(),
+        original[0..3].to_vec(),
+        original[0..n - 12].to_vec(),
+    ];
 
     test_routine(original, modified);
 }
