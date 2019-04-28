@@ -15,7 +15,7 @@ fn main() {
     let mut modified_vec = vec.clone();
     modified_vec[n - 1] = Hash256::random();
 
-    for _ in 0..100 {
+    for _ in 0..10_000 {
         run(&vec, &modified_vec);
     }
 }
