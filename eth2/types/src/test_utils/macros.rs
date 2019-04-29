@@ -46,21 +46,37 @@ macro_rules! cached_tree_hash_tests {
 
             // Test the original hash
             let original = $type::random_for_test(&mut rng);
-            let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+            let mut cache = cached_tree_hash::TreeHashCache::new(&original, 0).unwrap();
+
             assert_eq!(
-                hasher.tree_hash_root().unwrap(),
+                cache.tree_hash_root().unwrap().to_vec(),
                 original.tree_hash_root(),
                 "Original hash failed."
             );
 
             // Test the updated hash
             let modified = $type::random_for_test(&mut rng);
-            hasher.update(&modified).unwrap();
+            cache.update(&modified).unwrap();
             assert_eq!(
-                hasher.tree_hash_root().unwrap(),
+                cache.tree_hash_root().unwrap().to_vec(),
                 modified.tree_hash_root(),
                 "Modification hash failed"
             );
+
+            // Produce a new cache for the modified object and compare it to the updated cache.
+            let mut modified_cache = cached_tree_hash::TreeHashCache::new(&modified, 0).unwrap();
+
+            // Reset the caches.
+            cache.reset_modifications();
+            modified_cache.reset_modifications();
+
+            // Ensure the modified cache is the same as a newly created cache. This is a sanity
+            // check to make sure there are no artifacts of the original cache remaining after an
+            // update.
+            assert_eq!(
+                modified_cache, cache,
+                "The modified cache does not match a new cache."
+            )
         }
     };
 }
