@@ -47,6 +47,10 @@ macro_rules! impl_for_list {
 impl_for_list!(Vec<T>);
 impl_for_list!(&[T]);
 
+/// Build a new tree hash cache for some slice.
+///
+/// Valid for both variable- and fixed-length slices. Does _not_ mix-in the length of the list,
+/// the caller must do this.
 pub fn new_tree_hash_cache<T: CachedTreeHash>(
     vec: &[T],
     depth: usize,
@@ -72,6 +76,10 @@ pub fn new_tree_hash_cache<T: CachedTreeHash>(
     Ok((cache, schema))
 }
 
+/// Produce a schema for some slice.
+///
+/// Valid for both variable- and fixed-length slices. Does _not_ add the mix-in length nodes, the
+/// caller must do this.
 pub fn produce_schema<T: CachedTreeHash>(vec: &[T], depth: usize) -> BTreeSchema {
     let lengths = match T::tree_hash_type() {
         TreeHashType::Basic => {
@@ -96,6 +104,10 @@ pub fn produce_schema<T: CachedTreeHash>(vec: &[T], depth: usize) -> BTreeSchema
     BTreeSchema::from_lengths(depth, lengths)
 }
 
+/// Updates the cache for some slice.
+///
+/// Valid for both variable- and fixed-length slices. Does _not_ cater for the mix-in length nodes,
+/// the caller must do this.
 #[allow(clippy::range_plus_one)] // Minor readability lint requiring structural changes; not worth it.
 pub fn update_tree_hash_cache<T: CachedTreeHash>(
     vec: &[T],
@@ -274,6 +286,12 @@ pub fn update_tree_hash_cache<T: CachedTreeHash>(
     Ok(new_overlay)
 }
 
+/// Create a new `TreeHashCache` from `item` and splice it over the `chunks_to_replace` chunks of
+/// the given `cache`.
+///
+/// Useful for the case where a new element is added to a list.
+///
+/// The schemas created for `item` will have the given `depth`.
 fn splice_in_new_tree<T>(
     item: &T,
     chunks_to_replace: Range<usize>,
@@ -299,9 +317,10 @@ where
     cache.schema_index += num_schemas;
 
     Ok(())
-    //
 }
 
+/// Packs all of the leaves of `vec` into a single byte-array, appending `0` to ensure the number
+/// of chunks in the byte-array is a power-of-two.
 fn get_packed_leaves<T>(vec: &[T]) -> Result<Vec<u8>, Error>
 where
     T: CachedTreeHash,
