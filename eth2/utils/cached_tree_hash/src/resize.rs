@@ -1,3 +1,5 @@
+#![allow(clippy::range_plus_one)] // Minor readability lint requiring structural changes; not worth it.
+
 use super::*;
 
 /// New vec is bigger than old vec.
