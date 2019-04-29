@@ -1,4 +1,3 @@
-use cached_tree_hash::TreeHashCache;
 use ethereum_types::H256 as Hash256;
 use tree_hash::TreeHash;
 

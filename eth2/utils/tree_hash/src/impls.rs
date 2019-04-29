@@ -87,30 +87,37 @@ impl TreeHash for H256 {
     }
 }
 
-impl<T> TreeHash for Vec<T>
-where
-    T: TreeHash,
-{
-    fn tree_hash_type() -> TreeHashType {
-        TreeHashType::List
-    }
+macro_rules! impl_for_list {
+    ($type: ty) => {
+        impl<T> TreeHash for $type
+        where
+            T: TreeHash,
+        {
+            fn tree_hash_type() -> TreeHashType {
+                TreeHashType::List
+            }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("List should never be packed.")
-    }
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("List should never be packed.")
+            }
 
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("List should never be packed.")
-    }
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("List should never be packed.")
+            }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
-        let mut root_and_len = Vec::with_capacity(HASHSIZE * 2);
-        root_and_len.append(&mut vec_tree_hash_root(self));
-        root_and_len.append(&mut int_to_bytes32(self.len() as u64));
+            fn tree_hash_root(&self) -> Vec<u8> {
+                let mut root_and_len = Vec::with_capacity(HASHSIZE * 2);
+                root_and_len.append(&mut vec_tree_hash_root(self));
+                root_and_len.append(&mut int_to_bytes32(self.len() as u64));
 
-        hash(&root_and_len)
-    }
+                hash(&root_and_len)
+            }
+        }
+    };
 }
+
+impl_for_list!(Vec<T>);
+impl_for_list!(&[T]);
 
 pub fn vec_tree_hash_root<T>(vec: &[T]) -> Vec<u8>
 where
