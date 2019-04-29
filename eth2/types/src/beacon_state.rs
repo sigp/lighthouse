@@ -69,17 +69,11 @@ pub struct BeaconState {
 
     // Validator registry
     pub validator_registry: Vec<Validator>,
-    pub validator_balances: Vec<u64>,
-    pub validator_registry_update_epoch: Epoch,
+    pub balances: Vec<u64>,
 
     // Randomness and committees
     pub latest_randao_mixes: TreeHashVector<Hash256>,
-    pub previous_shuffling_start_shard: u64,
-    pub current_shuffling_start_shard: u64,
-    pub previous_shuffling_epoch: Epoch,
-    pub current_shuffling_epoch: Epoch,
-    pub previous_shuffling_seed: Hash256,
-    pub current_shuffling_seed: Hash256,
+    pub latest_start_shard: u64,
 
     // Finality
     pub previous_epoch_attestations: Vec<PendingAttestation>,
@@ -93,7 +87,8 @@ pub struct BeaconState {
     pub finalized_root: Hash256,
 
     // Recent state
-    pub latest_crosslinks: TreeHashVector<Crosslink>,
+    pub current_crosslinks: TreeHashVector<Crosslink>,
+    pub previous_crosslinks: TreeHashVector<Crosslink>,
     pub latest_block_roots: TreeHashVector<Hash256>,
     latest_state_roots: TreeHashVector<Hash256>,
     latest_active_index_roots: TreeHashVector<Hash256>,
@@ -103,7 +98,7 @@ pub struct BeaconState {
 
     // Ethereum 1.0 chain data
     pub latest_eth1_data: Eth1Data,
-    pub eth1_data_votes: Vec<Eth1DataVote>,
+    pub eth1_data_votes: Vec<Eth1Data>,
     pub deposit_index: u64,
 
     // Caching (not in the spec)
@@ -143,6 +138,7 @@ impl BeaconState {
     pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
+            previous_crosslink_root: spec.zero_hash,
             crosslink_data_root: spec.zero_hash,
         };
 
@@ -154,18 +150,12 @@ impl BeaconState {
 
             // Validator registry
             validator_registry: vec![], // Set later in the function.
-            validator_balances: vec![], // Set later in the function.
-            validator_registry_update_epoch: spec.genesis_epoch,
+            balances: vec![],           // Set later in the function.
 
             // Randomness and committees
             latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize]
                 .into(),
-            previous_shuffling_start_shard: spec.genesis_start_shard,
-            current_shuffling_start_shard: spec.genesis_start_shard,
-            previous_shuffling_epoch: spec.genesis_epoch,
-            current_shuffling_epoch: spec.genesis_epoch,
-            previous_shuffling_seed: spec.zero_hash,
-            current_shuffling_seed: spec.zero_hash,
+            latest_start_shard: 0, // FIXME(sproul)
 
             // Finality
             previous_epoch_attestations: vec![],
@@ -179,7 +169,8 @@ impl BeaconState {
             finalized_root: spec.zero_hash,
 
             // Recent state
-            latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize].into(),
+            current_crosslinks: vec![initial_crosslink.clone(); spec.shard_count as usize].into(),
+            previous_crosslinks: vec![initial_crosslink; spec.shard_count as usize].into(),
             latest_block_roots: vec![spec.zero_hash; spec.slots_per_historical_root].into(),
             latest_state_roots: vec![spec.zero_hash; spec.slots_per_historical_root].into(),
             latest_active_index_roots: vec![spec.zero_hash; spec.latest_active_index_roots_length]
@@ -630,7 +621,7 @@ impl BeaconState {
         spec: &ChainSpec,
     ) -> Result<u64, Error> {
         let balance = self
-            .validator_balances
+            .balances
             .get(validator_index)
             .ok_or_else(|| Error::UnknownValidator)?;
         Ok(std::cmp::min(*balance, spec.max_deposit_amount))
@@ -647,7 +638,8 @@ impl BeaconState {
     ///
     /// Spec v0.5.1
     pub fn initiate_validator_exit(&mut self, validator_index: usize) {
-        self.validator_registry[validator_index].initiated_exit = true;
+        // FIXME(sproul)
+        // self.validator_registry[validator_index].initiated_exit = true;
     }
 
     /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an

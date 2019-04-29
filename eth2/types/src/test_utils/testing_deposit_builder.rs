@@ -14,14 +14,11 @@ impl TestingDepositBuilder {
         let deposit = Deposit {
             proof: vec![].into(),
             index: 0,
-            deposit_data: DepositData {
+            data: DepositData {
+                pubkey,
+                withdrawal_credentials: Hash256::zero(),
                 amount,
-                timestamp: 1,
-                deposit_input: DepositInput {
-                    pubkey,
-                    withdrawal_credentials: Hash256::zero(),
-                    proof_of_possession: Signature::empty_signature(),
-                },
+                signature: Signature::empty_signature(),
             },
         };
 
@@ -43,17 +40,13 @@ impl TestingDepositBuilder {
             &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],
         );
 
-        self.deposit.deposit_data.deposit_input.pubkey = keypair.pk.clone();
-        self.deposit
-            .deposit_data
-            .deposit_input
-            .withdrawal_credentials = withdrawal_credentials;
+        self.deposit.data.pubkey = keypair.pk.clone();
+        self.deposit.data.withdrawal_credentials = withdrawal_credentials;
 
-        self.deposit.deposit_data.deposit_input.proof_of_possession = self
-            .deposit
-            .deposit_data
-            .deposit_input
-            .create_proof_of_possession(&keypair.sk, epoch, fork, spec);
+        self.deposit.data.signature =
+            self.deposit
+                .data
+                .create_signature(&keypair.sk, epoch, fork, spec);
     }
 
     /// Builds the deposit, consuming the builder.

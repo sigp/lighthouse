@@ -47,6 +47,7 @@ impl BeaconBlock {
                 eth1_data: Eth1Data {
                     deposit_root: spec.zero_hash,
                     block_hash: spec.zero_hash,
+                    deposit_count: 0,
                 },
                 proposer_slashings: vec![],
                 attester_slashings: vec![],
