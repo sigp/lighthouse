@@ -58,7 +58,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let output = quote! {
         impl cached_tree_hash::CachedTreeHash for #name {
             fn new_tree_hash_cache(&self, depth: usize) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-                let tree = cached_tree_hash::TreeHashCache::from_leaves_and_subtrees(
+                let tree = cached_tree_hash::TreeHashCache::from_subtrees(
                     self,
                     vec![
                         #(

@@ -1,7 +1,19 @@
 use super::*;
 
+/// A schema defining a binary tree over a `TreeHashCache`.
+///
+/// This structure is used for succinct storage, run-time functionality is gained by converting the
+/// schema into a `BTreeOverlay`.
 #[derive(Debug, PartialEq, Clone)]
 pub struct BTreeSchema {
+    /// The depth of a schema defines how far it is nested within other fixed-length items.
+    ///
+    /// Each time a new variable-length object is created all items within it are assigned a depth
+    /// of `depth + 1`.
+    ///
+    /// When storing the schemas in a list, the depth parameter allows for removing all schemas
+    /// belonging to a specific variable-length item without removing schemas related to adjacent
+    /// variable-length items.
     pub depth: usize,
     lengths: Vec<usize>,
 }
@@ -25,21 +37,35 @@ impl Into<BTreeSchema> for BTreeOverlay {
     }
 }
 
+/// Provides a status for some leaf-node in binary tree.
 #[derive(Debug, PartialEq, Clone)]
 pub enum LeafNode {
+    /// The leaf node does not exist in this tree.
     DoesNotExist,
+    /// The leaf node exists in the tree and has a real value within the given `chunk` range.
     Exists(Range<usize>),
+    /// The leaf node exists in the tree only as padding.
     Padding,
 }
 
+/// Instantiated from a `BTreeSchema`, allows for interpreting some chunks of a `TreeHashCache` as
+/// a perfect binary tree.
+///
+/// The primary purpose of this struct is to map from binary tree "nodes" to `TreeHashCache`
+/// "chunks". Each tree has nodes `0..n` where `n` is the number of nodes and `0` is the root node.
+/// Each of these nodes is mapped to a chunk, starting from `self.offset` and increasing in steps
+/// of `1` for internal nodes and arbitrary steps for leaf-nodes.
 #[derive(Debug, PartialEq, Clone)]
 pub struct BTreeOverlay {
     offset: usize,
+    /// See `BTreeSchema.depth` for a description.
     pub depth: usize,
     lengths: Vec<usize>,
 }
 
 impl BTreeOverlay {
+    /// Instantiates a new instance for `item`, where it's first chunk is `inital_offset` and has
+    /// the specified `depth`.
     pub fn new<T>(item: &T, initial_offset: usize, depth: usize) -> Self
     where
         T: CachedTreeHash,
@@ -47,6 +73,7 @@ impl BTreeOverlay {
         Self::from_schema(item.tree_hash_cache_schema(depth), initial_offset)
     }
 
+    /// Instantiates a new instance from a schema, where it's first chunk is `offset`.
     pub fn from_schema(schema: BTreeSchema, offset: usize) -> Self {
         Self {
             offset,
@@ -55,6 +82,10 @@ impl BTreeOverlay {
         }
     }
 
+    /// Returns a `LeafNode` for each of the `n` leaves of the tree.
+    ///
+    /// `LeafNode::DoesNotExist` is returned for each element `i` in `0..n` where `i >=
+    /// self.num_leaf_nodes()`.
     pub fn get_leaf_nodes(&self, n: usize) -> Vec<LeafNode> {
         let mut running_offset = self.offset + self.num_internal_nodes();
 
@@ -74,10 +105,12 @@ impl BTreeOverlay {
         leaf_nodes
     }
 
+    /// Returns the number of leaf nodes in the tree.
     pub fn num_leaf_nodes(&self) -> usize {
         self.lengths.len().next_power_of_two()
     }
 
+    /// Returns the number of leafs in the tree which are padding.
     pub fn num_padding_leaves(&self) -> usize {
         self.num_leaf_nodes() - self.lengths.len()
     }
@@ -90,31 +123,39 @@ impl BTreeOverlay {
         2 * self.num_leaf_nodes() - 1
     }
 
+    /// Returns the number of internal (non-leaf) nodes in the tree.
     pub fn num_internal_nodes(&self) -> usize {
         self.num_leaf_nodes() - 1
     }
 
+    /// Returns the chunk of the first node of the tree.
     fn first_node(&self) -> usize {
         self.offset
     }
 
+    /// Returns the root chunk of the tree (the zero-th node)
     pub fn root(&self) -> usize {
         self.first_node()
     }
 
+    /// Returns the first chunk outside of the boundary of this tree. It is the root node chunk
+    /// plus the total number of chunks in the tree.
     pub fn next_node(&self) -> usize {
         self.first_node() + self.num_internal_nodes() + self.num_leaf_nodes() - self.lengths.len()
             + self.lengths.iter().sum::<usize>()
     }
 
+    /// Returns the height of the tree where a tree with a single node has a height of 1.
     pub fn height(&self) -> usize {
         self.num_leaf_nodes().trailing_zeros() as usize
     }
 
+    /// Returns the range of chunks that belong to the internal nodes of the tree.
     pub fn internal_chunk_range(&self) -> Range<usize> {
         self.offset..self.offset + self.num_internal_nodes()
     }
 
+    /// Returns all of the chunks that are encompassed by the tree.
     pub fn chunk_range(&self) -> Range<usize> {
         self.first_node()..self.next_node()
     }
@@ -127,10 +168,14 @@ impl BTreeOverlay {
         self.next_node() - self.first_node()
     }
 
+    /// Returns the first chunk of the first leaf node in the tree.
     pub fn first_leaf_node(&self) -> usize {
         self.offset + self.num_internal_nodes()
     }
 
+    /// Returns the chunks for some given parent node.
+    ///
+    /// Note: it is a parent _node_ not a parent _chunk_.
     pub fn child_chunks(&self, parent: usize) -> (usize, usize) {
         let children = children(parent);
 
@@ -142,7 +187,7 @@ impl BTreeOverlay {
         }
     }
 
-    /// (parent, (left_child, right_child))
+    /// Returns a vec of (parent_chunk, (left_child_chunk, right_child_chunk)).
     pub fn internal_parents_and_children(&self) -> Vec<(usize, (usize, usize))> {
         let mut chunks = Vec::with_capacity(self.num_nodes());
         chunks.append(&mut self.internal_node_chunks());
@@ -156,17 +201,17 @@ impl BTreeOverlay {
             .collect()
     }
 
-    // Returns a `Vec` of chunk indices for each internal node of the tree.
+    /// Returns a vec of chunk indices for each internal node of the tree.
     pub fn internal_node_chunks(&self) -> Vec<usize> {
         (self.offset..self.offset + self.num_internal_nodes()).collect()
     }
 
-    // Returns a `Vec` of the first chunk index for each leaf node of the tree.
+    /// Returns a vec of the first chunk for each leaf node of the tree.
     pub fn leaf_node_chunks(&self) -> Vec<usize> {
         self.n_leaf_node_chunks(self.num_leaf_nodes())
     }
 
-    // Returns a `Vec` of the first chunk index for the first `n` leaf nodes of the tree.
+    /// Returns a vec of the first chunk index for the first `n` leaf nodes of the tree.
     fn n_leaf_node_chunks(&self, n: usize) -> Vec<usize> {
         let mut chunks = Vec::with_capacity(n);
 

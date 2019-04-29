@@ -149,15 +149,21 @@ mod tests {
         let sk = SecretKey::random();
         let original = PublicKey::from_secret_key(&sk);
 
-        let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            original.tree_hash_root()
+        );
 
         let sk = SecretKey::random();
         let modified = PublicKey::from_secret_key(&sk);
 
-        hasher.update(&modified).unwrap();
+        cache.update(&modified).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            modified.tree_hash_root()
+        );
     }
 }

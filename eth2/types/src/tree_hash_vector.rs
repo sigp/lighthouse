@@ -63,20 +63,20 @@ where
         &self,
         depth: usize,
     ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        let (cache, _overlay) = cached_tree_hash::impls::vec::new_tree_hash_cache(self, depth)?;
+        let (cache, _overlay) = cached_tree_hash::vec::new_tree_hash_cache(self, depth)?;
 
         Ok(cache)
     }
 
     fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-        cached_tree_hash::impls::vec::produce_schema(self, depth)
+        cached_tree_hash::vec::produce_schema(self, depth)
     }
 
     fn update_tree_hash_cache(
         &self,
         cache: &mut cached_tree_hash::TreeHashCache,
     ) -> Result<(), cached_tree_hash::Error> {
-        cached_tree_hash::impls::vec::update_tree_hash_cache(self, cache)?;
+        cached_tree_hash::vec::update_tree_hash_cache(self, cache)?;
 
         Ok(())
     }
@@ -122,15 +122,21 @@ mod test {
     pub fn test_cached_tree_hash() {
         let original = TreeHashVector::from(vec![1_u64, 2, 3, 4]);
 
-        let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            original.tree_hash_root()
+        );
 
         let modified = TreeHashVector::from(vec![1_u64, 1, 1, 1]);
 
-        hasher.update(&modified).unwrap();
+        cache.update(&modified).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            modified.tree_hash_root()
+        );
     }
 
 }

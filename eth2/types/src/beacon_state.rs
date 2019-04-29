@@ -806,7 +806,7 @@ impl BeaconState {
     /// canonical root of `self`.
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
         if self.tree_hash_cache.is_empty() {
-            self.tree_hash_cache = TreeHashCache::new(self, 0)?;
+            self.tree_hash_cache = TreeHashCache::new(self)?;
         } else {
             // Move the cache outside of `self` to satisfy the borrow checker.
             let mut cache = std::mem::replace(&mut self.tree_hash_cache, TreeHashCache::default());
@@ -828,7 +828,7 @@ impl BeaconState {
     /// cache update.
     pub fn cached_tree_hash_root(&self) -> Result<Hash256, Error> {
         self.tree_hash_cache
-            .root()
+            .tree_hash_root()
             .and_then(|b| Ok(Hash256::from_slice(b)))
             .map_err(|e| e.into())
     }

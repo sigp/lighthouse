@@ -166,15 +166,21 @@ mod tests {
         let keypair = Keypair::random();
         let original = Signature::new(&[42, 42], 0, &keypair.sk);
 
-        let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            original.tree_hash_root()
+        );
 
         let modified = Signature::new(&[99, 99], 0, &keypair.sk);
 
-        hasher.update(&modified).unwrap();
+        cache.update(&modified).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            modified.tree_hash_root()
+        );
     }
 
     #[test]

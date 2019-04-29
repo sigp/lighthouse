@@ -66,10 +66,10 @@ pub fn new_tree_hash_cache<T: CachedTreeHash>(
         TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
             let subtrees = vec
                 .iter()
-                .map(|item| TreeHashCache::new(item, depth + 1))
+                .map(|item| TreeHashCache::new_at_depth(item, depth + 1))
                 .collect::<Result<Vec<TreeHashCache>, _>>()?;
 
-            TreeHashCache::from_leaves_and_subtrees(&vec, subtrees, depth)
+            TreeHashCache::from_subtrees(&vec, subtrees, depth)
         }
     }?;
 
@@ -301,7 +301,7 @@ fn splice_in_new_tree<T>(
 where
     T: CachedTreeHash,
 {
-    let (bytes, mut bools, schemas) = TreeHashCache::new(item, depth)?.into_components();
+    let (bytes, mut bools, schemas) = TreeHashCache::new_at_depth(item, depth)?.into_components();
 
     // Record the number of schemas, this will be used later in the fn.
     let num_schemas = schemas.len();

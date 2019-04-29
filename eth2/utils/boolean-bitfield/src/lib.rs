@@ -284,15 +284,21 @@ mod tests {
     pub fn test_cached_tree_hash() {
         let original = BooleanBitfield::from_bytes(&vec![18; 12][..]);
 
-        let mut hasher = cached_tree_hash::CachedTreeHasher::new(&original).unwrap();
+        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), original.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            original.tree_hash_root()
+        );
 
         let modified = BooleanBitfield::from_bytes(&vec![2; 1][..]);
 
-        hasher.update(&modified).unwrap();
+        cache.update(&modified).unwrap();
 
-        assert_eq!(hasher.tree_hash_root().unwrap(), modified.tree_hash_root());
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            modified.tree_hash_root()
+        );
     }
 
     #[test]

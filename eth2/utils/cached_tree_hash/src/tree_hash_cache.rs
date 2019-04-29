@@ -4,20 +4,35 @@ use super::*;
 use crate::merkleize::{merkleize, pad_for_leaf_count};
 use int_to_bytes::int_to_bytes32;
 
+/// Provides cached tree hashing for some object implementing `CachedTreeHash`.
+///
+/// Caching allows for doing minimal internal-node hashing when an object has only been partially
+/// changed.
+///
+/// See the crate root for an example.
 #[derive(Debug, PartialEq, Clone)]
 pub struct TreeHashCache {
-    pub cache: Vec<u8>,
+    /// Stores the binary-tree in 32-byte chunks.
+    pub bytes: Vec<u8>,
+    /// Maps to each chunk of `self.bytes`, indicating if the chunk is dirty.
     pub chunk_modified: Vec<bool>,
+    /// Contains a schema for each variable-length item stored in the cache.
     pub schemas: Vec<BTreeSchema>,
 
+    /// A counter used during updates.
     pub chunk_index: usize,
+    /// A counter used during updates.
     pub schema_index: usize,
 }
 
 impl Default for TreeHashCache {
+    /// Create an empty cache.
+    ///
+    /// Note: an empty cache is effectively useless, an error will be raised if `self.update` is
+    /// called.
     fn default() -> TreeHashCache {
         TreeHashCache {
-            cache: vec![],
+            bytes: vec![],
             chunk_modified: vec![],
             schemas: vec![],
             chunk_index: 0,
@@ -26,20 +41,34 @@ impl Default for TreeHashCache {
     }
 }
 
-impl Into<Vec<u8>> for TreeHashCache {
-    fn into(self) -> Vec<u8> {
-        self.cache
-    }
-}
-
 impl TreeHashCache {
-    pub fn new<T>(item: &T, depth: usize) -> Result<Self, Error>
+    /// Instantiates a new cache from `item` at a depth of `0`.
+    ///
+    /// The returned cache is fully-built and will return an accurate tree-hash root.
+    pub fn new<T>(item: &T) -> Result<Self, Error>
+    where
+        T: CachedTreeHash,
+    {
+        Self::new_at_depth(item, 0)
+    }
+
+    /// Instantiates a new cache from `item` at the specified `depth`.
+    ///
+    /// The returned cache is fully-built and will return an accurate tree-hash root.
+    pub fn new_at_depth<T>(item: &T, depth: usize) -> Result<Self, Error>
     where
         T: CachedTreeHash,
     {
         item.new_tree_hash_cache(depth)
     }
 
+    /// Updates the cache with `item`.
+    ///
+    /// `item` _must_ be of the same type as the `item` used to build the cache, otherwise an error
+    /// may be returned.
+    ///
+    /// After calling `update`, the cache will return an accurate tree-hash root using
+    /// `self.tree_hash_root()`.
     pub fn update<T>(&mut self, item: &T) -> Result<(), Error>
     where
         T: CachedTreeHash,
@@ -53,11 +82,10 @@ impl TreeHashCache {
         }
     }
 
-    pub fn from_leaves_and_subtrees<T>(
-        item: &T,
-        leaves_and_subtrees: Vec<Self>,
-        depth: usize,
-    ) -> Result<Self, Error>
+    /// Builds a new cache for `item`, given `subtrees` contains a `Self` for field/item of `item`.
+    ///
+    /// Each `subtree` in `subtree` will become a leaf-node of the merkle-tree of `item`.
+    pub fn from_subtrees<T>(item: &T, subtrees: Vec<Self>, depth: usize) -> Result<Self, Error>
     where
         T: CachedTreeHash,
     {
@@ -65,20 +93,18 @@ impl TreeHashCache {
 
         // Note how many leaves were provided. If is not a power-of-two, we'll need to pad it out
         // later.
-        let num_provided_leaf_nodes = leaves_and_subtrees.len();
+        let num_provided_leaf_nodes = subtrees.len();
 
         // Allocate enough bytes to store the internal nodes and the leaves and subtrees, then fill
         // all the to-be-built internal nodes with zeros and append the leaves and subtrees.
         let internal_node_bytes = overlay.num_internal_nodes() * BYTES_PER_CHUNK;
-        let leaves_and_subtrees_bytes = leaves_and_subtrees
-            .iter()
-            .fold(0, |acc, t| acc + t.bytes_len());
-        let mut cache = Vec::with_capacity(leaves_and_subtrees_bytes + internal_node_bytes);
-        cache.resize(internal_node_bytes, 0);
+        let subtrees_bytes = subtrees.iter().fold(0, |acc, t| acc + t.bytes.len());
+        let mut bytes = Vec::with_capacity(subtrees_bytes + internal_node_bytes);
+        bytes.resize(internal_node_bytes, 0);
 
         // Allocate enough bytes to store all the leaves.
         let mut leaves = Vec::with_capacity(overlay.num_leaf_nodes() * HASHSIZE);
-        let mut schemas = Vec::with_capacity(leaves_and_subtrees.len());
+        let mut schemas = Vec::with_capacity(subtrees.len());
 
         if T::tree_hash_type() == TreeHashType::List {
             schemas.push(overlay.into());
@@ -86,32 +112,36 @@ impl TreeHashCache {
 
         // Iterate through all of the leaves/subtrees, adding their root as a leaf node and then
         // concatenating their merkle trees.
-        for t in leaves_and_subtrees {
-            leaves.append(&mut t.root()?.to_vec());
+        for t in subtrees {
+            leaves.append(&mut t.tree_hash_root()?.to_vec());
 
-            let (mut bytes, _bools, mut t_schemas) = t.into_components();
-            cache.append(&mut bytes);
+            let (mut t_bytes, _bools, mut t_schemas) = t.into_components();
+            bytes.append(&mut t_bytes);
             schemas.append(&mut t_schemas);
         }
 
         // Pad the leaves to an even power-of-two, using zeros.
-        pad_for_leaf_count(num_provided_leaf_nodes, &mut cache);
+        pad_for_leaf_count(num_provided_leaf_nodes, &mut bytes);
 
         // Merkleize the leaves, then split the leaf nodes off them. Then, replace all-zeros
         // internal nodes created earlier with the internal nodes generated by `merkleize`.
         let mut merkleized = merkleize(leaves);
         merkleized.split_off(internal_node_bytes);
-        cache.splice(0..internal_node_bytes, merkleized);
+        bytes.splice(0..internal_node_bytes, merkleized);
 
         Ok(Self {
-            chunk_modified: vec![true; cache.len() / BYTES_PER_CHUNK],
-            cache,
+            chunk_modified: vec![true; bytes.len() / BYTES_PER_CHUNK],
+            bytes,
             schemas,
             chunk_index: 0,
             schema_index: 0,
         })
     }
 
+    /// Instantiate a new cache from the pre-built `bytes` where each `self.chunk_modified` will be
+    /// set to `intitial_modified_state`.
+    ///
+    /// Note: `bytes.len()` must be a multiple of 32
     pub fn from_bytes(
         bytes: Vec<u8>,
         initial_modified_state: bool,
@@ -128,17 +158,22 @@ impl TreeHashCache {
 
         Ok(Self {
             chunk_modified: vec![initial_modified_state; bytes.len() / BYTES_PER_CHUNK],
-            cache: bytes,
+            bytes,
             schemas,
             chunk_index: 0,
             schema_index: 0,
         })
     }
 
+    /// Returns `true` if this cache is empty (i.e., it has never been built for some item).
+    ///
+    /// Note: an empty cache is effectively useless, an error will be raised if `self.update` is
+    /// called.
     pub fn is_empty(&self) -> bool {
         self.chunk_modified.is_empty()
     }
 
+    /// Return an overlay, built from the schema at `schema_index` with an offset of `chunk_index`.
     pub fn get_overlay(
         &self,
         schema_index: usize,
@@ -152,6 +187,9 @@ impl TreeHashCache {
             .into_overlay(chunk_index))
     }
 
+    /// Resets the per-update counters, allowing a new update to start.
+    ///
+    /// Note: this does _not_ delete the contents of the cache.
     pub fn reset_modifications(&mut self) {
         // Reset the per-hash counters.
         self.chunk_index = 0;
@@ -162,9 +200,14 @@ impl TreeHashCache {
         }
     }
 
+    /// Replace the schema at `schema_index` with the schema derived from `new_overlay`.
+    ///
+    /// If the `new_overlay` schema has a different number of internal nodes to the schema at
+    /// `schema_index`, the cache will be updated to add/remove these new internal nodes.
     pub fn replace_overlay(
         &mut self,
         schema_index: usize,
+        // TODO: remove chunk index (if possible)
         chunk_index: usize,
         new_overlay: BTreeOverlay,
     ) -> Result<BTreeOverlay, Error> {
@@ -225,6 +268,9 @@ impl TreeHashCache {
         Ok(old_schema.into_overlay(chunk_index))
     }
 
+    /// Remove all of the child schemas following `schema_index`.
+    ///
+    /// Schema `a` is a child of schema `b` if `a.depth < b.depth`.
     pub fn remove_proceeding_child_schemas(&mut self, schema_index: usize, depth: usize) {
         let end = self
             .schemas
@@ -237,6 +283,8 @@ impl TreeHashCache {
         self.schemas.splice(schema_index..end, vec![]);
     }
 
+    /// Iterate through the internal nodes chunks of `overlay`, updating the chunk with the
+    /// merkle-root of it's children if either of those children are dirty.
     pub fn update_internal_nodes(&mut self, overlay: &BTreeOverlay) -> Result<(), Error> {
         for (parent, children) in overlay.internal_parents_and_children().into_iter().rev() {
             if self.either_modified(children)? {
@@ -247,37 +295,34 @@ impl TreeHashCache {
         Ok(())
     }
 
-    fn bytes_len(&self) -> usize {
-        self.cache.len()
-    }
-
+    /// Returns to the tree-hash root of the cache.
     pub fn tree_hash_root(&self) -> Result<&[u8], Error> {
-        self.root()
-    }
-
-    pub fn root(&self) -> Result<&[u8], Error> {
         if self.is_empty() {
             Err(Error::CacheNotInitialized)
         } else {
-            self.cache
+            self.bytes
                 .get(0..HASHSIZE)
                 .ok_or_else(|| Error::NoBytesForRoot)
         }
     }
 
+    /// Splices the given `bytes` over `self.bytes` and `bools` over `self.chunk_modified` at the
+    /// specified `chunk_range`.
     pub fn splice(&mut self, chunk_range: Range<usize>, bytes: Vec<u8>, bools: Vec<bool>) {
         // Update the `chunk_modified` vec, marking all spliced-in nodes as changed.
         self.chunk_modified.splice(chunk_range.clone(), bools);
-        self.cache
+        self.bytes
             .splice(node_range_to_byte_range(&chunk_range), bytes);
     }
 
+    /// If the bytes at `chunk` are not the same as `to`, `self.bytes` is updated and
+    /// `self.chunk_modified` is set to `true`.
     pub fn maybe_update_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
 
         if !self.chunk_equals(chunk, to)? {
-            self.cache
+            self.bytes
                 .get_mut(start..end)
                 .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))?
                 .copy_from_slice(to);
@@ -287,18 +332,20 @@ impl TreeHashCache {
         Ok(())
     }
 
+    /// Returns the slices of `self.bytes` and `self.chunk_modified` at the given `chunk_range`.
     fn slices(&self, chunk_range: Range<usize>) -> Option<(&[u8], &[bool])> {
         Some((
-            self.cache.get(node_range_to_byte_range(&chunk_range))?,
+            self.bytes.get(node_range_to_byte_range(&chunk_range))?,
             self.chunk_modified.get(chunk_range)?,
         ))
     }
 
+    /// Updates `self.bytes` at `chunk` and sets `self.chunk_modified` for the `chunk` to `true`.
     pub fn modify_chunk(&mut self, chunk: usize, to: &[u8]) -> Result<(), Error> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
 
-        self.cache
+        self.bytes
             .get_mut(start..end)
             .ok_or_else(|| Error::NoBytesForChunk(chunk))?
             .copy_from_slice(to);
@@ -308,20 +355,23 @@ impl TreeHashCache {
         Ok(())
     }
 
+    /// Returns the bytes at `chunk`.
     fn get_chunk(&self, chunk: usize) -> Result<&[u8], Error> {
         let start = chunk * BYTES_PER_CHUNK;
         let end = start + BYTES_PER_CHUNK;
 
         Ok(self
-            .cache
+            .bytes
             .get(start..end)
             .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))?)
     }
 
+    /// Returns `true` if the bytes at `chunk` are equal to `other`.
     fn chunk_equals(&mut self, chunk: usize, other: &[u8]) -> Result<bool, Error> {
         Ok(self.get_chunk(chunk)? == other)
     }
 
+    /// Returns `true` if `chunk` is dirty.
     pub fn changed(&self, chunk: usize) -> Result<bool, Error> {
         self.chunk_modified
             .get(chunk)
@@ -329,10 +379,12 @@ impl TreeHashCache {
             .ok_or_else(|| Error::NoModifiedFieldForChunk(chunk))
     }
 
+    /// Returns `true` if either of the `children` chunks is dirty.
     fn either_modified(&self, children: (usize, usize)) -> Result<bool, Error> {
         Ok(self.changed(children.0)? | self.changed(children.1)?)
     }
 
+    /// Returns the hash of the concatenation of the given `children`.
     pub fn hash_children(&self, children: (usize, usize)) -> Result<Vec<u8>, Error> {
         let mut child_bytes = Vec::with_capacity(BYTES_PER_CHUNK * 2);
         child_bytes.append(&mut self.get_chunk(children.0)?.to_vec());
@@ -341,6 +393,7 @@ impl TreeHashCache {
         Ok(hash(&child_bytes))
     }
 
+    /// Adds a chunk before and after the given `chunk` range and calls `self.mix_in_length()`.
     pub fn add_length_nodes(
         &mut self,
         chunk_range: Range<usize>,
@@ -351,13 +404,13 @@ impl TreeHashCache {
         let byte_range = node_range_to_byte_range(&chunk_range);
 
         // Add the last node.
-        self.cache
+        self.bytes
             .splice(byte_range.end..byte_range.end, vec![0; HASHSIZE]);
         self.chunk_modified
             .splice(chunk_range.end..chunk_range.end, vec![false]);
 
         // Add the first node.
-        self.cache
+        self.bytes
             .splice(byte_range.start..byte_range.start, vec![0; HASHSIZE]);
         self.chunk_modified
             .splice(chunk_range.start..chunk_range.start, vec![false]);
@@ -367,6 +420,8 @@ impl TreeHashCache {
         Ok(())
     }
 
+    /// Sets `chunk_range.end + 1` equal to the little-endian serialization of `length`. Sets
+    /// `chunk_range.start - 1` equal to `self.hash_children(chunk_range.start, chunk_range.end + 1)`.
     pub fn mix_in_length(&mut self, chunk_range: Range<usize>, length: usize) -> Result<(), Error> {
         // Update the length chunk.
         self.maybe_update_chunk(chunk_range.end, &int_to_bytes32(length as u64))?;
@@ -380,8 +435,9 @@ impl TreeHashCache {
         Ok(())
     }
 
+    /// Returns `(self.bytes, self.chunk_modified, self.schemas)`.
     pub fn into_components(self) -> (Vec<u8>, Vec<bool>, Vec<BTreeSchema>) {
-        (self.cache, self.chunk_modified, self.schemas)
+        (self.bytes, self.chunk_modified, self.schemas)
     }
 }
 
