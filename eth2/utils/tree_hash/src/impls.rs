@@ -19,6 +19,7 @@ macro_rules! impl_for_bitsize {
                 HASHSIZE / ($bit_size / 8)
             }
 
+            #[allow(clippy::cast_lossless)]
             fn tree_hash_root(&self) -> Vec<u8> {
                 int_to_bytes32(*self as u64)
             }

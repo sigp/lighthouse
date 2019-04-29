@@ -149,7 +149,6 @@ impl BTreeOverlay {
         chunks.append(&mut self.leaf_node_chunks());
 
         (0..self.num_internal_nodes())
-            .into_iter()
             .map(|parent| {
                 let children = children(parent);
                 (chunks[parent], (chunks[children.0], chunks[children.1]))

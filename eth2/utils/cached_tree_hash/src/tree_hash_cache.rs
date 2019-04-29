@@ -168,46 +168,53 @@ impl TreeHashCache {
     ) -> Result<BTreeOverlay, Error> {
         let old_overlay = self.get_overlay(schema_index, chunk_index)?;
         // If the merkle tree required to represent the new list is of a different size to the one
-        // required for the previous list, then update our cache.
+        // required for the previous list, then update the internal nodes.
         //
-        // This grows/shrinks the bytes to accomodate the new tree, preserving as much of the tree
+        // Leaf nodes are not touched, they should be updated externally to this function.
+        //
+        // This grows/shrinks the bytes to accommodate the new tree, preserving as much of the tree
         // as possible.
-        if new_overlay.num_leaf_nodes() != old_overlay.num_leaf_nodes() {
+        if new_overlay.num_internal_nodes() != old_overlay.num_internal_nodes() {
             // Get slices of the existing tree from the cache.
             let (old_bytes, old_flags) = self
                 .slices(old_overlay.internal_chunk_range())
                 .ok_or_else(|| Error::UnableToObtainSlices)?;
 
             let (new_bytes, new_flags) = if new_overlay.num_internal_nodes() == 0 {
+                // The new tree has zero internal nodes, simply return empty lists.
                 (vec![], vec![])
             } else if old_overlay.num_internal_nodes() == 0 {
+                // The old tree has zero nodes and the new tree has some nodes. Create new nodes to
+                // suit.
                 let nodes = resize::nodes_in_tree_of_height(new_overlay.height() - 1);
 
                 (vec![0; nodes * HASHSIZE], vec![true; nodes])
+            } else if new_overlay.num_internal_nodes() > old_overlay.num_internal_nodes() {
+                // The new tree is bigger than the old tree.
+                //
+                // Grow the internal nodes, preserving any existing nodes.
+                resize::grow_merkle_tree(
+                    old_bytes,
+                    old_flags,
+                    old_overlay.height() - 1,
+                    new_overlay.height() - 1,
+                )
+                .ok_or_else(|| Error::UnableToGrowMerkleTree)?
             } else {
-                if new_overlay.num_leaf_nodes() > old_overlay.num_leaf_nodes() {
-                    resize::grow_merkle_tree(
-                        old_bytes,
-                        old_flags,
-                        old_overlay.height() - 1,
-                        new_overlay.height() - 1,
-                    )
-                    .ok_or_else(|| Error::UnableToGrowMerkleTree)?
-                } else {
-                    resize::shrink_merkle_tree(
-                        old_bytes,
-                        old_flags,
-                        old_overlay.height() - 1,
-                        new_overlay.height() - 1,
-                    )
-                    .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
-                }
+                // The new tree is smaller than the old tree.
+                //
+                // Shrink the internal nodes, preserving any existing nodes.
+                resize::shrink_merkle_tree(
+                    old_bytes,
+                    old_flags,
+                    old_overlay.height() - 1,
+                    new_overlay.height() - 1,
+                )
+                .ok_or_else(|| Error::UnableToShrinkMerkleTree)?
             };
 
-            assert_eq!(old_overlay.num_internal_nodes(), old_flags.len());
-            assert_eq!(new_overlay.num_internal_nodes(), new_flags.len());
-
-            // Splice the resized created elements over the existing elements.
+            // Splice the resized created elements over the existing elements, effectively updating
+            // the number of stored internal nodes for this tree.
             self.splice(old_overlay.internal_chunk_range(), new_bytes, new_flags);
         }
 
