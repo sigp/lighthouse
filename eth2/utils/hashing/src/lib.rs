@@ -1,11 +1,7 @@
-use tiny_keccak::Keccak;
+use ring::digest::{digest, SHA256};
 
 pub fn hash(input: &[u8]) -> Vec<u8> {
-    let mut keccak = Keccak::new_keccak256();
-    keccak.update(input);
-    let mut result = vec![0; 32];
-    keccak.finalize(result.as_mut_slice());
-    result
+    digest(&SHA256, input).as_ref().into()
 }
 
 /// Get merkle root of some hashed values - the input leaf nodes is expected to already be hashed
@@ -41,19 +37,16 @@ pub fn merkle_root(values: &[Vec<u8>]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::From;
+    use ring::test;
 
     #[test]
     fn test_hashing() {
-        let input: Vec<u8> = From::from("hello");
+        let input: Vec<u8> = b"hello world".as_ref().into();
 
         let output = hash(input.as_ref());
-        let expected = &[
-            0x1c, 0x8a, 0xff, 0x95, 0x06, 0x85, 0xc2, 0xed, 0x4b, 0xc3, 0x17, 0x4f, 0x34, 0x72,
-            0x28, 0x7b, 0x56, 0xd9, 0x51, 0x7b, 0x9c, 0x94, 0x81, 0x27, 0x31, 0x9a, 0x09, 0xa7,
-            0xa3, 0x6d, 0xea, 0xc8,
-        ];
-        assert_eq!(expected, output.as_slice());
+        let expected_hex = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+        let expected: Vec<u8> = test::from_hex(expected_hex).unwrap();
+        assert_eq!(expected, output);
     }
 
     #[test]

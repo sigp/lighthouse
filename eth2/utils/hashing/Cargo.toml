@@ -5,4 +5,4 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-tiny-keccak = "1.4.2"
+ring = "0.14.6"
