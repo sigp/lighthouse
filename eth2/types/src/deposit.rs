@@ -8,7 +8,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// A deposit to potentially become a beacon chain validator.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.0
 #[derive(
     Debug,
     PartialEq,
@@ -24,7 +24,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 pub struct Deposit {
     pub proof: TreeHashVector<Hash256>,
     pub index: u64,
-    pub deposit_data: DepositData,
+    pub data: DepositData,
 }
 
 #[cfg(test)]

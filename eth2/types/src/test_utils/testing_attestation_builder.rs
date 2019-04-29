@@ -33,7 +33,7 @@ impl TestingAttestationBuilder {
             aggregation_bitfield,
             data: data_builder.build(),
             custody_bitfield,
-            aggregate_signature: AggregateSignature::new(),
+            signature: AggregateSignature::new(),
         };
 
         Self {
@@ -83,7 +83,7 @@ impl TestingAttestationBuilder {
             );
 
             let signature = Signature::new(&message, domain, secret_keys[key_index]);
-            self.attestation.aggregate_signature.add(&signature)
+            self.attestation.signature.add(&signature)
         }
     }
 

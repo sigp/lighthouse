@@ -8,7 +8,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Contains data obtained from the Eth1 chain.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.0
 #[derive(
     Debug,
     PartialEq,
@@ -24,6 +24,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 )]
 pub struct Eth1Data {
     pub deposit_root: Hash256,
+    pub deposit_count: u64,
     pub block_hash: Hash256,
 }
 

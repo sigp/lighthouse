@@ -22,8 +22,9 @@ impl TestingPendingAttestationBuilder {
         let pending_attestation = PendingAttestation {
             aggregation_bitfield: Bitfield::new(),
             data: data_builder.build(),
-            custody_bitfield: Bitfield::new(),
             inclusion_slot: slot + spec.min_attestation_inclusion_delay,
+            // FIXME(sproul)
+            proposer_index: 0,
         };
 
         Self {
@@ -37,15 +38,12 @@ impl TestingPendingAttestationBuilder {
     /// `signers` is true.
     pub fn add_committee_participation(&mut self, signers: Vec<bool>) {
         let mut aggregation_bitfield = Bitfield::new();
-        let mut custody_bitfield = Bitfield::new();
 
         for (i, signed) in signers.iter().enumerate() {
             aggregation_bitfield.set(i, *signed);
-            custody_bitfield.set(i, false); // Fixed to `false` for phase 0.
         }
 
         self.pending_attestation.aggregation_bitfield = aggregation_bitfield;
-        self.pending_attestation.custody_bitfield = custody_bitfield;
     }
 
     /// Returns the `PendingAttestation`, consuming the builder.

@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// The data upon which an attestation is based.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.0
 #[derive(
     Debug,
     Clone,
@@ -37,7 +37,7 @@ pub struct AttestationData {
 
     // Crosslink Vote
     pub shard: u64,
-    pub previous_crosslink: Crosslink,
+    pub previous_crosslink_root: Crosslink,
     pub crosslink_data_root: Hash256,
 }
 

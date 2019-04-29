@@ -8,7 +8,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.0
 #[derive(
     Debug,
     Clone,
@@ -24,18 +24,22 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 pub struct PendingAttestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
-    pub custody_bitfield: Bitfield,
     pub inclusion_slot: Slot,
+    pub proposer_index: u64,
 }
 
 impl PendingAttestation {
-    /// Create a `PendingAttestation` from an `Attestation`, at the given `inclusion_slot`.
-    pub fn from_attestation(attestation: &Attestation, inclusion_slot: Slot) -> Self {
+    /// Create a `PendingAttestation` from an `Attestation`.
+    pub fn from_attestation(
+        attestation: &Attestation,
+        inclusion_slot: Slot,
+        proposer_index: u64,
+    ) -> Self {
         PendingAttestation {
             data: attestation.data.clone(),
             aggregation_bitfield: attestation.aggregation_bitfield.clone(),
-            custody_bitfield: attestation.custody_bitfield.clone(),
             inclusion_slot,
+            proposer_index,
         }
     }
 }

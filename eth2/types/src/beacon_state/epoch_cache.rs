@@ -207,8 +207,9 @@ impl EpochCrosslinkCommitteesBuilder {
     ) -> Self {
         Self {
             epoch: state.previous_epoch(spec),
-            shuffling_start_shard: state.previous_shuffling_start_shard,
-            shuffling_seed: state.previous_shuffling_seed,
+            // FIXME(sproul)
+            shuffling_start_shard: 0,
+            shuffling_seed: spec.zero_hash,
             committees_per_epoch: spec.get_epoch_committee_count(active_validator_indices.len()),
             active_validator_indices,
         }
@@ -222,8 +223,9 @@ impl EpochCrosslinkCommitteesBuilder {
     ) -> Self {
         Self {
             epoch: state.current_epoch(spec),
-            shuffling_start_shard: state.current_shuffling_start_shard,
-            shuffling_seed: state.current_shuffling_seed,
+            // FIXME(sproul)
+            shuffling_start_shard: 0,
+            shuffling_seed: spec.zero_hash,
             committees_per_epoch: spec.get_epoch_committee_count(active_validator_indices.len()),
             active_validator_indices,
         }
@@ -243,8 +245,9 @@ impl EpochCrosslinkCommitteesBuilder {
         let next_epoch = state.next_epoch(spec);
         let committees_per_epoch = spec.get_epoch_committee_count(active_validator_indices.len());
 
-        let epochs_since_last_registry_update =
-            current_epoch - state.validator_registry_update_epoch;
+        // FIXME(sproul)
+        // current_epoch - state.validator_registry_update_epoch;
+        let epochs_since_last_registry_update = 0u64;
 
         let (seed, shuffling_start_shard) = if registry_change {
             let next_seed = state
@@ -252,7 +255,9 @@ impl EpochCrosslinkCommitteesBuilder {
                 .map_err(|_| Error::UnableToGenerateSeed)?;
             (
                 next_seed,
-                (state.current_shuffling_start_shard + committees_per_epoch) % spec.shard_count,
+                0,
+                // FIXME(sproul)
+                // (state.current_shuffling_start_shard + committees_per_epoch) % spec.shard_count,
             )
         } else if (epochs_since_last_registry_update > 1)
             & epochs_since_last_registry_update.is_power_of_two()
@@ -260,11 +265,13 @@ impl EpochCrosslinkCommitteesBuilder {
             let next_seed = state
                 .generate_seed(next_epoch, spec)
                 .map_err(|_| Error::UnableToGenerateSeed)?;
-            (next_seed, state.current_shuffling_start_shard)
+            (
+                next_seed, 0, /* FIXME(sproul) state.current_shuffling_start_shard*/
+            )
         } else {
             (
-                state.current_shuffling_seed,
-                state.current_shuffling_start_shard,
+                spec.zero_hash, // state.current_shuffling_seed,
+                0 // state.current_shuffling_start_shard,
             )
         };
 
