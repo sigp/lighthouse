@@ -2,46 +2,53 @@ use super::*;
 use crate::btree_overlay::LeafNode;
 use crate::merkleize::{merkleize, num_sanitized_leaves, sanitise_bytes};
 
-impl<T> CachedTreeHash for Vec<T>
-where
-    T: CachedTreeHash + TreeHash,
-{
-    fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error> {
-        let (mut cache, schema) = new_tree_hash_cache(self, depth)?;
+macro_rules! impl_for_list {
+    ($type: ty) => {
+        impl<T> CachedTreeHash for $type
+        where
+            T: CachedTreeHash + TreeHash,
+        {
+            fn new_tree_hash_cache(&self, depth: usize) -> Result<TreeHashCache, Error> {
+                let (mut cache, schema) = new_tree_hash_cache(self, depth)?;
 
-        cache.add_length_nodes(schema.into_overlay(0).chunk_range(), self.len())?;
+                cache.add_length_nodes(schema.into_overlay(0).chunk_range(), self.len())?;
 
-        Ok(cache)
-    }
+                Ok(cache)
+            }
 
-    fn num_tree_hash_cache_chunks(&self) -> usize {
-        // Add two extra nodes to cater for the node before and after to allow mixing-in length.
-        BTreeOverlay::new(self, 0, 0).num_chunks() + 2
-    }
+            fn num_tree_hash_cache_chunks(&self) -> usize {
+                // Add two extra nodes to cater for the node before and after to allow mixing-in length.
+                BTreeOverlay::new(self, 0, 0).num_chunks() + 2
+            }
 
-    fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
-        produce_schema(self, depth)
-    }
+            fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
+                produce_schema(self, depth)
+            }
 
-    fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
-        // Skip the length-mixed-in root node.
-        cache.chunk_index += 1;
+            fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
+                // Skip the length-mixed-in root node.
+                cache.chunk_index += 1;
 
-        // Update the cache, returning the new overlay.
-        let new_overlay = update_tree_hash_cache(self, cache)?;
+                // Update the cache, returning the new overlay.
+                let new_overlay = update_tree_hash_cache(&self, cache)?;
 
-        // Mix in length
-        cache.mix_in_length(new_overlay.chunk_range(), self.len())?;
+                // Mix in length
+                cache.mix_in_length(new_overlay.chunk_range(), self.len())?;
 
-        // Skip an extra node to clear the length node.
-        cache.chunk_index += 1;
+                // Skip an extra node to clear the length node.
+                cache.chunk_index += 1;
 
-        Ok(())
-    }
+                Ok(())
+            }
+        }
+    };
 }
 
+impl_for_list!(Vec<T>);
+impl_for_list!(&[T]);
+
 pub fn new_tree_hash_cache<T: CachedTreeHash>(
-    vec: &Vec<T>,
+    vec: &[T],
     depth: usize,
 ) -> Result<(TreeHashCache, BTreeSchema), Error> {
     let schema = vec.tree_hash_cache_schema(depth);
@@ -58,7 +65,7 @@ pub fn new_tree_hash_cache<T: CachedTreeHash>(
                 .map(|item| TreeHashCache::new(item, depth + 1))
                 .collect::<Result<Vec<TreeHashCache>, _>>()?;
 
-            TreeHashCache::from_leaves_and_subtrees(vec, subtrees, depth)
+            TreeHashCache::from_leaves_and_subtrees(&vec, subtrees, depth)
         }
     }?;
 
@@ -91,11 +98,11 @@ pub fn produce_schema<T: CachedTreeHash>(vec: &[T], depth: usize) -> BTreeSchema
 
 #[allow(clippy::range_plus_one)] // Minor readability lint requiring structural changes; not worth it.
 pub fn update_tree_hash_cache<T: CachedTreeHash>(
-    vec: &Vec<T>,
+    vec: &[T],
     cache: &mut TreeHashCache,
 ) -> Result<BTreeOverlay, Error> {
     let old_overlay = cache.get_overlay(cache.schema_index, cache.chunk_index)?;
-    let new_overlay = BTreeOverlay::new(vec, cache.chunk_index, old_overlay.depth);
+    let new_overlay = BTreeOverlay::new(&vec, cache.chunk_index, old_overlay.depth);
 
     cache.replace_overlay(cache.schema_index, cache.chunk_index, new_overlay.clone())?;
 
