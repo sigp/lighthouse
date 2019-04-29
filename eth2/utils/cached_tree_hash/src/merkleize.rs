@@ -35,6 +35,7 @@ pub fn merkleize(values: Vec<u8>) -> Vec<u8> {
     o
 }
 
+/// Ensures that the given `bytes` are a power-of-two chunks, padding with zero if not.
 pub fn sanitise_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
     let present_leaves = num_unsanitized_leaves(bytes.len());
     let required_leaves = present_leaves.next_power_of_two();
@@ -46,6 +47,7 @@ pub fn sanitise_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
     bytes
 }
 
+/// Pads out `bytes` to ensure it is a clean `num_leaves` chunks.
 pub fn pad_for_leaf_count(num_leaves: usize, bytes: &mut Vec<u8>) {
     let required_leaves = num_leaves.next_power_of_two();
 
@@ -59,9 +61,10 @@ fn last_leaf_needs_padding(num_bytes: usize) -> bool {
     num_bytes % HASHSIZE != 0
 }
 
-/// Rounds up
-pub fn num_unsanitized_leaves(num_bytes: usize) -> usize {
-    (num_bytes + HASHSIZE - 1) / HASHSIZE
+/// Returns the number of leaves for a given `bytes_len` number of bytes, rounding up if
+/// `num_bytes` is not a client multiple of chunk size.
+pub fn num_unsanitized_leaves(bytes_len: usize) -> usize {
+    (bytes_len + HASHSIZE - 1) / HASHSIZE
 }
 
 fn num_bytes(num_leaves: usize) -> usize {
@@ -72,7 +75,9 @@ fn num_nodes(num_leaves: usize) -> usize {
     2 * num_leaves - 1
 }
 
-pub fn num_sanitized_leaves(num_bytes: usize) -> usize {
-    let leaves = (num_bytes + HASHSIZE - 1) / HASHSIZE;
+/// Returns the power-of-two number of leaves that would result from the given `bytes_len` number
+/// of bytes.
+pub fn num_sanitized_leaves(bytes_len: usize) -> usize {
+    let leaves = (bytes_len + HASHSIZE - 1) / HASHSIZE;
     leaves.next_power_of_two()
 }

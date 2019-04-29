@@ -1,4 +1,4 @@
-use cached_tree_hash::{CachedTreeHash, CachedTreeHasher};
+use cached_tree_hash::{CachedTreeHash, TreeHashCache};
 use tree_hash::{merkleize::merkle_root, SignedRoot, TreeHash};
 use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
@@ -12,16 +12,16 @@ pub struct Inner {
 
 fn test_standard_and_cached<T: CachedTreeHash>(original: &T, modified: &T) {
     // let mut cache = original.new_tree_hash_cache().unwrap();
-    let mut hasher = CachedTreeHasher::new(original).unwrap();
+    let mut cache = TreeHashCache::new(original).unwrap();
 
     let standard_root = original.tree_hash_root();
-    let cached_root = hasher.tree_hash_root().unwrap();
+    let cached_root = cache.tree_hash_root().unwrap();
     assert_eq!(standard_root, cached_root);
 
     // Test after a modification
-    hasher.update(modified).unwrap();
+    cache.update(modified).unwrap();
     let standard_root = modified.tree_hash_root();
-    let cached_root = hasher.tree_hash_root().unwrap();
+    let cached_root = cache.tree_hash_root().unwrap();
     assert_eq!(standard_root, cached_root);
 }
 

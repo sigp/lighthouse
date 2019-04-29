@@ -2,7 +2,7 @@ use cached_tree_hash::TreeHashCache;
 use ethereum_types::H256 as Hash256;
 
 fn run(vec: &Vec<Hash256>, modified_vec: &Vec<Hash256>) {
-    let mut cache = TreeHashCache::new(vec, 0).unwrap();
+    let mut cache = TreeHashCache::new(vec).unwrap();
 
     cache.update(modified_vec).unwrap();
 }

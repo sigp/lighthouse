@@ -46,7 +46,7 @@ macro_rules! cached_tree_hash_tests {
 
             // Test the original hash
             let original = $type::random_for_test(&mut rng);
-            let mut cache = cached_tree_hash::TreeHashCache::new(&original, 0).unwrap();
+            let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
 
             assert_eq!(
                 cache.tree_hash_root().unwrap().to_vec(),
@@ -64,7 +64,7 @@ macro_rules! cached_tree_hash_tests {
             );
 
             // Produce a new cache for the modified object and compare it to the updated cache.
-            let mut modified_cache = cached_tree_hash::TreeHashCache::new(&modified, 0).unwrap();
+            let mut modified_cache = cached_tree_hash::TreeHashCache::new(&modified).unwrap();
 
             // Reset the caches.
             cache.reset_modifications();
