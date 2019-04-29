@@ -1,3 +1,5 @@
+#![allow(clippy::range_plus_one)] // Minor readability lint requiring structural changes; not worth it.
+
 use super::*;
 use crate::merkleize::{merkleize, pad_for_leaf_count};
 use int_to_bytes::int_to_bytes32;
