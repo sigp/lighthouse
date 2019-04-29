@@ -45,11 +45,6 @@ impl TreeHashCache {
         if self.is_empty() {
             Err(Error::CacheNotInitialized)
         } else {
-            // Reset the per-hash counters.
-            self.chunk_index = 0;
-            self.schema_index = 0;
-
-            // Reset the "modified" flags for the cache.
             self.reset_modifications();
 
             item.update_tree_hash_cache(self)
@@ -156,6 +151,10 @@ impl TreeHashCache {
     }
 
     pub fn reset_modifications(&mut self) {
+        // Reset the per-hash counters.
+        self.chunk_index = 0;
+        self.schema_index = 0;
+
         for chunk_modified in &mut self.chunk_modified {
             *chunk_modified = false;
         }
@@ -241,6 +240,10 @@ impl TreeHashCache {
 
     fn bytes_len(&self) -> usize {
         self.cache.len()
+    }
+
+    pub fn tree_hash_root(&self) -> Result<&[u8], Error> {
+        self.root()
     }
 
     pub fn root(&self) -> Result<&[u8], Error> {
