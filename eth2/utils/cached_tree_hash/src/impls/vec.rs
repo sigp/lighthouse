@@ -65,7 +65,7 @@ pub fn new_tree_hash_cache<T: CachedTreeHash>(
     Ok((cache, schema))
 }
 
-pub fn produce_schema<T: CachedTreeHash>(vec: &Vec<T>, depth: usize) -> BTreeSchema {
+pub fn produce_schema<T: CachedTreeHash>(vec: &[T], depth: usize) -> BTreeSchema {
     let lengths = match T::tree_hash_type() {
         TreeHashType::Basic => {
             // Ceil division.
@@ -89,6 +89,7 @@ pub fn produce_schema<T: CachedTreeHash>(vec: &Vec<T>, depth: usize) -> BTreeSch
     BTreeSchema::from_lengths(depth, lengths)
 }
 
+#[allow(clippy::range_plus_one)] // Minor readability lint requiring structural changes; not worth it.
 pub fn update_tree_hash_cache<T: CachedTreeHash>(
     vec: &Vec<T>,
     cache: &mut TreeHashCache,
@@ -294,7 +295,7 @@ where
     //
 }
 
-fn get_packed_leaves<T>(vec: &Vec<T>) -> Result<Vec<u8>, Error>
+fn get_packed_leaves<T>(vec: &[T]) -> Result<Vec<u8>, Error>
 where
     T: CachedTreeHash,
 {
