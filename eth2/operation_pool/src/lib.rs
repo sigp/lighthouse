@@ -74,15 +74,26 @@ impl AttestationId {
 /// the aggregate attestation introduces, and is proportional to the size of the reward we will
 /// receive for including it in a block.
 // TODO: this could be optimised with a map from validator index to whether that validator has
-// attested in the *current* epoch. Alternatively, we could cache an index that allows us to
-// quickly look up the attestations in the current epoch for a given shard.
-fn attestation_score(attestation: &Attestation, state: &BeaconState) -> usize {
+// attested in each of the current and previous epochs. Currently quadractic in number of validators.
+fn attestation_score(attestation: &Attestation, state: &BeaconState, spec: &ChainSpec) -> usize {
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = attestation.aggregation_bitfield.clone();
 
-    state
-        .current_epoch_attestations
+    let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
+
+    let state_attestations = if attestation_epoch == state.current_epoch(spec) {
+        &state.current_epoch_attestations
+    } else if attestation_epoch == state.previous_epoch(spec) {
+        &state.previous_epoch_attestations
+    } else {
+        return 0;
+    };
+
+    state_attestations
         .iter()
+        // In a single epoch, an attester should only be attesting for one shard.
+        // TODO: we avoid including slashable attestations in the state here,
+        // but maybe we should do something else with them (like construct slashings).
         .filter(|current_attestation| current_attestation.data.shard == attestation.data.shard)
         .for_each(|current_attestation| {
             // Remove the validators who have signed the existing attestation (they are not new)
@@ -178,7 +189,9 @@ impl OperationPool {
             .filter(|attestation| validate_attestation(state, attestation, spec).is_ok())
             // Scored by the number of new attestations they introduce (descending)
             // TODO: need to consider attestations introduced in THIS block
-            .map(|att| (att, attestation_score(att, state)))
+            .map(|att| (att, attestation_score(att, state, spec)))
+            // Don't include any useless attestations (score 0)
+            .filter(|&(_, score)| score != 0)
             .sorted_by_key(|&(_, score)| std::cmp::Reverse(score))
             // Limited to the maximum number of attestations per block
             .take(spec.max_attestations as usize)
@@ -682,6 +695,7 @@ mod tests {
 
     /// Create a signed attestation for use in tests.
     /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
+    #[cfg(not(debug_assertions))]
     fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>>(
         committee: &CrosslinkCommittee,
         keypairs: &[Keypair],
@@ -714,6 +728,7 @@ mod tests {
     }
 
     /// Test state for attestation-related tests.
+    #[cfg(not(debug_assertions))]
     fn attestation_test_state(
         spec: &ChainSpec,
         num_committees: usize,
@@ -722,7 +737,7 @@ mod tests {
             num_committees * (spec.slots_per_epoch * spec.target_committee_size) as usize;
         let mut state_builder =
             TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, spec);
-        let slot_offset = 100000;
+        let slot_offset = 1000 * spec.slots_per_epoch + spec.slots_per_epoch / 2;
         let slot = spec.genesis_slot + slot_offset;
         state_builder.teleport_to_slot(slot, spec);
         state_builder.build_caches(spec).unwrap();
@@ -730,6 +745,7 @@ mod tests {
     }
 
     /// Set the latest crosslink in the state to match the attestation.
+    #[cfg(not(debug_assertions))]
     fn fake_latest_crosslink(att: &Attestation, state: &mut BeaconState, spec: &ChainSpec) {
         state.latest_crosslinks[att.data.shard as usize] = Crosslink {
             crosslink_data_root: att.data.crosslink_data_root,
@@ -738,6 +754,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(debug_assertions))]
     fn test_attestation_score() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -753,7 +770,7 @@ mod tests {
 
             assert_eq!(
                 att1.aggregation_bitfield.num_set_bits(),
-                attestation_score(&att1, state)
+                attestation_score(&att1, state, spec)
             );
 
             state
@@ -762,13 +779,14 @@ mod tests {
 
             assert_eq!(
                 committee.committee.len() - 2,
-                attestation_score(&att2, &state)
+                attestation_score(&att2, state, spec)
             );
         }
     }
 
     /// End-to-end test of basic attestation handling.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_aggregation_insert_get_prune() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -834,6 +852,7 @@ mod tests {
 
     /// Adding an attestation already in the pool should not increase the size of the pool.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_duplicate() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -860,6 +879,7 @@ mod tests {
     /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
     /// attestations.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_pairwise_overlapping() {
         let spec = &ChainSpec::foundation();
         let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
@@ -902,6 +922,7 @@ mod tests {
     /// high-quality attestations. To ensure that no aggregation occurs, ALL attestations
     /// are also signed by the 0th member of the committee.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn attestation_get_max() {
         let spec = &ChainSpec::foundation();
         let small_step_size = 2;

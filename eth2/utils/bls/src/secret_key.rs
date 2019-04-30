@@ -1,9 +1,11 @@
-use super::serde_vistors::HexVisitor;
+use super::BLS_SECRET_KEY_BYTE_SIZE;
 use bls_aggregates::{DecodeError as BlsDecodeError, SecretKey as RawSecretKey};
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use ssz::{decode_ssz_list, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use serde_hex::HexVisitor;
+use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -32,15 +34,18 @@ impl SecretKey {
 
 impl Encodable for SecretKey {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.0.as_bytes());
+        s.append_encoded_raw(&self.0.as_bytes());
     }
 }
 
 impl Decodable for SecretKey {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        let raw_sig = RawSecretKey::from_bytes(&sig_bytes).map_err(|_| DecodeError::TooShort)?;
-        Ok((SecretKey(raw_sig), i))
+        if bytes.len() - i < BLS_SECRET_KEY_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        let raw_sig = RawSecretKey::from_bytes(&bytes[i..(i + BLS_SECRET_KEY_BYTE_SIZE)])
+            .map_err(|_| DecodeError::TooShort)?;
+        Ok((SecretKey(raw_sig), i + BLS_SECRET_KEY_BYTE_SIZE))
     }
 }
 
@@ -59,17 +64,13 @@ impl<'de> Deserialize<'de> for SecretKey {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let (pubkey, _) = <_>::ssz_decode(&bytes[..], 0)
+        let secret_key = decode::<SecretKey>(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
-        Ok(pubkey)
+        Ok(secret_key)
     }
 }
 
-impl TreeHash for SecretKey {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        self.0.as_bytes().clone()
-    }
-}
+tree_hash_ssz_encoding_as_vector!(SecretKey);
 
 #[cfg(test)]
 mod tests {

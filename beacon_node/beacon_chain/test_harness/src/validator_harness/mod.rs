@@ -2,8 +2,7 @@ mod direct_beacon_node;
 mod direct_duties;
 mod local_signer;
 
-use attester::PollOutcome as AttestationPollOutcome;
-use attester::{Attester, Error as AttestationPollError};
+use attester::Attester;
 use beacon_chain::BeaconChain;
 use block_proposer::PollOutcome as BlockPollOutcome;
 use block_proposer::{BlockProducer, Error as BlockPollError};
@@ -14,18 +13,12 @@ use fork_choice::BitwiseLMDGhost;
 use local_signer::LocalSigner;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, FreeAttestation, Keypair, Slot};
+use types::{BeaconBlock, ChainSpec, Keypair, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProduceError {
     DidNotProduce(BlockPollOutcome),
     PollError(BlockPollError),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum AttestationProduceError {
-    DidNotProduce(AttestationPollOutcome),
-    PollError(AttestationPollError),
 }
 
 type TestingBlockProducer = BlockProducer<
@@ -115,21 +108,6 @@ impl ValidatorHarness {
             .beacon_node
             .last_published_block()
             .expect("Unable to obtain produced block."))
-    }
-
-    /// Run the `poll` function on the `Attester` and produce a `FreeAttestation`.
-    ///
-    /// An error is returned if the attester refuses to attest.
-    pub fn produce_free_attestation(&mut self) -> Result<FreeAttestation, AttestationProduceError> {
-        match self.attester.poll() {
-            Ok(AttestationPollOutcome::AttestationProduced(_)) => {}
-            Ok(outcome) => return Err(AttestationProduceError::DidNotProduce(outcome)),
-            Err(error) => return Err(AttestationProduceError::PollError(error)),
-        };
-        Ok(self
-            .beacon_node
-            .last_published_free_attestation()
-            .expect("Unable to obtain produced attestation."))
     }
 
     /// Set the validators slot clock to the specified slot.

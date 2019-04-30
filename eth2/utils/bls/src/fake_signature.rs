@@ -1,13 +1,11 @@
-use super::serde_vistors::HexVisitor;
-use super::{PublicKey, SecretKey};
+use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use ssz::{
-    decode_ssz_list, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash,
-};
-
-const SIGNATURE_LENGTH: usize = 48;
+use serde_hex::HexVisitor;
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -27,7 +25,7 @@ impl FakeSignature {
     /// Creates a new all-zero's signature
     pub fn zero() -> Self {
         Self {
-            bytes: vec![0; SIGNATURE_LENGTH],
+            bytes: vec![0; BLS_SIG_BYTE_SIZE],
         }
     }
 
@@ -59,22 +57,26 @@ impl FakeSignature {
 
 impl Encodable for FakeSignature {
     fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self.bytes);
+        s.append_encoded_raw(&self.bytes);
     }
 }
 
 impl Decodable for FakeSignature {
     fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        let (sig_bytes, i) = decode_ssz_list(bytes, i)?;
-        Ok((FakeSignature { bytes: sig_bytes }, i))
+        if bytes.len() - i < BLS_SIG_BYTE_SIZE {
+            return Err(DecodeError::TooShort);
+        }
+        Ok((
+            FakeSignature {
+                bytes: bytes[i..(i + BLS_SIG_BYTE_SIZE)].to_vec(),
+            },
+            i + BLS_SIG_BYTE_SIZE,
+        ))
     }
 }
 
-impl TreeHash for FakeSignature {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.bytes)
-    }
-}
+tree_hash_ssz_encoding_as_vector!(FakeSignature);
+cached_tree_hash_ssz_encoding_as_vector!(FakeSignature, 96);
 
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

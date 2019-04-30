@@ -4,7 +4,7 @@
 use crate::beacon_chain_harness::BeaconChainHarness;
 use beacon_chain::CheckPoint;
 use log::{info, warn};
-use ssz::SignedRoot;
+use tree_hash::SignedRoot;
 use types::*;
 
 use types::test_utils::*;

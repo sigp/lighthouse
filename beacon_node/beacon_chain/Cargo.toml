@@ -23,4 +23,5 @@ serde_json = "1.0"
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 ssz = { path = "../../eth2/utils/ssz" }
 state_processing = { path = "../../eth2/state_processing" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path = "../../eth2/types" }

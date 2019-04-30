@@ -3,6 +3,7 @@ use super::*;
 use crate::test_utils::*;
 
 ssz_tests!(BeaconState);
+cached_tree_hash_tests!(BeaconState);
 
 /// Test that
 ///
@@ -54,4 +55,23 @@ fn cache_initialization() {
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::NextWithRegistryChange, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::NextWithoutRegistryChange, &spec);
+}
+
+#[test]
+fn tree_hash_cache() {
+    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use tree_hash::TreeHash;
+
+    let mut rng = XorShiftRng::from_seed([42; 16]);
+
+    let mut state = BeaconState::random_for_test(&mut rng);
+
+    let root = state.update_tree_hash_cache().unwrap();
+
+    assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
+
+    state.slot = state.slot + 1;
+
+    let root = state.update_tree_hash_cache().unwrap();
+    assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
 }

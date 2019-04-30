@@ -8,7 +8,7 @@ use super::block_producer::{BeaconNodeError, PublishOutcome, ValidatorEvent};
 use crate::signer::Signer;
 use beacon_node_attestation::BeaconNodeAttestation;
 use slog::{error, info, warn};
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, AttestationData, AttestationDataAndCustodyBit,
     AttestationDuty, Bitfield,
@@ -123,7 +123,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
                 data: attestation.clone(),
                 custody_bit: false,
             }
-            .hash_tree_root();
+            .tree_hash_root();
 
             let sig = self.signer.sign_message(&message, domain)?;
 

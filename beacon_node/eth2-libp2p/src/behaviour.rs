@@ -65,17 +65,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
                 self.events.push(BehaviourEvent::GossipMessage {
                     source: gs_msg.source,
                     topics: gs_msg.topics,
-                    message: pubsub_message,
+                    message: Box::new(pubsub_message),
                 });
             }
-            GossipsubEvent::Subscribed {
-                peer_id: _,
-                topic: _,
-            }
-            | GossipsubEvent::Unsubscribed {
-                peer_id: _,
-                topic: _,
-            } => {}
+            GossipsubEvent::Subscribed { .. } => {}
+            GossipsubEvent::Unsubscribed { .. } => {}
         }
     }
 }
@@ -110,7 +104,8 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     );
                     info.listen_addrs.truncate(20);
                 }
-                self.events.push(BehaviourEvent::Identified(peer_id, info));
+                self.events
+                    .push(BehaviourEvent::Identified(peer_id, Box::new(info)));
             }
             IdentifyEvent::Error { .. } => {}
             IdentifyEvent::SendBack { .. } => {}
@@ -183,12 +178,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 pub enum BehaviourEvent {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
-    Identified(PeerId, IdentifyInfo),
+    Identified(PeerId, Box<IdentifyInfo>),
     // TODO: This is a stub at the moment
     GossipMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: PubsubMessage,
+        message: Box<PubsubMessage>,
     },
 }
 

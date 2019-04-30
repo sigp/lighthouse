@@ -5,24 +5,23 @@ mod aggregate_public_key;
 mod keypair;
 mod public_key;
 mod secret_key;
-mod serde_vistors;
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 mod aggregate_signature;
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 mod signature;
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 pub use crate::aggregate_signature::AggregateSignature;
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "fake_crypto"))]
 pub use crate::signature::Signature;
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 mod fake_aggregate_signature;
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 mod fake_signature;
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 pub use crate::fake_aggregate_signature::FakeAggregateSignature as AggregateSignature;
-#[cfg(debug_assertions)]
+#[cfg(feature = "fake_crypto")]
 pub use crate::fake_signature::FakeSignature as Signature;
 
 pub use crate::aggregate_public_key::AggregatePublicKey;
@@ -31,6 +30,9 @@ pub use crate::public_key::PublicKey;
 pub use crate::secret_key::SecretKey;
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 96;
+pub const BLS_SIG_BYTE_SIZE: usize = 96;
+pub const BLS_SECRET_KEY_BYTE_SIZE: usize = 48;
+pub const BLS_PUBLIC_KEY_BYTE_SIZE: usize = 48;
 
 use hashing::hash;
 use ssz::ssz_encode;

@@ -3,7 +3,7 @@ use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
 use protos::services_grpc::BeaconBlockServiceClient;
-use ssz::{ssz_encode, Decodable};
+use ssz::{decode, ssz_encode};
 use std::sync::Arc;
 use types::{BeaconBlock, Signature, Slot};
 
@@ -46,8 +46,7 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
             let block = reply.get_block();
             let ssz = block.get_ssz();
 
-            let (block, _i) =
-                BeaconBlock::ssz_decode(&ssz, 0).map_err(|_| BeaconNodeError::DecodeFailure)?;
+            let block = decode::<BeaconBlock>(&ssz).map_err(|_| BeaconNodeError::DecodeFailure)?;
 
             Ok(Some(block))
         } else {

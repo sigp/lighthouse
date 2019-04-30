@@ -5,7 +5,7 @@ use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{ActiveValidator, GetDutiesRequest, GetDutiesResponse, ValidatorDuty};
 use protos::services_grpc::ValidatorService;
 use slog::{trace, warn};
-use ssz::Decodable;
+use ssz::decode;
 use std::sync::Arc;
 use types::{Epoch, RelativeEpoch};
 
@@ -74,8 +74,8 @@ impl ValidatorService for ValidatorServiceInstance {
         for validator_pk in validators.get_public_keys() {
             let mut active_validator = ActiveValidator::new();
 
-            let public_key = match PublicKey::ssz_decode(validator_pk, 0) {
-                Ok((v, _index)) => v,
+            let public_key = match decode::<PublicKey>(validator_pk) {
+                Ok(v) => v,
                 Err(_) => {
                     let log_clone = self.log.clone();
                     let f = sink
@@ -83,7 +83,7 @@ impl ValidatorService for ValidatorServiceInstance {
                             RpcStatusCode::InvalidArgument,
                             Some("Invalid public_key".to_string()),
                         ))
-                        .map_err(move |e| warn!(log_clone, "failed to reply {:?}", req));
+                        .map_err(move |_| warn!(log_clone, "failed to reply {:?}", req));
                     return ctx.spawn(f);
                 }
             };
