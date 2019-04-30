@@ -1,6 +1,7 @@
 use self::epoch_cache::{get_active_validator_indices, EpochCache, Error as EpochCacheError};
 use crate::test_utils::TestRandom;
 use crate::*;
+use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use int_to_bytes::int_to_bytes32;
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
@@ -9,7 +10,7 @@ use ssz::{hash, ssz_encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
+use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 mod epoch_cache;
 mod pubkey_cache;
@@ -42,12 +43,24 @@ pub enum Error {
     EpochCacheUninitialized(RelativeEpoch),
     RelativeEpochError(RelativeEpochError),
     EpochCacheError(EpochCacheError),
+    TreeHashCacheError(TreeHashCacheError),
 }
 
 /// The state of the `BeaconChain` at some slot.
 ///
 /// Spec v0.5.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, TestRandom, Encode, Decode, TreeHash)]
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    TestRandom,
+    Encode,
+    Decode,
+    TreeHash,
+    CachedTreeHash,
+)]
 pub struct BeaconState {
     // Misc
     pub slot: Slot,
@@ -112,6 +125,12 @@ pub struct BeaconState {
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     pub pubkey_cache: PubkeyCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    pub tree_hash_cache: TreeHashCache,
 }
 
 impl BeaconState {
@@ -187,6 +206,7 @@ impl BeaconState {
                 EpochCache::default(),
             ],
             pubkey_cache: PubkeyCache::default(),
+            tree_hash_cache: TreeHashCache::default(),
         }
     }
 
@@ -672,6 +692,7 @@ impl BeaconState {
         self.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, spec)?;
         self.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec)?;
         self.update_pubkey_cache()?;
+        self.update_tree_hash_cache()?;
 
         Ok(())
     }
@@ -778,6 +799,39 @@ impl BeaconState {
     pub fn drop_pubkey_cache(&mut self) {
         self.pubkey_cache = PubkeyCache::default()
     }
+
+    /// Update the tree hash cache, building it for the first time if it is empty.
+    ///
+    /// Returns the `tree_hash_root` resulting from the update. This root can be considered the
+    /// canonical root of `self`.
+    pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
+        if self.tree_hash_cache.is_empty() {
+            self.tree_hash_cache = TreeHashCache::new(self)?;
+        } else {
+            // Move the cache outside of `self` to satisfy the borrow checker.
+            let mut cache = std::mem::replace(&mut self.tree_hash_cache, TreeHashCache::default());
+
+            cache.update(self)?;
+
+            // Move the updated cache back into `self`.
+            self.tree_hash_cache = cache
+        }
+
+        self.cached_tree_hash_root()
+    }
+
+    /// Returns the tree hash root determined by the last execution of `self.update_tree_hash_cache(..)`.
+    ///
+    /// Note: does _not_ update the cache and may return an outdated root.
+    ///
+    /// Returns an error if the cache is not initialized or if an error is encountered during the
+    /// cache update.
+    pub fn cached_tree_hash_root(&self) -> Result<Hash256, Error> {
+        self.tree_hash_cache
+            .tree_hash_root()
+            .and_then(|b| Ok(Hash256::from_slice(b)))
+            .map_err(|e| e.into())
+    }
 }
 
 impl From<RelativeEpochError> for Error {
@@ -789,5 +843,11 @@ impl From<RelativeEpochError> for Error {
 impl From<EpochCacheError> for Error {
     fn from(e: EpochCacheError) -> Error {
         Error::EpochCacheError(e)
+    }
+}
+
+impl From<TreeHashCacheError> for Error {
+    fn from(e: TreeHashCacheError) -> Error {
+        Error::TreeHashCacheError(e)
     }
 }

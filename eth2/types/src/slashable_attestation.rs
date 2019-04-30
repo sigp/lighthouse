@@ -4,7 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// Details an attestation that can be slashable.
 ///
@@ -20,6 +20,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
     SignedRoot,
 )]
@@ -133,6 +134,7 @@ mod tests {
     }
 
     ssz_tests!(SlashableAttestation);
+    cached_tree_hash_tests!(SlashableAttestation);
 
     fn create_slashable_attestation(
         slot_factor: u64,

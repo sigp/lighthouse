@@ -10,6 +10,7 @@ proc-macro = true
 
 [dev-dependencies]
 tree_hash = { path = "../tree_hash" }
+cached_tree_hash = { path = "../cached_tree_hash" }
 
 [dependencies]
 syn = "0.15"

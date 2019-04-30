@@ -224,6 +224,26 @@ macro_rules! impl_ssz {
             }
         }
 
+        impl cached_tree_hash::CachedTreeHash for $type {
+            fn new_tree_hash_cache(
+                &self,
+                depth: usize,
+            ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
+                self.0.new_tree_hash_cache(depth)
+            }
+
+            fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
+                self.0.tree_hash_cache_schema(depth)
+            }
+
+            fn update_tree_hash_cache(
+                &self,
+                cache: &mut cached_tree_hash::TreeHashCache,
+            ) -> Result<(), cached_tree_hash::Error> {
+                self.0.update_tree_hash_cache(cache)
+            }
+        }
+
         impl<T: RngCore> TestRandom<T> for $type {
             fn random_for_test(rng: &mut T) -> Self {
                 $type::from(u64::random_for_test(rng))
@@ -545,6 +565,7 @@ macro_rules! all_tests {
         math_between_tests!($type, $type);
         math_tests!($type);
         ssz_tests!($type);
+        cached_tree_hash_tests!($type);
 
         mod u64_tests {
             use super::*;

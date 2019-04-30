@@ -1,7 +1,8 @@
-use tree_hash::{CachedTreeHashSubTree, SignedRoot, TreeHash};
-use tree_hash_derive::{CachedTreeHashSubTree, SignedRoot, TreeHash};
+use cached_tree_hash::{CachedTreeHash, TreeHashCache};
+use tree_hash::{merkleize::merkle_root, SignedRoot, TreeHash};
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct Inner {
     pub a: u64,
     pub b: u64,
@@ -9,22 +10,18 @@ pub struct Inner {
     pub d: u64,
 }
 
-fn test_standard_and_cached<T>(original: &T, modified: &T)
-where
-    T: CachedTreeHashSubTree<T>,
-{
-    let mut cache = original.new_tree_hash_cache().unwrap();
+fn test_standard_and_cached<T: CachedTreeHash>(original: &T, modified: &T) {
+    // let mut cache = original.new_tree_hash_cache().unwrap();
+    let mut cache = TreeHashCache::new(original).unwrap();
 
     let standard_root = original.tree_hash_root();
-    let cached_root = cache.root().unwrap().to_vec();
+    let cached_root = cache.tree_hash_root().unwrap();
     assert_eq!(standard_root, cached_root);
 
     // Test after a modification
-    modified
-        .update_tree_hash_cache(&original, &mut cache, 0)
-        .unwrap();
+    cache.update(modified).unwrap();
     let standard_root = modified.tree_hash_root();
-    let cached_root = cache.root().unwrap().to_vec();
+    let cached_root = cache.tree_hash_root().unwrap();
     assert_eq!(standard_root, cached_root);
 }
 
@@ -44,7 +41,7 @@ fn inner_standard_vs_cached() {
     test_standard_and_cached(&original, &modified);
 }
 
-#[derive(Clone, Debug, TreeHash, CachedTreeHashSubTree)]
+#[derive(Clone, Debug, TreeHash, CachedTreeHash)]
 pub struct Uneven {
     pub a: u64,
     pub b: u64,
@@ -120,7 +117,7 @@ impl CryptoKitties {
         leaves.append(&mut self.best_kitty.tree_hash_root());
         leaves.append(&mut self.worst_kitty.tree_hash_root());
         leaves.append(&mut self.kitties.tree_hash_root());
-        tree_hash::merkle_root(&leaves)
+        merkle_root(&leaves)
     }
 }
 
@@ -158,14 +155,14 @@ impl Casper {
         let mut list = Vec::new();
         list.append(&mut self.friendly.tree_hash_root());
         list.append(&mut self.friends.tree_hash_root());
-        tree_hash::merkle_root(&list)
+        merkle_root(&list)
     }
 
     fn expected_tree_hash(&self) -> Vec<u8> {
         let mut list = Vec::new();
         list.append(&mut self.friendly.tree_hash_root());
         list.append(&mut self.dead.tree_hash_root());
-        tree_hash::merkle_root(&list)
+        merkle_root(&list)
     }
 }
 

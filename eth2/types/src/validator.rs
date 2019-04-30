@@ -3,12 +3,23 @@ use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash_derive::TreeHash;
+use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.5.1
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    TreeHash,
+    CachedTreeHash,
+)]
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
@@ -111,4 +122,5 @@ mod tests {
     }
 
     ssz_tests!(Validator);
+    cached_tree_hash_tests!(Validator);
 }

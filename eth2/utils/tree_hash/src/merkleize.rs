@@ -1,20 +1,5 @@
 use super::*;
 use hashing::hash;
-use int_to_bytes::int_to_bytes32;
-
-pub use impls::vec_tree_hash_root;
-
-mod impls;
-
-pub trait TreeHash {
-    fn tree_hash_type() -> TreeHashType;
-
-    fn tree_hash_packed_encoding(&self) -> Vec<u8>;
-
-    fn tree_hash_packing_factor() -> usize;
-
-    fn tree_hash_root(&self) -> Vec<u8>;
-}
 
 pub fn merkle_root(bytes: &[u8]) -> Vec<u8> {
     // TODO: replace this with a more memory efficient method.
@@ -41,16 +26,16 @@ pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
 
     assert_eq!(o.len(), num_bytes);
 
-    let empty_chunk_hash = hash(&[0; MERKLE_HASH_CHUNCK]);
+    let empty_chunk_hash = hash(&[0; MERKLE_HASH_CHUNK]);
 
     let mut i = nodes * HASHSIZE;
     let mut j = internal_nodes * HASHSIZE;
 
-    while i >= MERKLE_HASH_CHUNCK {
-        i -= MERKLE_HASH_CHUNCK;
+    while i >= MERKLE_HASH_CHUNK {
+        i -= MERKLE_HASH_CHUNK;
 
         j -= HASHSIZE;
-        let hash = match o.get(i..i + MERKLE_HASH_CHUNCK) {
+        let hash = match o.get(i..i + MERKLE_HASH_CHUNK) {
             // All bytes are available, hash as ususal.
             Some(slice) => hash(slice),
             // Unable to get all the bytes.
@@ -59,7 +44,7 @@ pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
                     // Able to get some of the bytes, pad them out.
                     Some(slice) => {
                         let mut bytes = slice.to_vec();
-                        bytes.resize(MERKLE_HASH_CHUNCK, 0);
+                        bytes.resize(MERKLE_HASH_CHUNK, 0);
                         hash(&bytes)
                     }
                     // Unable to get any bytes, use the empty-chunk hash.
@@ -72,4 +57,13 @@ pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
     }
 
     o
+}
+
+fn num_sanitized_leaves(num_bytes: usize) -> usize {
+    let leaves = (num_bytes + HASHSIZE - 1) / HASHSIZE;
+    leaves.next_power_of_two()
+}
+
+fn num_nodes(num_leaves: usize) -> usize {
+    2 * num_leaves - 1
 }
