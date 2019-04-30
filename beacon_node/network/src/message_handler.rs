@@ -41,7 +41,7 @@ pub enum HandlerMessage {
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
     /// A gossip message has been received.
-    PubsubMessage(PeerId, PubsubMessage),
+    PubsubMessage(PeerId, Box<PubsubMessage>),
 }
 
 impl MessageHandler {
@@ -93,7 +93,7 @@ impl MessageHandler {
             }
             // we have received an RPC message request/response
             HandlerMessage::PubsubMessage(peer_id, gossip) => {
-                self.handle_gossip(peer_id, gossip);
+                self.handle_gossip(peer_id, *gossip);
             }
             //TODO: Handle all messages
             _ => {}

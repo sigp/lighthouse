@@ -9,8 +9,8 @@ use fork_choice::BitwiseLMDGhost;
 use log::debug;
 use rayon::prelude::*;
 use slot_clock::TestingSlotClock;
-use ssz::TreeHash;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::{test_utils::TestingBeaconStateBuilder, *};
 
 type TestingBeaconChain = BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>;
@@ -54,7 +54,7 @@ impl BeaconChainHarness {
         let (mut genesis_state, keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
-        genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+        genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
         genesis_state
             .build_epoch_cache(RelativeEpoch::Previous, &spec)
@@ -163,7 +163,7 @@ impl BeaconChainHarness {
                         data: data.clone(),
                         custody_bit: false,
                     }
-                    .hash_tree_root();
+                    .tree_hash_root();
                     let domain = self.spec.get_domain(
                         state.slot.epoch(self.spec.slots_per_epoch),
                         Domain::Attestation,
@@ -211,9 +211,8 @@ impl BeaconChainHarness {
 
         // Ensure the validators slot clock is accurate.
         self.validators[proposer].set_slot(present_slot);
-        let block = self.validators[proposer].produce_block().unwrap();
 
-        block
+        self.validators[proposer].produce_block().unwrap()
     }
 
     /// Advances the chain with a BeaconBlock and attestations from all validators.
@@ -245,7 +244,7 @@ impl BeaconChainHarness {
             .for_each(|(i, attestation)| {
                 self.beacon_chain
                     .process_attestation(attestation.clone())
-                    .expect(&format!("Attestation {} invalid: {:?}", i, attestation));
+                    .unwrap_or_else(|_| panic!("Attestation {} invalid: {:?}", i, attestation));
             });
 
         debug!("Attestations processed.");

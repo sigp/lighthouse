@@ -8,7 +8,7 @@ const GWEI: u64 = 1_000_000_000;
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub enum Domain {
     BeaconBlock,
     Randao,
@@ -20,7 +20,7 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(PartialEq, Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -126,7 +126,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Return the number of committees in one epoch.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
         std::cmp::max(
             1,
@@ -139,7 +139,7 @@ impl ChainSpec {
 
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = match domain {
             Domain::BeaconBlock => self.domain_beacon_block,
@@ -161,7 +161,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn foundation() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 64;

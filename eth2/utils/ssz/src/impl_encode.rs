@@ -27,9 +27,9 @@ macro_rules! impl_encodable_for_uint {
                 // Match bit size with encoding
                 match $bit_size {
                     8 => buf.put_u8(*self as u8),
-                    16 => buf.put_u16_be(*self as u16),
-                    32 => buf.put_u32_be(*self as u32),
-                    64 => buf.put_u64_be(*self as u64),
+                    16 => buf.put_u16_le(*self as u16),
+                    32 => buf.put_u32_le(*self as u32),
+                    64 => buf.put_u64_le(*self as u64),
                     _ => {}
                 }
 
@@ -61,7 +61,7 @@ impl_encodable_for_u8_array!(4);
 
 impl Encodable for bool {
     fn ssz_append(&self, s: &mut SszStream) {
-        let byte = if *self { 0b1000_0000 } else { 0b0000_0000 };
+        let byte = if *self { 0b0000_0001 } else { 0b0000_0000 };
         s.append_encoded_raw(&[byte]);
     }
 }
@@ -136,17 +136,17 @@ mod tests {
         let x: u16 = 1;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 1]);
+        assert_eq!(ssz.drain(), vec![1, 0]);
 
         let x: u16 = 100;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 100]);
+        assert_eq!(ssz.drain(), vec![100, 0]);
 
         let x: u16 = 1 << 8;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![1, 0]);
+        assert_eq!(ssz.drain(), vec![0, 1]);
 
         let x: u16 = 65535;
         let mut ssz = SszStream::new();
@@ -159,22 +159,22 @@ mod tests {
         let x: u32 = 1;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 1]);
+        assert_eq!(ssz.drain(), vec![1, 0, 0, 0]);
 
         let x: u32 = 100;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 100]);
+        assert_eq!(ssz.drain(), vec![100, 0, 0, 0]);
 
         let x: u32 = 1 << 16;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 1, 0, 0]);
+        assert_eq!(ssz.drain(), vec![0, 0, 1, 0]);
 
         let x: u32 = 1 << 24;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![1, 0, 0, 0]);
+        assert_eq!(ssz.drain(), vec![0, 0, 0, 1]);
 
         let x: u32 = !0;
         let mut ssz = SszStream::new();
@@ -187,17 +187,17 @@ mod tests {
         let x: u64 = 1;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 0, 0, 0, 1]);
+        assert_eq!(ssz.drain(), vec![1, 0, 0, 0, 0, 0, 0, 0]);
 
         let x: u64 = 100;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 0, 0, 0, 100]);
+        assert_eq!(ssz.drain(), vec![100, 0, 0, 0, 0, 0, 0, 0]);
 
         let x: u64 = 1 << 32;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 1, 0, 0, 0, 0]);
+        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 1, 0, 0, 0]);
 
         let x: u64 = !0;
         let mut ssz = SszStream::new();
@@ -210,22 +210,43 @@ mod tests {
         let x: usize = 1;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 0, 0, 0, 1]);
+        assert_eq!(ssz.drain(), vec![1, 0, 0, 0, 0, 0, 0, 0]);
 
         let x: usize = 100;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 0, 0, 0, 100]);
+        assert_eq!(ssz.drain(), vec![100, 0, 0, 0, 0, 0, 0, 0]);
 
         let x: usize = 1 << 32;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 1, 0, 0, 0, 0]);
+        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 1, 0, 0, 0]);
 
         let x: usize = !0;
         let mut ssz = SszStream::new();
         ssz.append(&x);
         assert_eq!(ssz.drain(), vec![255, 255, 255, 255, 255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn test_ssz_mixed() {
+        let mut stream = SszStream::new();
+
+        let h = Address::zero();
+        let a: u8 = 100;
+        let b: u16 = 65535;
+        let c: u32 = 1 << 24;
+
+        stream.append(&h);
+        stream.append(&a);
+        stream.append(&b);
+        stream.append(&c);
+
+        let ssz = stream.drain();
+        assert_eq!(ssz[0..20], *vec![0; 20]);
+        assert_eq!(ssz[20], 100);
+        assert_eq!(ssz[21..23], *vec![255, 255]);
+        assert_eq!(ssz[23..27], *vec![0, 0, 0, 1]);
     }
 
     #[test]
@@ -238,7 +259,7 @@ mod tests {
         let x: bool = true;
         let mut ssz = SszStream::new();
         ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0b1000_0000]);
+        assert_eq!(ssz.drain(), vec![0b0000_0001]);
     }
 
     #[test]

@@ -4,18 +4,17 @@ extern crate ethereum_types;
 extern crate ssz;
 
 use ethereum_types::H256;
-use ssz::{DecodeError, Decodable};
+use ssz::{DecodeError, decode};
 
 // Fuzz ssz_decode()
 fuzz_target!(|data: &[u8]| {
-    let result: Result<(H256, usize), DecodeError> = Decodable::ssz_decode(data, 0);
-    if data.len() >= 32 {
+    let result: Result<H256, DecodeError> = decode(data);
+    if data.len() == 32 {
         // Should have valid result
-        let (hash, index) = result.unwrap();
-        assert_eq!(index, 32);
+        let hash = result.unwrap();
         assert_eq!(hash, H256::from_slice(&data[..32]));
     } else {
         // Length of less than 32 should return error
-        assert_eq!(result, Err(DecodeError::TooShort));
+        assert!(result.is_err());
     }
 });

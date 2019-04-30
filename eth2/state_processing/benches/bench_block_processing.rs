@@ -1,6 +1,5 @@
 use criterion::Criterion;
 use criterion::{black_box, Benchmark};
-use ssz::TreeHash;
 use state_processing::{
     per_block_processing,
     per_block_processing::{
@@ -9,6 +8,7 @@ use state_processing::{
         verify_block_signature,
     },
 };
+use tree_hash::TreeHash;
 use types::*;
 
 /// Run the detailed benchmarking suite on the given `BeaconState`.
@@ -263,7 +263,7 @@ pub fn bench_block_processing(
     c.bench(
         &format!("{}/block_processing", desc),
         Benchmark::new("tree_hash_block", move |b| {
-            b.iter(|| black_box(block.hash_tree_root()))
+            b.iter(|| black_box(block.tree_hash_root()))
         })
         .sample_size(10),
     );

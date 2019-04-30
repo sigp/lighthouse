@@ -14,7 +14,7 @@ use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use slog;
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -139,5 +139,16 @@ mod epoch_tests {
         for i in 0..slots_per_epoch {
             assert_eq!(Slot::from(i), slots[i as usize])
         }
+    }
+
+    #[test]
+    fn max_epoch_ssz() {
+        let max_epoch = Epoch::max_value();
+        let mut ssz = SszStream::new();
+        ssz.append(&max_epoch);
+        let encoded = ssz.drain();
+        assert_eq!(&encoded, &[255, 255, 255, 255, 255, 255, 255, 255]);
+        let (decoded, _i): (Epoch, usize) = <_>::ssz_decode(&encoded, 0).unwrap();
+        assert_eq!(max_epoch, decoded);
     }
 }

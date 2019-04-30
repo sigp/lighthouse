@@ -8,3 +8,6 @@ edition = "2018"
 bytes = "0.4.9"
 ethereum-types = "0.5"
 hashing = { path = "../hashing" }
+int_to_bytes = { path = "../int_to_bytes" }
+hex = "0.3"
+yaml-rust = "0.4"

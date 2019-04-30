@@ -7,9 +7,9 @@ use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::{DiskDB, MemoryDB};
 use fork_choice::BitwiseLMDGhost;
 use slot_clock::SystemTimeSlotClock;
-use ssz::TreeHash;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{BeaconBlock, ChainSpec, Hash256};
 
@@ -32,7 +32,7 @@ pub fn initialise_beacon_chain(
     let (genesis_state, _keypairs) = state_builder.build();
 
     let mut genesis_block = BeaconBlock::empty(&spec);
-    genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+    genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
     // Slot clock
     let slot_clock = SystemTimeSlotClock::new(
@@ -73,7 +73,7 @@ pub fn initialise_test_beacon_chain_with_memory_db(
     let (genesis_state, _keypairs) = state_builder.build();
 
     let mut genesis_block = BeaconBlock::empty(spec);
-    genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+    genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
     // Slot clock
     let slot_clock = SystemTimeSlotClock::new(

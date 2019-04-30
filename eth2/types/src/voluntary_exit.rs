@@ -2,13 +2,14 @@ use crate::{test_utils::TestRandom, Epoch};
 use bls::Signature;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// An exit voluntarily submitted a validator who wishes to withdraw.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     PartialEq,
@@ -18,12 +19,14 @@ use test_random_derive::TestRandom;
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
     SignedRoot,
 )]
 pub struct VoluntaryExit {
     pub epoch: Epoch,
     pub validator_index: u64,
+    #[signed_root(skip_hashing)]
     pub signature: Signature,
 }
 
@@ -32,4 +35,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(VoluntaryExit);
+    cached_tree_hash_tests!(VoluntaryExit);
 }

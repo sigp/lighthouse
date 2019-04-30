@@ -43,9 +43,9 @@ impl AttestationService for AttestationServiceInstance {
                 let f = sink
                     .fail(RpcStatus::new(
                         RpcStatusCode::OutOfRange,
-                        Some(format!(
-                            "AttestationData request for a slot that is in the future."
-                        )),
+                        Some(
+                            "AttestationData request for a slot that is in the future.".to_string(),
+                        ),
                     ))
                     .map_err(move |e| {
                         error!(log_clone, "Failed to reply with failure {:?}: {:?}", req, e)
@@ -58,9 +58,7 @@ impl AttestationService for AttestationServiceInstance {
                 let f = sink
                     .fail(RpcStatus::new(
                         RpcStatusCode::InvalidArgument,
-                        Some(format!(
-                            "AttestationData request for a slot that is in the past."
-                        )),
+                        Some("AttestationData request for a slot that is in the past.".to_string()),
                     ))
                     .map_err(move |e| {
                         error!(log_clone, "Failed to reply with failure {:?}: {:?}", req, e)

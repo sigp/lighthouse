@@ -303,8 +303,6 @@ where
     /// then having it iteratively updated -- in such a case it's possible for another thread to
     /// find the state at an old slot.
     pub fn update_state(&self, mut state: BeaconState) -> Result<(), Error> {
-        let latest_block_header = self.head().beacon_block.block_header();
-
         let present_slot = match self.slot_clock.present_slot() {
             Ok(Some(slot)) => slot,
             _ => return Err(Error::UnableToReadSlot),
@@ -312,7 +310,7 @@ where
 
         // If required, transition the new state to the present slot.
         for _ in state.slot.as_u64()..present_slot.as_u64() {
-            per_slot_processing(&mut state, &latest_block_header, &self.spec)?;
+            per_slot_processing(&mut state, &self.spec)?;
         }
 
         state.build_all_caches(&self.spec)?;
@@ -324,8 +322,6 @@ where
 
     /// Ensures the current canonical `BeaconState` has been transitioned to match the `slot_clock`.
     pub fn catchup_state(&self) -> Result<(), Error> {
-        let latest_block_header = self.head().beacon_block.block_header();
-
         let present_slot = match self.slot_clock.present_slot() {
             Ok(Some(slot)) => slot,
             _ => return Err(Error::UnableToReadSlot),
@@ -339,7 +335,7 @@ where
             state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
             state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
 
-            per_slot_processing(&mut *state, &latest_block_header, &self.spec)?;
+            per_slot_processing(&mut *state, &self.spec)?;
         }
 
         state.build_all_caches(&self.spec)?;
@@ -497,21 +493,17 @@ where
             } else {
                 // If the current head block is not from this slot, use the slot from the previous
                 // epoch.
-                let root = *self.state.read().get_block_root(
+                *self.state.read().get_block_root(
                     current_epoch_start_slot - self.spec.slots_per_epoch,
                     &self.spec,
-                )?;
-
-                root
+                )?
             }
         } else {
             // If we're not on the first slot of the epoch.
-            let root = *self
+            *self
                 .state
                 .read()
-                .get_block_root(current_epoch_start_slot, &self.spec)?;
-
-            root
+                .get_block_root(current_epoch_start_slot, &self.spec)?
         };
 
         Ok(AttestationData {
@@ -621,9 +613,8 @@ where
 
         // Transition the parent state to the block slot.
         let mut state = parent_state;
-        let previous_block_header = parent_block.block_header();
         for _ in state.slot.as_u64()..block.slot.as_u64() {
-            if let Err(e) = per_slot_processing(&mut state, &previous_block_header, &self.spec) {
+            if let Err(e) = per_slot_processing(&mut state, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
                 ));

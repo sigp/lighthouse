@@ -12,7 +12,7 @@ impl TestingDepositBuilder {
     /// Instantiates a new builder.
     pub fn new(pubkey: PublicKey, amount: u64) -> Self {
         let deposit = Deposit {
-            proof: vec![],
+            proof: vec![].into(),
             index: 0,
             deposit_data: DepositData {
                 amount,

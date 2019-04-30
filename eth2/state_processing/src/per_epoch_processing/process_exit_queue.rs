@@ -2,7 +2,7 @@ use types::*;
 
 /// Process the exit queue.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn process_exit_queue(state: &mut BeaconState, spec: &ChainSpec) {
     let current_epoch = state.current_epoch(spec);
 
@@ -31,7 +31,7 @@ pub fn process_exit_queue(state: &mut BeaconState, spec: &ChainSpec) {
 
 /// Initiate an exit for the validator of the given `index`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn prepare_validator_for_withdrawal(
     state: &mut BeaconState,
     validator_index: usize,

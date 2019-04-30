@@ -5,17 +5,17 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, warn};
-use ssz::TreeHash;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tree_hash::TreeHash;
 use types::{Attestation, BeaconBlock, Epoch, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
 /// The amount of seconds a block (or partial block) may exist in the import queue.
-const QUEUE_STALE_SECS: u64 = 60;
+const QUEUE_STALE_SECS: u64 = 600;
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
@@ -65,7 +65,7 @@ pub enum PeerStatus {
 }
 
 impl PeerStatus {
-    pub fn should_handshake(&self) -> bool {
+    pub fn should_handshake(self) -> bool {
         match self {
             PeerStatus::DifferentNetworkId => false,
             PeerStatus::FinalizedEpochNotInChain => false,
@@ -565,7 +565,7 @@ impl SimpleSync {
             return false;
         }
 
-        let block_root = Hash256::from_slice(&block.hash_tree_root());
+        let block_root = Hash256::from_slice(&block.tree_hash_root());
 
         // Ignore any block that the chain already knows about.
         if self.chain_has_seen_block(&block_root) {
@@ -582,7 +582,26 @@ impl SimpleSync {
         );
         match self.chain.process_block(block.clone()) {
             Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::ParentUnknown)) => {
-                // get the parent.
+                // The block was valid and we processed it successfully.
+                debug!(
+                    self.log, "NewGossipBlock";
+                    "msg" => "parent block unknown",
+                    "parent_root" => format!("{}", block.previous_block_root),
+                    "peer" => format!("{:?}", peer_id),
+                );
+                // Queue the block for later processing.
+                self.import_queue
+                    .enqueue_full_blocks(vec![block], peer_id.clone());
+                // Send a hello to learn of the clients best slot so we can then sync the require
+                // parent(s).
+                network.send_rpc_request(
+                    peer_id.clone(),
+                    RPCRequest::Hello(self.chain.hello_message()),
+                );
+                // Forward the block onto our peers.
+                //
+                // Note: this may need to be changed if we decide to only forward blocks if we have
+                // all required info.
                 true
             }
             Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::FutureSlot {
@@ -710,12 +729,21 @@ impl SimpleSync {
                             "reason" => format!("{:?}", outcome),
                         );
                         network.disconnect(sender, GoodbyeReason::Fault);
+                        break;
                     }
 
                     // If this results to true, the item will be removed from the queue.
                     if outcome.sucessfully_processed() {
                         successful += 1;
                         self.import_queue.remove(block_root);
+                    } else {
+                        debug!(
+                            self.log,
+                            "ProcessImportQueue";
+                            "msg" => "Block not imported",
+                            "outcome" => format!("{:?}", outcome),
+                            "peer" => format!("{:?}", sender),
+                        );
                     }
                 }
                 Err(e) => {
