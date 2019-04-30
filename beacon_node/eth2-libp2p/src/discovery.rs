@@ -9,7 +9,6 @@ use libp2p::core::swarm::{
 use libp2p::core::{Multiaddr, PeerId, ProtocolsHandler};
 use libp2p::kad::{Kademlia, KademliaOut};
 use slog::{debug, o, warn};
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_timer::Delay;
@@ -27,8 +26,6 @@ pub struct Discovery<TSubstream> {
     discovery: Kademlia<TSubstream>,
     /// The delay between peer discovery searches.
     peer_discovery_delay: Delay,
-    /// Mapping of known addresses for peer ids.
-    known_peers: HashMap<PeerId, Vec<Multiaddr>>,
     /// Logger for the discovery behaviour.
     log: slog::Logger,
 }
@@ -37,10 +34,8 @@ impl<TSubstream> Discovery<TSubstream> {
     pub fn new(local_peer_id: PeerId, log: &slog::Logger) -> Self {
         let log = log.new(o!("Service" => "Libp2p-Discovery"));
         Self {
-            //            events: Vec::new(),
             discovery: Kademlia::new(local_peer_id),
             peer_discovery_delay: Delay::new(Instant::now()),
-            known_peers: HashMap::new(),
             log,
         }
     }
@@ -59,13 +54,6 @@ impl<TSubstream> Discovery<TSubstream> {
 
     /// We have discovered an address for a peer, add it to known peers.
     pub fn add_connected_address(&mut self, peer_id: &PeerId, address: Multiaddr) {
-        let known_peers = self
-            .known_peers
-            .entry(peer_id.clone())
-            .or_insert_with(|| vec![]);
-        if !known_peers.contains(&address) {
-            known_peers.push(address.clone());
-        }
         // pass the address on to kademlia
         self.discovery.add_connected_address(peer_id, address);
     }
@@ -160,6 +148,7 @@ where
                     },
                     _ => {}
                 };
+                // propagate result upwards
                 return Async::Ready(action);
             }
             Async::NotReady => (),
