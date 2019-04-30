@@ -37,10 +37,10 @@ fn should_skip_hashing(field: &syn::Field) -> bool {
         .any(|attr| attr.into_token_stream().to_string() == "# [ tree_hash ( skip_hashing ) ]")
 }
 
-/// Implements `tree_hash::CachedTreeHashSubTree` for some `struct`.
+/// Implements `tree_hash::CachedTreeHash` for some `struct`.
 ///
 /// Fields are hashed in the order they are defined.
-#[proc_macro_derive(CachedTreeHashSubTree, attributes(tree_hash))]
+#[proc_macro_derive(CachedTreeHash, attributes(tree_hash))]
 pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
@@ -54,56 +54,57 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let idents_a = get_hashable_named_field_idents(&struct_data);
     let idents_b = idents_a.clone();
     let idents_c = idents_a.clone();
-    let idents_d = idents_a.clone();
 
     let output = quote! {
-        impl tree_hash::CachedTreeHashSubTree<#name> for #name {
-            fn new_tree_hash_cache(&self) -> Result<tree_hash::TreeHashCache, tree_hash::Error> {
-                let tree = tree_hash::TreeHashCache::from_leaves_and_subtrees(
+        impl cached_tree_hash::CachedTreeHash for #name {
+            fn new_tree_hash_cache(&self, depth: usize) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
+                let tree = cached_tree_hash::TreeHashCache::from_subtrees(
                     self,
                     vec![
                         #(
-                            self.#idents_a.new_tree_hash_cache()?,
+                            self.#idents_a.new_tree_hash_cache(depth)?,
                         )*
                     ],
+                    depth
                 )?;
 
                 Ok(tree)
             }
 
-            fn tree_hash_cache_overlay(&self, chunk_offset: usize) -> Result<tree_hash::BTreeOverlay, tree_hash::Error> {
+            fn num_tree_hash_cache_chunks(&self) -> usize {
+                cached_tree_hash::BTreeOverlay::new(self, 0, 0).num_chunks()
+            }
+
+            fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
                 let mut lengths = vec![];
 
                 #(
-                    lengths.push(tree_hash::BTreeOverlay::new(&self.#idents_b, 0)?.total_nodes());
+                    lengths.push(self.#idents_b.num_tree_hash_cache_chunks());
                 )*
 
-                tree_hash::BTreeOverlay::from_lengths(chunk_offset, lengths)
+                cached_tree_hash::BTreeSchema::from_lengths(depth, lengths)
             }
 
-            fn update_tree_hash_cache(
-                &self,
-                other: &Self,
-                cache: &mut tree_hash::TreeHashCache,
-                chunk: usize,
-            ) -> Result<usize, tree_hash::Error> {
-                let offset_handler = tree_hash::BTreeOverlay::new(self, chunk)?;
+            fn update_tree_hash_cache(&self, cache: &mut cached_tree_hash::TreeHashCache) -> Result<(), cached_tree_hash::Error> {
+                let overlay = cached_tree_hash::BTreeOverlay::new(self, cache.chunk_index, 0);
 
-                // Skip past the internal nodes and update any changed leaf nodes.
-                {
-                    let chunk = offset_handler.first_leaf_node()?;
-                    #(
-                        let chunk = self.#idents_c.update_tree_hash_cache(&other.#idents_d, cache, chunk)?;
-                    )*
-                }
 
-                for (&parent, children) in offset_handler.iter_internal_nodes().rev() {
-                    if cache.either_modified(children)? {
-                        cache.modify_chunk(parent, &cache.hash_children(children)?)?;
-                    }
-                }
+                // Skip the chunk index to the first leaf node of this struct.
+                cache.chunk_index = overlay.first_leaf_node();
+                // Skip the overlay index to the first leaf node of this struct.
+                // cache.overlay_index += 1;
 
-                Ok(offset_handler.next_node)
+                // Recurse into the struct items, updating their caches.
+                #(
+                    self.#idents_c.update_tree_hash_cache(cache)?;
+                )*
+
+                // Iterate through the internal nodes, updating them if their children have changed.
+                cache.update_internal_nodes(&overlay)?;
+
+                cache.chunk_index = overlay.next_node();
+
+                Ok(())
             }
         }
     };
@@ -147,7 +148,7 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
                     leaves.append(&mut self.#idents.tree_hash_root());
                 )*
 
-                tree_hash::merkle_root(&leaves)
+                tree_hash::merkleize::merkle_root(&leaves)
             }
         }
     };
@@ -177,7 +178,7 @@ pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
                     leaves.append(&mut self.#idents.tree_hash_root());
                 )*
 
-                tree_hash::merkle_root(&leaves)
+                tree_hash::merkleize::merkle_root(&leaves)
             }
         }
     };

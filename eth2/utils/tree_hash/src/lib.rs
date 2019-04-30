@@ -1,14 +1,9 @@
-pub mod cached_tree_hash;
-pub mod signed_root;
-pub mod standard_tree_hash;
+pub mod impls;
+pub mod merkleize;
 
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
-pub const MERKLE_HASH_CHUNCK: usize = 2 * BYTES_PER_CHUNK;
-
-pub use cached_tree_hash::{BTreeOverlay, CachedTreeHashSubTree, Error, TreeHashCache};
-pub use signed_root::SignedRoot;
-pub use standard_tree_hash::{merkle_root, TreeHash};
+pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TreeHashType {
@@ -18,13 +13,18 @@ pub enum TreeHashType {
     Container,
 }
 
-fn num_sanitized_leaves(num_bytes: usize) -> usize {
-    let leaves = (num_bytes + HASHSIZE - 1) / HASHSIZE;
-    leaves.next_power_of_two()
+pub trait TreeHash {
+    fn tree_hash_type() -> TreeHashType;
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8>;
+
+    fn tree_hash_packing_factor() -> usize;
+
+    fn tree_hash_root(&self) -> Vec<u8>;
 }
 
-fn num_nodes(num_leaves: usize) -> usize {
-    2 * num_leaves - 1
+pub trait SignedRoot: TreeHash {
+    fn signed_root(&self) -> Vec<u8>;
 }
 
 #[macro_export]
@@ -44,11 +44,12 @@ macro_rules! tree_hash_ssz_encoding_as_vector {
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                tree_hash::merkle_root(&ssz::ssz_encode(self))
+                tree_hash::merkleize::merkle_root(&ssz::ssz_encode(self))
             }
         }
     };
 }
+
 #[macro_export]
 macro_rules! tree_hash_ssz_encoding_as_list {
     ($type: ident) => {

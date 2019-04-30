@@ -7,13 +7,23 @@ use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash_derive::TreeHash;
+use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
 /// Spec v0.5.1
 #[derive(
-    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Debug,
+    Clone,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    CachedTreeHash,
+    TestRandom,
 )]
 pub struct Fork {
     #[serde(deserialize_with = "fork_from_hex_str")]
@@ -54,6 +64,7 @@ mod tests {
     use super::*;
 
     ssz_tests!(Fork);
+    cached_tree_hash_tests!(Fork);
 
     fn test_genesis(version: u32, epoch: Epoch) {
         let mut spec = ChainSpec::foundation();

@@ -6,7 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// A block of the `BeaconChain`.
 ///
@@ -20,6 +20,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
     SignedRoot,
 )]
@@ -100,4 +101,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(BeaconBlock);
+    cached_tree_hash_tests!(BeaconBlock);
 }

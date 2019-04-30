@@ -1,5 +1,6 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
 use bls_aggregates::Signature as RawSignature;
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -116,6 +117,7 @@ impl Decodable for Signature {
 }
 
 tree_hash_ssz_encoding_as_vector!(Signature);
+cached_tree_hash_ssz_encoding_as_vector!(Signature, 96);
 
 impl Serialize for Signature {
     /// Serde serialization is compliant the Ethereum YAML test format.
@@ -145,6 +147,7 @@ mod tests {
     use super::super::Keypair;
     use super::*;
     use ssz::ssz_encode;
+    use tree_hash::TreeHash;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -156,6 +159,28 @@ mod tests {
         let decoded = decode::<Signature>(&bytes).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    pub fn test_cached_tree_hash() {
+        let keypair = Keypair::random();
+        let original = Signature::new(&[42, 42], 0, &keypair.sk);
+
+        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
+
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            original.tree_hash_root()
+        );
+
+        let modified = Signature::new(&[99, 99], 0, &keypair.sk);
+
+        cache.update(&modified).unwrap();
+
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            modified.tree_hash_root()
+        );
     }
 
     #[test]
