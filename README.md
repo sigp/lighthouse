@@ -24,6 +24,7 @@ present-Ethereum functionality.
 - [About Lighthouse](docs/lighthouse.md): Goals, Ideology and Ethos surrounding
 this implementation.
 - [What is Ethereum Serenity](docs/serenity.md): an introduction to Ethereum Serenity.
+- [Lighthouse Technical Documentation](http://lighthouse-docs.sigmaprime.io/): The Rust generated documentation, updated regularly.
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
