@@ -9,20 +9,20 @@ pub use errors::Error;
 pub use types::*;
 pub type DBValue = Vec<u8>;
 
-pub trait StoreDB: Sync + Send + Sized {
-    fn put(&self, key: &Hash256, item: &impl DBRecord) -> Result<(), Error> {
+pub trait Store: Sync + Send + Sized {
+    fn put(&self, key: &Hash256, item: &impl StorableItem) -> Result<(), Error> {
         item.db_put(self, key)
     }
 
-    fn get<I: DBRecord>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+    fn get<I: StorableItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         I::db_get(self, key)
     }
 
-    fn exists<I: DBRecord>(&self, key: &Hash256) -> Result<bool, Error> {
+    fn exists<I: StorableItem>(&self, key: &Hash256) -> Result<bool, Error> {
         I::db_exists(self, key)
     }
 
-    fn delete<I: DBRecord>(&self, key: &Hash256) -> Result<(), Error> {
+    fn delete<I: StorableItem>(&self, key: &Hash256) -> Result<(), Error> {
         I::db_delete(self, key)
     }
 
@@ -33,17 +33,6 @@ pub trait StoreDB: Sync + Send + Sized {
     fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error>;
 
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error>;
-}
-
-pub trait DBStore {
-    fn db_column(&self) -> DBColumn;
-}
-
-/// Currently available database options
-#[derive(Debug, Clone)]
-pub enum DBType {
-    Memory,
-    RocksDB,
 }
 
 pub enum DBColumn {
@@ -63,10 +52,10 @@ impl<'a> Into<&'a str> for DBColumn {
     }
 }
 
-pub trait DBRecord: DBEncode + DBDecode {
+pub trait StorableItem: DBEncode + DBDecode {
     fn db_column() -> DBColumn;
 
-    fn db_put(&self, store: &impl StoreDB, key: &Hash256) -> Result<(), Error> {
+    fn db_put(&self, store: &impl Store, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -75,7 +64,7 @@ pub trait DBRecord: DBEncode + DBDecode {
             .map_err(|e| e.into())
     }
 
-    fn db_get(store: &impl StoreDB, key: &Hash256) -> Result<Option<Self>, Error> {
+    fn db_get(store: &impl Store, key: &Hash256) -> Result<Option<Self>, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -88,14 +77,14 @@ pub trait DBRecord: DBEncode + DBDecode {
         }
     }
 
-    fn db_exists(store: &impl StoreDB, key: &Hash256) -> Result<bool, Error> {
+    fn db_exists(store: &impl Store, key: &Hash256) -> Result<bool, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
         store.key_exists(column, key)
     }
 
-    fn db_delete(store: &impl StoreDB, key: &Hash256) -> Result<(), Error> {
+    fn db_delete(store: &impl Store, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -116,7 +105,7 @@ mod tests {
         b: u64,
     }
 
-    impl DBRecord for StorableThing {
+    impl StorableItem for StorableThing {
         fn db_column() -> DBColumn {
             DBColumn::Block
         }
