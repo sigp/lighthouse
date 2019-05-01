@@ -1,9 +1,9 @@
 extern crate rocksdb;
 
-use super::rocksdb::Error as RocksError;
-use super::rocksdb::{Options, DB};
-use super::stores::COLUMNS;
+// use super::stores::COLUMNS;
 use super::{ClientDB, DBError, DBValue};
+use rocksdb::Error as RocksError;
+use rocksdb::{Options, DB};
 use std::fs;
 use std::path::Path;
 

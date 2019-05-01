@@ -1,38 +1,42 @@
-extern crate blake2_rfc as blake2;
-extern crate bls;
-extern crate rocksdb;
-
-mod disk_db;
+// mod disk_db;
+mod errors;
 mod memory_db;
-pub mod stores;
-mod traits;
 
-use self::stores::COLUMNS;
 use db_encode::{db_encode, DBDecode, DBEncode};
-use ssz::DecodeError;
-use std::sync::Arc;
 
-pub use self::disk_db::DiskDB;
 pub use self::memory_db::MemoryDB;
-pub use self::traits::{ClientDB, DBError, DBValue};
+pub use errors::Error;
 pub use types::*;
+pub type DBValue = Vec<u8>;
 
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    SszDecodeError(DecodeError),
-    DBError { message: String },
+pub trait StoreDB: Sync + Send + Sized {
+    fn put(&self, key: &Hash256, item: &impl DBRecord) -> Result<(), Error> {
+        item.db_put(self, key)
+    }
+
+    fn get<I: DBRecord>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+        I::db_get(self, key)
+    }
+
+    fn exists<I: DBRecord>(&self, key: &Hash256) -> Result<bool, Error> {
+        I::db_exists(self, key)
+    }
+
+    fn delete<I: DBRecord>(&self, key: &Hash256) -> Result<(), Error> {
+        I::db_delete(self, key)
+    }
+
+    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, Error>;
+
+    fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error>;
+
+    fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error>;
+
+    fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error>;
 }
 
-impl From<DecodeError> for Error {
-    fn from(e: DecodeError) -> Error {
-        Error::SszDecodeError(e)
-    }
-}
-
-impl From<DBError> for Error {
-    fn from(e: DBError) -> Error {
-        Error::DBError { message: e.message }
-    }
+pub trait DBStore {
+    fn db_column(&self) -> DBColumn;
 }
 
 /// Currently available database options
@@ -61,76 +65,41 @@ impl<'a> Into<&'a str> for DBColumn {
 
 pub trait DBRecord: DBEncode + DBDecode {
     fn db_column() -> DBColumn;
-}
 
-pub struct Store<T>
-where
-    T: ClientDB,
-{
-    db: Arc<T>,
-}
-
-impl Store<MemoryDB> {
-    fn new_in_memory() -> Self {
-        Self {
-            db: Arc::new(MemoryDB::open()),
-        }
-    }
-}
-
-impl<T> Store<T>
-where
-    T: ClientDB,
-{
-    /// Put `item` in the store as `key`.
-    fn put<I>(&self, key: &Hash256, item: &I) -> Result<(), Error>
-    where
-        I: DBRecord,
-    {
-        let column = I::db_column().into();
-        let key = key.as_bytes();
-        let val = db_encode(item);
-
-        self.db.put(column, key, &val).map_err(|e| e.into())
-    }
-
-    /// Retrieves an `Ok(Some(item))` from the store if `key` exists, otherwise returns `Ok(None)`.
-    fn get<I>(&self, key: &Hash256) -> Result<Option<I>, Error>
-    where
-        I: DBRecord,
-    {
-        let column = I::db_column().into();
+    fn db_put(&self, store: &impl StoreDB, key: &Hash256) -> Result<(), Error> {
+        let column = Self::db_column().into();
         let key = key.as_bytes();
 
-        match self.db.get(column, key)? {
+        store
+            .put_bytes(column, key, &db_encode(self))
+            .map_err(|e| e.into())
+    }
+
+    fn db_get(store: &impl StoreDB, key: &Hash256) -> Result<Option<Self>, Error> {
+        let column = Self::db_column().into();
+        let key = key.as_bytes();
+
+        match store.get_bytes(column, key)? {
             Some(bytes) => {
-                let (item, _index) = I::db_decode(&bytes, 0)?;
+                let (item, _index) = Self::db_decode(&bytes, 0)?;
                 Ok(Some(item))
             }
             None => Ok(None),
         }
     }
 
-    /// Returns `Ok(true)` `key` exists in the store.
-    fn exists<I>(&self, key: &Hash256) -> Result<bool, Error>
-    where
-        I: DBRecord,
-    {
-        let column = I::db_column().into();
+    fn db_exists(store: &impl StoreDB, key: &Hash256) -> Result<bool, Error> {
+        let column = Self::db_column().into();
         let key = key.as_bytes();
 
-        self.db.exists(column, key).map_err(|e| e.into())
+        store.key_exists(column, key)
     }
 
-    /// Returns `Ok(())` if `key` was deleted from the database or did not exist.
-    fn delete<I>(&self, key: &Hash256) -> Result<(), Error>
-    where
-        I: DBRecord,
-    {
-        let column = I::db_column().into();
+    fn db_delete(store: &impl StoreDB, key: &Hash256) -> Result<(), Error> {
+        let column = Self::db_column().into();
         let key = key.as_bytes();
 
-        self.db.delete(column, key).map_err(|e| e.into())
+        store.key_delete(column, key)
     }
 }
 
@@ -155,7 +124,7 @@ mod tests {
 
     #[test]
     fn memorydb_can_store_and_retrieve() {
-        let store = Store::new_in_memory();
+        let store = MemoryDB::open();
 
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
@@ -169,7 +138,7 @@ mod tests {
 
     #[test]
     fn exists() {
-        let store = Store::new_in_memory();
+        let store = MemoryDB::open();
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
