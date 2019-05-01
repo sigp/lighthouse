@@ -1,8 +1,7 @@
 // mod disk_db;
 mod errors;
+mod impls;
 mod memory_db;
-
-use db_encode::{db_encode, DBDecode, DBEncode};
 
 pub use self::memory_db::MemoryDB;
 pub use errors::Error;
@@ -35,6 +34,14 @@ pub trait Store: Sync + Send + Sized {
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error>;
 }
 
+pub trait StoreEncode {
+    fn as_store_bytes(&self) -> Vec<u8>;
+}
+
+pub trait StoreDecode: Sized {
+    fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error>;
+}
+
 pub enum DBColumn {
     Block,
     State,
@@ -52,7 +59,7 @@ impl<'a> Into<&'a str> for DBColumn {
     }
 }
 
-pub trait StorableItem: DBEncode + DBDecode {
+pub trait StorableItem: StoreEncode + StoreDecode + Sized {
     fn db_column() -> DBColumn;
 
     fn db_put(&self, store: &impl Store, key: &Hash256) -> Result<(), Error> {
@@ -60,7 +67,7 @@ pub trait StorableItem: DBEncode + DBDecode {
         let key = key.as_bytes();
 
         store
-            .put_bytes(column, key, &db_encode(self))
+            .put_bytes(column, key, &self.as_store_bytes())
             .map_err(|e| e.into())
     }
 
@@ -69,10 +76,7 @@ pub trait StorableItem: DBEncode + DBDecode {
         let key = key.as_bytes();
 
         match store.get_bytes(column, key)? {
-            Some(bytes) => {
-                let (item, _index) = Self::db_decode(&bytes, 0)?;
-                Ok(Some(item))
-            }
+            Some(mut bytes) => Ok(Some(Self::from_store_bytes(&mut bytes[..])?)),
             None => Ok(None),
         }
     }
@@ -95,14 +99,26 @@ pub trait StorableItem: DBEncode + DBDecode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use db_encode_derive::{DBDecode, DBEncode};
-    use ssz::Decodable;
+    use ssz::{ssz_encode, Decodable};
     use ssz_derive::{Decode, Encode};
 
-    #[derive(PartialEq, Debug, Encode, Decode, DBEncode, DBDecode)]
+    #[derive(PartialEq, Debug, Encode, Decode)]
     struct StorableThing {
         a: u64,
         b: u64,
+    }
+
+    impl StoreEncode for StorableThing {
+        fn as_store_bytes(&self) -> Vec<u8> {
+            ssz_encode(self)
+        }
+    }
+
+    impl StoreDecode for StorableThing {
+        fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error> {
+            let (item, _) = Self::ssz_decode(bytes, 0)?;
+            Ok(item)
+        }
     }
 
     impl StorableItem for StorableThing {
