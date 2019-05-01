@@ -1,4 +1,4 @@
-use super::{DBValue, Error, StoreDB};
+use super::{DBValue, Error, Store};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
@@ -22,7 +22,7 @@ impl MemoryDB {
     }
 }
 
-impl StoreDB for MemoryDB {
+impl Store for MemoryDB {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, Error> {
         let column_key = MemoryDB::get_key_for_col(col, key);
