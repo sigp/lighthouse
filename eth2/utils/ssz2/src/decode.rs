@@ -4,10 +4,20 @@ mod impls;
 
 #[derive(Debug, PartialEq)]
 pub enum DecodeError {
-    // BytesTooShort { given: usize, expected: usize },
-    // BytesTooLong { given: usize, expected: usize },
+    /// The bytes supplied were too short to be decoded into the specified type.
     InvalidByteLength { len: usize, expected: usize },
+    /// The given bytes were too short to be read as a length prefix.
     InvalidLengthPrefix { len: usize, expected: usize },
+    /// A length offset pointed to a byte that was out-of-bounds (OOB).
+    ///
+    /// A bytes may be OOB for the following reasons:
+    ///
+    /// - It is `>= bytes.len()`.
+    /// - When decoding variable length items, the 1st offset points "backwards" into the fixed
+    /// length items (i.e., `length[0] < BYTES_PER_LENGTH_OFFSET`).
+    /// - When decoding variable-length items, the `n`'th offset was less than the `n-1`'th offset.
+    OutOfBoundsByte { i: usize },
+    /// The given bytes were invalid for some application-level reason.
     BytesInvalid(String),
 }
 
