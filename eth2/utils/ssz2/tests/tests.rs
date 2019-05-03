@@ -18,7 +18,12 @@ fn vec_u16_round_trip() {
 fn vec_of_vec_u16_round_trip() {
     round_trip::<Vec<Vec<u16>>>(vec![]);
     round_trip::<Vec<Vec<u16>>>(vec![vec![]]);
+    round_trip::<Vec<Vec<u16>>>(vec![vec![1, 2, 3]]);
     round_trip::<Vec<Vec<u16>>>(vec![vec![], vec![]]);
     round_trip::<Vec<Vec<u16>>>(vec![vec![], vec![1, 2, 3]]);
     round_trip::<Vec<Vec<u16>>>(vec![vec![1, 2, 3], vec![1, 2, 3]]);
+    round_trip::<Vec<Vec<u16>>>(vec![vec![1, 2, 3], vec![], vec![1, 2, 3]]);
+    round_trip::<Vec<Vec<u16>>>(vec![vec![], vec![], vec![1, 2, 3]]);
+    round_trip::<Vec<Vec<u16>>>(vec![vec![], vec![1], vec![1, 2, 3]]);
+    round_trip::<Vec<Vec<u16>>>(vec![vec![], vec![1], vec![1, 2, 3]]);
 }
