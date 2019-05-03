@@ -13,8 +13,10 @@ extern crate ethereum_types;
 
 pub mod decode;
 */
+mod decode;
 mod encode;
 
+pub use decode::{Decodable, DecodeError};
 pub use encode::{Encodable, SszStream};
 
 pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
