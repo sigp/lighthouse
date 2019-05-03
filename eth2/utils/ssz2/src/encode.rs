@@ -17,19 +17,26 @@ pub trait Encodable {
     }
 }
 
+pub struct VariableLengths {
+    pub fixed_bytes_position: usize,
+    pub variable_bytes_length: usize,
+}
+
 /// Provides a buffer for appending SSZ values.
 #[derive(Default)]
 pub struct SszStream {
-    fixed: Vec<u8>,
-    variable: Vec<u8>,
+    fixed_bytes: Vec<u8>,
+    variable_bytes: Vec<u8>,
+    variable_lengths: Vec<VariableLengths>,
 }
 
 impl SszStream {
     /// Create a new, empty stream for writing SSZ values.
     pub fn new() -> Self {
         SszStream {
-            fixed: vec![],
-            variable: vec![],
+            fixed_bytes: vec![],
+            variable_bytes: vec![],
+            variable_lengths: vec![],
         }
     }
 
@@ -38,18 +45,42 @@ impl SszStream {
         let mut bytes = item.as_ssz_bytes();
 
         if T::is_ssz_fixed_len() {
-            self.fixed.append(&mut bytes);
+            self.fixed_bytes.append(&mut bytes);
         } else {
-            self.fixed.append(&mut encode_length(bytes.len()));
-            self.variable.append(&mut bytes);
+            self.variable_lengths.push(VariableLengths {
+                fixed_bytes_position: self.fixed_bytes.len(),
+                variable_bytes_length: bytes.len(),
+            });
+
+            self.fixed_bytes
+                .append(&mut vec![0; BYTES_PER_LENGTH_OFFSET]);
+            self.variable_bytes.append(&mut bytes);
+        }
+    }
+
+    /// Update the offsets (if any) in the fixed-length bytes to correctly point to the values in
+    /// the variable length part.
+    pub fn apply_offsets(&mut self) {
+        let mut running_offset = self.fixed_bytes.len();
+
+        for v in &self.variable_lengths {
+            let offset = running_offset;
+            running_offset += v.variable_bytes_length;
+
+            self.fixed_bytes.splice(
+                v.fixed_bytes_position..v.fixed_bytes_position + BYTES_PER_LENGTH_OFFSET,
+                encode_length(offset),
+            );
         }
     }
 
     /// Append the variable-length bytes to the fixed-length bytes and return the result.
     pub fn drain(mut self) -> Vec<u8> {
-        self.fixed.append(&mut self.variable);
+        self.apply_offsets();
 
-        self.fixed
+        self.fixed_bytes.append(&mut self.variable_bytes);
+
+        self.fixed_bytes
     }
 }
 

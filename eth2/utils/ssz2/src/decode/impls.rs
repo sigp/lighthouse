@@ -28,6 +28,7 @@ macro_rules! impl_decodable_for_uint {
     };
 }
 
+impl_decodable_for_uint!(u8, 8);
 impl_decodable_for_uint!(u16, 16);
 impl_decodable_for_uint!(u32, 32);
 impl_decodable_for_uint!(u64, 64);
@@ -91,33 +92,6 @@ impl<T: Decodable> Decodable for Vec<T> {
 
             Ok(values)
         }
-    }
-}
-
-/// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=
-/// BYTES_PER_LENGTH_OFFSET`.
-fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
-    decode_offset(bytes.get(0..BYTES_PER_LENGTH_OFFSET).ok_or_else(|| {
-        DecodeError::InvalidLengthPrefix {
-            len: bytes.len(),
-            expected: BYTES_PER_LENGTH_OFFSET,
-        }
-    })?)
-}
-
-/// Decode bytes as a little-endian usize, returning an `Err` if `bytes.len() !=
-/// BYTES_PER_LENGTH_OFFSET`.
-pub fn decode_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
-    let len = bytes.len();
-    let expected = BYTES_PER_LENGTH_OFFSET;
-
-    if len != expected {
-        Err(DecodeError::InvalidLengthPrefix { len, expected })
-    } else {
-        let mut array: [u8; BYTES_PER_LENGTH_OFFSET] = std::default::Default::default();
-        array.clone_from_slice(bytes);
-
-        Ok(u32::from_le_bytes(array) as usize)
     }
 }
 
