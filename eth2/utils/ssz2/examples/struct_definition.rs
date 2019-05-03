@@ -1,5 +1,6 @@
 use ssz2::{Decodable, DecodeError, Encodable, SszDecoderBuilder, SszStream};
 
+#[derive(Debug, PartialEq)]
 pub struct Foo {
     a: u16,
     b: Vec<u8>,
@@ -51,8 +52,11 @@ fn main() {
         c: 11,
     };
 
-    assert_eq!(
-        foo.as_ssz_bytes(),
-        vec![42, 0, 8, 0, 0, 0, 11, 0, 0, 1, 2, 3]
-    );
+    let bytes = vec![42, 0, 8, 0, 0, 0, 11, 0, 0, 1, 2, 3];
+
+    assert_eq!(foo.as_ssz_bytes(), bytes);
+
+    let decoded_foo = Foo::from_ssz_bytes(&bytes).unwrap();
+
+    assert_eq!(foo, decoded_foo);
 }

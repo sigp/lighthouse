@@ -103,7 +103,7 @@ impl<'a> SszDecoderBuilder<'a> {
             let mut insertions = 0;
             let mut running_offset = self.offsets[0].offset;
 
-            for i in 1..self.offsets.len() {
+            for i in 1..=self.offsets.len() {
                 let (slice_option, position) = if i == self.offsets.len() {
                     (self.bytes.get(running_offset..), self.offsets.len())
                 } else {
