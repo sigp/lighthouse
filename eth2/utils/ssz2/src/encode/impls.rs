@@ -141,7 +141,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ssz_encode;
 
     #[test]
     fn vec_of_u8() {
@@ -175,122 +174,45 @@ mod tests {
 
     #[test]
     fn ssz_encode_u8() {
-        let x: u8 = 0;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0]);
-
-        let x: u8 = 1;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![1]);
-
-        let x: u8 = 100;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![100]);
-
-        let x: u8 = 255;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![255]);
+        assert_eq!(0_u8.as_ssz_bytes(), vec![0]);
+        assert_eq!(1_u8.as_ssz_bytes(), vec![1]);
+        assert_eq!(100_u8.as_ssz_bytes(), vec![100]);
+        assert_eq!(255_u8.as_ssz_bytes(), vec![255]);
     }
 
     #[test]
     fn ssz_encode_u16() {
-        let x: u16 = 1;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![1, 0]);
-
-        let x: u16 = 100;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![100, 0]);
-
-        let x: u16 = 1 << 8;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 1]);
-
-        let x: u16 = 65535;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![255, 255]);
+        assert_eq!(1_u16.as_ssz_bytes(), vec![1, 0]);
+        assert_eq!(100_u16.as_ssz_bytes(), vec![100, 0]);
+        assert_eq!((1_u16 << 8).as_ssz_bytes(), vec![0, 1]);
+        assert_eq!(65535_u16.as_ssz_bytes(), vec![255, 255]);
     }
 
     #[test]
     fn ssz_encode_u32() {
-        let x: u32 = 1;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![1, 0, 0, 0]);
-
-        let x: u32 = 100;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![100, 0, 0, 0]);
-
-        let x: u32 = 1 << 16;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 1, 0]);
-
-        let x: u32 = 1 << 24;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 1]);
-
-        let x: u32 = !0;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![255, 255, 255, 255]);
+        assert_eq!(1_u32.as_ssz_bytes(), vec![1, 0, 0, 0]);
+        assert_eq!(100_u32.as_ssz_bytes(), vec![100, 0, 0, 0]);
+        assert_eq!((1_u32 << 16).as_ssz_bytes(), vec![0, 0, 1, 0]);
+        assert_eq!((1_u32 << 24).as_ssz_bytes(), vec![0, 0, 0, 1]);
+        assert_eq!((!0_u32).as_ssz_bytes(), vec![255, 255, 255, 255]);
     }
 
     #[test]
     fn ssz_encode_u64() {
-        let x: u64 = 1;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![1, 0, 0, 0, 0, 0, 0, 0]);
-
-        let x: u64 = 100;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![100, 0, 0, 0, 0, 0, 0, 0]);
-
-        let x: u64 = 1 << 32;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 1, 0, 0, 0]);
-
-        let x: u64 = !0;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![255, 255, 255, 255, 255, 255, 255, 255]);
+        assert_eq!(1_u64.as_ssz_bytes(), vec![1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            (!0_u64).as_ssz_bytes(),
+            vec![255, 255, 255, 255, 255, 255, 255, 255]
+        );
     }
 
     #[test]
     fn ssz_encode_usize() {
-        let x: usize = 1;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![1, 0, 0, 0, 0, 0, 0, 0]);
-
-        let x: usize = 100;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![100, 0, 0, 0, 0, 0, 0, 0]);
-
-        let x: usize = 1 << 32;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![0, 0, 0, 0, 1, 0, 0, 0]);
-
-        let x: usize = !0;
-        let mut ssz = SszStream::new();
-        ssz.append(&x);
-        assert_eq!(ssz.drain(), vec![255, 255, 255, 255, 255, 255, 255, 255]);
+        assert_eq!(1_usize.as_ssz_bytes(), vec![1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            (!0_usize).as_ssz_bytes(),
+            vec![255, 255, 255, 255, 255, 255, 255, 255]
+        );
     }
 
     /*
