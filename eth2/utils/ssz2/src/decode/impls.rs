@@ -43,6 +43,8 @@ impl<T: Decodable> Decodable for Vec<T> {
             return Ok(vec![]);
         }
 
+        // The list is non-empty.
+
         if T::is_ssz_fixed_len() {
             Ok(bytes
                 .chunks(T::ssz_fixed_len())
@@ -65,19 +67,16 @@ impl<T: Decodable> Decodable for Vec<T> {
             for i in 1..=num_elems {
                 let chunk = &bytes[(i - 1) * BYTES_PER_LENGTH_OFFSET..i * BYTES_PER_LENGTH_OFFSET];
 
-                dbg!(offset);
+                let slice = if i == num_elems {
+                    &variable[offset..]
+                } else {
+                    let start = offset;
+                    offset = decode_length(chunk)? - fixed.len();
 
-                let end = offset + decode_length(chunk)?;
-                let slice = &variable[offset..end];
-                offset += end;
+                    &variable[start..offset]
+                };
 
                 values.push(T::from_ssz_bytes(slice)?);
-
-                if i == num_elems {
-                    let slice = &variable[offset..];
-                    dbg!(slice);
-                    values.push(T::from_ssz_bytes(slice)?)
-                }
             }
 
             Ok(values)

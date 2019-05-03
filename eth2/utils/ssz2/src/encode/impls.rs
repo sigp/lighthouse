@@ -157,6 +157,9 @@ mod tests {
 
     #[test]
     fn vec_of_vec_of_u8() {
+        let vec: Vec<Vec<u8>> = vec![];
+        assert_eq!(vec.as_ssz_bytes(), vec![]);
+
         let vec: Vec<Vec<u8>> = vec![vec![]];
         assert_eq!(vec.as_ssz_bytes(), vec![4, 0, 0, 0]);
 
