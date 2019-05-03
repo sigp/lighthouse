@@ -39,34 +39,34 @@ impl<T: Decodable> Decodable for Vec<T> {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        // Zero-bytes indicates an empty list.
         if bytes.len() == 0 {
             return Ok(vec![]);
         }
 
-        // The list is non-empty.
-
+        // Decode a non-empty list differently, depending if the items in the vec are fixed-length
+        // or variable-length.
         if T::is_ssz_fixed_len() {
             Ok(bytes
                 .chunks(T::ssz_fixed_len())
                 .map(|chunk| T::from_ssz_bytes(chunk))
                 .collect::<Result<_, DecodeError>>()?)
         } else {
-            let (fixed, variable) = bytes.split_at(read_length(bytes)?);
+            let mut next_variable_byte = read_offset(bytes)?;
 
-            let num_elems = fixed.len() / BYTES_PER_LENGTH_OFFSET;
-            let mut offset = 0;
-            let mut values = vec![];
+            let mut values = Vec::with_capacity(next_variable_byte / BYTES_PER_LENGTH_OFFSET);
 
-            for i in 1..=num_elems {
-                let slice = if i == num_elems {
-                    &variable[offset..]
+            for i in 1..=values.capacity() {
+                let slice = if i == values.capacity() {
+                    &bytes[next_variable_byte..]
                 } else {
-                    let chunk =
-                        &bytes[i * BYTES_PER_LENGTH_OFFSET..(i + 1) * BYTES_PER_LENGTH_OFFSET];
-                    let start = offset;
-                    offset = decode_length(chunk)? - fixed.len();
+                    let offset = decode_offset(
+                        &bytes[i * BYTES_PER_LENGTH_OFFSET..(i + 1) * BYTES_PER_LENGTH_OFFSET],
+                    )?;
+                    let start = next_variable_byte;
+                    next_variable_byte = offset;
 
-                    &variable[start..offset]
+                    &bytes[start..next_variable_byte]
                 };
 
                 values.push(T::from_ssz_bytes(slice)?);
@@ -79,8 +79,8 @@ impl<T: Decodable> Decodable for Vec<T> {
 
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=
 /// BYTES_PER_LENGTH_OFFSET`.
-fn read_length(bytes: &[u8]) -> Result<usize, DecodeError> {
-    decode_length(bytes.get(0..BYTES_PER_LENGTH_OFFSET).ok_or_else(|| {
+fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
+    decode_offset(bytes.get(0..BYTES_PER_LENGTH_OFFSET).ok_or_else(|| {
         DecodeError::InvalidLengthPrefix {
             len: bytes.len(),
             expected: BYTES_PER_LENGTH_OFFSET,
@@ -90,7 +90,7 @@ fn read_length(bytes: &[u8]) -> Result<usize, DecodeError> {
 
 /// Decode bytes as a little-endian usize, returning an `Err` if `bytes.len() !=
 /// BYTES_PER_LENGTH_OFFSET`.
-pub fn decode_length(bytes: &[u8]) -> Result<usize, DecodeError> {
+pub fn decode_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
     let len = bytes.len();
     let expected = BYTES_PER_LENGTH_OFFSET;
 
