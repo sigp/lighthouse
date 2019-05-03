@@ -39,35 +39,52 @@ impl<T: Decodable> Decodable for Vec<T> {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        // Zero-bytes indicates an empty list.
         if bytes.len() == 0 {
-            return Ok(vec![]);
-        }
-
-        // Decode a non-empty list differently, depending if the items in the vec are fixed-length
-        // or variable-length.
-        if T::is_ssz_fixed_len() {
-            Ok(bytes
+            Ok(vec![])
+        } else if T::is_ssz_fixed_len() {
+            bytes
                 .chunks(T::ssz_fixed_len())
                 .map(|chunk| T::from_ssz_bytes(chunk))
-                .collect::<Result<_, DecodeError>>()?)
+                .collect()
         } else {
             let mut next_variable_byte = read_offset(bytes)?;
 
-            let mut values = Vec::with_capacity(next_variable_byte / BYTES_PER_LENGTH_OFFSET);
+            // The value of the first offset must not point back into the same bytes that defined
+            // it.
+            if next_variable_byte < BYTES_PER_LENGTH_OFFSET {
+                return Err(DecodeError::OutOfBoundsByte {
+                    i: next_variable_byte,
+                });
+            }
 
-            for i in 1..=values.capacity() {
-                let slice = if i == values.capacity() {
-                    &bytes[next_variable_byte..]
+            let num_items = next_variable_byte / BYTES_PER_LENGTH_OFFSET;
+
+            // The fixed-length section must be a clean multiple of `BYTES_PER_LENGTH_OFFSET`.
+            if next_variable_byte != num_items * BYTES_PER_LENGTH_OFFSET {
+                return Err(DecodeError::InvalidByteLength {
+                    len: next_variable_byte,
+                    expected: num_items * BYTES_PER_LENGTH_OFFSET,
+                });
+            }
+
+            let mut values = Vec::with_capacity(num_items);
+            for i in 1..=num_items {
+                let slice_option = if i == num_items {
+                    bytes.get(next_variable_byte..)
                 } else {
-                    let offset = decode_offset(
-                        &bytes[i * BYTES_PER_LENGTH_OFFSET..(i + 1) * BYTES_PER_LENGTH_OFFSET],
-                    )?;
+                    let offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+
                     let start = next_variable_byte;
                     next_variable_byte = offset;
 
-                    &bytes[start..next_variable_byte]
+                    // Note: the condition where `start > next_variable_byte` returns `None` which
+                    // raises an error later in the program.
+                    bytes.get(start..next_variable_byte)
                 };
+
+                let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte {
+                    i: next_variable_byte,
+                })?;
 
                 values.push(T::from_ssz_bytes(slice)?);
             }
@@ -242,14 +259,76 @@ mod tests {
         assert_eq!(res, Err(DecodeError::TooShort));
     }
     */
+
     #[test]
-    fn from_ssz_bytes_vec_u16() {
-        assert_eq!(<Vec<u16>>::from_ssz_bytes(&[0, 0, 0, 0]), Ok(vec![0, 0]));
+    fn first_length_points_backwards() {
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[0, 0, 0, 0]),
+            Err(DecodeError::OutOfBoundsByte { i: 0 })
+        );
+
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[1, 0, 0, 0]),
+            Err(DecodeError::OutOfBoundsByte { i: 1 })
+        );
+
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[2, 0, 0, 0]),
+            Err(DecodeError::OutOfBoundsByte { i: 2 })
+        );
+
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[3, 0, 0, 0]),
+            Err(DecodeError::OutOfBoundsByte { i: 3 })
+        );
+    }
+
+    #[test]
+    fn lengths_are_decreasing() {
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[12, 0, 0, 0, 14, 0, 0, 0, 12, 0, 0, 0, 1, 0, 1, 0]),
+            Err(DecodeError::OutOfBoundsByte { i: 12 })
+        );
+    }
+
+    #[test]
+    fn awkward_fixed_lenth_portion() {
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[10, 0, 0, 0, 10, 0, 0, 0, 0, 0]),
+            Err(DecodeError::InvalidByteLength {
+                len: 10,
+                expected: 8
+            })
+        );
+    }
+
+    #[test]
+    fn length_out_of_bounds() {
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[5, 0, 0, 0]),
+            Err(DecodeError::InvalidByteLength {
+                len: 5,
+                expected: 4
+            })
+        );
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 9, 0, 0, 0]),
+            Err(DecodeError::OutOfBoundsByte { i: 9 })
+        );
+    }
+
+    #[test]
+    fn vec_of_vec_of_u16() {
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[4, 0, 0, 0]),
+            Ok(vec![vec![]])
+        );
+
+        /*
         assert_eq!(
             <Vec<u16>>::from_ssz_bytes(&[0, 0, 1, 0, 2, 0, 3, 0]),
             Ok(vec![0, 1, 2, 3])
         );
-        /*
         assert_eq!(<u16>::from_ssz_bytes(&[16, 0]), Ok(16));
         assert_eq!(<u16>::from_ssz_bytes(&[0, 1]), Ok(256));
         assert_eq!(<u16>::from_ssz_bytes(&[255, 255]), Ok(65535));
@@ -257,7 +336,7 @@ mod tests {
         assert_eq!(
             <u16>::from_ssz_bytes(&[255]),
             Err(DecodeError::InvalidByteLength {
-                given: 1,
+                len: 1,
                 expected: 2
             })
         );
@@ -265,7 +344,7 @@ mod tests {
         assert_eq!(
             <u16>::from_ssz_bytes(&[]),
             Err(DecodeError::InvalidByteLength {
-                given: 0,
+                len: 0,
                 expected: 2
             })
         );
@@ -273,7 +352,7 @@ mod tests {
         assert_eq!(
             <u16>::from_ssz_bytes(&[0, 1, 2]),
             Err(DecodeError::InvalidByteLength {
-                given: 3,
+                len: 3,
                 expected: 2
             })
         );
@@ -281,7 +360,43 @@ mod tests {
     }
 
     #[test]
-    fn from_ssz_bytes_u16() {
+    fn vec_of_u16() {
+        assert_eq!(<Vec<u16>>::from_ssz_bytes(&[0, 0, 0, 0]), Ok(vec![0, 0]));
+        assert_eq!(
+            <Vec<u16>>::from_ssz_bytes(&[0, 0, 1, 0, 2, 0, 3, 0]),
+            Ok(vec![0, 1, 2, 3])
+        );
+        assert_eq!(<u16>::from_ssz_bytes(&[16, 0]), Ok(16));
+        assert_eq!(<u16>::from_ssz_bytes(&[0, 1]), Ok(256));
+        assert_eq!(<u16>::from_ssz_bytes(&[255, 255]), Ok(65535));
+
+        assert_eq!(
+            <u16>::from_ssz_bytes(&[255]),
+            Err(DecodeError::InvalidByteLength {
+                len: 1,
+                expected: 2
+            })
+        );
+
+        assert_eq!(
+            <u16>::from_ssz_bytes(&[]),
+            Err(DecodeError::InvalidByteLength {
+                len: 0,
+                expected: 2
+            })
+        );
+
+        assert_eq!(
+            <u16>::from_ssz_bytes(&[0, 1, 2]),
+            Err(DecodeError::InvalidByteLength {
+                len: 3,
+                expected: 2
+            })
+        );
+    }
+
+    #[test]
+    fn u16() {
         assert_eq!(<u16>::from_ssz_bytes(&[0, 0]), Ok(0));
         assert_eq!(<u16>::from_ssz_bytes(&[16, 0]), Ok(16));
         assert_eq!(<u16>::from_ssz_bytes(&[0, 1]), Ok(256));
