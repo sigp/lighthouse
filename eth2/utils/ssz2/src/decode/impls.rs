@@ -53,23 +53,16 @@ impl<T: Decodable> Decodable for Vec<T> {
         } else {
             let (fixed, variable) = bytes.split_at(read_length(bytes)?);
 
-            dbg!(fixed);
-            dbg!(variable);
-
             let num_elems = fixed.len() / BYTES_PER_LENGTH_OFFSET;
-
-            dbg!(num_elems);
-
             let mut offset = 0;
-
             let mut values = vec![];
 
             for i in 1..=num_elems {
-                let chunk = &bytes[(i - 1) * BYTES_PER_LENGTH_OFFSET..i * BYTES_PER_LENGTH_OFFSET];
-
                 let slice = if i == num_elems {
                     &variable[offset..]
                 } else {
+                    let chunk =
+                        &bytes[i * BYTES_PER_LENGTH_OFFSET..(i + 1) * BYTES_PER_LENGTH_OFFSET];
                     let start = offset;
                     offset = decode_length(chunk)? - fixed.len();
 
@@ -80,112 +73,6 @@ impl<T: Decodable> Decodable for Vec<T> {
             }
 
             Ok(values)
-
-            /*
-            fixed
-                .chunks(BYTES_PER_LENGTH_OFFSET)
-                .skip(1)
-                .map(|chunk| {
-                    let start = offset;
-                    offset += decode_length(chunk)?;
-                    Ok(start..offset)
-                })
-                .chain(vec![Ok(offset..variable.len())].into_iter())
-                .map(|range| T::from_ssz_bytes(&variable[range?]))
-                .collect()
-            */
-
-            /*
-            for i in 1..=num_elems {
-                let chunk = &bytes[i * BYTES_PER_LENGTH_OFFSET..(i + 1) * BYTES_PER_LENGTH_OFFSET];
-
-                let end = offset + decode_length(chunk)?;
-                let slice = &variable[offset..end];
-                offset += end;
-
-                values.push(T::from_ssz_bytes(slice)?);
-
-                if i == num_elems {
-                    let slice = &variable[offset..];
-                    values.push(T::from_ssz_bytes(slice)?)
-                }
-            }
-
-            */
-
-            /*
-            (0..num_elems)
-                .into_iter()
-                .skip(1)
-                .map(|(i, chunk)| {
-                    let end = offset + decode_length(chunk)?;
-                    let slice = &bytes[offset..end];
-                    offset += end;
-
-                    T::from_ssz_bytes(slice)
-
-                    if i == num_elems {
-                        let slice = &bytes[offset..];
-                        T::from_ssz_bytes(slice)
-                    }
-                })
-                .collect()
-
-            fixed
-                .chunks(BYTES_PER_LENGTH_OFFSET)
-                .skip(1)
-                .enumerate()
-                .map(|(i, chunk)| {
-                    let end = offset + decode_length(chunk)?;
-                    let slice = &bytes[offset..end];
-                    offset += end;
-
-                    T::from_ssz_bytes(slice)
-                })
-                .collect()
-
-
-            fixed
-                .chunks(BYTES_PER_LENGTH_OFFSET)
-                .skip(1)
-                .map(|chunk| {
-                    let end = offset + decode_length(chunk)?;
-                    let slice = &bytes[offset..end];
-                    offset += end;
-
-                    T::from_ssz_bytes(slice)
-                })
-                .collect()
-
-
-            let mut i = 0;
-            // let mut values = vec![];
-
-            bytes
-                .get(0..offset)
-                .ok_or_else(|| DecodeError::InvalidByteLength {
-                    expected: offset,
-                    len: bytes.len(),
-                })?
-                .chunks(BYTES_PER_LENGTH_OFFSET)
-                .skip(1)
-                .map(|chunk| {
-                    let end = offset + decode_length(chunk)?;
-                    let slice = &bytes[offset..end];
-                    offset += end;
-
-                    T::from_ssz_bytes(slice)
-                })
-                .collect()
-
-            // .collect::<Result<Vec<&[u8]>, DecodeError>>()?;
-
-            let (fixed, variable) = bytes.split_at(read_length(bytes)?);
-
-            let mut offset = decode_length();
-            */
-
-            //panic!("TODO")
         }
     }
 }
