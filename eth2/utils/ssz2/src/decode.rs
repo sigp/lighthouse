@@ -1,15 +1,32 @@
-use super::LENGTH_BYTES;
+use super::*;
+
+mod impls;
 
 #[derive(Debug, PartialEq)]
 pub enum DecodeError {
-    TooShort,
-    TooLong,
-    Invalid,
+    // BytesTooShort { given: usize, expected: usize },
+    // BytesTooLong { given: usize, expected: usize },
+    InvalidByteLength { len: usize, expected: usize },
+    InvalidLengthPrefix { len: usize, expected: usize },
+    BytesInvalid(String),
 }
 
 pub trait Decodable: Sized {
-    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError>;
+    fn is_ssz_fixed_len() -> bool;
+
+    /// The number of bytes this object occupies in the fixed-length portion of the SSZ bytes.
+    ///
+    /// By default, this is set to `BYTES_PER_LENGTH_OFFSET` which is suitable for variable length
+    /// objects, but not fixed-length objects. Fixed-length objects _must_ return a value which
+    /// represents their length.
+    fn ssz_fixed_len() -> usize {
+        BYTES_PER_LENGTH_OFFSET
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError>;
 }
+
+/*
 
 /// Decode the given bytes for the given type
 ///
@@ -213,3 +230,4 @@ mod tests {
         assert_eq!(decoded, Err(DecodeError::TooShort));
     }
 }
+*/
