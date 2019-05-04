@@ -1,4 +1,4 @@
-use ssz2::{Decodable, DecodeError, Encodable, SszDecoderBuilder, SszStream};
+use ssz::{Decodable, DecodeError, Encodable, SszDecoderBuilder, SszStream};
 
 #[derive(Debug, PartialEq)]
 pub struct Foo {

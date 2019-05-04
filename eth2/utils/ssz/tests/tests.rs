@@ -1,4 +1,4 @@
-use ssz2::{Decodable, Encodable};
+use ssz::{Decodable, Encodable};
 
 fn round_trip<T: Encodable + Decodable + std::fmt::Debug + PartialEq>(item: T) {
     let encoded = &item.as_ssz_bytes();

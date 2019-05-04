@@ -1,46 +1,10 @@
-//! Provides the following procedural derive macros:
-//!
-//! - `#[derive(Encode)]`
-//! - `#[derive(Decode)]`
-//! - `#[derive(TreeHash)]`
-//!
-//! These macros provide SSZ encoding/decoding for a `struct`. Fields are encoded/decoded in the
-//! order they are defined.
-//!
-//! Presently, only `structs` with named fields are supported. `enum`s and tuple-structs are
-//! unsupported.
-//!
-//! Example:
-//! ```
-//! use ssz::{ssz_encode, Decodable};
-//! use ssz_derive::{Encode, Decode};
-//!
-//! #[derive(Encode, Decode)]
-//! struct Foo {
-//!     pub bar: bool,
-//!     pub baz: u64,
-//! }
-//!
-//! fn main() {
-//!     let foo = Foo {
-//!         bar: true,
-//!         baz: 42,
-//!     };
-//!
-//!     let bytes = ssz_encode(&foo);
-//!
-//!     let (decoded_foo, _i) = Foo::ssz_decode(&bytes, 0).unwrap();
-//!
-//!     assert_eq!(foo.baz, decoded_foo.baz);
-//! }
-//! ```
-
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
+/*
 /// Returns a Vec of `syn::Ident` for each named field in the struct.
 ///
 /// # Panics
@@ -55,6 +19,7 @@ fn get_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::
         })
         .collect()
 }
+*/
 
 /// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
 /// that should not be serialized.
@@ -75,6 +40,31 @@ fn get_serializable_named_field_idents<'a>(
                     Some(ref ident) => ident,
                     _ => panic!("ssz_derive only supports named struct fields."),
                 })
+            }
+        })
+        .collect()
+}
+
+/// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
+/// that should not be serialized.
+///
+/// # Panics
+/// Any unnamed struct field (like in a tuple struct) will raise a panic at compile time.
+fn get_serializable_named_field_types<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Type> {
+    struct_data
+        .fields
+        .iter()
+        .filter_map(|f| {
+            if should_skip_serializing(&f) {
+                None
+            } else {
+                Some(&f.ty)
+                /*
+                Some(match &f.ident {
+                    Some(ref ident) => ident,
+                    _ => panic!("ssz_derive only supports named struct fields."),
+                })
+                */
             }
         })
         .collect()
@@ -107,19 +97,44 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     };
 
     let field_idents = get_serializable_named_field_idents(&struct_data);
+    let field_types_a = get_serializable_named_field_types(&struct_data);
+    let field_types_b = field_types_a.clone();
 
     let output = quote! {
         impl ssz::Encodable for #name {
-            fn ssz_append(&self, s: &mut ssz::SszStream) {
+            fn is_ssz_fixed_len() -> bool {
                 #(
-                    s.append(&self.#field_idents);
+                    <#field_types_a as ssz::Encodable>::is_ssz_fixed_len() &&
                 )*
+                    true
+            }
+
+            fn ssz_fixed_len() -> usize {
+                if Self::is_ssz_fixed_len() {
+                    #(
+                        <#field_types_b as ssz::Encodable>::ssz_fixed_len() +
+                    )*
+                        0
+                } else {
+                    ssz::BYTES_PER_LENGTH_OFFSET
+                }
+            }
+
+            fn as_ssz_bytes(&self) -> Vec<u8> {
+                let mut stream = ssz::SszStream::new();
+
+                #(
+                    stream.append(&self.#field_idents);
+                )*
+
+                stream.drain()
             }
         }
     };
     output.into()
 }
 
+/*
 /// Returns true if some field has an attribute declaring it should not be deserialized.
 ///
 /// The field attribute is: `#[ssz(skip_deserializing)]`
@@ -188,3 +203,4 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     };
     output.into()
 }
+*/
