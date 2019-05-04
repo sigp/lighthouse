@@ -1,87 +1,99 @@
-use super::LENGTH_BYTES;
+use super::*;
+
+mod impls;
 
 pub trait Encodable {
-    fn ssz_append(&self, s: &mut SszStream);
+    fn as_ssz_bytes(&self) -> Vec<u8>;
+
+    fn is_ssz_fixed_len() -> bool;
+
+    /// The number of bytes this object occupies in the fixed-length portion of the SSZ bytes.
+    ///
+    /// By default, this is set to `BYTES_PER_LENGTH_OFFSET` which is suitable for variable length
+    /// objects, but not fixed-length objects. Fixed-length objects _must_ return a value which
+    /// represents their length.
+    fn ssz_fixed_len() -> usize {
+        BYTES_PER_LENGTH_OFFSET
+    }
 }
 
-/// Provides a buffer for appending ssz-encodable values.
-///
-/// Use the `append()` fn to add a value to a list, then use
-/// the `drain()` method to consume the struct and return the
-/// ssz encoded bytes.
+pub struct VariableLengths {
+    pub fixed_bytes_position: usize,
+    pub variable_bytes_length: usize,
+}
+
+/// Provides a buffer for appending SSZ values.
 #[derive(Default)]
 pub struct SszStream {
-    buffer: Vec<u8>,
+    fixed_bytes: Vec<u8>,
+    variable_bytes: Vec<u8>,
+    variable_lengths: Vec<VariableLengths>,
 }
 
 impl SszStream {
-    /// Create a new, empty stream for writing ssz values.
+    /// Create a new, empty stream for writing SSZ values.
     pub fn new() -> Self {
-        SszStream { buffer: Vec::new() }
-    }
-
-    /// Append some ssz encodable value to the stream.
-    pub fn append<E>(&mut self, value: &E) -> &mut Self
-    where
-        E: Encodable,
-    {
-        value.ssz_append(self);
-        self
-    }
-
-    /// Append some ssz encoded bytes to the stream.
-    ///
-    /// The length of the supplied bytes will be concatenated
-    /// to the stream before the supplied bytes.
-    pub fn append_encoded_val(&mut self, vec: &[u8]) {
-        self.buffer
-            .extend_from_slice(&encode_length(vec.len(), LENGTH_BYTES));
-        self.buffer.extend_from_slice(&vec);
-    }
-
-    /// Append some ssz encoded bytes to the stream without calculating length
-    ///
-    /// The raw bytes will be concatenated to the stream.
-    pub fn append_encoded_raw(&mut self, vec: &[u8]) {
-        self.buffer.extend_from_slice(&vec);
-    }
-
-    /// Append some vector (list) of encodable values to the stream.
-    ///
-    /// The length of the list will be concatenated to the stream, then
-    /// each item in the vector will be encoded and concatenated.
-    pub fn append_vec<E>(&mut self, vec: &[E])
-    where
-        E: Encodable,
-    {
-        let mut list_stream = SszStream::new();
-        for item in vec {
-            item.ssz_append(&mut list_stream);
+        SszStream {
+            fixed_bytes: vec![],
+            variable_bytes: vec![],
+            variable_lengths: vec![],
         }
-        self.append_encoded_val(&list_stream.drain());
     }
 
-    /// Consume the stream and return the underlying bytes.
-    pub fn drain(self) -> Vec<u8> {
-        self.buffer
+    /// Append some item to the stream.
+    pub fn append<T: Encodable>(&mut self, item: &T) {
+        let mut bytes = item.as_ssz_bytes();
+
+        if T::is_ssz_fixed_len() {
+            self.fixed_bytes.append(&mut bytes);
+        } else {
+            self.variable_lengths.push(VariableLengths {
+                fixed_bytes_position: self.fixed_bytes.len(),
+                variable_bytes_length: bytes.len(),
+            });
+
+            self.fixed_bytes
+                .append(&mut vec![0; BYTES_PER_LENGTH_OFFSET]);
+            self.variable_bytes.append(&mut bytes);
+        }
+    }
+
+    /// Update the offsets (if any) in the fixed-length bytes to correctly point to the values in
+    /// the variable length part.
+    pub fn apply_offsets(&mut self) {
+        let mut running_offset = self.fixed_bytes.len();
+
+        for v in &self.variable_lengths {
+            let offset = running_offset;
+            running_offset += v.variable_bytes_length;
+
+            self.fixed_bytes.splice(
+                v.fixed_bytes_position..v.fixed_bytes_position + BYTES_PER_LENGTH_OFFSET,
+                encode_length(offset),
+            );
+        }
+    }
+
+    /// Append the variable-length bytes to the fixed-length bytes and return the result.
+    pub fn drain(mut self) -> Vec<u8> {
+        self.apply_offsets();
+
+        self.fixed_bytes.append(&mut self.variable_bytes);
+
+        self.fixed_bytes
     }
 }
 
-/// Encode some length into a ssz size prefix.
+/// Encode `len` as a little-endian byte vec of `BYTES_PER_LENGTH_OFFSET` length.
 ///
-/// The ssz size prefix is 4 bytes, which is treated as a continuious
-/// 32bit little-endian integer.
-pub fn encode_length(len: usize, length_bytes: usize) -> Vec<u8> {
-    assert!(length_bytes > 0); // For sanity
-    assert!((len as usize) < 2usize.pow(length_bytes as u32 * 8));
-    let mut header: Vec<u8> = vec![0; length_bytes];
-    for (i, header_byte) in header.iter_mut().enumerate() {
-        let offset = i * 8;
-        *header_byte = ((len >> offset) & 0xff) as u8;
-    }
-    header
+/// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.
+pub fn encode_length(len: usize) -> Vec<u8> {
+    debug_assert!(len <= MAX_LENGTH_VALUE);
+
+    len.to_le_bytes()[0..BYTES_PER_LENGTH_OFFSET].to_vec()
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,3 +180,4 @@ mod tests {
         assert_eq!(ssz[7..9], *vec![200, 0]);
     }
 }
+*/

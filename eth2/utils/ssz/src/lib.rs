@@ -7,11 +7,32 @@
  * This implementation is not final and would almost certainly
  * have issues.
  */
+/*
 extern crate bytes;
 extern crate ethereum_types;
 
 pub mod decode;
-pub mod encode;
+*/
+mod decode;
+mod encode;
+
+pub use decode::{Decodable, DecodeError, SszDecoderBuilder};
+pub use encode::{Encodable, SszStream};
+
+pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
+pub const MAX_LENGTH_VALUE: usize = 1 << (BYTES_PER_LENGTH_OFFSET * 8) - 1;
+
+/// Convenience function to SSZ encode an object supporting ssz::Encode.
+pub fn ssz_encode<T>(val: &T) -> Vec<u8>
+where
+    T: Encodable,
+{
+    let mut ssz_stream = SszStream::new();
+    ssz_stream.append(val);
+    ssz_stream.drain()
+}
+
+/*
 
 mod impl_decode;
 mod impl_encode;
@@ -24,15 +45,6 @@ pub use hashing::hash;
 pub const LENGTH_BYTES: usize = 4;
 pub const MAX_LIST_SIZE: usize = 1 << (4 * 8);
 
-/// Convenience function to SSZ encode an object supporting ssz::Encode.
-pub fn ssz_encode<T>(val: &T) -> Vec<u8>
-where
-    T: Encodable,
-{
-    let mut ssz_stream = SszStream::new();
-    ssz_stream.append(val);
-    ssz_stream.drain()
-}
 
 #[cfg(test)]
 mod tests {
@@ -223,3 +235,4 @@ mod tests {
         }
     }
 }
+*/
