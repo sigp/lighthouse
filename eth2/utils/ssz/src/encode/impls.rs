@@ -31,7 +31,6 @@ impl<T: Encodable> Encodable for Vec<T> {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-
         if T::is_ssz_fixed_len() {
             buf.reserve(T::ssz_fixed_len() * self.len());
 
@@ -39,28 +38,13 @@ impl<T: Encodable> Encodable for Vec<T> {
                 item.ssz_append(buf);
             }
         } else {
-            /*
-            for item in self {
-                let mut substream = SszStream::new();
-
-                item.ssz_append(&mut substream);
-
-                s.append_variable_bytes(&substream.drain());
-            }
-            */
-            let mut offset = self.len() * BYTES_PER_LENGTH_OFFSET;
-            let mut fixed = Vec::with_capacity(offset);
-            let mut variable = vec![];
+            let mut encoder = SszEncoder::list(self.len() * BYTES_PER_LENGTH_OFFSET);
 
             for item in self {
-                fixed.append(&mut encode_length(offset));
-                let mut bytes = item.as_ssz_bytes();
-                offset += bytes.len();
-                variable.append(&mut bytes);
+                encoder.append(item);
             }
 
-            buf.append(&mut fixed);
-            buf.append(&mut variable);
+            encoder.drain_onto(buf);
         }
     }
 }

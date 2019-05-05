@@ -17,21 +17,19 @@ mod decode;
 mod encode;
 
 pub use decode::{Decodable, DecodeError, SszDecoderBuilder};
-pub use encode::{Encodable, SszEncoder, SszStream};
+pub use encode::{Encodable, SszEncoder};
 
 pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
 pub const MAX_LENGTH_VALUE: usize = 1 << (BYTES_PER_LENGTH_OFFSET * 8) - 1;
 
 /// Convenience function to SSZ encode an object supporting ssz::Encode.
+///
+/// Equivalent to `val.as_ssz_bytes()`.
 pub fn ssz_encode<T>(val: &T) -> Vec<u8>
 where
     T: Encodable,
 {
-    let mut buf = vec![];
-
-    val.ssz_append(&mut buf);
-
-    buf
+    val.as_ssz_bytes()
 }
 
 /*

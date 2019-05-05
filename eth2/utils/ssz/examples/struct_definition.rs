@@ -1,4 +1,4 @@
-use ssz::{Decodable, DecodeError, Encodable, SszDecoderBuilder, SszEncoder, SszStream};
+use ssz::{Decodable, DecodeError, Encodable, SszDecoderBuilder, SszEncoder};
 
 #[derive(Debug, PartialEq)]
 pub struct Foo {
@@ -23,7 +23,7 @@ impl Encodable for Foo {
         encoder.append(&self.b);
         encoder.append(&self.c);
 
-        buf.append(&mut encoder.drain());
+        encoder.drain_onto(buf);
     }
 }
 
