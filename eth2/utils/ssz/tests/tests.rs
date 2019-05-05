@@ -1,5 +1,5 @@
 use ssz::{Decodable, Encodable};
-use ssz_derive::Encode;
+use ssz_derive::{Decode, Encode};
 
 fn round_trip<T: Encodable + Decodable + std::fmt::Debug + PartialEq>(items: Vec<T>) {
     for item in items {
@@ -40,7 +40,7 @@ fn vec_of_vec_u16_round_trip() {
     round_trip(items);
 }
 
-#[derive(Debug, PartialEq, Encode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 struct FixedLen {
     a: u16,
     b: u64,
@@ -72,7 +72,18 @@ fn fixed_len_struct_encoding() {
     }
 }
 
-#[derive(Debug, PartialEq, Encode)]
+#[test]
+fn vec_of_fixed_len_struct() {
+    let items: Vec<FixedLen> = vec![
+        FixedLen { a: 0, b: 0, c: 0 },
+        FixedLen { a: 1, b: 1, c: 1 },
+        FixedLen { a: 1, b: 0, c: 1 },
+    ];
+
+    round_trip(items);
+}
+
+#[derive(Debug, PartialEq, Encode, Decode)]
 struct VariableLen {
     a: u16,
     b: Vec<u16>,
@@ -119,15 +130,30 @@ fn variable_len_struct_encoding() {
     }
 }
 
-/*
 #[test]
-fn vec_of_fixed_len_struct() {
-    let items: Vec<FixedLen> = vec![
-        FixedLen { a: 0, b: 0, c: 0 },
-        FixedLen { a: 1, b: 1, c: 1 },
-        FixedLen { a: 1, b: 0, c: 1 },
+fn vec_of_variable_len_struct() {
+    let items: Vec<VariableLen> = vec![
+        VariableLen {
+            a: 0,
+            b: vec![],
+            c: 0,
+        },
+        VariableLen {
+            a: 255,
+            b: vec![0, 1, 2, 3],
+            c: 99,
+        },
+        VariableLen {
+            a: 255,
+            b: vec![0],
+            c: 99,
+        },
+        VariableLen {
+            a: 50,
+            b: vec![0],
+            c: 0,
+        },
     ];
 
     round_trip(items);
 }
-*/
