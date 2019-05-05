@@ -3,9 +3,9 @@ use super::*;
 mod impls;
 
 pub trait Encodable {
-    fn as_ssz_bytes(&self) -> Vec<u8>;
-
     fn is_ssz_fixed_len() -> bool;
+
+    fn ssz_append(&self, buf: &mut Vec<u8>);
 
     /// The number of bytes this object occupies in the fixed-length portion of the SSZ bytes.
     ///
@@ -14,6 +14,14 @@ pub trait Encodable {
     /// represents their length.
     fn ssz_fixed_len() -> usize {
         BYTES_PER_LENGTH_OFFSET
+    }
+
+    fn as_ssz_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![];
+
+        self.ssz_append(&mut buf);
+
+        buf
     }
 }
 
@@ -40,11 +48,13 @@ impl SszStream {
         }
     }
 
+    /*
     /// Append some item to the stream.
     pub fn append<T: Encodable>(&mut self, item: &T) {
         let mut bytes = item.as_ssz_bytes();
 
         if T::is_ssz_fixed_len() {
+            self.app
             self.fixed_bytes.append(&mut bytes);
         } else {
             self.variable_lengths.push(VariableLengths {
@@ -56,6 +66,32 @@ impl SszStream {
                 .append(&mut vec![0; BYTES_PER_LENGTH_OFFSET]);
             self.variable_bytes.append(&mut bytes);
         }
+    }
+    */
+    pub fn reserve<T: Encodable>(&mut self, additional: usize) {
+        if T::is_ssz_fixed_len() {
+            self.fixed_bytes.reserve(additional * T::ssz_fixed_len());
+        } else {
+            self.fixed_bytes
+                .reserve(additional * BYTES_PER_LENGTH_OFFSET);
+            self.variable_lengths.reserve(additional);
+        }
+    }
+
+    pub fn append_fixed_bytes(&mut self, bytes: &[u8]) {
+        self.fixed_bytes.extend_from_slice(bytes)
+    }
+
+    pub fn append_variable_bytes(&mut self, bytes: &[u8]) {
+        self.variable_lengths.push(VariableLengths {
+            fixed_bytes_position: self.fixed_bytes.len(),
+            variable_bytes_length: bytes.len(),
+        });
+
+        self.fixed_bytes
+            .append(&mut vec![0; BYTES_PER_LENGTH_OFFSET]);
+
+        self.variable_bytes.extend_from_slice(bytes);
     }
 
     /// Update the offsets (if any) in the fixed-length bytes to correctly point to the values in

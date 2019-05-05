@@ -27,9 +27,11 @@ pub fn ssz_encode<T>(val: &T) -> Vec<u8>
 where
     T: Encodable,
 {
-    let mut ssz_stream = SszStream::new();
-    ssz_stream.append(val);
-    ssz_stream.drain()
+    let mut buf = vec![];
+
+    val.ssz_append(&mut buf);
+
+    buf
 }
 
 /*

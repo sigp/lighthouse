@@ -12,8 +12,8 @@ macro_rules! impl_encodable_for_uint {
                 $bit_size / 8
             }
 
-            fn as_ssz_bytes(&self) -> Vec<u8> {
-                self.to_le_bytes().to_vec()
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                buf.extend_from_slice(&self.to_le_bytes());
             }
         }
     };
@@ -30,16 +30,24 @@ impl<T: Encodable> Encodable for Vec<T> {
         false
     }
 
-    fn as_ssz_bytes(&self) -> Vec<u8> {
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+
         if T::is_ssz_fixed_len() {
-            let mut bytes = Vec::with_capacity(T::ssz_fixed_len() * self.len());
+            buf.reserve(T::ssz_fixed_len() * self.len());
 
             for item in self {
-                bytes.append(&mut item.as_ssz_bytes());
+                item.ssz_append(buf);
             }
-
-            bytes
         } else {
+            /*
+            for item in self {
+                let mut substream = SszStream::new();
+
+                item.ssz_append(&mut substream);
+
+                s.append_variable_bytes(&substream.drain());
+            }
+            */
             let mut offset = self.len() * BYTES_PER_LENGTH_OFFSET;
             let mut fixed = Vec::with_capacity(offset);
             let mut variable = vec![];
@@ -51,9 +59,8 @@ impl<T: Encodable> Encodable for Vec<T> {
                 variable.append(&mut bytes);
             }
 
-            fixed.append(&mut variable);
-
-            fixed
+            buf.append(&mut fixed);
+            buf.append(&mut variable);
         }
     }
 }
@@ -64,8 +71,8 @@ impl Encodable for bool {
         Some(8)
     }
 
-    fn as_ssz_bytes(&self) -> Vec<u8> {
-        (*self as u8).to_le_bytes().to_vec()
+    fn ssz_append(&self, s: &mut SszStream) {
+        s.append_fixed_bytes(&(self as u8).to_le_bytes());
     }
 }
 
@@ -94,48 +101,6 @@ macro_rules! impl_encodable_for_u8_array {
 }
 
 impl_encodable_for_u8_array!(4);
-
-macro_rules! impl_encodable_for_u8_array {
-    ($len: expr) => {
-        impl Encodable for [u8; $len] {
-
-            fn ssz_append(&self, s: &mut SszStream) {
-                let bytes: Vec<u8> = self.iter().cloned().collect();
-                s.append_encoded_raw(&bytes);
-            }
-        }
-    };
-}
-
-impl_encodable_for_u8_array!(4);
-
-impl Encodable for bool {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let byte = if *self { 0b0000_0001 } else { 0b0000_0000 };
-        s.append_encoded_raw(&[byte]);
-    }
-}
-
-impl Encodable for H256 {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(self.as_bytes());
-    }
-}
-
-impl Encodable for Address {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(self.as_bytes());
-    }
-}
-
-impl<T> Encodable for Vec<T>
-where
-    T: Encodable,
-{
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_vec(&self);
-    }
-}
 */
 
 #[cfg(test)]

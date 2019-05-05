@@ -1,4 +1,4 @@
-use ssz::{Decodable, DecodeError, Encodable, SszDecoderBuilder, SszStream};
+use ssz::{encode_length, Decodable, DecodeError, Encodable, SszDecoderBuilder, SszStream};
 
 #[derive(Debug, PartialEq)]
 pub struct Foo {
@@ -12,14 +12,23 @@ impl Encodable for Foo {
         <u16 as Encodable>::is_ssz_fixed_len() && <Vec<u16> as Encodable>::is_ssz_fixed_len()
     }
 
-    fn as_ssz_bytes(&self) -> Vec<u8> {
-        let mut stream = SszStream::new();
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let offset = <u16 as Encodable>::ssz_fixed_len()
+            + <Vec<u16> as Encodable>::ssz_fixed_len()
+            + <u16 as Encodable>::ssz_fixed_len();
 
-        stream.append(&self.a);
-        stream.append(&self.b);
-        stream.append(&self.c);
+        let mut fixed = Vec::with_capacity(offset);
+        let mut variable = vec![];
 
-        stream.drain()
+        if <u16 as Encodable>::is_ssz_fixed_len() {
+            self.a.ssz_append(&mut fixed);
+        } else {
+            fixed.append(encode_length())
+        }
+
+        if <Vec<u16> as Encodable>::is_ssz_fixed_len() {
+            self.a.ssz_append(&mut fixed);
+        }
     }
 }
 
