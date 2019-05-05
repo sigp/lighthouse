@@ -1,6 +1,7 @@
 use ssz::{Decodable, Encodable};
 use ssz_derive::{Decode, Encode};
 
+/*
 fn round_trip<T: Encodable + Decodable + std::fmt::Debug + PartialEq>(items: Vec<T>) {
     for item in items {
         let encoded = &item.as_ssz_bytes();
@@ -157,3 +158,4 @@ fn vec_of_variable_len_struct() {
 
     round_trip(items);
 }
+*/
