@@ -83,7 +83,7 @@ impl<'a> SszDecoderBuilder<'a> {
 
             if previous_offset > offset {
                 return Err(DecodeError::OutOfBoundsByte { i: offset });
-            } else if offset >= self.bytes.len() {
+            } else if offset > self.bytes.len() {
                 return Err(DecodeError::OutOfBoundsByte { i: offset });
             }
 
