@@ -211,28 +211,28 @@ mod tests {
         /*
          * Input is exact length
          */
-        let input = vec![42_u8; 32];
-        let (decoded, i) = H256::from_ssz_bytes(&input).unwrap();
-        assert_eq!(decoded.as_bytes(), &input[..]);
-        assert_eq!(i, 32);
+    let input = vec![42_u8; 32];
+    let (decoded, i) = H256::from_ssz_bytes(&input).unwrap();
+    assert_eq!(decoded.as_bytes(), &input[..]);
+    assert_eq!(i, 32);
 
-        /*
-         * Input is too long
-         */
-        let mut input = vec![42_u8; 32];
-        input.push(12);
-        let (decoded, i) = H256::from_ssz_bytes(&input, 0).unwrap();
-        assert_eq!(decoded.as_bytes(), &input[0..32]);
-        assert_eq!(i, 32);
+    /*
+     * Input is too long
+     */
+    let mut input = vec![42_u8; 32];
+    input.push(12);
+    let (decoded, i) = H256::from_ssz_bytes(&input, 0).unwrap();
+    assert_eq!(decoded.as_bytes(), &input[0..32]);
+    assert_eq!(i, 32);
 
-        /*
-         * Input is too short
-         */
-        let input = vec![42_u8; 31];
-        let res = H256::from_ssz_bytes(&input, 0);
-        assert_eq!(res, Err(DecodeError::TooShort));
+    /*
+     * Input is too short
+     */
+    let input = vec![42_u8; 31];
+    let res = H256::from_ssz_bytes(&input, 0);
+    assert_eq!(res, Err(DecodeError::TooShort));
     }
-    */
+     */
 
     #[test]
     fn first_length_points_backwards() {

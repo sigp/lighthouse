@@ -4,7 +4,12 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[[bench]]
+name = "benches"
+harness = false
+
 [dev-dependencies]
+criterion = "0.2"
 ssz_derive = { path = "../ssz_derive" }
 
 [dependencies]
