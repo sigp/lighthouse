@@ -1,4 +1,4 @@
-#![recursion_limit="128"]
+#![recursion_limit = "128"]
 
 extern crate proc_macro;
 
@@ -81,6 +81,7 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let field_idents = get_serializable_named_field_idents(&struct_data);
     let field_types_a = get_serializable_field_types(&struct_data);
     let field_types_b = field_types_a.clone();
+    let field_types_c = field_types_a.clone();
 
     let output = quote! {
         impl ssz::Encodable for #name {
@@ -102,14 +103,19 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn as_ssz_bytes(&self) -> Vec<u8> {
-                let mut stream = ssz::SszStream::new();
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                let offset = #(
+                        <#field_types_c as ssz::Encodable>::ssz_fixed_len() +
+                    )*
+                        0;
+
+                let mut encoder = ssz::SszEncoder::container(offset);
 
                 #(
-                    stream.append(&self.#field_idents);
+                    encoder.append(&self.#field_idents);
                 )*
 
-                stream.drain()
+                encoder.drain_onto(buf);
             }
         }
     };

@@ -32,10 +32,14 @@ pub struct SszEncoder {
 }
 
 impl SszEncoder {
+    pub fn list(num_fixed_bytes: usize) -> Self {
+        Self::container(num_fixed_bytes)
+    }
+
     pub fn container(num_fixed_bytes: usize) -> Self {
         Self {
             offset: num_fixed_bytes,
-            fixed_bytes: vec![],
+            fixed_bytes: Vec::with_capacity(num_fixed_bytes),
             variable_bytes: vec![],
         }
     }
@@ -51,10 +55,9 @@ impl SszEncoder {
         }
     }
 
-    pub fn drain(mut self) -> Vec<u8> {
-        self.fixed_bytes.append(&mut self.variable_bytes);
-
-        self.fixed_bytes
+    pub fn drain_onto(mut self, buf: &mut Vec<u8>) {
+        buf.append(&mut self.fixed_bytes);
+        buf.append(&mut self.variable_bytes);
     }
 }
 
@@ -63,6 +66,7 @@ pub struct VariableLengths {
     pub variable_bytes_length: usize,
 }
 
+/*
 /// Provides a buffer for appending SSZ values.
 #[derive(Default)]
 pub struct SszStream {
@@ -152,6 +156,7 @@ impl SszStream {
         self.fixed_bytes
     }
 }
+*/
 
 /// Encode `len` as a little-endian byte vec of `BYTES_PER_LENGTH_OFFSET` length.
 ///
