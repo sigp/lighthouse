@@ -17,13 +17,13 @@ impl Encodable for Foo {
             + <Vec<u16> as Encodable>::ssz_fixed_len()
             + <u16 as Encodable>::ssz_fixed_len();
 
-        let mut encoder = SszEncoder::container(offset);
+        let mut encoder = SszEncoder::container(buf, offset);
 
         encoder.append(&self.a);
         encoder.append(&self.b);
         encoder.append(&self.c);
 
-        encoder.drain_onto(buf);
+        encoder.finalize();
     }
 }
 
