@@ -25,6 +25,39 @@ pub trait Encodable {
     }
 }
 
+pub struct SszEncoder {
+    offset: usize,
+    fixed_bytes: Vec<u8>,
+    variable_bytes: Vec<u8>,
+}
+
+impl SszEncoder {
+    pub fn container(num_fixed_bytes: usize) -> Self {
+        Self {
+            offset: num_fixed_bytes,
+            fixed_bytes: vec![],
+            variable_bytes: vec![],
+        }
+    }
+
+    pub fn append<T: Encodable>(&mut self, item: &T) {
+        if T::is_ssz_fixed_len() {
+            item.ssz_append(&mut self.fixed_bytes);
+        } else {
+            self.fixed_bytes
+                .append(&mut encode_length(self.offset + self.variable_bytes.len()));
+
+            item.ssz_append(&mut self.variable_bytes);
+        }
+    }
+
+    pub fn drain(mut self) -> Vec<u8> {
+        self.fixed_bytes.append(&mut self.variable_bytes);
+
+        self.fixed_bytes
+    }
+}
+
 pub struct VariableLengths {
     pub fixed_bytes_position: usize,
     pub variable_bytes_length: usize,
