@@ -109,13 +109,13 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
                     )*
                         0;
 
-                let mut encoder = ssz::SszEncoder::container(offset);
+                let mut encoder = ssz::SszEncoder::container(buf, offset);
 
                 #(
                     encoder.append(&self.#field_idents);
                 )*
 
-                encoder.drain_onto(buf);
+                encoder.finalize();
             }
         }
     };

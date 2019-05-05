@@ -38,13 +38,13 @@ impl<T: Encodable> Encodable for Vec<T> {
                 item.ssz_append(buf);
             }
         } else {
-            let mut encoder = SszEncoder::list(self.len() * BYTES_PER_LENGTH_OFFSET);
+            let mut encoder = SszEncoder::list(buf, self.len() * BYTES_PER_LENGTH_OFFSET);
 
             for item in self {
                 encoder.append(item);
             }
 
-            encoder.drain_onto(buf);
+            encoder.finalize();
         }
     }
 }

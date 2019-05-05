@@ -25,48 +25,51 @@ pub trait Encodable {
     }
 }
 
-pub struct SszEncoder {
+pub struct SszEncoder<'a> {
     offset: usize,
-    fixed_bytes: Vec<u8>,
+    buf: &'a mut Vec<u8>,
     variable_bytes: Vec<u8>,
 }
 
-impl SszEncoder {
-    pub fn list(num_fixed_bytes: usize) -> Self {
-        Self::container(num_fixed_bytes)
+impl<'a> SszEncoder<'a> {
+    pub fn list(buf: &'a mut Vec<u8>, num_fixed_bytes: usize) -> Self {
+        Self::container(buf, num_fixed_bytes)
     }
 
-    pub fn container(num_fixed_bytes: usize) -> Self {
+    pub fn container(buf: &'a mut Vec<u8>, num_fixed_bytes: usize) -> Self {
+        buf.reserve(num_fixed_bytes);
+
         Self {
             offset: num_fixed_bytes,
-            fixed_bytes: Vec::with_capacity(num_fixed_bytes),
+            buf,
             variable_bytes: vec![],
         }
     }
 
     pub fn append<T: Encodable>(&mut self, item: &T) {
         if T::is_ssz_fixed_len() {
-            item.ssz_append(&mut self.fixed_bytes);
+            item.ssz_append(&mut self.buf);
         } else {
-            self.fixed_bytes
+            self.buf
                 .append(&mut encode_length(self.offset + self.variable_bytes.len()));
 
             item.ssz_append(&mut self.variable_bytes);
         }
     }
 
-    pub fn drain_onto(mut self, buf: &mut Vec<u8>) {
-        buf.append(&mut self.fixed_bytes);
-        buf.append(&mut self.variable_bytes);
+    pub fn finalize(&mut self) -> &mut Vec<u8> {
+        self.buf.append(&mut self.variable_bytes);
+
+        &mut self.buf
     }
 }
 
+/*
 pub struct VariableLengths {
     pub fixed_bytes_position: usize,
     pub variable_bytes_length: usize,
 }
 
-/*
 /// Provides a buffer for appending SSZ values.
 #[derive(Default)]
 pub struct SszStream {
