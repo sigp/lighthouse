@@ -17,7 +17,7 @@ mod decode;
 mod encode;
 
 pub use decode::{Decodable, DecodeError, SszDecoderBuilder};
-pub use encode::{Encodable, SszStream};
+pub use encode::{Encodable, SszEncoder, SszStream};
 
 pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
 pub const MAX_LENGTH_VALUE: usize = 1 << (BYTES_PER_LENGTH_OFFSET * 8) - 1;
