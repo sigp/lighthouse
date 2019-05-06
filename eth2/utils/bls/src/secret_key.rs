@@ -1,10 +1,10 @@
 use super::BLS_SECRET_KEY_BYTE_SIZE;
-use bls_aggregates::{DecodeError as BlsDecodeError, SecretKey as RawSecretKey};
+use bls_aggregates::SecretKey as RawSecretKey;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
@@ -19,11 +19,21 @@ impl SecretKey {
         SecretKey(RawSecretKey::random())
     }
 
+    /// Returns the underlying point as compressed bytes.
+    fn as_bytes(&self) -> Vec<u8> {
+        self.as_raw().as_bytes()
+    }
+
     /// Instantiate a SecretKey from existing bytes.
     ///
     /// Note: this is _not_ SSZ decoding.
-    pub fn from_bytes(bytes: &[u8]) -> Result<SecretKey, BlsDecodeError> {
-        Ok(SecretKey(RawSecretKey::from_bytes(bytes)?))
+    pub fn from_bytes(bytes: &[u8]) -> Result<SecretKey, DecodeError> {
+        Ok(SecretKey(RawSecretKey::from_bytes(bytes).map_err(|e| {
+            DecodeError::BytesInvalid(format!(
+                "Invalid SecretKey bytes: {:?} Error: {:?}",
+                bytes, e
+            ))
+        })?))
     }
 
     /// Returns the underlying secret key.
@@ -32,22 +42,7 @@ impl SecretKey {
     }
 }
 
-impl Encodable for SecretKey {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.0.as_bytes());
-    }
-}
-
-impl Decodable for SecretKey {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_SECRET_KEY_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        let raw_sig = RawSecretKey::from_bytes(&bytes[i..(i + BLS_SECRET_KEY_BYTE_SIZE)])
-            .map_err(|_| DecodeError::TooShort)?;
-        Ok((SecretKey(raw_sig), i + BLS_SECRET_KEY_BYTE_SIZE))
-    }
-}
+impl_ssz!(SecretKey, BLS_SECRET_KEY_BYTE_SIZE, "SecretKey");
 
 impl Serialize for SecretKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -64,7 +59,7 @@ impl<'de> Deserialize<'de> for SecretKey {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let secret_key = decode::<SecretKey>(&bytes[..])
+        let secret_key = SecretKey::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(secret_key)
     }
@@ -84,7 +79,7 @@ mod tests {
                 .unwrap();
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = SecretKey::ssz_decode(&bytes, 0).unwrap();
+        let decoded = SecretKey::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }

@@ -1,6 +1,8 @@
 extern crate bls_aggregates;
 extern crate ssz;
 
+#[macro_use]
+mod macros;
 mod aggregate_public_key;
 mod keypair;
 mod public_key;
