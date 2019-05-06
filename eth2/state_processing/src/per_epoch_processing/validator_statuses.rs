@@ -283,7 +283,7 @@ impl ValidatorStatuses {
     /// Update the `statuses` for each validator based upon whether or not they attested to the
     /// "winning" shard block root for the previous epoch.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn process_winning_roots(
         &mut self,
         state: &BeaconState,
