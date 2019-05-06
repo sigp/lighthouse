@@ -75,7 +75,7 @@ pub struct ValidatorStatus {
     pub is_current_epoch_attester: bool,
     /// True if the validator's beacon block root attestation for the first slot of the _current_
     /// epoch matches the block root known to the state.
-    pub is_current_epoch_boundary_attester: bool,
+    pub is_current_epoch_target_attester: bool,
     /// True if the validator had an attestation included in the _previous_ epoch.
     pub is_previous_epoch_attester: bool,
     /// True if the validator's beacon block root attestation for the first slot of the _previous_
@@ -108,7 +108,7 @@ impl ValidatorStatus {
         set_self_if_other_is_true!(self, other, is_active_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_previous_epoch);
         set_self_if_other_is_true!(self, other, is_current_epoch_attester);
-        set_self_if_other_is_true!(self, other, is_current_epoch_boundary_attester);
+        set_self_if_other_is_true!(self, other, is_current_epoch_target_attester);
         set_self_if_other_is_true!(self, other, is_previous_epoch_attester);
         set_self_if_other_is_true!(self, other, is_previous_epoch_target_attester);
         set_self_if_other_is_true!(self, other, is_previous_epoch_head_attester);
@@ -135,7 +135,7 @@ pub struct TotalBalances {
     pub current_epoch_attesters: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
-    pub current_epoch_boundary_attesters: u64,
+    pub current_epoch_target_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch.
     pub previous_epoch_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch and
@@ -221,7 +221,7 @@ impl ValidatorStatuses {
                 status.is_current_epoch_attester = true;
 
                 if target_matches_epoch_start_block(a, state, state.current_epoch(spec), spec)? {
-                    status.is_current_epoch_boundary_attester = true;
+                    status.is_current_epoch_target_attester = true;
                 }
             } else if is_from_epoch(a, state.previous_epoch(spec), spec) {
                 status.is_previous_epoch_attester = true;
@@ -262,8 +262,8 @@ impl ValidatorStatuses {
                 if v.is_current_epoch_attester {
                     self.total_balances.current_epoch_attesters += validator_balance;
                 }
-                if v.is_current_epoch_boundary_attester {
-                    self.total_balances.current_epoch_boundary_attesters += validator_balance;
+                if v.is_current_epoch_target_attester {
+                    self.total_balances.current_epoch_target_attesters += validator_balance;
                 }
                 if v.is_previous_epoch_attester {
                     self.total_balances.previous_epoch_attesters += validator_balance;
