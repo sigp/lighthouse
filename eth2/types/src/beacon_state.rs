@@ -2,11 +2,12 @@ use self::epoch_cache::{get_active_validator_indices, EpochCache, Error as Epoch
 use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
+use hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use pubkey_cache::PubkeyCache;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{hash, ssz_encode};
+use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;

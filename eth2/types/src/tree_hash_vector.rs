@@ -1,7 +1,7 @@
 use crate::test_utils::{RngCore, TestRandom};
 use cached_tree_hash::CachedTreeHash;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decodable, DecodeError, Encodable, SszStream};
+use ssz::{Decodable, DecodeError, Encodable};
 use std::ops::{Deref, DerefMut};
 use tree_hash::TreeHash;
 

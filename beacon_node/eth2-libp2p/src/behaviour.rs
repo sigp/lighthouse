@@ -13,7 +13,7 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o, trace, warn};
-use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable};
 use types::{Attestation, BeaconBlock};
 use types::{Topic, TopicHash};
 
