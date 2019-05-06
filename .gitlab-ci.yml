@@ -16,6 +16,11 @@ before_script:
   - apt-get install -o dir::cache::archives="$APT_CACHE_DIR" -y clang libclang-dev cmake build-essential git unzip autoconf libtool
   - git clone https://github.com/google/protobuf.git && cd protobuf && ./autogen.sh && ./configure && make && make install && ldconfig && make clean && cd .. && rm -r protobuf
 
+check-fmt:
+  stage: test
+  script:
+    - cargo fmt --all -- --check
+
 test-dev:
   stage: test
   script:
@@ -25,11 +30,6 @@ test-release:
   stage: test
   script:
     - cargo test --verbose --all --release
-
-check-fmt:
-  stage: test
-  script:
-    - cargo fmt --all -- --check
 
 pages:
   stage: doc
