@@ -45,7 +45,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     validator_statuses.process_attestations(&state, spec)?;
 
     // Justification.
-    update_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
+    process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
 
     // Crosslinks.
     let winning_root_for_shards = process_crosslinks(state, spec)?;
@@ -104,69 +104,71 @@ pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
 /// Update the following fields on the `BeaconState`:
 ///
 /// - `justification_bitfield`.
-/// - `finalized_epoch`
-/// - `justified_epoch`
 /// - `previous_justified_epoch`
+/// - `previous_justified_root`
+/// - `current_justified_epoch`
+/// - `current_justified_root`
+/// - `finalized_epoch`
+/// - `finalized_root`
 ///
-/// Spec v0.5.1
-pub fn update_justification_and_finalization(
+/// Spec v0.6.1
+pub fn process_justification_and_finalization(
     state: &mut BeaconState,
     total_balances: &TotalBalances,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    if state.current_epoch(spec) == spec.genesis_epoch {
+        return Ok(());
+    }
+
     let previous_epoch = state.previous_epoch(spec);
     let current_epoch = state.current_epoch(spec);
 
-    let mut new_justified_epoch = state.current_justified_epoch;
-    let mut new_finalized_epoch = state.finalized_epoch;
+    let old_previous_justified_epoch = state.previous_justified_epoch;
+    let old_current_justified_epoch = state.current_justified_epoch;
 
-    // Rotate the justification bitfield up one epoch to make room for the current epoch.
+    // Process justifications
+    state.previous_justified_epoch = state.current_justified_epoch;
+    state.previous_justified_root = state.current_justified_root;
     state.justification_bitfield <<= 1;
 
-    // If the previous epoch gets justified, full the second last bit.
-    if (total_balances.previous_epoch_boundary_attesters * 3) >= (total_balances.previous_epoch * 2)
-    {
-        new_justified_epoch = previous_epoch;
+    let previous_epoch_matching_target_balance = total_balances.previous_epoch_target_attesters;
+
+    if total_balances.previous_epoch_target_attesters * 3 >= total_balances.previous_epoch * 2 {
+        state.current_justified_epoch = previous_epoch;
+        state.current_justified_root =
+            *state.get_block_root_at_epoch(state.current_justified_epoch, spec)?;
         state.justification_bitfield |= 2;
     }
     // If the current epoch gets justified, fill the last bit.
-    if (total_balances.current_epoch_boundary_attesters * 3) >= (total_balances.current_epoch * 2) {
-        new_justified_epoch = current_epoch;
+    if total_balances.current_epoch_target_attesters * 3 >= total_balances.current_epoch * 2 {
+        state.current_justified_epoch = current_epoch;
+        state.current_justified_root =
+            *state.get_block_root_at_epoch(state.current_justified_epoch, spec)?;
         state.justification_bitfield |= 1;
     }
 
     let bitfield = state.justification_bitfield;
 
     // The 2nd/3rd/4th most recent epochs are all justified, the 2nd using the 4th as source.
-    if ((bitfield >> 1) % 8 == 0b111) & (state.previous_justified_epoch == current_epoch - 3) {
-        new_finalized_epoch = state.previous_justified_epoch;
+    if (bitfield >> 1) % 8 == 0b111 && old_previous_justified_epoch == current_epoch - 3 {
+        state.finalized_epoch = old_previous_justified_epoch;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
     }
     // The 2nd/3rd most recent epochs are both justified, the 2nd using the 3rd as source.
-    if ((bitfield >> 1) % 4 == 0b11) & (state.previous_justified_epoch == current_epoch - 2) {
-        new_finalized_epoch = state.previous_justified_epoch;
+    if (bitfield >> 1) % 4 == 0b11 && state.previous_justified_epoch == current_epoch - 2 {
+        state.finalized_epoch = old_previous_justified_epoch;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
     }
     // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 2nd as source.
-    if (bitfield % 8 == 0b111) & (state.current_justified_epoch == current_epoch - 2) {
-        new_finalized_epoch = state.current_justified_epoch;
+    if bitfield % 8 == 0b111 && state.current_justified_epoch == current_epoch - 2 {
+        state.finalized_epoch = old_current_justified_epoch;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
     }
     // The 1st/2nd most recent epochs are both justified, the 1st using the 2nd as source.
-    if (bitfield % 4 == 0b11) & (state.current_justified_epoch == current_epoch - 1) {
-        new_finalized_epoch = state.current_justified_epoch;
-    }
-
-    state.previous_justified_epoch = state.current_justified_epoch;
-    state.previous_justified_root = state.current_justified_root;
-
-    if new_justified_epoch != state.current_justified_epoch {
-        state.current_justified_epoch = new_justified_epoch;
-        state.current_justified_root =
-            *state.get_block_root(new_justified_epoch.start_slot(spec.slots_per_epoch), spec)?;
-    }
-
-    if new_finalized_epoch != state.finalized_epoch {
-        state.finalized_epoch = new_finalized_epoch;
-        state.finalized_root =
-            *state.get_block_root(new_finalized_epoch.start_slot(spec.slots_per_epoch), spec)?;
+    if bitfield % 4 == 0b11 && state.current_justified_epoch == current_epoch - 1 {
+        state.finalized_epoch = old_current_justified_epoch;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
     }
 
     Ok(())
