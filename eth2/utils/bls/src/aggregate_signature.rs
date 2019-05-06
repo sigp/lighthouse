@@ -2,10 +2,12 @@ use super::{AggregatePublicKey, Signature, BLS_AGG_SIG_BYTE_SIZE};
 use bls_aggregates::{
     AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
 };
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{decode, hash, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{decode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.
 ///
@@ -165,11 +167,8 @@ impl<'de> Deserialize<'de> for AggregateSignature {
     }
 }
 
-impl TreeHash for AggregateSignature {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.as_bytes())
-    }
-}
+tree_hash_ssz_encoding_as_vector!(AggregateSignature);
+cached_tree_hash_ssz_encoding_as_vector!(AggregateSignature, 96);
 
 #[cfg(test)]
 mod tests {

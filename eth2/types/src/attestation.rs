@@ -2,13 +2,14 @@ use super::{AggregateSignature, AttestationData, Bitfield};
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     Clone,
@@ -18,6 +19,7 @@ use test_random_derive::TestRandom;
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
     SignedRoot,
 )]
@@ -25,6 +27,7 @@ pub struct Attestation {
     pub aggregation_bitfield: Bitfield,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
+    #[signed_root(skip_hashing)]
     pub aggregate_signature: AggregateSignature,
 }
 
@@ -56,4 +59,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(Attestation);
+    cached_tree_hash_tests!(Attestation);
 }

@@ -3,13 +3,14 @@ use crate::*;
 use bls::{PublicKey, Signature};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{SignedRoot, TreeHash};
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::{SignedRoot, TreeHash};
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     PartialEq,
@@ -20,18 +21,20 @@ use test_random_derive::TestRandom;
     Decode,
     SignedRoot,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
 )]
 pub struct DepositInput {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
+    #[signed_root(skip_hashing)]
     pub proof_of_possession: Signature,
 }
 
 impl DepositInput {
     /// Generate the 'proof_of_posession' signature for a given DepositInput details.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn create_proof_of_possession(
         &self,
         secret_key: &SecretKey,
@@ -47,7 +50,7 @@ impl DepositInput {
 
     /// Verify that proof-of-possession is valid.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn validate_proof_of_possession(
         &self,
         epoch: Epoch,
@@ -66,6 +69,7 @@ mod tests {
     use super::*;
 
     ssz_tests!(DepositInput);
+    cached_tree_hash_tests!(DepositInput);
 
     #[test]
     fn can_create_and_validate() {

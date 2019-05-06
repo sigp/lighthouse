@@ -38,5 +38,6 @@ serde_json = "1.0"
 serde_yaml = "0.8"
 slot_clock = { path = "../../../eth2/utils/slot_clock" }
 ssz = { path = "../../../eth2/utils/ssz" }
+tree_hash = { path = "../../../eth2/utils/tree_hash" }
 types = { path = "../../../eth2/types" }
 yaml-rust = "0.4.2"

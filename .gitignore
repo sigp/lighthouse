@@ -4,3 +4,5 @@ Cargo.lock
 *.pk
 *.sk
 *.raw_keypairs
+flamegraph.svg
+perf.data*

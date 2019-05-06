@@ -2,8 +2,8 @@ pub mod test_utils;
 mod traits;
 
 use slot_clock::SlotClock;
-use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
+use tree_hash::{SignedRoot, TreeHash};
 use types::{BeaconBlock, ChainSpec, Domain, Slot};
 
 pub use self::traits::{
@@ -139,7 +139,7 @@ impl<T: SlotClock, U: BeaconNode, V: DutiesReader, W: Signer> BlockProducer<T, U
 
         let randao_reveal = {
             // TODO: add domain, etc to this message. Also ensure result matches `into_to_bytes32`.
-            let message = slot.epoch(self.spec.slots_per_epoch).hash_tree_root();
+            let message = slot.epoch(self.spec.slots_per_epoch).tree_hash_root();
 
             match self.signer.sign_randao_reveal(
                 &message,
