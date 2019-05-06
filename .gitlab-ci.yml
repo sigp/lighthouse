@@ -1,20 +1,20 @@
 #Adapted from https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
 
-image: 'rust:latest'
+image: 'sigp/lighthouse:latest'
 
 stages:
   - test
   - doc
-  - build
 
-variables:
-  CARGO_HOME: $CI_PROJECT_DIR/cargo
-  APT_CACHE_DIR: $CI_PROJECT_DIR/apt
+#variables:
+#  CARGO_HOME: $CI_PROJECT_DIR/cargo
+#  APT_CACHE_DIR: $CI_PROJECT_DIR/apt
 
-before_script:
-  - apt-get update -yq
-  - apt-get install -o dir::cache::archives="$APT_CACHE_DIR" -y clang libclang-dev cmake build-essential git unzip autoconf libtool
-  - git clone https://github.com/google/protobuf.git && cd protobuf && ./autogen.sh && ./configure && make && make install && ldconfig && make clean && cd .. && rm -r protobuf
+#before_script:
+#  - apt-get update -yq
+#  - apt-get install -o dir::cache::archives="$APT_CACHE_DIR" -y clang libclang-dev cmake build-essential git unzip autoconf libtool
+#  - git clone https://github.com/google/protobuf.git && cd protobuf && ./autogen.sh && ./configure && make && make install && ldconfig
+#  - rustup component add rustfmt
 
 check-fmt:
   stage: test
@@ -45,6 +45,5 @@ pages:
 
 cache:
   paths:
-    - apt/
-    - cargo/
+    - /cargocache
     - target/
