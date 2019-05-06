@@ -64,197 +64,62 @@ impl<'a> SszEncoder<'a> {
     }
 }
 
-/*
-pub struct VariableLengths {
-    pub fixed_bytes_position: usize,
-    pub variable_bytes_length: usize,
-}
-
-/// Provides a buffer for appending SSZ values.
-#[derive(Default)]
-pub struct SszStream {
-    fixed_bytes: Vec<u8>,
-    variable_bytes: Vec<u8>,
-    variable_lengths: Vec<VariableLengths>,
-}
-
-impl SszStream {
-    /// Create a new, empty stream for writing SSZ values.
-    pub fn new() -> Self {
-        SszStream {
-            fixed_bytes: vec![],
-            variable_bytes: vec![],
-            variable_lengths: vec![],
-        }
-    }
-
-    /*
-    /// Append some item to the stream.
-    pub fn append<T: Encodable>(&mut self, item: &T) {
-        let mut bytes = item.as_ssz_bytes();
-
-        if T::is_ssz_fixed_len() {
-            self.app
-            self.fixed_bytes.append(&mut bytes);
-        } else {
-            self.variable_lengths.push(VariableLengths {
-                fixed_bytes_position: self.fixed_bytes.len(),
-                variable_bytes_length: bytes.len(),
-            });
-
-            self.fixed_bytes
-                .append(&mut vec![0; BYTES_PER_LENGTH_OFFSET]);
-            self.variable_bytes.append(&mut bytes);
-        }
-    }
-    */
-    pub fn reserve<T: Encodable>(&mut self, additional: usize) {
-        if T::is_ssz_fixed_len() {
-            self.fixed_bytes.reserve(additional * T::ssz_fixed_len());
-        } else {
-            self.fixed_bytes
-                .reserve(additional * BYTES_PER_LENGTH_OFFSET);
-            self.variable_lengths.reserve(additional);
-        }
-    }
-
-    pub fn append_fixed_bytes(&mut self, bytes: &[u8]) {
-        self.fixed_bytes.extend_from_slice(bytes)
-    }
-
-    pub fn append_variable_bytes(&mut self, bytes: &[u8]) {
-        self.variable_lengths.push(VariableLengths {
-            fixed_bytes_position: self.fixed_bytes.len(),
-            variable_bytes_length: bytes.len(),
-        });
-
-        self.fixed_bytes
-            .append(&mut vec![0; BYTES_PER_LENGTH_OFFSET]);
-
-        self.variable_bytes.extend_from_slice(bytes);
-    }
-
-    /// Update the offsets (if any) in the fixed-length bytes to correctly point to the values in
-    /// the variable length part.
-    pub fn apply_offsets(&mut self) {
-        let mut running_offset = self.fixed_bytes.len();
-
-        for v in &self.variable_lengths {
-            let offset = running_offset;
-            running_offset += v.variable_bytes_length;
-
-            self.fixed_bytes.splice(
-                v.fixed_bytes_position..v.fixed_bytes_position + BYTES_PER_LENGTH_OFFSET,
-                encode_length(offset),
-            );
-        }
-    }
-
-    /// Append the variable-length bytes to the fixed-length bytes and return the result.
-    pub fn drain(mut self) -> Vec<u8> {
-        self.apply_offsets();
-
-        self.fixed_bytes.append(&mut self.variable_bytes);
-
-        self.fixed_bytes
-    }
-}
-*/
-
 /// Encode `len` as a little-endian byte vec of `BYTES_PER_LENGTH_OFFSET` length.
 ///
 /// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.
 pub fn encode_length(len: usize) -> Vec<u8> {
+    // Note: it is possible for `len` to be larger than what can be encoded in
+    // `BYTES_PER_LENGTH_OFFSET` bytes, triggering this debug assertion.
+    //
+    // These are the alternatives to using a `debug_assert` here:
+    //
+    // 1. Use `assert`.
+    // 2. Push an error to the caller (e.g., `Option` or `Result`).
+    // 3. Ignore it completely.
+    //
+    // I have avoided (1) because it's basically a choice between "produce invalid SSZ" or "kill
+    // the entire program". I figure it may be possible for an attacker to trigger this assert and
+    // take the program down -- I think producing invalid SSZ is a better option than this.
+    //
+    // I have avoided (2) because this error will need to be propagated upstream, making encoding a
+    // function which may fail. I don't think this is ergonomic and the upsides don't outweigh the
+    // downsides.
+    //
+    // I figure a `debug_assertion` is better than (3) as it will give us a change to detect the
+    // error during testing.
+    //
+    // If you have a different opinion, feel free to start an issue and tag @paulhauner.
     debug_assert!(len <= MAX_LENGTH_VALUE);
 
     len.to_le_bytes()[0..BYTES_PER_LENGTH_OFFSET].to_vec()
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    #[should_panic]
-    fn test_encode_length_0_bytes_panic() {
-        encode_length(0, 0);
-    }
+    fn test_encode_length() {
+        assert_eq!(encode_length(0), vec![0; 4]);
 
-    #[test]
-    fn test_encode_length_4_bytes() {
-        assert_eq!(encode_length(0, LENGTH_BYTES), vec![0; 4]);
-        assert_eq!(encode_length(1, LENGTH_BYTES), vec![1, 0, 0, 0]);
-        assert_eq!(encode_length(255, LENGTH_BYTES), vec![255, 0, 0, 0]);
-        assert_eq!(encode_length(256, LENGTH_BYTES), vec![0, 1, 0, 0]);
+        assert_eq!(encode_length(1), vec![1, 0, 0, 0]);
+
         assert_eq!(
-            encode_length(4294967295, LENGTH_BYTES), // 2^(3*8) - 1
-            vec![255, 255, 255, 255]
+            encode_length(MAX_LENGTH_VALUE),
+            vec![255; BYTES_PER_LENGTH_OFFSET]
         );
     }
 
     #[test]
-    fn test_encode_lower_length() {
-        assert_eq!(encode_length(0, LENGTH_BYTES - 2), vec![0; 2]);
-        assert_eq!(encode_length(1, LENGTH_BYTES - 2), vec![1, 0]);
-    }
-
-    #[test]
-    fn test_encode_higher_length() {
-        assert_eq!(encode_length(0, LENGTH_BYTES + 2), vec![0; 6]);
-        assert_eq!(encode_length(1, LENGTH_BYTES + 2), vec![1, 0, 0, 0, 0, 0]);
-    }
-
-    #[test]
     #[should_panic]
-    fn test_encode_length_4_bytes_panic() {
-        encode_length(4294967296, LENGTH_BYTES); // 2^(3*8)
+    #[cfg(debug_assertions)]
+    fn test_encode_length_above_max_debug_panics() {
+        encode_length(MAX_LENGTH_VALUE + 1);
     }
 
     #[test]
-    fn test_encode_list() {
-        let test_vec: Vec<u16> = vec![256; 12];
-        let mut stream = SszStream::new();
-        stream.append_vec(&test_vec);
-        let ssz = stream.drain();
-
-        assert_eq!(ssz.len(), LENGTH_BYTES + (12 * 2));
-        assert_eq!(ssz[0..4], *vec![24, 0, 0, 0]);
-        assert_eq!(ssz[4..6], *vec![0, 1]);
-    }
-
-    #[test]
-    fn test_encode_mixed_prefixed() {
-        let test_vec: Vec<u16> = vec![100, 200];
-        let test_value: u8 = 5;
-
-        let mut stream = SszStream::new();
-        stream.append_vec(&test_vec);
-        stream.append(&test_value);
-        let ssz = stream.drain();
-
-        assert_eq!(ssz.len(), LENGTH_BYTES + (2 * 2) + 1);
-        assert_eq!(ssz[0..4], *vec![4, 0, 0, 0]);
-        assert_eq!(ssz[4..6], *vec![100, 0]);
-        assert_eq!(ssz[6..8], *vec![200, 0]);
-        assert_eq!(ssz[8], 5);
-    }
-
-    #[test]
-    fn test_encode_mixed_postfixed() {
-        let test_value: u8 = 5;
-        let test_vec: Vec<u16> = vec![100, 200];
-
-        let mut stream = SszStream::new();
-        stream.append(&test_value);
-        stream.append_vec(&test_vec);
-        let ssz = stream.drain();
-
-        assert_eq!(ssz.len(), 1 + LENGTH_BYTES + (2 * 2));
-        assert_eq!(ssz[0], 5);
-        assert_eq!(ssz[1..5], *vec![4, 0, 0, 0]);
-        assert_eq!(ssz[5..7], *vec![100, 0]);
-        assert_eq!(ssz[7..9], *vec![200, 0]);
+    #[cfg(not(debug_assertions))]
+    fn test_encode_length_above_max_not_debug_does_not_panic() {
+        assert_eq!(encode_length(MAX_LENGTH_VALUE + 1), vec![0; 4]);
     }
 }
-*/
