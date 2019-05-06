@@ -230,7 +230,7 @@ fn get_attestation_delta(
 
 /// Calculate the deltas based upon the winning roots for attestations during the previous epoch.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 fn get_crosslink_deltas(
     deltas: &mut Vec<Delta>,
     state: &BeaconState,
@@ -243,7 +243,7 @@ fn get_crosslink_deltas(
         let base_reward = get_base_reward(
             state,
             index,
-            validator_statuses.total_balances.previous_epoch,
+            validator_statuses.total_balances.current_epoch,
             spec,
         )?;
 
