@@ -1,6 +1,6 @@
 use super::methods::*;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use ssz::{ssz_encode, Decodable, DecodeError as SSZDecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError as SSZDecodeError, Encodable};
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter;

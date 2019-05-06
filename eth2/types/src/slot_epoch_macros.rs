@@ -193,16 +193,30 @@ macro_rules! impl_display {
 macro_rules! impl_ssz {
     ($type: ident) => {
         impl Encodable for $type {
-            fn ssz_append(&self, s: &mut SszStream) {
-                s.append(&self.0);
+            fn is_ssz_fixed_len() -> bool {
+                <u64 as Encodable>::is_ssz_fixed_len()
+            }
+
+            fn ssz_fixed_len() -> usize {
+                <u64 as Encodable>::ssz_fixed_len()
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                self.0.ssz_append(buf)
             }
         }
 
         impl Decodable for $type {
-            fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-                let (value, i) = <_>::ssz_decode(bytes, i)?;
+            fn is_ssz_fixed_len() -> bool {
+                <u64 as Decodable>::is_ssz_fixed_len()
+            }
 
-                Ok(($type(value), i))
+            fn ssz_fixed_len() -> usize {
+                <u64 as Decodable>::ssz_fixed_len()
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+                Ok($type(u64::from_ssz_bytes(bytes)?))
             }
         }
 

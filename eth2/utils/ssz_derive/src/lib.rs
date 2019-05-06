@@ -93,7 +93,7 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
             }
 
             fn ssz_fixed_len() -> usize {
-                if <Self as Encodable>::is_ssz_fixed_len() {
+                if <Self as ssz::Encodable>::is_ssz_fixed_len() {
                     #(
                         <#field_types_b as ssz::Encodable>::ssz_fixed_len() +
                     )*
@@ -161,7 +161,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
                 if should_skip_deserializing(field) {
                     // Field should not be deserialized; use a `Default` impl to instantiate.
                     decodes.push(quote! {
-                        #ident: <_>::default(),
+                        #ident: <_>::default()
                     });
                 } else {
                     let ty = &field.ty;
