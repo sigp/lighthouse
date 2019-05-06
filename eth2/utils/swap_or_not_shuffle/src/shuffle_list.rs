@@ -18,6 +18,8 @@ const TOTAL_SIZE: usize = SEED_SIZE + ROUND_SIZE + POSITION_WINDOW_SIZE;
 /// Credits to [@protolambda](https://github.com/protolambda) for defining this algorithm.
 ///
 /// Shuffles if `forwards == true`, otherwise un-shuffles.
+/// It holds that: shuffle_list(shuffle_list(l, r, s, true), r, s, false) == l
+///           and: shuffle_list(shuffle_list(l, r, s, false), r, s, true) == l
 ///
 /// Returns `None` under any of the following conditions:
 ///  - `list_size == 0`

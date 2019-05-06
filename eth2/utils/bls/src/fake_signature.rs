@@ -1,9 +1,11 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -73,11 +75,8 @@ impl Decodable for FakeSignature {
     }
 }
 
-impl TreeHash for FakeSignature {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.bytes)
-    }
-}
+tree_hash_ssz_encoding_as_vector!(FakeSignature);
+cached_tree_hash_ssz_encoding_as_vector!(FakeSignature, 96);
 
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

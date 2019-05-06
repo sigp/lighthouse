@@ -4,13 +4,14 @@ use bls::{PublicKey, Signature};
 use derivative::Derivative;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// The data submitted to the deposit contract.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     Clone,
@@ -19,6 +20,7 @@ use test_random_derive::TestRandom;
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
     SignedRoot,
     Derivative,
@@ -32,6 +34,7 @@ pub struct Transfer {
     pub slot: Slot,
     pub pubkey: PublicKey,
     #[derivative(Hash = "ignore")]
+    #[signed_root(skip_hashing)]
     pub signature: Signature,
 }
 
@@ -40,4 +43,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(Transfer);
+    cached_tree_hash_tests!(Transfer);
 }

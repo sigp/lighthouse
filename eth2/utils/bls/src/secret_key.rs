@@ -4,7 +4,8 @@ use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -69,11 +70,7 @@ impl<'de> Deserialize<'de> for SecretKey {
     }
 }
 
-impl TreeHash for SecretKey {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        self.0.as_bytes().clone()
-    }
-}
+tree_hash_ssz_encoding_as_vector!(SecretKey);
 
 #[cfg(test)]
 mod tests {

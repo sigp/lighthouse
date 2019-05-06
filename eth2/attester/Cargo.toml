@@ -7,4 +7,5 @@ edition = "2018"
 [dependencies]
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 ssz = { path = "../../eth2/utils/ssz" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path = "../../eth2/types" }

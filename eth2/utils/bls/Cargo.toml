@@ -6,9 +6,14 @@ edition = "2018"
 
 [dependencies]
 bls-aggregates = { git = "https://github.com/sigp/signature-schemes", tag = "0.6.1" }
+cached_tree_hash = { path = "../cached_tree_hash" }
 hashing = { path = "../hashing" }
 hex = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
 serde_hex = { path = "../serde_hex" }
 ssz = { path = "../ssz" }
+tree_hash = { path = "../tree_hash" }
+
+[features]
+fake_crypto = []

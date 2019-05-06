@@ -206,11 +206,41 @@ macro_rules! impl_ssz {
             }
         }
 
-        impl TreeHash for $type {
-            fn hash_tree_root(&self) -> Vec<u8> {
-                let mut result: Vec<u8> = vec![];
-                result.append(&mut self.0.hash_tree_root());
-                hash(&result)
+        impl tree_hash::TreeHash for $type {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::Basic
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                ssz_encode(self)
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                32 / 8
+            }
+
+            fn tree_hash_root(&self) -> Vec<u8> {
+                int_to_bytes::int_to_bytes32(self.0)
+            }
+        }
+
+        impl cached_tree_hash::CachedTreeHash for $type {
+            fn new_tree_hash_cache(
+                &self,
+                depth: usize,
+            ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
+                self.0.new_tree_hash_cache(depth)
+            }
+
+            fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
+                self.0.tree_hash_cache_schema(depth)
+            }
+
+            fn update_tree_hash_cache(
+                &self,
+                cache: &mut cached_tree_hash::TreeHashCache,
+            ) -> Result<(), cached_tree_hash::Error> {
+                self.0.update_tree_hash_cache(cache)
             }
         }
 
@@ -535,6 +565,7 @@ macro_rules! all_tests {
         math_between_tests!($type, $type);
         math_tests!($type);
         ssz_tests!($type);
+        cached_tree_hash_tests!($type);
 
         mod u64_tests {
             use super::*;

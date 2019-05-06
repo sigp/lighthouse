@@ -5,10 +5,10 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, warn};
-use ssz::TreeHash;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tree_hash::TreeHash;
 use types::{Attestation, BeaconBlock, Epoch, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
@@ -565,7 +565,7 @@ impl SimpleSync {
             return false;
         }
 
-        let block_root = Hash256::from_slice(&block.hash_tree_root());
+        let block_root = Hash256::from_slice(&block.tree_hash_root());
 
         // Ignore any block that the chain already knows about.
         if self.chain_has_seen_block(&block_root) {

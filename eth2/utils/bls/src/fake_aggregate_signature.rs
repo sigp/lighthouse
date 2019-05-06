@@ -1,8 +1,10 @@
 use super::{fake_signature::FakeSignature, AggregatePublicKey, BLS_AGG_SIG_BYTE_SIZE};
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.
 ///
@@ -98,11 +100,8 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
     }
 }
 
-impl TreeHash for FakeAggregateSignature {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.bytes)
-    }
-}
+tree_hash_ssz_encoding_as_vector!(FakeAggregateSignature);
+cached_tree_hash_ssz_encoding_as_vector!(FakeAggregateSignature, 96);
 
 #[cfg(test)]
 mod tests {

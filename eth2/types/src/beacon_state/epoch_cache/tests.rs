@@ -27,7 +27,7 @@ fn do_sane_cache_test(
         active_indices,
         spec.shuffle_round_count,
         &expected_seed[..],
-        true,
+        false,
     )
     .unwrap();
 
