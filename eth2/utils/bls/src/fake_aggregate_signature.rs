@@ -59,25 +59,11 @@ impl FakeAggregateSignature {
     }
 }
 
-impl Encodable for FakeAggregateSignature {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.bytes);
-    }
-}
-
-impl Decodable for FakeAggregateSignature {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_AGG_SIG_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        Ok((
-            FakeAggregateSignature {
-                bytes: bytes[i..(i + BLS_AGG_SIG_BYTE_SIZE)].to_vec(),
-            },
-            i + BLS_AGG_SIG_BYTE_SIZE,
-        ))
-    }
-}
+impl_ssz!(
+    FakeAggregateSignature,
+    BLS_AGG_SIG_BYTE_SIZE,
+    "FakeAggregateSignature"
+);
 
 impl Serialize for FakeAggregateSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

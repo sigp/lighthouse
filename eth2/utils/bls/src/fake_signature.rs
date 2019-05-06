@@ -55,25 +55,7 @@ impl FakeSignature {
     }
 }
 
-impl Encodable for FakeSignature {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.bytes);
-    }
-}
-
-impl Decodable for FakeSignature {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_SIG_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        Ok((
-            FakeSignature {
-                bytes: bytes[i..(i + BLS_SIG_BYTE_SIZE)].to_vec(),
-            },
-            i + BLS_SIG_BYTE_SIZE,
-        ))
-    }
-}
+impl_ssz!(FakeSignature, BLS_SIG_BYTE_SIZE, "FakeSignature");
 
 tree_hash_ssz_encoding_as_vector!(FakeSignature);
 cached_tree_hash_ssz_encoding_as_vector!(FakeSignature, 96);

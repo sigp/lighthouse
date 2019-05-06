@@ -4,7 +4,7 @@ use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decodable, DecodeError};
 use std::default;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -27,9 +27,19 @@ impl PublicKey {
         &self.0
     }
 
+    /// Returns the underlying point as compressed bytes.
+    ///
+    /// Identical to `self.as_uncompressed_bytes()`.
+    fn as_bytes(&self) -> Vec<u8> {
+        self.as_raw().as_bytes()
+    }
+
     /// Converts compressed bytes to PublicKey
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let pubkey = RawPublicKey::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+        let pubkey = RawPublicKey::from_bytes(&bytes).map_err(|_| {
+            DecodeError::BytesInvalid(format!("Invalid PublicKey bytes: {:?}", bytes).to_string())
+        })?;
+
         Ok(PublicKey(pubkey))
     }
 
@@ -40,8 +50,9 @@ impl PublicKey {
 
     /// Converts (x, y) bytes to PublicKey
     pub fn from_uncompressed_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let pubkey =
-            RawPublicKey::from_uncompressed_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+        let pubkey = RawPublicKey::from_uncompressed_bytes(&bytes).map_err(|_| {
+            DecodeError::BytesInvalid("Invalid PublicKey uncompressed bytes.".to_string())
+        })?;
         Ok(PublicKey(pubkey))
     }
 
@@ -68,22 +79,7 @@ impl default::Default for PublicKey {
     }
 }
 
-impl Encodable for PublicKey {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.0.as_bytes());
-    }
-}
-
-impl Decodable for PublicKey {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_PUBLIC_KEY_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        let raw_sig = RawPublicKey::from_bytes(&bytes[i..(i + BLS_PUBLIC_KEY_BYTE_SIZE)])
-            .map_err(|_| DecodeError::TooShort)?;
-        Ok((PublicKey(raw_sig), i + BLS_PUBLIC_KEY_BYTE_SIZE))
-    }
-}
+impl_ssz!(PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE, "PublicKey");
 
 impl Serialize for PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -100,7 +96,7 @@ impl<'de> Deserialize<'de> for PublicKey {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let pubkey = decode(&bytes[..])
+        let pubkey = Self::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))?;
         Ok(pubkey)
     }
@@ -139,7 +135,7 @@ mod tests {
         let original = PublicKey::from_secret_key(&sk);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = PublicKey::ssz_decode(&bytes, 0).unwrap();
+        let decoded = PublicKey::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }
