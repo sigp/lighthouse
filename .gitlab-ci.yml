@@ -6,16 +6,6 @@ stages:
   - test
   - doc
 
-#variables:
-#  CARGO_HOME: $CI_PROJECT_DIR/cargo
-#  APT_CACHE_DIR: $CI_PROJECT_DIR/apt
-
-#before_script:
-#  - apt-get update -yq
-#  - apt-get install -o dir::cache::archives="$APT_CACHE_DIR" -y clang libclang-dev cmake build-essential git unzip autoconf libtool
-#  - git clone https://github.com/google/protobuf.git && cd protobuf && ./autogen.sh && ./configure && make && make install && ldconfig
-#  - rustup component add rustfmt
-
 check-fmt:
   stage: test
   script:
