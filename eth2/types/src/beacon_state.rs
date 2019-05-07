@@ -13,6 +13,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 mod epoch_cache;
+mod fixed_params;
 mod pubkey_cache;
 mod tests;
 
