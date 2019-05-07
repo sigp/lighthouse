@@ -1,4 +1,5 @@
 use self::epoch_cache::{get_active_validator_indices, EpochCache, Error as EpochCacheError};
+use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
@@ -13,6 +14,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 mod epoch_cache;
+mod exit_cache;
 mod pubkey_cache;
 mod tests;
 
@@ -126,6 +128,12 @@ pub struct BeaconState {
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     pub tree_hash_cache: TreeHashCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    pub exit_cache: ExitCache,
 }
 
 impl BeaconState {
@@ -198,6 +206,7 @@ impl BeaconState {
             ],
             pubkey_cache: PubkeyCache::default(),
             tree_hash_cache: TreeHashCache::default(),
+            exit_cache: ExitCache::default(),
         }
     }
 
@@ -634,6 +643,21 @@ impl BeaconState {
         epoch + 1 + spec.activation_exit_delay
     }
 
+    /// Return the churn limit for the current epoch (number of validators who can leave per epoch).
+    ///
+    /// Uses the epoch cache, and will error if it isn't initialized.
+    ///
+    /// Spec v0.6.1
+    pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(std::cmp::max(
+            spec.min_per_epoch_churn_limit,
+            self.cache(RelativeEpoch::Current, spec)?
+                .active_validator_indices
+                .len() as u64
+                / spec.churn_limit_quotient,
+        ))
+    }
+
     /// Initiate an exit for the validator of the given `index`.
     ///
     /// Spec v0.5.1
@@ -685,6 +709,8 @@ impl BeaconState {
         self.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec)?;
         self.update_pubkey_cache()?;
         self.update_tree_hash_cache()?;
+        self.exit_cache
+            .build_from_registry(&self.validator_registry, spec);
 
         Ok(())
     }
