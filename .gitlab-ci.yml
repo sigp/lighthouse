@@ -12,7 +12,7 @@ variables:
 check-fmt:
   stage: test
   script:
-    - echo $CARGO_HOME
+    - cargo build --manifest-path protos/Cargo.toml
     - cargo fmt --all -- --check
 
 test-dev:
