@@ -6,9 +6,13 @@ stages:
   - test
   - doc
 
+variables:
+    - CARGO_HOME: /cache/cargocache
+
 check-fmt:
   stage: test
   script:
+    - echo $CARGO_HOME
     - cargo fmt --all -- --check
 
 test-dev:
@@ -35,5 +39,4 @@ pages:
 
 cache:
   paths:
-    - /cargocache
     - target/
