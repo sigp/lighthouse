@@ -7,7 +7,7 @@ stages:
   - doc
 
 variables:
-    - CARGO_HOME: /cache/cargocache
+    CARGO_HOME: /cache/cargocache
 
 check-fmt:
   stage: test
