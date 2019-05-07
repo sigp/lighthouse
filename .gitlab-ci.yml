@@ -1,0 +1,42 @@
+#Adapted from https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
+
+image: 'sigp/lighthouse:latest'
+
+stages:
+  - test
+  - doc
+
+variables:
+    CARGO_HOME: /cache/cargocache
+
+check-fmt:
+  stage: test
+  script:
+    - cargo build --manifest-path protos/Cargo.toml
+    - cargo fmt --all -- --check
+
+test-dev:
+  stage: test
+  script:
+    - cargo test --verbose --all
+
+test-release:
+  stage: test
+  script:
+    - cargo test --verbose --all --release
+
+pages:
+  stage: doc
+  script:
+    - cargo doc --no-deps
+    - mv target/doc public
+      #    - echo '<meta http-equiv="refresh" content="0; url={{ LIBRARY NAME }}">' > public/index.html
+  artifacts:
+    paths:
+      - public
+  only:
+    - master
+
+cache:
+  paths:
+    - target/

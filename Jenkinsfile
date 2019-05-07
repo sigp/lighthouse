@@ -2,7 +2,7 @@ pipeline {
 	agent {
 		dockerfile {
 			filename 'Dockerfile'
-			args '-v cargo-cache:/cargocache:rw -e "CARGO_HOME=/cargocache"'
+			args '-v cargo-cache:/cache/cargocache:rw -e "CARGO_HOME=/cache/cargocache"'
 		}
 	}
 	stages {
