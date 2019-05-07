@@ -37,6 +37,11 @@ impl Validator {
         self.activation_epoch <= epoch && epoch < self.exit_epoch
     }
 
+    /// Returns `true` if the validator is slashable at some epoch.
+    pub fn is_slashable_at(&self, epoch: Epoch) -> bool {
+        !self.slashed && self.activation_epoch <= epoch && epoch < self.withdrawable_epoch
+    }
+
     /// Returns `true` if the validator is considered exited at some epoch.
     pub fn is_exited_at(&self, epoch: Epoch) -> bool {
         self.exit_epoch <= epoch
@@ -77,7 +82,6 @@ mod tests {
         assert_eq!(v.is_active_at(epoch), false);
         assert_eq!(v.is_exited_at(epoch), false);
         assert_eq!(v.is_withdrawable_at(epoch), false);
-        assert_eq!(v.initiated_exit, false);
         assert_eq!(v.slashed, false);
     }
 

@@ -34,7 +34,7 @@ impl TestingBeaconBlockBuilder {
     pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.block.signed_root();
         let epoch = self.block.slot.epoch(spec.slots_per_epoch);
-        let domain = spec.get_domain(epoch, Domain::BeaconBlock, fork);
+        let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
         self.block.signature = Signature::new(&message, domain, sk);
     }
 

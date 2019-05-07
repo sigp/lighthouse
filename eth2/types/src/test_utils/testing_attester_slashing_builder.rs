@@ -34,11 +34,7 @@ impl TestingAttesterSlashingBuilder {
             source_root: hash_1,
             target_root: hash_1,
             shard,
-            previous_crosslink_root: Crosslink {
-                epoch,
-                previous_crosslink_root: hash_1,
-                crosslink_data_root: hash_1,
-            },
+            previous_crosslink_root: hash_1,
             crosslink_data_root: hash_1,
         };
 
