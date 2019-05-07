@@ -166,11 +166,15 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
 
         /* Generate the duties manager */
 
-        // generate keypairs
+        // Load generated keypairs
+        let keypairs = match config.fetch_keys(&log) {
+            Some(kps) => Arc::new(kps),
+            None => panic!("No key pairs found, cannot start validator client without at least one. Try running `./account_manager generate` first.")
+        };
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
-        let keypairs = Arc::new(generate_deterministic_keypairs(8));
+        //let keypairs = Arc::new(generate_deterministic_keypairs(8));
 
         // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
         // where EpochDuty contains slot numbers and attestation data that each validator needs to
