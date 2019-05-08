@@ -1,12 +1,13 @@
 use crate::*;
 use fixed_len_vec::typenum::{Unsigned, U1024, U8, U8192};
+use std::fmt::Debug;
 
-pub trait BeaconStateTypes: Default {
-    type ShardCount: Unsigned + Clone + Sync + Send;
-    type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send;
-    type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send;
-    type LatestActiveIndexRootsLength: Unsigned + Clone + Sync + Send;
-    type LatestSlashedExitLength: Unsigned + Clone + Sync + Send;
+pub trait BeaconStateTypes: Default + Sync + Send + Clone + Debug + PartialEq {
+    type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type LatestActiveIndexRootsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type LatestSlashedExitLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn spec() -> ChainSpec;
 }
