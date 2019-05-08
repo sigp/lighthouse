@@ -34,7 +34,6 @@ documentation:
   #    - echo '<meta http-equiv="refresh" content="0; url={{ LIBRARY NAME }}">' > public/index.html
   only:
     - master
-    - gitlab-docs
 
 cache:
   paths:
