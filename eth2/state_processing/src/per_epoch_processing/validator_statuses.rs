@@ -246,7 +246,7 @@ impl ValidatorStatuses {
                     status.is_previous_epoch_boundary_attester = true;
                 }
 
-                if has_common_beacon_block_root(a, state, spec)? {
+                if has_common_beacon_block_root(a, state)? {
                     self.total_balances.previous_epoch_head_attesters += attesting_balance;
                     status.is_previous_epoch_head_attester = true;
                 }
@@ -335,7 +335,6 @@ fn has_common_epoch_boundary_root<T: BeaconStateTypes>(
 fn has_common_beacon_block_root<T: BeaconStateTypes>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
-    spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
     let state_block_root = *state.get_block_root(a.data.slot)?;
 
