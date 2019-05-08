@@ -1,7 +1,6 @@
 use crate::test_utils::TestRandom;
-use crate::Hash256;
+use crate::*;
 
-use crate::beacon_state::BeaconStateTypes;
 use fixed_len_vec::FixedLenVec;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -31,7 +30,6 @@ pub struct HistoricalBatch<T: BeaconStateTypes> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::beacon_state::beacon_state_types::FoundationStateTypes;
 
     pub type FoundationHistoricalBatch = HistoricalBatch<FoundationStateTypes>;
 
