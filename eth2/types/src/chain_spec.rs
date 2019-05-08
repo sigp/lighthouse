@@ -154,7 +154,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
     /// Spec v0.5.1
-    pub fn foundation() -> Self {
+    pub(crate) fn foundation() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 64;
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
@@ -248,7 +248,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
     ///
     /// Spec v0.4.0
-    pub fn lighthouse_testnet() -> Self {
+    pub(crate) fn lighthouse_testnet() -> Self {
         /*
          * Lighthouse testnet bootnodes
          */
@@ -264,7 +264,7 @@ impl ChainSpec {
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    pub fn few_validators() -> Self {
+    pub(crate) fn few_validators() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 8;
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);

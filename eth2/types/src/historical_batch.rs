@@ -31,9 +31,9 @@ pub struct HistoricalBatch<T: BeaconStateTypes> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::beacon_state::beacon_state_types::FoundationStateParams;
+    use crate::beacon_state::beacon_state_types::FoundationStateTypes;
 
-    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationStateParams>;
+    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationStateTypes>;
 
     ssz_tests!(FoundationHistoricalBatch);
     cached_tree_hash_tests!(FoundationHistoricalBatch);

@@ -7,30 +7,40 @@ pub trait BeaconStateTypes {
     type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send;
     type LatestActiveIndexRootsLength: Unsigned + Clone + Sync + Send;
     type LatestSlashedExitLength: Unsigned + Clone + Sync + Send;
+
+    fn spec() -> ChainSpec;
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct FoundationStateParams;
+pub struct FoundationStateTypes;
 
-impl BeaconStateTypes for FoundationStateParams {
+impl BeaconStateTypes for FoundationStateTypes {
     type ShardCount = U1024;
     type SlotsPerHistoricalRoot = U8192;
     type LatestRandaoMixesLength = U8192;
     type LatestActiveIndexRootsLength = U8192;
     type LatestSlashedExitLength = U8192;
+
+    fn spec() -> ChainSpec {
+        ChainSpec::foundation()
+    }
 }
 
-pub type FoundationBeaconState = BeaconState<FoundationStateParams>;
+pub type FoundationBeaconState = BeaconState<FoundationStateTypes>;
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct FewValidatorsStateParams;
+pub struct FewValidatorsStateTypes;
 
-impl BeaconStateTypes for FewValidatorsStateParams {
+impl BeaconStateTypes for FewValidatorsStateTypes {
     type ShardCount = U8;
     type SlotsPerHistoricalRoot = U8192;
     type LatestRandaoMixesLength = U8192;
     type LatestActiveIndexRootsLength = U8192;
     type LatestSlashedExitLength = U8192;
+
+    fn spec() -> ChainSpec {
+        ChainSpec::few_validators()
+    }
 }
 
-pub type FewValidatorsBeaconState = BeaconState<FewValidatorsStateParams>;
+pub type FewValidatorsBeaconState = BeaconState<FewValidatorsStateTypes>;
