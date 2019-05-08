@@ -13,3 +13,12 @@ impl BeaconStateTypes for FoundationStateParams {
 }
 
 pub type FoundationBeaconState = BeaconState<FoundationStateParams>;
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct FewValidatorsStateParams;
+
+impl BeaconStateTypes for FewValidatorsStateParams {
+    type NumLatestRandaoMixes = U8192;
+}
+
+pub type FewValidatorsBeaconState = BeaconState<FewValidatorsStateParams>;

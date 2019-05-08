@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use super::*;
+use crate::beacon_state::FewValidatorsBeaconState;
 use crate::test_utils::*;
 use swap_or_not_shuffle::shuffle_list;
 
@@ -104,7 +105,7 @@ fn builds_sane_current_epoch_cache() {
     let mut spec = ChainSpec::few_validators();
     spec.shard_count = 4;
     let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
-    let state: FoundationBeaconState = setup_sane_cache_test(validator_count as usize, &spec);
+    let state: FewValidatorsBeaconState = setup_sane_cache_test(validator_count as usize, &spec);
     do_sane_cache_test(
         state.clone(),
         state.current_epoch(&spec),
@@ -121,7 +122,7 @@ fn builds_sane_previous_epoch_cache() {
     let mut spec = ChainSpec::few_validators();
     spec.shard_count = 2;
     let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
-    let state: FoundationBeaconState = setup_sane_cache_test(validator_count as usize, &spec);
+    let state: FewValidatorsBeaconState = setup_sane_cache_test(validator_count as usize, &spec);
     do_sane_cache_test(
         state.clone(),
         state.previous_epoch(&spec),
@@ -138,7 +139,8 @@ fn builds_sane_next_without_update_epoch_cache() {
     let mut spec = ChainSpec::few_validators();
     spec.shard_count = 2;
     let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
-    let mut state: FoundationBeaconState = setup_sane_cache_test(validator_count as usize, &spec);
+    let mut state: FewValidatorsBeaconState =
+        setup_sane_cache_test(validator_count as usize, &spec);
     state.validator_registry_update_epoch = state.slot.epoch(spec.slots_per_epoch);
     do_sane_cache_test(
         state.clone(),

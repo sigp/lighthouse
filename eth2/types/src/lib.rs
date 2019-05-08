@@ -36,7 +36,6 @@ pub mod slot_epoch;
 pub mod slot_height;
 pub mod validator;
 
-use beacon_state::FoundationBeaconState;
 use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 

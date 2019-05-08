@@ -13,7 +13,7 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
-pub use beacon_state_types::{BeaconStateTypes, FoundationBeaconState};
+pub use beacon_state_types::{BeaconStateTypes, FewValidatorsBeaconState, FoundationBeaconState};
 
 mod beacon_state_types;
 mod epoch_cache;
