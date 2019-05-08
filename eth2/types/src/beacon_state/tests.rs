@@ -1,6 +1,6 @@
 #![cfg(test)]
 use super::*;
-use crate::beacon_state::{FewValidatorsBeaconState, FoundationBeaconState};
+use crate::beacon_state::FewValidatorsStateTypes;
 use crate::test_utils::*;
 
 ssz_tests!(FoundationBeaconState);
@@ -46,9 +46,11 @@ fn test_cache_initialization<'a, T: BeaconStateTypes>(
 
 #[test]
 fn cache_initialization() {
-    let spec = ChainSpec::few_validators();
-    let (mut state, _keypairs): (FewValidatorsBeaconState, Vec<Keypair>) =
-        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec).build();
+    let spec = FewValidatorsStateTypes::spec();
+
+    let builder: TestingBeaconStateBuilder<FewValidatorsStateTypes> =
+        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
+    let (mut state, _keypairs) = builder.build();
 
     state.slot = (spec.genesis_epoch + 1).start_slot(spec.slots_per_epoch);
 
