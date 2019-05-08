@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
+use types::BeaconStateTypes;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
@@ -27,9 +28,9 @@ pub struct Client<T: ClientTypes> {
     /// Configuration for the lighthouse client.
     _config: ClientConfig,
     /// The beacon chain for the running client.
-    _beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice>>,
+    _beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice, T::BeaconStateTypes>>,
     /// Reference to the network service.
-    pub network: Arc<NetworkService>,
+    pub network: Arc<NetworkService<T::BeaconStateTypes>>,
     /// Signal to terminate the RPC server.
     pub rpc_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
@@ -141,11 +142,12 @@ impl<TClientType: ClientTypes> Client<TClientType> {
     }
 }
 
-fn do_state_catchup<T, U, F>(chain: &Arc<BeaconChain<T, U, F>>, log: &slog::Logger)
+fn do_state_catchup<T, U, F, B>(chain: &Arc<BeaconChain<T, U, F, B>>, log: &slog::Logger)
 where
     T: ClientDB,
     U: SlotClock,
     F: ForkChoice,
+    B: BeaconStateTypes,
 {
     if let Some(genesis_height) = chain.slots_since_genesis() {
         let result = chain.catchup_state();

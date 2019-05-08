@@ -12,6 +12,7 @@ pub trait BeaconStateTypes: 'static + Default + Sync + Send + Clone + Debug + Pa
     fn spec() -> ChainSpec;
 }
 
+/// Ethereum Foundation specifications.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct FoundationStateTypes;
 
@@ -45,3 +46,20 @@ impl BeaconStateTypes for FewValidatorsStateTypes {
 }
 
 pub type FewValidatorsBeaconState = BeaconState<FewValidatorsStateTypes>;
+
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct LighthouseTestnetStateTypes;
+
+impl BeaconStateTypes for LighthouseTestnetStateTypes {
+    type ShardCount = U8;
+    type SlotsPerHistoricalRoot = U8192;
+    type LatestRandaoMixesLength = U8192;
+    type LatestActiveIndexRootsLength = U8192;
+    type LatestSlashedExitLength = U8192;
+
+    fn spec() -> ChainSpec {
+        ChainSpec::lighthouse_testnet()
+    }
+}
+
+pub type LighthouseTestnetBeaconState = BeaconState<LighthouseTestnetStateTypes>;

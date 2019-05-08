@@ -29,7 +29,6 @@ impl<T, N: Unsigned> FixedLenVec<T, N> {
 
 impl<T: Default, N: Unsigned> From<Vec<T>> for FixedLenVec<T, N> {
     fn from(mut vec: Vec<T>) -> Self {
-        dbg!(Self::capacity());
         vec.resize_with(Self::capacity(), Default::default);
 
         Self {
