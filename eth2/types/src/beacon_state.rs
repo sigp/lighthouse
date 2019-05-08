@@ -15,7 +15,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 pub use beacon_state_types::*;
 
-pub mod beacon_state_types;
+mod beacon_state_types;
 mod epoch_cache;
 mod pubkey_cache;
 mod tests;

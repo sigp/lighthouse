@@ -47,7 +47,7 @@ pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::BeaconBlock;
 pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_block_header::BeaconBlockHeader;
-pub use crate::beacon_state::{BeaconState, BeaconStateTypes, Error as BeaconStateError};
+pub use crate::beacon_state::{Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Domain};
 pub use crate::crosslink::Crosslink;
 pub use crate::crosslink_committee::CrosslinkCommittee;
