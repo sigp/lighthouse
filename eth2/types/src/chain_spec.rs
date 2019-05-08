@@ -70,16 +70,8 @@ pub struct ChainSpec {
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
     pub epochs_per_eth1_voting_period: u64,
-    pub slots_per_historical_root: usize,
     pub min_validator_withdrawability_delay: Epoch,
     pub persistent_committee_period: u64,
-
-    /*
-     * State list lengths
-     */
-    pub latest_randao_mixes_length: usize,
-    pub latest_active_index_roots_length: usize,
-    pub latest_slashed_exit_length: usize,
 
     /*
      * Reward and penalty quotients
@@ -213,16 +205,8 @@ impl ChainSpec {
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             epochs_per_eth1_voting_period: 16,
-            slots_per_historical_root: 8_192,
             min_validator_withdrawability_delay: Epoch::new(256),
             persistent_committee_period: 2_048,
-
-            /*
-             * State list lengths
-             */
-            latest_randao_mixes_length: 8_192,
-            latest_active_index_roots_length: 8_192,
-            latest_slashed_exit_length: 8_192,
 
             /*
              * Reward and penalty quotients
