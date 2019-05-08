@@ -28,8 +28,8 @@ pub struct EpochCache {
 
 impl EpochCache {
     /// Return a new, fully initialized cache.
-    pub fn initialized(
-        state: &BeaconState,
+    pub fn initialized<T: BeaconStateTypes>(
+        state: &BeaconState<T>,
         relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<EpochCache, Error> {
@@ -200,8 +200,8 @@ pub struct EpochCrosslinkCommitteesBuilder {
 
 impl EpochCrosslinkCommitteesBuilder {
     /// Instantiates a builder that will build for the `state`'s previous epoch.
-    pub fn for_previous_epoch(
-        state: &BeaconState,
+    pub fn for_previous_epoch<T: BeaconStateTypes>(
+        state: &BeaconState<T>,
         active_validator_indices: Vec<usize>,
         spec: &ChainSpec,
     ) -> Self {
@@ -215,8 +215,8 @@ impl EpochCrosslinkCommitteesBuilder {
     }
 
     /// Instantiates a builder that will build for the `state`'s next epoch.
-    pub fn for_current_epoch(
-        state: &BeaconState,
+    pub fn for_current_epoch<T: BeaconStateTypes>(
+        state: &BeaconState<T>,
         active_validator_indices: Vec<usize>,
         spec: &ChainSpec,
     ) -> Self {
@@ -233,8 +233,8 @@ impl EpochCrosslinkCommitteesBuilder {
     ///
     /// Note: there are two possible epoch builds for the next epoch, one where there is a registry
     /// change and one where there is not.
-    pub fn for_next_epoch(
-        state: &BeaconState,
+    pub fn for_next_epoch<T: BeaconStateTypes>(
+        state: &BeaconState<T>,
         active_validator_indices: Vec<usize>,
         registry_change: bool,
         spec: &ChainSpec,

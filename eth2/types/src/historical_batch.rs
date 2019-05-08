@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::{Hash256, TreeHashVector};
-use rand::RngCore;
+
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

@@ -4,7 +4,8 @@ use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use int_to_bytes::int_to_bytes32;
 use pubkey_cache::PubkeyCache;
-use rand::RngCore;
+
+use fixed_len_vec::FixedLenVec;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{hash, ssz_encode};
 use ssz_derive::{Decode, Encode};
@@ -12,8 +13,10 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
+pub use beacon_state_types::{BeaconStateTypes, FoundationBeaconState};
+
+mod beacon_state_types;
 mod epoch_cache;
-mod fixed_params;
 mod pubkey_cache;
 mod tests;
 
@@ -62,7 +65,10 @@ pub enum Error {
     TreeHash,
     CachedTreeHash,
 )]
-pub struct BeaconState {
+pub struct BeaconState<T>
+where
+    T: BeaconStateTypes,
+{
     // Misc
     pub slot: Slot,
     pub genesis_time: u64,
@@ -74,7 +80,7 @@ pub struct BeaconState {
     pub validator_registry_update_epoch: Epoch,
 
     // Randomness and committees
-    pub latest_randao_mixes: TreeHashVector<Hash256>,
+    pub latest_randao_mixes: FixedLenVec<Hash256, T::NumLatestRandaoMixes>,
     pub previous_shuffling_start_shard: u64,
     pub current_shuffling_start_shard: u64,
     pub previous_shuffling_epoch: Epoch,
@@ -134,14 +140,18 @@ pub struct BeaconState {
     pub tree_hash_cache: TreeHashCache,
 }
 
-impl BeaconState {
+impl<T: BeaconStateTypes> BeaconState<T> {
     /// Produce the first state of the Beacon Chain.
     ///
     /// This does not fully build a genesis beacon state, it omits processing of initial validator
     /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
     ///
     /// Spec v0.5.1
-    pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
+    pub fn genesis(
+        genesis_time: u64,
+        latest_eth1_data: Eth1Data,
+        spec: &ChainSpec,
+    ) -> BeaconState<T> {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             crosslink_data_root: spec.zero_hash,
@@ -425,7 +435,8 @@ impl BeaconState {
             & (epoch <= current_epoch)
         {
             let i = epoch.as_usize() % spec.latest_randao_mixes_length;
-            if i < self.latest_randao_mixes.len() {
+
+            if i < (&self.latest_randao_mixes[..]).len() {
                 Ok(i)
             } else {
                 Err(Error::InsufficientRandaoMixes)

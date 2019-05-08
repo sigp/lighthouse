@@ -43,6 +43,7 @@ fn should_skip_hashing(field: &syn::Field) -> bool {
 #[proc_macro_derive(CachedTreeHash, attributes(tree_hash))]
 pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
 
     let name = &item.ident;
 
@@ -56,7 +57,7 @@ pub fn subtree_derive(input: TokenStream) -> TokenStream {
     let idents_c = idents_a.clone();
 
     let output = quote! {
-        impl cached_tree_hash::CachedTreeHash for #name {
+        impl #impl_generics cached_tree_hash::CachedTreeHash for #name #ty_generics #where_clause {
             fn new_tree_hash_cache(&self, depth: usize) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
                 let tree = cached_tree_hash::TreeHashCache::from_subtrees(
                     self,
@@ -119,6 +120,7 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
     let name = &item.ident;
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
 
     let struct_data = match &item.data {
         syn::Data::Struct(s) => s,
@@ -128,7 +130,7 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     let idents = get_hashable_named_field_idents(&struct_data);
 
     let output = quote! {
-        impl tree_hash::TreeHash for #name {
+        impl #impl_generics tree_hash::TreeHash for #name #ty_generics #where_clause {
             fn tree_hash_type() -> tree_hash::TreeHashType {
                 tree_hash::TreeHashType::Container
             }

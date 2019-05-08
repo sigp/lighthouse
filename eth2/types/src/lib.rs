@@ -36,6 +36,7 @@ pub mod slot_epoch;
 pub mod slot_height;
 pub mod validator;
 
+use beacon_state::FoundationBeaconState;
 use ethereum_types::{H160, H256, U256};
 use std::collections::HashMap;
 
@@ -47,7 +48,7 @@ pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::BeaconBlock;
 pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_block_header::BeaconBlockHeader;
-pub use crate::beacon_state::{BeaconState, Error as BeaconStateError};
+pub use crate::beacon_state::{BeaconState, BeaconStateTypes, Error as BeaconStateError};
 pub use crate::chain_spec::{ChainSpec, Domain};
 pub use crate::crosslink::Crosslink;
 pub use crate::crosslink_committee::CrosslinkCommittee;
@@ -87,6 +88,7 @@ pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
 pub type ProposerMap = HashMap<u64, usize>;
 
 pub use bls::{AggregatePublicKey, AggregateSignature, Keypair, PublicKey, SecretKey, Signature};
+pub use fixed_len_vec::FixedLenVec;
 pub use libp2p::floodsub::{Topic, TopicBuilder, TopicHash};
 pub use libp2p::multiaddr;
 pub use libp2p::Multiaddr;

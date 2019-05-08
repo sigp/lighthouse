@@ -1,9 +1,14 @@
-use std::borrow::{Borrow, BorrowMut};
+use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use std::ops::{Deref, Index, IndexMut};
+use std::ops::{Index, IndexMut};
 use std::slice::SliceIndex;
 use typenum::Unsigned;
 
+pub use typenum;
+
+mod impls;
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct FixedLenVec<T, N>
 where
     N: Unsigned,
@@ -14,10 +19,26 @@ where
 
 impl<T: Default, N: Unsigned> From<Vec<T>> for FixedLenVec<T, N> {
     fn from(mut vec: Vec<T>) -> Self {
+        dbg!(Self::capacity());
         vec.resize_with(Self::capacity(), Default::default);
 
         Self {
             vec,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T, N: Unsigned> Into<Vec<T>> for FixedLenVec<T, N> {
+    fn into(self) -> Vec<T> {
+        self.vec
+    }
+}
+
+impl<T, N: Unsigned> Default for FixedLenVec<T, N> {
+    fn default() -> Self {
+        Self {
+            vec: Vec::default(),
             _phantom: PhantomData,
         }
     }
@@ -48,25 +69,43 @@ impl<T, N: Unsigned, I: SliceIndex<[T]>> IndexMut<I> for FixedLenVec<T, N> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use typenum::U8192;
+    use typenum::*;
 
     #[test]
-    fn slice_ops() {
+    fn indexing() {
         let vec = vec![1, 2];
 
         let mut fixed: FixedLenVec<u64, U8192> = vec.clone().into();
 
         assert_eq!(fixed[0], 1);
         assert_eq!(&fixed[0..1], &vec[0..1]);
-        assert_eq!(&fixed[..], &vec[..]);
+        assert_eq!((&fixed[..]).len(), 8192);
 
         fixed[1] = 3;
         assert_eq!(fixed[1], 3);
     }
+
+    #[test]
+    fn length() {
+        let vec = vec![42; 5];
+        let fixed: FixedLenVec<u64, U4> = FixedLenVec::from(vec.clone());
+        assert_eq!(&fixed[..], &vec[0..4]);
+
+        let vec = vec![42; 3];
+        let fixed: FixedLenVec<u64, U4> = FixedLenVec::from(vec.clone());
+        assert_eq!(&fixed[0..3], &vec[..]);
+        assert_eq!(&fixed[..], &vec![42, 42, 42, 0][..]);
+
+        let vec = vec![];
+        let fixed: FixedLenVec<u64, U4> = FixedLenVec::from(vec.clone());
+        assert_eq!(&fixed[..], &vec![0, 0, 0, 0][..]);
+    }
 }
 
-/*
-pub trait FixedParams {
-    type LatestCrosslinks:
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        assert_eq!(2 + 2, 4);
+    }
 }
-*/

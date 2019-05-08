@@ -1,3 +1,5 @@
+use crate::*;
+use fixed_len_vec::typenum::Unsigned;
 use rand::RngCore;
 
 mod address;
@@ -8,42 +10,39 @@ mod public_key;
 mod secret_key;
 mod signature;
 
-pub trait TestRandom<T>
-where
-    T: RngCore,
-{
-    fn random_for_test(rng: &mut T) -> Self;
+pub trait TestRandom {
+    fn random_for_test(rng: &mut impl RngCore) -> Self;
 }
 
-impl<T: RngCore> TestRandom<T> for bool {
-    fn random_for_test(rng: &mut T) -> Self {
+impl TestRandom for bool {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         (rng.next_u32() % 2) == 1
     }
 }
 
-impl<T: RngCore> TestRandom<T> for u64 {
-    fn random_for_test(rng: &mut T) -> Self {
+impl TestRandom for u64 {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         rng.next_u64()
     }
 }
 
-impl<T: RngCore> TestRandom<T> for u32 {
-    fn random_for_test(rng: &mut T) -> Self {
+impl TestRandom for u32 {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         rng.next_u32()
     }
 }
 
-impl<T: RngCore> TestRandom<T> for usize {
-    fn random_for_test(rng: &mut T) -> Self {
+impl TestRandom for usize {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         rng.next_u32() as usize
     }
 }
 
-impl<T: RngCore, U> TestRandom<T> for Vec<U>
+impl<U> TestRandom for Vec<U>
 where
-    U: TestRandom<T>,
+    U: TestRandom,
 {
-    fn random_for_test(rng: &mut T) -> Self {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         let mut output = vec![];
 
         for _ in 0..(usize::random_for_test(rng) % 4) {
@@ -54,10 +53,25 @@ where
     }
 }
 
+impl<T, N: Unsigned> TestRandom for FixedLenVec<T, N>
+where
+    T: TestRandom + Default,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let mut output = vec![];
+
+        for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
+            output.push(<T>::random_for_test(rng));
+        }
+
+        output.into()
+    }
+}
+
 macro_rules! impl_test_random_for_u8_array {
     ($len: expr) => {
-        impl<T: RngCore> TestRandom<T> for [u8; $len] {
-            fn random_for_test(rng: &mut T) -> Self {
+        impl TestRandom for [u8; $len] {
+            fn random_for_test(rng: &mut impl RngCore) -> Self {
                 let mut bytes = [0; $len];
                 rng.fill_bytes(&mut bytes);
                 bytes
