@@ -33,7 +33,10 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
 /// Spec v0.5.1
-pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+pub fn per_epoch_processing<T: BeaconStateTypes>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
     // Ensure the previous and next epoch caches are built.
     state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
     state.build_epoch_cache(RelativeEpoch::Current, spec)?;
@@ -87,7 +90,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
 /// Maybe resets the eth1 period.
 ///
 /// Spec v0.5.1
-pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
+pub fn maybe_reset_eth1_period<T: BeaconStateTypes>(state: &mut BeaconState<T>, spec: &ChainSpec) {
     let next_epoch = state.next_epoch(spec);
     let voting_period = spec.epochs_per_eth1_voting_period;
 
@@ -109,8 +112,8 @@ pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
 /// - `previous_justified_epoch`
 ///
 /// Spec v0.5.1
-pub fn update_justification_and_finalization(
-    state: &mut BeaconState,
+pub fn update_justification_and_finalization<T: BeaconStateTypes>(
+    state: &mut BeaconState<T>,
     total_balances: &TotalBalances,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -160,13 +163,13 @@ pub fn update_justification_and_finalization(
     if new_justified_epoch != state.current_justified_epoch {
         state.current_justified_epoch = new_justified_epoch;
         state.current_justified_root =
-            *state.get_block_root(new_justified_epoch.start_slot(spec.slots_per_epoch), spec)?;
+            *state.get_block_root(new_justified_epoch.start_slot(spec.slots_per_epoch))?;
     }
 
     if new_finalized_epoch != state.finalized_epoch {
         state.finalized_epoch = new_finalized_epoch;
         state.finalized_root =
-            *state.get_block_root(new_finalized_epoch.start_slot(spec.slots_per_epoch), spec)?;
+            *state.get_block_root(new_finalized_epoch.start_slot(spec.slots_per_epoch))?;
     }
 
     Ok(())
@@ -179,8 +182,8 @@ pub fn update_justification_and_finalization(
 /// Also returns a `WinningRootHashSet` for later use during epoch processing.
 ///
 /// Spec v0.5.1
-pub fn process_crosslinks(
-    state: &mut BeaconState,
+pub fn process_crosslinks<T: BeaconStateTypes>(
+    state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<WinningRootHashSet, Error> {
     let mut winning_root_for_shards: WinningRootHashSet = HashMap::new();
@@ -222,7 +225,10 @@ pub fn process_crosslinks(
 /// Finish up an epoch update.
 ///
 /// Spec v0.5.1
-pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+pub fn finish_epoch_update<T: BeaconStateTypes>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
 
@@ -241,11 +247,7 @@ pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<
         state.set_active_index_root(next_epoch, active_index_root, spec)?;
 
         // Set total slashed balances
-        state.set_slashed_balance(
-            next_epoch,
-            state.get_slashed_balance(current_epoch, spec)?,
-            spec,
-        )?;
+        state.set_slashed_balance(next_epoch, state.get_slashed_balance(current_epoch)?)?;
 
         // Set randao mix
         state.set_randao_mix(
@@ -257,8 +259,8 @@ pub fn finish_epoch_update(state: &mut BeaconState, spec: &ChainSpec) -> Result<
         state.slot -= 1;
     }
 
-    if next_epoch.as_u64() % (spec.slots_per_historical_root as u64 / spec.slots_per_epoch) == 0 {
-        let historical_batch: HistoricalBatch = state.historical_batch();
+    if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / spec.slots_per_epoch) == 0 {
+        let historical_batch = state.historical_batch();
         state
             .historical_roots
             .push(Hash256::from_slice(&historical_batch.tree_hash_root()[..]));

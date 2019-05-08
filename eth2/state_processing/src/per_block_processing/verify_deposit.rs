@@ -16,8 +16,8 @@ use types::*;
 /// Note: this function is incomplete.
 ///
 /// Spec v0.5.1
-pub fn verify_deposit(
-    state: &BeaconState,
+pub fn verify_deposit<T: BeaconStateTypes>(
+    state: &BeaconState<T>,
     deposit: &Deposit,
     verify_merkle_branch: bool,
     spec: &ChainSpec,
@@ -47,7 +47,10 @@ pub fn verify_deposit(
 /// Verify that the `Deposit` index is correct.
 ///
 /// Spec v0.5.1
-pub fn verify_deposit_index(state: &BeaconState, deposit: &Deposit) -> Result<(), Error> {
+pub fn verify_deposit_index<T: BeaconStateTypes>(
+    state: &BeaconState<T>,
+    deposit: &Deposit,
+) -> Result<(), Error> {
     verify!(
         deposit.index == state.deposit_index,
         Invalid::BadIndex {
@@ -65,8 +68,8 @@ pub fn verify_deposit_index(state: &BeaconState, deposit: &Deposit) -> Result<()
 /// ## Errors
 ///
 /// Errors if the state's `pubkey_cache` is not current.
-pub fn get_existing_validator_index(
-    state: &BeaconState,
+pub fn get_existing_validator_index<T: BeaconStateTypes>(
+    state: &BeaconState<T>,
     deposit: &Deposit,
 ) -> Result<Option<u64>, Error> {
     let deposit_input = &deposit.deposit_data.deposit_input;
@@ -89,7 +92,11 @@ pub fn get_existing_validator_index(
 /// Verify that a deposit is included in the state's eth1 deposit root.
 ///
 /// Spec v0.5.1
-fn verify_deposit_merkle_proof(state: &BeaconState, deposit: &Deposit, spec: &ChainSpec) -> bool {
+fn verify_deposit_merkle_proof<T: BeaconStateTypes>(
+    state: &BeaconState<T>,
+    deposit: &Deposit,
+    spec: &ChainSpec,
+) -> bool {
     let leaf = hash(&get_serialized_deposit_data(deposit));
     verify_merkle_proof(
         Hash256::from_slice(&leaf),

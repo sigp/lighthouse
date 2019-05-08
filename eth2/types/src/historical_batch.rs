@@ -1,6 +1,8 @@
 use crate::test_utils::TestRandom;
-use crate::{Hash256, TreeHashVector};
+use crate::Hash256;
 
+use crate::beacon_state::BeaconStateTypes;
+use fixed_len_vec::FixedLenVec;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -21,15 +23,18 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
-pub struct HistoricalBatch {
-    pub block_roots: TreeHashVector<Hash256>,
-    pub state_roots: TreeHashVector<Hash256>,
+pub struct HistoricalBatch<T: BeaconStateTypes> {
+    pub block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    pub state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::beacon_state::beacon_state_types::FoundationStateParams;
 
-    ssz_tests!(HistoricalBatch);
-    cached_tree_hash_tests!(HistoricalBatch);
+    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationStateParams>;
+
+    ssz_tests!(FoundationHistoricalBatch);
+    cached_tree_hash_tests!(FoundationHistoricalBatch);
 }

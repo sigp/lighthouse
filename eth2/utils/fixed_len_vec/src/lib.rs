@@ -17,6 +17,16 @@ where
     _phantom: PhantomData<N>,
 }
 
+impl<T, N: Unsigned> FixedLenVec<T, N> {
+    pub fn len(&self) -> usize {
+        self.vec.len()
+    }
+
+    pub fn capacity() -> usize {
+        N::to_usize()
+    }
+}
+
 impl<T: Default, N: Unsigned> From<Vec<T>> for FixedLenVec<T, N> {
     fn from(mut vec: Vec<T>) -> Self {
         dbg!(Self::capacity());
@@ -41,12 +51,6 @@ impl<T, N: Unsigned> Default for FixedLenVec<T, N> {
             vec: Vec::default(),
             _phantom: PhantomData,
         }
-    }
-}
-
-impl<T, N: Unsigned> FixedLenVec<T, N> {
-    pub fn capacity() -> usize {
-        N::to_usize()
     }
 }
 
