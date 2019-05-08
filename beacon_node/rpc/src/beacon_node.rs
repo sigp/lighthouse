@@ -5,14 +5,15 @@ use protos::services::{Empty, Fork, NodeInfoResponse};
 use protos::services_grpc::BeaconNodeService;
 use slog::{trace, warn};
 use std::sync::Arc;
+use types::BeaconStateTypes;
 
 #[derive(Clone)]
-pub struct BeaconNodeServiceInstance {
-    pub chain: Arc<BeaconChain>,
+pub struct BeaconNodeServiceInstance<B: BeaconStateTypes> {
+    pub chain: Arc<BeaconChain<B>>,
     pub log: slog::Logger,
 }
 
-impl BeaconNodeService for BeaconNodeServiceInstance {
+impl<B: BeaconStateTypes> BeaconNodeService for BeaconNodeServiceInstance<B> {
     /// Provides basic node information.
     fn info(&mut self, ctx: RpcContext, _req: Empty, sink: UnarySink<NodeInfoResponse>) {
         trace!(self.log, "Node info requested via RPC");
