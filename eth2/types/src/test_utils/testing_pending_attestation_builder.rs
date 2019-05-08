@@ -16,7 +16,12 @@ impl TestingPendingAttestationBuilder {
     ///
     /// * The aggregation and custody bitfields will all be empty, they need to be set with
     /// `Self::add_committee_participation`.
-    pub fn new(state: &BeaconState, shard: u64, slot: Slot, spec: &ChainSpec) -> Self {
+    pub fn new<T: BeaconStateTypes>(
+        state: &BeaconState<T>,
+        shard: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Self {
         let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
 
         let pending_attestation = PendingAttestation {

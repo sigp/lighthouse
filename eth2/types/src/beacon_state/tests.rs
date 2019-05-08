@@ -2,16 +2,16 @@
 use super::*;
 use crate::test_utils::*;
 
-ssz_tests!(BeaconState);
-cached_tree_hash_tests!(BeaconState);
+ssz_tests!(FoundationBeaconState);
+cached_tree_hash_tests!(FoundationBeaconState);
 
 /// Test that
 ///
 /// 1. Using the cache before it's built fails.
 /// 2. Using the cache after it's build passes.
 /// 3. Using the cache after it's dropped fails.
-fn test_cache_initialization<'a>(
-    state: &'a mut BeaconState,
+fn test_cache_initialization<'a, T: BeaconStateTypes>(
+    state: &'a mut BeaconState<T>,
     relative_epoch: RelativeEpoch,
     spec: &ChainSpec,
 ) {
@@ -46,7 +46,7 @@ fn test_cache_initialization<'a>(
 #[test]
 fn cache_initialization() {
     let spec = ChainSpec::few_validators();
-    let (mut state, _keypairs) =
+    let (mut state, _keypairs): (FoundationBeaconState, Vec<Keypair>) =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec).build();
 
     state.slot = (spec.genesis_epoch + 1).start_slot(spec.slots_per_epoch);
@@ -64,7 +64,7 @@ fn tree_hash_cache() {
 
     let mut rng = XorShiftRng::from_seed([42; 16]);
 
-    let mut state = BeaconState::random_for_test(&mut rng);
+    let mut state: FoundationBeaconState = BeaconState::random_for_test(&mut rng);
 
     let root = state.update_tree_hash_cache().unwrap();
 

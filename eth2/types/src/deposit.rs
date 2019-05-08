@@ -1,6 +1,6 @@
 use super::{DepositData, Hash256, TreeHashVector};
 use crate::test_utils::TestRandom;
-use rand::RngCore;
+
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

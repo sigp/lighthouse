@@ -10,7 +10,12 @@ pub struct TestingAttestationDataBuilder {
 impl TestingAttestationDataBuilder {
     /// Configures a new `AttestationData` which attests to all of the same parameters as the
     /// state.
-    pub fn new(state: &BeaconState, shard: u64, slot: Slot, spec: &ChainSpec) -> Self {
+    pub fn new<T: BeaconStateTypes>(
+        state: &BeaconState<T>,
+        shard: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Self {
         let current_epoch = state.current_epoch(spec);
         let previous_epoch = state.previous_epoch(spec);
 
