@@ -2,7 +2,7 @@ use super::STATES_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use ssz::decode;
 use std::sync::Arc;
-use types::{BeaconState, Hash256};
+use types::{BeaconState, BeaconStateTypes, FoundationBeaconState, Hash256};
 
 pub struct BeaconStateStore<T>
 where
@@ -19,11 +19,14 @@ impl<T: ClientDB> BeaconStateStore<T> {
         Self { db }
     }
 
-    pub fn get_deserialized(&self, hash: &Hash256) -> Result<Option<BeaconState>, DBError> {
+    pub fn get_deserialized<B: BeaconStateTypes>(
+        &self,
+        hash: &Hash256,
+    ) -> Result<Option<BeaconState<B>>, DBError> {
         match self.get(&hash)? {
             None => Ok(None),
             Some(ssz) => {
-                let state = decode::<BeaconState>(&ssz).map_err(|_| DBError {
+                let state = decode::<BeaconState<B>>(&ssz).map_err(|_| DBError {
                     message: "Bad State SSZ.".to_string(),
                 })?;
                 Ok(Some(state))
@@ -50,7 +53,7 @@ mod tests {
         let store = BeaconStateStore::new(db.clone());
 
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let state = BeaconState::random_for_test(&mut rng);
+        let state: FoundationBeaconState = BeaconState::random_for_test(&mut rng);
         let state_root = state.canonical_root();
 
         store.put(&state_root, &ssz_encode(&state)).unwrap();
