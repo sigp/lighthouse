@@ -13,10 +13,11 @@ use state_processing::per_block_processing::{
     verify_transfer_time_independent_only,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
+use std::marker::PhantomData;
 use types::chain_spec::Domain;
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconState, ChainSpec, Deposit, Epoch,
-    ProposerSlashing, Transfer, Validator, VoluntaryExit,
+    Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateTypes, ChainSpec,
+    Deposit, Epoch, ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
 #[cfg(test)]
@@ -25,7 +26,7 @@ const VERIFY_DEPOSIT_PROOFS: bool = false;
 const VERIFY_DEPOSIT_PROOFS: bool = false; // TODO: enable this
 
 #[derive(Default)]
-pub struct OperationPool {
+pub struct OperationPool<T: BeaconStateTypes + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation>>>,
     /// Map from deposit index to deposit data.
@@ -42,6 +43,7 @@ pub struct OperationPool {
     voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
     /// Set of transfers.
     transfers: RwLock<HashSet<Transfer>>,
+    _phantom: PhantomData<T>,
 }
 
 /// Serialized `AttestationData` augmented with a domain to encode the fork info.
@@ -52,14 +54,22 @@ struct AttestationId(Vec<u8>);
 const DOMAIN_BYTES_LEN: usize = 8;
 
 impl AttestationId {
-    fn from_data(attestation: &AttestationData, state: &BeaconState, spec: &ChainSpec) -> Self {
+    fn from_data<T: BeaconStateTypes>(
+        attestation: &AttestationData,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Self {
         let mut bytes = ssz_encode(attestation);
         let epoch = attestation.slot.epoch(spec.slots_per_epoch);
         bytes.extend_from_slice(&AttestationId::compute_domain_bytes(epoch, state, spec));
         AttestationId(bytes)
     }
 
-    fn compute_domain_bytes(epoch: Epoch, state: &BeaconState, spec: &ChainSpec) -> Vec<u8> {
+    fn compute_domain_bytes<T: BeaconStateTypes>(
+        epoch: Epoch,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Vec<u8> {
         int_to_bytes8(spec.get_domain(epoch, Domain::Attestation, &state.fork))
     }
 
@@ -75,7 +85,11 @@ impl AttestationId {
 /// receive for including it in a block.
 // TODO: this could be optimised with a map from validator index to whether that validator has
 // attested in each of the current and previous epochs. Currently quadractic in number of validators.
-fn attestation_score(attestation: &Attestation, state: &BeaconState, spec: &ChainSpec) -> usize {
+fn attestation_score<T: BeaconStateTypes>(
+    attestation: &Attestation,
+    state: &BeaconState<T>,
+    spec: &ChainSpec,
+) -> usize {
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = attestation.aggregation_bitfield.clone();
 
@@ -113,7 +127,7 @@ pub enum DepositInsertStatus {
     Replaced(Box<Deposit>),
 }
 
-impl OperationPool {
+impl<T: BeaconStateTypes> OperationPool<T> {
     /// Create a new operation pool.
     pub fn new() -> Self {
         Self::default()
@@ -123,7 +137,7 @@ impl OperationPool {
     pub fn insert_attestation(
         &self,
         attestation: Attestation,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
         // Check that attestation signatures are valid.
@@ -169,7 +183,7 @@ impl OperationPool {
     }
 
     /// Get a list of attestations for inclusion in a block.
-    pub fn get_attestations(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<Attestation> {
+    pub fn get_attestations(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Attestation> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch(spec);
         let current_epoch = state.current_epoch(spec);
@@ -204,7 +218,7 @@ impl OperationPool {
     // TODO: we could probably prune other attestations here:
     // - ones that are completely covered by attestations included in the state
     // - maybe ones invalidated by the confirmation of one fork over another
-    pub fn prune_attestations(&self, finalized_state: &BeaconState, spec: &ChainSpec) {
+    pub fn prune_attestations(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         self.attestations.write().retain(|_, attestations| {
             // All the attestations in this bucket have the same data, so we only need to
             // check the first one.
@@ -220,7 +234,7 @@ impl OperationPool {
     pub fn insert_deposit(
         &self,
         deposit: Deposit,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
         use DepositInsertStatus::*;
@@ -245,7 +259,7 @@ impl OperationPool {
     /// Get an ordered list of deposits for inclusion in a block.
     ///
     /// Take at most the maximum number of deposits, beginning from the current deposit index.
-    pub fn get_deposits(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<Deposit> {
+    pub fn get_deposits(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Deposit> {
         let start_idx = state.deposit_index;
         (start_idx..start_idx + spec.max_deposits)
             .map(|idx| self.deposits.read().get(&idx).cloned())
@@ -255,7 +269,7 @@ impl OperationPool {
     }
 
     /// Remove all deposits with index less than the deposit index of the latest finalised block.
-    pub fn prune_deposits(&self, state: &BeaconState) -> BTreeMap<u64, Deposit> {
+    pub fn prune_deposits(&self, state: &BeaconState<T>) -> BTreeMap<u64, Deposit> {
         let deposits_keep = self.deposits.write().split_off(&state.deposit_index);
         std::mem::replace(&mut self.deposits.write(), deposits_keep)
     }
@@ -269,7 +283,7 @@ impl OperationPool {
     pub fn insert_proposer_slashing(
         &self,
         slashing: ProposerSlashing,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), ProposerSlashingValidationError> {
         // TODO: should maybe insert anyway if the proposer is unknown in the validator index,
@@ -286,7 +300,7 @@ impl OperationPool {
     /// Depends on the fork field of the state, but not on the state's epoch.
     fn attester_slashing_id(
         slashing: &AttesterSlashing,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> (AttestationId, AttestationId) {
         (
@@ -299,7 +313,7 @@ impl OperationPool {
     pub fn insert_attester_slashing(
         &self,
         slashing: AttesterSlashing,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttesterSlashingValidationError> {
         verify_attester_slashing(state, &slashing, true, spec)?;
@@ -315,7 +329,7 @@ impl OperationPool {
     /// earlier in the block.
     pub fn get_slashings(
         &self,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing>) {
         let proposer_slashings = filter_limit_operations(
@@ -370,7 +384,7 @@ impl OperationPool {
     }
 
     /// Prune proposer slashings for all slashed or withdrawn validators.
-    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState, spec: &ChainSpec) {
+    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
             |validator| {
@@ -383,7 +397,7 @@ impl OperationPool {
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState, spec: &ChainSpec) {
+    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         self.attester_slashings.write().retain(|id, slashing| {
             let fork_ok = &Self::attester_slashing_id(slashing, finalized_state, spec) == id;
             let curr_epoch = finalized_state.current_epoch(spec);
@@ -402,7 +416,7 @@ impl OperationPool {
     pub fn insert_voluntary_exit(
         &self,
         exit: VoluntaryExit,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), ExitValidationError> {
         verify_exit_time_independent_only(state, &exit, spec)?;
@@ -413,7 +427,11 @@ impl OperationPool {
     }
 
     /// Get a list of voluntary exits for inclusion in a block.
-    pub fn get_voluntary_exits(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<VoluntaryExit> {
+    pub fn get_voluntary_exits(
+        &self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Vec<VoluntaryExit> {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
             |exit| verify_exit(state, exit, spec).is_ok(),
@@ -422,7 +440,7 @@ impl OperationPool {
     }
 
     /// Prune if validator has already exited at the last finalized state.
-    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState, spec: &ChainSpec) {
+    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
             |validator| validator.is_exited_at(finalized_state.current_epoch(spec)),
@@ -434,7 +452,7 @@ impl OperationPool {
     pub fn insert_transfer(
         &self,
         transfer: Transfer,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), TransferValidationError> {
         // The signature of the transfer isn't hashed, but because we check
@@ -448,7 +466,7 @@ impl OperationPool {
     /// Get a list of transfers for inclusion in a block.
     // TODO: improve the economic optimality of this function by accounting for
     // dependencies between transfers in the same block e.g. A pays B, B pays C
-    pub fn get_transfers(&self, state: &BeaconState, spec: &ChainSpec) -> Vec<Transfer> {
+    pub fn get_transfers(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Transfer> {
         self.transfers
             .read()
             .iter()
@@ -460,14 +478,14 @@ impl OperationPool {
     }
 
     /// Prune the set of transfers by removing all those whose slot has already passed.
-    pub fn prune_transfers(&self, finalized_state: &BeaconState) {
+    pub fn prune_transfers(&self, finalized_state: &BeaconState<T>) {
         self.transfers
             .write()
             .retain(|transfer| transfer.slot > finalized_state.slot)
     }
 
     /// Prune all types of transactions given the latest finalized state.
-    pub fn prune_all(&self, finalized_state: &BeaconState, spec: &ChainSpec) {
+    pub fn prune_all(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         self.prune_attestations(finalized_state, spec);
         self.prune_deposits(finalized_state);
         self.prune_proposer_slashings(finalized_state, spec);
@@ -487,7 +505,10 @@ impl OperationPool {
 ///
 /// - Their `AttestationData` is equal.
 /// - `attestation` does not contain any signatures that `PendingAttestation` does not have.
-fn superior_attestation_exists_in_state(state: &BeaconState, attestation: &Attestation) -> bool {
+fn superior_attestation_exists_in_state<T: BeaconStateTypes>(
+    state: &BeaconState<T>,
+    attestation: &Attestation,
+) -> bool {
     state
         .current_epoch_attestations
         .iter()
@@ -522,10 +543,10 @@ where
 /// The keys in the map should be validator indices, which will be looked up
 /// in the state's validator registry and then passed to `prune_if`.
 /// Entries for unknown validators will be kept.
-fn prune_validator_hash_map<T, F>(
+fn prune_validator_hash_map<T, F, B: BeaconStateTypes>(
     map: &mut HashMap<u64, T>,
     prune_if: F,
-    finalized_state: &BeaconState,
+    finalized_state: &BeaconState<B>,
 ) where
     F: Fn(&Validator) -> bool,
 {
@@ -649,7 +670,11 @@ mod tests {
     }
 
     // Create a random deposit (with a valid proof of posession)
-    fn make_deposit(rng: &mut XorShiftRng, state: &BeaconState, spec: &ChainSpec) -> Deposit {
+    fn make_deposit<T: BeaconStateTypes>(
+        rng: &mut XorShiftRng,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Deposit {
         let keypair = Keypair::random();
         let mut deposit = Deposit::random_for_test(rng);
         let mut deposit_input = DepositInput {
@@ -668,9 +693,9 @@ mod tests {
     }
 
     // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
-    fn dummy_deposits(
+    fn dummy_deposits<T: BeaconStateTypes>(
         rng: &mut XorShiftRng,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
         start: u64,
         count: u64,
@@ -685,9 +710,11 @@ mod tests {
             .collect()
     }
 
-    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState) {
-        let spec = ChainSpec::foundation();
+    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<FoundationStateTypes>) {
+        let spec = FoundationStateTypes::spec();
+
         let mut state = BeaconState::random_for_test(rng);
+
         state.fork = Fork::genesis(&spec);
 
         (spec, state)

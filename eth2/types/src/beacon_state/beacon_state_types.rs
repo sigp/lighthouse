@@ -1,7 +1,7 @@
 use crate::*;
 use fixed_len_vec::typenum::{Unsigned, U1024, U8, U8192};
 
-pub trait BeaconStateTypes {
+pub trait BeaconStateTypes: Default {
     type ShardCount: Unsigned + Clone + Sync + Send;
     type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send;
     type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send;
@@ -11,7 +11,7 @@ pub trait BeaconStateTypes {
     fn spec() -> ChainSpec;
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct FoundationStateTypes;
 
 impl BeaconStateTypes for FoundationStateTypes {
@@ -28,7 +28,7 @@ impl BeaconStateTypes for FoundationStateTypes {
 
 pub type FoundationBeaconState = BeaconState<FoundationStateTypes>;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct FewValidatorsStateTypes;
 
 impl BeaconStateTypes for FewValidatorsStateTypes {
