@@ -9,8 +9,9 @@ use db::{
 };
 use log::{debug, trace};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Hash256, Slot, SlotHeight};
+use types::{BeaconBlock, BeaconState, BeaconStateTypes, ChainSpec, Hash256, Slot, SlotHeight};
 
 //TODO: Pruning - Children
 //TODO: Handle Syncing
@@ -33,7 +34,7 @@ fn power_of_2_below(x: u64) -> u64 {
 }
 
 /// Stores the necessary data structures to run the optimised bitwise lmd ghost algorithm.
-pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
+pub struct BitwiseLMDGhost<T: ClientDB + Sized, B: BeaconStateTypes> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
     cache: HashMap<CacheKey<u64>, Hash256>,
@@ -50,9 +51,10 @@ pub struct BitwiseLMDGhost<T: ClientDB + Sized> {
     /// State storage access.
     state_store: Arc<BeaconStateStore<T>>,
     max_known_height: SlotHeight,
+    _phantom: PhantomData<B>,
 }
 
-impl<T> BitwiseLMDGhost<T>
+impl<T, B: BeaconStateTypes> BitwiseLMDGhost<T, B>
 where
     T: ClientDB + Sized,
 {
@@ -68,6 +70,7 @@ where
             max_known_height: SlotHeight::new(0),
             block_store,
             state_store,
+            _phantom: PhantomData,
         }
     }
 
@@ -85,7 +88,7 @@ where
         // build a hashmap of block_hash to weighted votes
         let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
         // gets the current weighted votes
-        let current_state = self
+        let current_state: BeaconState<B> = self
             .state_store
             .get_deserialized(&state_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
@@ -240,7 +243,7 @@ where
     }
 }
 
-impl<T: ClientDB + Sized> ForkChoice for BitwiseLMDGhost<T> {
+impl<T: ClientDB + Sized, B: BeaconStateTypes> ForkChoice for BitwiseLMDGhost<T, B> {
     fn add_block(
         &mut self,
         block: &BeaconBlock,
