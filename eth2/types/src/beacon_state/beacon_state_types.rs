@@ -2,7 +2,7 @@ use crate::*;
 use fixed_len_vec::typenum::{Unsigned, U1024, U8, U8192};
 use std::fmt::Debug;
 
-pub trait BeaconStateTypes: Default + Sync + Send + Clone + Debug + PartialEq {
+pub trait BeaconStateTypes: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;

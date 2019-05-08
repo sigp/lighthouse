@@ -13,6 +13,7 @@ use slog::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use types::BeaconStateTypes;
 
 /// Timeout for RPC requests.
 // const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -20,11 +21,11 @@ use std::time::Instant;
 // const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
-pub struct MessageHandler {
+pub struct MessageHandler<B: BeaconStateTypes> {
     /// Currently loaded and initialised beacon chain.
-    _chain: Arc<BeaconChain>,
+    _chain: Arc<BeaconChain<B>>,
     /// The syncing framework.
-    sync: SimpleSync,
+    sync: SimpleSync<B>,
     /// The context required to send messages to, and process messages from peers.
     network_context: NetworkContext,
     /// The `MessageHandler` logger.
@@ -44,10 +45,10 @@ pub enum HandlerMessage {
     PubsubMessage(PeerId, Box<PubsubMessage>),
 }
 
-impl MessageHandler {
+impl<B: BeaconStateTypes> MessageHandler<B> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
-        beacon_chain: Arc<BeaconChain>,
+        beacon_chain: Arc<BeaconChain<B>>,
         network_send: crossbeam_channel::Sender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
