@@ -4,7 +4,7 @@ image: 'sigp/lighthouse:latest'
 
 stages:
   - test
-  - doc
+  - document
 
 variables:
     CARGO_HOME: /cache/cargocache
@@ -25,18 +25,12 @@ test-release:
   script:
     - cargo test --verbose --all --release
 
-pages:
-  stage: doc
+documentation:
+  stage: document
   script:
     - cargo doc --no-deps
-    - mv target/doc public
-      #    - echo '<meta http-equiv="refresh" content="0; url={{ LIBRARY NAME }}">' > public/index.html
-  artifacts:
-    paths:
-      - public
+    - aws s3 sync target/doc/ s3://lighthouse-docs.sigmaprime.io/ --exclude '.lock' --delete
+  # Configure the below when we want to have a default page (and update S3 bucket index).
+  #    - echo '<meta http-equiv="refresh" content="0; url={{ LIBRARY NAME }}">' > public/index.html
   only:
     - master
-
-cache:
-  paths:
-    - target/
