@@ -1,6 +1,6 @@
 FROM rust:latest
 
-RUN apt-get update && apt-get install -y clang libclang-dev cmake build-essential git unzip autoconf libtool
+RUN apt-get update && apt-get install -y clang libclang-dev cmake build-essential git unzip autoconf libtool awscli
 
 RUN git clone https://github.com/google/protobuf.git && \
     cd protobuf && \
