@@ -13,7 +13,7 @@ use types::{BeaconBlock, BeaconState, BeaconStateTypes, ChainSpec, Hash256, Slot
 
 //TODO: Pruning and syncing
 
-pub struct SlowLMDGhost<T: ClientDB + Sized, B: BeaconStateTypes> {
+pub struct SlowLMDGhost<T: ClientDB + Sized, B> {
     /// The latest attestation targets as a map of validator index to block hash.
     //TODO: Could this be a fixed size vec
     latest_attestation_targets: HashMap<u64, Hash256>,

@@ -34,7 +34,7 @@ fn power_of_2_below(x: u64) -> u64 {
 }
 
 /// Stores the necessary data structures to run the optimised bitwise lmd ghost algorithm.
-pub struct BitwiseLMDGhost<T: ClientDB + Sized, B: BeaconStateTypes> {
+pub struct BitwiseLMDGhost<T: ClientDB + Sized, B> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
     cache: HashMap<CacheKey<u64>, Hash256>,
