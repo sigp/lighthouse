@@ -1,7 +1,5 @@
 [workspace]
 members = [
-	"eth2/attester",
-	"eth2/block_proposer",
 	"eth2/fork_choice",
 	"eth2/operation_pool",
 	"eth2/state_processing",
@@ -32,7 +30,6 @@ members = [
     "beacon_node/rpc",
 	"beacon_node/version",
 	"beacon_node/beacon_chain",
-	"beacon_node/beacon_chain/test_harness",
 	"protos",
 	"validator_client",
 	"account_manager",
