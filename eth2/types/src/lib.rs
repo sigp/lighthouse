@@ -27,7 +27,7 @@ pub mod pending_attestation;
 pub mod proposer_slashing;
 pub mod slashable_attestation;
 pub mod transfer;
-pub mod tree_hash_vector;
+// pub mod tree_hash_vector;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
@@ -66,7 +66,7 @@ pub use crate::slashable_attestation::SlashableAttestation;
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::slot_height::SlotHeight;
 pub use crate::transfer::Transfer;
-pub use crate::tree_hash_vector::TreeHashVector;
+// pub use crate::tree_hash_vector::TreeHashVector;
 pub use crate::validator::Validator;
 pub use crate::voluntary_exit::VoluntaryExit;
 

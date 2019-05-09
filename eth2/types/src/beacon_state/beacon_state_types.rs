@@ -1,8 +1,11 @@
 use crate::*;
 use fixed_len_vec::typenum::{Unsigned, U1024, U8, U8192};
+use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub trait BeaconStateTypes: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
+pub trait BeaconStateTypes:
+    'static + Default + Sync + Send + Clone + Debug + PartialEq + serde::de::DeserializeOwned
+{
     type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -13,7 +16,7 @@ pub trait BeaconStateTypes: 'static + Default + Sync + Send + Clone + Debug + Pa
 }
 
 /// Ethereum Foundation specifications.
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct FoundationStateTypes;
 
 impl BeaconStateTypes for FoundationStateTypes {
@@ -30,7 +33,7 @@ impl BeaconStateTypes for FoundationStateTypes {
 
 pub type FoundationBeaconState = BeaconState<FoundationStateTypes>;
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct FewValidatorsStateTypes;
 
 impl BeaconStateTypes for FewValidatorsStateTypes {
@@ -47,7 +50,7 @@ impl BeaconStateTypes for FewValidatorsStateTypes {
 
 pub type FewValidatorsBeaconState = BeaconState<FewValidatorsStateTypes>;
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct LighthouseTestnetStateTypes;
 
 impl BeaconStateTypes for LighthouseTestnetStateTypes {

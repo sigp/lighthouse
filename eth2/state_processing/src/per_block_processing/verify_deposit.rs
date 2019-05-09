@@ -100,7 +100,7 @@ fn verify_deposit_merkle_proof<T: BeaconStateTypes>(
     let leaf = hash(&get_serialized_deposit_data(deposit));
     verify_merkle_proof(
         Hash256::from_slice(&leaf),
-        &deposit.proof,
+        &deposit.proof[..],
         spec.deposit_contract_tree_depth as usize,
         deposit.index as usize,
         state.latest_eth1_data.deposit_root,
