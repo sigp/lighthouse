@@ -718,13 +718,16 @@ mod tests {
 
     /// Create a signed attestation for use in tests.
     /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
-    #[cfg(not(debug_assertions))]
-    fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>>(
+    // #[cfg(not(debug_assertions))]
+    fn signed_attestation<
+        R: std::slice::SliceIndex<[usize], Output = [usize]>,
+        B: BeaconStateTypes,
+    >(
         committee: &CrosslinkCommittee,
         keypairs: &[Keypair],
         signing_range: R,
         slot: Slot,
-        state: &BeaconState,
+        state: &BeaconState<B>,
         spec: &ChainSpec,
         extra_signer: Option<usize>,
     ) -> Attestation {
@@ -750,259 +753,270 @@ mod tests {
         builder.build()
     }
 
-    /// Test state for attestation-related tests.
     #[cfg(not(debug_assertions))]
-    fn attestation_test_state(
-        spec: &ChainSpec,
-        num_committees: usize,
-    ) -> (BeaconState, Vec<Keypair>) {
-        let num_validators =
-            num_committees * (spec.slots_per_epoch * spec.target_committee_size) as usize;
-        let mut state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, spec);
-        let slot_offset = 1000 * spec.slots_per_epoch + spec.slots_per_epoch / 2;
-        let slot = spec.genesis_slot + slot_offset;
-        state_builder.teleport_to_slot(slot, spec);
-        state_builder.build_caches(spec).unwrap();
-        state_builder.build()
-    }
+    mod release_tests {
+        use super::*;
 
-    /// Set the latest crosslink in the state to match the attestation.
-    #[cfg(not(debug_assertions))]
-    fn fake_latest_crosslink(att: &Attestation, state: &mut BeaconState, spec: &ChainSpec) {
-        state.latest_crosslinks[att.data.shard as usize] = Crosslink {
-            crosslink_data_root: att.data.crosslink_data_root,
-            epoch: att.data.slot.epoch(spec.slots_per_epoch),
-        };
-    }
+        /// Test state for attestation-related tests.
+        fn attestation_test_state<B: BeaconStateTypes>(
+            num_committees: usize,
+        ) -> (BeaconState<B>, Vec<Keypair>, ChainSpec) {
+            let spec = B::spec();
 
-    #[test]
-    #[cfg(not(debug_assertions))]
-    fn test_attestation_score() {
-        let spec = &ChainSpec::foundation();
-        let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
-        let slot = state.slot - 1;
-        let committees = state
-            .get_crosslink_committees_at_slot(slot, spec)
-            .unwrap()
-            .clone();
-
-        for committee in committees {
-            let att1 = signed_attestation(&committee, keypairs, ..2, slot, state, spec, None);
-            let att2 = signed_attestation(&committee, keypairs, .., slot, state, spec, None);
-
-            assert_eq!(
-                att1.aggregation_bitfield.num_set_bits(),
-                attestation_score(&att1, state, spec)
+            let num_validators =
+                num_committees * (spec.slots_per_epoch * spec.target_committee_size) as usize;
+            let mut state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
+                num_validators,
+                &spec,
             );
+            let slot_offset = 1000 * spec.slots_per_epoch + spec.slots_per_epoch / 2;
+            let slot = spec.genesis_slot + slot_offset;
+            state_builder.teleport_to_slot(slot, &spec);
+            state_builder.build_caches(&spec).unwrap();
+            let (state, keypairs) = state_builder.build();
 
-            state
-                .current_epoch_attestations
-                .push(PendingAttestation::from_attestation(&att1, state.slot));
-
-            assert_eq!(
-                committee.committee.len() - 2,
-                attestation_score(&att2, state, spec)
-            );
+            (state, keypairs, FoundationStateTypes::spec())
         }
-    }
 
-    /// End-to-end test of basic attestation handling.
-    #[test]
-    #[cfg(not(debug_assertions))]
-    fn attestation_aggregation_insert_get_prune() {
-        let spec = &ChainSpec::foundation();
-        let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
-        let op_pool = OperationPool::new();
+        /// Set the latest crosslink in the state to match the attestation.
+        fn fake_latest_crosslink<T: BeaconStateTypes>(
+            att: &Attestation,
+            state: &mut BeaconState<B>,
+            spec: &ChainSpec,
+        ) {
+            state.latest_crosslinks[att.data.shard as usize] = Crosslink {
+                crosslink_data_root: att.data.crosslink_data_root,
+                epoch: att.data.slot.epoch(spec.slots_per_epoch),
+            };
+        }
 
-        let slot = state.slot - 1;
-        let committees = state
-            .get_crosslink_committees_at_slot(slot, spec)
-            .unwrap()
-            .clone();
+        #[test]
+        fn test_attestation_score() {
+            let (ref mut state, ref keypairs, ref spec) =
+                attestation_test_state::<FoundationStateTypes>(1);
 
-        assert_eq!(
-            committees.len(),
-            1,
-            "we expect just one committee with this many validators"
-        );
+            let slot = state.slot - 1;
+            let committees = state
+                .get_crosslink_committees_at_slot(slot, spec)
+                .unwrap()
+                .clone();
 
-        for committee in &committees {
+            for committee in committees {
+                let att1 = signed_attestation(&committee, keypairs, ..2, slot, state, spec, None);
+                let att2 = signed_attestation(&committee, keypairs, .., slot, state, spec, None);
+
+                assert_eq!(
+                    att1.aggregation_bitfield.num_set_bits(),
+                    attestation_score(&att1, state, spec)
+                );
+
+                state
+                    .current_epoch_attestations
+                    .push(PendingAttestation::from_attestation(&att1, state.slot));
+
+                assert_eq!(
+                    committee.committee.len() - 2,
+                    attestation_score(&att2, state, spec)
+                );
+            }
+        }
+
+        /// End-to-end test of basic attestation handling.
+        #[test]
+        fn attestation_aggregation_insert_get_prune() {
+            let (ref mut state, ref keypairs, ref spec) =
+                attestation_test_state::<FoundationStateTypes>(1);
+
+            let op_pool = OperationPool::new();
+
+            let slot = state.slot - 1;
+            let committees = state
+                .get_crosslink_committees_at_slot(slot, spec)
+                .unwrap()
+                .clone();
+
+            assert_eq!(
+                committees.len(),
+                1,
+                "we expect just one committee with this many validators"
+            );
+
+            for committee in &committees {
+                let step_size = 2;
+                for i in (0..committee.committee.len()).step_by(step_size) {
+                    let att = signed_attestation(
+                        committee,
+                        keypairs,
+                        i..i + step_size,
+                        slot,
+                        state,
+                        spec,
+                        None,
+                    );
+                    fake_latest_crosslink(&att, state, spec);
+                    op_pool.insert_attestation(att, state, spec).unwrap();
+                }
+            }
+
+            assert_eq!(op_pool.attestations.read().len(), committees.len());
+            assert_eq!(op_pool.num_attestations(), committees.len());
+
+            // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
+            assert_eq!(op_pool.get_attestations(state, spec).len(), 0);
+
+            // Then once the delay has elapsed, we should get a single aggregated attestation.
+            state.slot += spec.min_attestation_inclusion_delay;
+
+            let block_attestations = op_pool.get_attestations(state, spec);
+            assert_eq!(block_attestations.len(), committees.len());
+
+            let agg_att = &block_attestations[0];
+            assert_eq!(
+                agg_att.aggregation_bitfield.num_set_bits(),
+                spec.target_committee_size as usize
+            );
+
+            // Prune attestations shouldn't do anything at this point.
+            op_pool.prune_attestations(state, spec);
+            assert_eq!(op_pool.num_attestations(), committees.len());
+
+            // But once we advance to an epoch after the attestation, it should prune it out of
+            // existence.
+            state.slot = slot + spec.slots_per_epoch;
+            op_pool.prune_attestations(state, spec);
+            assert_eq!(op_pool.num_attestations(), 0);
+        }
+
+        /// Adding an attestation already in the pool should not increase the size of the pool.
+        #[test]
+        fn attestation_duplicate() {
+            let (ref mut state, ref keypairs, ref spec) =
+                attestation_test_state::<FoundationStateTypes>(1);
+
+            let op_pool = OperationPool::new();
+
+            let slot = state.slot - 1;
+            let committees = state
+                .get_crosslink_committees_at_slot(slot, spec)
+                .unwrap()
+                .clone();
+
+            for committee in &committees {
+                let att = signed_attestation(committee, keypairs, .., slot, state, spec, None);
+                fake_latest_crosslink(&att, state, spec);
+                op_pool
+                    .insert_attestation(att.clone(), state, spec)
+                    .unwrap();
+                op_pool.insert_attestation(att, state, spec).unwrap();
+            }
+
+            assert_eq!(op_pool.num_attestations(), committees.len());
+        }
+
+        /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
+        /// attestations.
+        #[test]
+        fn attestation_pairwise_overlapping() {
+            let (ref mut state, ref keypairs, ref spec) =
+                attestation_test_state::<FoundationStateTypes>(1);
+
+            let op_pool = OperationPool::new();
+
+            let slot = state.slot - 1;
+            let committees = state
+                .get_crosslink_committees_at_slot(slot, spec)
+                .unwrap()
+                .clone();
+
             let step_size = 2;
-            for i in (0..committee.committee.len()).step_by(step_size) {
-                let att = signed_attestation(
-                    committee,
-                    keypairs,
-                    i..i + step_size,
-                    slot,
-                    state,
-                    spec,
-                    None,
-                );
-                fake_latest_crosslink(&att, state, spec);
-                op_pool.insert_attestation(att, state, spec).unwrap();
+            for committee in &committees {
+                // Create attestations that overlap on `step_size` validators, like:
+                // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
+                for i in (0..committee.committee.len() - step_size).step_by(step_size) {
+                    let att = signed_attestation(
+                        committee,
+                        keypairs,
+                        i..i + 2 * step_size,
+                        slot,
+                        state,
+                        spec,
+                        None,
+                    );
+                    fake_latest_crosslink(&att, state, spec);
+                    op_pool.insert_attestation(att, state, spec).unwrap();
+                }
             }
+
+            // The attestations should get aggregated into two attestations that comprise all
+            // validators.
+            assert_eq!(op_pool.attestations.read().len(), committees.len());
+            assert_eq!(op_pool.num_attestations(), 2 * committees.len());
         }
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
-        assert_eq!(op_pool.num_attestations(), committees.len());
+        /// Create a bunch of attestations signed by a small number of validators, and another
+        /// bunch signed by a larger number, such that there are at least `max_attestations`
+        /// signed by the larger number. Then, check that `get_attestations` only returns the
+        /// high-quality attestations. To ensure that no aggregation occurs, ALL attestations
+        /// are also signed by the 0th member of the committee.
+        #[test]
+        fn attestation_get_max() {
+            let spec = &ChainSpec::foundation();
+            let small_step_size = 2;
+            let big_step_size = 4;
+            let (ref mut state, ref keypairs) = attestation_test_state(spec, big_step_size);
+            let op_pool = OperationPool::new();
 
-        // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
-        assert_eq!(op_pool.get_attestations(state, spec).len(), 0);
+            let slot = state.slot - 1;
+            let committees = state
+                .get_crosslink_committees_at_slot(slot, spec)
+                .unwrap()
+                .clone();
 
-        // Then once the delay has elapsed, we should get a single aggregated attestation.
-        state.slot += spec.min_attestation_inclusion_delay;
+            let max_attestations = spec.max_attestations as usize;
+            let target_committee_size = spec.target_committee_size as usize;
 
-        let block_attestations = op_pool.get_attestations(state, spec);
-        assert_eq!(block_attestations.len(), committees.len());
+            let mut insert_attestations = |committee, step_size| {
+                for i in (0..target_committee_size).step_by(step_size) {
+                    let att = signed_attestation(
+                        committee,
+                        keypairs,
+                        i..i + step_size,
+                        slot,
+                        state,
+                        spec,
+                        if i == 0 { None } else { Some(0) },
+                    );
+                    fake_latest_crosslink(&att, state, spec);
+                    op_pool.insert_attestation(att, state, spec).unwrap();
+                }
+            };
 
-        let agg_att = &block_attestations[0];
-        assert_eq!(
-            agg_att.aggregation_bitfield.num_set_bits(),
-            spec.target_committee_size as usize
-        );
-
-        // Prune attestations shouldn't do anything at this point.
-        op_pool.prune_attestations(state, spec);
-        assert_eq!(op_pool.num_attestations(), committees.len());
-
-        // But once we advance to an epoch after the attestation, it should prune it out of
-        // existence.
-        state.slot = slot + spec.slots_per_epoch;
-        op_pool.prune_attestations(state, spec);
-        assert_eq!(op_pool.num_attestations(), 0);
-    }
-
-    /// Adding an attestation already in the pool should not increase the size of the pool.
-    #[test]
-    #[cfg(not(debug_assertions))]
-    fn attestation_duplicate() {
-        let spec = &ChainSpec::foundation();
-        let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
-        let op_pool = OperationPool::new();
-
-        let slot = state.slot - 1;
-        let committees = state
-            .get_crosslink_committees_at_slot(slot, spec)
-            .unwrap()
-            .clone();
-
-        for committee in &committees {
-            let att = signed_attestation(committee, keypairs, .., slot, state, spec, None);
-            fake_latest_crosslink(&att, state, spec);
-            op_pool
-                .insert_attestation(att.clone(), state, spec)
-                .unwrap();
-            op_pool.insert_attestation(att, state, spec).unwrap();
-        }
-
-        assert_eq!(op_pool.num_attestations(), committees.len());
-    }
-
-    /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
-    /// attestations.
-    #[test]
-    #[cfg(not(debug_assertions))]
-    fn attestation_pairwise_overlapping() {
-        let spec = &ChainSpec::foundation();
-        let (ref mut state, ref keypairs) = attestation_test_state(spec, 1);
-        let op_pool = OperationPool::new();
-
-        let slot = state.slot - 1;
-        let committees = state
-            .get_crosslink_committees_at_slot(slot, spec)
-            .unwrap()
-            .clone();
-
-        let step_size = 2;
-        for committee in &committees {
-            // Create attestations that overlap on `step_size` validators, like:
-            // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
-            for i in (0..committee.committee.len() - step_size).step_by(step_size) {
-                let att = signed_attestation(
-                    committee,
-                    keypairs,
-                    i..i + 2 * step_size,
-                    slot,
-                    state,
-                    spec,
-                    None,
-                );
-                fake_latest_crosslink(&att, state, spec);
-                op_pool.insert_attestation(att, state, spec).unwrap();
+            for committee in &committees {
+                assert_eq!(committee.committee.len(), target_committee_size);
+                // Attestations signed by only 2-3 validators
+                insert_attestations(committee, small_step_size);
+                // Attestations signed by 4+ validators
+                insert_attestations(committee, big_step_size);
             }
-        }
 
-        // The attestations should get aggregated into two attestations that comprise all
-        // validators.
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
-        assert_eq!(op_pool.num_attestations(), 2 * committees.len());
-    }
+            let num_small = target_committee_size / small_step_size;
+            let num_big = target_committee_size / big_step_size;
 
-    /// Create a bunch of attestations signed by a small number of validators, and another
-    /// bunch signed by a larger number, such that there are at least `max_attestations`
-    /// signed by the larger number. Then, check that `get_attestations` only returns the
-    /// high-quality attestations. To ensure that no aggregation occurs, ALL attestations
-    /// are also signed by the 0th member of the committee.
-    #[test]
-    #[cfg(not(debug_assertions))]
-    fn attestation_get_max() {
-        let spec = &ChainSpec::foundation();
-        let small_step_size = 2;
-        let big_step_size = 4;
-        let (ref mut state, ref keypairs) = attestation_test_state(spec, big_step_size);
-        let op_pool = OperationPool::new();
+            assert_eq!(op_pool.attestations.read().len(), committees.len());
+            assert_eq!(
+                op_pool.num_attestations(),
+                (num_small + num_big) * committees.len()
+            );
+            assert!(op_pool.num_attestations() > max_attestations);
 
-        let slot = state.slot - 1;
-        let committees = state
-            .get_crosslink_committees_at_slot(slot, spec)
-            .unwrap()
-            .clone();
+            state.slot += spec.min_attestation_inclusion_delay;
+            let best_attestations = op_pool.get_attestations(state, spec);
+            assert_eq!(best_attestations.len(), max_attestations);
 
-        let max_attestations = spec.max_attestations as usize;
-        let target_committee_size = spec.target_committee_size as usize;
-
-        let mut insert_attestations = |committee, step_size| {
-            for i in (0..target_committee_size).step_by(step_size) {
-                let att = signed_attestation(
-                    committee,
-                    keypairs,
-                    i..i + step_size,
-                    slot,
-                    state,
-                    spec,
-                    if i == 0 { None } else { Some(0) },
-                );
-                fake_latest_crosslink(&att, state, spec);
-                op_pool.insert_attestation(att, state, spec).unwrap();
+            // All the best attestations should be signed by at least `big_step_size` (4) validators.
+            for att in &best_attestations {
+                assert!(att.aggregation_bitfield.num_set_bits() >= big_step_size);
             }
-        };
-
-        for committee in &committees {
-            assert_eq!(committee.committee.len(), target_committee_size);
-            // Attestations signed by only 2-3 validators
-            insert_attestations(committee, small_step_size);
-            // Attestations signed by 4+ validators
-            insert_attestations(committee, big_step_size);
-        }
-
-        let num_small = target_committee_size / small_step_size;
-        let num_big = target_committee_size / big_step_size;
-
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
-        assert_eq!(
-            op_pool.num_attestations(),
-            (num_small + num_big) * committees.len()
-        );
-        assert!(op_pool.num_attestations() > max_attestations);
-
-        state.slot += spec.min_attestation_inclusion_delay;
-        let best_attestations = op_pool.get_attestations(state, spec);
-        assert_eq!(best_attestations.len(), max_attestations);
-
-        // All the best attestations should be signed by at least `big_step_size` (4) validators.
-        for att in &best_attestations {
-            assert!(att.aggregation_bitfield.num_set_bits() >= big_step_size);
         }
     }
 
