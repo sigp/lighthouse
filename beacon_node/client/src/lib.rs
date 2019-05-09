@@ -22,13 +22,15 @@ use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 use types::BeaconStateTypes;
 
+type ArcBeaconChain<D, S, F, B> = Arc<BeaconChain<D, S, F, B>>;
+
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
 pub struct Client<T: ClientTypes> {
     /// Configuration for the lighthouse client.
     _config: ClientConfig,
     /// The beacon chain for the running client.
-    _beacon_chain: Arc<BeaconChain<T::DB, T::SlotClock, T::ForkChoice, T::BeaconStateTypes>>,
+    _beacon_chain: ArcBeaconChain<T::DB, T::SlotClock, T::ForkChoice, T::BeaconStateTypes>,
     /// Reference to the network service.
     pub network: Arc<NetworkService<T::BeaconStateTypes>>,
     /// Signal to terminate the RPC server.

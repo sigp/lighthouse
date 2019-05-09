@@ -51,7 +51,7 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
     ///
     /// be a wall-clock (e.g., system time, remote server time, etc.).
     fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
-        let public_keys: Vec<PublicKey> = self.signers.iter().map(|s| s.to_public()).collect();
+        let public_keys: Vec<PublicKey> = self.signers.iter().map(Signer::to_public).collect();
         let duties = self.beacon_node.request_duties(epoch, &public_keys)?;
         {
             // If these duties were known, check to see if they're updates or identical.

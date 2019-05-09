@@ -300,7 +300,7 @@ impl NetworkContext {
         let next_id = self
             .outgoing_request_ids
             .entry(peer_id.clone())
-            .and_modify(|id| id.increment())
+            .and_modify(RequestId::increment)
             .or_insert_with(|| RequestId::from(1));
 
         next_id.previous()

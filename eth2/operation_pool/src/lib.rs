@@ -175,11 +175,7 @@ impl<T: BeaconStateTypes> OperationPool<T> {
 
     /// Total number of attestations in the pool, including attestations for the same data.
     pub fn num_attestations(&self) -> usize {
-        self.attestations
-            .read()
-            .values()
-            .map(|atts| atts.len())
-            .sum()
+        self.attestations.read().values().map(Vec::len).sum()
     }
 
     /// Get a list of attestations for inclusion in a block.

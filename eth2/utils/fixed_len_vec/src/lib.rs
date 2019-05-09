@@ -22,6 +22,10 @@ impl<T, N: Unsigned> FixedLenVec<T, N> {
         self.vec.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn capacity() -> usize {
         N::to_usize()
     }
