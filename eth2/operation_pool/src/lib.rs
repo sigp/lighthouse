@@ -716,46 +716,45 @@ mod tests {
         (spec, state)
     }
 
-    /// Create a signed attestation for use in tests.
-    /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
-    // #[cfg(not(debug_assertions))]
-    fn signed_attestation<
-        R: std::slice::SliceIndex<[usize], Output = [usize]>,
-        B: BeaconStateTypes,
-    >(
-        committee: &CrosslinkCommittee,
-        keypairs: &[Keypair],
-        signing_range: R,
-        slot: Slot,
-        state: &BeaconState<B>,
-        spec: &ChainSpec,
-        extra_signer: Option<usize>,
-    ) -> Attestation {
-        let mut builder = TestingAttestationBuilder::new(
-            state,
-            &committee.committee,
-            slot,
-            committee.shard,
-            spec,
-        );
-        let signers = &committee.committee[signing_range];
-        let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
-        builder.sign(signers, &committee_keys, &state.fork, spec);
-        extra_signer.map(|c_idx| {
-            let validator_index = committee.committee[c_idx];
-            builder.sign(
-                &[validator_index],
-                &[&keypairs[validator_index].sk],
-                &state.fork,
-                spec,
-            )
-        });
-        builder.build()
-    }
-
     #[cfg(not(debug_assertions))]
     mod release_tests {
         use super::*;
+
+        /// Create a signed attestation for use in tests.
+        /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
+        fn signed_attestation<
+            R: std::slice::SliceIndex<[usize], Output = [usize]>,
+            B: BeaconStateTypes,
+        >(
+            committee: &CrosslinkCommittee,
+            keypairs: &[Keypair],
+            signing_range: R,
+            slot: Slot,
+            state: &BeaconState<B>,
+            spec: &ChainSpec,
+            extra_signer: Option<usize>,
+        ) -> Attestation {
+            let mut builder = TestingAttestationBuilder::new(
+                state,
+                &committee.committee,
+                slot,
+                committee.shard,
+                spec,
+            );
+            let signers = &committee.committee[signing_range];
+            let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
+            builder.sign(signers, &committee_keys, &state.fork, spec);
+            extra_signer.map(|c_idx| {
+                let validator_index = committee.committee[c_idx];
+                builder.sign(
+                    &[validator_index],
+                    &[&keypairs[validator_index].sk],
+                    &state.fork,
+                    spec,
+                )
+            });
+            builder.build()
+        }
 
         /// Test state for attestation-related tests.
         fn attestation_test_state<B: BeaconStateTypes>(
@@ -779,7 +778,7 @@ mod tests {
         }
 
         /// Set the latest crosslink in the state to match the attestation.
-        fn fake_latest_crosslink<T: BeaconStateTypes>(
+        fn fake_latest_crosslink<B: BeaconStateTypes>(
             att: &Attestation,
             state: &mut BeaconState<B>,
             spec: &ChainSpec,
@@ -960,10 +959,12 @@ mod tests {
         /// are also signed by the 0th member of the committee.
         #[test]
         fn attestation_get_max() {
-            let spec = &ChainSpec::foundation();
             let small_step_size = 2;
             let big_step_size = 4;
-            let (ref mut state, ref keypairs) = attestation_test_state(spec, big_step_size);
+
+            let (ref mut state, ref keypairs, ref spec) =
+                attestation_test_state::<FoundationStateTypes>(big_step_size);
+
             let op_pool = OperationPool::new();
 
             let slot = state.slot - 1;
