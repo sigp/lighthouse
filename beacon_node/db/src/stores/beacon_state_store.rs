@@ -2,7 +2,7 @@ use super::STATES_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use ssz::decode;
 use std::sync::Arc;
-use types::{BeaconState, BeaconStateTypes, FoundationBeaconState, Hash256};
+use types::{BeaconState, BeaconStateTypes, Hash256};
 
 pub struct BeaconStateStore<T>
 where
@@ -43,7 +43,7 @@ mod tests {
     use ssz::ssz_encode;
     use std::sync::Arc;
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use types::Hash256;
+    use types::{FoundationBeaconState, Hash256};
 
     test_crud_for_store!(BeaconStateStore, DB_COLUMN);
 

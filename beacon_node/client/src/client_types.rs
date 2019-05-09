@@ -1,15 +1,12 @@
-use crate::ClientConfig;
+use crate::{ArcBeaconChain, ClientConfig};
 use beacon_chain::{
     db::{ClientDB, DiskDB, MemoryDB},
     fork_choice::BitwiseLMDGhost,
     initialise,
     slot_clock::{SlotClock, SystemTimeSlotClock},
-    BeaconChain,
 };
 use fork_choice::ForkChoice;
 use types::{BeaconStateTypes, FewValidatorsStateTypes, FoundationStateTypes};
-
-use std::sync::Arc;
 
 pub trait ClientTypes {
     type DB: ClientDB + 'static;
@@ -19,7 +16,7 @@ pub trait ClientTypes {
 
     fn initialise_beacon_chain(
         config: &ClientConfig,
-    ) -> Arc<BeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::BeaconStateTypes>>;
+    ) -> ArcBeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::BeaconStateTypes>;
 }
 
 pub struct StandardClientType;
@@ -32,7 +29,7 @@ impl ClientTypes for StandardClientType {
 
     fn initialise_beacon_chain(
         config: &ClientConfig,
-    ) -> Arc<BeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::BeaconStateTypes>> {
+    ) -> ArcBeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::BeaconStateTypes> {
         initialise::initialise_beacon_chain(&config.spec, Some(&config.db_name))
     }
 }
@@ -47,7 +44,7 @@ impl ClientTypes for TestingClientType {
 
     fn initialise_beacon_chain(
         config: &ClientConfig,
-    ) -> Arc<BeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::BeaconStateTypes>> {
+    ) -> ArcBeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::BeaconStateTypes> {
         initialise::initialise_test_beacon_chain(&config.spec, None)
     }
 }

@@ -35,7 +35,7 @@ pub fn merkle_root(values: &[Vec<u8>]) -> Option<Vec<u8>> {
     }
 
     // the root hash will be at index 1
-    return Some(o[1].clone());
+    Some(o[1].clone())
 }
 
 #[cfg(test)]

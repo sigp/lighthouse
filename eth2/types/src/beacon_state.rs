@@ -817,7 +817,7 @@ impl<T: BeaconStateTypes> BeaconState<T> {
         self.tree_hash_cache
             .tree_hash_root()
             .and_then(|b| Ok(Hash256::from_slice(b)))
-            .map_err(|e| e.into())
+            .map_err(Into::into)
     }
 }
 

@@ -191,7 +191,6 @@ where
         count: usize,
         skip: usize,
     ) -> Result<Vec<Hash256>, Error> {
-        let spec = &self.spec;
         let step_by = Slot::from(skip + 1);
 
         let mut roots: Vec<Hash256> = vec![];

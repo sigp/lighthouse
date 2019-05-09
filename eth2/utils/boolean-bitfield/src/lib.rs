@@ -226,7 +226,7 @@ impl Decodable for BooleanBitfield {
 // as the BitVec library and the hex-parser use opposing bit orders.
 fn reverse_bit_order(mut bytes: Vec<u8>) -> Vec<u8> {
     bytes.reverse();
-    bytes.into_iter().map(|b| b.swap_bits()).collect()
+    bytes.into_iter().map(LookupReverse::swap_bits).collect()
 }
 
 impl Serialize for BooleanBitfield {
