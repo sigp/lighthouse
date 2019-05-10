@@ -1,8 +1,8 @@
 //! Performs cached merkle-hashing adhering to the Ethereum 2.0 specification defined
 //! [here](https://github.com/ethereum/eth2.0-specs/blob/v0.5.1/specs/simple-serialize.md#merkleization).
 //!
-//! Caching allows for reduced hashing when some object has only been partially modified. This
-//! gives significant CPU-time savings (at the cost of additional storage). For example,
+//! Caching allows for reduced hashing when some object has only been partially modified, which
+//! consumes less CPU-time at the cost of additional storage. For example,
 //! determining the root of a list of 1024 items with a single modification has been observed to
 //! run in 1/25th of the time of a full merkle hash.
 //!
@@ -96,7 +96,7 @@ macro_rules! cached_tree_hash_ssz_encoding_as_vector {
 }
 
 /// Implements `CachedTreeHash` on `$type`, where `$type` is a variable-length list and each item
-/// in `$type` is encoded as bytes by calling `item.as_bytes()`.
+/// in `$type` is encoded as bytes by calling `item.to_bytes()`.
 #[macro_export]
 macro_rules! cached_tree_hash_bytes_as_list {
     ($type: ident) => {
