@@ -21,12 +21,13 @@ use protos::services_grpc::{
 use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
+use types::EthSpec;
 
-pub fn start_server(
+pub fn start_server<B: EthSpec>(
     config: &RPCConfig,
     executor: &TaskExecutor,
     network_chan: crossbeam_channel::Sender<NetworkMessage>,
-    beacon_chain: Arc<BeaconChain>,
+    beacon_chain: Arc<BeaconChain<B>>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
     let log = log.new(o!("Service"=>"RPC"));

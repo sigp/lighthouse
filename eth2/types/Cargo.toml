@@ -11,6 +11,7 @@ cached_tree_hash = { path = "../utils/cached_tree_hash" }
 dirs = "1.0"
 derivative = "1.0"
 ethereum-types = "0.5"
+fixed_len_vec = { path = "../utils/fixed_len_vec" }
 hashing = { path = "../utils/hashing" }
 hex = "0.3"
 honey-badger-split =  { path = "../utils/honey-badger-split" }

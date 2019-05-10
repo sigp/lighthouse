@@ -100,11 +100,11 @@ where
     }
 }
 
-impl<T: RngCore, U> TestRandom<T> for TreeHashVector<U>
+impl<U> TestRandom for TreeHashVector<U>
 where
-    U: TestRandom<T>,
+    U: TestRandom,
 {
-    fn random_for_test(rng: &mut T) -> Self {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         TreeHashVector::from(vec![
             U::random_for_test(rng),
             U::random_for_test(rng),

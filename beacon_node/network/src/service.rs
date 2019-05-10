@@ -10,22 +10,23 @@ use futures::prelude::*;
 use futures::sync::oneshot;
 use futures::Stream;
 use slog::{debug, info, o, trace};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use types::Topic;
+use types::{EthSpec, Topic};
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
-pub struct Service {
+pub struct Service<B: EthSpec> {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     _libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
-    //message_handler: MessageHandler,
-    //message_handler_send: Sender<HandlerMessage>,
+    _phantom: PhantomData<B>, //message_handler: MessageHandler,
+                              //message_handler_send: Sender<HandlerMessage>
 }
 
-impl Service {
+impl<B: EthSpec> Service<B> {
     pub fn new(
-        beacon_chain: Arc<BeaconChain>,
+        beacon_chain: Arc<BeaconChain<B>>,
         config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,
@@ -56,6 +57,7 @@ impl Service {
         let network_service = Service {
             _libp2p_exit: libp2p_exit,
             network_send: network_send.clone(),
+            _phantom: PhantomData,
         };
 
         Ok((Arc::new(network_service), network_send))

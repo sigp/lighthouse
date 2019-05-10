@@ -72,6 +72,7 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
     let name = &item.ident;
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
 
     let struct_data = match &item.data {
         syn::Data::Struct(s) => s,
@@ -84,7 +85,7 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let field_types_c = field_types_a.clone();
 
     let output = quote! {
-        impl ssz::Encodable for #name {
+        impl #impl_generics ssz::Encodable for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
                     <#field_types_a as ssz::Encodable>::is_ssz_fixed_len() &&
@@ -142,6 +143,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
     let name = &item.ident;
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
 
     let struct_data = match &item.data {
         syn::Data::Struct(s) => s,
@@ -188,7 +190,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     }
 
     let output = quote! {
-        impl ssz::Decodable for #name {
+        impl #impl_generics ssz::Decodable for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
                     #is_fixed_lens &&

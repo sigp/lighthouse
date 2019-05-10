@@ -18,13 +18,17 @@ pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
     let keypairs: Vec<Keypair> = (0..validator_count)
         .collect::<Vec<usize>>()
         .par_iter()
-        .map(|&i| {
-            let secret = int_to_bytes48(i as u64 + 1000);
-            let sk = SecretKey::from_bytes(&secret).unwrap();
-            let pk = PublicKey::from_secret_key(&sk);
-            Keypair { sk, pk }
-        })
+        .map(|&i| generate_deterministic_keypair(i))
         .collect();
-
     keypairs
+}
+
+/// Generates a single deterministic keypair, where the secret key is `validator_index`.
+///
+/// This is used for testing only, and not to be used in production!
+pub fn generate_deterministic_keypair(validator_index: usize) -> Keypair {
+    let secret = int_to_bytes48(validator_index as u64 + 1000);
+    let sk = SecretKey::from_bytes(&secret).unwrap();
+    let pk = PublicKey::from_secret_key(&sk);
+    Keypair { sk, pk }
 }

@@ -9,15 +9,15 @@ use protos::services_grpc::AttestationService;
 use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::Attestation;
+use types::{Attestation, EthSpec};
 
 #[derive(Clone)]
-pub struct AttestationServiceInstance {
-    pub chain: Arc<BeaconChain>,
+pub struct AttestationServiceInstance<B: EthSpec> {
+    pub chain: Arc<BeaconChain<B>>,
     pub log: slog::Logger,
 }
 
-impl AttestationService for AttestationServiceInstance {
+impl<B: EthSpec> AttestationService for AttestationServiceInstance<B> {
     /// Produce the `AttestationData` for signing by a validator.
     fn produce_attestation_data(
         &mut self,
