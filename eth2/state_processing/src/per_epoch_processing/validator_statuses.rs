@@ -161,7 +161,7 @@ impl ValidatorStatuses {
     /// - Total balances for the current and previous epochs.
     ///
     /// Spec v0.5.1
-    pub fn new<T: BeaconStateTypes>(
+    pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
@@ -199,7 +199,7 @@ impl ValidatorStatuses {
     /// `total_balances` fields.
     ///
     /// Spec v0.5.1
-    pub fn process_attestations<T: BeaconStateTypes>(
+    pub fn process_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -265,7 +265,7 @@ impl ValidatorStatuses {
     /// "winning" shard block root for the previous epoch.
     ///
     /// Spec v0.5.1
-    pub fn process_winning_roots<T: BeaconStateTypes>(
+    pub fn process_winning_roots<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
         winning_roots: &WinningRootHashSet,
@@ -316,7 +316,7 @@ fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool
 /// the first slot of the given epoch.
 ///
 /// Spec v0.5.1
-fn has_common_epoch_boundary_root<T: BeaconStateTypes>(
+fn has_common_epoch_boundary_root<T: EthSpec>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
     epoch: Epoch,
@@ -332,7 +332,7 @@ fn has_common_epoch_boundary_root<T: BeaconStateTypes>(
 /// the current slot of the `PendingAttestation`.
 ///
 /// Spec v0.5.1
-fn has_common_beacon_block_root<T: BeaconStateTypes>(
+fn has_common_beacon_block_root<T: EthSpec>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
 ) -> Result<bool, BeaconStateError> {

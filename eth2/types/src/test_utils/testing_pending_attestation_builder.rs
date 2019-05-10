@@ -16,7 +16,7 @@ impl TestingPendingAttestationBuilder {
     ///
     /// * The aggregation and custody bitfields will all be empty, they need to be set with
     /// `Self::add_committee_participation`.
-    pub fn new<T: BeaconStateTypes>(
+    pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         shard: u64,
         slot: Slot,

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
-use types::{BeaconBlock, ChainSpec, FewValidatorsStateTypes, FoundationStateTypes, Hash256};
+use types::{BeaconBlock, ChainSpec, FewValidatorsEthSpec, FoundationEthSpec, Hash256};
 
 //TODO: Correct this for prod
 //TODO: Account for historical db
@@ -22,8 +22,8 @@ pub fn initialise_beacon_chain(
     BeaconChain<
         DiskDB,
         SystemTimeSlotClock,
-        BitwiseLMDGhost<DiskDB, FoundationStateTypes>,
-        FoundationStateTypes,
+        BitwiseLMDGhost<DiskDB, FoundationEthSpec>,
+        FoundationEthSpec,
     >,
 > {
     // set up the db
@@ -75,8 +75,8 @@ pub fn initialise_test_beacon_chain(
     BeaconChain<
         MemoryDB,
         SystemTimeSlotClock,
-        BitwiseLMDGhost<MemoryDB, FewValidatorsStateTypes>,
-        FewValidatorsStateTypes,
+        BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>,
+        FewValidatorsEthSpec,
     >,
 > {
     let db = Arc::new(MemoryDB::open());

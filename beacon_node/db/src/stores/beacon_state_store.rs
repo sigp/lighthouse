@@ -2,7 +2,7 @@ use super::STATES_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use ssz::decode;
 use std::sync::Arc;
-use types::{BeaconState, BeaconStateTypes, Hash256};
+use types::{BeaconState, EthSpec, Hash256};
 
 pub struct BeaconStateStore<T>
 where
@@ -19,7 +19,7 @@ impl<T: ClientDB> BeaconStateStore<T> {
         Self { db }
     }
 
-    pub fn get_deserialized<B: BeaconStateTypes>(
+    pub fn get_deserialized<B: EthSpec>(
         &self,
         hash: &Hash256,
     ) -> Result<Option<BeaconState<B>>, DBError> {

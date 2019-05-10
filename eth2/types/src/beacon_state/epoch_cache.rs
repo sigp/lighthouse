@@ -28,7 +28,7 @@ pub struct EpochCache {
 
 impl EpochCache {
     /// Return a new, fully initialized cache.
-    pub fn initialized<T: BeaconStateTypes>(
+    pub fn initialized<T: EthSpec>(
         state: &BeaconState<T>,
         relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
@@ -200,7 +200,7 @@ pub struct EpochCrosslinkCommitteesBuilder {
 
 impl EpochCrosslinkCommitteesBuilder {
     /// Instantiates a builder that will build for the `state`'s previous epoch.
-    pub fn for_previous_epoch<T: BeaconStateTypes>(
+    pub fn for_previous_epoch<T: EthSpec>(
         state: &BeaconState<T>,
         active_validator_indices: Vec<usize>,
         spec: &ChainSpec,
@@ -215,7 +215,7 @@ impl EpochCrosslinkCommitteesBuilder {
     }
 
     /// Instantiates a builder that will build for the `state`'s next epoch.
-    pub fn for_current_epoch<T: BeaconStateTypes>(
+    pub fn for_current_epoch<T: EthSpec>(
         state: &BeaconState<T>,
         active_validator_indices: Vec<usize>,
         spec: &ChainSpec,
@@ -233,7 +233,7 @@ impl EpochCrosslinkCommitteesBuilder {
     ///
     /// Note: there are two possible epoch builds for the next epoch, one where there is a registry
     /// change and one where there is not.
-    pub fn for_next_epoch<T: BeaconStateTypes>(
+    pub fn for_next_epoch<T: EthSpec>(
         state: &BeaconState<T>,
         active_validator_indices: Vec<usize>,
         registry_change: bool,

@@ -67,7 +67,7 @@ pub enum Error {
 )]
 pub struct BeaconState<T>
 where
-    T: BeaconStateTypes,
+    T: EthSpec,
 {
     // Misc
     pub slot: Slot,
@@ -140,7 +140,7 @@ where
     pub tree_hash_cache: TreeHashCache,
 }
 
-impl<T: BeaconStateTypes> BeaconState<T> {
+impl<T: EthSpec> BeaconState<T> {
     /// Produce the first state of the Beacon Chain.
     ///
     /// This does not fully build a genesis beacon state, it omits processing of initial validator

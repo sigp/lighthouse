@@ -26,8 +26,7 @@ use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{
-    BeaconBlock, BeaconBlockBody, BeaconStateTypes, Eth1Data, FoundationStateTypes, Hash256,
-    Keypair, Slot,
+    BeaconBlock, BeaconBlockBody, Eth1Data, EthSpec, FoundationEthSpec, Hash256, Keypair, Slot,
 };
 use yaml_rust::yaml;
 
@@ -85,7 +84,7 @@ fn test_yaml_vectors(
     let test_cases = load_test_cases_from_yaml(yaml_file_path);
 
     // default vars
-    let spec = FoundationStateTypes::spec();
+    let spec = FoundationEthSpec::spec();
     let zero_hash = Hash256::zero();
     let eth1_data = Eth1Data {
         deposit_root: zero_hash.clone(),
@@ -231,26 +230,26 @@ fn setup_inital_state(
     // the fork choice instantiation
     let fork_choice: Box<ForkChoice> = match fork_choice_algo {
         ForkChoiceAlgorithm::OptimizedLMDGhost => {
-            let f: OptimizedLMDGhost<MemoryDB, FoundationStateTypes> =
+            let f: OptimizedLMDGhost<MemoryDB, FoundationEthSpec> =
                 OptimizedLMDGhost::new(block_store.clone(), state_store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::BitwiseLMDGhost => {
-            let f: BitwiseLMDGhost<MemoryDB, FoundationStateTypes> =
+            let f: BitwiseLMDGhost<MemoryDB, FoundationEthSpec> =
                 BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::SlowLMDGhost => {
-            let f: SlowLMDGhost<MemoryDB, FoundationStateTypes> =
+            let f: SlowLMDGhost<MemoryDB, FoundationEthSpec> =
                 SlowLMDGhost::new(block_store.clone(), state_store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(block_store.clone())),
     };
 
-    let spec = FoundationStateTypes::spec();
+    let spec = FoundationEthSpec::spec();
 
-    let mut state_builder: TestingBeaconStateBuilder<FoundationStateTypes> =
+    let mut state_builder: TestingBeaconStateBuilder<FoundationEthSpec> =
         TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
     state_builder.build_caches(&spec).unwrap();
     let (state, _keypairs) = state_builder.build();

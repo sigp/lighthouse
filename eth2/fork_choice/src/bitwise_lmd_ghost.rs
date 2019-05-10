@@ -11,7 +11,7 @@ use log::{debug, trace};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconState, BeaconStateTypes, ChainSpec, Hash256, Slot, SlotHeight};
+use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot, SlotHeight};
 
 //TODO: Pruning - Children
 //TODO: Handle Syncing
@@ -54,7 +54,7 @@ pub struct BitwiseLMDGhost<T: ClientDB + Sized, B> {
     _phantom: PhantomData<B>,
 }
 
-impl<T, B: BeaconStateTypes> BitwiseLMDGhost<T, B>
+impl<T, B: EthSpec> BitwiseLMDGhost<T, B>
 where
     T: ClientDB + Sized,
 {
@@ -243,7 +243,7 @@ where
     }
 }
 
-impl<T: ClientDB + Sized, B: BeaconStateTypes> ForkChoice for BitwiseLMDGhost<T, B> {
+impl<T: ClientDB + Sized, B: EthSpec> ForkChoice for BitwiseLMDGhost<T, B> {
     fn add_block(
         &mut self,
         block: &BeaconBlock,

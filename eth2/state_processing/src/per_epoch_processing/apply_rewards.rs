@@ -33,7 +33,7 @@ impl std::ops::AddAssign for Delta {
 /// Apply attester and proposer rewards.
 ///
 /// Spec v0.5.1
-pub fn apply_rewards<T: BeaconStateTypes>(
+pub fn apply_rewards<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
@@ -80,7 +80,7 @@ pub fn apply_rewards<T: BeaconStateTypes>(
 /// attestation in the previous epoch.
 ///
 /// Spec v0.5.1
-fn get_proposer_deltas<T: BeaconStateTypes>(
+fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -121,7 +121,7 @@ fn get_proposer_deltas<T: BeaconStateTypes>(
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
 /// Spec v0.5.1
-fn get_justification_and_finalization_deltas<T: BeaconStateTypes>(
+fn get_justification_and_finalization_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
@@ -262,7 +262,7 @@ fn compute_inactivity_leak_delta(
 /// Calculate the deltas based upon the winning roots for attestations during the previous epoch.
 ///
 /// Spec v0.5.1
-fn get_crosslink_deltas<T: BeaconStateTypes>(
+fn get_crosslink_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
@@ -296,7 +296,7 @@ fn get_crosslink_deltas<T: BeaconStateTypes>(
 /// Returns the base reward for some validator.
 ///
 /// Spec v0.5.1
-fn get_base_reward<T: BeaconStateTypes>(
+fn get_base_reward<T: EthSpec>(
     state: &BeaconState<T>,
     index: usize,
     previous_total_balance: u64,
@@ -313,7 +313,7 @@ fn get_base_reward<T: BeaconStateTypes>(
 /// Returns the inactivity penalty for some validator.
 ///
 /// Spec v0.5.1
-fn get_inactivity_penalty<T: BeaconStateTypes>(
+fn get_inactivity_penalty<T: EthSpec>(
     state: &BeaconState<T>,
     index: usize,
     epochs_since_finality: u64,
@@ -329,6 +329,6 @@ fn get_inactivity_penalty<T: BeaconStateTypes>(
 /// Returns the epochs since the last finalized epoch.
 ///
 /// Spec v0.5.1
-fn epochs_since_finality<T: BeaconStateTypes>(state: &BeaconState<T>, spec: &ChainSpec) -> Epoch {
+fn epochs_since_finality<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Epoch {
     state.current_epoch(spec) + 1 - state.finalized_epoch
 }

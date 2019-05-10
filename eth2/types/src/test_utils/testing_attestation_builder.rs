@@ -12,7 +12,7 @@ pub struct TestingAttestationBuilder {
 
 impl TestingAttestationBuilder {
     /// Create a new attestation builder.
-    pub fn new<T: BeaconStateTypes>(
+    pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         committee: &[usize],
         slot: Slot,

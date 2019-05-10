@@ -16,8 +16,8 @@ use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::chain_spec::Domain;
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateTypes, ChainSpec,
-    Deposit, Epoch, ProposerSlashing, Transfer, Validator, VoluntaryExit,
+    Attestation, AttestationData, AttesterSlashing, BeaconState, ChainSpec, Deposit, Epoch,
+    EthSpec, ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
 #[cfg(test)]
@@ -26,7 +26,7 @@ const VERIFY_DEPOSIT_PROOFS: bool = false;
 const VERIFY_DEPOSIT_PROOFS: bool = false; // TODO: enable this
 
 #[derive(Default)]
-pub struct OperationPool<T: BeaconStateTypes + Default> {
+pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation>>>,
     /// Map from deposit index to deposit data.
@@ -54,7 +54,7 @@ struct AttestationId(Vec<u8>);
 const DOMAIN_BYTES_LEN: usize = 8;
 
 impl AttestationId {
-    fn from_data<T: BeaconStateTypes>(
+    fn from_data<T: EthSpec>(
         attestation: &AttestationData,
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -65,7 +65,7 @@ impl AttestationId {
         AttestationId(bytes)
     }
 
-    fn compute_domain_bytes<T: BeaconStateTypes>(
+    fn compute_domain_bytes<T: EthSpec>(
         epoch: Epoch,
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -85,7 +85,7 @@ impl AttestationId {
 /// receive for including it in a block.
 // TODO: this could be optimised with a map from validator index to whether that validator has
 // attested in each of the current and previous epochs. Currently quadractic in number of validators.
-fn attestation_score<T: BeaconStateTypes>(
+fn attestation_score<T: EthSpec>(
     attestation: &Attestation,
     state: &BeaconState<T>,
     spec: &ChainSpec,
@@ -127,7 +127,7 @@ pub enum DepositInsertStatus {
     Replaced(Box<Deposit>),
 }
 
-impl<T: BeaconStateTypes> OperationPool<T> {
+impl<T: EthSpec> OperationPool<T> {
     /// Create a new operation pool.
     pub fn new() -> Self {
         Self::default()
@@ -501,7 +501,7 @@ impl<T: BeaconStateTypes> OperationPool<T> {
 ///
 /// - Their `AttestationData` is equal.
 /// - `attestation` does not contain any signatures that `PendingAttestation` does not have.
-fn superior_attestation_exists_in_state<T: BeaconStateTypes>(
+fn superior_attestation_exists_in_state<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
 ) -> bool {
@@ -539,7 +539,7 @@ where
 /// The keys in the map should be validator indices, which will be looked up
 /// in the state's validator registry and then passed to `prune_if`.
 /// Entries for unknown validators will be kept.
-fn prune_validator_hash_map<T, F, B: BeaconStateTypes>(
+fn prune_validator_hash_map<T, F, B: EthSpec>(
     map: &mut HashMap<u64, T>,
     prune_if: F,
     finalized_state: &BeaconState<B>,
@@ -666,7 +666,7 @@ mod tests {
     }
 
     // Create a random deposit (with a valid proof of posession)
-    fn make_deposit<T: BeaconStateTypes>(
+    fn make_deposit<T: EthSpec>(
         rng: &mut XorShiftRng,
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -689,7 +689,7 @@ mod tests {
     }
 
     // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
-    fn dummy_deposits<T: BeaconStateTypes>(
+    fn dummy_deposits<T: EthSpec>(
         rng: &mut XorShiftRng,
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -706,8 +706,8 @@ mod tests {
             .collect()
     }
 
-    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<FoundationStateTypes>) {
-        let spec = FoundationStateTypes::spec();
+    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<FoundationEthSpec>) {
+        let spec = FoundationEthSpec::spec();
 
         let mut state = BeaconState::random_for_test(rng);
 
@@ -722,10 +722,7 @@ mod tests {
 
         /// Create a signed attestation for use in tests.
         /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
-        fn signed_attestation<
-            R: std::slice::SliceIndex<[usize], Output = [usize]>,
-            B: BeaconStateTypes,
-        >(
+        fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>, B: EthSpec>(
             committee: &CrosslinkCommittee,
             keypairs: &[Keypair],
             signing_range: R,
@@ -757,7 +754,7 @@ mod tests {
         }
 
         /// Test state for attestation-related tests.
-        fn attestation_test_state<B: BeaconStateTypes>(
+        fn attestation_test_state<B: EthSpec>(
             num_committees: usize,
         ) -> (BeaconState<B>, Vec<Keypair>, ChainSpec) {
             let spec = B::spec();
@@ -774,11 +771,11 @@ mod tests {
             state_builder.build_caches(&spec).unwrap();
             let (state, keypairs) = state_builder.build();
 
-            (state, keypairs, FoundationStateTypes::spec())
+            (state, keypairs, FoundationEthSpec::spec())
         }
 
         /// Set the latest crosslink in the state to match the attestation.
-        fn fake_latest_crosslink<B: BeaconStateTypes>(
+        fn fake_latest_crosslink<B: EthSpec>(
             att: &Attestation,
             state: &mut BeaconState<B>,
             spec: &ChainSpec,
@@ -792,7 +789,7 @@ mod tests {
         #[test]
         fn test_attestation_score() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationStateTypes>(1);
+                attestation_test_state::<FoundationEthSpec>(1);
 
             let slot = state.slot - 1;
             let committees = state
@@ -824,7 +821,7 @@ mod tests {
         #[test]
         fn attestation_aggregation_insert_get_prune() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationStateTypes>(1);
+                attestation_test_state::<FoundationEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -890,7 +887,7 @@ mod tests {
         #[test]
         fn attestation_duplicate() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationStateTypes>(1);
+                attestation_test_state::<FoundationEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -917,7 +914,7 @@ mod tests {
         #[test]
         fn attestation_pairwise_overlapping() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationStateTypes>(1);
+                attestation_test_state::<FoundationEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -963,7 +960,7 @@ mod tests {
             let big_step_size = 4;
 
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationStateTypes>(big_step_size);
+                attestation_test_state::<FoundationEthSpec>(big_step_size);
 
             let op_pool = OperationPool::new();
 

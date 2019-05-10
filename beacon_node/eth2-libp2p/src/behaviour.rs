@@ -236,7 +236,7 @@ mod test {
 
     #[test]
     fn ssz_encoding() {
-        let original = PubsubMessage::Block(BeaconBlock::empty(&FoundationStateTypes::spec()));
+        let original = PubsubMessage::Block(BeaconBlock::empty(&FoundationEthSpec::spec()));
 
         let encoded = ssz_encode(&original);
 

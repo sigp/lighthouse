@@ -16,7 +16,7 @@ use types::*;
 /// Note: this function is incomplete.
 ///
 /// Spec v0.5.1
-pub fn verify_deposit<T: BeaconStateTypes>(
+pub fn verify_deposit<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     verify_merkle_branch: bool,
@@ -47,7 +47,7 @@ pub fn verify_deposit<T: BeaconStateTypes>(
 /// Verify that the `Deposit` index is correct.
 ///
 /// Spec v0.5.1
-pub fn verify_deposit_index<T: BeaconStateTypes>(
+pub fn verify_deposit_index<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
 ) -> Result<(), Error> {
@@ -68,7 +68,7 @@ pub fn verify_deposit_index<T: BeaconStateTypes>(
 /// ## Errors
 ///
 /// Errors if the state's `pubkey_cache` is not current.
-pub fn get_existing_validator_index<T: BeaconStateTypes>(
+pub fn get_existing_validator_index<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
 ) -> Result<Option<u64>, Error> {
@@ -92,7 +92,7 @@ pub fn get_existing_validator_index<T: BeaconStateTypes>(
 /// Verify that a deposit is included in the state's eth1 deposit root.
 ///
 /// Spec v0.5.1
-fn verify_deposit_merkle_proof<T: BeaconStateTypes>(
+fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     spec: &ChainSpec,

@@ -5,7 +5,7 @@ use slog::{debug, error};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconStateTypes, Hash256, Slot};
+use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, EthSpec, Hash256, Slot};
 
 /// Provides a queue for fully and partially built `BeaconBlock`s.
 ///
@@ -19,7 +19,7 @@ use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconStateTypes, H
 /// `BeaconBlockBody` as the key.
 /// - It is possible for multiple distinct blocks to have identical `BeaconBlockBodies`. Therefore
 /// we cannot use a `HashMap` keyed by the root of `BeaconBlockBody`.
-pub struct ImportQueue<B: BeaconStateTypes> {
+pub struct ImportQueue<B: EthSpec> {
     pub chain: Arc<BeaconChain<B>>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
     pub partials: Vec<PartialBeaconBlock>,
@@ -29,7 +29,7 @@ pub struct ImportQueue<B: BeaconStateTypes> {
     log: slog::Logger,
 }
 
-impl<B: BeaconStateTypes> ImportQueue<B> {
+impl<B: EthSpec> ImportQueue<B> {
     /// Return a new, empty queue.
     pub fn new(chain: Arc<BeaconChain<B>>, stale_time: Duration, log: slog::Logger) -> Self {
         Self {
