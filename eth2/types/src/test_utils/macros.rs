@@ -11,7 +11,7 @@ macro_rules! ssz_tests {
             let original = $type::random_for_test(&mut rng);
 
             let bytes = ssz_encode(&original);
-            let (decoded, _): ($type, usize) = <_>::ssz_decode(&bytes, 0).unwrap();
+            let decoded = $type::from_ssz_bytes(&bytes).unwrap();
 
             assert_eq!(original, decoded);
         }
