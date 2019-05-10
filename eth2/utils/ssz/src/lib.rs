@@ -1,7 +1,9 @@
 mod decode;
 mod encode;
 
-pub use decode::{Decodable, DecodeError, SszDecoderBuilder};
+pub use decode::{
+    impls::decode_list_of_variable_length_items, Decodable, DecodeError, SszDecoderBuilder,
+};
 pub use encode::{Encodable, SszEncoder};
 
 pub const BYTES_PER_LENGTH_OFFSET: usize = 4;

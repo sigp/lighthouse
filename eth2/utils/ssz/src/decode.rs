@@ -1,6 +1,6 @@
 use super::*;
 
-mod impls;
+pub mod impls;
 
 #[derive(Debug, PartialEq)]
 pub enum DecodeError {
