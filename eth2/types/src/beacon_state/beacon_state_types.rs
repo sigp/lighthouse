@@ -13,9 +13,46 @@ pub trait BeaconStateTypes:
     type LatestSlashedExitLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn spec() -> ChainSpec;
+
+    /// Returns the `SHARD_COUNT` constant for this specification.
+    ///
+    /// Spec v0.5.1
+    fn shard_count() -> usize {
+        Self::ShardCount::to_usize()
+    }
+
+    /// Returns the `SLOTS_PER_HISTORICAL_ROOT` constant for this specification.
+    ///
+    /// Spec v0.5.1
+    fn slots_per_historical_root() -> usize {
+        Self::SlotsPerHistoricalRoot::to_usize()
+    }
+
+    /// Returns the `LATEST_RANDAO_MIXES_LENGTH` constant for this specification.
+    ///
+    /// Spec v0.5.1
+    fn latest_randao_mixes_length() -> usize {
+        Self::LatestRandaoMixesLength::to_usize()
+    }
+
+    /// Returns the `LATEST_ACTIVE_INDEX_ROOTS` constant for this specification.
+    ///
+    /// Spec v0.5.1
+    fn latest_active_index_roots() -> usize {
+        Self::LatestActiveIndexRootsLength::to_usize()
+    }
+
+    /// Returns the `LATEST_SLASHED_EXIT_LENGTH` constant for this specification.
+    ///
+    /// Spec v0.5.1
+    fn latest_slashed_exit_length() -> usize {
+        Self::LatestSlashedExitLength::to_usize()
+    }
 }
 
 /// Ethereum Foundation specifications.
+///
+/// Spec v0.5.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct FoundationStateTypes;
 
@@ -33,6 +70,9 @@ impl BeaconStateTypes for FoundationStateTypes {
 
 pub type FoundationBeaconState = BeaconState<FoundationStateTypes>;
 
+/// Ethereum Foundation specifications, modified to be suitable for < 1000 validators.
+///
+/// Spec v0.5.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct FewValidatorsStateTypes;
 
@@ -50,6 +90,9 @@ impl BeaconStateTypes for FewValidatorsStateTypes {
 
 pub type FewValidatorsBeaconState = BeaconState<FewValidatorsStateTypes>;
 
+/// Specifications suitable for a small-scale (< 1000 validators) lighthouse testnet.
+///
+/// Spec v0.5.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct LighthouseTestnetStateTypes;
 
