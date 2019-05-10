@@ -129,51 +129,60 @@ impl<T: Decodable> Decodable for Vec<T> {
                 .map(|chunk| T::from_ssz_bytes(chunk))
                 .collect()
         } else {
-            let mut next_variable_byte = read_offset(bytes)?;
-
-            // The value of the first offset must not point back into the same bytes that defined
-            // it.
-            if next_variable_byte < BYTES_PER_LENGTH_OFFSET {
-                return Err(DecodeError::OutOfBoundsByte {
-                    i: next_variable_byte,
-                });
-            }
-
-            let num_items = next_variable_byte / BYTES_PER_LENGTH_OFFSET;
-
-            // The fixed-length section must be a clean multiple of `BYTES_PER_LENGTH_OFFSET`.
-            if next_variable_byte != num_items * BYTES_PER_LENGTH_OFFSET {
-                return Err(DecodeError::InvalidByteLength {
-                    len: next_variable_byte,
-                    expected: num_items * BYTES_PER_LENGTH_OFFSET,
-                });
-            }
-
-            let mut values = Vec::with_capacity(num_items);
-            for i in 1..=num_items {
-                let slice_option = if i == num_items {
-                    bytes.get(next_variable_byte..)
-                } else {
-                    let offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
-
-                    let start = next_variable_byte;
-                    next_variable_byte = offset;
-
-                    // Note: the condition where `start > next_variable_byte` returns `None` which
-                    // raises an error later in the program.
-                    bytes.get(start..next_variable_byte)
-                };
-
-                let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte {
-                    i: next_variable_byte,
-                })?;
-
-                values.push(T::from_ssz_bytes(slice)?);
-            }
-
-            Ok(values)
+            decode_list_of_variable_length_items(bytes)
         }
     }
+}
+
+/// Decodes `bytes` as if it were a list of variable-length items.
+///
+/// The `ssz::SszDecoder` can also perform this functionality, however it it significantly faster
+/// as it is optimized to read same-typed items whilst `ssz::SszDecoder` supports reading items of
+/// differing types.
+pub fn decode_list_of_variable_length_items<T: Decodable>(
+    bytes: &[u8],
+) -> Result<Vec<T>, DecodeError> {
+    let mut next_variable_byte = read_offset(bytes)?;
+
+    // The value of the first offset must not point back into the same bytes that defined
+    // it.
+    if next_variable_byte < BYTES_PER_LENGTH_OFFSET {
+        return Err(DecodeError::OutOfBoundsByte {
+            i: next_variable_byte,
+        });
+    }
+
+    let num_items = next_variable_byte / BYTES_PER_LENGTH_OFFSET;
+
+    // The fixed-length section must be a clean multiple of `BYTES_PER_LENGTH_OFFSET`.
+    if next_variable_byte != num_items * BYTES_PER_LENGTH_OFFSET {
+        return Err(DecodeError::InvalidByteLength {
+            len: next_variable_byte,
+            expected: num_items * BYTES_PER_LENGTH_OFFSET,
+        });
+    }
+
+    let mut values = Vec::with_capacity(num_items);
+    for i in 1..=num_items {
+        let slice_option = if i == num_items {
+            bytes.get(next_variable_byte..)
+        } else {
+            let offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+
+            let start = next_variable_byte;
+            next_variable_byte = offset;
+
+            bytes.get(start..next_variable_byte)
+        };
+
+        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte {
+            i: next_variable_byte,
+        })?;
+
+        values.push(T::from_ssz_bytes(slice)?);
+    }
+
+    Ok(values)
 }
 
 #[cfg(test)]
