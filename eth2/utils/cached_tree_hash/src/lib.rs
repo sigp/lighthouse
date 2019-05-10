@@ -2,7 +2,7 @@
 //! [here](https://github.com/ethereum/eth2.0-specs/blob/v0.5.1/specs/simple-serialize.md#merkleization).
 //!
 //! Caching allows for reduced hashing when some object has only been partially modified. This
-//! allows for significant CPU-time savings (at the cost of additional storage). For example,
+//! gives significant CPU-time savings (at the cost of additional storage). For example,
 //! determining the root of a list of 1024 items with a single modification has been observed to
 //! run in 1/25th of the time of a full merkle hash.
 //!
@@ -61,8 +61,8 @@ pub trait CachedTreeHash: TreeHash {
     fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error>;
 }
 
-/// Implements `CachedTreeHash` on `$type` as a fixed-length tree-hash vector of the ssz encoding
-/// of `$type`.
+/// Implements `CachedTreeHash` on `$type`, where `$type` is a fixed-length vector and each item in
+/// the `$type` is encoded as bytes using `ssz_encode`.
 #[macro_export]
 macro_rules! cached_tree_hash_ssz_encoding_as_vector {
     ($type: ident, $num_bytes: expr) => {
@@ -95,8 +95,8 @@ macro_rules! cached_tree_hash_ssz_encoding_as_vector {
     };
 }
 
-/// Implements `CachedTreeHash` on `$type` as a variable-length tree-hash list of the result of
-/// calling `.as_bytes()` on `$type`.
+/// Implements `CachedTreeHash` on `$type`, where `$type` is a variable-length list and each item
+/// in `$type` is encoded as bytes by calling `item.as_bytes()`.
 #[macro_export]
 macro_rules! cached_tree_hash_bytes_as_list {
     ($type: ident) => {
