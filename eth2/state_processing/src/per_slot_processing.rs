@@ -11,7 +11,7 @@ pub enum Error {
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
 /// Spec v0.5.1
-pub fn per_slot_processing<T: BeaconStateTypes>(
+pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -26,10 +26,7 @@ pub fn per_slot_processing<T: BeaconStateTypes>(
     Ok(())
 }
 
-fn cache_state<T: BeaconStateTypes>(
-    state: &mut BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+fn cache_state<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) -> Result<(), Error> {
     let previous_slot_state_root = state.update_tree_hash_cache()?;
 
     // Note: increment the state slot here to allow use of our `state_root` and `block_root`

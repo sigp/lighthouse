@@ -9,7 +9,7 @@ use types::*;
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.5.1
-pub fn validate_attestation<T: BeaconStateTypes>(
+pub fn validate_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
@@ -18,7 +18,7 @@ pub fn validate_attestation<T: BeaconStateTypes>(
 }
 
 /// Like `validate_attestation` but doesn't run checks which may become true in future states.
-pub fn validate_attestation_time_independent_only<T: BeaconStateTypes>(
+pub fn validate_attestation_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
@@ -32,7 +32,7 @@ pub fn validate_attestation_time_independent_only<T: BeaconStateTypes>(
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.5.1
-pub fn validate_attestation_without_signature<T: BeaconStateTypes>(
+pub fn validate_attestation_without_signature<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
@@ -45,7 +45,7 @@ pub fn validate_attestation_without_signature<T: BeaconStateTypes>(
 ///
 ///
 /// Spec v0.5.1
-fn validate_attestation_parametric<T: BeaconStateTypes>(
+fn validate_attestation_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
@@ -168,7 +168,7 @@ fn validate_attestation_parametric<T: BeaconStateTypes>(
 /// match the current (or previous) justified epoch and root from the state.
 ///
 /// Spec v0.5.1
-fn verify_justified_epoch_and_root<T: BeaconStateTypes>(
+fn verify_justified_epoch_and_root<T: EthSpec>(
     attestation: &Attestation,
     state: &BeaconState<T>,
     spec: &ChainSpec,
@@ -223,7 +223,7 @@ fn verify_justified_epoch_and_root<T: BeaconStateTypes>(
 ///  - A `validator_index` in `committee` is not in `state.validator_registry`.
 ///
 /// Spec v0.5.1
-fn verify_attestation_signature<T: BeaconStateTypes>(
+fn verify_attestation_signature<T: EthSpec>(
     state: &BeaconState<T>,
     committee: &[usize],
     a: &Attestation,

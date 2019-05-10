@@ -3,7 +3,7 @@ use types::{BeaconStateError as Error, *};
 /// Process slashings.
 ///
 /// Spec v0.5.1
-pub fn process_slashings<T: BeaconStateTypes>(
+pub fn process_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     current_total_balance: u64,
     spec: &ChainSpec,

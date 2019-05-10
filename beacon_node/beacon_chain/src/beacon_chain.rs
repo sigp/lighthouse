@@ -83,7 +83,7 @@ impl BlockProcessingOutcome {
     }
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, B: BeaconStateTypes> {
+pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, B: EthSpec> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
@@ -100,7 +100,7 @@ where
     T: ClientDB,
     U: SlotClock,
     F: ForkChoice,
-    B: BeaconStateTypes,
+    B: EthSpec,
 {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(

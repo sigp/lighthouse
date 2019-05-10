@@ -8,10 +8,10 @@ use beacon_chain::{
     AttestationValidationError, BlockProductionError,
 };
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
-use types::{Attestation, AttestationData, BeaconBlock, BeaconStateTypes};
+use types::{Attestation, AttestationData, BeaconBlock, EthSpec};
 
 /// The RPC's API to the beacon chain.
-pub trait BeaconChain<B: BeaconStateTypes>: Send + Sync {
+pub trait BeaconChain<B: EthSpec>: Send + Sync {
     fn get_spec(&self) -> &ChainSpec;
 
     fn get_state(&self) -> RwLockReadGuard<BeaconState<B>>;
@@ -39,7 +39,7 @@ where
     T: ClientDB + Sized,
     U: SlotClock,
     F: ForkChoice,
-    B: BeaconStateTypes,
+    B: EthSpec,
 {
     fn get_spec(&self) -> &ChainSpec {
         &self.spec

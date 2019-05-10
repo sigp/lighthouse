@@ -35,7 +35,7 @@ impl WinningRoot {
 /// per-epoch processing.
 ///
 /// Spec v0.5.1
-pub fn winning_root<T: BeaconStateTypes>(
+pub fn winning_root<T: EthSpec>(
     state: &BeaconState<T>,
     shard: u64,
     spec: &ChainSpec,
@@ -90,7 +90,7 @@ pub fn winning_root<T: BeaconStateTypes>(
 /// Returns `true` if pending attestation `a` is eligible to become a winning root.
 ///
 /// Spec v0.5.1
-fn is_eligible_for_winning_root<T: BeaconStateTypes>(
+fn is_eligible_for_winning_root<T: EthSpec>(
     state: &BeaconState<T>,
     a: &PendingAttestation,
     shard: Shard,
@@ -105,7 +105,7 @@ fn is_eligible_for_winning_root<T: BeaconStateTypes>(
 /// Returns all indices which voted for a given crosslink. Does not contain duplicates.
 ///
 /// Spec v0.5.1
-fn get_attesting_validator_indices<T: BeaconStateTypes>(
+fn get_attesting_validator_indices<T: EthSpec>(
     state: &BeaconState<T>,
     shard: u64,
     crosslink_data_root: &Hash256,

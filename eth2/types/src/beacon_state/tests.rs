@@ -1,6 +1,6 @@
 #![cfg(test)]
 use super::*;
-use crate::beacon_state::FewValidatorsStateTypes;
+use crate::beacon_state::FewValidatorsEthSpec;
 use crate::test_utils::*;
 
 ssz_tests!(FoundationBeaconState);
@@ -11,7 +11,7 @@ cached_tree_hash_tests!(FoundationBeaconState);
 /// 1. Using the cache before it's built fails.
 /// 2. Using the cache after it's build passes.
 /// 3. Using the cache after it's dropped fails.
-fn test_cache_initialization<'a, T: BeaconStateTypes>(
+fn test_cache_initialization<'a, T: EthSpec>(
     state: &'a mut BeaconState<T>,
     relative_epoch: RelativeEpoch,
     spec: &ChainSpec,
@@ -46,9 +46,9 @@ fn test_cache_initialization<'a, T: BeaconStateTypes>(
 
 #[test]
 fn cache_initialization() {
-    let spec = FewValidatorsStateTypes::spec();
+    let spec = FewValidatorsEthSpec::spec();
 
-    let builder: TestingBeaconStateBuilder<FewValidatorsStateTypes> =
+    let builder: TestingBeaconStateBuilder<FewValidatorsEthSpec> =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
     let (mut state, _keypairs) = builder.build();
 

@@ -21,9 +21,9 @@ use protos::services_grpc::{
 use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use types::BeaconStateTypes;
+use types::EthSpec;
 
-pub fn start_server<B: BeaconStateTypes>(
+pub fn start_server<B: EthSpec>(
     config: &RPCConfig,
     executor: &TaskExecutor,
     network_chan: crossbeam_channel::Sender<NetworkMessage>,

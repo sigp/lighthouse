@@ -33,7 +33,7 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
 /// Spec v0.5.1
-pub fn per_epoch_processing<T: BeaconStateTypes>(
+pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -90,7 +90,7 @@ pub fn per_epoch_processing<T: BeaconStateTypes>(
 /// Maybe resets the eth1 period.
 ///
 /// Spec v0.5.1
-pub fn maybe_reset_eth1_period<T: BeaconStateTypes>(state: &mut BeaconState<T>, spec: &ChainSpec) {
+pub fn maybe_reset_eth1_period<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) {
     let next_epoch = state.next_epoch(spec);
     let voting_period = spec.epochs_per_eth1_voting_period;
 
@@ -112,7 +112,7 @@ pub fn maybe_reset_eth1_period<T: BeaconStateTypes>(state: &mut BeaconState<T>, 
 /// - `previous_justified_epoch`
 ///
 /// Spec v0.5.1
-pub fn update_justification_and_finalization<T: BeaconStateTypes>(
+pub fn update_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
     total_balances: &TotalBalances,
     spec: &ChainSpec,
@@ -182,7 +182,7 @@ pub fn update_justification_and_finalization<T: BeaconStateTypes>(
 /// Also returns a `WinningRootHashSet` for later use during epoch processing.
 ///
 /// Spec v0.5.1
-pub fn process_crosslinks<T: BeaconStateTypes>(
+pub fn process_crosslinks<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<WinningRootHashSet, Error> {
@@ -225,7 +225,7 @@ pub fn process_crosslinks<T: BeaconStateTypes>(
 /// Finish up an epoch update.
 ///
 /// Spec v0.5.1
-pub fn finish_epoch_update<T: BeaconStateTypes>(
+pub fn finish_epoch_update<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

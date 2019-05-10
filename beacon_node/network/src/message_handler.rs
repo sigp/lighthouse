@@ -13,7 +13,7 @@ use slog::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use types::BeaconStateTypes;
+use types::EthSpec;
 
 /// Timeout for RPC requests.
 // const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -21,7 +21,7 @@ use types::BeaconStateTypes;
 // const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
-pub struct MessageHandler<B: BeaconStateTypes> {
+pub struct MessageHandler<B: EthSpec> {
     /// Currently loaded and initialised beacon chain.
     _chain: Arc<BeaconChain<B>>,
     /// The syncing framework.
@@ -45,7 +45,7 @@ pub enum HandlerMessage {
     PubsubMessage(PeerId, Box<PubsubMessage>),
 }
 
-impl<B: BeaconStateTypes> MessageHandler<B> {
+impl<B: EthSpec> MessageHandler<B> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<B>>,

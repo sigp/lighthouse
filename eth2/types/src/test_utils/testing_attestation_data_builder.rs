@@ -10,7 +10,7 @@ pub struct TestingAttestationDataBuilder {
 impl TestingAttestationDataBuilder {
     /// Configures a new `AttestationData` which attests to all of the same parameters as the
     /// state.
-    pub fn new<T: BeaconStateTypes>(
+    pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         shard: u64,
         slot: Slot,

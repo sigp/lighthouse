@@ -1,11 +1,11 @@
 #![cfg(test)]
 
 use super::*;
-use crate::beacon_state::FewValidatorsStateTypes;
+use crate::beacon_state::FewValidatorsEthSpec;
 use crate::test_utils::*;
 use swap_or_not_shuffle::shuffle_list;
 
-fn do_sane_cache_test<T: BeaconStateTypes>(
+fn do_sane_cache_test<T: EthSpec>(
     state: BeaconState<T>,
     epoch: Epoch,
     relative_epoch: RelativeEpoch,
@@ -65,10 +65,7 @@ fn do_sane_cache_test<T: BeaconStateTypes>(
     }
 }
 
-fn setup_sane_cache_test<T: BeaconStateTypes>(
-    validator_count: usize,
-    spec: &ChainSpec,
-) -> BeaconState<T> {
+fn setup_sane_cache_test<T: EthSpec>(validator_count: usize, spec: &ChainSpec) -> BeaconState<T> {
     let mut builder =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, spec);
 
@@ -102,11 +99,11 @@ fn setup_sane_cache_test<T: BeaconStateTypes>(
 
 #[test]
 fn builds_sane_current_epoch_cache() {
-    let mut spec = FewValidatorsStateTypes::spec();
+    let mut spec = FewValidatorsEthSpec::spec();
     spec.shard_count = 4;
     let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
 
-    let state: BeaconState<FewValidatorsStateTypes> =
+    let state: BeaconState<FewValidatorsEthSpec> =
         setup_sane_cache_test(validator_count as usize, &spec);
 
     do_sane_cache_test(
@@ -122,11 +119,11 @@ fn builds_sane_current_epoch_cache() {
 
 #[test]
 fn builds_sane_previous_epoch_cache() {
-    let mut spec = FewValidatorsStateTypes::spec();
+    let mut spec = FewValidatorsEthSpec::spec();
     spec.shard_count = 2;
     let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
 
-    let state: BeaconState<FewValidatorsStateTypes> =
+    let state: BeaconState<FewValidatorsEthSpec> =
         setup_sane_cache_test(validator_count as usize, &spec);
 
     do_sane_cache_test(
@@ -142,11 +139,11 @@ fn builds_sane_previous_epoch_cache() {
 
 #[test]
 fn builds_sane_next_without_update_epoch_cache() {
-    let mut spec = FewValidatorsStateTypes::spec();
+    let mut spec = FewValidatorsEthSpec::spec();
     spec.shard_count = 2;
     let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
 
-    let mut state: BeaconState<FewValidatorsStateTypes> =
+    let mut state: BeaconState<FewValidatorsEthSpec> =
         setup_sane_cache_test(validator_count as usize, &spec);
 
     state.validator_registry_update_epoch = state.slot.epoch(spec.slots_per_epoch);

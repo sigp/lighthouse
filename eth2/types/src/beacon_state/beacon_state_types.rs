@@ -3,7 +3,7 @@ use fixed_len_vec::typenum::{Unsigned, U1024, U8, U8192};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub trait BeaconStateTypes:
+pub trait EthSpec:
     'static + Default + Sync + Send + Clone + Debug + PartialEq + serde::de::DeserializeOwned
 {
     type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -54,9 +54,9 @@ pub trait BeaconStateTypes:
 ///
 /// Spec v0.5.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
-pub struct FoundationStateTypes;
+pub struct FoundationEthSpec;
 
-impl BeaconStateTypes for FoundationStateTypes {
+impl EthSpec for FoundationEthSpec {
     type ShardCount = U1024;
     type SlotsPerHistoricalRoot = U8192;
     type LatestRandaoMixesLength = U8192;
@@ -68,15 +68,15 @@ impl BeaconStateTypes for FoundationStateTypes {
     }
 }
 
-pub type FoundationBeaconState = BeaconState<FoundationStateTypes>;
+pub type FoundationBeaconState = BeaconState<FoundationEthSpec>;
 
 /// Ethereum Foundation specifications, modified to be suitable for < 1000 validators.
 ///
 /// Spec v0.5.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
-pub struct FewValidatorsStateTypes;
+pub struct FewValidatorsEthSpec;
 
-impl BeaconStateTypes for FewValidatorsStateTypes {
+impl EthSpec for FewValidatorsEthSpec {
     type ShardCount = U8;
     type SlotsPerHistoricalRoot = U8192;
     type LatestRandaoMixesLength = U8192;
@@ -88,15 +88,15 @@ impl BeaconStateTypes for FewValidatorsStateTypes {
     }
 }
 
-pub type FewValidatorsBeaconState = BeaconState<FewValidatorsStateTypes>;
+pub type FewValidatorsBeaconState = BeaconState<FewValidatorsEthSpec>;
 
 /// Specifications suitable for a small-scale (< 1000 validators) lighthouse testnet.
 ///
 /// Spec v0.5.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
-pub struct LighthouseTestnetStateTypes;
+pub struct LighthouseTestnetEthSpec;
 
-impl BeaconStateTypes for LighthouseTestnetStateTypes {
+impl EthSpec for LighthouseTestnetEthSpec {
     type ShardCount = U8;
     type SlotsPerHistoricalRoot = U8192;
     type LatestRandaoMixesLength = U8192;
@@ -108,4 +108,4 @@ impl BeaconStateTypes for LighthouseTestnetStateTypes {
     }
 }
 
-pub type LighthouseTestnetBeaconState = BeaconState<LighthouseTestnetStateTypes>;
+pub type LighthouseTestnetBeaconState = BeaconState<LighthouseTestnetEthSpec>;

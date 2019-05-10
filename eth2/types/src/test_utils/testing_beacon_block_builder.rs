@@ -82,7 +82,7 @@ impl TestingBeaconBlockBuilder {
     ///
     /// Note: the signed messages of the split committees will be identical -- it would be possible
     /// to aggregate these split attestations.
-    pub fn insert_attestations<T: BeaconStateTypes>(
+    pub fn insert_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
         secret_keys: &[&SecretKey],
@@ -171,7 +171,7 @@ impl TestingBeaconBlockBuilder {
     }
 
     /// Insert a `Valid` deposit into the state.
-    pub fn insert_deposit<T: BeaconStateTypes>(
+    pub fn insert_deposit<T: EthSpec>(
         &mut self,
         amount: u64,
         index: u64,
@@ -193,7 +193,7 @@ impl TestingBeaconBlockBuilder {
     }
 
     /// Insert a `Valid` exit into the state.
-    pub fn insert_exit<T: BeaconStateTypes>(
+    pub fn insert_exit<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
         validator_index: u64,
@@ -214,7 +214,7 @@ impl TestingBeaconBlockBuilder {
     ///
     /// Note: this will set the validator to be withdrawable by directly modifying the state
     /// validator registry. This _may_ cause problems historic hashes, etc.
-    pub fn insert_transfer<T: BeaconStateTypes>(
+    pub fn insert_transfer<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
         from: u64,

@@ -5,7 +5,7 @@ use types::{BeaconStateError as Error, *};
 /// ``EJECTION_BALANCE``.
 ///
 /// Spec v0.5.1
-pub fn process_ejections<T: BeaconStateTypes>(
+pub fn process_ejections<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::BeaconStateTypes;
+use types::EthSpec;
 
 type ArcBeaconChain<D, S, F, B> = Arc<BeaconChain<D, S, F, B>>;
 
@@ -30,9 +30,9 @@ pub struct Client<T: ClientTypes> {
     /// Configuration for the lighthouse client.
     _config: ClientConfig,
     /// The beacon chain for the running client.
-    _beacon_chain: ArcBeaconChain<T::DB, T::SlotClock, T::ForkChoice, T::BeaconStateTypes>,
+    _beacon_chain: ArcBeaconChain<T::DB, T::SlotClock, T::ForkChoice, T::EthSpec>,
     /// Reference to the network service.
-    pub network: Arc<NetworkService<T::BeaconStateTypes>>,
+    pub network: Arc<NetworkService<T::EthSpec>>,
     /// Signal to terminate the RPC server.
     pub rpc_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
@@ -149,7 +149,7 @@ where
     T: ClientDB,
     U: SlotClock,
     F: ForkChoice,
-    B: BeaconStateTypes,
+    B: EthSpec,
 {
     if let Some(genesis_height) = chain.slots_since_genesis() {
         let result = chain.catchup_state();

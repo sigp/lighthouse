@@ -8,9 +8,9 @@ use types::*;
 fn runs_without_error() {
     Builder::from_env(Env::default().default_filter_or("error")).init();
 
-    let spec = FewValidatorsStateTypes::spec();
+    let spec = FewValidatorsEthSpec::spec();
 
-    let mut builder: TestingBeaconStateBuilder<FewValidatorsStateTypes> =
+    let mut builder: TestingBeaconStateBuilder<FewValidatorsEthSpec> =
         TestingBeaconStateBuilder::from_deterministic_keypairs(8, &spec);
 
     let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);

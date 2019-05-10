@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
-use types::{Attestation, BeaconBlock, BeaconStateTypes, Epoch, Hash256, Slot};
+use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
@@ -88,7 +88,7 @@ impl From<HelloMessage> for PeerSyncInfo {
     }
 }
 
-impl<B: BeaconStateTypes> From<&Arc<BeaconChain<B>>> for PeerSyncInfo {
+impl<B: EthSpec> From<&Arc<BeaconChain<B>>> for PeerSyncInfo {
     fn from(chain: &Arc<BeaconChain<B>>) -> PeerSyncInfo {
         Self::from(chain.hello_message())
     }
@@ -103,7 +103,7 @@ pub enum SyncState {
 }
 
 /// Simple Syncing protocol.
-pub struct SimpleSync<B: BeaconStateTypes> {
+pub struct SimpleSync<B: EthSpec> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<B>>,
     /// A mapping of Peers to their respective PeerSyncInfo.
@@ -116,7 +116,7 @@ pub struct SimpleSync<B: BeaconStateTypes> {
     log: slog::Logger,
 }
 
-impl<B: BeaconStateTypes> SimpleSync<B> {
+impl<B: EthSpec> SimpleSync<B> {
     /// Instantiate a `SimpleSync` instance, with no peers and an empty queue.
     pub fn new(beacon_chain: Arc<BeaconChain<B>>, log: &slog::Logger) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));

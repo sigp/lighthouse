@@ -22,7 +22,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
-pub struct HistoricalBatch<T: BeaconStateTypes> {
+pub struct HistoricalBatch<T: EthSpec> {
     pub block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
     pub state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
 }
@@ -31,7 +31,7 @@ pub struct HistoricalBatch<T: BeaconStateTypes> {
 mod tests {
     use super::*;
 
-    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationStateTypes>;
+    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationEthSpec>;
 
     ssz_tests!(FoundationHistoricalBatch);
     cached_tree_hash_tests!(FoundationHistoricalBatch);

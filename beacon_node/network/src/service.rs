@@ -13,10 +13,10 @@ use slog::{debug, info, o, trace};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use types::{BeaconStateTypes, Topic};
+use types::{EthSpec, Topic};
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
-pub struct Service<B: BeaconStateTypes> {
+pub struct Service<B: EthSpec> {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     _libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
@@ -24,7 +24,7 @@ pub struct Service<B: BeaconStateTypes> {
                               //message_handler_send: Sender<HandlerMessage>
 }
 
-impl<B: BeaconStateTypes> Service<B> {
+impl<B: EthSpec> Service<B> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<B>>,
         config: &NetworkConfig,

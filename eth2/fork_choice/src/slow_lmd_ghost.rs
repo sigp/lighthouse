@@ -9,7 +9,7 @@ use log::{debug, trace};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconState, BeaconStateTypes, ChainSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 //TODO: Pruning and syncing
 
@@ -26,7 +26,7 @@ pub struct SlowLMDGhost<T: ClientDB + Sized, B> {
     _phantom: PhantomData<B>,
 }
 
-impl<T, B: BeaconStateTypes> SlowLMDGhost<T, B>
+impl<T, B: EthSpec> SlowLMDGhost<T, B>
 where
     T: ClientDB + Sized,
 {
@@ -108,7 +108,7 @@ where
     }
 }
 
-impl<T: ClientDB + Sized, B: BeaconStateTypes> ForkChoice for SlowLMDGhost<T, B> {
+impl<T: ClientDB + Sized, B: EthSpec> ForkChoice for SlowLMDGhost<T, B> {
     /// Process when a block is added
     fn add_block(
         &mut self,

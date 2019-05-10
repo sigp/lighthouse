@@ -5,7 +5,7 @@ use types::*;
 /// Peforms a validator registry update, if required.
 ///
 /// Spec v0.5.1
-pub fn update_registry_and_shuffling_data<T: BeaconStateTypes>(
+pub fn update_registry_and_shuffling_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     current_total_balance: u64,
     spec: &ChainSpec,
@@ -50,7 +50,7 @@ pub fn update_registry_and_shuffling_data<T: BeaconStateTypes>(
 /// Returns `true` if the validator registry should be updated during an epoch processing.
 ///
 /// Spec v0.5.1
-pub fn should_update_validator_registry<T: BeaconStateTypes>(
+pub fn should_update_validator_registry<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
@@ -79,7 +79,7 @@ pub fn should_update_validator_registry<T: BeaconStateTypes>(
 /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
 ///
 /// Spec v0.5.1
-pub fn update_validator_registry<T: BeaconStateTypes>(
+pub fn update_validator_registry<T: EthSpec>(
     state: &mut BeaconState<T>,
     current_total_balance: u64,
     spec: &ChainSpec,
@@ -134,7 +134,7 @@ pub fn update_validator_registry<T: BeaconStateTypes>(
 /// Activate the validator of the given ``index``.
 ///
 /// Spec v0.5.1
-pub fn activate_validator<T: BeaconStateTypes>(
+pub fn activate_validator<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_index: usize,
     is_genesis: bool,

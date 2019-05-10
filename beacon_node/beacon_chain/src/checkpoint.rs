@@ -1,17 +1,17 @@
 use serde_derive::Serialize;
-use types::{BeaconBlock, BeaconState, BeaconStateTypes, Hash256};
+use types::{BeaconBlock, BeaconState, EthSpec, Hash256};
 
 /// Represents some block and it's associated state. Generally, this will be used for tracking the
 /// head, justified head and finalized head.
 #[derive(Clone, Serialize, PartialEq, Debug)]
-pub struct CheckPoint<B: BeaconStateTypes> {
+pub struct CheckPoint<B: EthSpec> {
     pub beacon_block: BeaconBlock,
     pub beacon_block_root: Hash256,
     pub beacon_state: BeaconState<B>,
     pub beacon_state_root: Hash256,
 }
 
-impl<B: BeaconStateTypes> CheckPoint<B> {
+impl<B: EthSpec> CheckPoint<B> {
     /// Create a new checkpoint.
     pub fn new(
         beacon_block: BeaconBlock,
