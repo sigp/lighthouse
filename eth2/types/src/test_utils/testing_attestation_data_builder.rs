@@ -10,7 +10,12 @@ pub struct TestingAttestationDataBuilder {
 impl TestingAttestationDataBuilder {
     /// Configures a new `AttestationData` which attests to all of the same parameters as the
     /// state.
-    pub fn new(state: &BeaconState, shard: u64, slot: Slot, spec: &ChainSpec) -> Self {
+    pub fn new<T: EthSpec>(
+        state: &BeaconState<T>,
+        shard: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Self {
         let current_epoch = state.current_epoch(spec);
         let previous_epoch = state.previous_epoch(spec);
 
@@ -25,22 +30,22 @@ impl TestingAttestationDataBuilder {
 
         let target_root = if is_previous_epoch {
             *state
-                .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch), spec)
+                .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch))
                 .unwrap()
         } else {
             *state
-                .get_block_root(current_epoch.start_slot(spec.slots_per_epoch), spec)
+                .get_block_root(current_epoch.start_slot(spec.slots_per_epoch))
                 .unwrap()
         };
 
         let source_root = *state
-            .get_block_root(source_epoch.start_slot(spec.slots_per_epoch), spec)
+            .get_block_root(source_epoch.start_slot(spec.slots_per_epoch))
             .unwrap();
 
         let data = AttestationData {
             // LMD GHOST vote
             slot,
-            beacon_block_root: *state.get_block_root(slot, spec).unwrap(),
+            beacon_block_root: *state.get_block_root(slot).unwrap(),
 
             // FFG Vote
             source_epoch,

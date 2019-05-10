@@ -7,9 +7,9 @@ mod service;
 mod signer;
 
 use crate::config::Config as ValidatorClientConfig;
+use crate::service::Service as ValidatorService;
 use clap::{App, Arg};
 use protos::services_grpc::ValidatorServiceClient;
-use service::Service as ValidatorService;
 use slog::{error, info, o, Drain};
 use types::Keypair;
 

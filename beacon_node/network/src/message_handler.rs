@@ -13,6 +13,7 @@ use slog::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use types::EthSpec;
 
 /// Timeout for RPC requests.
 // const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -20,11 +21,11 @@ use std::time::Instant;
 // const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
-pub struct MessageHandler {
+pub struct MessageHandler<B: EthSpec> {
     /// Currently loaded and initialised beacon chain.
-    _chain: Arc<BeaconChain>,
+    _chain: Arc<BeaconChain<B>>,
     /// The syncing framework.
-    sync: SimpleSync,
+    sync: SimpleSync<B>,
     /// The context required to send messages to, and process messages from peers.
     network_context: NetworkContext,
     /// The `MessageHandler` logger.
@@ -44,10 +45,10 @@ pub enum HandlerMessage {
     PubsubMessage(PeerId, Box<PubsubMessage>),
 }
 
-impl MessageHandler {
+impl<B: EthSpec> MessageHandler<B> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
-        beacon_chain: Arc<BeaconChain>,
+        beacon_chain: Arc<BeaconChain<B>>,
         network_send: crossbeam_channel::Sender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
@@ -299,7 +300,7 @@ impl NetworkContext {
         let next_id = self
             .outgoing_request_ids
             .entry(peer_id.clone())
-            .and_modify(|id| id.increment())
+            .and_modify(RequestId::increment)
             .or_insert_with(|| RequestId::from(1));
 
         next_id.previous()

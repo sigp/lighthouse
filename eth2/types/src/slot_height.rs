@@ -1,5 +1,6 @@
 use crate::slot_epoch::{Epoch, Slot};
 use crate::test_utils::TestRandom;
+
 use rand::RngCore;
 use serde_derive::Serialize;
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable};

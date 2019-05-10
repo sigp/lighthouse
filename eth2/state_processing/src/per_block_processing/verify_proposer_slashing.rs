@@ -8,9 +8,9 @@ use types::*;
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.5.1
-pub fn verify_proposer_slashing(
+pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let proposer = state

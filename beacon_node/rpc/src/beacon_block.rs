@@ -13,16 +13,16 @@ use slog::Logger;
 use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decodable};
 use std::sync::Arc;
-use types::{BeaconBlock, Signature, Slot};
+use types::{BeaconBlock, EthSpec, Signature, Slot};
 
 #[derive(Clone)]
-pub struct BeaconBlockServiceInstance {
-    pub chain: Arc<BeaconChain>,
+pub struct BeaconBlockServiceInstance<B: EthSpec> {
+    pub chain: Arc<BeaconChain<B>>,
     pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
     pub log: Logger,
 }
 
-impl BeaconBlockService for BeaconBlockServiceInstance {
+impl<B: EthSpec> BeaconBlockService for BeaconBlockServiceInstance<B> {
     /// Produce a `BeaconBlock` for signing by a validator.
     fn produce_beacon_block(
         &mut self,

@@ -7,17 +7,18 @@ use fork_choice::BitwiseLMDGhost;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
+use types::{test_utils::TestingBeaconStateBuilder, EthSpec, FewValidatorsEthSpec};
 
-type TestingBeaconChain = BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>;
+type TestingBeaconChain<B> =
+    BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>, B>;
 
-pub struct TestingBeaconChainBuilder {
-    state_builder: TestingBeaconStateBuilder,
+pub struct TestingBeaconChainBuilder<B: EthSpec> {
+    state_builder: TestingBeaconStateBuilder<B>,
 }
 
-impl TestingBeaconChainBuilder {
-    pub fn build(self, spec: &ChainSpec) -> TestingBeaconChain {
+impl<B: EthSpec> TestingBeaconChainBuilder<B> {
+    pub fn build(self, spec: &ChainSpec) -> TestingBeaconChain<B> {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
@@ -43,8 +44,8 @@ impl TestingBeaconChainBuilder {
     }
 }
 
-impl From<TestingBeaconStateBuilder> for TestingBeaconChainBuilder {
-    fn from(state_builder: TestingBeaconStateBuilder) -> TestingBeaconChainBuilder {
+impl<B: EthSpec> From<TestingBeaconStateBuilder<B>> for TestingBeaconChainBuilder<B> {
+    fn from(state_builder: TestingBeaconStateBuilder<B>) -> TestingBeaconChainBuilder<B> {
         TestingBeaconChainBuilder { state_builder }
     }
 }

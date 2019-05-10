@@ -11,14 +11,21 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
-use types::{BeaconBlock, ChainSpec, Hash256};
+use types::{BeaconBlock, ChainSpec, FewValidatorsEthSpec, FoundationEthSpec, Hash256};
 
 //TODO: Correct this for prod
 //TODO: Account for historical db
 pub fn initialise_beacon_chain(
     spec: &ChainSpec,
     db_name: Option<&PathBuf>,
-) -> Arc<BeaconChain<DiskDB, SystemTimeSlotClock, BitwiseLMDGhost<DiskDB>>> {
+) -> Arc<
+    BeaconChain<
+        DiskDB,
+        SystemTimeSlotClock,
+        BitwiseLMDGhost<DiskDB, FoundationEthSpec>,
+        FoundationEthSpec,
+    >,
+> {
     // set up the db
     let db = Arc::new(DiskDB::open(
         db_name.expect("Database directory must be included"),
@@ -64,7 +71,14 @@ pub fn initialise_beacon_chain(
 pub fn initialise_test_beacon_chain(
     spec: &ChainSpec,
     _db_name: Option<&PathBuf>,
-) -> Arc<BeaconChain<MemoryDB, SystemTimeSlotClock, BitwiseLMDGhost<MemoryDB>>> {
+) -> Arc<
+    BeaconChain<
+        MemoryDB,
+        SystemTimeSlotClock,
+        BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>,
+        FewValidatorsEthSpec,
+    >,
+> {
     let db = Arc::new(MemoryDB::open());
     let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
     let state_store = Arc::new(BeaconStateStore::new(db.clone()));

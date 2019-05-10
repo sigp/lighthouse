@@ -2,8 +2,6 @@ language: rust
 cache:
   directories:
     - /home/travis/.cargo
-before_cache:
-  - rm -rf /home/travis/.cargo/registry
 before_install:
   - curl -OL https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-linux-x86_64.zip
   - unzip protoc-3.4.0-linux-x86_64.zip -d protoc3
@@ -11,33 +9,14 @@ before_install:
   - sudo mv protoc3/include/* /usr/local/include/
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
-env:
-  - BUILD=--all
-  - BUILD=--release --all
-  - BUILD= --manifest-path eth2/state_processing/Cargo.toml --release --features fake_crypto
 script:
-  - cargo build --verbose $BUILD
-  - cargo test --verbose $BUILD
-  - cargo fmt --all -- --check
-  # No clippy until later...
-  #- cargo clippy
+  - cargo build --verbose --all --release
 rust:
-  - stable
   - beta
   - nightly
 matrix:
   allow_failures:
     - rust: nightly
   fast_finish: true
-  exclude:
-      - rust: beta
-        env: BUILD=--release --all
-      - rust: beta
-        env: BUILD= --manifest-path eth2/state_processing/Cargo.toml --release --features fake_crypto
-      - rust: nightly
-        env: BUILD=--release --all
-      - rust: nightly
-        env: BUILD= --manifest-path eth2/state_processing/Cargo.toml --release --features fake_crypto
 install:
   - rustup component add rustfmt
-  - rustup component add clippy

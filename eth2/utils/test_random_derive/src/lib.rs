@@ -21,6 +21,7 @@ fn should_use_default(field: &syn::Field) -> bool {
 pub fn test_random_derive(input: TokenStream) -> TokenStream {
     let derived_input = parse_macro_input!(input as DeriveInput);
     let name = &derived_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derived_input.generics.split_for_impl();
 
     let struct_data = match &derived_input.data {
         syn::Data::Struct(s) => s,
@@ -48,8 +49,8 @@ pub fn test_random_derive(input: TokenStream) -> TokenStream {
     }
 
     let output = quote! {
-        impl<T: RngCore> TestRandom<T> for #name {
-            fn random_for_test(rng: &mut T) -> Self {
+        impl #impl_generics TestRandom for #name #ty_generics #where_clause {
+            fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
                Self {
                     #(
                         #quotes
