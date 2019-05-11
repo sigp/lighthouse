@@ -230,6 +230,18 @@ mod round_trip {
     }
 
     #[test]
+    fn three_variable_len() {
+        let vec: Vec<ThreeVariableLen> = vec![ThreeVariableLen {
+            a: 42,
+            b: vec![0],
+            c: vec![1],
+            d: vec![2],
+        }];
+
+        round_trip(vec);
+    }
+
+    #[test]
     fn offsets_decreasing() {
         let bytes = vec![
             //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15

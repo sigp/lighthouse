@@ -36,7 +36,7 @@ pub trait Decodable: Sized {
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError>;
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Offset {
     position: usize,
     offset: usize,
@@ -92,6 +92,9 @@ impl<'a> SszDecoderBuilder<'a> {
                 offset,
             });
 
+            // Push an empty slice into items; it will be replaced later.
+            self.items.push(&[]);
+
             self.items_index += BYTES_PER_LENGTH_OFFSET;
         }
 
@@ -99,9 +102,10 @@ impl<'a> SszDecoderBuilder<'a> {
     }
 
     fn apply_offsets(&mut self) -> Result<(), DecodeError> {
+        dbg!(&self.offsets);
+        dbg!(&self.items);
         if !self.offsets.is_empty() {
 
-            let mut insertions = 0;
             let mut running_offset = self.offsets[0].offset;
 
             if running_offset != self.items_index {
@@ -109,21 +113,20 @@ impl<'a> SszDecoderBuilder<'a> {
             }
 
             for i in 1..=self.offsets.len() {
-                let (slice_option, position) = if i == self.offsets.len() {
-                    (self.bytes.get(running_offset..), self.offsets.len())
+                let slice_option = if i == self.offsets.len() {
+                    self.bytes.get(running_offset..)
                 } else {
                     let offset = self.offsets[i];
                     let start = running_offset;
                     running_offset = offset.offset;
 
-                    (self.bytes.get(start..running_offset), offset.position)
+                    self.bytes.get(start..running_offset)
                 };
 
                 let slice = slice_option
                     .ok_or_else(|| DecodeError::OutOfBoundsByte { i: running_offset })?;
 
-                self.items.insert(position + insertions, slice);
-                insertions += 1;
+                self.items[self.offsets[i - 1].position] = slice;
             }
         }
 
