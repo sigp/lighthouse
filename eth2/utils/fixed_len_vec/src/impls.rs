@@ -132,7 +132,6 @@ mod ssz_tests {
 
     fn round_trip<T: Encodable + Decodable + std::fmt::Debug + PartialEq>(item: T) {
         let encoded = &item.as_ssz_bytes();
-        dbg!(encoded);
         assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
     }
 
