@@ -1,5 +1,5 @@
 use ethereum_types::H256;
-use ssz::{Decodable, Encodable};
+use ssz::{Decodable, DecodeError, Encodable};
 use ssz_derive::{Decode, Encode};
 
 mod round_trip {
@@ -126,6 +126,34 @@ mod round_trip {
     }
 
     #[test]
+    fn offset_into_fixed_bytes() {
+        let bytes = vec![
+            //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
+            //      | offset        | u32           | variable
+            01, 00, 09, 00, 00, 00, 01, 00, 00, 00, 00, 00, 01, 00, 02, 00,
+        ];
+
+        assert_eq!(
+            VariableLen::from_ssz_bytes(&bytes),
+            Err(DecodeError::OutOfBoundsByte { i: 9 })
+        );
+    }
+
+    #[test]
+    fn first_offset_skips_byte() {
+        let bytes = vec![
+            //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
+            //      | offset        | u32           | variable
+            01, 00, 11, 00, 00, 00, 01, 00, 00, 00, 00, 00, 01, 00, 02, 00,
+        ];
+
+        assert_eq!(
+            VariableLen::from_ssz_bytes(&bytes),
+            Err(DecodeError::OutOfBoundsByte { i: 11 })
+        );
+    }
+
+    #[test]
     fn variable_len_struct_encoding() {
         let items: Vec<VariableLen> = vec![
             VariableLen {
@@ -193,4 +221,25 @@ mod round_trip {
         round_trip(items);
     }
 
+    #[derive(Debug, PartialEq, Encode, Decode)]
+    struct ThreeVariableLen {
+        a: u16,
+        b: Vec<u16>,
+        c: Vec<u16>,
+        d: Vec<u16>,
+    }
+
+    #[test]
+    fn offsets_decreasing() {
+        let bytes = vec![
+            //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
+            //      | offset        | ofset         | offset        | variable
+            01, 00, 14, 00, 00, 00, 15, 00, 00, 00, 14, 00, 00, 00, 00, 00,
+        ];
+
+        assert_eq!(
+            ThreeVariableLen::from_ssz_bytes(&bytes),
+            Err(DecodeError::OutOfBoundsByte { i: 14 })
+        );
+    }
 }
