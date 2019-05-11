@@ -108,3 +108,29 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod ssz_tests {
+    use super::*;
+    use ssz::*;
+    use typenum::*;
+
+    #[test]
+    fn encode() {
+        let vec: FixedLenVec<u16, U2> = vec![0; 2].into();
+        assert_eq!(vec.as_ssz_bytes(), vec![0, 0, 0, 0]);
+        assert_eq!(<FixedLenVec<u16, U2> as Encodable>::ssz_fixed_len(), 4);
+    }
+
+    fn round_trip<T: Encodable + Decodable + std::fmt::Debug + PartialEq>(item: T) {
+        let encoded = &item.as_ssz_bytes();
+        dbg!(encoded);
+        assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
+    }
+
+    #[test]
+    fn u16_len_8() {
+        round_trip::<FixedLenVec<u16, U8>>(vec![42; 8].into());
+        round_trip::<FixedLenVec<u16, U8>>(vec![0; 8].into());
+    }
+}
