@@ -100,8 +100,13 @@ impl<'a> SszDecoderBuilder<'a> {
 
     fn apply_offsets(&mut self) -> Result<(), DecodeError> {
         if !self.offsets.is_empty() {
+
             let mut insertions = 0;
             let mut running_offset = self.offsets[0].offset;
+
+            if running_offset != self.items_index {
+                return Err(DecodeError::OutOfBoundsByte { i: running_offset })
+            }
 
             for i in 1..=self.offsets.len() {
                 let (slice_option, position) = if i == self.offsets.len() {
