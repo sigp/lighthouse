@@ -102,31 +102,27 @@ impl<'a> SszDecoderBuilder<'a> {
     }
 
     fn apply_offsets(&mut self) -> Result<(), DecodeError> {
-        dbg!(&self.offsets);
-        dbg!(&self.items);
         if !self.offsets.is_empty() {
-
-            let mut running_offset = self.offsets[0].offset;
-
-            if running_offset != self.items_index {
-                return Err(DecodeError::OutOfBoundsByte { i: running_offset })
+            // Check to ensure the first offset points to the byte immediately following the
+            // fixed-length bytes.
+            if self.offsets[0].offset != self.items_index {
+                return Err(DecodeError::OutOfBoundsByte {
+                    i: self.offsets[0].offset,
+                });
             }
 
-            for i in 1..=self.offsets.len() {
-                let slice_option = if i == self.offsets.len() {
-                    self.bytes.get(running_offset..)
-                } else {
-                    let offset = self.offsets[i];
-                    let start = running_offset;
-                    running_offset = offset.offset;
+            // Iterate through each pair of offsets, grabbing the slice between each of the offsets.
+            for pair in self.offsets.windows(2) {
+                let a = pair[0];
+                let b = pair[1];
 
-                    self.bytes.get(start..running_offset)
-                };
+                self.items[a.position] = &self.bytes[a.offset..b.offset];
+            }
 
-                let slice = slice_option
-                    .ok_or_else(|| DecodeError::OutOfBoundsByte { i: running_offset })?;
-
-                self.items[self.offsets[i - 1].position] = slice;
+            // Handle the last offset, pushing a slice from it's start through to the end of
+            // `self.bytes`.
+            if let Some(last) = self.offsets.last() {
+                self.items[last.position] = &self.bytes[last.offset..]
             }
         }
 
