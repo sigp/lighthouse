@@ -59,6 +59,14 @@ where
         true
     }
 
+    fn ssz_fixed_len() -> usize {
+        if <Self as ssz::Encodable>::is_ssz_fixed_len() {
+            T::ssz_fixed_len() * N::to_usize()
+        } else {
+            ssz::BYTES_PER_LENGTH_OFFSET
+        }
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         if T::is_ssz_fixed_len() {
             buf.reserve(T::ssz_fixed_len() * self.len());
