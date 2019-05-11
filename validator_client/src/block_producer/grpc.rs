@@ -3,7 +3,7 @@ use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
 use protos::services_grpc::BeaconBlockServiceClient;
-use ssz::{decode, ssz_encode};
+use ssz::{Decodable, Encodable};
 use std::sync::Arc;
 use types::{BeaconBlock, Signature, Slot};
 
@@ -33,7 +33,7 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
         // request a beacon block from the node
         let mut req = ProduceBeaconBlockRequest::new();
         req.set_slot(slot.as_u64());
-        req.set_randao_reveal(ssz_encode(randao_reveal));
+        req.set_randao_reveal(randao_reveal.as_ssz_bytes());
 
         //TODO: Determine if we want an explicit timeout
         let reply = self
@@ -46,7 +46,8 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
             let block = reply.get_block();
             let ssz = block.get_ssz();
 
-            let block = decode::<BeaconBlock>(&ssz).map_err(|_| BeaconNodeError::DecodeFailure)?;
+            let block =
+                BeaconBlock::from_ssz_bytes(&ssz).map_err(|_| BeaconNodeError::DecodeFailure)?;
 
             Ok(Some(block))
         } else {
@@ -61,7 +62,7 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
     fn publish_beacon_block(&self, block: BeaconBlock) -> Result<PublishOutcome, BeaconNodeError> {
         let mut req = PublishBeaconBlockRequest::new();
 
-        let ssz = ssz_encode(&block);
+        let ssz = block.as_ssz_bytes();
 
         let mut grpc_block = GrpcBeaconBlock::new();
         grpc_block.set_ssz(ssz);

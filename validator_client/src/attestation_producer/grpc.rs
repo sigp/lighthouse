@@ -1,7 +1,7 @@
 use super::beacon_node_attestation::BeaconNodeAttestation;
 use crate::block_producer::{BeaconNodeError, PublishOutcome};
 use protos::services_grpc::AttestationServiceClient;
-use ssz::{ssz_encode, Decodable};
+use ssz::{Decodable, Encodable};
 
 use protos::services::{
     Attestation as GrpcAttestation, ProduceAttestationDataRequest, PublishAttestationRequest,
@@ -22,8 +22,8 @@ impl BeaconNodeAttestation for AttestationServiceClient {
             .produce_attestation_data(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
-        let (attestation_data, _index) =
-            AttestationData::ssz_decode(reply.get_attestation_data().get_ssz(), 0)
+        let attestation_data =
+            AttestationData::from_ssz_bytes(reply.get_attestation_data().get_ssz())
                 .map_err(|_| BeaconNodeError::DecodeFailure)?;
         Ok(attestation_data)
     }
@@ -34,7 +34,7 @@ impl BeaconNodeAttestation for AttestationServiceClient {
     ) -> Result<PublishOutcome, BeaconNodeError> {
         let mut req = PublishAttestationRequest::new();
 
-        let ssz = ssz_encode(&attestation);
+        let ssz = attestation.as_ssz_bytes();
 
         let mut grpc_attestation = GrpcAttestation::new();
         grpc_attestation.set_ssz(ssz);
