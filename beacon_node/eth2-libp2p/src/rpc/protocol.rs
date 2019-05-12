@@ -1,6 +1,6 @@
 use super::methods::*;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use ssz::{ssz_encode, Decodable, DecodeError as SSZDecodeError, Encodable};
+use ssz::{impl_decode_via_from, impl_encode_via_from, ssz_encode, Decodable, Encodable};
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter;
@@ -72,18 +72,8 @@ impl Into<u64> for RequestId {
     }
 }
 
-impl Encodable for RequestId {
-    fn ssz_append(&self, s: &mut SszStream) {
-        self.0.ssz_append(s);
-    }
-}
-
-impl Decodable for RequestId {
-    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), SSZDecodeError> {
-        let (id, index) = u64::ssz_decode(bytes, index)?;
-        Ok((Self::from(id), index))
-    }
-}
+impl_encode_via_from!(RequestId, u64);
+impl_decode_via_from!(RequestId, u64);
 
 /// The RPC types which are sent/received in this protocol.
 #[derive(Debug, Clone)]

@@ -1,4 +1,4 @@
-use ssz::{Decodable, DecodeError, Encodable};
+use ssz::{impl_decode_via_from, impl_encode_via_from, Decodable, DecodeError, Encodable};
 /// Available RPC methods types and ids.
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
@@ -149,19 +149,8 @@ impl Into<u64> for GoodbyeReason {
     }
 }
 
-impl Encodable for GoodbyeReason {
-    fn ssz_append(&self, s: &mut SszStream) {
-        let id: u64 = (*self).clone().into();
-        id.ssz_append(s);
-    }
-}
-
-impl Decodable for GoodbyeReason {
-    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
-        let (id, index) = u64::ssz_decode(bytes, index)?;
-        Ok((Self::from(id), index))
-    }
-}
+impl_encode_via_from!(GoodbyeReason, u64);
+impl_decode_via_from!(GoodbyeReason, u64);
 
 /// Request a number of beacon block roots from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
