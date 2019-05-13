@@ -539,10 +539,10 @@ where
 /// The keys in the map should be validator indices, which will be looked up
 /// in the state's validator registry and then passed to `prune_if`.
 /// Entries for unknown validators will be kept.
-fn prune_validator_hash_map<T, F, B: EthSpec>(
+fn prune_validator_hash_map<T, F, E: EthSpec>(
     map: &mut HashMap<u64, T>,
     prune_if: F,
-    finalized_state: &BeaconState<B>,
+    finalized_state: &BeaconState<E>,
 ) where
     F: Fn(&Validator) -> bool,
 {
@@ -722,12 +722,12 @@ mod tests {
 
         /// Create a signed attestation for use in tests.
         /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
-        fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>, B: EthSpec>(
+        fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>, E: EthSpec>(
             committee: &CrosslinkCommittee,
             keypairs: &[Keypair],
             signing_range: R,
             slot: Slot,
-            state: &BeaconState<B>,
+            state: &BeaconState<E>,
             spec: &ChainSpec,
             extra_signer: Option<usize>,
         ) -> Attestation {
@@ -754,10 +754,10 @@ mod tests {
         }
 
         /// Test state for attestation-related tests.
-        fn attestation_test_state<B: EthSpec>(
+        fn attestation_test_state<E: EthSpec>(
             num_committees: usize,
-        ) -> (BeaconState<B>, Vec<Keypair>, ChainSpec) {
-            let spec = B::spec();
+        ) -> (BeaconState<E>, Vec<Keypair>, ChainSpec) {
+            let spec = E::spec();
 
             let num_validators =
                 num_committees * (spec.slots_per_epoch * spec.target_committee_size) as usize;
@@ -775,9 +775,9 @@ mod tests {
         }
 
         /// Set the latest crosslink in the state to match the attestation.
-        fn fake_latest_crosslink<B: EthSpec>(
+        fn fake_latest_crosslink<E: EthSpec>(
             att: &Attestation,
-            state: &mut BeaconState<B>,
+            state: &mut BeaconState<E>,
             spec: &ChainSpec,
         ) {
             state.latest_crosslinks[att.data.shard as usize] = Crosslink {

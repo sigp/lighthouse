@@ -19,8 +19,8 @@ use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, EthSpec, Hash256, S
 /// `BeaconBlockBody` as the key.
 /// - It is possible for multiple distinct blocks to have identical `BeaconBlockBodies`. Therefore
 /// we cannot use a `HashMap` keyed by the root of `BeaconBlockBody`.
-pub struct ImportQueue<B: EthSpec> {
-    pub chain: Arc<BeaconChain<B>>,
+pub struct ImportQueue<E: EthSpec> {
+    pub chain: Arc<BeaconChain<E>>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
     pub partials: Vec<PartialBeaconBlock>,
     /// Time before a queue entry is considered state.
@@ -29,9 +29,9 @@ pub struct ImportQueue<B: EthSpec> {
     log: slog::Logger,
 }
 
-impl<B: EthSpec> ImportQueue<B> {
+impl<E: EthSpec> ImportQueue<E> {
     /// Return a new, empty queue.
-    pub fn new(chain: Arc<BeaconChain<B>>, stale_time: Duration, log: slog::Logger) -> Self {
+    pub fn new(chain: Arc<BeaconChain<E>>, stale_time: Duration, log: slog::Logger) -> Self {
         Self {
             chain,
             partials: vec![],
