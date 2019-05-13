@@ -1,4 +1,4 @@
-use crate::common::exit_validator;
+// use crate::common::exit_validator;
 use types::{BeaconStateError as Error, *};
 
 /// Iterate through the validator registry and eject active validators with balance below
@@ -12,7 +12,7 @@ pub fn process_ejections(state: &mut BeaconState, spec: &ChainSpec) -> Result<()
         .get_cached_active_validator_indices(RelativeEpoch::Current, spec)?
         .iter()
         .filter_map(|&i| {
-            if state.validator_balances[i as usize] < spec.ejection_balance {
+            if state.balances[i as usize] < spec.ejection_balance {
                 Some(i)
             } else {
                 None
@@ -21,7 +21,8 @@ pub fn process_ejections(state: &mut BeaconState, spec: &ChainSpec) -> Result<()
         .collect();
 
     for validator_index in exitable {
-        exit_validator(state, validator_index, spec)?
+        // FIXME(sproul)
+        // exit_validator(state, validator_index, spec)?
     }
 
     Ok(())

@@ -22,9 +22,11 @@ pub fn process_exit_queue(state: &mut BeaconState, spec: &ChainSpec) {
     eligable_indices.sort_by_key(|i| state.validator_registry[*i].exit_epoch);
 
     for (dequeues, index) in eligable_indices.iter().enumerate() {
+        /* FIXME(sproul)
         if dequeues as u64 >= spec.max_exit_dequeues_per_epoch {
             break;
         }
+        */
         prepare_validator_for_withdrawal(state, *index, spec);
     }
 }

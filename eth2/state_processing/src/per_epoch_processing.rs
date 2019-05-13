@@ -1,24 +1,24 @@
-use apply_rewards::apply_rewards;
+use apply_rewards::process_rewards_and_penalties;
 use errors::EpochProcessingError as Error;
 use process_ejections::process_ejections;
 use process_exit_queue::process_exit_queue;
 use process_slashings::process_slashings;
+use registry_updates::process_registry_updates;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use types::*;
-use update_registry_and_shuffling_data::update_registry_and_shuffling_data;
 use validator_statuses::{TotalBalances, ValidatorStatuses};
 use winning_root::{winning_root, WinningRoot};
 
 pub mod apply_rewards;
 pub mod errors;
-pub mod get_attestation_participants;
+pub mod get_attesting_indices;
 pub mod inclusion_distance;
 pub mod process_ejections;
 pub mod process_exit_queue;
 pub mod process_slashings;
+pub mod registry_updates;
 pub mod tests;
-pub mod update_registry_and_shuffling_data;
 pub mod validator_statuses;
 pub mod winning_root;
 
@@ -54,7 +54,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     maybe_reset_eth1_period(state, spec);
 
     // Rewards and Penalities.
-    apply_rewards(
+    process_rewards_and_penalties(
         state,
         &mut validator_statuses,
         &winning_root_for_shards,
@@ -65,11 +65,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
     process_ejections(state, spec)?;
 
     // Validator Registry.
-    update_registry_and_shuffling_data(
-        state,
-        validator_statuses.total_balances.current_epoch,
-        spec,
-    )?;
+    process_registry_updates(state, validator_statuses.total_balances.current_epoch, spec)?;
 
     // Slashings and exit queue.
     process_slashings(state, validator_statuses.total_balances.current_epoch, spec)?;
@@ -88,6 +84,7 @@ pub fn per_epoch_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result
 ///
 /// Spec v0.5.1
 pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
+    /* FIXME(sproul)
     let next_epoch = state.next_epoch(spec);
     let voting_period = spec.epochs_per_eth1_voting_period;
 
@@ -99,6 +96,7 @@ pub fn maybe_reset_eth1_period(state: &mut BeaconState, spec: &ChainSpec) {
         }
         state.eth1_data_votes = vec![];
     }
+    */
 }
 
 /// Update the following fields on the `BeaconState`:
@@ -131,8 +129,6 @@ pub fn process_justification_and_finalization(
     state.previous_justified_epoch = state.current_justified_epoch;
     state.previous_justified_root = state.current_justified_root;
     state.justification_bitfield <<= 1;
-
-    let previous_epoch_matching_target_balance = total_balances.previous_epoch_target_attesters;
 
     if total_balances.previous_epoch_target_attesters * 3 >= total_balances.previous_epoch * 2 {
         state.current_justified_epoch = previous_epoch;
@@ -176,42 +172,33 @@ pub fn process_justification_and_finalization(
 
 /// Updates the following fields on the `BeaconState`:
 ///
-/// - `latest_crosslinks`
+/// - `previous_crosslinks`
+/// - `current_crosslinks`
 ///
 /// Also returns a `WinningRootHashSet` for later use during epoch processing.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_crosslinks(
     state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<WinningRootHashSet, Error> {
     let mut winning_root_for_shards: WinningRootHashSet = HashMap::new();
 
-    let previous_and_current_epoch_slots: Vec<Slot> = state
-        .previous_epoch(spec)
-        .slot_iter(spec.slots_per_epoch)
-        .chain(state.current_epoch(spec).slot_iter(spec.slots_per_epoch))
-        .collect();
+    state.previous_crosslinks = state.current_crosslinks.clone();
 
-    for slot in previous_and_current_epoch_slots {
-        // Clone removes the borrow which becomes an issue when mutating `state.balances`.
-        let crosslink_committees_at_slot =
-            state.get_crosslink_committees_at_slot(slot, spec)?.clone();
+    for epoch in vec![state.previous_epoch(spec), state.current_epoch(spec)] {
+        for offset in 0..state.get_epoch_committee_count(epoch, spec) {
+            let shard = (state.get_epoch_start_shard(epoch, spec) + offset) % spec.shard_count;
+            let crosslink_committee = state.get_crosslink_committee(epoch, shard, spec)?;
 
-        for c in crosslink_committees_at_slot {
-            let shard = c.shard as u64;
-
-            let winning_root = winning_root(state, shard, spec)?;
+            let winning_root = winning_root(state, shard, epoch, spec)?;
 
             if let Some(winning_root) = winning_root {
-                let total_committee_balance = state.get_total_balance(&c.committee, spec)?;
+                let total_committee_balance =
+                    state.get_total_balance(&crosslink_committee.committee, spec)?;
 
-                // TODO: I think this has a bug.
-                if (3 * winning_root.total_attesting_balance) >= (2 * total_committee_balance) {
-                    state.latest_crosslinks[shard as usize] = Crosslink {
-                        epoch: slot.epoch(spec.slots_per_epoch),
-                        crosslink_data_root: winning_root.crosslink_data_root,
-                    }
+                if 3 * winning_root.total_attesting_balance >= 2 * total_committee_balance {
+                    state.current_crosslinks[shard as usize] = winning_root.crosslink.clone();
                 }
                 winning_root_for_shards.insert(shard, winning_root);
             }

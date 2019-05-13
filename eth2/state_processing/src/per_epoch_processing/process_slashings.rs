@@ -24,10 +24,10 @@ pub fn process_slashings(
             let penalty = std::cmp::max(
                 effective_balance * std::cmp::min(total_penalities * 3, current_total_balance)
                     / current_total_balance,
-                effective_balance / spec.min_penalty_quotient,
+                effective_balance / 1, /* FIXME(sproul): spec.min_penalty_quotient, */
             );
 
-            state.validator_balances[index] -= penalty;
+            state.balances[index] -= penalty;
         }
     }
 
