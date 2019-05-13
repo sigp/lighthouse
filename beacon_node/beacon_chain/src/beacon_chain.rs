@@ -83,31 +83,31 @@ impl BlockProcessingOutcome {
     }
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, B: EthSpec> {
+pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, E: EthSpec> {
     pub block_store: Arc<BeaconBlockStore<T>>,
     pub state_store: Arc<BeaconStateStore<T>>,
     pub slot_clock: U,
-    pub op_pool: OperationPool<B>,
-    canonical_head: RwLock<CheckPoint<B>>,
-    finalized_head: RwLock<CheckPoint<B>>,
-    pub state: RwLock<BeaconState<B>>,
+    pub op_pool: OperationPool<E>,
+    canonical_head: RwLock<CheckPoint<E>>,
+    finalized_head: RwLock<CheckPoint<E>>,
+    pub state: RwLock<BeaconState<E>>,
     pub spec: ChainSpec,
     pub fork_choice: RwLock<F>,
 }
 
-impl<T, U, F, B> BeaconChain<T, U, F, B>
+impl<T, U, F, E> BeaconChain<T, U, F, E>
 where
     T: ClientDB,
     U: SlotClock,
     F: ForkChoice,
-    B: EthSpec,
+    E: EthSpec,
 {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
         state_store: Arc<BeaconStateStore<T>>,
         block_store: Arc<BeaconBlockStore<T>>,
         slot_clock: U,
-        mut genesis_state: BeaconState<B>,
+        mut genesis_state: BeaconState<E>,
         genesis_block: BeaconBlock,
         spec: ChainSpec,
         fork_choice: F,
@@ -230,7 +230,7 @@ where
                 Err(BeaconStateError::SlotOutOfBounds) => {
                     // Read the earliest historic state in the current slot.
                     let earliest_historic_slot =
-                        state.slot - Slot::from(B::SlotsPerHistoricalRoot::to_usize());
+                        state.slot - Slot::from(E::SlotsPerHistoricalRoot::to_usize());
                     // Load the earlier state from disk.
                     let new_state_root = state.get_state_root(earliest_historic_slot)?;
 
@@ -270,7 +270,7 @@ where
         &self,
         new_beacon_block: BeaconBlock,
         new_beacon_block_root: Hash256,
-        new_beacon_state: BeaconState<B>,
+        new_beacon_state: BeaconState<E>,
         new_beacon_state_root: Hash256,
     ) {
         debug!(
@@ -292,7 +292,7 @@ where
     /// It is important to note that the `beacon_state` returned may not match the present slot. It
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
-    pub fn head(&self) -> RwLockReadGuard<CheckPoint<B>> {
+    pub fn head(&self) -> RwLockReadGuard<CheckPoint<E>> {
         self.canonical_head.read()
     }
 
@@ -302,7 +302,7 @@ where
     /// state and calling `catchup_state` as it will not result in an old state being installed and
     /// then having it iteratively updated -- in such a case it's possible for another thread to
     /// find the state at an old slot.
-    pub fn update_state(&self, mut state: BeaconState<B>) -> Result<(), Error> {
+    pub fn update_state(&self, mut state: BeaconState<E>) -> Result<(), Error> {
         let present_slot = match self.slot_clock.present_slot() {
             Ok(Some(slot)) => slot,
             _ => return Err(Error::UnableToReadSlot),
@@ -357,7 +357,7 @@ where
         &self,
         new_beacon_block: BeaconBlock,
         new_beacon_block_root: Hash256,
-        new_beacon_state: BeaconState<B>,
+        new_beacon_state: BeaconState<E>,
         new_beacon_state_root: Hash256,
     ) {
         let mut finalized_head = self.finalized_head.write();
@@ -371,7 +371,7 @@ where
 
     /// Returns a read-lock guarded `CheckPoint` struct for reading the justified head (as chosen,
     /// indirectly,  by the fork-choice rule).
-    pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint<B>> {
+    pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint<E>> {
         self.finalized_head.read()
     }
 
@@ -664,7 +664,7 @@ where
     pub fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState<B>), BlockProductionError> {
+    ) -> Result<(BeaconBlock, BeaconState<E>), BlockProductionError> {
         debug!("Producing block at slot {}...", self.state.read().slot);
 
         let mut state = self.state.read().clone();
@@ -759,7 +759,7 @@ where
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
     /// activities.
-    pub fn chain_dump(&self) -> Result<Vec<CheckPoint<B>>, Error> {
+    pub fn chain_dump(&self) -> Result<Vec<CheckPoint<E>>, Error> {
         let mut dump = vec![];
 
         let mut last_slot = CheckPoint {

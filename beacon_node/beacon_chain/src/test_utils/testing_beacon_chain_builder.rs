@@ -10,15 +10,15 @@ use tree_hash::TreeHash;
 use types::*;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, FewValidatorsEthSpec};
 
-type TestingBeaconChain<B> =
-    BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>, B>;
+type TestingBeaconChain<E> =
+    BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>, E>;
 
-pub struct TestingBeaconChainBuilder<B: EthSpec> {
-    state_builder: TestingBeaconStateBuilder<B>,
+pub struct TestingBeaconChainBuilder<E: EthSpec> {
+    state_builder: TestingBeaconStateBuilder<E>,
 }
 
-impl<B: EthSpec> TestingBeaconChainBuilder<B> {
-    pub fn build(self, spec: &ChainSpec) -> TestingBeaconChain<B> {
+impl<E: EthSpec> TestingBeaconChainBuilder<E> {
+    pub fn build(self, spec: &ChainSpec) -> TestingBeaconChain<E> {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
@@ -44,8 +44,8 @@ impl<B: EthSpec> TestingBeaconChainBuilder<B> {
     }
 }
 
-impl<B: EthSpec> From<TestingBeaconStateBuilder<B>> for TestingBeaconChainBuilder<B> {
-    fn from(state_builder: TestingBeaconStateBuilder<B>) -> TestingBeaconChainBuilder<B> {
+impl<E: EthSpec> From<TestingBeaconStateBuilder<E>> for TestingBeaconChainBuilder<E> {
+    fn from(state_builder: TestingBeaconStateBuilder<E>) -> TestingBeaconChainBuilder<E> {
         TestingBeaconChainBuilder { state_builder }
     }
 }

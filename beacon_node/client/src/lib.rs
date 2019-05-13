@@ -144,12 +144,12 @@ impl<TClientType: ClientTypes> Client<TClientType> {
     }
 }
 
-fn do_state_catchup<T, U, F, B>(chain: &Arc<BeaconChain<T, U, F, B>>, log: &slog::Logger)
+fn do_state_catchup<T, U, F, E>(chain: &Arc<BeaconChain<T, U, F, E>>, log: &slog::Logger)
 where
     T: ClientDB,
     U: SlotClock,
     F: ForkChoice,
-    B: EthSpec,
+    E: EthSpec,
 {
     if let Some(genesis_height) = chain.slots_since_genesis() {
         let result = chain.catchup_state();

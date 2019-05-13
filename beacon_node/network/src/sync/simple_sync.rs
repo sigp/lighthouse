@@ -88,8 +88,8 @@ impl From<HelloMessage> for PeerSyncInfo {
     }
 }
 
-impl<B: EthSpec> From<&Arc<BeaconChain<B>>> for PeerSyncInfo {
-    fn from(chain: &Arc<BeaconChain<B>>) -> PeerSyncInfo {
+impl<E: EthSpec> From<&Arc<BeaconChain<E>>> for PeerSyncInfo {
+    fn from(chain: &Arc<BeaconChain<E>>) -> PeerSyncInfo {
         Self::from(chain.hello_message())
     }
 }
@@ -103,22 +103,22 @@ pub enum SyncState {
 }
 
 /// Simple Syncing protocol.
-pub struct SimpleSync<B: EthSpec> {
+pub struct SimpleSync<E: EthSpec> {
     /// A reference to the underlying beacon chain.
-    chain: Arc<BeaconChain<B>>,
+    chain: Arc<BeaconChain<E>>,
     /// A mapping of Peers to their respective PeerSyncInfo.
     known_peers: HashMap<PeerId, PeerSyncInfo>,
     /// A queue to allow importing of blocks
-    import_queue: ImportQueue<B>,
+    import_queue: ImportQueue<E>,
     /// The current state of the syncing protocol.
     state: SyncState,
     /// Sync logger.
     log: slog::Logger,
 }
 
-impl<B: EthSpec> SimpleSync<B> {
+impl<E: EthSpec> SimpleSync<E> {
     /// Instantiate a `SimpleSync` instance, with no peers and an empty queue.
-    pub fn new(beacon_chain: Arc<BeaconChain<B>>, log: &slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<E>>, log: &slog::Logger) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));
 
         let queue_item_stale_time = Duration::from_secs(QUEUE_STALE_SECS);

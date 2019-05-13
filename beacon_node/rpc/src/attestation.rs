@@ -12,12 +12,12 @@ use std::sync::Arc;
 use types::{Attestation, EthSpec};
 
 #[derive(Clone)]
-pub struct AttestationServiceInstance<B: EthSpec> {
-    pub chain: Arc<BeaconChain<B>>,
+pub struct AttestationServiceInstance<E: EthSpec> {
+    pub chain: Arc<BeaconChain<E>>,
     pub log: slog::Logger,
 }
 
-impl<B: EthSpec> AttestationService for AttestationServiceInstance<B> {
+impl<E: EthSpec> AttestationService for AttestationServiceInstance<E> {
     /// Produce the `AttestationData` for signing by a validator.
     fn produce_attestation_data(
         &mut self,

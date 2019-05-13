@@ -21,11 +21,11 @@ use types::EthSpec;
 // const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
-pub struct MessageHandler<B: EthSpec> {
+pub struct MessageHandler<E: EthSpec> {
     /// Currently loaded and initialised beacon chain.
-    _chain: Arc<BeaconChain<B>>,
+    _chain: Arc<BeaconChain<E>>,
     /// The syncing framework.
-    sync: SimpleSync<B>,
+    sync: SimpleSync<E>,
     /// The context required to send messages to, and process messages from peers.
     network_context: NetworkContext,
     /// The `MessageHandler` logger.
@@ -45,10 +45,10 @@ pub enum HandlerMessage {
     PubsubMessage(PeerId, Box<PubsubMessage>),
 }
 
-impl<B: EthSpec> MessageHandler<B> {
+impl<E: EthSpec> MessageHandler<E> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
-        beacon_chain: Arc<BeaconChain<B>>,
+        beacon_chain: Arc<BeaconChain<E>>,
         network_send: crossbeam_channel::Sender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
