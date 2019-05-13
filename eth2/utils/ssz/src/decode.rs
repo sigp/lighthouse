@@ -101,7 +101,7 @@ impl<'a> SszDecoderBuilder<'a> {
         Ok(())
     }
 
-    fn apply_offsets(&mut self) -> Result<(), DecodeError> {
+    fn finalize(&mut self) -> Result<(), DecodeError> {
         if !self.offsets.is_empty() {
             // Check to ensure the first offset points to the byte immediately following the
             // fixed-length bytes.
@@ -124,13 +124,21 @@ impl<'a> SszDecoderBuilder<'a> {
             if let Some(last) = self.offsets.last() {
                 self.items[last.position] = &self.bytes[last.offset..]
             }
+        } else {
+            // If the container is fixed-length, ensure there are no excess bytes.
+            if self.items_index != self.bytes.len() {
+                return Err(DecodeError::InvalidByteLength {
+                    len: self.bytes.len(),
+                    expected: self.items_index,
+                });
+            }
         }
 
         Ok(())
     }
 
     pub fn build(mut self) -> Result<SszDecoder<'a>, DecodeError> {
-        self.apply_offsets()?;
+        self.finalize()?;
 
         Ok(SszDecoder { items: self.items })
     }
