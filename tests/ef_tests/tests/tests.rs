@@ -20,8 +20,5 @@ fn load_test_case<T: DeserializeOwned>(test_name: &str) -> TestDoc<T> {
 #[test]
 fn ssz() {
     let doc: TestDoc<SszGenericCase> = load_test_case("ssz_generic/uint/uint_bounds.yaml");
-
-    dbg!(doc);
-
-    assert!(false);
+    doc.test();
 }
