@@ -1,5 +1,5 @@
-use ssz_derive::Encode;
 use ssz::Encodable;
+use ssz_derive::Encode;
 
 #[derive(Debug, PartialEq, Encode)]
 pub struct Foo {
