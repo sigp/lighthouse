@@ -1,3 +1,8 @@
+/// Implements `Encodable` for `$impl_type` using an implementation of `From<$impl_type> for
+/// $from_type`.
+///
+/// In effect, this allows for easy implementation of `Encodable` for some type that implements a
+/// `From` conversion into another type that already has `Encodable` implemented.
 #[macro_export]
 macro_rules! impl_encode_via_from {
     ($impl_type: ty, $from_type: ty) => {
@@ -19,6 +24,11 @@ macro_rules! impl_encode_via_from {
     };
 }
 
+/// Implements `Decodable` for `$impl_type` using an implementation of `From<$impl_type> for
+/// $from_type`.
+///
+/// In effect, this allows for easy implementation of `Decodable` for some type that implements a
+/// `From` conversion into another type that already has `Decodable` implemented.
 #[macro_export]
 macro_rules! impl_decode_via_from {
     ($impl_type: ty, $from_type: tt) => {
