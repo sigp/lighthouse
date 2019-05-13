@@ -24,7 +24,7 @@ pub enum ValidatorEvent {
     /// A block was not produced as it would have been slashable.
     SlashableBlockNotProduced(Slot),
     /// An attestation was not produced as it would have been slashable.
-    SlashableAttestationNotProduced(Slot),
+    IndexedAttestationNotProduced(Slot),
     /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(Slot),
     /// The signer failed to sign the message.
