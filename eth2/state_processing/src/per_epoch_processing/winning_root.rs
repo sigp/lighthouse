@@ -1,11 +1,11 @@
-use super::get_attestation_participants::get_attestation_participants;
-use std::collections::HashSet;
-use std::iter::FromIterator;
+use super::get_attesting_indices::get_attesting_indices_unsorted;
+use std::collections::{HashMap, HashSet};
+use tree_hash::TreeHash;
 use types::*;
 
 #[derive(Clone)]
 pub struct WinningRoot {
-    pub crosslink_data_root: Hash256,
+    pub crosslink: Crosslink,
     pub attesting_validator_indices: Vec<usize>,
     pub total_attesting_balance: u64,
 }
@@ -16,15 +16,15 @@ impl WinningRoot {
     /// A winning root is "better" than another if it has a higher `total_attesting_balance`. Ties
     /// are broken by favouring the higher `crosslink_data_root` value.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn is_better_than(&self, other: &Self) -> bool {
-        if self.total_attesting_balance > other.total_attesting_balance {
-            true
-        } else if self.total_attesting_balance == other.total_attesting_balance {
-            self.crosslink_data_root > other.crosslink_data_root
-        } else {
-            false
-        }
+        (
+            self.total_attesting_balance,
+            self.crosslink.crosslink_data_root,
+        ) > (
+            other.total_attesting_balance,
+            other.crosslink.crosslink_data_root,
+        )
     }
 }
 
@@ -34,43 +34,55 @@ impl WinningRoot {
 /// The `WinningRoot` object also contains additional fields that are useful in later stages of
 /// per-epoch processing.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn winning_root(
     state: &BeaconState,
     shard: u64,
+    epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<Option<WinningRoot>, BeaconStateError> {
-    let mut winning_root: Option<WinningRoot> = None;
+    let shard_attestations: Vec<&PendingAttestation> = state
+        .get_matching_source_attestations(epoch, spec)?
+        .iter()
+        .filter(|a| a.data.shard == shard)
+        .collect();
 
-    let crosslink_data_roots: HashSet<Hash256> = HashSet::from_iter(
-        state
-            .previous_epoch_attestations
-            .iter()
-            .chain(state.current_epoch_attestations.iter())
-            .filter_map(|a| {
-                if is_eligible_for_winning_root(state, a, shard) {
-                    Some(a.data.crosslink_data_root)
-                } else {
-                    None
-                }
-            }),
-    );
+    let shard_crosslinks = shard_attestations.iter().map(|att| {
+        (
+            att,
+            state.get_crosslink_from_attestation_data(&att.data, spec),
+        )
+    });
 
-    for crosslink_data_root in crosslink_data_roots {
+    let current_shard_crosslink_root = state.current_crosslinks[shard as usize].tree_hash_root();
+    let candidate_crosslinks = shard_crosslinks.filter(|(_, c)| {
+        c.previous_crosslink_root.as_bytes() == &current_shard_crosslink_root[..]
+            || c.tree_hash_root() == current_shard_crosslink_root
+    });
+
+    // Build a map from candidate crosslink to attestations that support that crosslink.
+    let mut candidate_crosslink_map: HashMap<Crosslink, Vec<&PendingAttestation>> = HashMap::new();
+
+    for (&attestation, crosslink) in candidate_crosslinks {
+        let supporting_attestations = candidate_crosslink_map
+            .entry(crosslink)
+            .or_insert_with(Vec::new);
+        supporting_attestations.push(attestation);
+    }
+
+    if candidate_crosslink_map.is_empty() {
+        return Ok(None);
+    }
+
+    let mut winning_root = None;
+    for (crosslink, attestations) in candidate_crosslink_map {
         let attesting_validator_indices =
-            get_attesting_validator_indices(state, shard, &crosslink_data_root, spec)?;
-
-        let total_attesting_balance: u64 =
-            attesting_validator_indices
-                .iter()
-                .try_fold(0_u64, |acc, i| {
-                    state
-                        .get_effective_balance(*i, spec)
-                        .and_then(|bal| Ok(acc + bal))
-                })?;
+            get_unslashed_attesting_indices_unsorted(state, &attestations, spec)?;
+        let total_attesting_balance =
+            state.get_total_balance(&attesting_validator_indices, spec)?;
 
         let candidate = WinningRoot {
-            crosslink_data_root,
+            crosslink,
             attesting_validator_indices,
             total_attesting_balance,
         };
@@ -87,52 +99,29 @@ pub fn winning_root(
     Ok(winning_root)
 }
 
-/// Returns `true` if pending attestation `a` is eligible to become a winning root.
-///
-/// Spec v0.5.1
-fn is_eligible_for_winning_root(state: &BeaconState, a: &PendingAttestation, shard: Shard) -> bool {
-    if shard >= state.latest_crosslinks.len() as u64 {
-        return false;
-    }
-
-    a.data.previous_crosslink == state.latest_crosslinks[shard as usize]
-}
-
-/// Returns all indices which voted for a given crosslink. Does not contain duplicates.
-///
-/// Spec v0.5.1
-fn get_attesting_validator_indices(
+pub fn get_unslashed_attesting_indices_unsorted(
     state: &BeaconState,
-    shard: u64,
-    crosslink_data_root: &Hash256,
+    attestations: &[&PendingAttestation],
     spec: &ChainSpec,
 ) -> Result<Vec<usize>, BeaconStateError> {
-    let mut indices = vec![];
-
-    for a in state
-        .current_epoch_attestations
-        .iter()
-        .chain(state.previous_epoch_attestations.iter())
-    {
-        if (a.data.shard == shard) && (a.data.crosslink_data_root == *crosslink_data_root) {
-            indices.append(&mut get_attestation_participants(
-                state,
-                &a.data,
-                &a.aggregation_bitfield,
-                spec,
-            )?);
-        }
+    let mut output = HashSet::new();
+    for a in attestations {
+        output.extend(get_attesting_indices_unsorted(
+            state,
+            &a.data,
+            &a.aggregation_bitfield,
+            spec,
+        )?);
     }
-
-    // Sort the list (required for dedup). "Unstable" means the sort may re-order equal elements,
-    // this causes no issue here.
-    //
-    // These sort + dedup ops are potentially good CPU time optimisation targets.
-    indices.sort_unstable();
-    // Remove all duplicate indices (requires a sorted list).
-    indices.dedup();
-
-    Ok(indices)
+    Ok(output
+        .into_iter()
+        .filter(|index| {
+            state
+                .validator_registry
+                .get(*index)
+                .map_or(false, |v| !v.slashed)
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -142,15 +131,17 @@ mod tests {
     #[test]
     fn is_better_than() {
         let worse = WinningRoot {
-            crosslink_data_root: Hash256::from_slice(&[1; 32]),
+            crosslink: Crosslink {
+                epoch: Epoch::new(0),
+                previous_crosslink_root: Hash256::from_slice(&[0; 32]),
+                crosslink_data_root: Hash256::from_slice(&[1; 32]),
+            },
             attesting_validator_indices: vec![],
             total_attesting_balance: 42,
         };
 
-        let better = WinningRoot {
-            crosslink_data_root: Hash256::from_slice(&[2; 32]),
-            ..worse.clone()
-        };
+        let mut better = worse.clone();
+        better.crosslink.crosslink_data_root = Hash256::from_slice(&[2; 32]);
 
         assert!(better.is_better_than(&worse));
 

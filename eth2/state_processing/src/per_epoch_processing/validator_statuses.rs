@@ -1,4 +1,4 @@
-use super::get_attestation_participants::get_attestation_participants;
+use super::get_attesting_indices::get_attesting_indices_unsorted;
 use super::WinningRootHashSet;
 use types::*;
 
@@ -29,7 +29,7 @@ pub struct InclusionInfo {
     pub slot: Slot,
     /// The distance between the attestation slot and the slot that attestation was included in a
     /// block.
-    pub distance: Slot,
+    pub distance: u64,
     /// The index of the proposer at the slot where the attestation was included.
     pub proposer_index: usize,
 }
@@ -39,7 +39,7 @@ impl Default for InclusionInfo {
     fn default() -> Self {
         Self {
             slot: Slot::max_value(),
-            distance: Slot::max_value(),
+            distance: u64::max_value(),
             proposer_index: 0,
         }
     }
@@ -199,7 +199,7 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn process_attestations(
         &mut self,
         state: &BeaconState,
@@ -211,28 +211,30 @@ impl ValidatorStatuses {
             .chain(state.current_epoch_attestations.iter())
         {
             let attesting_indices =
-                get_attestation_participants(state, &a.data, &a.aggregation_bitfield, spec)?;
+                get_attesting_indices_unsorted(state, &a.data, &a.aggregation_bitfield, spec)?;
 
             let mut status = ValidatorStatus::default();
 
             // Profile this attestation, updating the total balances and generating an
             // `ValidatorStatus` object that applies to all participants in the attestation.
-            if is_from_epoch(a, state.current_epoch(spec), spec) {
+            if is_from_epoch(a, state.current_epoch(spec)) {
                 status.is_current_epoch_attester = true;
 
                 if target_matches_epoch_start_block(a, state, state.current_epoch(spec), spec)? {
                     status.is_current_epoch_target_attester = true;
                 }
-            } else if is_from_epoch(a, state.previous_epoch(spec), spec) {
+            } else if is_from_epoch(a, state.previous_epoch(spec)) {
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
-                let relative_epoch = RelativeEpoch::from_slot(state.slot, a.inclusion_slot, spec)?;
+                let attestation_slot = state.get_attestation_slot(&a.data, spec)?;
+                let inclusion_slot = attestation_slot + a.inclusion_delay;
+                let relative_epoch = RelativeEpoch::from_slot(state.slot, inclusion_slot, spec)?;
                 status.inclusion_info = Some(InclusionInfo {
-                    slot: a.inclusion_slot,
-                    distance: inclusion_distance(a),
+                    slot: inclusion_slot,
+                    distance: a.inclusion_delay,
                     proposer_index: state.get_beacon_proposer_index(
-                        a.inclusion_slot,
+                        attestation_slot,
                         relative_epoch,
                         spec,
                     )?,
@@ -316,25 +318,17 @@ impl ValidatorStatuses {
     }
 }
 
-/// Returns the distance between when the attestation was created and when it was included in a
-/// block.
-///
-/// Spec v0.5.1
-fn inclusion_distance(a: &PendingAttestation) -> Slot {
-    a.inclusion_slot - a.data.slot
-}
-
 /// Returns `true` if some `PendingAttestation` is from the supplied `epoch`.
 ///
-/// Spec v0.5.1
-fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool {
-    a.data.slot.epoch(spec.slots_per_epoch) == epoch
+/// Spec v0.6.1
+fn is_from_epoch(a: &PendingAttestation, epoch: Epoch) -> bool {
+    a.data.target_epoch == epoch
 }
 
 /// Returns `true` if the attestation's FFG target is equal to the hash of the `state`'s first
 /// beacon block in the given `epoch`.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 fn target_matches_epoch_start_block(
     a: &PendingAttestation,
     state: &BeaconState,
@@ -350,13 +344,14 @@ fn target_matches_epoch_start_block(
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 fn has_common_beacon_block_root(
     a: &PendingAttestation,
     state: &BeaconState,
     spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
-    let state_block_root = *state.get_block_root(a.data.slot, spec)?;
+    let attestation_slot = state.get_attestation_slot(&a.data, spec)?;
+    let state_block_root = *state.get_block_root(attestation_slot, spec)?;
 
     Ok(a.data.beacon_block_root == state_block_root)
 }
