@@ -110,8 +110,8 @@ impl<B: EthSpec> AttestationService for AttestationServiceInstance<B> {
         let mut resp = PublishAttestationResponse::new();
         let ssz_serialized_attestation = req.get_attestation().get_ssz();
 
-        let attestation = match Attestation::ssz_decode(ssz_serialized_attestation, 0) {
-            Ok((v, _index)) => v,
+        let attestation = match Attestation::from_ssz_bytes(ssz_serialized_attestation) {
+            Ok(v) => v,
             Err(_) => {
                 let log_clone = self.log.clone();
                 let f = sink
