@@ -3,7 +3,7 @@ extern crate criterion;
 
 use criterion::black_box;
 use criterion::{Benchmark, Criterion};
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 
 #[derive(Clone, Copy, Encode, Decode)]

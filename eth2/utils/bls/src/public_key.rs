@@ -4,7 +4,7 @@ use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{ssz_encode, Decodable, DecodeError};
+use ssz::{ssz_encode, Decode, DecodeError};
 use std::default;
 use std::fmt;
 use std::hash::{Hash, Hasher};

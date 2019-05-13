@@ -3,7 +3,7 @@ use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{ssz_encode, Decodable, DecodeError};
+use ssz::{ssz_encode, Decode, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.

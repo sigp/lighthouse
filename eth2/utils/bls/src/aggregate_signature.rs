@@ -6,7 +6,7 @@ use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{Decodable, DecodeError};
+use ssz::{Decode, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.
@@ -168,7 +168,7 @@ cached_tree_hash_ssz_encoding_as_vector!(AggregateSignature, 96);
 mod tests {
     use super::super::{Keypair, Signature};
     use super::*;
-    use ssz::Encodable;
+    use ssz::Encode;
 
     #[test]
     pub fn test_ssz_round_trip() {

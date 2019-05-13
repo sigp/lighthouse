@@ -5,7 +5,7 @@ use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{ssz_encode, Decodable, DecodeError};
+use ssz::{ssz_encode, Decode, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.

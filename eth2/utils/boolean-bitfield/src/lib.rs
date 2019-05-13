@@ -7,7 +7,7 @@ use cached_tree_hash::cached_tree_hash_bytes_as_list;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 use std::cmp;
 use std::default;
 
@@ -194,7 +194,7 @@ impl std::ops::BitOr for BooleanBitfield {
     }
 }
 
-impl Encodable for BooleanBitfield {
+impl Encode for BooleanBitfield {
     fn is_ssz_fixed_len() -> bool {
         false
     }
@@ -204,7 +204,7 @@ impl Encodable for BooleanBitfield {
     }
 }
 
-impl Decodable for BooleanBitfield {
+impl Decode for BooleanBitfield {
     fn is_ssz_fixed_len() -> bool {
         false
     }

@@ -9,7 +9,7 @@
 //!
 //! ```rust
 //! use ssz_derive::{Encode, Decode};
-//! use ssz::{Decodable, Encodable};
+//! use ssz::{Decode, Encode};
 //!
 //! #[derive(PartialEq, Debug, Encode, Decode)]
 //! struct Foo {
@@ -32,17 +32,16 @@
 //!
 //! ```
 //!
-//! See `examples/` for manual implementations of the `Encodable` and `Decodable` traits.
+//! See `examples/` for manual implementations of the `Encode` and `Decode` traits.
 
 mod decode;
 mod encode;
 mod macros;
 
 pub use decode::{
-    impls::decode_list_of_variable_length_items, Decodable, DecodeError, SszDecoder,
-    SszDecoderBuilder,
+    impls::decode_list_of_variable_length_items, Decode, DecodeError, SszDecoder, SszDecoderBuilder,
 };
-pub use encode::{Encodable, SszEncoder};
+pub use encode::{Encode, SszEncoder};
 
 /// The number of bytes used to represent an offset.
 pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
@@ -54,7 +53,7 @@ pub const MAX_LENGTH_VALUE: usize = (1 << (BYTES_PER_LENGTH_OFFSET * 8)) - 1;
 /// Equivalent to `val.as_ssz_bytes()`.
 pub fn ssz_encode<T>(val: &T) -> Vec<u8>
 where
-    T: Encodable,
+    T: Encode,
 {
     val.as_ssz_bytes()
 }

@@ -1,6 +1,6 @@
 use super::BLOCKS_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
-use ssz::Decodable;
+use ssz::Decode;
 use std::sync::Arc;
 use types::{BeaconBlock, Hash256, Slot};
 

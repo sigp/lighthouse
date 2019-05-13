@@ -5,7 +5,7 @@ use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{ActiveValidator, GetDutiesRequest, GetDutiesResponse, ValidatorDuty};
 use protos::services_grpc::ValidatorService;
 use slog::{trace, warn};
-use ssz::Decodable;
+use ssz::Decode;
 use std::sync::Arc;
 use types::{Epoch, EthSpec, RelativeEpoch};
 

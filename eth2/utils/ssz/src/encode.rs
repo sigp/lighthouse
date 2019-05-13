@@ -6,7 +6,7 @@ mod impls;
 ///
 /// See `examples/` for manual implementations or the crate root for implementations using
 /// `#[derive(Encode)]`.
-pub trait Encodable {
+pub trait Encode {
     /// Returns `true` if this object has a fixed-length.
     ///
     /// I.e., there are no variable length items in this object or any of it's contained objects.
@@ -50,7 +50,7 @@ pub trait Encodable {
 ///
 /// ```rust
 /// use ssz_derive::{Encode, Decode};
-/// use ssz::{Decodable, Encodable, SszEncoder};
+/// use ssz::{Decode, Encode, SszEncoder};
 ///
 /// #[derive(PartialEq, Debug, Encode, Decode)]
 /// struct Foo {
@@ -65,7 +65,7 @@ pub trait Encodable {
 ///     };
 ///
 ///     let mut buf: Vec<u8> = vec![];
-///     let offset = <u64 as Encodable>::ssz_fixed_len() + <Vec<u16> as Encodable>::ssz_fixed_len();
+///     let offset = <u64 as Encode>::ssz_fixed_len() + <Vec<u16> as Encode>::ssz_fixed_len();
 ///
 ///     let mut encoder = SszEncoder::container(&mut buf, offset);
 ///
@@ -104,7 +104,7 @@ impl<'a> SszEncoder<'a> {
     }
 
     /// Append some `item` to the SSZ bytes.
-    pub fn append<T: Encodable>(&mut self, item: &T) {
+    pub fn append<T: Encode>(&mut self, item: &T) {
         if T::is_ssz_fixed_len() {
             item.ssz_append(&mut self.buf);
         } else {

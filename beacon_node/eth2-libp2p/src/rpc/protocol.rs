@@ -1,6 +1,6 @@
 use super::methods::*;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use ssz::{impl_decode_via_from, impl_encode_via_from, ssz_encode, Decodable, Encodable};
+use ssz::{impl_decode_via_from, impl_encode_via_from, ssz_encode, Decode, Encode};
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter;
@@ -203,7 +203,7 @@ where
     }
 }
 
-impl Encodable for RPCEvent {
+impl Encode for RPCEvent {
     fn is_ssz_fixed_len() -> bool {
         false
     }
@@ -213,9 +213,9 @@ impl Encodable for RPCEvent {
     // This code has not been tested, it is a placeholder until we can update to the new libp2p
     // spec.
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        let offset = <bool as Encodable>::ssz_fixed_len()
-            + <u16 as Encodable>::ssz_fixed_len()
-            + <Vec<u8> as Encodable>::ssz_fixed_len();
+        let offset = <bool as Encode>::ssz_fixed_len()
+            + <u16 as Encode>::ssz_fixed_len()
+            + <Vec<u8> as Encode>::ssz_fixed_len();
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
 

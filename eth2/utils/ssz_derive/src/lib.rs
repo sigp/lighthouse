@@ -64,7 +64,7 @@ fn should_skip_serializing(field: &syn::Field) -> bool {
     false
 }
 
-/// Implements `ssz::Encodable` for some `struct`.
+/// Implements `ssz::Encode` for some `struct`.
 ///
 /// Fields are encoded in the order they are defined.
 #[proc_macro_derive(Encode, attributes(ssz))]
@@ -85,18 +85,18 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let field_types_c = field_types_a.clone();
 
     let output = quote! {
-        impl #impl_generics ssz::Encodable for #name #ty_generics #where_clause {
+        impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
-                    <#field_types_a as ssz::Encodable>::is_ssz_fixed_len() &&
+                    <#field_types_a as ssz::Encode>::is_ssz_fixed_len() &&
                 )*
                     true
             }
 
             fn ssz_fixed_len() -> usize {
-                if <Self as ssz::Encodable>::is_ssz_fixed_len() {
+                if <Self as ssz::Encode>::is_ssz_fixed_len() {
                     #(
-                        <#field_types_b as ssz::Encodable>::ssz_fixed_len() +
+                        <#field_types_b as ssz::Encode>::ssz_fixed_len() +
                     )*
                         0
                 } else {
@@ -106,7 +106,7 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
 
             fn ssz_append(&self, buf: &mut Vec<u8>) {
                 let offset = #(
-                        <#field_types_c as ssz::Encodable>::ssz_fixed_len() +
+                        <#field_types_c as ssz::Encode>::ssz_fixed_len() +
                     )*
                         0;
 
@@ -135,7 +135,7 @@ fn should_skip_deserializing(field: &syn::Field) -> bool {
     false
 }
 
-/// Implements `ssz::Decodable` for some `struct`.
+/// Implements `ssz::Decode` for some `struct`.
 ///
 /// Fields are decoded in the order they are defined.
 #[proc_macro_derive(Decode)]
@@ -177,11 +177,11 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
                     });
 
                     is_fixed_lens.push(quote! {
-                        <#ty as ssz::Decodable>::is_ssz_fixed_len()
+                        <#ty as ssz::Decode>::is_ssz_fixed_len()
                     });
 
                     fixed_lens.push(quote! {
-                        <#ty as ssz::Decodable>::ssz_fixed_len()
+                        <#ty as ssz::Decode>::ssz_fixed_len()
                     });
                 }
             }
@@ -190,7 +190,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     }
 
     let output = quote! {
-        impl #impl_generics ssz::Decodable for #name #ty_generics #where_clause {
+        impl #impl_generics ssz::Decode for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
                     #is_fixed_lens &&
@@ -199,7 +199,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
             }
 
             fn ssz_fixed_len() -> usize {
-                if <Self as ssz::Decodable>::is_ssz_fixed_len() {
+                if <Self as ssz::Decode>::is_ssz_fixed_len() {
                     #(
                         #fixed_lens +
                     )*
