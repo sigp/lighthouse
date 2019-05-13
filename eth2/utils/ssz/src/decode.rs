@@ -2,6 +2,7 @@ use super::*;
 
 pub mod impls;
 
+/// Returned when SSZ decoding fails.
 #[derive(Debug, PartialEq)]
 pub enum DecodeError {
     /// The bytes supplied were too short to be decoded into the specified type.
@@ -21,7 +22,14 @@ pub enum DecodeError {
     BytesInvalid(String),
 }
 
+/// Provides SSZ decoding (de-serialization) via the `from_ssz_bytes(&bytes)` method.
+///
+/// See `examples/` for manual implementations or the crate root for implementations using
+/// `#[derive(Decode)]`.
 pub trait Decodable: Sized {
+    /// Returns `true` if this object has a fixed-length.
+    ///
+    /// I.e., there are no variable length items in this object or any of it's contained objects.
     fn is_ssz_fixed_len() -> bool;
 
     /// The number of bytes this object occupies in the fixed-length portion of the SSZ bytes.
@@ -33,6 +41,10 @@ pub trait Decodable: Sized {
         BYTES_PER_LENGTH_OFFSET
     }
 
+    /// Attempts to decode `Self` from `bytes`, returning a `DecodeError` on failure.
+    ///
+    /// The supplied bytes must be the exact length required to decode `Self`, excess bytes will
+    /// result in an error.
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError>;
 }
 
@@ -42,6 +54,12 @@ pub struct Offset {
     offset: usize,
 }
 
+/// Builds an `SszDecoder`.
+///
+/// The purpose of this struct is to split some SSZ bytes into individual slices. The builder is
+/// then converted into a `SszDecoder` which decodes those values into object instances.
+///
+/// See [`SszDecoder`](struct.SszDecoder.html) for usage examples.
 pub struct SszDecoderBuilder<'a> {
     bytes: &'a [u8],
     items: Vec<&'a [u8]>,
@@ -50,6 +68,8 @@ pub struct SszDecoderBuilder<'a> {
 }
 
 impl<'a> SszDecoderBuilder<'a> {
+    /// Instantiate a new builder that should build a `SszDecoder` over the given `bytes` which
+    /// are assumed to be the SSZ encoding of some object.
     pub fn new(bytes: &'a [u8]) -> Self {
         Self {
             bytes,
@@ -59,6 +79,7 @@ impl<'a> SszDecoderBuilder<'a> {
         }
     }
 
+    /// Declares that some type `T` is the next item in `bytes`.
     pub fn register_type<T: Decodable>(&mut self) -> Result<(), DecodeError> {
         if T::is_ssz_fixed_len() {
             let start = self.items_index;
@@ -137,6 +158,7 @@ impl<'a> SszDecoderBuilder<'a> {
         Ok(())
     }
 
+    /// Finalizes the builder, returning a `SszDecoder` that may be used to instantiate objects.
     pub fn build(mut self) -> Result<SszDecoder<'a>, DecodeError> {
         self.finalize()?;
 
@@ -144,6 +166,45 @@ impl<'a> SszDecoderBuilder<'a> {
     }
 }
 
+/// Decodes some slices of SSZ into object instances. Should be instantiated using
+/// [`SszDecoderBuilder`](struct.SszDecoderBuilder.html).
+///
+/// ## Example
+///
+/// ```rust
+/// use ssz_derive::{Encode, Decode};
+/// use ssz::{Decodable, Encodable, SszDecoder, SszDecoderBuilder};
+///
+/// #[derive(PartialEq, Debug, Encode, Decode)]
+/// struct Foo {
+///     a: u64,
+///     b: Vec<u16>,
+/// }
+///
+/// fn main() {
+///     let foo = Foo {
+///         a: 42,
+///         b: vec![1, 3, 3, 7]
+///     };
+///
+///     let bytes = foo.as_ssz_bytes();
+///
+///     let mut builder = SszDecoderBuilder::new(&bytes);
+///
+///     builder.register_type::<u64>().unwrap();
+///     builder.register_type::<Vec<u16>>().unwrap();
+///
+///     let mut decoder = builder.build().unwrap();
+///
+///     let decoded_foo = Foo {
+///         a: decoder.decode_next().unwrap(),
+///         b: decoder.decode_next().unwrap(),
+///     };
+///
+///     assert_eq!(foo, decoded_foo);
+/// }
+///
+/// ```
 pub struct SszDecoder<'a> {
     items: Vec<&'a [u8]>,
 }

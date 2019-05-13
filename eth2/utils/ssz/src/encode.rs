@@ -2,9 +2,20 @@ use super::*;
 
 mod impls;
 
+/// Provides SSZ encoding (serialization) via the `as_ssz_bytes(&self)` method.
+///
+/// See `examples/` for manual implementations or the crate root for implementations using
+/// `#[derive(Encode)]`.
 pub trait Encodable {
+    /// Returns `true` if this object has a fixed-length.
+    ///
+    /// I.e., there are no variable length items in this object or any of it's contained objects.
     fn is_ssz_fixed_len() -> bool;
 
+    /// Append the encoding `self` to `buf`.
+    ///
+    /// Note, variable length objects need only to append their "variable length" portion, they do
+    /// not need to provide their offset.
     fn ssz_append(&self, buf: &mut Vec<u8>);
 
     /// The number of bytes this object occupies in the fixed-length portion of the SSZ bytes.
@@ -16,6 +27,9 @@ pub trait Encodable {
         BYTES_PER_LENGTH_OFFSET
     }
 
+    /// Returns the full-form encoding of this object.
+    ///
+    /// The default implementation of this method should suffice for most cases.
     fn as_ssz_bytes(&self) -> Vec<u8> {
         let mut buf = vec![];
 
@@ -29,6 +43,41 @@ pub trait Encodable {
 ///
 /// **You must call `finalize(..)` after the final `append(..)` call** to ensure the bytes are
 /// written to `buf`.
+///
+/// ## Example
+///
+/// Use `SszEncoder` to produce identical output to `foo.as_ssz_bytes()`:
+///
+/// ```rust
+/// use ssz_derive::{Encode, Decode};
+/// use ssz::{Decodable, Encodable, SszEncoder};
+///
+/// #[derive(PartialEq, Debug, Encode, Decode)]
+/// struct Foo {
+///     a: u64,
+///     b: Vec<u16>,
+/// }
+///
+/// fn main() {
+///     let foo = Foo {
+///         a: 42,
+///         b: vec![1, 3, 3, 7]
+///     };
+///
+///     let mut buf: Vec<u8> = vec![];
+///     let offset = <u64 as Encodable>::ssz_fixed_len() + <Vec<u16> as Encodable>::ssz_fixed_len();
+///
+///     let mut encoder = SszEncoder::container(&mut buf, offset);
+///
+///     encoder.append(&foo.a);
+///     encoder.append(&foo.b);
+///
+///     encoder.finalize();
+///
+///     assert_eq!(foo.as_ssz_bytes(), buf);
+/// }
+///
+/// ```
 pub struct SszEncoder<'a> {
     offset: usize,
     buf: &'a mut Vec<u8>,
@@ -36,10 +85,14 @@ pub struct SszEncoder<'a> {
 }
 
 impl<'a> SszEncoder<'a> {
+    /// Instantiate a new encoder for encoding a SSZ list.
+    ///
+    /// Identical to `Self::container`.
     pub fn list(buf: &'a mut Vec<u8>, num_fixed_bytes: usize) -> Self {
         Self::container(buf, num_fixed_bytes)
     }
 
+    /// Instantiate a new encoder for encoding a SSZ container.
     pub fn container(buf: &'a mut Vec<u8>, num_fixed_bytes: usize) -> Self {
         buf.reserve(num_fixed_bytes);
 
@@ -50,6 +103,7 @@ impl<'a> SszEncoder<'a> {
         }
     }
 
+    /// Append some `item` to the SSZ bytes.
     pub fn append<T: Encodable>(&mut self, item: &T) {
         if T::is_ssz_fixed_len() {
             item.ssz_append(&mut self.buf);
@@ -61,6 +115,10 @@ impl<'a> SszEncoder<'a> {
         }
     }
 
+    /// Write the variable bytes to `self.bytes`.
+    ///
+    /// This method must be called after the final `append(..)` call when serializing
+    /// variable-length items.
     pub fn finalize(&mut self) -> &mut Vec<u8> {
         self.buf.append(&mut self.variable_bytes);
 
