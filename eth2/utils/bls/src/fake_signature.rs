@@ -75,7 +75,7 @@ impl<'de> Deserialize<'de> for FakeSignature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let (pubkey, _) = <_>::ssz_decode(&bytes[..], 0)
+        let pubkey = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(pubkey)
     }
@@ -94,7 +94,7 @@ mod tests {
         let original = FakeSignature::new(&[42, 42], 0, &keypair.sk);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = FakeSignature::ssz_decode(&bytes, 0).unwrap();
+        let decoded = FakeSignature::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }

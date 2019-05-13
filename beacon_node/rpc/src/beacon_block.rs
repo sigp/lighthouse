@@ -35,8 +35,8 @@ impl<B: EthSpec> BeaconBlockService for BeaconBlockServiceInstance<B> {
         // decode the request
         // TODO: requested slot currently unused, see: https://github.com/sigp/lighthouse/issues/336
         let _requested_slot = Slot::from(req.get_slot());
-        let randao_reveal = match Signature::ssz_decode(req.get_randao_reveal(), 0) {
-            Ok((reveal, _index)) => reveal,
+        let randao_reveal = match Signature::from_ssz_bytes(req.get_randao_reveal()) {
+            Ok(reveal) => reveal,
             Err(_) => {
                 // decode error, incorrect signature
                 let log_clone = self.log.clone();
@@ -91,8 +91,8 @@ impl<B: EthSpec> BeaconBlockService for BeaconBlockServiceInstance<B> {
 
         let ssz_serialized_block = req.get_block().get_ssz();
 
-        match BeaconBlock::ssz_decode(ssz_serialized_block, 0) {
-            Ok((block, _i)) => {
+        match BeaconBlock::from_ssz_bytes(ssz_serialized_block) {
+            Ok(block) => {
                 match self.chain.process_block(block.clone()) {
                     Ok(outcome) => {
                         if outcome.sucessfully_processed() {

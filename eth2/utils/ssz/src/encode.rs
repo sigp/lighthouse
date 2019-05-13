@@ -25,6 +25,10 @@ pub trait Encodable {
     }
 }
 
+/// Allow for encoding an ordered series of distinct or indistinct objects as SSZ bytes.
+///
+/// **You must call `finalize(..)` after the final `append(..)` call** to ensure the bytes are
+/// written to `buf`.
 pub struct SszEncoder<'a> {
     offset: usize,
     buf: &'a mut Vec<u8>,

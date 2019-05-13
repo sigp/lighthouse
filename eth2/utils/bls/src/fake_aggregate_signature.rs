@@ -80,7 +80,7 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let (obj, _) = <_>::ssz_decode(&bytes[..], 0)
+        let obj = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(obj)
     }
@@ -103,7 +103,7 @@ mod tests {
         original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = FakeAggregateSignature::ssz_decode(&bytes, 0).unwrap();
+        let decoded = FakeAggregateSignature::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }

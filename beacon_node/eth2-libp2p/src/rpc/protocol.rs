@@ -115,42 +115,40 @@ where
     }
 }
 
+// NOTE!
+//
+// This code has not been tested, it is a placeholder until we can update to the new libp2p
+// spec.
 fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
-    // decode the header of the rpc
-    // request/response
-    let (request, index) = bool::ssz_decode(&packet, 0)?;
-    let (id, index) = RequestId::ssz_decode(&packet, index)?;
-    let (method_id, index) = u16::ssz_decode(&packet, index)?;
+    let mut builder = ssz::SszDecoderBuilder::new(&packet);
+
+    builder.register_type::<bool>()?;
+    builder.register_type::<RequestId>()?;
+    builder.register_type::<u16>()?;
+    builder.register_type::<Vec<u8>>()?;
+
+    let mut decoder = builder.build()?;
+
+    let request: bool = decoder.decode_next()?;
+    let id: RequestId = decoder.decode_next()?;
+    let method_id: u16 = decoder.decode_next()?;
+    let bytes: Vec<u8> = decoder.decode_next()?;
 
     if request {
         let body = match RPCMethod::from(method_id) {
-            RPCMethod::Hello => {
-                let (hello_body, _index) = HelloMessage::ssz_decode(&packet, index)?;
-                RPCRequest::Hello(hello_body)
-            }
-            RPCMethod::Goodbye => {
-                let (goodbye_reason, _index) = GoodbyeReason::ssz_decode(&packet, index)?;
-                RPCRequest::Goodbye(goodbye_reason)
-            }
+            RPCMethod::Hello => RPCRequest::Hello(HelloMessage::from_ssz_bytes(&bytes)?),
+            RPCMethod::Goodbye => RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(&bytes)?),
             RPCMethod::BeaconBlockRoots => {
-                let (block_roots_request, _index) =
-                    BeaconBlockRootsRequest::ssz_decode(&packet, index)?;
-                RPCRequest::BeaconBlockRoots(block_roots_request)
+                RPCRequest::BeaconBlockRoots(BeaconBlockRootsRequest::from_ssz_bytes(&bytes)?)
             }
             RPCMethod::BeaconBlockHeaders => {
-                let (block_headers_request, _index) =
-                    BeaconBlockHeadersRequest::ssz_decode(&packet, index)?;
-                RPCRequest::BeaconBlockHeaders(block_headers_request)
+                RPCRequest::BeaconBlockHeaders(BeaconBlockHeadersRequest::from_ssz_bytes(&bytes)?)
             }
             RPCMethod::BeaconBlockBodies => {
-                let (block_bodies_request, _index) =
-                    BeaconBlockBodiesRequest::ssz_decode(&packet, index)?;
-                RPCRequest::BeaconBlockBodies(block_bodies_request)
+                RPCRequest::BeaconBlockBodies(BeaconBlockBodiesRequest::from_ssz_bytes(&bytes)?)
             }
             RPCMethod::BeaconChainState => {
-                let (chain_state_request, _index) =
-                    BeaconChainStateRequest::ssz_decode(&packet, index)?;
-                RPCRequest::BeaconChainState(chain_state_request)
+                RPCRequest::BeaconChainState(BeaconChainStateRequest::from_ssz_bytes(&bytes)?)
             }
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
@@ -164,29 +162,24 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
     // we have received a response
     else {
         let result = match RPCMethod::from(method_id) {
-            RPCMethod::Hello => {
-                let (body, _index) = HelloMessage::ssz_decode(&packet, index)?;
-                RPCResponse::Hello(body)
-            }
-            RPCMethod::Goodbye => unreachable!("Should never receive a goodbye response"),
+            RPCMethod::Hello => RPCResponse::Hello(HelloMessage::from_ssz_bytes(&bytes)?),
             RPCMethod::BeaconBlockRoots => {
-                let (body, _index) = BeaconBlockRootsResponse::ssz_decode(&packet, index)?;
-                RPCResponse::BeaconBlockRoots(body)
+                RPCResponse::BeaconBlockRoots(BeaconBlockRootsResponse::from_ssz_bytes(&bytes)?)
             }
             RPCMethod::BeaconBlockHeaders => {
-                let (body, _index) = BeaconBlockHeadersResponse::ssz_decode(&packet, index)?;
-                RPCResponse::BeaconBlockHeaders(body)
+                RPCResponse::BeaconBlockHeaders(BeaconBlockHeadersResponse::from_ssz_bytes(&bytes)?)
             }
             RPCMethod::BeaconBlockBodies => {
-                let (body, _index) = BeaconBlockBodiesResponse::ssz_decode(&packet, index)?;
-                RPCResponse::BeaconBlockBodies(body)
+                RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse::from_ssz_bytes(&packet)?)
             }
             RPCMethod::BeaconChainState => {
-                let (body, _index) = BeaconChainStateResponse::ssz_decode(&packet, index)?;
-                RPCResponse::BeaconChainState(body)
+                RPCResponse::BeaconChainState(BeaconChainStateResponse::from_ssz_bytes(&packet)?)
             }
+            // We should never receive a goodbye response; it is invalid.
+            RPCMethod::Goodbye => return Err(DecodeError::UnknownRPCMethod),
             RPCMethod::Unknown => return Err(DecodeError::UnknownRPCMethod),
         };
+
         Ok(RPCEvent::Response {
             id,
             method_id,
@@ -211,34 +204,50 @@ where
 }
 
 impl Encodable for RPCEvent {
-    fn ssz_append(&self, s: &mut SszStream) {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    // NOTE!
+    //
+    // This code has not been tested, it is a placeholder until we can update to the new libp2p
+    // spec.
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let offset = <bool as Encodable>::ssz_fixed_len()
+            + <u16 as Encodable>::ssz_fixed_len()
+            + <Vec<u8> as Encodable>::ssz_fixed_len();
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+
         match self {
             RPCEvent::Request {
                 id,
                 method_id,
                 body,
             } => {
-                s.append(&true);
-                s.append(id);
-                s.append(method_id);
+                encoder.append(&true);
+                encoder.append(id);
+                encoder.append(method_id);
+
+                // Encode the `body` as a `Vec<u8>`.
                 match body {
                     RPCRequest::Hello(body) => {
-                        s.append(body);
+                        encoder.append(&body.as_ssz_bytes());
                     }
                     RPCRequest::Goodbye(body) => {
-                        s.append(body);
+                        encoder.append(&body.as_ssz_bytes());
                     }
                     RPCRequest::BeaconBlockRoots(body) => {
-                        s.append(body);
+                        encoder.append(&body.as_ssz_bytes());
                     }
                     RPCRequest::BeaconBlockHeaders(body) => {
-                        s.append(body);
+                        encoder.append(&body.as_ssz_bytes());
                     }
                     RPCRequest::BeaconBlockBodies(body) => {
-                        s.append(body);
+                        encoder.append(&body.as_ssz_bytes());
                     }
                     RPCRequest::BeaconChainState(body) => {
-                        s.append(body);
+                        encoder.append(&body.as_ssz_bytes());
                     }
                 }
             }
@@ -247,28 +256,32 @@ impl Encodable for RPCEvent {
                 method_id,
                 result,
             } => {
-                s.append(&false);
-                s.append(id);
-                s.append(method_id);
+                encoder.append(&true);
+                encoder.append(id);
+                encoder.append(method_id);
+
                 match result {
                     RPCResponse::Hello(response) => {
-                        s.append(response);
+                        encoder.append(&response.as_ssz_bytes());
                     }
                     RPCResponse::BeaconBlockRoots(response) => {
-                        s.append(response);
+                        encoder.append(&response.as_ssz_bytes());
                     }
                     RPCResponse::BeaconBlockHeaders(response) => {
-                        s.append(response);
+                        encoder.append(&response.as_ssz_bytes());
                     }
                     RPCResponse::BeaconBlockBodies(response) => {
-                        s.append(response);
+                        encoder.append(&response.as_ssz_bytes());
                     }
                     RPCResponse::BeaconChainState(response) => {
-                        s.append(response);
+                        encoder.append(&response.as_ssz_bytes());
                     }
                 }
             }
         }
+
+        // Finalize the encoder, writing to `buf`.
+        encoder.finalize();
     }
 }
 
