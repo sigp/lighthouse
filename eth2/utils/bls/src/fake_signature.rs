@@ -4,7 +4,7 @@ use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{ssz_encode, Decodable, DecodeError, Encodable};
+use ssz::{ssz_encode, Decodable, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
@@ -47,6 +47,24 @@ impl FakeSignature {
         _pk: &PublicKey,
     ) -> bool {
         true
+    }
+
+    /// Convert bytes to fake BLS Signature
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() != BLS_SIG_BYTE_SIZE {
+            Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BLS_SIG_BYTE_SIZE,
+            })
+        } else {
+            Ok(Self {
+                bytes: bytes.to_vec(),
+            })
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.bytes.clone()
     }
 
     /// Returns a new empty signature.
