@@ -19,10 +19,10 @@ impl<T: ClientDB> BeaconStateStore<T> {
         Self { db }
     }
 
-    pub fn get_deserialized<B: EthSpec>(
+    pub fn get_deserialized<E: EthSpec>(
         &self,
         hash: &Hash256,
-    ) -> Result<Option<BeaconState<B>>, DBError> {
+    ) -> Result<Option<BeaconState<E>>, DBError> {
         match self.get(&hash)? {
             None => Ok(None),
             Some(ssz) => {

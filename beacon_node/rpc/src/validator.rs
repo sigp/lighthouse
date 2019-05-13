@@ -10,13 +10,13 @@ use std::sync::Arc;
 use types::{Epoch, EthSpec, RelativeEpoch};
 
 #[derive(Clone)]
-pub struct ValidatorServiceInstance<B: EthSpec> {
-    pub chain: Arc<BeaconChain<B>>,
+pub struct ValidatorServiceInstance<E: EthSpec> {
+    pub chain: Arc<BeaconChain<E>>,
     pub log: slog::Logger,
 }
 //TODO: Refactor Errors
 
-impl<B: EthSpec> ValidatorService for ValidatorServiceInstance<B> {
+impl<E: EthSpec> ValidatorService for ValidatorServiceInstance<E> {
     /// For a list of validator public keys, this function returns the slot at which each
     /// validator must propose a block, attest to a shard, their shard committee and the shard they
     /// need to attest to.

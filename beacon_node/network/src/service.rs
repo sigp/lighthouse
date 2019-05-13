@@ -16,17 +16,17 @@ use tokio::runtime::TaskExecutor;
 use types::{EthSpec, Topic};
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
-pub struct Service<B: EthSpec> {
+pub struct Service<E: EthSpec> {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     _libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
-    _phantom: PhantomData<B>, //message_handler: MessageHandler,
+    _phantom: PhantomData<E>, //message_handler: MessageHandler,
                               //message_handler_send: Sender<HandlerMessage>
 }
 
-impl<B: EthSpec> Service<B> {
+impl<E: EthSpec> Service<E> {
     pub fn new(
-        beacon_chain: Arc<BeaconChain<B>>,
+        beacon_chain: Arc<BeaconChain<E>>,
         config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,

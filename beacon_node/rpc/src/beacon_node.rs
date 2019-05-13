@@ -8,12 +8,12 @@ use std::sync::Arc;
 use types::EthSpec;
 
 #[derive(Clone)]
-pub struct BeaconNodeServiceInstance<B: EthSpec> {
-    pub chain: Arc<BeaconChain<B>>,
+pub struct BeaconNodeServiceInstance<E: EthSpec> {
+    pub chain: Arc<BeaconChain<E>>,
     pub log: slog::Logger,
 }
 
-impl<B: EthSpec> BeaconNodeService for BeaconNodeServiceInstance<B> {
+impl<E: EthSpec> BeaconNodeService for BeaconNodeServiceInstance<E> {
     /// Provides basic node information.
     fn info(&mut self, ctx: RpcContext, _req: Empty, sink: UnarySink<NodeInfoResponse>) {
         trace!(self.log, "Node info requested via RPC");

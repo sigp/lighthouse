@@ -4,19 +4,19 @@ use types::{BeaconBlock, BeaconState, EthSpec, Hash256};
 /// Represents some block and it's associated state. Generally, this will be used for tracking the
 /// head, justified head and finalized head.
 #[derive(Clone, Serialize, PartialEq, Debug)]
-pub struct CheckPoint<B: EthSpec> {
+pub struct CheckPoint<E: EthSpec> {
     pub beacon_block: BeaconBlock,
     pub beacon_block_root: Hash256,
-    pub beacon_state: BeaconState<B>,
+    pub beacon_state: BeaconState<E>,
     pub beacon_state_root: Hash256,
 }
 
-impl<B: EthSpec> CheckPoint<B> {
+impl<E: EthSpec> CheckPoint<E> {
     /// Create a new checkpoint.
     pub fn new(
         beacon_block: BeaconBlock,
         beacon_block_root: Hash256,
-        beacon_state: BeaconState<B>,
+        beacon_state: BeaconState<E>,
         beacon_state_root: Hash256,
     ) -> Self {
         Self {
@@ -32,7 +32,7 @@ impl<B: EthSpec> CheckPoint<B> {
         &mut self,
         beacon_block: BeaconBlock,
         beacon_block_root: Hash256,
-        beacon_state: BeaconState<B>,
+        beacon_state: BeaconState<E>,
         beacon_state_root: Hash256,
     ) {
         self.beacon_block = beacon_block;
