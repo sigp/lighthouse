@@ -11,8 +11,7 @@ pub struct TestingPendingAttestationBuilder {
 impl TestingPendingAttestationBuilder {
     /// Create a new valid* `PendingAttestation` for the given parameters.
     ///
-    /// The `inclusion_slot` will be set to be the earliest possible slot the `Attestation` could
-    /// have been included (`slot + MIN_ATTESTATION_INCLUSION_DELAY`).
+    /// The `inclusion_delay` will be set to `MIN_ATTESTATION_INCLUSION_DELAY`.
     ///
     /// * The aggregation and custody bitfields will all be empty, they need to be set with
     /// `Self::add_committee_participation`.
@@ -22,7 +21,7 @@ impl TestingPendingAttestationBuilder {
         let pending_attestation = PendingAttestation {
             aggregation_bitfield: Bitfield::new(),
             data: data_builder.build(),
-            inclusion_slot: slot + spec.min_attestation_inclusion_delay,
+            inclusion_delay: spec.min_attestation_inclusion_delay,
             // FIXME(sproul)
             proposer_index: 0,
         };

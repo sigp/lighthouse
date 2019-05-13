@@ -21,17 +21,17 @@ impl TestingAttesterSlashingBuilder {
     where
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
-        let double_voted_slot = Slot::new(0);
         let shard = 0;
-        let epoch = Epoch::new(0);
+        let epoch_1 = Epoch::new(1);
+        let epoch_2 = Epoch::new(2);
         let hash_1 = Hash256::from_low_u64_le(1);
         let hash_2 = Hash256::from_low_u64_le(2);
 
         let data_1 = AttestationData {
-            slot: double_voted_slot,
             beacon_block_root: hash_1,
-            source_epoch: epoch,
+            source_epoch: epoch_1,
             source_root: hash_1,
+            target_epoch: epoch_2,
             target_root: hash_1,
             shard,
             previous_crosslink_root: hash_1,
@@ -69,7 +69,8 @@ impl TestingAttesterSlashingBuilder {
 
             for (i, validator_index) in validator_indices.iter().enumerate() {
                 attestation.custody_bitfield.set(i, false);
-                let signature = signer(*validator_index, &message[..], epoch, Domain::Attestation);
+                let signature =
+                    signer(*validator_index, &message[..], epoch_2, Domain::Attestation);
                 attestation.signature.add(&signature);
             }
         };

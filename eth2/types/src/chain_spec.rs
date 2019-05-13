@@ -122,7 +122,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Return the number of committees in one epoch.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
         std::cmp::max(
             1,
@@ -319,11 +319,11 @@ mod tests {
     fn test_get_domain() {
         let spec = ChainSpec::foundation();
 
-        test_domain(Domain::BeaconBlock, spec.domain_beacon_block, &spec);
+        test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);
         test_domain(Domain::Attestation, spec.domain_attestation, &spec);
         test_domain(Domain::Deposit, spec.domain_deposit, &spec);
-        test_domain(Domain::Exit, spec.domain_exit, &spec);
+        test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
         test_domain(Domain::Transfer, spec.domain_transfer, &spec);
     }
 }

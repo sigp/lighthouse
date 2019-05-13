@@ -250,9 +250,14 @@ impl BeaconState {
     ///
     /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.current_epoch(&spec) - 1
+        let current_epoch = self.current_epoch(spec);
+        if current_epoch > spec.genesis_epoch {
+            current_epoch - 1
+        } else {
+            current_epoch
+        }
     }
 
     /// The epoch following `self.current_epoch()`.

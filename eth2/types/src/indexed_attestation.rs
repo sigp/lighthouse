@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfield, ChainSpec};
+use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfield};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -37,99 +37,88 @@ pub struct IndexedAttestation {
 impl IndexedAttestation {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
-    /// Spec v0.5.1
-    pub fn is_double_vote(&self, other: &IndexedAttestation, spec: &ChainSpec) -> bool {
-        self.data.slot.epoch(spec.slots_per_epoch) == other.data.slot.epoch(spec.slots_per_epoch)
+    /// Spec v0.6.1
+    pub fn is_double_vote(&self, other: &IndexedAttestation) -> bool {
+        self.data.target_epoch == other.data.target_epoch && self.data != other.data
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
-    /// Spec v0.5.1
-    pub fn is_surround_vote(&self, other: &IndexedAttestation, spec: &ChainSpec) -> bool {
-        let source_epoch_1 = self.data.source_epoch;
-        let source_epoch_2 = other.data.source_epoch;
-        let target_epoch_1 = self.data.slot.epoch(spec.slots_per_epoch);
-        let target_epoch_2 = other.data.slot.epoch(spec.slots_per_epoch);
-
-        (source_epoch_1 < source_epoch_2) & (target_epoch_2 < target_epoch_1)
+    /// Spec v0.6.1
+    pub fn is_surround_vote(&self, other: &IndexedAttestation) -> bool {
+        self.data.source_epoch < other.data.source_epoch
+            && other.data.target_epoch < self.data.target_epoch
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chain_spec::ChainSpec;
-    use crate::slot_epoch::{Epoch, Slot};
+    use crate::slot_epoch::Epoch;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
     #[test]
     pub fn test_is_double_vote_true() {
-        let spec = ChainSpec::foundation();
-        let indexed_vote_first = create_indexed_attestation(1, 1, &spec);
-        let indexed_vote_second = create_indexed_attestation(1, 1, &spec);
+        let indexed_vote_first = create_indexed_attestation(1, 1);
+        let indexed_vote_second = create_indexed_attestation(1, 1);
 
         assert_eq!(
-            indexed_vote_first.is_double_vote(&indexed_vote_second, &spec),
+            indexed_vote_first.is_double_vote(&indexed_vote_second),
             true
         )
     }
 
     #[test]
     pub fn test_is_double_vote_false() {
-        let spec = ChainSpec::foundation();
-        let indexed_vote_first = create_indexed_attestation(1, 1, &spec);
-        let indexed_vote_second = create_indexed_attestation(2, 1, &spec);
+        let indexed_vote_first = create_indexed_attestation(1, 1);
+        let indexed_vote_second = create_indexed_attestation(2, 1);
 
         assert_eq!(
-            indexed_vote_first.is_double_vote(&indexed_vote_second, &spec),
+            indexed_vote_first.is_double_vote(&indexed_vote_second),
             false
         );
     }
 
     #[test]
     pub fn test_is_surround_vote_true() {
-        let spec = ChainSpec::foundation();
-        let indexed_vote_first = create_indexed_attestation(2, 1, &spec);
-        let indexed_vote_second = create_indexed_attestation(1, 2, &spec);
+        let indexed_vote_first = create_indexed_attestation(2, 1);
+        let indexed_vote_second = create_indexed_attestation(1, 2);
 
         assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second, &spec),
+            indexed_vote_first.is_surround_vote(&indexed_vote_second),
             true
         );
     }
 
     #[test]
     pub fn test_is_surround_vote_true_realistic() {
-        let spec = ChainSpec::foundation();
-        let indexed_vote_first = create_indexed_attestation(4, 1, &spec);
-        let indexed_vote_second = create_indexed_attestation(3, 2, &spec);
+        let indexed_vote_first = create_indexed_attestation(4, 1);
+        let indexed_vote_second = create_indexed_attestation(3, 2);
 
         assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second, &spec),
+            indexed_vote_first.is_surround_vote(&indexed_vote_second),
             true
         );
     }
 
     #[test]
     pub fn test_is_surround_vote_false_source_epoch_fails() {
-        let spec = ChainSpec::foundation();
-        let indexed_vote_first = create_indexed_attestation(2, 2, &spec);
-        let indexed_vote_second = create_indexed_attestation(1, 1, &spec);
+        let indexed_vote_first = create_indexed_attestation(2, 2);
+        let indexed_vote_second = create_indexed_attestation(1, 1);
 
         assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second, &spec),
+            indexed_vote_first.is_surround_vote(&indexed_vote_second),
             false
         );
     }
 
     #[test]
     pub fn test_is_surround_vote_false_target_epoch_fails() {
-        let spec = ChainSpec::foundation();
-        let indexed_vote_first = create_indexed_attestation(1, 1, &spec);
-        let indexed_vote_second = create_indexed_attestation(2, 2, &spec);
+        let indexed_vote_first = create_indexed_attestation(1, 1);
+        let indexed_vote_second = create_indexed_attestation(2, 2);
 
         assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second, &spec),
+            indexed_vote_first.is_surround_vote(&indexed_vote_second),
             false
         );
     }
@@ -137,16 +126,12 @@ mod tests {
     ssz_tests!(IndexedAttestation);
     cached_tree_hash_tests!(IndexedAttestation);
 
-    fn create_indexed_attestation(
-        slot_factor: u64,
-        source_epoch: u64,
-        spec: &ChainSpec,
-    ) -> IndexedAttestation {
+    fn create_indexed_attestation(target_epoch: u64, source_epoch: u64) -> IndexedAttestation {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut indexed_vote = IndexedAttestation::random_for_test(&mut rng);
 
-        indexed_vote.data.slot = Slot::new(slot_factor * spec.slots_per_epoch);
         indexed_vote.data.source_epoch = Epoch::new(source_epoch);
+        indexed_vote.data.target_epoch = Epoch::new(target_epoch);
         indexed_vote
     }
 }

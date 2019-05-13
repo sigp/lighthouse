@@ -13,6 +13,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     Debug,
     Clone,
     PartialEq,
+    Eq,
     Default,
     Serialize,
     Deserialize,

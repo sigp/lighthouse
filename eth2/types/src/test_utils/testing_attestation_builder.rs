@@ -77,7 +77,7 @@ impl TestingAttestationBuilder {
             .tree_hash_root();
 
             let domain = spec.get_domain(
-                self.attestation.data.slot.epoch(spec.slots_per_epoch),
+                self.attestation.data.target_epoch,
                 Domain::Attestation,
                 fork,
             );
