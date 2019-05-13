@@ -21,6 +21,23 @@ pub struct SszGenericCase {
     pub ssz: Option<String>,
 }
 
+pub trait Test {
+    fn test(&self);
+}
+
+impl Test for TestDoc<SszGenericCase> {
+    fn test(&self) {
+        for case in &self.test_cases {
+            // Cases that do not have SSZ are ignored.
+            if let Some(ssz) = &case.ssz {
+                dbg!(case);
+            }
+        }
+
+        assert!(false);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
