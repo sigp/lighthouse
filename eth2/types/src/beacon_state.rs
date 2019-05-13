@@ -267,6 +267,36 @@ impl BeaconState {
         self.current_epoch(spec) + 1
     }
 
+    /// Return the number of committees at ``epoch``.
+    ///
+    /// Spec v0.6.1
+    pub fn get_epoch_committee_count(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        let active_validator_indices = self.get_active_validator_indices(epoch);
+        spec.get_epoch_committee_count(active_validator_indices.len())
+    }
+
+    pub fn get_epoch_start_shard(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        drop((epoch, spec));
+        unimplemented!("FIXME(sproul) get_epoch_start_shard")
+    }
+
+    /// Get the slot of an attestation.
+    ///
+    /// Spec v0.6.1
+    pub fn get_attestation_slot(
+        &self,
+        attestation_data: &AttestationData,
+        spec: &ChainSpec,
+    ) -> Result<Slot, Error> {
+        let epoch = attestation_data.target_epoch;
+        let committee_count = self.get_epoch_committee_count(epoch, spec);
+        let offset = (attestation_data.shard + spec.shard_count
+            - self.get_epoch_start_shard(epoch, spec))
+            % spec.shard_count;
+        Ok(epoch.start_slot(spec.slots_per_epoch)
+            + offset / (committee_count / spec.slots_per_epoch))
+    }
+
     /// Returns the active validator indices for the given epoch, assuming there is no validator
     /// registry update in the next epoch.
     ///
@@ -318,6 +348,17 @@ impl BeaconState {
         Ok(cache
             .get_crosslink_committees_at_slot(slot, spec)
             .ok_or_else(|| Error::SlotOutOfBounds)?)
+    }
+
+    // FIXME(sproul): implement this
+    pub fn get_crosslink_committee(
+        &self,
+        epoch: Epoch,
+        shard: u64,
+        spec: &ChainSpec,
+    ) -> Result<&CrosslinkCommittee, Error> {
+        drop((epoch, shard, spec));
+        unimplemented!()
     }
 
     /// Returns the crosslink committees for some shard in an epoch.
@@ -403,6 +444,18 @@ impl BeaconState {
     ) -> Result<&Hash256, BeaconStateError> {
         let i = self.get_latest_block_roots_index(slot, spec)?;
         Ok(&self.latest_block_roots[i])
+    }
+
+    /// Return the block root at a recent `slot`.
+    ///
+    /// Spec v0.6.0
+    // FIXME(sproul): name swap with get_block_root
+    pub fn get_block_root_at_epoch(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<&Hash256, BeaconStateError> {
+        self.get_block_root(epoch.start_slot(spec.slots_per_epoch), spec)
     }
 
     /// Sets the block root for some given slot.
@@ -575,7 +628,7 @@ impl BeaconState {
 
     /// Safely obtains the index for `latest_slashed_balances`, given some `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     fn get_slashed_balance_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let i = epoch.as_usize() % spec.latest_slashed_exit_length;
 
@@ -590,7 +643,7 @@ impl BeaconState {
 
     /// Gets the total slashed balances for some epoch.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn get_slashed_balance(&self, epoch: Epoch, spec: &ChainSpec) -> Result<u64, Error> {
         let i = self.get_slashed_balance_index(epoch, spec)?;
         Ok(self.latest_slashed_balances[i])
@@ -598,7 +651,7 @@ impl BeaconState {
 
     /// Sets the total slashed balances for some epoch.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn set_slashed_balance(
         &mut self,
         epoch: Epoch,
@@ -608,6 +661,41 @@ impl BeaconState {
         let i = self.get_slashed_balance_index(epoch, spec)?;
         self.latest_slashed_balances[i] = balance;
         Ok(())
+    }
+
+    /// Get the attestations from the current or previous epoch.
+    ///
+    /// Spec v0.6.0
+    pub fn get_matching_source_attestations(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<&[PendingAttestation], Error> {
+        if epoch == self.current_epoch(spec) {
+            Ok(&self.current_epoch_attestations)
+        } else if epoch == self.previous_epoch(spec) {
+            Ok(&self.previous_epoch_attestations)
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }
+    }
+
+    /// Transform an attestation into the crosslink that it reinforces.
+    ///
+    /// Spec v0.6.1
+    pub fn get_crosslink_from_attestation_data(
+        &self,
+        data: &AttestationData,
+        spec: &ChainSpec,
+    ) -> Crosslink {
+        Crosslink {
+            epoch: std::cmp::min(
+                data.target_epoch,
+                self.current_crosslinks[data.shard as usize].epoch + spec.max_crosslink_epochs,
+            ),
+            previous_crosslink_root: data.previous_crosslink_root,
+            crosslink_data_root: data.crosslink_data_root,
+        }
     }
 
     /// Generate a seed for the given `epoch`.
@@ -628,17 +716,16 @@ impl BeaconState {
 
     /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.0
     pub fn get_effective_balance(
         &self,
         validator_index: usize,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<u64, Error> {
-        let balance = self
-            .balances
+        self.validator_registry
             .get(validator_index)
-            .ok_or_else(|| Error::UnknownValidator)?;
-        Ok(std::cmp::min(*balance, spec.max_deposit_amount))
+            .map(|v| v.effective_balance)
+            .ok_or_else(|| Error::UnknownValidator)
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -661,14 +748,6 @@ impl BeaconState {
                 .len() as u64
                 / spec.churn_limit_quotient,
         ))
-    }
-
-    /// Initiate an exit for the validator of the given `index`.
-    ///
-    /// Spec v0.5.1
-    pub fn initiate_validator_exit(&mut self, validator_index: usize) {
-        // FIXME(sproul)
-        // self.validator_registry[validator_index].initiated_exit = true;
     }
 
     /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
@@ -694,7 +773,7 @@ impl BeaconState {
 
     /// Return the combined effective balance of an array of validators.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.0
     pub fn get_total_balance(
         &self,
         validator_indices: &[usize],
