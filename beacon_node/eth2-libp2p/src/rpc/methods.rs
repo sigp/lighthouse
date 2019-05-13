@@ -1,5 +1,6 @@
-use ssz::{impl_decode_via_from, impl_encode_via_from, Decodable, DecodeError, Encodable};
-/// Available RPC methods types and ids.
+//!Available RPC methods types and ids.
+
+use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
