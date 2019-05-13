@@ -23,11 +23,7 @@ fn ssz() {
 
     let results = doc.test();
 
-    let failures: Vec<(usize, &Result<_, _>)> = results
-        .iter()
-        .enumerate()
-        .filter(|(_i, r)| r.is_err())
-        .collect();
+    let failures: Vec<&TestCaseResult> = results.iter().filter(|r| r.result.is_err()).collect();
 
     if !failures.is_empty() {
         panic!("{:?}", failures);
