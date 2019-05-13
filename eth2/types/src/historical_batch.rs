@@ -1,6 +1,7 @@
 use crate::test_utils::TestRandom;
-use crate::{Hash256, TreeHashVector};
-use rand::RngCore;
+use crate::*;
+
+use fixed_len_vec::FixedLenVec;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -21,15 +22,17 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
-pub struct HistoricalBatch {
-    pub block_roots: TreeHashVector<Hash256>,
-    pub state_roots: TreeHashVector<Hash256>,
+pub struct HistoricalBatch<T: EthSpec> {
+    pub block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    pub state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    ssz_tests!(HistoricalBatch);
-    cached_tree_hash_tests!(HistoricalBatch);
+    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationEthSpec>;
+
+    ssz_tests!(FoundationHistoricalBatch);
+    cached_tree_hash_tests!(FoundationHistoricalBatch);
 }

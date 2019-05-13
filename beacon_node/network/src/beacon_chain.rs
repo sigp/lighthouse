@@ -8,19 +8,21 @@ use beacon_chain::{
     AttestationValidationError, CheckPoint,
 };
 use eth2_libp2p::rpc::HelloMessage;
-use types::{Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{
+    Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot,
+};
 
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome, InvalidBlock};
 
 /// The network's API to the beacon chain.
-pub trait BeaconChain: Send + Sync {
+pub trait BeaconChain<E: EthSpec>: Send + Sync {
     fn get_spec(&self) -> &ChainSpec;
 
-    fn get_state(&self) -> RwLockReadGuard<BeaconState>;
+    fn get_state(&self) -> RwLockReadGuard<BeaconState<E>>;
 
     fn slot(&self) -> Slot;
 
-    fn head(&self) -> RwLockReadGuard<CheckPoint>;
+    fn head(&self) -> RwLockReadGuard<CheckPoint<E>>;
 
     fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, BeaconChainError>;
 
@@ -28,7 +30,7 @@ pub trait BeaconChain: Send + Sync {
 
     fn best_block_root(&self) -> Hash256;
 
-    fn finalized_head(&self) -> RwLockReadGuard<CheckPoint>;
+    fn finalized_head(&self) -> RwLockReadGuard<CheckPoint<E>>;
 
     fn finalized_epoch(&self) -> Epoch;
 
@@ -62,17 +64,18 @@ pub trait BeaconChain: Send + Sync {
     fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, BeaconChainError>;
 }
 
-impl<T, U, F> BeaconChain for RawBeaconChain<T, U, F>
+impl<T, U, F, E> BeaconChain<E> for RawBeaconChain<T, U, F, E>
 where
     T: ClientDB + Sized,
     U: SlotClock,
     F: ForkChoice,
+    E: EthSpec,
 {
     fn get_spec(&self) -> &ChainSpec {
         &self.spec
     }
 
-    fn get_state(&self) -> RwLockReadGuard<BeaconState> {
+    fn get_state(&self) -> RwLockReadGuard<BeaconState<E>> {
         self.state.read()
     }
 
@@ -80,7 +83,7 @@ where
         self.get_state().slot
     }
 
-    fn head(&self) -> RwLockReadGuard<CheckPoint> {
+    fn head(&self) -> RwLockReadGuard<CheckPoint<E>> {
         self.head()
     }
 
@@ -92,7 +95,7 @@ where
         self.get_state().finalized_epoch
     }
 
-    fn finalized_head(&self) -> RwLockReadGuard<CheckPoint> {
+    fn finalized_head(&self) -> RwLockReadGuard<CheckPoint<E>> {
         self.finalized_head()
     }
 

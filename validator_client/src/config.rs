@@ -6,7 +6,9 @@ use std::fs;
 use std::fs::File;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
-use types::ChainSpec;
+use types::{
+    ChainSpec, EthSpec, FewValidatorsEthSpec, FoundationEthSpec, LighthouseTestnetEthSpec,
+};
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone)]
@@ -31,7 +33,7 @@ impl Default for Config {
 
         let server = "localhost:5051".to_string();
 
-        let spec = ChainSpec::foundation();
+        let spec = FoundationEthSpec::spec();
 
         Self {
             data_dir,
@@ -65,9 +67,9 @@ impl Config {
         if let Some(spec_str) = args.value_of("spec") {
             info!(log, "Using custom spec: {:?}", spec_str);
             config.spec = match spec_str {
-                "foundation" => ChainSpec::foundation(),
-                "few_validators" => ChainSpec::few_validators(),
-                "lighthouse_testnet" => ChainSpec::lighthouse_testnet(),
+                "foundation" => FoundationEthSpec::spec(),
+                "few_validators" => FewValidatorsEthSpec::spec(),
+                "lighthouse_testnet" => LighthouseTestnetEthSpec::spec(),
                 // Should be impossible due to clap's `possible_values(..)` function.
                 _ => unreachable!(),
             };

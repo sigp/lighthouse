@@ -1,6 +1,7 @@
-use super::{DepositData, Hash256, TreeHashVector};
 use crate::test_utils::TestRandom;
-use rand::RngCore;
+use crate::*;
+use fixed_len_vec::typenum::U32;
+
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -22,7 +23,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct Deposit {
-    pub proof: TreeHashVector<Hash256>,
+    pub proof: FixedLenVec<Hash256, U32>,
     pub index: u64,
     pub deposit_data: DepositData,
 }
