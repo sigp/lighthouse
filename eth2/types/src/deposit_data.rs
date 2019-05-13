@@ -76,6 +76,7 @@ mod tests {
 
         let mut deposit_input = DepositData {
             pubkey: keypair.pk.clone(),
+            amount: 0,
             withdrawal_credentials: Hash256::zero(),
             signature: Signature::empty_signature(),
         };

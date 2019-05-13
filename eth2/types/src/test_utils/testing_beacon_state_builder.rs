@@ -246,7 +246,7 @@ impl TestingBeaconStateBuilder {
                 builder.add_committee_participation(signers);
                 let attestation = builder.build();
 
-                if attestation.data.slot.epoch(spec.slots_per_epoch) < state.current_epoch(spec) {
+                if attestation.data.target_epoch < state.current_epoch(spec) {
                     state.previous_epoch_attestations.push(attestation)
                 } else {
                     state.current_epoch_attestations.push(attestation)

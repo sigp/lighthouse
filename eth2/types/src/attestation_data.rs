@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Epoch, Hash256, Slot};
+use crate::{Epoch, Hash256};
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// The data upon which an attestation is based.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 #[derive(
     Debug,
     Clone,
@@ -27,12 +27,12 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 )]
 pub struct AttestationData {
     // LMD GHOST vote
-    pub slot: Slot,
     pub beacon_block_root: Hash256,
 
     // FFG Vote
     pub source_epoch: Epoch,
     pub source_root: Hash256,
+    pub target_epoch: Epoch,
     pub target_root: Hash256,
 
     // Crosslink Vote
