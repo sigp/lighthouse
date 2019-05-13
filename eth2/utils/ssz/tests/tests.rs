@@ -107,6 +107,22 @@ mod round_trip {
     }
 
     #[test]
+    fn fixed_len_excess_bytes() {
+        let fixed = FixedLen { a: 1, b: 2, c: 3 };
+
+        let mut bytes = fixed.as_ssz_bytes();
+        bytes.append(&mut vec![0]);
+
+        assert_eq!(
+            FixedLen::from_ssz_bytes(&bytes),
+            Err(DecodeError::InvalidByteLength {
+                len: 15,
+                expected: 14,
+            })
+        );
+    }
+
+    #[test]
     fn vec_of_fixed_len_struct() {
         let items: Vec<FixedLen> = vec![
             FixedLen { a: 0, b: 0, c: 0 },
@@ -136,6 +152,22 @@ mod round_trip {
             VariableLen::from_ssz_bytes(&bytes),
             Err(DecodeError::OutOfBoundsByte { i: 9 })
         );
+    }
+
+    #[test]
+    fn variable_len_excess_bytes() {
+        let variable = VariableLen {
+            a: 1,
+            b: vec![2],
+            c: 3,
+        };
+
+        let mut bytes = variable.as_ssz_bytes();
+        bytes.append(&mut vec![0]);
+
+        // The error message triggered is not so helpful, it's caught by a side-effect. Just
+        // checking there is _some_ error is fine.
+        assert!(VariableLen::from_ssz_bytes(&bytes).is_err());
     }
 
     #[test]
