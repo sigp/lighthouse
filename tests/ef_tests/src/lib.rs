@@ -1,8 +1,8 @@
 use error::Error;
+use ethereum_types::{U128, U256};
 use serde_derive::Deserialize;
 use ssz::Decode;
 use std::fmt::Debug;
-use ethereum_types::{U256, U128};
 use test_decode::TestDecode;
 
 mod error;
@@ -35,8 +35,7 @@ pub trait Test {
 
 impl Test for TestDoc<SszGenericCase> {
     fn test(&self) -> Vec<Result<(), Error>> {
-        self
-            .test_cases
+        self.test_cases
             .iter()
             .map(|tc| {
                 if let Some(ssz) = &tc.ssz {
@@ -47,9 +46,10 @@ impl Test for TestDoc<SszGenericCase> {
                         "uint64" => compare_decoding::<u64>(tc.valid, ssz, &tc.value),
                         "uint128" => compare_decoding::<U128>(tc.valid, ssz, &tc.value),
                         "uint256" => compare_decoding::<U256>(tc.valid, ssz, &tc.value),
-                        _ => {
-                            Err(Error::FailedToParseTest(format!("Unknown type: {}", tc.type_name)))
-                        }
+                        _ => Err(Error::FailedToParseTest(format!(
+                            "Unknown type: {}",
+                            tc.type_name
+                        ))),
                     }
                 } else {
                     // Skip tests that do not have an ssz field.
@@ -66,8 +66,7 @@ fn compare_decoding<T>(should_pass: bool, ssz: &String, value: &String) -> Resul
 where
     T: Decode + TestDecode + Debug + PartialEq<T>,
 {
-    let ssz = hex::decode(&ssz[2..])
-        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+    let ssz = hex::decode(&ssz[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
     let expected = T::test_decode(value)?;
 
     let decoded = T::from_ssz_bytes(&ssz);

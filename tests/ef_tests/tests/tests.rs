@@ -26,7 +26,7 @@ fn ssz() {
     let failures: Vec<(usize, &Result<_, _>)> = results
         .iter()
         .enumerate()
-        .filter(|(_i, r)| r.is_ok())
+        .filter(|(_i, r)| r.is_err())
         .collect();
 
     if !failures.is_empty() {
