@@ -1,6 +1,6 @@
 use super::STATES_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
-use ssz::decode;
+use ssz::Decode;
 use std::sync::Arc;
 use types::{BeaconState, EthSpec, Hash256};
 
@@ -26,7 +26,7 @@ impl<T: ClientDB> BeaconStateStore<T> {
         match self.get(&hash)? {
             None => Ok(None),
             Some(ssz) => {
-                let state = decode::<BeaconState<E>>(&ssz).map_err(|_| DBError {
+                let state = BeaconState::from_ssz_bytes(&ssz).map_err(|_| DBError {
                     message: "Bad State SSZ.".to_string(),
                 })?;
                 Ok(Some(state))

@@ -5,13 +5,13 @@ macro_rules! ssz_tests {
         #[test]
         pub fn test_ssz_round_trip() {
             use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-            use ssz::{ssz_encode, Decodable};
+            use ssz::{ssz_encode, Decode};
 
             let mut rng = XorShiftRng::from_seed([42; 16]);
             let original = $type::random_for_test(&mut rng);
 
             let bytes = ssz_encode(&original);
-            let (decoded, _): ($type, usize) = <_>::ssz_decode(&bytes, 0).unwrap();
+            let decoded = $type::from_ssz_bytes(&bytes).unwrap();
 
             assert_eq!(original, decoded);
         }
