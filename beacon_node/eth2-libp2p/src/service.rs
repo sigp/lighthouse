@@ -63,11 +63,12 @@ impl Service {
             .map_err(|e| format!("Invalid listen multiaddr: {}", e))?
         {
             match Swarm::listen_on(&mut swarm, address.clone()) {
-                Ok(mut listen_addr) => {
-                    listen_addr.append(Protocol::P2p(local_peer_id.clone().into()));
-                    info!(log, "Listening on: {}", listen_addr);
+                Ok(_) => {
+                    let mut log_address = address.clone();
+                    log_address.push(Protocol::P2p(local_peer_id.clone().into()));
+                    info!(log, "Listening on: {}", log_address);
                 }
-                Err(err) => warn!(log, "Cannot listen on: {} : {:?}", address, err),
+                Err(err) => warn!(log, "Cannot listen on: {} because: {:?}", address, err),
             };
         }
         // connect to boot nodes - these are currently stored as multiaddrs

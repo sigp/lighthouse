@@ -1,6 +1,5 @@
 use clap::ArgMatches;
 use eth2_libp2p::multiaddr::Protocol;
-use eth2_libp2p::multiaddr::ToMultiaddr;
 use eth2_libp2p::Multiaddr;
 use fork_choice::ForkChoiceAlgorithm;
 use http_server::HttpServerConfig;
@@ -51,6 +50,7 @@ impl Default for ClientConfig {
 }
 
 impl ClientConfig {
+<<<<<<< HEAD
     /// Returns the path to which the client may initialize an on-disk database.
     pub fn db_path(&self) -> Option<PathBuf> {
         self.data_dir()
