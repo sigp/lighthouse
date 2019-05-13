@@ -20,7 +20,7 @@ pub struct TestDoc<T> {
     pub test_cases: Vec<T>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SszGenericCase {
     #[serde(alias = "type")]
     pub type_name: String,
@@ -30,17 +30,18 @@ pub struct SszGenericCase {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TestCaseResult {
-    pub description: String,
+pub struct TestCaseResult<T> {
+    pub case_index: usize,
+    pub case: T,
     pub result: Result<(), Error>,
 }
 
-pub trait Test {
-    fn test(&self) -> Vec<TestCaseResult>;
+pub trait Test<T> {
+    fn test(&self) -> Vec<TestCaseResult<T>>;
 }
 
-impl Test for TestDoc<SszGenericCase> {
-    fn test(&self) -> Vec<TestCaseResult> {
+impl Test<SszGenericCase> for TestDoc<SszGenericCase> {
+    fn test(&self) -> Vec<TestCaseResult<SszGenericCase>> {
         self.test_cases
             .iter()
             .enumerate()
@@ -66,7 +67,8 @@ impl Test for TestDoc<SszGenericCase> {
                 };
 
                 TestCaseResult {
-                    description: format!("Case {}: {:?}", i, tc),
+                    case_index: i,
+                    case: tc.clone(),
                     result,
                 }
             })
@@ -74,28 +76,48 @@ impl Test for TestDoc<SszGenericCase> {
     }
 }
 
-fn compare_decoding<T>(should_pass: bool, ssz: &String, value: &String) -> Result<(), Error>
+fn compare_decoding<T>(should_be_ok: bool, ssz: &String, value: &String) -> Result<(), Error>
 where
     T: Decode + TestDecode + Debug + PartialEq<T>,
 {
     let ssz = hex::decode(&ssz[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-    let expected = T::test_decode(value)?;
+
+    let expected = if should_be_ok {
+        Some(T::test_decode(value)?)
+    } else {
+        None
+    };
 
     let decoded = T::from_ssz_bytes(&ssz);
 
-    if should_pass {
-        let decoded = decoded.map_err(|e| Error::NotEqual(format!("{:?}", e)))?;
+    compare_result(decoded, expected)
+}
 
-        if decoded != expected {
-            Err(Error::NotEqual(format!("{:?} != {:?}", decoded, expected)))
-        } else {
-            Ok(())
-        }
-    } else {
-        if let Ok(decoded) = decoded {
-            Err(Error::DidntFail(format!("Decoded as {:?}", decoded)))
-        } else {
-            Ok(())
+fn compare_result<T, E>(result: Result<T, E>, expected: Option<T>) -> Result<(), Error>
+where
+    T: PartialEq<T> + Debug,
+    E: Debug,
+{
+    match (result, expected) {
+        // Pass: The should have failed and did fail.
+        (Err(_), None) => Ok(()),
+        // Fail: The test failed when it should have produced a result (fail).
+        (Err(e), Some(expected)) => Err(Error::NotEqual(format!(
+            "Got {:?} expected {:?}",
+            e, expected
+        ))),
+        // Fail: The test produced a result when it should have failed (fail).
+        (Ok(result), None) => Err(Error::DidntFail(format!("Got {:?}", result))),
+        // Potential Pass: The test should have produced a result, and it did.
+        (Ok(result), Some(expected)) => {
+            if result == expected {
+                Ok(())
+            } else {
+                Err(Error::NotEqual(format!(
+                    "Got {:?} expected {:?}",
+                    result, expected
+                )))
+            }
         }
     }
 }
