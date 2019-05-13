@@ -8,15 +8,15 @@ use beacon_chain::{
     AttestationValidationError, BlockProductionError,
 };
 pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
-use types::{Attestation, AttestationData, BeaconBlock};
+use types::{Attestation, AttestationData, BeaconBlock, EthSpec};
 
 /// The RPC's API to the beacon chain.
-pub trait BeaconChain: Send + Sync {
+pub trait BeaconChain<E: EthSpec>: Send + Sync {
     fn get_spec(&self) -> &ChainSpec;
 
-    fn get_state(&self) -> RwLockReadGuard<BeaconState>;
+    fn get_state(&self) -> RwLockReadGuard<BeaconState<E>>;
 
-    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState>;
+    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState<E>>;
 
     fn process_block(&self, block: BeaconBlock)
         -> Result<BlockProcessingOutcome, BeaconChainError>;
@@ -24,7 +24,7 @@ pub trait BeaconChain: Send + Sync {
     fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState), BlockProductionError>;
+    ) -> Result<(BeaconBlock, BeaconState<E>), BlockProductionError>;
 
     fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, BeaconChainError>;
 
@@ -34,21 +34,22 @@ pub trait BeaconChain: Send + Sync {
     ) -> Result<(), AttestationValidationError>;
 }
 
-impl<T, U, F> BeaconChain for RawBeaconChain<T, U, F>
+impl<T, U, F, E> BeaconChain<E> for RawBeaconChain<T, U, F, E>
 where
     T: ClientDB + Sized,
     U: SlotClock,
     F: ForkChoice,
+    E: EthSpec,
 {
     fn get_spec(&self) -> &ChainSpec {
         &self.spec
     }
 
-    fn get_state(&self) -> RwLockReadGuard<BeaconState> {
+    fn get_state(&self) -> RwLockReadGuard<BeaconState<E>> {
         self.state.read()
     }
 
-    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState> {
+    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState<E>> {
         self.state.write()
     }
 
@@ -62,7 +63,7 @@ where
     fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState), BlockProductionError> {
+    ) -> Result<(BeaconBlock, BeaconState<E>), BlockProductionError> {
         self.produce_block(randao_reveal)
     }
 
