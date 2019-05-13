@@ -19,11 +19,11 @@ fn load_test_case<T: DeserializeOwned>(test_name: &str) -> TestDoc<T> {
 
 #[test]
 fn ssz() {
-    let doc: TestDoc<SszGenericCase> = load_test_case("ssz_generic/uint/uint_bounds.yaml");
+    let doc: TestDoc<SszGeneric> = load_test_case("ssz_generic/uint/uint_bounds.yaml");
 
     let results = doc.test();
 
-    let failures: Vec<&TestCaseResult<SszGenericCase>> =
+    let failures: Vec<&TestCaseResult<SszGeneric>> =
         results.iter().filter(|r| r.result.is_err()).collect();
 
     if !failures.is_empty() {
