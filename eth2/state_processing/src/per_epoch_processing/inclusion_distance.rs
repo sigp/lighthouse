@@ -1,5 +1,4 @@
 use super::errors::InclusionError;
-use super::get_attestation_participants::get_attestation_participants;
 use types::*;
 
 /// Returns the distance between the first included attestation for some validator and this
@@ -13,7 +12,9 @@ pub fn inclusion_distance(
     spec: &ChainSpec,
 ) -> Result<u64, InclusionError> {
     let attestation = earliest_included_attestation(state, attestations, validator_index, spec)?;
-    Ok((attestation.inclusion_slot - attestation.data.slot).as_u64())
+    // Ok((attestation.inclusion_slot - attestation.data.slot).as_u64())
+    // FIXME(sproul)
+    unimplemented!()
 }
 
 /// Returns the slot of the earliest included attestation for some validator.
@@ -25,8 +26,11 @@ pub fn inclusion_slot(
     validator_index: usize,
     spec: &ChainSpec,
 ) -> Result<Slot, InclusionError> {
+    /*
     let attestation = earliest_included_attestation(state, attestations, validator_index, spec)?;
     Ok(attestation.inclusion_slot)
+    */
+    unimplemented!("FIXME(sproul) inclusion slot")
 }
 
 /// Finds the earliest included attestation for some validator.
@@ -38,6 +42,9 @@ fn earliest_included_attestation(
     validator_index: usize,
     spec: &ChainSpec,
 ) -> Result<PendingAttestation, InclusionError> {
+    // FIXME(sproul)
+    unimplemented!()
+    /*
     let mut included_attestations = vec![];
 
     for (i, a) in attestations.iter().enumerate() {
@@ -53,4 +60,5 @@ fn earliest_included_attestation(
         .min_by_key(|i| attestations[**i].inclusion_slot)
         .ok_or_else(|| InclusionError::NoAttestationsForValidator)?;
     Ok(attestations[*earliest_attestation_index].clone())
+    */
 }
