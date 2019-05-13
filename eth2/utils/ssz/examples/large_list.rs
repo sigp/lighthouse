@@ -2,7 +2,7 @@
 //!
 //! Useful for `cargo flamegraph`.
 
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 
 fn main() {
     let vec: Vec<u64> = vec![4242; 8196];

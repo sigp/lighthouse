@@ -7,7 +7,7 @@ use protos::services::{
 };
 use protos::services_grpc::AttestationService;
 use slog::{error, info, trace, warn};
-use ssz::{ssz_encode, Decodable};
+use ssz::{ssz_encode, Decode};
 use std::sync::Arc;
 use types::{Attestation, EthSpec};
 

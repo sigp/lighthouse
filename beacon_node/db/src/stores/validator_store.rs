@@ -4,7 +4,7 @@ use self::bytes::{BufMut, BytesMut};
 use super::VALIDATOR_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use bls::PublicKey;
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]

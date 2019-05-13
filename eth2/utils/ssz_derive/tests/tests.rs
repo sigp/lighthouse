@@ -1,4 +1,4 @@
-use ssz::Encodable;
+use ssz::Encode;
 use ssz_derive::Encode;
 
 #[derive(Debug, PartialEq, Encode)]

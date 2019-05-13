@@ -3,7 +3,7 @@ use ethereum_types::H256;
 
 macro_rules! impl_encodable_for_uint {
     ($type: ident, $bit_size: expr) => {
-        impl Encodable for $type {
+        impl Encode for $type {
             fn is_ssz_fixed_len() -> bool {
                 true
             }
@@ -25,7 +25,7 @@ impl_encodable_for_uint!(u32, 32);
 impl_encodable_for_uint!(u64, 64);
 impl_encodable_for_uint!(usize, 64);
 
-impl<T: Encodable> Encodable for Vec<T> {
+impl<T: Encode> Encode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {
         false
     }
@@ -49,7 +49,7 @@ impl<T: Encodable> Encodable for Vec<T> {
     }
 }
 
-impl Encodable for bool {
+impl Encode for bool {
     fn is_ssz_fixed_len() -> bool {
         true
     }
@@ -63,7 +63,7 @@ impl Encodable for bool {
     }
 }
 
-impl Encodable for H256 {
+impl Encode for H256 {
     fn is_ssz_fixed_len() -> bool {
         true
     }
@@ -79,7 +79,7 @@ impl Encodable for H256 {
 
 macro_rules! impl_encodable_for_u8_array {
     ($len: expr) => {
-        impl Encodable for [u8; $len] {
+        impl Encode for [u8; $len] {
             fn is_ssz_fixed_len() -> bool {
                 true
             }

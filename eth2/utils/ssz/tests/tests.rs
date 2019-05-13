@@ -1,11 +1,11 @@
 use ethereum_types::H256;
-use ssz::{Decodable, DecodeError, Encodable};
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 
 mod round_trip {
     use super::*;
 
-    fn round_trip<T: Encodable + Decodable + std::fmt::Debug + PartialEq>(items: Vec<T>) {
+    fn round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(items: Vec<T>) {
         for item in items {
             let encoded = &item.as_ssz_bytes();
             assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));

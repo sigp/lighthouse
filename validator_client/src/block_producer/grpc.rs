@@ -3,7 +3,7 @@ use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
 use protos::services_grpc::BeaconBlockServiceClient;
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 use std::sync::Arc;
 use types::{BeaconBlock, Signature, Slot};
 

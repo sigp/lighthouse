@@ -1,4 +1,4 @@
-use ssz::{Decodable, DecodeError, Encodable, SszDecoderBuilder, SszEncoder};
+use ssz::{Decode, DecodeError, Encode, SszDecoderBuilder, SszEncoder};
 
 #[derive(Debug, PartialEq)]
 pub struct Foo {
@@ -7,15 +7,15 @@ pub struct Foo {
     c: u16,
 }
 
-impl Encodable for Foo {
+impl Encode for Foo {
     fn is_ssz_fixed_len() -> bool {
-        <u16 as Encodable>::is_ssz_fixed_len() && <Vec<u16> as Encodable>::is_ssz_fixed_len()
+        <u16 as Encode>::is_ssz_fixed_len() && <Vec<u16> as Encode>::is_ssz_fixed_len()
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        let offset = <u16 as Encodable>::ssz_fixed_len()
-            + <Vec<u16> as Encodable>::ssz_fixed_len()
-            + <u16 as Encodable>::ssz_fixed_len();
+        let offset = <u16 as Encode>::ssz_fixed_len()
+            + <Vec<u16> as Encode>::ssz_fixed_len()
+            + <u16 as Encode>::ssz_fixed_len();
 
         let mut encoder = SszEncoder::container(buf, offset);
 
@@ -27,9 +27,9 @@ impl Encodable for Foo {
     }
 }
 
-impl Decodable for Foo {
+impl Decode for Foo {
     fn is_ssz_fixed_len() -> bool {
-        <u16 as Decodable>::is_ssz_fixed_len() && <Vec<u16> as Decodable>::is_ssz_fixed_len()
+        <u16 as Decode>::is_ssz_fixed_len() && <Vec<u16> as Decode>::is_ssz_fixed_len()
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {

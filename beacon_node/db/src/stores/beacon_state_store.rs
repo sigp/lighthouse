@@ -1,6 +1,6 @@
 use super::STATES_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
-use ssz::Decodable;
+use ssz::Decode;
 use std::sync::Arc;
 use types::{BeaconState, EthSpec, Hash256};
 

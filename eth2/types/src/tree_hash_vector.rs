@@ -1,7 +1,7 @@
 use crate::test_utils::{RngCore, TestRandom};
 use cached_tree_hash::CachedTreeHash;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decodable, DecodeError, Encodable};
+use ssz::{Decode, DecodeError, Encode};
 use std::ops::{Deref, DerefMut};
 use tree_hash::TreeHash;
 
@@ -82,18 +82,18 @@ where
     }
 }
 
-impl<T> Encodable for TreeHashVector<T>
+impl<T> Encode for TreeHashVector<T>
 where
-    T: Encodable,
+    T: Encode,
 {
     fn ssz_append(&self, s: &mut SszStream) {
         s.append_vec(self)
     }
 }
 
-impl<T> Decodable for TreeHashVector<T>
+impl<T> Decode for TreeHashVector<T>
 where
-    T: Decodable,
+    T: Decode,
 {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
         ssz::decode_ssz_list(bytes, index).and_then(|(vec, i)| Ok((vec.into(), i)))

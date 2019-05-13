@@ -26,7 +26,7 @@ pub enum DecodeError {
 ///
 /// See `examples/` for manual implementations or the crate root for implementations using
 /// `#[derive(Decode)]`.
-pub trait Decodable: Sized {
+pub trait Decode: Sized {
     /// Returns `true` if this object has a fixed-length.
     ///
     /// I.e., there are no variable length items in this object or any of it's contained objects.
@@ -80,7 +80,7 @@ impl<'a> SszDecoderBuilder<'a> {
     }
 
     /// Declares that some type `T` is the next item in `bytes`.
-    pub fn register_type<T: Decodable>(&mut self) -> Result<(), DecodeError> {
+    pub fn register_type<T: Decode>(&mut self) -> Result<(), DecodeError> {
         if T::is_ssz_fixed_len() {
             let start = self.items_index;
             self.items_index += T::ssz_fixed_len();
@@ -173,7 +173,7 @@ impl<'a> SszDecoderBuilder<'a> {
 ///
 /// ```rust
 /// use ssz_derive::{Encode, Decode};
-/// use ssz::{Decodable, Encodable, SszDecoder, SszDecoderBuilder};
+/// use ssz::{Decode, Encode, SszDecoder, SszDecoderBuilder};
 ///
 /// #[derive(PartialEq, Debug, Encode, Decode)]
 /// struct Foo {
@@ -215,7 +215,7 @@ impl<'a> SszDecoder<'a> {
     /// # Panics
     ///
     /// Panics when attempting to decode more items than actually exist.
-    pub fn decode_next<T: Decodable>(&mut self) -> Result<T, DecodeError> {
+    pub fn decode_next<T: Decode>(&mut self) -> Result<T, DecodeError> {
         T::from_ssz_bytes(self.items.remove(0))
     }
 }

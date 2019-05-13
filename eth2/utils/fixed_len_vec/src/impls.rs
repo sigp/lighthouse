@@ -1,6 +1,6 @@
 use super::*;
 // use cached_tree_hash::CachedTreeHash;
-// use ssz::{Decodable, Encodable};
+// use ssz::{Decode, Encode};
 // use tree_hash::TreeHash;
 
 impl<T, N: Unsigned> tree_hash::TreeHash for FixedLenVec<T, N>
@@ -51,16 +51,16 @@ where
     }
 }
 
-impl<T, N: Unsigned> ssz::Encodable for FixedLenVec<T, N>
+impl<T, N: Unsigned> ssz::Encode for FixedLenVec<T, N>
 where
-    T: ssz::Encodable,
+    T: ssz::Encode,
 {
     fn is_ssz_fixed_len() -> bool {
         true
     }
 
     fn ssz_fixed_len() -> usize {
-        if <Self as ssz::Encodable>::is_ssz_fixed_len() {
+        if <Self as ssz::Encode>::is_ssz_fixed_len() {
             T::ssz_fixed_len() * N::to_usize()
         } else {
             ssz::BYTES_PER_LENGTH_OFFSET
@@ -86,16 +86,16 @@ where
     }
 }
 
-impl<T, N: Unsigned> ssz::Decodable for FixedLenVec<T, N>
+impl<T, N: Unsigned> ssz::Decode for FixedLenVec<T, N>
 where
-    T: ssz::Decodable + Default,
+    T: ssz::Decode + Default,
 {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
     }
 
     fn ssz_fixed_len() -> usize {
-        if <Self as ssz::Decodable>::is_ssz_fixed_len() {
+        if <Self as ssz::Decode>::is_ssz_fixed_len() {
             T::ssz_fixed_len() * N::to_usize()
         } else {
             ssz::BYTES_PER_LENGTH_OFFSET
@@ -127,10 +127,10 @@ mod ssz_tests {
     fn encode() {
         let vec: FixedLenVec<u16, U2> = vec![0; 2].into();
         assert_eq!(vec.as_ssz_bytes(), vec![0, 0, 0, 0]);
-        assert_eq!(<FixedLenVec<u16, U2> as Encodable>::ssz_fixed_len(), 4);
+        assert_eq!(<FixedLenVec<u16, U2> as Encode>::ssz_fixed_len(), 4);
     }
 
-    fn round_trip<T: Encodable + Decodable + std::fmt::Debug + PartialEq>(item: T) {
+    fn round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(item: T) {
         let encoded = &item.as_ssz_bytes();
         assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
     }

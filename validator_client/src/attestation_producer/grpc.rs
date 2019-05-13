@@ -1,7 +1,7 @@
 use super::beacon_node_attestation::BeaconNodeAttestation;
 use crate::block_producer::{BeaconNodeError, PublishOutcome};
 use protos::services_grpc::AttestationServiceClient;
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 
 use protos::services::{
     Attestation as GrpcAttestation, ProduceAttestationDataRequest, PublishAttestationRequest,

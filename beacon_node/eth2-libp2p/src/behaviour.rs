@@ -13,7 +13,7 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o, trace, warn};
-use ssz::{ssz_encode, Decodable, DecodeError, Encodable};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use types::{Attestation, BeaconBlock};
 use types::{Topic, TopicHash};
 
@@ -197,13 +197,13 @@ pub enum PubsubMessage {
 }
 
 //TODO: Correctly encode/decode enums. Prefixing with integer for now.
-impl Encodable for PubsubMessage {
+impl Encode for PubsubMessage {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        let offset = <u32 as Encodable>::ssz_fixed_len() + <Vec<u8> as Encodable>::ssz_fixed_len();
+        let offset = <u32 as Encode>::ssz_fixed_len() + <Vec<u8> as Encode>::ssz_fixed_len();
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
 
@@ -226,7 +226,7 @@ impl Encodable for PubsubMessage {
     }
 }
 
-impl Decodable for PubsubMessage {
+impl Decode for PubsubMessage {
     fn is_ssz_fixed_len() -> bool {
         false
     }

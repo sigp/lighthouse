@@ -3,7 +3,7 @@ use ethereum_types::H256;
 
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
-        impl Decodable for $type {
+        impl Decode for $type {
             fn is_ssz_fixed_len() -> bool {
                 true
             }
@@ -14,7 +14,7 @@ macro_rules! impl_decodable_for_uint {
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
                 let len = bytes.len();
-                let expected = <Self as Decodable>::ssz_fixed_len();
+                let expected = <Self as Decode>::ssz_fixed_len();
 
                 if len != expected {
                     Err(DecodeError::InvalidByteLength { len, expected })
@@ -35,7 +35,7 @@ impl_decodable_for_uint!(u32, 32);
 impl_decodable_for_uint!(u64, 64);
 impl_decodable_for_uint!(usize, 64);
 
-impl Decodable for bool {
+impl Decode for bool {
     fn is_ssz_fixed_len() -> bool {
         true
     }
@@ -46,7 +46,7 @@ impl Decodable for bool {
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let len = bytes.len();
-        let expected = <Self as Decodable>::ssz_fixed_len();
+        let expected = <Self as Decode>::ssz_fixed_len();
 
         if len != expected {
             Err(DecodeError::InvalidByteLength { len, expected })
@@ -64,7 +64,7 @@ impl Decodable for bool {
     }
 }
 
-impl Decodable for H256 {
+impl Decode for H256 {
     fn is_ssz_fixed_len() -> bool {
         true
     }
@@ -75,7 +75,7 @@ impl Decodable for H256 {
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let len = bytes.len();
-        let expected = <Self as Decodable>::ssz_fixed_len();
+        let expected = <Self as Decode>::ssz_fixed_len();
 
         if len != expected {
             Err(DecodeError::InvalidByteLength { len, expected })
@@ -87,7 +87,7 @@ impl Decodable for H256 {
 
 macro_rules! impl_decodable_for_u8_array {
     ($len: expr) => {
-        impl Decodable for [u8; $len] {
+        impl Decode for [u8; $len] {
             fn is_ssz_fixed_len() -> bool {
                 true
             }
@@ -98,7 +98,7 @@ macro_rules! impl_decodable_for_u8_array {
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
                 let len = bytes.len();
-                let expected = <Self as Decodable>::ssz_fixed_len();
+                let expected = <Self as Decode>::ssz_fixed_len();
 
                 if len != expected {
                     Err(DecodeError::InvalidByteLength { len, expected })
@@ -115,7 +115,7 @@ macro_rules! impl_decodable_for_u8_array {
 
 impl_decodable_for_u8_array!(4);
 
-impl<T: Decodable> Decodable for Vec<T> {
+impl<T: Decode> Decode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {
         false
     }
@@ -139,7 +139,7 @@ impl<T: Decodable> Decodable for Vec<T> {
 /// The `ssz::SszDecoder` can also perform this functionality, however it it significantly faster
 /// as it is optimized to read same-typed items whilst `ssz::SszDecoder` supports reading items of
 /// differing types.
-pub fn decode_list_of_variable_length_items<T: Decodable>(
+pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
 ) -> Result<Vec<T>, DecodeError> {
     let mut next_variable_byte = read_offset(bytes)?;

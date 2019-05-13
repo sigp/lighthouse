@@ -1,6 +1,6 @@
 macro_rules! impl_ssz {
     ($type: ident, $byte_size: expr, $item_str: expr) => {
-        impl ssz::Encodable for $type {
+        impl ssz::Encode for $type {
             fn is_ssz_fixed_len() -> bool {
                 true
             }
@@ -14,7 +14,7 @@ macro_rules! impl_ssz {
             }
         }
 
-        impl ssz::Decodable for $type {
+        impl ssz::Decode for $type {
             fn is_ssz_fixed_len() -> bool {
                 true
             }
@@ -25,7 +25,7 @@ macro_rules! impl_ssz {
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
                 let len = bytes.len();
-                let expected = <Self as ssz::Decodable>::ssz_fixed_len();
+                let expected = <Self as ssz::Decode>::ssz_fixed_len();
 
                 if len != expected {
                     Err(ssz::DecodeError::InvalidByteLength { len, expected })

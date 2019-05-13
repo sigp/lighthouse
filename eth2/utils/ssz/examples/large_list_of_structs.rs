@@ -2,7 +2,7 @@
 //!
 //! Useful for `cargo flamegraph`.
 
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 
 #[derive(Clone, Copy, Encode, Decode)]

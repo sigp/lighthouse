@@ -1,18 +1,18 @@
-/// Implements `Encodable` for `$impl_type` using an implementation of `From<$impl_type> for
+/// Implements `Encode` for `$impl_type` using an implementation of `From<$impl_type> for
 /// $from_type`.
 ///
-/// In effect, this allows for easy implementation of `Encodable` for some type that implements a
-/// `From` conversion into another type that already has `Encodable` implemented.
+/// In effect, this allows for easy implementation of `Encode` for some type that implements a
+/// `From` conversion into another type that already has `Encode` implemented.
 #[macro_export]
 macro_rules! impl_encode_via_from {
     ($impl_type: ty, $from_type: ty) => {
-        impl ssz::Encodable for $impl_type {
+        impl ssz::Encode for $impl_type {
             fn is_ssz_fixed_len() -> bool {
-                <$from_type as ssz::Encodable>::is_ssz_fixed_len()
+                <$from_type as ssz::Encode>::is_ssz_fixed_len()
             }
 
             fn ssz_fixed_len() -> usize {
-                <$from_type as ssz::Encodable>::ssz_fixed_len()
+                <$from_type as ssz::Encode>::ssz_fixed_len()
             }
 
             fn ssz_append(&self, buf: &mut Vec<u8>) {
@@ -24,21 +24,21 @@ macro_rules! impl_encode_via_from {
     };
 }
 
-/// Implements `Decodable` for `$impl_type` using an implementation of `From<$impl_type> for
+/// Implements `Decode` for `$impl_type` using an implementation of `From<$impl_type> for
 /// $from_type`.
 ///
-/// In effect, this allows for easy implementation of `Decodable` for some type that implements a
-/// `From` conversion into another type that already has `Decodable` implemented.
+/// In effect, this allows for easy implementation of `Decode` for some type that implements a
+/// `From` conversion into another type that already has `Decode` implemented.
 #[macro_export]
 macro_rules! impl_decode_via_from {
     ($impl_type: ty, $from_type: tt) => {
-        impl ssz::Decodable for $impl_type {
+        impl ssz::Decode for $impl_type {
             fn is_ssz_fixed_len() -> bool {
-                <$from_type as ssz::Decodable>::is_ssz_fixed_len()
+                <$from_type as ssz::Decode>::is_ssz_fixed_len()
             }
 
             fn ssz_fixed_len() -> usize {
-                <$from_type as ssz::Decodable>::ssz_fixed_len()
+                <$from_type as ssz::Decode>::ssz_fixed_len()
             }
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
@@ -51,7 +51,7 @@ macro_rules! impl_decode_via_from {
 #[cfg(test)]
 mod tests {
     use crate as ssz;
-    use ssz::{Decodable, Encodable};
+    use ssz::{Decode, Encode};
 
     #[derive(PartialEq, Debug, Clone, Copy)]
     struct Wrapper(u64);
