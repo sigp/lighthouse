@@ -29,16 +29,23 @@ pub struct SszGenericCase {
     pub ssz: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct TestCaseResult {
+    pub description: String,
+    pub result: Result<(), Error>,
+}
+
 pub trait Test {
-    fn test(&self) -> Vec<Result<(), Error>>;
+    fn test(&self) -> Vec<TestCaseResult>;
 }
 
 impl Test for TestDoc<SszGenericCase> {
-    fn test(&self) -> Vec<Result<(), Error>> {
+    fn test(&self) -> Vec<TestCaseResult> {
         self.test_cases
             .iter()
-            .map(|tc| {
-                if let Some(ssz) = &tc.ssz {
+            .enumerate()
+            .map(|(i, tc)| {
+                let result = if let Some(ssz) = &tc.ssz {
                     match tc.type_name.as_ref() {
                         "uint8" => compare_decoding::<u8>(tc.valid, ssz, &tc.value),
                         "uint16" => compare_decoding::<u16>(tc.valid, ssz, &tc.value),
@@ -56,6 +63,11 @@ impl Test for TestDoc<SszGenericCase> {
                     //
                     // See: https://github.com/ethereum/eth2.0-specs/issues/1079
                     Ok(())
+                };
+
+                TestCaseResult {
+                    description: format!("Case {}: {:?}", i, tc),
+                    result,
                 }
             })
             .collect()
