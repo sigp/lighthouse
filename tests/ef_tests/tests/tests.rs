@@ -21,7 +21,15 @@ fn load_test_case<T: DeserializeOwned>(test_name: &str) -> TestDoc<T> {
 fn ssz() {
     let doc: TestDoc<SszGenericCase> = load_test_case("ssz_generic/uint/uint_bounds.yaml");
 
-    dbg!(doc);
+    let results = doc.test();
 
-    assert!(false);
+    let failures: Vec<(usize, &Result<_, _>)> = results
+        .iter()
+        .enumerate()
+        .filter(|(_i, r)| r.is_ok())
+        .collect();
+
+    if !failures.is_empty() {
+        panic!("{:?}", failures);
+    }
 }
