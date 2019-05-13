@@ -1,7 +1,3 @@
-use super::common::{
-    get_attesting_balance, get_matching_head_attestations, get_matching_target_attestations,
-    get_total_active_balance, get_unslashed_attesting_indices,
-};
 use super::validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 use super::{Error, WinningRootHashSet};
 use integer_sqrt::IntegerSquareRoot;
@@ -181,9 +177,7 @@ fn get_attestation_delta(
         let inclusion = validator
             .inclusion_info
             .expect("It is a logic error for an attester not to have an inclusion distance.");
-        delta.reward(
-            base_reward * spec.min_attestation_inclusion_delay / inclusion.distance.as_u64(),
-        );
+        delta.reward(base_reward * spec.min_attestation_inclusion_delay / inclusion.distance);
     } else {
         delta.penalize(base_reward);
     }
