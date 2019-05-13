@@ -15,7 +15,7 @@ pub use validate_attestation::{
 };
 pub use verify_deposit::{get_existing_validator_index, verify_deposit, verify_deposit_index};
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
-pub use verify_slashable_attestation::verify_slashable_attestation;
+pub use verify_indexed_attestation::verify_indexed_attestation;
 pub use verify_transfer::{
     execute_transfer, verify_transfer, verify_transfer_time_independent_only,
 };
@@ -25,8 +25,8 @@ mod validate_attestation;
 mod verify_attester_slashing;
 mod verify_deposit;
 mod verify_exit;
+mod verify_indexed_attestation;
 mod verify_proposer_slashing;
-mod verify_slashable_attestation;
 mod verify_transfer;
 
 // Set to `true` to check the merkle proof that a deposit is in the eth1 deposit root.
@@ -253,41 +253,41 @@ pub fn process_attester_slashings(
         Invalid::MaxAttesterSlashingsExceed
     );
 
-    // Verify the `SlashableAttestation`s in parallel (these are the resource-consuming objects, not
+    // Verify the `IndexedAttestation`s in parallel (these are the resource-consuming objects, not
     // the `AttesterSlashing`s themselves).
-    let mut slashable_attestations: Vec<&SlashableAttestation> =
+    let mut indexed_attestations: Vec<&IndexedAttestation> =
         Vec::with_capacity(attester_slashings.len() * 2);
     for attester_slashing in attester_slashings {
-        slashable_attestations.push(&attester_slashing.slashable_attestation_1);
-        slashable_attestations.push(&attester_slashing.slashable_attestation_2);
+        indexed_attestations.push(&attester_slashing.attestation_1);
+        indexed_attestations.push(&attester_slashing.attestation_2);
     }
 
-    // Verify slashable attestations in parallel.
-    slashable_attestations
+    // Verify indexed attestations in parallel.
+    indexed_attestations
         .par_iter()
         .enumerate()
-        .try_for_each(|(i, slashable_attestation)| {
-            verify_slashable_attestation(&state, slashable_attestation, spec)
+        .try_for_each(|(i, indexed_attestation)| {
+            verify_indexed_attestation(&state, indexed_attestation, spec)
                 .map_err(|e| e.into_with_index(i))
         })?;
-    let all_slashable_attestations_have_been_checked = true;
+    let all_indexed_attestations_have_been_checked = true;
 
-    // Gather the slashable indices and preform the final verification and update the state in series.
+    // Gather the indexed indices and preform the final verification and update the state in series.
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        let should_verify_slashable_attestations = !all_slashable_attestations_have_been_checked;
+        let should_verify_indexed_attestations = !all_indexed_attestations_have_been_checked;
 
         verify_attester_slashing(
             &state,
             &attester_slashing,
-            should_verify_slashable_attestations,
+            should_verify_indexed_attestations,
             spec,
         )
         .map_err(|e| e.into_with_index(i))?;
 
-        let slashable_indices = gather_attester_slashing_indices(&state, &attester_slashing, spec)
+        let indexed_indices = gather_attester_slashing_indices(&state, &attester_slashing, spec)
             .map_err(|e| e.into_with_index(i))?;
 
-        for i in slashable_indices {
+        for i in indexed_indices {
             slash_validator(state, i as usize, spec)?;
         }
     }
