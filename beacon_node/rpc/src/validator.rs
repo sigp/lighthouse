@@ -5,7 +5,7 @@ use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{ActiveValidator, GetDutiesRequest, GetDutiesResponse, ValidatorDuty};
 use protos::services_grpc::ValidatorService;
 use slog::{trace, warn};
-use ssz::decode;
+use ssz::Decode;
 use std::sync::Arc;
 use types::{Epoch, EthSpec, RelativeEpoch};
 
@@ -74,7 +74,7 @@ impl<E: EthSpec> ValidatorService for ValidatorServiceInstance<E> {
         for validator_pk in validators.get_public_keys() {
             let mut active_validator = ActiveValidator::new();
 
-            let public_key = match decode::<PublicKey>(validator_pk) {
+            let public_key = match PublicKey::from_ssz_bytes(validator_pk) {
                 Ok(v) => v,
                 Err(_) => {
                     let log_clone = self.log.clone();
