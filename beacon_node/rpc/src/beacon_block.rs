@@ -16,13 +16,13 @@ use std::sync::Arc;
 use types::{BeaconBlock, EthSpec, Signature, Slot};
 
 #[derive(Clone)]
-pub struct BeaconBlockServiceInstance<B: EthSpec> {
-    pub chain: Arc<BeaconChain<B>>,
+pub struct BeaconBlockServiceInstance<E: EthSpec> {
+    pub chain: Arc<BeaconChain<E>>,
     pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
     pub log: Logger,
 }
 
-impl<B: EthSpec> BeaconBlockService for BeaconBlockServiceInstance<B> {
+impl<E: EthSpec> BeaconBlockService for BeaconBlockServiceInstance<E> {
     /// Produce a `BeaconBlock` for signing by a validator.
     fn produce_beacon_block(
         &mut self,

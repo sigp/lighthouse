@@ -23,11 +23,11 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
 
-pub fn start_server<B: EthSpec>(
+pub fn start_server<E: EthSpec>(
     config: &RPCConfig,
     executor: &TaskExecutor,
     network_chan: crossbeam_channel::Sender<NetworkMessage>,
-    beacon_chain: Arc<BeaconChain<B>>,
+    beacon_chain: Arc<BeaconChain<E>>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
     let log = log.new(o!("Service"=>"RPC"));

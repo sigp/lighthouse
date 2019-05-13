@@ -34,7 +34,7 @@ fn power_of_2_below(x: u64) -> u64 {
 }
 
 /// Stores the necessary data structures to run the optimised lmd ghost algorithm.
-pub struct OptimizedLMDGhost<T: ClientDB + Sized, B> {
+pub struct OptimizedLMDGhost<T: ClientDB + Sized, E> {
     /// A cache of known ancestors at given heights for a specific block.
     //TODO: Consider FnvHashMap
     cache: HashMap<CacheKey<u64>, Hash256>,
@@ -51,10 +51,10 @@ pub struct OptimizedLMDGhost<T: ClientDB + Sized, B> {
     /// State storage access.
     state_store: Arc<BeaconStateStore<T>>,
     max_known_height: SlotHeight,
-    _phantom: PhantomData<B>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T, B: EthSpec> OptimizedLMDGhost<T, B>
+impl<T, E: EthSpec> OptimizedLMDGhost<T, E>
 where
     T: ClientDB + Sized,
 {
@@ -88,7 +88,7 @@ where
         // build a hashmap of block_hash to weighted votes
         let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
         // gets the current weighted votes
-        let current_state: BeaconState<B> = self
+        let current_state: BeaconState<E> = self
             .state_store
             .get_deserialized(&state_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
@@ -214,7 +214,7 @@ where
     }
 }
 
-impl<T: ClientDB + Sized, B: EthSpec> ForkChoice for OptimizedLMDGhost<T, B> {
+impl<T: ClientDB + Sized, E: EthSpec> ForkChoice for OptimizedLMDGhost<T, E> {
     fn add_block(
         &mut self,
         block: &BeaconBlock,
