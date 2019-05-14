@@ -5,10 +5,12 @@ use ssz::Decode;
 use std::fmt::Debug;
 use test_decode::TestDecode;
 
+pub use crate::error::*;
 pub use crate::ssz_generic::*;
 
 mod error;
 mod ssz_generic;
+mod ssz_static;
 mod test_decode;
 
 #[derive(Debug, Deserialize)]
