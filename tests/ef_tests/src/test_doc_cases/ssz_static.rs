@@ -1,10 +1,10 @@
 use super::*;
-use serde::de::{Deserialize, Deserializer};
+use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
     BeaconBlockBody, BeaconBlockHeader, BeaconState, Crosslink, Deposit, DepositData, Eth1Data,
-    EthSpec, Fork, HistoricalBatch, IndexedAttestation, PendingAttestation, ProposerSlashing,
-    Transfer, Validator, VoluntaryExit,
+    EthSpec, Fork, Hash256, HistoricalBatch, IndexedAttestation, PendingAttestation,
+    ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -84,18 +84,21 @@ impl Test for TestDocCases<SszStatic> {
 
 fn ssz_static_test<T>(tc: &SszStatic) -> Result<(), Error>
 where
-    T: Decode + Debug + PartialEq<T> + serde::de::DeserializeOwned,
+    T: Decode + Debug + PartialEq<T> + serde::de::DeserializeOwned + TreeHash,
 {
+    // Verify we can decode SSZ in the same way we can decode YAML.
     let ssz = hex::decode(&tc.serialized[2..])
         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-
     let expected = tc.value::<T>()?;
+    let decode_result = T::from_ssz_bytes(&ssz);
+    compare_result(&decode_result, &Some(expected))?;
+
+    // Verify the tree hash root is identical to the decoded struct.
+    let root_bytes =
+        &hex::decode(&tc.root[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+    let expected_root = Hash256::from_slice(&root_bytes);
+    let root = Hash256::from_slice(&decode_result.unwrap().tree_hash_root());
+    compare_result::<Hash256, Error>(&Ok(root), &Some(expected_root))?;
 
     Ok(())
-
-    /*
-    let decoded = T::from_ssz_bytes(&ssz);
-
-    compare_result(decoded, Some(expected))
-    */
 }
