@@ -3,8 +3,8 @@ use serde::de::{Deserialize, Deserializer};
 use types::{
     Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
     BeaconBlockBody, BeaconBlockHeader, BeaconState, Crosslink, Deposit, DepositData, Eth1Data,
-    Fork, HistoricalBatch, PendingAttestation, ProposerSlashing, Transfer, Validator,
-    VoluntaryExit,
+    EthSpec, Fork, HistoricalBatch, IndexedAttestation, PendingAttestation, ProposerSlashing,
+    Transfer, Validator, VoluntaryExit,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,7 +57,7 @@ impl Test for TestDocCases<SszStatic> {
                         ssz_static_test::<AttestationDataAndCustodyBit>(tc)
                     }
                     */
-                    // "IndexedAttestation" => ssz_static_test::<IndexedAttestation>(tc),
+                    "IndexedAttestation" => ssz_static_test::<IndexedAttestation>(tc),
                     "DepositData" => ssz_static_test::<DepositData>(tc),
                     "BeaconBlockHeader" => ssz_static_test::<BeaconBlockHeader>(tc),
                     "Validator" => ssz_static_test::<Validator>(tc),
