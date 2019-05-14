@@ -1,4 +1,5 @@
 use super::*;
+use types::EthSpec;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SszGeneric {
@@ -16,7 +17,7 @@ impl TestDecode for SszGeneric {
 }
 
 impl Test for TestDocCases<SszGeneric> {
-    fn test(&self) -> Vec<TestCaseResult> {
+    fn test<E: EthSpec>(&self) -> Vec<TestCaseResult> {
         self.test_cases
             .iter()
             .enumerate()

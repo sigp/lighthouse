@@ -42,7 +42,7 @@ impl SszStatic {
 }
 
 impl Test for TestDocCases<SszStatic> {
-    fn test(&self) -> Vec<TestCaseResult> {
+    fn test<E: EthSpec>(&self) -> Vec<TestCaseResult> {
         self.test_cases
             .iter()
             .enumerate()
@@ -52,17 +52,15 @@ impl Test for TestDocCases<SszStatic> {
                     "Crosslink" => ssz_static_test::<Crosslink>(tc),
                     "Eth1Data" => ssz_static_test::<Eth1Data>(tc),
                     "AttestationData" => ssz_static_test::<AttestationData>(tc),
-                    /*
                     "AttestationDataAndCustodyBit" => {
                         ssz_static_test::<AttestationDataAndCustodyBit>(tc)
                     }
-                    */
                     "IndexedAttestation" => ssz_static_test::<IndexedAttestation>(tc),
                     "DepositData" => ssz_static_test::<DepositData>(tc),
                     "BeaconBlockHeader" => ssz_static_test::<BeaconBlockHeader>(tc),
                     "Validator" => ssz_static_test::<Validator>(tc),
                     "PendingAttestation" => ssz_static_test::<PendingAttestation>(tc),
-                    // "HistoricalBatch" => ssz_static_test::<HistoricalBatch>(tc),
+                    "HistoricalBatch" => ssz_static_test::<HistoricalBatch<E>>(tc),
                     "ProposerSlashing" => ssz_static_test::<ProposerSlashing>(tc),
                     "AttesterSlashing" => ssz_static_test::<AttesterSlashing>(tc),
                     "Attestation" => ssz_static_test::<Attestation>(tc),
@@ -71,7 +69,7 @@ impl Test for TestDocCases<SszStatic> {
                     "Transfer" => ssz_static_test::<Transfer>(tc),
                     "BeaconBlockBody" => ssz_static_test::<BeaconBlockBody>(tc),
                     "BeaconBlock" => ssz_static_test::<BeaconBlock>(tc),
-                    // "BeaconState" => ssz_static_test::<DepositData>(tc),
+                    "BeaconState" => ssz_static_test::<BeaconState<E>>(tc),
                     _ => Err(Error::FailedToParseTest(format!(
                         "Unknown type: {}",
                         tc.type_name
