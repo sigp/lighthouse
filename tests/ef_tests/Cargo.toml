@@ -15,5 +15,6 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_yaml = "0.8"
 ssz = { path = "../../eth2/utils/ssz" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path = "../../eth2/types" }
 yaml-rust = { git = "https://github.com/sigp/yaml-rust", branch = "escape_all_str"}

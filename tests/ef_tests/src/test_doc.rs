@@ -1,6 +1,6 @@
 use super::*;
 use std::{fs::File, io::prelude::*, path::PathBuf};
-use types::{EthSpec, FewValidatorsEthSpec, FoundationEthSpec};
+use types::{EthSpec, FoundationEthSpec};
 
 #[derive(Debug, Deserialize)]
 pub struct TestDoc {
@@ -28,7 +28,7 @@ impl TestDoc {
             header.config.as_ref(),
         ) {
             ("ssz", "uint", _) => run_test::<SszGeneric, FoundationEthSpec>(&doc.yaml),
-            ("ssz", "static", "minimal") => run_test::<SszStatic, FewValidatorsEthSpec>(&doc.yaml),
+            ("ssz", "static", "minimal") => run_test::<SszStatic, MinimalEthSpec>(&doc.yaml),
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config

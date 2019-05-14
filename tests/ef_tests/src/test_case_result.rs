@@ -26,7 +26,7 @@ pub trait Test {
 ///
 /// If `expected.is_none()` then `result` is expected to be `Err`. Otherwise, `T` in `result` and
 /// `expected` must be equal.
-pub fn compare_result<T, E>(result: Result<T, E>, expected: Option<T>) -> Result<(), Error>
+pub fn compare_result<T, E>(result: &Result<T, E>, expected: &Option<T>) -> Result<(), Error>
 where
     T: PartialEq<T> + Debug,
     E: Debug,
@@ -36,7 +36,7 @@ where
         (Err(_), None) => Ok(()),
         // Fail: The test failed when it should have produced a result (fail).
         (Err(e), Some(expected)) => Err(Error::NotEqual(format!(
-            "Got {:?} expected {:?}",
+            "Got {:?} Expected {:?}",
             e, expected
         ))),
         // Fail: The test produced a result when it should have failed (fail).

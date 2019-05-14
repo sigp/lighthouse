@@ -72,5 +72,5 @@ where
 
     let decoded = T::from_ssz_bytes(&ssz);
 
-    compare_result(decoded, expected)
+    compare_result(&decoded, &expected)
 }
