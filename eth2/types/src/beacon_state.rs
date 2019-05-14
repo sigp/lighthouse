@@ -176,7 +176,7 @@ impl<T: EthSpec> BeaconState<T> {
                 spec.zero_hash;
                 T::LatestRandaoMixesLength::to_usize()
             ]),
-            latest_start_shard: 0, // FIXME(sproul)
+            latest_start_shard: 0,
 
             // Finality
             previous_epoch_attestations: vec![],
