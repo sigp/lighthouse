@@ -1,5 +1,6 @@
 use super::*;
 use std::{fs::File, io::prelude::*, path::PathBuf};
+use types::{EthSpec, FewValidatorsEthSpec, FoundationEthSpec};
 
 #[derive(Debug, Deserialize)]
 pub struct TestDoc {
@@ -26,8 +27,8 @@ impl TestDoc {
             header.handler.as_ref(),
             header.config.as_ref(),
         ) {
-            ("ssz", "uint", _) => run_test::<SszGeneric>(&doc.yaml),
-            ("ssz", "static", "minimal") => run_test::<SszStatic>(&doc.yaml),
+            ("ssz", "uint", _) => run_test::<SszGeneric, FoundationEthSpec>(&doc.yaml),
+            ("ssz", "static", "minimal") => run_test::<SszStatic, FewValidatorsEthSpec>(&doc.yaml),
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
@@ -41,16 +42,16 @@ impl TestDoc {
         let failures: Vec<&TestCaseResult> = results.iter().filter(|r| r.result.is_err()).collect();
 
         if !failures.is_empty() {
-            for f in failures {
+            for f in &failures {
                 dbg!(&f.case_index);
                 dbg!(&f.result);
             }
-            panic!()
+            panic!("{}/{} tests failed.", failures.len(), results.len())
         }
     }
 }
 
-pub fn run_test<T>(test_doc_yaml: &String) -> Vec<TestCaseResult>
+pub fn run_test<T, E: EthSpec>(test_doc_yaml: &String) -> Vec<TestCaseResult>
 where
     TestDocCases<T>: Test + serde::de::DeserializeOwned + TestDecode,
 {
@@ -59,5 +60,5 @@ where
     let test_cases: TestDocCases<T> =
         TestDocCases::test_decode(&test_cases_yaml.to_string()).unwrap();
 
-    test_cases.test()
+    test_cases.test::<E>()
 }

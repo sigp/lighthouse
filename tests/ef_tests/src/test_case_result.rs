@@ -1,4 +1,5 @@
 use super::*;
+use types::EthSpec;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct TestCaseResult {
@@ -18,7 +19,7 @@ impl TestCaseResult {
 }
 
 pub trait Test {
-    fn test(&self) -> Vec<TestCaseResult>;
+    fn test<E: EthSpec>(&self) -> Vec<TestCaseResult>;
 }
 
 /// Compares `result` with `expected`.
