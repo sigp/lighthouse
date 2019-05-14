@@ -5,8 +5,8 @@ use types::*;
 /// slot.
 ///
 /// Spec v0.5.1
-pub fn inclusion_distance(
-    state: &BeaconState,
+pub fn inclusion_distance<T: EthSpec>(
+    state: &BeaconState<T>,
     attestations: &[&PendingAttestation],
     validator_index: usize,
     spec: &ChainSpec,
@@ -20,8 +20,8 @@ pub fn inclusion_distance(
 /// Returns the slot of the earliest included attestation for some validator.
 ///
 /// Spec v0.5.1
-pub fn inclusion_slot(
-    state: &BeaconState,
+pub fn inclusion_slot<T: EthSpec>(
+    state: &BeaconState<T>,
     attestations: &[&PendingAttestation],
     validator_index: usize,
     spec: &ChainSpec,
@@ -36,8 +36,8 @@ pub fn inclusion_slot(
 /// Finds the earliest included attestation for some validator.
 ///
 /// Spec v0.5.1
-fn earliest_included_attestation(
-    state: &BeaconState,
+fn earliest_included_attestation<T: EthSpec>(
+    state: &BeaconState<T>,
     attestations: &[&PendingAttestation],
     validator_index: usize,
     spec: &ChainSpec,

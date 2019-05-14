@@ -33,8 +33,8 @@ impl std::ops::AddAssign for Delta {
 /// Apply attester and proposer rewards.
 ///
 /// Spec v0.6.1
-pub fn process_rewards_and_penalties(
-    state: &mut BeaconState,
+pub fn process_rewards_and_penalties<T: EthSpec>(
+    state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
@@ -75,9 +75,9 @@ pub fn process_rewards_and_penalties(
 /// For each attesting validator, reward the proposer who was first to include their attestation.
 ///
 /// Spec v0.6.1
-fn get_proposer_deltas(
+fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
@@ -112,9 +112,9 @@ fn get_proposer_deltas(
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
 /// Spec v0.6.1
-fn get_attestation_deltas(
+fn get_attestation_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -225,9 +225,9 @@ fn get_attestation_delta(
 /// Calculate the deltas based upon the winning roots for attestations during the previous epoch.
 ///
 /// Spec v0.6.1
-fn get_crosslink_deltas(
+fn get_crosslink_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -259,8 +259,8 @@ fn get_crosslink_deltas(
 /// Returns the base reward for some validator.
 ///
 /// Spec v0.6.1
-fn get_base_reward(
-    state: &BeaconState,
+fn get_base_reward<T: EthSpec>(
+    state: &BeaconState<T>,
     index: usize,
     // Should be == get_total_active_balance(state, spec)
     total_active_balance: u64,

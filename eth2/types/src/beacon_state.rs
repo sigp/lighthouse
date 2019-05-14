@@ -5,7 +5,8 @@ use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use int_to_bytes::int_to_bytes32;
 use pubkey_cache::PubkeyCache;
-use rand::RngCore;
+
+use fixed_len_vec::{typenum::Unsigned, FixedLenVec};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{hash, ssz_encode};
 use ssz_derive::{Decode, Encode};
@@ -13,6 +14,9 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
+pub use beacon_state_types::*;
+
+mod beacon_state_types;
 mod epoch_cache;
 mod exit_cache;
 mod pubkey_cache;
@@ -63,7 +67,10 @@ pub enum Error {
     TreeHash,
     CachedTreeHash,
 )]
-pub struct BeaconState {
+pub struct BeaconState<T>
+where
+    T: EthSpec,
+{
     // Misc
     pub slot: Slot,
     pub genesis_time: u64,
@@ -74,7 +81,7 @@ pub struct BeaconState {
     pub balances: Vec<u64>,
 
     // Randomness and committees
-    pub latest_randao_mixes: TreeHashVector<Hash256>,
+    pub latest_randao_mixes: FixedLenVec<Hash256, T::LatestRandaoMixesLength>,
     pub latest_start_shard: u64,
 
     // Finality
@@ -89,12 +96,12 @@ pub struct BeaconState {
     pub finalized_root: Hash256,
 
     // Recent state
-    pub current_crosslinks: TreeHashVector<Crosslink>,
-    pub previous_crosslinks: TreeHashVector<Crosslink>,
-    pub latest_block_roots: TreeHashVector<Hash256>,
-    latest_state_roots: TreeHashVector<Hash256>,
-    latest_active_index_roots: TreeHashVector<Hash256>,
-    latest_slashed_balances: TreeHashVector<u64>,
+    pub current_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
+    pub previous_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
+    pub latest_block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    latest_state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    latest_active_index_roots: FixedLenVec<Hash256, T::LatestActiveIndexRootsLength>,
+    latest_slashed_balances: FixedLenVec<u64, T::LatestSlashedExitLength>,
     pub latest_block_header: BeaconBlockHeader,
     pub historical_roots: Vec<Hash256>,
 
@@ -136,14 +143,18 @@ pub struct BeaconState {
     pub exit_cache: ExitCache,
 }
 
-impl BeaconState {
+impl<T: EthSpec> BeaconState<T> {
     /// Produce the first state of the Beacon Chain.
     ///
     /// This does not fully build a genesis beacon state, it omits processing of initial validator
     /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
     ///
     /// Spec v0.5.1
-    pub fn genesis(genesis_time: u64, latest_eth1_data: Eth1Data, spec: &ChainSpec) -> BeaconState {
+    pub fn genesis(
+        genesis_time: u64,
+        latest_eth1_data: Eth1Data,
+        spec: &ChainSpec,
+    ) -> BeaconState<T> {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
             previous_crosslink_root: spec.zero_hash,
@@ -161,8 +172,10 @@ impl BeaconState {
             balances: vec![],           // Set later in the function.
 
             // Randomness and committees
-            latest_randao_mixes: vec![spec.zero_hash; spec.latest_randao_mixes_length as usize]
-                .into(),
+            latest_randao_mixes: FixedLenVec::from(vec![
+                spec.zero_hash;
+                T::LatestRandaoMixesLength::to_usize()
+            ]),
             latest_start_shard: 0, // FIXME(sproul)
 
             // Finality
@@ -177,13 +190,16 @@ impl BeaconState {
             finalized_root: spec.zero_hash,
 
             // Recent state
-            current_crosslinks: vec![initial_crosslink.clone(); spec.shard_count as usize].into(),
-            previous_crosslinks: vec![initial_crosslink; spec.shard_count as usize].into(),
-            latest_block_roots: vec![spec.zero_hash; spec.slots_per_historical_root].into(),
-            latest_state_roots: vec![spec.zero_hash; spec.slots_per_historical_root].into(),
-            latest_active_index_roots: vec![spec.zero_hash; spec.latest_active_index_roots_length]
-                .into(),
-            latest_slashed_balances: vec![0; spec.latest_slashed_exit_length].into(),
+            current_crosslinks: vec![initial_crosslink.clone(); T::ShardCount::to_usize()].into(),
+            previous_crosslinks: vec![initial_crosslink; T::ShardCount::to_usize()].into(),
+            latest_block_roots: vec![spec.zero_hash; T::SlotsPerHistoricalRoot::to_usize()].into(),
+            latest_state_roots: vec![spec.zero_hash; T::SlotsPerHistoricalRoot::to_usize()].into(),
+            latest_active_index_roots: vec![
+                spec.zero_hash;
+                T::LatestActiveIndexRootsLength::to_usize()
+            ]
+            .into(),
+            latest_slashed_balances: vec![0; T::LatestSlashedExitLength::to_usize()].into(),
             latest_block_header: BeaconBlock::empty(spec).temporary_block_header(spec),
             historical_roots: vec![],
 
@@ -217,7 +233,7 @@ impl BeaconState {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
-    pub fn historical_batch(&self) -> HistoricalBatch {
+    pub fn historical_batch(&self) -> HistoricalBatch<T> {
         HistoricalBatch {
             block_roots: self.latest_block_roots.clone(),
             state_roots: self.latest_state_roots.clone(),
@@ -421,14 +437,9 @@ impl BeaconState {
     /// Safely obtains the index for latest block roots, given some `slot`.
     ///
     /// Spec v0.5.1
-    fn get_latest_block_roots_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
-        if (slot < self.slot) && (self.slot <= slot + spec.slots_per_historical_root as u64) {
-            let i = slot.as_usize() % spec.slots_per_historical_root;
-            if i >= self.latest_block_roots.len() {
-                Err(Error::InsufficientStateRoots)
-            } else {
-                Ok(i)
-            }
+    fn get_latest_block_roots_index(&self, slot: Slot) -> Result<usize, Error> {
+        if (slot < self.slot) && (self.slot <= slot + self.latest_block_roots.len() as u64) {
+            Ok(slot.as_usize() % self.latest_block_roots.len())
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
@@ -437,12 +448,8 @@ impl BeaconState {
     /// Return the block root at a recent `slot`.
     ///
     /// Spec v0.5.1
-    pub fn get_block_root(
-        &self,
-        slot: Slot,
-        spec: &ChainSpec,
-    ) -> Result<&Hash256, BeaconStateError> {
-        let i = self.get_latest_block_roots_index(slot, spec)?;
+    pub fn get_block_root(&self, slot: Slot) -> Result<&Hash256, BeaconStateError> {
+        let i = self.get_latest_block_roots_index(slot)?;
         Ok(&self.latest_block_roots[i])
     }
 
@@ -455,7 +462,7 @@ impl BeaconState {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<&Hash256, BeaconStateError> {
-        self.get_block_root(epoch.start_slot(spec.slots_per_epoch), spec)
+        self.get_block_root(epoch.start_slot(spec.slots_per_epoch))
     }
 
     /// Sets the block root for some given slot.
@@ -465,9 +472,8 @@ impl BeaconState {
         &mut self,
         slot: Slot,
         block_root: Hash256,
-        spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
-        let i = self.get_latest_block_roots_index(slot, spec)?;
+        let i = self.get_latest_block_roots_index(slot)?;
         self.latest_block_roots[i] = block_root;
         Ok(())
     }
@@ -477,16 +483,10 @@ impl BeaconState {
     /// Spec v0.5.1
     fn get_randao_mix_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let current_epoch = self.current_epoch(spec);
+        let len = T::LatestRandaoMixesLength::to_u64();
 
-        if (current_epoch - (spec.latest_randao_mixes_length as u64) < epoch)
-            & (epoch <= current_epoch)
-        {
-            let i = epoch.as_usize() % spec.latest_randao_mixes_length;
-            if i < self.latest_randao_mixes.len() {
-                Ok(i)
-            } else {
-                Err(Error::InsufficientRandaoMixes)
-            }
+        if (current_epoch - len < epoch) & (epoch <= current_epoch) {
+            Ok(epoch.as_usize() % len as usize)
         } else {
             Err(Error::EpochOutOfBounds)
         }
@@ -505,7 +505,7 @@ impl BeaconState {
         signature: &Signature,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let i = epoch.as_usize() % spec.latest_randao_mixes_length;
+        let i = epoch.as_usize() % T::LatestRandaoMixesLength::to_usize();
 
         let signature_hash = Hash256::from_slice(&hash(&ssz_encode(signature)));
 
@@ -542,17 +542,12 @@ impl BeaconState {
     fn get_active_index_root_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let current_epoch = self.current_epoch(spec);
 
-        if (current_epoch - spec.latest_active_index_roots_length as u64
+        if (current_epoch - self.latest_active_index_roots.len() as u64
             + spec.activation_exit_delay
             < epoch)
             & (epoch <= current_epoch + spec.activation_exit_delay)
         {
-            let i = epoch.as_usize() % spec.latest_active_index_roots_length;
-            if i < self.latest_active_index_roots.len() {
-                Ok(i)
-            } else {
-                Err(Error::InsufficientIndexRoots)
-            }
+            Ok(epoch.as_usize() % self.latest_active_index_roots.len())
         } else {
             Err(Error::EpochOutOfBounds)
         }
@@ -583,22 +578,17 @@ impl BeaconState {
     /// Replace `active_index_roots` with clones of `index_root`.
     ///
     /// Spec v0.5.1
-    pub fn fill_active_index_roots_with(&mut self, index_root: Hash256, spec: &ChainSpec) {
+    pub fn fill_active_index_roots_with(&mut self, index_root: Hash256) {
         self.latest_active_index_roots =
-            vec![index_root; spec.latest_active_index_roots_length as usize].into()
+            vec![index_root; self.latest_active_index_roots.len() as usize].into()
     }
 
     /// Safely obtains the index for latest state roots, given some `slot`.
     ///
     /// Spec v0.5.1
-    fn get_latest_state_roots_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
-        if (slot < self.slot) && (self.slot <= slot + spec.slots_per_historical_root as u64) {
-            let i = slot.as_usize() % spec.slots_per_historical_root;
-            if i >= self.latest_state_roots.len() {
-                Err(Error::InsufficientStateRoots)
-            } else {
-                Ok(i)
-            }
+    fn get_latest_state_roots_index(&self, slot: Slot) -> Result<usize, Error> {
+        if (slot < self.slot) && (self.slot <= slot + self.latest_state_roots.len() as u64) {
+            Ok(slot.as_usize() % self.latest_state_roots.len())
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
@@ -607,21 +597,16 @@ impl BeaconState {
     /// Gets the state root for some slot.
     ///
     /// Spec v0.5.1
-    pub fn get_state_root(&mut self, slot: Slot, spec: &ChainSpec) -> Result<&Hash256, Error> {
-        let i = self.get_latest_state_roots_index(slot, spec)?;
+    pub fn get_state_root(&mut self, slot: Slot) -> Result<&Hash256, Error> {
+        let i = self.get_latest_state_roots_index(slot)?;
         Ok(&self.latest_state_roots[i])
     }
 
     /// Sets the latest state root for slot.
     ///
     /// Spec v0.5.1
-    pub fn set_state_root(
-        &mut self,
-        slot: Slot,
-        state_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let i = self.get_latest_state_roots_index(slot, spec)?;
+    pub fn set_state_root(&mut self, slot: Slot, state_root: Hash256) -> Result<(), Error> {
+        let i = self.get_latest_state_roots_index(slot)?;
         self.latest_state_roots[i] = state_root;
         Ok(())
     }
@@ -629,8 +614,8 @@ impl BeaconState {
     /// Safely obtains the index for `latest_slashed_balances`, given some `epoch`.
     ///
     /// Spec v0.6.1
-    fn get_slashed_balance_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
-        let i = epoch.as_usize() % spec.latest_slashed_exit_length;
+    fn get_slashed_balance_index(&self, epoch: Epoch) -> Result<usize, Error> {
+        let i = epoch.as_usize() % self.latest_slashed_balances.len();
 
         // NOTE: the validity of the epoch is not checked. It is not in the spec but it's probably
         // useful to have.
@@ -644,21 +629,16 @@ impl BeaconState {
     /// Gets the total slashed balances for some epoch.
     ///
     /// Spec v0.6.1
-    pub fn get_slashed_balance(&self, epoch: Epoch, spec: &ChainSpec) -> Result<u64, Error> {
-        let i = self.get_slashed_balance_index(epoch, spec)?;
+    pub fn get_slashed_balance(&self, epoch: Epoch) -> Result<u64, Error> {
+        let i = self.get_slashed_balance_index(epoch)?;
         Ok(self.latest_slashed_balances[i])
     }
 
     /// Sets the total slashed balances for some epoch.
     ///
     /// Spec v0.6.1
-    pub fn set_slashed_balance(
-        &mut self,
-        epoch: Epoch,
-        balance: u64,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let i = self.get_slashed_balance_index(epoch, spec)?;
+    pub fn set_slashed_balance(&mut self, epoch: Epoch, balance: u64) -> Result<(), Error> {
+        let i = self.get_slashed_balance_index(epoch)?;
         self.latest_slashed_balances[i] = balance;
         Ok(())
     }
@@ -932,7 +912,7 @@ impl BeaconState {
         self.tree_hash_cache
             .tree_hash_root()
             .and_then(|b| Ok(Hash256::from_slice(b)))
-            .map_err(|e| e.into())
+            .map_err(Into::into)
     }
 }
 

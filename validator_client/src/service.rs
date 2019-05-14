@@ -31,7 +31,6 @@ use tokio::prelude::*;
 use tokio::runtime::Builder;
 use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
-use types::test_utils::generate_deterministic_keypairs;
 use types::{ChainSpec, Epoch, Fork, Slot};
 
 /// A fixed amount of time after a slot to perform operations. This gives the node time to complete

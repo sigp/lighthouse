@@ -244,8 +244,8 @@ macro_rules! impl_ssz {
             }
         }
 
-        impl<T: RngCore> TestRandom<T> for $type {
-            fn random_for_test(rng: &mut T) -> Self {
+        impl TestRandom for $type {
+            fn random_for_test(rng: &mut impl RngCore) -> Self {
                 $type::from(u64::random_for_test(rng))
             }
         }

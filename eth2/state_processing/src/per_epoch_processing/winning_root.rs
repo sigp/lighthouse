@@ -35,8 +35,8 @@ impl WinningRoot {
 /// per-epoch processing.
 ///
 /// Spec v0.6.1
-pub fn winning_root(
-    state: &BeaconState,
+pub fn winning_root<T: EthSpec>(
+    state: &BeaconState<T>,
     shard: u64,
     epoch: Epoch,
     spec: &ChainSpec,
@@ -99,8 +99,8 @@ pub fn winning_root(
     Ok(winning_root)
 }
 
-pub fn get_unslashed_attesting_indices_unsorted(
-    state: &BeaconState,
+pub fn get_unslashed_attesting_indices_unsorted<T: EthSpec>(
+    state: &BeaconState<T>,
     attestations: &[&PendingAttestation],
     spec: &ChainSpec,
 ) -> Result<Vec<usize>, BeaconStateError> {

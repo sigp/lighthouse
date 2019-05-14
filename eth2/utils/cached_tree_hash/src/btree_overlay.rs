@@ -2,8 +2,8 @@ use super::*;
 
 /// A schema defining a binary tree over a `TreeHashCache`.
 ///
-/// This structure is used for succinct storage, run-time functionality is gained by converting the
-/// schema into a `BTreeOverlay`.
+/// This structure is used for succinct storage; run-time functionality is gained by converting a
+/// `BTreeSchema` into a `BTreeOverlay`.
 #[derive(Debug, PartialEq, Clone)]
 pub struct BTreeSchema {
     /// The depth of a schema defines how far it is nested within other fixed-length items.
@@ -48,8 +48,8 @@ pub enum LeafNode {
     Padding,
 }
 
-/// Instantiated from a `BTreeSchema`, allows for interpreting some chunks of a `TreeHashCache` as
-/// a perfect binary tree.
+/// Instantiated from a `BTreeSchema`, a `BTreeOverlay` allows for interpreting some
+/// non-consecutive chunks of a `TreeHashCache` as a perfect binary tree.
 ///
 /// The primary purpose of this struct is to map from binary tree "nodes" to `TreeHashCache`
 /// "chunks". Each tree has nodes `0..n` where `n` is the number of nodes and `0` is the root node.

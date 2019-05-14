@@ -2,7 +2,7 @@ use super::Slot;
 use crate::test_utils::TestRandom;
 use bls::{PublicKey, Signature};
 use derivative::Derivative;
-use rand::RngCore;
+
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

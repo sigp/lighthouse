@@ -4,8 +4,8 @@ use types::{BeaconStateError as Error, *};
 /// Slash the validator with index ``index``.
 ///
 /// Spec v0.6.1
-pub fn slash_validator(
-    state: &mut BeaconState,
+pub fn slash_validator<T: EthSpec>(
+    state: &mut BeaconState<T>,
     slashed_index: usize,
     opt_whistleblower_index: Option<usize>,
     spec: &ChainSpec,
@@ -20,13 +20,12 @@ pub fn slash_validator(
 
     state.validator_registry[slashed_index].slashed = true;
     state.validator_registry[slashed_index].withdrawable_epoch =
-        current_epoch + Epoch::from(spec.latest_slashed_exit_length);
+        current_epoch + Epoch::from(T::latest_slashed_exit_length());
     let slashed_balance = state.get_effective_balance(slashed_index, spec)?;
 
     state.set_slashed_balance(
         current_epoch,
-        state.get_slashed_balance(current_epoch, spec)? + slashed_balance,
-        spec,
+        state.get_slashed_balance(current_epoch)? + slashed_balance,
     )?;
 
     let proposer_index =

@@ -6,8 +6,8 @@ use types::*;
 /// Peforms a validator registry update, if required.
 ///
 /// Spec v0.6.1
-pub fn process_registry_updates(
-    state: &mut BeaconState,
+pub fn process_registry_updates<T: EthSpec>(
+    state: &mut BeaconState<T>,
     current_total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
