@@ -301,9 +301,23 @@ impl<T: EthSpec> BeaconState<T> {
         )
     }
 
-    pub fn get_epoch_start_shard(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
-        drop((epoch, spec));
-        unimplemented!("FIXME(sproul) get_epoch_start_shard")
+    /// Return the start shard for an epoch less than or equal to the next epoch.
+    ///
+    /// Spec v0.6.1
+    pub fn get_epoch_start_shard(&self, epoch: Epoch, spec: &ChainSpec) -> Result<u64, Error> {
+        if epoch > self.current_epoch(spec) + 1 {
+            return Err(Error::EpochOutOfBounds);
+        }
+        let shard_count = T::ShardCount::to_u64();
+        let mut check_epoch = self.current_epoch(spec) + 1;
+        let mut shard = (self.latest_start_shard
+            + self.get_shard_delta(self.current_epoch(spec), spec))
+            % shard_count;
+        while check_epoch > epoch {
+            check_epoch -= 1;
+            shard = (shard + shard_count - self.get_shard_delta(check_epoch, spec)) % shard_count;
+        }
+        Ok(shard)
     }
 
     /// Get the slot of an attestation.
@@ -317,7 +331,7 @@ impl<T: EthSpec> BeaconState<T> {
         let epoch = attestation_data.target_epoch;
         let committee_count = self.get_epoch_committee_count(epoch, spec);
         let offset = (attestation_data.shard + spec.shard_count
-            - self.get_epoch_start_shard(epoch, spec))
+            - self.get_epoch_start_shard(epoch, spec)?)
             % spec.shard_count;
         Ok(epoch.start_slot(spec.slots_per_epoch)
             + offset / (committee_count / spec.slots_per_epoch))
