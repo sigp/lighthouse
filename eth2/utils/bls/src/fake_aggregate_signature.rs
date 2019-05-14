@@ -1,4 +1,7 @@
-use super::{fake_signature::FakeSignature, AggregatePublicKey, BLS_AGG_SIG_BYTE_SIZE};
+use super::{
+    fake_aggregate_public_key::FakeAggregatePublicKey, fake_signature::FakeSignature,
+    BLS_AGG_SIG_BYTE_SIZE,
+};
 use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -43,7 +46,7 @@ impl FakeAggregateSignature {
         &self,
         _msg: &[u8],
         _domain: u64,
-        _aggregate_public_key: &AggregatePublicKey,
+        _aggregate_public_key: &FakeAggregatePublicKey,
     ) -> bool {
         true
     }
@@ -53,7 +56,7 @@ impl FakeAggregateSignature {
         &self,
         _messages: &[&[u8]],
         _domain: u64,
-        _aggregate_public_keys: &[&AggregatePublicKey],
+        _aggregate_public_keys: &[&FakeAggregatePublicKey],
     ) -> bool {
         true
     }
