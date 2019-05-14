@@ -43,10 +43,11 @@ impl BeaconBlock {
             previous_block_root: spec.zero_hash,
             state_root: spec.zero_hash,
             body: BeaconBlockBody {
-                randao_reveal: spec.empty_signature.clone(),
+                randao_reveal: Signature::empty_signature(),
                 eth1_data: Eth1Data {
                     deposit_root: spec.zero_hash,
                     block_hash: spec.zero_hash,
+                    deposit_count: 0,
                 },
                 proposer_slashings: vec![],
                 attester_slashings: vec![],
@@ -55,7 +56,7 @@ impl BeaconBlock {
                 voluntary_exits: vec![],
                 transfers: vec![],
             },
-            signature: spec.empty_signature.clone(),
+            signature: Signature::empty_signature(),
         }
     }
 
@@ -90,7 +91,7 @@ impl BeaconBlock {
     pub fn temporary_block_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: spec.zero_hash,
-            signature: spec.empty_signature.clone(),
+            signature: Signature::empty_signature(),
             ..self.block_header()
         }
     }

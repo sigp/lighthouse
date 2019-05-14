@@ -2,7 +2,6 @@ use crate::{
     test_utils::{fork_from_hex_str, TestRandom},
     ChainSpec, Epoch,
 };
-use int_to_bytes::int_to_bytes4;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -11,7 +10,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 #[derive(
     Debug,
     Clone,
@@ -36,21 +35,18 @@ pub struct Fork {
 impl Fork {
     /// Initialize the `Fork` from the genesis parameters in the `spec`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn genesis(spec: &ChainSpec) -> Self {
-        let mut current_version: [u8; 4] = [0; 4];
-        current_version.copy_from_slice(&int_to_bytes4(spec.genesis_fork_version));
-
         Self {
-            previous_version: current_version,
-            current_version,
+            previous_version: [0; 4],
+            current_version: [0; 4],
             epoch: spec.genesis_epoch,
         }
     }
 
     /// Return the fork version of the given ``epoch``.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn get_fork_version(&self, epoch: Epoch) -> [u8; 4] {
         if epoch < self.epoch {
             return self.previous_version;
@@ -66,10 +62,9 @@ mod tests {
     ssz_tests!(Fork);
     cached_tree_hash_tests!(Fork);
 
-    fn test_genesis(version: u32, epoch: Epoch) {
+    fn test_genesis(epoch: Epoch) {
         let mut spec = ChainSpec::foundation();
 
-        spec.genesis_fork_version = version;
         spec.genesis_epoch = epoch;
 
         let fork = Fork::genesis(&spec);
@@ -79,19 +74,14 @@ mod tests {
             fork.previous_version, fork.current_version,
             "previous and current are not identical"
         );
-        assert_eq!(
-            fork.current_version,
-            version.to_le_bytes(),
-            "current version incorrect"
-        );
     }
 
     #[test]
     fn genesis() {
-        test_genesis(0, Epoch::new(0));
-        test_genesis(9, Epoch::new(11));
-        test_genesis(2_u32.pow(31), Epoch::new(2_u64.pow(63)));
-        test_genesis(u32::max_value(), Epoch::max_value());
+        test_genesis(Epoch::new(0));
+        test_genesis(Epoch::new(11));
+        test_genesis(Epoch::new(2_u64.pow(63)));
+        test_genesis(Epoch::max_value());
     }
 
     #[test]

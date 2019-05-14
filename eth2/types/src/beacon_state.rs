@@ -1,4 +1,5 @@
 use self::epoch_cache::{get_active_validator_indices, EpochCache, Error as EpochCacheError};
+use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
@@ -18,6 +19,7 @@ pub use beacon_state_types::*;
 
 mod beacon_state_types;
 mod epoch_cache;
+mod exit_cache;
 mod pubkey_cache;
 mod tests;
 
@@ -77,17 +79,11 @@ where
 
     // Validator registry
     pub validator_registry: Vec<Validator>,
-    pub validator_balances: Vec<u64>,
-    pub validator_registry_update_epoch: Epoch,
+    pub balances: Vec<u64>,
 
     // Randomness and committees
     pub latest_randao_mixes: FixedLenVec<Hash256, T::LatestRandaoMixesLength>,
-    pub previous_shuffling_start_shard: u64,
-    pub current_shuffling_start_shard: u64,
-    pub previous_shuffling_epoch: Epoch,
-    pub current_shuffling_epoch: Epoch,
-    pub previous_shuffling_seed: Hash256,
-    pub current_shuffling_seed: Hash256,
+    pub latest_start_shard: u64,
 
     // Finality
     pub previous_epoch_attestations: Vec<PendingAttestation>,
@@ -101,7 +97,8 @@ where
     pub finalized_root: Hash256,
 
     // Recent state
-    pub latest_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
+    pub current_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
+    pub previous_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
     pub latest_block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
     latest_state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
     latest_active_index_roots: FixedLenVec<Hash256, T::LatestActiveIndexRootsLength>,
@@ -111,7 +108,7 @@ where
 
     // Ethereum 1.0 chain data
     pub latest_eth1_data: Eth1Data,
-    pub eth1_data_votes: Vec<Eth1DataVote>,
+    pub eth1_data_votes: Vec<Eth1Data>,
     pub deposit_index: u64,
 
     // Caching (not in the spec)
@@ -139,6 +136,12 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     pub tree_hash_cache: TreeHashCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    pub exit_cache: ExitCache,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -155,6 +158,7 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> BeaconState<T> {
         let initial_crosslink = Crosslink {
             epoch: spec.genesis_epoch,
+            previous_crosslink_root: spec.zero_hash,
             crosslink_data_root: spec.zero_hash,
         };
 
@@ -166,20 +170,14 @@ impl<T: EthSpec> BeaconState<T> {
 
             // Validator registry
             validator_registry: vec![], // Set later in the function.
-            validator_balances: vec![], // Set later in the function.
-            validator_registry_update_epoch: spec.genesis_epoch,
+            balances: vec![],           // Set later in the function.
 
             // Randomness and committees
             latest_randao_mixes: FixedLenVec::from(vec![
                 spec.zero_hash;
                 T::LatestRandaoMixesLength::to_usize()
             ]),
-            previous_shuffling_start_shard: spec.genesis_start_shard,
-            current_shuffling_start_shard: spec.genesis_start_shard,
-            previous_shuffling_epoch: spec.genesis_epoch,
-            current_shuffling_epoch: spec.genesis_epoch,
-            previous_shuffling_seed: spec.zero_hash,
-            current_shuffling_seed: spec.zero_hash,
+            latest_start_shard: 0,
 
             // Finality
             previous_epoch_attestations: vec![],
@@ -193,22 +191,16 @@ impl<T: EthSpec> BeaconState<T> {
             finalized_root: spec.zero_hash,
 
             // Recent state
-            latest_crosslinks: vec![initial_crosslink; spec.shard_count as usize].into(),
-            latest_block_roots: FixedLenVec::from(vec![
+            current_crosslinks: vec![initial_crosslink.clone(); T::ShardCount::to_usize()].into(),
+            previous_crosslinks: vec![initial_crosslink; T::ShardCount::to_usize()].into(),
+            latest_block_roots: vec![spec.zero_hash; T::SlotsPerHistoricalRoot::to_usize()].into(),
+            latest_state_roots: vec![spec.zero_hash; T::SlotsPerHistoricalRoot::to_usize()].into(),
+            latest_active_index_roots: vec![
                 spec.zero_hash;
-                T::SlotsPerHistoricalRoot::to_usize()
-            ]),
-            latest_state_roots: FixedLenVec::from(vec![
-                spec.zero_hash;
-                T::SlotsPerHistoricalRoot::to_usize()
-            ]),
-            latest_active_index_roots: FixedLenVec::from(
-                vec![spec.zero_hash; T::LatestActiveIndexRootsLength::to_usize()],
-            ),
-            latest_slashed_balances: FixedLenVec::from(vec![
-                0;
-                T::LatestSlashedExitLength::to_usize()
-            ]),
+                T::LatestActiveIndexRootsLength::to_usize()
+            ]
+            .into(),
+            latest_slashed_balances: vec![0; T::LatestSlashedExitLength::to_usize()].into(),
             latest_block_header: BeaconBlock::empty(spec).temporary_block_header(spec),
             historical_roots: vec![],
 
@@ -231,6 +223,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             tree_hash_cache: TreeHashCache::default(),
+            exit_cache: ExitCache::default(),
         }
     }
 
@@ -274,9 +267,14 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.current_epoch(&spec) - 1
+        let current_epoch = self.current_epoch(spec);
+        if current_epoch > spec.genesis_epoch {
+            current_epoch - 1
+        } else {
+            current_epoch
+        }
     }
 
     /// The epoch following `self.current_epoch()`.
@@ -284,6 +282,60 @@ impl<T: EthSpec> BeaconState<T> {
     /// Spec v0.5.1
     pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.current_epoch(spec) + 1
+    }
+
+    /// Return the number of committees at ``epoch``.
+    ///
+    /// Spec v0.6.1
+    pub fn get_epoch_committee_count(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        let active_validator_indices = self.get_active_validator_indices(epoch);
+        spec.get_epoch_committee_count(active_validator_indices.len())
+    }
+
+    /// Return the number of shards to increment `state.latest_start_shard` during `epoch`.
+    ///
+    /// Spec v0.6.1
+    pub fn get_shard_delta(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        std::cmp::min(
+            self.get_epoch_committee_count(epoch, spec),
+            T::ShardCount::to_u64() - T::ShardCount::to_u64() / spec.slots_per_epoch,
+        )
+    }
+
+    /// Return the start shard for an epoch less than or equal to the next epoch.
+    ///
+    /// Spec v0.6.1
+    pub fn get_epoch_start_shard(&self, epoch: Epoch, spec: &ChainSpec) -> Result<u64, Error> {
+        if epoch > self.current_epoch(spec) + 1 {
+            return Err(Error::EpochOutOfBounds);
+        }
+        let shard_count = T::ShardCount::to_u64();
+        let mut check_epoch = self.current_epoch(spec) + 1;
+        let mut shard = (self.latest_start_shard
+            + self.get_shard_delta(self.current_epoch(spec), spec))
+            % shard_count;
+        while check_epoch > epoch {
+            check_epoch -= 1;
+            shard = (shard + shard_count - self.get_shard_delta(check_epoch, spec)) % shard_count;
+        }
+        Ok(shard)
+    }
+
+    /// Get the slot of an attestation.
+    ///
+    /// Spec v0.6.1
+    pub fn get_attestation_slot(
+        &self,
+        attestation_data: &AttestationData,
+        spec: &ChainSpec,
+    ) -> Result<Slot, Error> {
+        let epoch = attestation_data.target_epoch;
+        let committee_count = self.get_epoch_committee_count(epoch, spec);
+        let offset = (attestation_data.shard + spec.shard_count
+            - self.get_epoch_start_shard(epoch, spec)?)
+            % spec.shard_count;
+        Ok(epoch.start_slot(spec.slots_per_epoch)
+            + offset / (committee_count / spec.slots_per_epoch))
     }
 
     /// Returns the active validator indices for the given epoch, assuming there is no validator
@@ -337,6 +389,17 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(cache
             .get_crosslink_committees_at_slot(slot, spec)
             .ok_or_else(|| Error::SlotOutOfBounds)?)
+    }
+
+    // FIXME(sproul): implement this
+    pub fn get_crosslink_committee(
+        &self,
+        epoch: Epoch,
+        shard: u64,
+        spec: &ChainSpec,
+    ) -> Result<&CrosslinkCommittee, Error> {
+        drop((epoch, shard, spec));
+        unimplemented!()
     }
 
     /// Returns the crosslink committees for some shard in an epoch.
@@ -415,6 +478,18 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(&self.latest_block_roots[i])
     }
 
+    /// Return the block root at a recent `slot`.
+    ///
+    /// Spec v0.6.0
+    // FIXME(sproul): name swap with get_block_root
+    pub fn get_block_root_at_epoch(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<&Hash256, BeaconStateError> {
+        self.get_block_root(epoch.start_slot(spec.slots_per_epoch))
+    }
+
     /// Sets the block root for some given slot.
     ///
     /// Spec v0.5.1
@@ -488,14 +563,13 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Safely obtains the index for `latest_active_index_roots`, given some `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     fn get_active_index_root_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let current_epoch = self.current_epoch(spec);
 
-        if (current_epoch - self.latest_active_index_roots.len() as u64
-            + spec.activation_exit_delay
-            < epoch)
-            & (epoch <= current_epoch + spec.activation_exit_delay)
+        if current_epoch - self.latest_active_index_roots.len() as u64 + spec.activation_exit_delay
+            < epoch
+            && epoch <= current_epoch + spec.activation_exit_delay
         {
             Ok(epoch.as_usize() % self.latest_active_index_roots.len())
         } else {
@@ -505,7 +579,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Return the `active_index_root` at a recent `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn get_active_index_root(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
         let i = self.get_active_index_root_index(epoch, spec)?;
         Ok(self.latest_active_index_roots[i])
@@ -513,7 +587,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Set the `active_index_root` at a recent `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn set_active_index_root(
         &mut self,
         epoch: Epoch,
@@ -563,7 +637,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Safely obtains the index for `latest_slashed_balances`, given some `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     fn get_slashed_balance_index(&self, epoch: Epoch) -> Result<usize, Error> {
         let i = epoch.as_usize() % self.latest_slashed_balances.len();
 
@@ -578,7 +652,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Gets the total slashed balances for some epoch.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn get_slashed_balance(&self, epoch: Epoch) -> Result<u64, Error> {
         let i = self.get_slashed_balance_index(epoch)?;
         Ok(self.latest_slashed_balances[i])
@@ -586,11 +660,46 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Sets the total slashed balances for some epoch.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn set_slashed_balance(&mut self, epoch: Epoch, balance: u64) -> Result<(), Error> {
         let i = self.get_slashed_balance_index(epoch)?;
         self.latest_slashed_balances[i] = balance;
         Ok(())
+    }
+
+    /// Get the attestations from the current or previous epoch.
+    ///
+    /// Spec v0.6.0
+    pub fn get_matching_source_attestations(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<&[PendingAttestation], Error> {
+        if epoch == self.current_epoch(spec) {
+            Ok(&self.current_epoch_attestations)
+        } else if epoch == self.previous_epoch(spec) {
+            Ok(&self.previous_epoch_attestations)
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }
+    }
+
+    /// Transform an attestation into the crosslink that it reinforces.
+    ///
+    /// Spec v0.6.1
+    pub fn get_crosslink_from_attestation_data(
+        &self,
+        data: &AttestationData,
+        spec: &ChainSpec,
+    ) -> Crosslink {
+        Crosslink {
+            epoch: std::cmp::min(
+                data.target_epoch,
+                self.current_crosslinks[data.shard as usize].epoch + spec.max_crosslink_epochs,
+            ),
+            previous_crosslink_root: data.previous_crosslink_root,
+            crosslink_data_root: data.crosslink_data_root,
+        }
     }
 
     /// Generate a seed for the given `epoch`.
@@ -611,17 +720,16 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.0
     pub fn get_effective_balance(
         &self,
         validator_index: usize,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<u64, Error> {
-        let balance = self
-            .validator_balances
+        self.validator_registry
             .get(validator_index)
-            .ok_or_else(|| Error::UnknownValidator)?;
-        Ok(std::cmp::min(*balance, spec.max_deposit_amount))
+            .map(|v| v.effective_balance)
+            .ok_or_else(|| Error::UnknownValidator)
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -631,11 +739,19 @@ impl<T: EthSpec> BeaconState<T> {
         epoch + 1 + spec.activation_exit_delay
     }
 
-    /// Initiate an exit for the validator of the given `index`.
+    /// Return the churn limit for the current epoch (number of validators who can leave per epoch).
     ///
-    /// Spec v0.5.1
-    pub fn initiate_validator_exit(&mut self, validator_index: usize) {
-        self.validator_registry[validator_index].initiated_exit = true;
+    /// Uses the epoch cache, and will error if it isn't initialized.
+    ///
+    /// Spec v0.6.1
+    pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(std::cmp::max(
+            spec.min_per_epoch_churn_limit,
+            self.cache(RelativeEpoch::Current, spec)?
+                .active_validator_indices
+                .len() as u64
+                / spec.churn_limit_quotient,
+        ))
     }
 
     /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
@@ -661,7 +777,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Return the combined effective balance of an array of validators.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.0
     pub fn get_total_balance(
         &self,
         validator_indices: &[usize],
@@ -681,6 +797,8 @@ impl<T: EthSpec> BeaconState<T> {
         self.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec)?;
         self.update_pubkey_cache()?;
         self.update_tree_hash_cache()?;
+        self.exit_cache
+            .build_from_registry(&self.validator_registry, spec);
 
         Ok(())
     }

@@ -25,7 +25,7 @@ impl TestingVoluntaryExitBuilder {
     /// The signing secret key must match that of the exiting validator.
     pub fn sign(&mut self, secret_key: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.exit.signed_root();
-        let domain = spec.get_domain(self.exit.epoch, Domain::Exit, fork);
+        let domain = spec.get_domain(self.exit.epoch, Domain::VoluntaryExit, fork);
 
         self.exit.signature = Signature::new(&message, domain, secret_key);
     }

@@ -95,6 +95,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// Creates the builder from an existing set of keypairs.
     pub fn from_keypairs(keypairs: Vec<Keypair>, spec: &ChainSpec) -> Self {
         let validator_count = keypairs.len();
+        let starting_balance = 32_000_000_000;
 
         debug!(
             "Building {} Validator objects from keypairs...",
@@ -112,11 +113,12 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
                     pubkey: keypair.pk.clone(),
                     withdrawal_credentials,
                     // All validators start active.
+                    activation_eligibility_epoch: spec.genesis_epoch,
                     activation_epoch: spec.genesis_epoch,
                     exit_epoch: spec.far_future_epoch,
                     withdrawable_epoch: spec.far_future_epoch,
-                    initiated_exit: false,
                     slashed: false,
+                    effective_balance: starting_balance,
                 }
             })
             .collect();
@@ -137,16 +139,17 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
+                deposit_count: 0,
                 block_hash: Hash256::zero(),
             },
             spec,
         );
 
-        let balances = vec![32_000_000_000; validator_count];
+        let balances = vec![starting_balance; validator_count];
 
         debug!("Importing {} existing validators...", validator_count);
         state.validator_registry = validators;
-        state.validator_balances = balances;
+        state.balances = balances;
 
         debug!("BeaconState initialized.");
 
@@ -192,18 +195,13 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
         state.slot = slot;
 
-        state.previous_shuffling_epoch = epoch - 1;
-        state.current_shuffling_epoch = epoch;
-
-        state.previous_shuffling_seed = Hash256::from_low_u64_le(0);
-        state.current_shuffling_seed = Hash256::from_low_u64_le(1);
+        // FIXME(sproul): update latest_start_shard?
 
         state.previous_justified_epoch = epoch - 3;
         state.current_justified_epoch = epoch - 2;
         state.justification_bitfield = u64::max_value();
 
         state.finalized_epoch = epoch - 3;
-        state.validator_registry_update_epoch = epoch - 3;
     }
 
     /// Creates a full set of attestations for the `BeaconState`. Each attestation has full
@@ -248,7 +246,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
                 builder.add_committee_participation(signers);
                 let attestation = builder.build();
 
-                if attestation.data.slot.epoch(spec.slots_per_epoch) < state.current_epoch(spec) {
+                if attestation.data.target_epoch < state.current_epoch(spec) {
                     state.previous_epoch_attestations.push(attestation)
                 } else {
                     state.current_epoch_attestations.push(attestation)
