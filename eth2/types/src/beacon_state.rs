@@ -291,6 +291,16 @@ impl<T: EthSpec> BeaconState<T> {
         spec.get_epoch_committee_count(active_validator_indices.len())
     }
 
+    /// Return the number of shards to increment `state.latest_start_shard` during `epoch`.
+    ///
+    /// Spec v0.6.1
+    pub fn get_shard_delta(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        std::cmp::min(
+            self.get_epoch_committee_count(epoch, spec),
+            T::ShardCount::to_u64() - T::ShardCount::to_u64() / spec.slots_per_epoch,
+        )
+    }
+
     pub fn get_epoch_start_shard(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
         drop((epoch, spec));
         unimplemented!("FIXME(sproul) get_epoch_start_shard")
@@ -538,14 +548,13 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Safely obtains the index for `latest_active_index_roots`, given some `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     fn get_active_index_root_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let current_epoch = self.current_epoch(spec);
 
-        if (current_epoch - self.latest_active_index_roots.len() as u64
-            + spec.activation_exit_delay
-            < epoch)
-            & (epoch <= current_epoch + spec.activation_exit_delay)
+        if current_epoch - self.latest_active_index_roots.len() as u64 + spec.activation_exit_delay
+            < epoch
+            && epoch <= current_epoch + spec.activation_exit_delay
         {
             Ok(epoch.as_usize() % self.latest_active_index_roots.len())
         } else {
@@ -555,7 +564,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Return the `active_index_root` at a recent `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn get_active_index_root(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
         let i = self.get_active_index_root_index(epoch, spec)?;
         Ok(self.latest_active_index_roots[i])
@@ -563,7 +572,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Set the `active_index_root` at a recent `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn set_active_index_root(
         &mut self,
         epoch: Epoch,
