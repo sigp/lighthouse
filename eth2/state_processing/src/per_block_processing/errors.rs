@@ -80,10 +80,10 @@ pub enum BlockInvalid {
     MaxExitsExceeded,
     MaxTransfersExceed,
     AttestationInvalid(usize, AttestationInvalid),
-    /// A `SlashableAttestation` inside an `AttesterSlashing` was invalid.
+    /// A `IndexedAttestation` inside an `AttesterSlashing` was invalid.
     ///
     /// To determine the offending `AttesterSlashing` index, divide the error message `usize` by two.
-    SlashableAttestationInvalid(usize, SlashableAttestationInvalid),
+    IndexedAttestationInvalid(usize, IndexedAttestationInvalid),
     AttesterSlashingInvalid(usize, AttesterSlashingInvalid),
     ProposerSlashingInvalid(usize, ProposerSlashingInvalid),
     DepositInvalid(usize, DepositInvalid),
@@ -194,10 +194,10 @@ pub enum AttesterSlashingInvalid {
     AttestationDataIdentical,
     /// The attestations were not in conflict.
     NotSlashable,
-    /// The first `SlashableAttestation` was invalid.
-    SlashableAttestation1Invalid(SlashableAttestationInvalid),
-    /// The second `SlashableAttestation` was invalid.
-    SlashableAttestation2Invalid(SlashableAttestationInvalid),
+    /// The first `IndexedAttestation` was invalid.
+    IndexedAttestation1Invalid(IndexedAttestationInvalid),
+    /// The second `IndexedAttestation` was invalid.
+    IndexedAttestation2Invalid(IndexedAttestationInvalid),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
     /// The specified validator has already been withdrawn.
@@ -210,19 +210,19 @@ impl_from_beacon_state_error!(AttesterSlashingValidationError);
 impl_into_with_index_with_beacon_error!(AttesterSlashingValidationError, AttesterSlashingInvalid);
 
 /*
- * `SlashableAttestation` Validation
+ * `IndexedAttestation` Validation
  */
 
 /// The object is invalid or validation failed.
 #[derive(Debug, PartialEq)]
-pub enum SlashableAttestationValidationError {
+pub enum IndexedAttestationValidationError {
     /// Validation completed successfully and the object is invalid.
-    Invalid(SlashableAttestationInvalid),
+    Invalid(IndexedAttestationInvalid),
 }
 
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
-pub enum SlashableAttestationInvalid {
+pub enum IndexedAttestationInvalid {
     /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
     CustodyBitfieldHasSetBits,
     /// No validator indices were specified.
@@ -245,17 +245,17 @@ pub enum SlashableAttestationInvalid {
     BadSignature,
 }
 
-impl Into<SlashableAttestationInvalid> for SlashableAttestationValidationError {
-    fn into(self) -> SlashableAttestationInvalid {
+impl Into<IndexedAttestationInvalid> for IndexedAttestationValidationError {
+    fn into(self) -> IndexedAttestationInvalid {
         match self {
-            SlashableAttestationValidationError::Invalid(e) => e,
+            IndexedAttestationValidationError::Invalid(e) => e,
         }
     }
 }
 
 impl_into_with_index_without_beacon_error!(
-    SlashableAttestationValidationError,
-    SlashableAttestationInvalid
+    IndexedAttestationValidationError,
+    IndexedAttestationInvalid
 );
 
 /*

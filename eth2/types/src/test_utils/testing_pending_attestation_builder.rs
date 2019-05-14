@@ -11,8 +11,7 @@ pub struct TestingPendingAttestationBuilder {
 impl TestingPendingAttestationBuilder {
     /// Create a new valid* `PendingAttestation` for the given parameters.
     ///
-    /// The `inclusion_slot` will be set to be the earliest possible slot the `Attestation` could
-    /// have been included (`slot + MIN_ATTESTATION_INCLUSION_DELAY`).
+    /// The `inclusion_delay` will be set to `MIN_ATTESTATION_INCLUSION_DELAY`.
     ///
     /// * The aggregation and custody bitfields will all be empty, they need to be set with
     /// `Self::add_committee_participation`.
@@ -27,8 +26,9 @@ impl TestingPendingAttestationBuilder {
         let pending_attestation = PendingAttestation {
             aggregation_bitfield: Bitfield::new(),
             data: data_builder.build(),
-            custody_bitfield: Bitfield::new(),
-            inclusion_slot: slot + spec.min_attestation_inclusion_delay,
+            inclusion_delay: spec.min_attestation_inclusion_delay,
+            // FIXME(sproul)
+            proposer_index: 0,
         };
 
         Self {
@@ -42,15 +42,12 @@ impl TestingPendingAttestationBuilder {
     /// `signers` is true.
     pub fn add_committee_participation(&mut self, signers: Vec<bool>) {
         let mut aggregation_bitfield = Bitfield::new();
-        let mut custody_bitfield = Bitfield::new();
 
         for (i, signed) in signers.iter().enumerate() {
             aggregation_bitfield.set(i, *signed);
-            custody_bitfield.set(i, false); // Fixed to `false` for phase 0.
         }
 
         self.pending_attestation.aggregation_bitfield = aggregation_bitfield;
-        self.pending_attestation.custody_bitfield = custody_bitfield;
     }
 
     /// Returns the `PendingAttestation`, consuming the builder.

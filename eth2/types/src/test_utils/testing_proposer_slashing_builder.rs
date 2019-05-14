@@ -41,13 +41,13 @@ impl TestingProposerSlashingBuilder {
         header_1.signature = {
             let message = header_1.signed_root();
             let epoch = slot.epoch(spec.slots_per_epoch);
-            signer(proposer_index, &message[..], epoch, Domain::BeaconBlock)
+            signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
         };
 
         header_2.signature = {
             let message = header_2.signed_root();
             let epoch = slot.epoch(spec.slots_per_epoch);
-            signer(proposer_index, &message[..], epoch, Domain::BeaconBlock)
+            signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
         };
 
         ProposerSlashing {

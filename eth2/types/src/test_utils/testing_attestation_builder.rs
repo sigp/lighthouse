@@ -33,7 +33,7 @@ impl TestingAttestationBuilder {
             aggregation_bitfield,
             data: data_builder.build(),
             custody_bitfield,
-            aggregate_signature: AggregateSignature::new(),
+            signature: AggregateSignature::new(),
         };
 
         Self {
@@ -77,13 +77,13 @@ impl TestingAttestationBuilder {
             .tree_hash_root();
 
             let domain = spec.get_domain(
-                self.attestation.data.slot.epoch(spec.slots_per_epoch),
+                self.attestation.data.target_epoch,
                 Domain::Attestation,
                 fork,
             );
 
             let signature = Signature::new(&message, domain, secret_keys[key_index]);
-            self.attestation.aggregate_signature.add(&signature)
+            self.attestation.signature.add(&signature)
         }
     }
 

@@ -28,6 +28,12 @@ impl TestingAttestationDataBuilder {
             state.current_justified_epoch
         };
 
+        let target_epoch = if is_previous_epoch {
+            state.previous_epoch(spec)
+        } else {
+            state.current_epoch(spec)
+        };
+
         let target_root = if is_previous_epoch {
             *state
                 .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch))
@@ -44,20 +50,17 @@ impl TestingAttestationDataBuilder {
 
         let data = AttestationData {
             // LMD GHOST vote
-            slot,
             beacon_block_root: *state.get_block_root(slot).unwrap(),
 
             // FFG Vote
             source_epoch,
             source_root,
+            target_epoch,
             target_root,
 
             // Crosslink vote
             shard,
-            previous_crosslink: Crosslink {
-                epoch: slot.epoch(spec.slots_per_epoch),
-                crosslink_data_root: spec.zero_hash,
-            },
+            previous_crosslink_root: spec.zero_hash,
             crosslink_data_root: spec.zero_hash,
         };
 
