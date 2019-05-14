@@ -5,7 +5,7 @@ pub struct SszGeneric {
     #[serde(alias = "type")]
     pub type_name: String,
     pub valid: bool,
-    pub value: String,
+    pub value: Option<String>,
     pub ssz: Option<String>,
 }
 
@@ -42,14 +42,23 @@ impl Test for TestDocCases<SszGeneric> {
 }
 
 /// Execute a `ssz_generic` test case.
-fn ssz_generic_test<T>(should_be_ok: bool, ssz: &String, value: &String) -> Result<(), Error>
+fn ssz_generic_test<T>(
+    should_be_ok: bool,
+    ssz: &String,
+    value: &Option<String>,
+) -> Result<(), Error>
 where
     T: Decode + TestDecode + Debug + PartialEq<T>,
 {
     let ssz = hex::decode(&ssz[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-    let expected = if should_be_ok {
-        Some(T::test_decode(value)?)
+    // We do not cater for the scenario where the test is valid but we are not passed any SSZ.
+    if should_be_ok && value.is_none() {
+        panic!("Unexpected test input. Cannot pass without value.")
+    }
+
+    let expected = if let Some(string) = value {
+        Some(T::test_decode(string)?)
     } else {
         None
     };
