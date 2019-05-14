@@ -24,7 +24,7 @@ impl_via_parse!(u16);
 impl_via_parse!(u32);
 impl_via_parse!(u64);
 
-/// Some `ethereum-types` methods have a `str::FromStr` implementation that expects `0x`-prefixed
+/// Some `ethereum-types` methods have a `str::FromStr` implementation that expects `0x`-prefixed:
 /// hex, so we use `from_dec_str` instead.
 macro_rules! impl_via_from_dec_str {
     ($ty: ty) => {

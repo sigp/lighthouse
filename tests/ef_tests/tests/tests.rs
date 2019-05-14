@@ -34,3 +34,20 @@ mod ssz_generic {
         TestDoc::assert_tests_pass(ssz_generic_file("uint/uint_wrong_length.yaml"));
     }
 }
+
+mod ssz_static {
+    use super::*;
+
+    fn ssz_generic_file(file: &str) -> PathBuf {
+        let mut path = test_file("ssz_static");
+        path.push(file);
+        dbg!(&path);
+
+        path
+    }
+
+    #[test]
+    fn minimal_nil() {
+        TestDoc::assert_tests_pass(ssz_generic_file("core/ssz_minimal_nil.yaml"));
+    }
+}
