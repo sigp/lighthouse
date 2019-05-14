@@ -1,7 +1,5 @@
 use apply_rewards::process_rewards_and_penalties;
 use errors::EpochProcessingError as Error;
-use process_ejections::process_ejections;
-use process_exit_queue::process_exit_queue;
 use process_slashings::process_slashings;
 use registry_updates::process_registry_updates;
 use std::collections::HashMap;
@@ -14,8 +12,6 @@ pub mod apply_rewards;
 pub mod errors;
 pub mod get_attesting_indices;
 pub mod inclusion_distance;
-pub mod process_ejections;
-pub mod process_exit_queue;
 pub mod process_slashings;
 pub mod registry_updates;
 pub mod tests;
@@ -32,7 +28,7 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -47,14 +43,11 @@ pub fn per_epoch_processing<T: EthSpec>(
     let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
     validator_statuses.process_attestations(&state, spec)?;
 
-    // Justification.
+    // Justification and finalization.
     process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
 
     // Crosslinks.
     let winning_root_for_shards = process_crosslinks(state, spec)?;
-
-    // Eth1 data.
-    maybe_reset_eth1_period(state, spec);
 
     // Rewards and Penalities.
     process_rewards_and_penalties(
@@ -64,42 +57,19 @@ pub fn per_epoch_processing<T: EthSpec>(
         spec,
     )?;
 
-    // Ejections.
-    process_ejections(state, spec)?;
+    // Registry Updates.
+    process_registry_updates(state, spec)?;
 
-    // Validator Registry.
-    process_registry_updates(state, validator_statuses.total_balances.current_epoch, spec)?;
-
-    // Slashings and exit queue.
+    // Slashings.
     process_slashings(state, validator_statuses.total_balances.current_epoch, spec)?;
-    process_exit_queue(state, spec);
 
     // Final updates.
-    finish_epoch_update(state, spec)?;
+    process_final_updates(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
 
     Ok(())
-}
-
-/// Maybe resets the eth1 period.
-///
-/// Spec v0.5.1
-pub fn maybe_reset_eth1_period<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) {
-    /* FIXME(sproul)
-    let next_epoch = state.next_epoch(spec);
-    let voting_period = spec.epochs_per_eth1_voting_period;
-
-    if next_epoch % voting_period == 0 {
-        for eth1_data_vote in &state.eth1_data_votes {
-            if eth1_data_vote.vote_count * 2 > voting_period * spec.slots_per_epoch {
-                state.latest_eth1_data = eth1_data_vote.eth1_data.clone();
-            }
-        }
-        state.eth1_data_votes = vec![];
-    }
-    */
 }
 
 /// Update the following fields on the `BeaconState`:
@@ -213,13 +183,37 @@ pub fn process_crosslinks<T: EthSpec>(
 
 /// Finish up an epoch update.
 ///
-/// Spec v0.5.1
-pub fn finish_epoch_update<T: EthSpec>(
+/// Spec v0.6.1
+pub fn process_final_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let current_epoch = state.current_epoch(spec);
     let next_epoch = state.next_epoch(spec);
+
+    // Reset eth1 data votes.
+    if (state.slot + 1) % spec.slots_per_eth1_voting_period == 0 {
+        state.eth1_data_votes = vec![];
+    }
+
+    // Update effective balances with hysteresis (lag).
+    for (index, validator) in state.validator_registry.iter_mut().enumerate() {
+        let balance = state.balances[index];
+        let half_increment = spec.effective_balance_increment / 2;
+        if balance < validator.effective_balance
+            || validator.effective_balance + 3 * half_increment < balance
+        {
+            validator.effective_balance = std::cmp::min(
+                balance - balance % spec.effective_balance_increment,
+                spec.max_effective_balance,
+            );
+        }
+    }
+
+    // Update start shard.
+    state.latest_start_shard = (state.latest_start_shard
+        + state.get_shard_delta(current_epoch, spec))
+        % T::ShardCount::to_u64();
 
     // This is a hack to allow us to update index roots and slashed balances for the next epoch.
     //
@@ -255,7 +249,11 @@ pub fn finish_epoch_update<T: EthSpec>(
             .push(Hash256::from_slice(&historical_batch.tree_hash_root()[..]));
     }
 
-    state.previous_epoch_attestations = state.current_epoch_attestations.clone();
+    // Rotate current/previous epoch attestations
+    std::mem::swap(
+        &mut state.previous_epoch_attestations,
+        &mut state.current_epoch_attestations,
+    );
     state.current_epoch_attestations = vec![];
 
     Ok(())
