@@ -4,8 +4,8 @@ use types::{BeaconStateError as Error, *};
 /// Initiate the exit of the validator of the given `index`.
 ///
 /// Spec v0.6.1
-pub fn initiate_validator_exit(
-    state: &mut BeaconState,
+pub fn initiate_validator_exit<T: EthSpec>(
+    state: &mut BeaconState<T>,
     index: usize,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

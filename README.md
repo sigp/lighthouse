@@ -1,6 +1,13 @@
 # Lighthouse: an Ethereum Serenity client
 
-[![Build Status](https://travis-ci.org/sigp/lighthouse.svg?branch=master)](https://travis-ci.org/sigp/lighthouse) [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/sigp/lighthouse?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+[![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Gitter Badge]][Gitter Link]
+
+[Build Status]: https://gitlab.sigmaprime.io/sigp/lighthouse/badges/master/build.svg
+[Build Link]: https://gitlab.sigmaprime.io/sigp/lighthouse/pipelines
+[Gitter Badge]: https://badges.gitter.im/Join%20Chat.svg
+[Gitter Link]: https://gitter.im/sigp/lighthouse
+[Doc Status]: https://img.shields.io/badge/docs-master-blue.svg
+[Doc Link]: http://lighthouse-docs.sigmaprime.io/
 
 A work-in-progress, open-source implementation of the Serenity Beacon
 Chain, maintained by Sigma Prime.

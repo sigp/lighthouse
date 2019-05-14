@@ -11,8 +11,8 @@ use types::*;
 /// Returns `Ok(())` if the `IndexedAttestation` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.5.1
-pub fn verify_indexed_attestation(
-    state: &BeaconState,
+pub fn verify_indexed_attestation<T: EthSpec>(
+    state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

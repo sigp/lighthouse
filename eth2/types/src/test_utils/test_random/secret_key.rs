@@ -1,9 +1,8 @@
-use super::TestRandom;
+use super::*;
 use bls::SecretKey;
-use rand::RngCore;
 
-impl<T: RngCore> TestRandom<T> for SecretKey {
-    fn random_for_test(rng: &mut T) -> Self {
+impl TestRandom for SecretKey {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         let mut key_bytes = vec![0; 48];
         rng.fill_bytes(&mut key_bytes);
         /*

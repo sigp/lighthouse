@@ -4,8 +4,8 @@ use types::*;
 /// Returns validator indices which participated in the attestation.
 ///
 /// Spec v0.6.1
-pub fn get_attesting_indices_unsorted(
-    state: &BeaconState,
+pub fn get_attesting_indices_unsorted<T: EthSpec>(
+    state: &BeaconState<T>,
     attestation_data: &AttestationData,
     bitfield: &Bitfield,
     spec: &ChainSpec,

@@ -2,7 +2,7 @@ use crate::{
     test_utils::{fork_from_hex_str, TestRandom},
     ChainSpec, Epoch,
 };
-use rand::RngCore;
+
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

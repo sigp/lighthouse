@@ -71,13 +71,6 @@ pub struct ChainSpec {
     pub min_epochs_to_inactivity_penalty: u64,
 
     /*
-     * State list lengths
-     */
-    pub latest_randao_mixes_length: usize,
-    pub latest_active_index_roots_length: usize,
-    pub latest_slashed_exit_length: usize,
-
-    /*
      * Reward and penalty quotients
      */
     pub base_reward_quotient: u64,
@@ -158,7 +151,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
     /// Spec v0.6.1
-    pub fn foundation() -> Self {
+    pub(crate) fn foundation() -> Self {
         Self {
             /*
              * Misc
@@ -209,13 +202,6 @@ impl ChainSpec {
             min_epochs_to_inactivity_penalty: 4,
 
             /*
-             * State list lengths
-             */
-            latest_randao_mixes_length: 8_192,
-            latest_active_index_roots_length: 8_192,
-            latest_slashed_exit_length: 8_192,
-
-            /*
              * Reward and penalty quotients
              */
             base_reward_quotient: 32,
@@ -255,7 +241,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
     ///
     /// Spec v0.4.0
-    pub fn lighthouse_testnet() -> Self {
+    pub(crate) fn lighthouse_testnet() -> Self {
         /*
          * Lighthouse testnet bootnodes
          */
@@ -271,7 +257,7 @@ impl ChainSpec {
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    pub fn few_validators() -> Self {
+    pub(crate) fn few_validators() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 8;
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);

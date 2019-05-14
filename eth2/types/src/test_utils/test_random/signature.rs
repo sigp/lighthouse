@@ -1,9 +1,8 @@
-use super::TestRandom;
+use super::*;
 use bls::{SecretKey, Signature};
-use rand::RngCore;
 
-impl<T: RngCore> TestRandom<T> for Signature {
-    fn random_for_test(rng: &mut T) -> Self {
+impl TestRandom for Signature {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
         let secret_key = SecretKey::random_for_test(rng);
         let mut message = vec![0; 32];
         rng.fill_bytes(&mut message);
