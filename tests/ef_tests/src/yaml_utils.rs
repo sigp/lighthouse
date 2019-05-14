@@ -17,6 +17,7 @@ pub fn extract_yaml_by_index(yaml: &str, index: usize) -> String {
 pub fn yaml_to_string(yaml: &Yaml) -> String {
     let mut out_str = String::new();
     let mut emitter = YamlEmitter::new(&mut out_str);
+    emitter.escape_all_strings(true);
     emitter.dump(yaml).unwrap();
 
     out_str
