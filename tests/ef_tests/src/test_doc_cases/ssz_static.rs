@@ -28,9 +28,11 @@ impl TestDecode for SszStatic {
 
 impl SszStatic {
     fn value<T: serde::de::DeserializeOwned>(&self) -> Result<T, Error> {
-        serde_yaml::from_str(&self.raw_yaml.as_str()).map_err(|e| {
+        let wrapper: Value<T> = serde_yaml::from_str(&self.raw_yaml.as_str()).map_err(|e| {
             Error::FailedToParseTest(format!("Unable to parse {} YAML: {:?}", self.type_name, e))
-        })
+        })?;
+
+        Ok(wrapper.value)
     }
 }
 
