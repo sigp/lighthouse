@@ -12,3 +12,4 @@ serde_derive = "1.0"
 serde_yaml = "0.8"
 ssz = { path = "../../eth2/utils/ssz" }
 types = { path = "../../eth2/types" }
+yaml-rust = "0.4"

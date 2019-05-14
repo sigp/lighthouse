@@ -10,6 +10,7 @@ pub use crate::test_case_result::*;
 pub use crate::test_doc::*;
 pub use crate::test_doc_cases::*;
 pub use crate::test_doc_header::*;
+pub use crate::yaml_utils::*;
 
 mod error;
 mod test_case_result;
@@ -17,3 +18,4 @@ mod test_decode;
 mod test_doc;
 mod test_doc_cases;
 mod test_doc_header;
+mod yaml_utils;

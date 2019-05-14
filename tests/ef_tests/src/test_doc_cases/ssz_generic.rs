@@ -9,6 +9,12 @@ pub struct SszGeneric {
     pub ssz: Option<String>,
 }
 
+impl TestDecode for SszGeneric {
+    fn test_decode(yaml: &String) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    }
+}
+
 impl Test for TestDocCases<SszGeneric> {
     fn test(&self) -> Vec<TestCaseResult> {
         self.test_cases

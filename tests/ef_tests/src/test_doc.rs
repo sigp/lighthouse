@@ -7,7 +7,7 @@ pub struct TestDoc {
 }
 
 impl TestDoc {
-    fn new(path: PathBuf) -> Self {
+    fn from_path(path: PathBuf) -> Self {
         let mut file = File::open(path).unwrap();
 
         let mut yaml = String::new();
@@ -17,15 +17,20 @@ impl TestDoc {
     }
 
     pub fn get_test_results(path: PathBuf) -> Vec<TestCaseResult> {
-        let doc = Self::new(path);
+        let doc = Self::from_path(path);
 
         let header: TestDocHeader = serde_yaml::from_str(&doc.yaml.as_str()).unwrap();
 
-        match (header.runner.as_ref(), header.handler.as_ref()) {
-            ("ssz", "uint") => run_test::<SszGeneric>(&doc.yaml),
-            (runner, handler) => panic!(
-                "No implementation for runner {} handler {}",
-                runner, handler
+        match (
+            header.runner.as_ref(),
+            header.handler.as_ref(),
+            header.config.as_ref(),
+        ) {
+            ("ssz", "uint", _) => run_test::<SszGeneric>(&doc.yaml),
+            ("ssz", "static", "minimal") => run_test::<SszStatic>(&doc.yaml),
+            (runner, handler, config) => panic!(
+                "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
+                runner, handler, config
             ),
         }
     }
@@ -36,16 +41,23 @@ impl TestDoc {
         let failures: Vec<&TestCaseResult> = results.iter().filter(|r| r.result.is_err()).collect();
 
         if !failures.is_empty() {
-            panic!("{:?}", failures);
+            for f in failures {
+                dbg!(&f.case_index);
+                dbg!(&f.result);
+            }
+            panic!()
         }
     }
 }
 
 pub fn run_test<T>(test_doc_yaml: &String) -> Vec<TestCaseResult>
 where
-    TestDocCases<T>: Test + serde::de::DeserializeOwned,
+    TestDocCases<T>: Test + serde::de::DeserializeOwned + TestDecode,
 {
-    let doc: TestDocCases<T> = serde_yaml::from_str(&test_doc_yaml.as_str()).unwrap();
+    let test_cases_yaml = extract_yaml_by_key(test_doc_yaml, "test_cases");
 
-    doc.test()
+    let test_cases: TestDocCases<T> =
+        TestDocCases::test_decode(&test_cases_yaml.to_string()).unwrap();
+
+    test_cases.test()
 }
