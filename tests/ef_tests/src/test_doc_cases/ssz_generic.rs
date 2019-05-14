@@ -9,8 +9,8 @@ pub struct SszGeneric {
     pub ssz: Option<String>,
 }
 
-impl Test<SszGeneric> for TestDoc<SszGeneric> {
-    fn test(&self) -> Vec<TestCaseResult<SszGeneric>> {
+impl Test for TestDocCases<SszGeneric> {
+    fn test(&self) -> Vec<TestCaseResult> {
         self.test_cases
             .iter()
             .enumerate()
@@ -35,11 +35,7 @@ impl Test<SszGeneric> for TestDoc<SszGeneric> {
                     Ok(())
                 };
 
-                TestCaseResult {
-                    case_index: i,
-                    case: tc.clone(),
-                    result,
-                }
+                TestCaseResult::new(i, tc, result)
             })
             .collect()
     }
