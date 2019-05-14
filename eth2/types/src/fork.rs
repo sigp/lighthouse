@@ -37,13 +37,9 @@ impl Fork {
     ///
     /// Spec v0.6.1
     pub fn genesis(spec: &ChainSpec) -> Self {
-        let current_version: [u8; 4] = [0; 4];
-        // FIXME(sproul): 0 fork?
-        // current_version.copy_from_slice(&int_to_bytes4(spec.genesis_fork_version));
-
         Self {
-            previous_version: current_version,
-            current_version,
+            previous_version: [0; 4],
+            current_version: [0; 4],
             epoch: spec.genesis_epoch,
         }
     }
@@ -66,8 +62,7 @@ mod tests {
     ssz_tests!(Fork);
     cached_tree_hash_tests!(Fork);
 
-    // FIXME(sproul): dunno
-    fn test_genesis(version: u32, epoch: Epoch) {
+    fn test_genesis(epoch: Epoch) {
         let mut spec = ChainSpec::foundation();
 
         spec.genesis_epoch = epoch;
@@ -79,19 +74,14 @@ mod tests {
             fork.previous_version, fork.current_version,
             "previous and current are not identical"
         );
-        assert_eq!(
-            fork.current_version,
-            version.to_le_bytes(),
-            "current version incorrect"
-        );
     }
 
     #[test]
     fn genesis() {
-        test_genesis(0, Epoch::new(0));
-        test_genesis(9, Epoch::new(11));
-        test_genesis(2_u32.pow(31), Epoch::new(2_u64.pow(63)));
-        test_genesis(u32::max_value(), Epoch::max_value());
+        test_genesis(Epoch::new(0));
+        test_genesis(Epoch::new(11));
+        test_genesis(Epoch::new(2_u64.pow(63)));
+        test_genesis(Epoch::max_value());
     }
 
     #[test]

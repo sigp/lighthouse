@@ -58,8 +58,8 @@ mod tests {
 
     #[test]
     pub fn test_is_double_vote_true() {
-        let indexed_vote_first = create_indexed_attestation(1, 1);
-        let indexed_vote_second = create_indexed_attestation(1, 1);
+        let indexed_vote_first = create_indexed_attestation(3, 1);
+        let indexed_vote_second = create_indexed_attestation(3, 2);
 
         assert_eq!(
             indexed_vote_first.is_double_vote(&indexed_vote_second),
