@@ -47,8 +47,8 @@ pub enum Error {
         cache_len: usize,
         registry_len: usize,
     },
-    EpochCacheUninitialized(RelativeEpoch),
-    RelativeEpochError(RelativeEpochError),
+    PreviousEpochCacheUninitialized,
+    CurrentEpochCacheUnintialized,
     EpochCacheError(EpochCacheError),
     TreeHashCacheError(TreeHashCacheError),
 }
@@ -117,13 +117,13 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub cache_index_offset: usize,
+    pub previous_epoch_cache: EpochCache,
     #[serde(default)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub caches: [EpochCache; CACHED_EPOCHS],
+    pub current_epoch_cache: EpochCache,
     #[serde(default)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
@@ -214,13 +214,8 @@ impl<T: EthSpec> BeaconState<T> {
             /*
              * Caching (not in spec)
              */
-            cache_index_offset: 0,
-            caches: [
-                EpochCache::default(),
-                EpochCache::default(),
-                EpochCache::default(),
-                EpochCache::default(),
-            ],
+            previous_epoch_cache: EpochCache::default(),
+            current_epoch_cache: EpochCache::default(),
             pubkey_cache: PubkeyCache::default(),
             tree_hash_cache: TreeHashCache::default(),
             exit_cache: ExitCache::default(),
@@ -338,24 +333,17 @@ impl<T: EthSpec> BeaconState<T> {
             + offset / (committee_count / spec.slots_per_epoch))
     }
 
-    /// Returns the active validator indices for the given epoch, assuming there is no validator
-    /// registry update in the next epoch.
-    ///
-    /// This uses the cache, so it saves an iteration over the validator registry, however it can
-    /// not return a result for any epoch before the previous epoch.
-    ///
-    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.5.1
+    // FIXME(sproul): get_cached_current_active_validator_indices
+    /*
     pub fn get_cached_active_validator_indices(
         &self,
-        relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<&[usize], Error> {
         let cache = self.cache(relative_epoch, spec)?;
 
         Ok(&cache.active_validator_indices)
     }
+    */
 
     /// Returns the active validator indices for the given epoch.
     ///
@@ -376,22 +364,14 @@ impl<T: EthSpec> BeaconState<T> {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Result<&Vec<CrosslinkCommittee>, Error> {
-        // If the slot is in the next epoch, assume there was no validator registry update.
-        let relative_epoch = match RelativeEpoch::from_slot(self.slot, slot, spec) {
-            Err(RelativeEpochError::AmbiguiousNextEpoch) => {
-                Ok(RelativeEpoch::NextWithoutRegistryChange)
-            }
-            e => e,
-        }?;
-
-        let cache = self.cache(relative_epoch, spec)?;
-
-        Ok(cache
-            .get_crosslink_committees_at_slot(slot, spec)
-            .ok_or_else(|| Error::SlotOutOfBounds)?)
+        unimplemented!("FIXME(sproul)")
     }
 
-    // FIXME(sproul): implement this
+    /// Return the crosslink committeee for `shard` in `epoch`.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.6.1
     pub fn get_crosslink_committee(
         &self,
         epoch: Epoch,
@@ -402,43 +382,14 @@ impl<T: EthSpec> BeaconState<T> {
         unimplemented!()
     }
 
-    /// Returns the crosslink committees for some shard in an epoch.
-    ///
-    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.5.1
-    pub fn get_crosslink_committee_for_shard(
-        &self,
-        epoch: Epoch,
-        shard: Shard,
-        spec: &ChainSpec,
-    ) -> Result<&CrosslinkCommittee, Error> {
-        // If the slot is in the next epoch, assume there was no validator registry update.
-        let relative_epoch = match RelativeEpoch::from_epoch(self.current_epoch(spec), epoch) {
-            Err(RelativeEpochError::AmbiguiousNextEpoch) => {
-                Ok(RelativeEpoch::NextWithoutRegistryChange)
-            }
-            e => e,
-        }?;
-
-        let cache = self.cache(relative_epoch, spec)?;
-
-        Ok(cache
-            .get_crosslink_committee_for_shard(shard, spec)
-            .ok_or_else(|| Error::NoCommitteeForShard)?)
-    }
-
     /// Returns the beacon proposer index for the `slot`.
     ///
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     ///
     /// Spec v0.5.1
-    pub fn get_beacon_proposer_index(
-        &self,
-        slot: Slot,
-        relative_epoch: RelativeEpoch,
-        spec: &ChainSpec,
-    ) -> Result<usize, Error> {
+    pub fn get_beacon_proposer_index(&self, spec: &ChainSpec) -> Result<usize, Error> {
+        unimplemented!("FIXME(sproul)")
+        /*
         let cache = self.cache(relative_epoch, spec)?;
 
         let committees = cache
@@ -457,6 +408,7 @@ impl<T: EthSpec> BeaconState<T> {
                     .ok_or(Error::UnableToDetermineProducer)?;
                 Ok(first.committee[index])
             })
+        */
     }
 
     /// Safely obtains the index for latest block roots, given some `slot`.
@@ -791,10 +743,8 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Build all the caches, if they need to be built.
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        self.build_epoch_cache(RelativeEpoch::Previous, spec)?;
-        self.build_epoch_cache(RelativeEpoch::Current, spec)?;
-        self.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, spec)?;
-        self.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec)?;
+        self.build_previous_epoch_cache(spec)?;
+        self.build_current_epoch_cache(spec)?;
         self.update_pubkey_cache()?;
         self.update_tree_hash_cache()?;
         self.exit_cache
@@ -804,13 +754,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build an epoch cache, unless it is has already been built.
-    pub fn build_epoch_cache(
-        &mut self,
-        relative_epoch: RelativeEpoch,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let cache_index = self.cache_index(relative_epoch);
-
+    pub fn build_previous_epoch_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if self.caches[cache_index].initialized_epoch == Some(self.slot.epoch(spec.slots_per_epoch))
         {
             Ok(())
@@ -819,67 +763,42 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
-    /// Always builds an epoch cache, even if it is already initialized.
-    pub fn force_build_epoch_cache(
-        &mut self,
-        relative_epoch: RelativeEpoch,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let cache_index = self.cache_index(relative_epoch);
+    /// Always builds the previous epoch cache, even if it is already initialized.
+    pub fn force_build_previous_epoch_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        let epoch = self.previous_epoch(spec);
+        self.previous_epoch_cache = EpochCache::initialized(
+            &self,
+            epoch,
+            self.generate_seed(epoch, spec)?,
+            self.get_epoch_start_shard(epoch, spec)?,
+            spec,
+        )?;
+        Ok(())
+    }
 
-        self.caches[cache_index] = EpochCache::initialized(&self, relative_epoch, spec)?;
-
+    /// Always builds the current epoch cache, even if it is already initialized.
+    pub fn force_build_current_epoch_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        let epoch = self.current_epoch(spec);
+        self.current_epoch_cache = EpochCache::initialized(
+            &self,
+            epoch,
+            self.generate_seed(epoch, spec)?,
+            self.get_epoch_start_shard(epoch, spec)?,
+            spec,
+        )?;
         Ok(())
     }
 
     /// Advances the cache for this state into the next epoch.
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
-    ///
-    /// The `Next` cache becomes the `Current` and the `Current` cache becomes the `Previous`. The
-    /// `Previous` cache is abandoned.
-    ///
-    /// Care should be taken to update the `Current` epoch in case a registry update is performed
-    /// -- `Next` epoch is always _without_ a registry change. If you perform a registry update,
-    /// you should rebuild the `Current` cache so it uses the new seed.
     pub fn advance_caches(&mut self) {
-        self.drop_cache(RelativeEpoch::Previous);
-
-        self.cache_index_offset += 1;
-        self.cache_index_offset %= CACHED_EPOCHS;
+        self.previous_epoch_cache =
+            std::mem::replace(&mut self.current_epoch_cache, EpochCache::default());
+        self.force_build_current_epoch_cache();
     }
 
-    /// Removes the specified cache and sets it to uninitialized.
-    pub fn drop_cache(&mut self, relative_epoch: RelativeEpoch) {
-        let previous_cache_index = self.cache_index(relative_epoch);
-        self.caches[previous_cache_index] = EpochCache::default();
-    }
-
-    /// Returns the index of `self.caches` for some `RelativeEpoch`.
-    fn cache_index(&self, relative_epoch: RelativeEpoch) -> usize {
-        let base_index = match relative_epoch {
-            RelativeEpoch::Previous => 0,
-            RelativeEpoch::Current => 1,
-            RelativeEpoch::NextWithoutRegistryChange => 2,
-            RelativeEpoch::NextWithRegistryChange => 3,
-        };
-
-        (base_index + self.cache_index_offset) % CACHED_EPOCHS
-    }
-
-    /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
-    /// initialized.
-    fn cache(&self, relative_epoch: RelativeEpoch, spec: &ChainSpec) -> Result<&EpochCache, Error> {
-        let cache = &self.caches[self.cache_index(relative_epoch)];
-
-        let epoch = relative_epoch.into_epoch(self.slot.epoch(spec.slots_per_epoch));
-
-        if cache.initialized_epoch == Some(epoch) {
-            Ok(cache)
-        } else {
-            Err(Error::EpochCacheUninitialized(relative_epoch))
-        }
-    }
+    // FIXME(sproul): drop_previous/current_epoch_cache
 
     /// Updates the pubkey cache, if required.
     ///
@@ -937,12 +856,6 @@ impl<T: EthSpec> BeaconState<T> {
             .tree_hash_root()
             .and_then(|b| Ok(Hash256::from_slice(b)))
             .map_err(Into::into)
-    }
-}
-
-impl From<RelativeEpochError> for Error {
-    fn from(e: RelativeEpochError) -> Error {
-        Error::RelativeEpochError(e)
     }
 }
 
