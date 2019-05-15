@@ -1,4 +1,9 @@
 use super::*;
+use crate::case_result::compare_result;
+use ethereum_types::{U128, U256};
+use serde_derive::Deserialize;
+use ssz::Decode;
+use std::fmt::Debug;
 use types::EthSpec;
 
 #[derive(Debug, Clone, Deserialize)]

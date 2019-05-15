@@ -1,4 +1,5 @@
 use super::*;
+use std::fmt::Debug;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CaseResult {

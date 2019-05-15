@@ -1,4 +1,8 @@
 use super::*;
+use crate::case_result::compare_result;
+use serde_derive::Deserialize;
+use ssz::Decode;
+use std::fmt::Debug;
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,

@@ -1,5 +1,6 @@
 use super::*;
 use crate::yaml_decode::*;
+use serde_derive::Deserialize;
 use yaml_rust::YamlLoader;
 
 mod ssz_generic;
