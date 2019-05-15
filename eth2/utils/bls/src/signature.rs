@@ -5,7 +5,7 @@ use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{decode, ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decode, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
@@ -83,8 +83,11 @@ impl Signature {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         for byte in bytes {
             if *byte != 0 {
-                let raw_signature =
-                    RawSignature::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+                let raw_signature = RawSignature::from_bytes(&bytes).map_err(|_| {
+                    DecodeError::BytesInvalid(
+                        format!("Invalid Signature bytes: {:?}", bytes).to_string(),
+                    )
+                })?;
                 return Ok(Signature {
                     signature: raw_signature,
                     is_empty: false,
@@ -100,21 +103,7 @@ impl Signature {
     }
 }
 
-impl Encodable for Signature {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.as_bytes());
-    }
-}
-
-impl Decodable for Signature {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_SIG_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        let signature = Signature::from_bytes(&bytes[i..(i + BLS_SIG_BYTE_SIZE)])?;
-        Ok((signature, i + BLS_SIG_BYTE_SIZE))
-    }
-}
+impl_ssz!(Signature, BLS_SIG_BYTE_SIZE, "Signature");
 
 tree_hash_ssz_encoding_as_vector!(Signature);
 cached_tree_hash_ssz_encoding_as_vector!(Signature, 96);
@@ -136,7 +125,7 @@ impl<'de> Deserialize<'de> for Signature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let signature = decode(&bytes[..])
+        let signature = Self::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(signature)
     }
@@ -156,7 +145,7 @@ mod tests {
         let original = Signature::new(&[42, 42], 0, &keypair.sk);
 
         let bytes = ssz_encode(&original);
-        let decoded = decode::<Signature>(&bytes).unwrap();
+        let decoded = Signature::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }

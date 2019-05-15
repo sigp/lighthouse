@@ -3,7 +3,7 @@ use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decode, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.
@@ -57,27 +57,31 @@ impl FakeAggregateSignature {
     ) -> bool {
         true
     }
-}
 
-impl Encodable for FakeAggregateSignature {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.bytes);
-    }
-}
-
-impl Decodable for FakeAggregateSignature {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_AGG_SIG_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
+    /// Convert bytes to fake BLS aggregate signature
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() != BLS_AGG_SIG_BYTE_SIZE {
+            Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BLS_AGG_SIG_BYTE_SIZE,
+            })
+        } else {
+            Ok(Self {
+                bytes: bytes.to_vec(),
+            })
         }
-        Ok((
-            FakeAggregateSignature {
-                bytes: bytes[i..(i + BLS_AGG_SIG_BYTE_SIZE)].to_vec(),
-            },
-            i + BLS_AGG_SIG_BYTE_SIZE,
-        ))
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.bytes.clone()
     }
 }
+
+impl_ssz!(
+    FakeAggregateSignature,
+    BLS_AGG_SIG_BYTE_SIZE,
+    "FakeAggregateSignature"
+);
 
 impl Serialize for FakeAggregateSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -94,7 +98,7 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let (obj, _) = <_>::ssz_decode(&bytes[..], 0)
+        let obj = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(obj)
     }
@@ -117,7 +121,7 @@ mod tests {
         original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = FakeAggregateSignature::ssz_decode(&bytes, 0).unwrap();
+        let decoded = FakeAggregateSignature::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }

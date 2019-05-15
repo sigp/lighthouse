@@ -1,4 +1,4 @@
-use super::{AggregatePublicKey, Signature, BLS_AGG_SIG_BYTE_SIZE};
+use super::*;
 use bls_aggregates::{
     AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
 };
@@ -6,7 +6,7 @@ use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{decode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{Decode, DecodeError};
 use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A BLS aggregate signature.
@@ -99,8 +99,12 @@ impl AggregateSignature {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         for byte in bytes {
             if *byte != 0 {
-                let sig =
-                    RawAggregateSignature::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+                let sig = RawAggregateSignature::from_bytes(&bytes).map_err(|_| {
+                    DecodeError::BytesInvalid(
+                        format!("Invalid AggregateSignature bytes: {:?}", bytes).to_string(),
+                    )
+                })?;
+
                 return Ok(Self {
                     aggregate_signature: sig,
                     is_empty: false,
@@ -127,22 +131,11 @@ impl AggregateSignature {
     }
 }
 
-impl Encodable for AggregateSignature {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.as_bytes());
-    }
-}
-
-impl Decodable for AggregateSignature {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_AGG_SIG_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        let agg_sig = AggregateSignature::from_bytes(&bytes[i..(i + BLS_AGG_SIG_BYTE_SIZE)])
-            .map_err(|_| DecodeError::Invalid)?;
-        Ok((agg_sig, i + BLS_AGG_SIG_BYTE_SIZE))
-    }
-}
+impl_ssz!(
+    AggregateSignature,
+    BLS_AGG_SIG_BYTE_SIZE,
+    "AggregateSignature"
+);
 
 impl Serialize for AggregateSignature {
     /// Serde serialization is compliant the Ethereum YAML test format.
@@ -161,8 +154,9 @@ impl<'de> Deserialize<'de> for AggregateSignature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let agg_sig = decode(&bytes[..])
+        let agg_sig = AggregateSignature::from_ssz_bytes(&bytes)
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
+
         Ok(agg_sig)
     }
 }
@@ -174,7 +168,7 @@ cached_tree_hash_ssz_encoding_as_vector!(AggregateSignature, 96);
 mod tests {
     use super::super::{Keypair, Signature};
     use super::*;
-    use ssz::{decode, ssz_encode};
+    use ssz::Encode;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -183,8 +177,8 @@ mod tests {
         let mut original = AggregateSignature::new();
         original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
 
-        let bytes = ssz_encode(&original);
-        let decoded = decode::<AggregateSignature>(&bytes).unwrap();
+        let bytes = original.as_ssz_bytes();
+        let decoded = AggregateSignature::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }
