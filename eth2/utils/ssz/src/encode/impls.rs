@@ -96,6 +96,7 @@ macro_rules! impl_encodable_for_u8_array {
 }
 
 impl_encodable_for_u8_array!(4);
+impl_encodable_for_u8_array!(32);
 
 #[cfg(test)]
 mod tests {

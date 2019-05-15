@@ -10,7 +10,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 #[derive(
     Debug,
     PartialEq,
