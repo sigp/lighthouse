@@ -84,10 +84,8 @@ pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
 
     for failure in failures {
         println!("-------");
-        println!(
-            "case[{}] failed with: {:#?}",
-            failure.case_index, failure.result
-        );
+        println!("case[{}].result:", failure.case_index);
+        println!("{:#?}", failure.result);
     }
     println!("");
 }
