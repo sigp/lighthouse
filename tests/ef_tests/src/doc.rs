@@ -54,11 +54,11 @@ impl Doc {
 
 pub fn run_test<T, E: EthSpec>(test_doc_yaml: &String) -> Vec<TestCaseResult>
 where
-    DocCases<T>: Test + serde::de::DeserializeOwned + YamlDecode,
+    Cases<T>: Test + serde::de::DeserializeOwned + YamlDecode,
 {
     let test_cases_yaml = extract_yaml_by_key(test_doc_yaml, "test_cases");
 
-    let test_cases: DocCases<T> = DocCases::yaml_decode(&test_cases_yaml.to_string()).unwrap();
+    let test_cases: Cases<T> = Cases::yaml_decode(&test_cases_yaml.to_string()).unwrap();
 
     test_cases.test::<E>()
 }
