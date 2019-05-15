@@ -1,5 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
+use cached_tree_hash::{CachedTreeHash, TreeHashCache};
+use rayon::prelude::*;
 use serde_derive::Deserialize;
 use ssz::Decode;
 use std::fmt::Debug;
@@ -48,7 +50,7 @@ impl SszStatic {
 impl EfTest for Cases<SszStatic> {
     fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
         self.test_cases
-            .iter()
+            .par_iter()
             .enumerate()
             .map(|(i, tc)| {
                 let result = match tc.type_name.as_ref() {
@@ -88,7 +90,7 @@ impl EfTest for Cases<SszStatic> {
 
 fn ssz_static_test<T>(tc: &SszStatic) -> Result<(), Error>
 where
-    T: Decode + Debug + PartialEq<T> + serde::de::DeserializeOwned + TreeHash,
+    T: Decode + Debug + PartialEq<T> + serde::de::DeserializeOwned + TreeHash + CachedTreeHash,
 {
     // Verify we can decode SSZ in the same way we can decode YAML.
     let ssz = hex::decode(&tc.serialized[2..])
@@ -97,12 +99,18 @@ where
     let decode_result = T::from_ssz_bytes(&ssz);
     compare_result(&decode_result, &Some(expected))?;
 
-    // Verify the tree hash root is identical to the decoded struct.
-    let root_bytes =
+    // Verify the TreeHash root of the decoded struct matches the test.
+    let decoded = decode_result.unwrap();
+    let expected_root =
         &hex::decode(&tc.root[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-    let expected_root = Hash256::from_slice(&root_bytes);
-    let root = Hash256::from_slice(&decode_result.unwrap().tree_hash_root());
-    compare_result::<Hash256, Error>(&Ok(root), &Some(expected_root))?;
+    let expected_root = Hash256::from_slice(&expected_root);
+    let tree_hash_root = Hash256::from_slice(&decoded.tree_hash_root());
+    compare_result::<Hash256, Error>(&Ok(tree_hash_root), &Some(expected_root))?;
+
+    // Verify a _new_ CachedTreeHash root of the decoded struct matches the test.
+    let cache = TreeHashCache::new(&decoded).unwrap();
+    let cached_tree_hash_root = Hash256::from_slice(cache.tree_hash_root().unwrap());
+    compare_result::<Hash256, Error>(&Ok(cached_tree_hash_root), &Some(expected_root))?;
 
     Ok(())
 }

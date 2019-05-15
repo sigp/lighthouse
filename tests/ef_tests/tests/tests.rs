@@ -1,51 +1,45 @@
 use ef_tests::*;
+use rayon::prelude::*;
 use std::path::PathBuf;
+use walkdir::WalkDir;
 
-fn test_file(trailing_path: &str) -> PathBuf {
-    let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    file_path_buf.push(format!("eth2.0-spec-tests/tests/{}", trailing_path));
+fn yaml_files_in_test_dir(dir: &str) -> Vec<PathBuf> {
+    let mut base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    base_path.push("eth2.0-spec-tests");
+    base_path.push("tests");
+    base_path.push(dir);
 
-    file_path_buf
+    WalkDir::new(base_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter_map(|entry| {
+            if entry.file_type().is_file() {
+                match entry.file_name().to_str() {
+                    Some(f) if f.ends_with(".yaml") => Some(entry.path().to_path_buf()),
+                    Some(f) if f.ends_with(".yml") => Some(entry.path().to_path_buf()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
-mod ssz_generic {
-    use super::*;
-
-    fn ssz_generic_file(file: &str) -> PathBuf {
-        let mut path = test_file("ssz_generic");
-        path.push(file);
-
-        path
-    }
-
-    #[test]
-    fn uint_bounds() {
-        Doc::assert_tests_pass(ssz_generic_file("uint/uint_bounds.yaml"));
-    }
-
-    #[test]
-    fn uint_random() {
-        Doc::assert_tests_pass(ssz_generic_file("uint/uint_random.yaml"));
-    }
-
-    #[test]
-    fn uint_wrong_length() {
-        Doc::assert_tests_pass(ssz_generic_file("uint/uint_wrong_length.yaml"));
-    }
+#[test]
+fn ssz_generic() {
+    yaml_files_in_test_dir("ssz_generic")
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
 }
 
-mod ssz_static {
-    use super::*;
-
-    fn ssz_generic_file(file: &str) -> PathBuf {
-        let mut path = test_file("ssz_static");
-        path.push(file);
-
-        path
-    }
-
-    #[test]
-    fn minimal_nil() {
-        Doc::assert_tests_pass(ssz_generic_file("core/ssz_minimal_nil.yaml"));
-    }
+#[test]
+fn ssz_static() {
+    yaml_files_in_test_dir("ssz_static")
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
 }

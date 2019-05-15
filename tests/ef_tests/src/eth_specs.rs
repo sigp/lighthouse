@@ -1,5 +1,8 @@
-use types::{EthSpec, typenum::{U64, U8}, ChainSpec, FewValidatorsEthSpec};
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
+use types::{
+    typenum::{U64, U8},
+    ChainSpec, EthSpec, FewValidatorsEthSpec, FoundationEthSpec,
+};
 
 /// "Minimal" testing specification, as defined here:
 ///
@@ -21,3 +24,5 @@ impl EthSpec for MinimalEthSpec {
         FewValidatorsEthSpec::spec()
     }
 }
+
+pub type MainnetEthSpec = FoundationEthSpec;

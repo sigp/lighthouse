@@ -1,12 +1,12 @@
 use crate::case_result::CaseResult;
 use crate::cases::*;
 use crate::doc_header::DocHeader;
-use crate::eth_specs::MinimalEthSpec;
+use crate::eth_specs::{MainnetEthSpec, MinimalEthSpec};
 use crate::yaml_decode::{extract_yaml_by_key, YamlDecode};
 use crate::EfTest;
 use serde_derive::Deserialize;
 use std::{fs::File, io::prelude::*, path::PathBuf};
-use types::{EthSpec, FoundationEthSpec};
+use types::EthSpec;
 
 #[derive(Debug, Deserialize)]
 pub struct Doc {
@@ -32,8 +32,9 @@ impl Doc {
             header.handler.as_ref(),
             header.config.as_ref(),
         ) {
-            ("ssz", "uint", _) => run_test::<SszGeneric, FoundationEthSpec>(&self.yaml),
+            ("ssz", "uint", _) => run_test::<SszGeneric, MainnetEthSpec>(&self.yaml),
             ("ssz", "static", "minimal") => run_test::<SszStatic, MinimalEthSpec>(&self.yaml),
+            ("ssz", "static", "mainnet") => run_test::<SszStatic, MainnetEthSpec>(&self.yaml),
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
@@ -48,6 +49,8 @@ impl Doc {
         if results.iter().any(|r| r.result.is_err()) {
             print_failures(&doc, &results);
             panic!("Tests failed (see above)");
+        } else {
+            println!("Passed {} tests in {:?}", results.len(), doc.path);
         }
     }
 }
