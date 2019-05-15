@@ -250,11 +250,8 @@ pub fn process_final_updates<T: EthSpec>(
     }
 
     // Rotate current/previous epoch attestations
-    std::mem::swap(
-        &mut state.previous_epoch_attestations,
-        &mut state.current_epoch_attestations,
-    );
-    state.current_epoch_attestations = vec![];
+    state.previous_epoch_attestations =
+        std::mem::replace(&mut state.current_epoch_attestations, vec![]);
 
     Ok(())
 }
