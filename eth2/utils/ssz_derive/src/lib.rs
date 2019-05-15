@@ -41,12 +41,6 @@ fn get_serializable_field_types<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a
                 None
             } else {
                 Some(&f.ty)
-                /*
-                Some(match &f.ident {
-                    Some(ref ident) => ident,
-                    _ => panic!("ssz_derive only supports named struct fields."),
-                })
-                */
             }
         })
         .collect()
