@@ -14,7 +14,6 @@ mod ssz_generic {
     fn ssz_generic_file(file: &str) -> PathBuf {
         let mut path = test_file("ssz_generic");
         path.push(file);
-        dbg!(&path);
 
         path
     }
@@ -41,7 +40,6 @@ mod ssz_static {
     fn ssz_generic_file(file: &str) -> PathBuf {
         let mut path = test_file("ssz_static");
         path.push(file);
-        dbg!(&path);
 
         path
     }
