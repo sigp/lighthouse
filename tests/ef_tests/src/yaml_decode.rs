@@ -1,4 +1,5 @@
 use super::*;
+use ethereum_types::{U128, U256};
 use types::Fork;
 
 mod utils;
