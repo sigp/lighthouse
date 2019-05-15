@@ -59,10 +59,12 @@ impl Doc {
 
 pub fn run_test<T, E: EthSpec>(test_doc_yaml: &String) -> Vec<CaseResult>
 where
-    Cases<T>: EfTest + serde::de::DeserializeOwned + YamlDecode,
+    Cases<T>: EfTest + YamlDecode,
 {
+    // Extract only the "test_cases" YAML as a stand-alone string.
     let test_cases_yaml = extract_yaml_by_key(test_doc_yaml, "test_cases");
 
+    // Pass only the "test_cases" YAML string to `yaml_decode`.
     let test_cases: Cases<T> = Cases::yaml_decode(&test_cases_yaml.to_string()).unwrap();
 
     test_cases.test_results::<E>()

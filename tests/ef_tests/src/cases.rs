@@ -1,6 +1,5 @@
 use super::*;
 use crate::yaml_decode::*;
-use serde_derive::Deserialize;
 use yaml_rust::YamlLoader;
 
 mod ssz_generic;
@@ -9,7 +8,7 @@ mod ssz_static;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Cases<T> {
     pub test_cases: Vec<T>,
 }
@@ -23,6 +22,7 @@ impl<T: YamlDecode> YamlDecode for Cases<T> {
 
         let mut i = 0;
         loop {
+            // `is_badvalue` indicates when we have reached the end of the YAML list.
             if doc[i].is_badvalue() {
                 break;
             } else {
