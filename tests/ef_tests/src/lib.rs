@@ -4,18 +4,18 @@ use serde_derive::Deserialize;
 use ssz::Decode;
 use std::fmt::Debug;
 
+pub use crate::case_result::*;
+pub use crate::doc::*;
+pub use crate::doc_cases::*;
+pub use crate::doc_header::*;
 pub use crate::error::*;
 pub use crate::eth_specs::*;
-pub use crate::test_case_result::*;
-pub use crate::test_doc::*;
-pub use crate::test_doc_cases::*;
-pub use crate::test_doc_header::*;
 pub use yaml_decode::YamlDecode;
 
+mod case_result;
+mod doc;
+mod doc_cases;
+mod doc_header;
 mod error;
 mod eth_specs;
-mod test_case_result;
-mod test_doc;
-mod test_doc_cases;
-mod test_doc_header;
 mod yaml_decode;

@@ -4,11 +4,11 @@ use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::{EthSpec, FoundationEthSpec};
 
 #[derive(Debug, Deserialize)]
-pub struct TestDoc {
+pub struct Doc {
     pub yaml: String,
 }
 
-impl TestDoc {
+impl Doc {
     fn from_path(path: PathBuf) -> Self {
         let mut file = File::open(path).unwrap();
 
@@ -21,7 +21,7 @@ impl TestDoc {
     pub fn get_test_results(path: PathBuf) -> Vec<TestCaseResult> {
         let doc = Self::from_path(path);
 
-        let header: TestDocHeader = serde_yaml::from_str(&doc.yaml.as_str()).unwrap();
+        let header: DocHeader = serde_yaml::from_str(&doc.yaml.as_str()).unwrap();
 
         match (
             header.runner.as_ref(),
@@ -54,12 +54,11 @@ impl TestDoc {
 
 pub fn run_test<T, E: EthSpec>(test_doc_yaml: &String) -> Vec<TestCaseResult>
 where
-    TestDocCases<T>: Test + serde::de::DeserializeOwned + YamlDecode,
+    DocCases<T>: Test + serde::de::DeserializeOwned + YamlDecode,
 {
     let test_cases_yaml = extract_yaml_by_key(test_doc_yaml, "test_cases");
 
-    let test_cases: TestDocCases<T> =
-        TestDocCases::yaml_decode(&test_cases_yaml.to_string()).unwrap();
+    let test_cases: DocCases<T> = DocCases::yaml_decode(&test_cases_yaml.to_string()).unwrap();
 
     test_cases.test::<E>()
 }
