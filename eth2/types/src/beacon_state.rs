@@ -55,7 +55,7 @@ pub enum Error {
 
 /// The state of the `BeaconChain` at some slot.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 #[derive(
     Debug,
     PartialEq,
@@ -150,7 +150,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// This does not fully build a genesis beacon state, it omits processing of initial validator
     /// deposits. To obtain a full genesis beacon state, use the `BeaconStateBuilder`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn genesis(
         genesis_time: u64,
         latest_eth1_data: Eth1Data,
@@ -229,7 +229,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Returns the `tree_hash_root` of the state.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
@@ -258,7 +258,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// The epoch corresponding to `self.slot`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.slot.epoch(spec.slots_per_epoch)
     }
@@ -279,7 +279,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// The epoch following `self.current_epoch()`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
         self.current_epoch(spec) + 1
     }

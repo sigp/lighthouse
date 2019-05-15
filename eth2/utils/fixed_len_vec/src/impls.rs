@@ -1,7 +1,4 @@
 use super::*;
-// use cached_tree_hash::CachedTreeHash;
-// use ssz::{Decode, Encode};
-// use tree_hash::TreeHash;
 
 impl<T, N: Unsigned> tree_hash::TreeHash for FixedLenVec<T, N>
 where

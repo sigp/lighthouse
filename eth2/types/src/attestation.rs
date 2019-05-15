@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 #[derive(
     Debug,
     Clone,

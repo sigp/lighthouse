@@ -47,7 +47,6 @@ impl TestingAttesterSlashingBuilder {
             custody_bit_0_indices: validator_indices.to_vec(),
             custody_bit_1_indices: vec![],
             data: data_1,
-            custody_bitfield: Bitfield::new(),
             signature: AggregateSignature::new(),
         };
 
@@ -55,7 +54,6 @@ impl TestingAttesterSlashingBuilder {
             custody_bit_0_indices: validator_indices.to_vec(),
             custody_bit_1_indices: vec![],
             data: data_2,
-            custody_bitfield: Bitfield::new(),
             signature: AggregateSignature::new(),
         };
 
@@ -67,8 +65,7 @@ impl TestingAttesterSlashingBuilder {
             };
             let message = attestation_data_and_custody_bit.tree_hash_root();
 
-            for (i, validator_index) in validator_indices.iter().enumerate() {
-                attestation.custody_bitfield.set(i, false);
+            for validator_index in validator_indices {
                 let signature =
                     signer(*validator_index, &message[..], epoch_2, Domain::Attestation);
                 attestation.signature.add(&signature);

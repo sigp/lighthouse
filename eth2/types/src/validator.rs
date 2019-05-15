@@ -7,7 +7,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Information about a `BeaconChain` validator.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 #[derive(
     Debug,
     Clone,
