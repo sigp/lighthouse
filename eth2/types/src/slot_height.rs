@@ -3,7 +3,7 @@ use crate::test_utils::TestRandom;
 
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
 use std::hash::{Hash, Hasher};

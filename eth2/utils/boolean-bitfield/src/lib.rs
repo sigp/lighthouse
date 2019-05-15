@@ -7,7 +7,7 @@ use cached_tree_hash::cached_tree_hash_bytes_as_list;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
-use ssz::{Decodable, Encodable};
+use ssz::{Decode, Encode};
 use std::cmp;
 use std::default;
 
@@ -194,29 +194,23 @@ impl std::ops::BitOr for BooleanBitfield {
     }
 }
 
-impl Encodable for BooleanBitfield {
-    // ssz_append encodes Self according to the `ssz` spec.
-    fn ssz_append(&self, s: &mut ssz::SszStream) {
-        s.append_vec(&self.to_bytes())
+impl Encode for BooleanBitfield {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        buf.append(&mut self.to_bytes())
     }
 }
 
-impl Decodable for BooleanBitfield {
-    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), ssz::DecodeError> {
-        let len = ssz::decode::decode_length(bytes, index, ssz::LENGTH_BYTES)?;
-        if (ssz::LENGTH_BYTES + len) > bytes.len() {
-            return Err(ssz::DecodeError::TooShort);
-        }
+impl Decode for BooleanBitfield {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
 
-        if len == 0 {
-            Ok((BooleanBitfield::new(), index + ssz::LENGTH_BYTES))
-        } else {
-            let bytes = &bytes[(index + 4)..(index + len + 4)];
-            let field = BooleanBitfield::from_bytes(bytes);
-
-            let index = index + ssz::LENGTH_BYTES + len;
-            Ok((field, index))
-        }
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        Ok(BooleanBitfield::from_bytes(bytes))
     }
 }
 
@@ -277,7 +271,7 @@ cached_tree_hash_bytes_as_list!(BooleanBitfield);
 mod tests {
     use super::*;
     use serde_yaml;
-    use ssz::{decode, ssz_encode, SszStream};
+    use ssz::ssz_encode;
     use tree_hash::TreeHash;
 
     #[test]
@@ -452,30 +446,17 @@ mod tests {
     #[test]
     fn test_ssz_encode() {
         let field = create_test_bitfield();
-        let mut stream = SszStream::new();
-        stream.append(&field);
-        assert_eq!(stream.drain(), vec![2, 0, 0, 0, 0b0000_0011, 0b1000_0111]);
+        assert_eq!(field.as_ssz_bytes(), vec![0b0000_0011, 0b1000_0111]);
 
         let field = BooleanBitfield::from_elem(18, true);
-        let mut stream = SszStream::new();
-        stream.append(&field);
         assert_eq!(
-            stream.drain(),
-            vec![3, 0, 0, 0, 0b0000_0011, 0b1111_1111, 0b1111_1111]
+            field.as_ssz_bytes(),
+            vec![0b0000_0011, 0b1111_1111, 0b1111_1111]
         );
 
         let mut b = BooleanBitfield::new();
         b.set(1, true);
-        assert_eq!(
-            ssz_encode(&b),
-            vec![
-                0b0000_0001,
-                0b0000_0000,
-                0b0000_0000,
-                0b0000_0000,
-                0b0000_0010
-            ]
-        );
+        assert_eq!(ssz_encode(&b), vec![0b0000_0010]);
     }
 
     fn create_test_bitfield() -> BooleanBitfield {
@@ -491,13 +472,13 @@ mod tests {
 
     #[test]
     fn test_ssz_decode() {
-        let encoded = vec![2, 0, 0, 0, 0b0000_0011, 0b1000_0111];
-        let field = decode::<BooleanBitfield>(&encoded).unwrap();
+        let encoded = vec![0b0000_0011, 0b1000_0111];
+        let field = BooleanBitfield::from_ssz_bytes(&encoded).unwrap();
         let expected = create_test_bitfield();
         assert_eq!(field, expected);
 
-        let encoded = vec![3, 0, 0, 0, 255, 255, 3];
-        let field = decode::<BooleanBitfield>(&encoded).unwrap();
+        let encoded = vec![255, 255, 3];
+        let field = BooleanBitfield::from_ssz_bytes(&encoded).unwrap();
         let expected = BooleanBitfield::from_bytes(&[255, 255, 3]);
         assert_eq!(field, expected);
     }
@@ -527,7 +508,7 @@ mod tests {
     fn test_ssz_round_trip() {
         let original = BooleanBitfield::from_bytes(&vec![18; 12][..]);
         let ssz = ssz_encode(&original);
-        let decoded = decode::<BooleanBitfield>(&ssz).unwrap();
+        let decoded = BooleanBitfield::from_ssz_bytes(&ssz).unwrap();
         assert_eq!(original, decoded);
     }
 
