@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, Bitfield};
+use crate::{test_utils::TestRandom, AggregateSignature, AttestationData};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 #[derive(
     Debug,
     PartialEq,
@@ -28,7 +28,6 @@ pub struct IndexedAttestation {
     pub custody_bit_0_indices: Vec<u64>,
     pub custody_bit_1_indices: Vec<u64>,
     pub data: AttestationData,
-    pub custody_bitfield: Bitfield,
     #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,
 }

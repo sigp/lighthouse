@@ -14,6 +14,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     Debug,
     Clone,
     PartialEq,
+    Eq,
     Default,
     Serialize,
     Deserialize,
@@ -40,8 +41,6 @@ pub struct AttestationData {
     pub previous_crosslink_root: Hash256,
     pub crosslink_data_root: Hash256,
 }
-
-impl Eq for AttestationData {}
 
 #[cfg(test)]
 mod tests {
