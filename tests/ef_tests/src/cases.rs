@@ -9,11 +9,11 @@ pub use ssz_generic::*;
 pub use ssz_static::*;
 
 #[derive(Debug, Deserialize)]
-pub struct DocCases<T> {
+pub struct Cases<T> {
     pub test_cases: Vec<T>,
 }
 
-impl<T: YamlDecode> YamlDecode for DocCases<T> {
+impl<T: YamlDecode> YamlDecode for Cases<T> {
     /// Decodes a YAML list of test cases
     fn yaml_decode(yaml: &String) -> Result<Self, Error> {
         let doc = &YamlLoader::load_from_str(yaml).unwrap()[0];

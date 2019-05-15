@@ -41,7 +41,7 @@ impl SszStatic {
     }
 }
 
-impl Test for DocCases<SszStatic> {
+impl Test for Cases<SszStatic> {
     fn test<E: EthSpec>(&self) -> Vec<TestCaseResult> {
         self.test_cases
             .iter()
