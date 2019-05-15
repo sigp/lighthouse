@@ -13,7 +13,7 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o, trace, warn};
-use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use types::{Attestation, BeaconBlock};
 use types::{Topic, TopicHash};
 
@@ -49,7 +49,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
             GossipsubEvent::Message(gs_msg) => {
                 trace!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
 
-                let pubsub_message = match PubsubMessage::ssz_decode(&gs_msg.data, 0) {
+                let pubsub_message = match PubsubMessage::from_ssz_bytes(&gs_msg.data) {
                     //TODO: Punish peer on error
                     Err(e) => {
                         warn!(
@@ -59,7 +59,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
                         );
                         return;
                     }
-                    Ok((msg, _index)) => msg,
+                    Ok(msg) => msg,
                 };
 
                 self.events.push(BehaviourEvent::GossipMessage {
@@ -197,34 +197,59 @@ pub enum PubsubMessage {
 }
 
 //TODO: Correctly encode/decode enums. Prefixing with integer for now.
-impl Encodable for PubsubMessage {
-    fn ssz_append(&self, s: &mut SszStream) {
+impl Encode for PubsubMessage {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let offset = <u32 as Encode>::ssz_fixed_len() + <Vec<u8> as Encode>::ssz_fixed_len();
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+
         match self {
             PubsubMessage::Block(block_gossip) => {
-                0u32.ssz_append(s);
-                block_gossip.ssz_append(s);
+                encoder.append(&0_u32);
+
+                // Encode the gossip as a Vec<u8>;
+                encoder.append(&block_gossip.as_ssz_bytes());
             }
             PubsubMessage::Attestation(attestation_gossip) => {
-                1u32.ssz_append(s);
-                attestation_gossip.ssz_append(s);
+                encoder.append(&1_u32);
+
+                // Encode the gossip as a Vec<u8>;
+                encoder.append(&attestation_gossip.as_ssz_bytes());
             }
         }
+
+        encoder.finalize();
     }
 }
 
-impl Decodable for PubsubMessage {
-    fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError> {
-        let (id, index) = u32::ssz_decode(bytes, index)?;
+impl Decode for PubsubMessage {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(&bytes);
+
+        builder.register_type::<u32>()?;
+        builder.register_type::<Vec<u8>>()?;
+
+        let mut decoder = builder.build()?;
+
+        let id: u32 = decoder.decode_next()?;
+        let body: Vec<u8> = decoder.decode_next()?;
+
         match id {
-            0 => {
-                let (block, index) = BeaconBlock::ssz_decode(bytes, index)?;
-                Ok((PubsubMessage::Block(block), index))
-            }
-            1 => {
-                let (attestation, index) = Attestation::ssz_decode(bytes, index)?;
-                Ok((PubsubMessage::Attestation(attestation), index))
-            }
-            _ => Err(DecodeError::Invalid),
+            0 => Ok(PubsubMessage::Block(BeaconBlock::from_ssz_bytes(&body)?)),
+            1 => Ok(PubsubMessage::Attestation(Attestation::from_ssz_bytes(
+                &body,
+            )?)),
+            _ => Err(DecodeError::BytesInvalid(
+                "Invalid PubsubMessage id".to_string(),
+            )),
         }
     }
 }
@@ -240,9 +265,7 @@ mod test {
 
         let encoded = ssz_encode(&original);
 
-        println!("{:?}", encoded);
-
-        let (decoded, _i) = PubsubMessage::ssz_decode(&encoded, 0).unwrap();
+        let decoded = PubsubMessage::from_ssz_bytes(&encoded).unwrap();
 
         assert_eq!(original, decoded);
     }
