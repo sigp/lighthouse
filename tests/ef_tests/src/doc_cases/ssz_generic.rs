@@ -16,7 +16,7 @@ impl YamlDecode for SszGeneric {
     }
 }
 
-impl Test for TestDocCases<SszGeneric> {
+impl Test for DocCases<SszGeneric> {
     fn test<E: EthSpec>(&self) -> Vec<TestCaseResult> {
         self.test_cases
             .iter()

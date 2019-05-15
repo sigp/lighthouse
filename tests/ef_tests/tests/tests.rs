@@ -21,17 +21,17 @@ mod ssz_generic {
 
     #[test]
     fn uint_bounds() {
-        TestDoc::assert_tests_pass(ssz_generic_file("uint/uint_bounds.yaml"));
+        Doc::assert_tests_pass(ssz_generic_file("uint/uint_bounds.yaml"));
     }
 
     #[test]
     fn uint_random() {
-        TestDoc::assert_tests_pass(ssz_generic_file("uint/uint_random.yaml"));
+        Doc::assert_tests_pass(ssz_generic_file("uint/uint_random.yaml"));
     }
 
     #[test]
     fn uint_wrong_length() {
-        TestDoc::assert_tests_pass(ssz_generic_file("uint/uint_wrong_length.yaml"));
+        Doc::assert_tests_pass(ssz_generic_file("uint/uint_wrong_length.yaml"));
     }
 }
 
@@ -48,6 +48,6 @@ mod ssz_static {
 
     #[test]
     fn minimal_nil() {
-        TestDoc::assert_tests_pass(ssz_generic_file("core/ssz_minimal_nil.yaml"));
+        Doc::assert_tests_pass(ssz_generic_file("core/ssz_minimal_nil.yaml"));
     }
 }

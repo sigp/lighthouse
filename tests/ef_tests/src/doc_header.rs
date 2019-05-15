@@ -1,7 +1,7 @@
 use super::*;
 
 #[derive(Debug, Deserialize)]
-pub struct TestDocHeader {
+pub struct DocHeader {
     pub title: String,
     pub summary: String,
     pub forks_timeline: String,
