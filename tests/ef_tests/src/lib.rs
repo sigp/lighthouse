@@ -3,6 +3,7 @@ use ethereum_types::{U128, U256};
 use serde_derive::Deserialize;
 use ssz::Decode;
 use std::fmt::Debug;
+use types::EthSpec;
 
 pub use crate::case_result::*;
 pub use crate::cases::*;
@@ -19,3 +20,10 @@ mod doc_header;
 mod error;
 mod eth_specs;
 mod yaml_decode;
+
+/// Defined where an object can return the results of some test(s) adhering to the Ethereum
+/// Foundation testing format.
+pub trait EfTest {
+    /// Returns the results of executing one or more tests.
+    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult>;
+}

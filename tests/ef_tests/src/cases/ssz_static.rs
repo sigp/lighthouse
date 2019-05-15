@@ -41,8 +41,8 @@ impl SszStatic {
     }
 }
 
-impl Test for Cases<SszStatic> {
-    fn test<E: EthSpec>(&self) -> Vec<TestCaseResult> {
+impl EfTest for Cases<SszStatic> {
+    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
         self.test_cases
             .iter()
             .enumerate()
@@ -76,7 +76,7 @@ impl Test for Cases<SszStatic> {
                     ))),
                 };
 
-                TestCaseResult::new(i, tc, result)
+                CaseResult::new(i, tc, result)
             })
             .collect()
     }
