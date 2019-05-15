@@ -16,21 +16,31 @@ pub struct Cases<T> {
 impl<T: YamlDecode> YamlDecode for Cases<T> {
     /// Decodes a YAML list of test cases
     fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        let doc = &YamlLoader::load_from_str(yaml).unwrap()[0];
+        let mut p = 0;
+        let mut elems: Vec<&str> = yaml
+            .match_indices("\n- ")
+            // Skip the `\n` used for matching a new line
+            .map(|(i, _)| i + 1)
+            .map(|i| {
+                let yaml_element = &yaml[p..i];
+                p = i;
 
-        let mut test_cases: Vec<T> = vec![];
+                yaml_element
+            })
+            .collect();
 
-        let mut i = 0;
-        loop {
-            // `is_badvalue` indicates when we have reached the end of the YAML list.
-            if doc[i].is_badvalue() {
-                break;
-            } else {
-                test_cases.push(T::yaml_decode(&yaml_to_string(&doc[i])).unwrap())
-            }
+        elems.push(&yaml[p..]);
 
-            i += 1;
-        }
+        let test_cases = elems
+            .iter()
+            .map(|s| {
+                // Remove the `- ` prefix.
+                let s = &s[2..];
+                // Remove a single level of indenting.
+                s.replace("\n  ", "\n")
+            })
+            .map(|s| T::yaml_decode(&s.to_string()).unwrap())
+            .collect();
 
         Ok(Self { test_cases })
     }
