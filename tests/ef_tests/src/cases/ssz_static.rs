@@ -7,6 +7,7 @@ use ssz::Decode;
 use std::fmt::Debug;
 use tree_hash::TreeHash;
 use types::{
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
     Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
     BeaconBlockBody, BeaconBlockHeader, BeaconState, Crosslink, Deposit, DepositData, Eth1Data,
     EthSpec, Fork, Hash256, HistoricalBatch, IndexedAttestation, PendingAttestation,
@@ -90,7 +91,13 @@ impl EfTest for Cases<SszStatic> {
 
 fn ssz_static_test<T>(tc: &SszStatic) -> Result<(), Error>
 where
-    T: Decode + Debug + PartialEq<T> + serde::de::DeserializeOwned + TreeHash + CachedTreeHash,
+    T: Decode
+        + Debug
+        + PartialEq<T>
+        + serde::de::DeserializeOwned
+        + TreeHash
+        + CachedTreeHash
+        + TestRandom,
 {
     // Verify we can decode SSZ in the same way we can decode YAML.
     let ssz = hex::decode(&tc.serialized[2..])
@@ -111,6 +118,14 @@ where
     let cache = TreeHashCache::new(&decoded).unwrap();
     let cached_tree_hash_root = Hash256::from_slice(cache.tree_hash_root().unwrap());
     compare_result::<Hash256, Error>(&Ok(cached_tree_hash_root), &Some(expected_root))?;
+
+    // Verify the root after an update from a random CachedTreeHash to the decoded struct.
+    let mut rng = XorShiftRng::from_seed([42; 16]);
+    let random_instance = T::random_for_test(&mut rng);
+    let mut cache = TreeHashCache::new(&random_instance).unwrap();
+    cache.update(&decoded).unwrap();
+    let updated_root = Hash256::from_slice(cache.tree_hash_root().unwrap());
+    compare_result::<Hash256, Error>(&Ok(updated_root), &Some(expected_root))?;
 
     Ok(())
 }
