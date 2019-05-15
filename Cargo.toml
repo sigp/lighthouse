@@ -34,6 +34,3 @@ members = [
 	"validator_client",
 	"account_manager",
 ]
-
-[profile.release]
-debug = true

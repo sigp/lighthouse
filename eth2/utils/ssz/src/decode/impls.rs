@@ -57,7 +57,7 @@ impl Decode for bool {
                 _ => {
                     return Err(DecodeError::BytesInvalid(
                         format!("Out-of-range for boolean: {}", bytes[0]).to_string(),
-                    ))
+                    ));
                 }
             }
         }
@@ -156,6 +156,7 @@ macro_rules! impl_decodable_for_u8_array {
 }
 
 impl_decodable_for_u8_array!(4);
+impl_decodable_for_u8_array!(32);
 
 impl<T: Decode> Decode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {

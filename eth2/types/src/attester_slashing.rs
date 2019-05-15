@@ -7,7 +7,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Two conflicting attestations.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 #[derive(
     Debug,
     PartialEq,
