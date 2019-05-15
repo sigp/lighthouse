@@ -47,7 +47,6 @@ mod ssz_static {
     }
 
     #[test]
-    #[ignore]
     fn minimal_nil() {
         TestDoc::assert_tests_pass(ssz_generic_file("core/ssz_minimal_nil.yaml"));
     }

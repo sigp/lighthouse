@@ -21,8 +21,8 @@ pub struct Value<T> {
     value: T,
 }
 
-impl TestDecode for SszStatic {
-    fn test_decode(yaml: &String) -> Result<Self, Error> {
+impl YamlDecode for SszStatic {
+    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
         let mut ssz_static: SszStatic = serde_yaml::from_str(&yaml.as_str()).unwrap();
 
         ssz_static.raw_yaml = yaml.clone();

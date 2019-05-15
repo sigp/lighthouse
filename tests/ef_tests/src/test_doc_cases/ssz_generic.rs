@@ -10,8 +10,8 @@ pub struct SszGeneric {
     pub ssz: Option<String>,
 }
 
-impl TestDecode for SszGeneric {
-    fn test_decode(yaml: &String) -> Result<Self, Error> {
+impl YamlDecode for SszGeneric {
+    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
         Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
     }
 }
@@ -55,7 +55,7 @@ fn ssz_generic_test<T>(
     value: &Option<String>,
 ) -> Result<(), Error>
 where
-    T: Decode + TestDecode + Debug + PartialEq<T>,
+    T: Decode + YamlDecode + Debug + PartialEq<T>,
 {
     let ssz = hex::decode(&ssz[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
@@ -65,7 +65,7 @@ where
     }
 
     let expected = if let Some(string) = value {
-        Some(T::test_decode(string)?)
+        Some(T::yaml_decode(string)?)
     } else {
         None
     };
