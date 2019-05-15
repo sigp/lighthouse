@@ -1,25 +1,20 @@
 use super::*;
-use types::EthSpec;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TestCaseResult {
+pub struct CaseResult {
     pub case_index: usize,
     pub desc: String,
     pub result: Result<(), Error>,
 }
 
-impl TestCaseResult {
+impl CaseResult {
     pub fn new<T: Debug>(case_index: usize, case: &T, result: Result<(), Error>) -> Self {
-        TestCaseResult {
+        CaseResult {
             case_index,
             desc: format!("{:?}", case),
             result,
         }
     }
-}
-
-pub trait Test {
-    fn test<E: EthSpec>(&self) -> Vec<TestCaseResult>;
 }
 
 /// Compares `result` with `expected`.

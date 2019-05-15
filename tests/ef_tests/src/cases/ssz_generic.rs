@@ -16,8 +16,8 @@ impl YamlDecode for SszGeneric {
     }
 }
 
-impl Test for Cases<SszGeneric> {
-    fn test<E: EthSpec>(&self) -> Vec<TestCaseResult> {
+impl EfTest for Cases<SszGeneric> {
+    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
         self.test_cases
             .iter()
             .enumerate()
@@ -42,7 +42,7 @@ impl Test for Cases<SszGeneric> {
                     Ok(())
                 };
 
-                TestCaseResult::new(i, tc, result)
+                CaseResult::new(i, tc, result)
             })
             .collect()
     }

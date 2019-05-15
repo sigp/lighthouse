@@ -18,7 +18,7 @@ impl Doc {
         Self { yaml }
     }
 
-    pub fn get_test_results(path: PathBuf) -> Vec<TestCaseResult> {
+    pub fn get_test_results(path: PathBuf) -> Vec<CaseResult> {
         let doc = Self::from_path(path);
 
         let header: DocHeader = serde_yaml::from_str(&doc.yaml.as_str()).unwrap();
@@ -40,7 +40,7 @@ impl Doc {
     pub fn assert_tests_pass(path: PathBuf) {
         let results = Self::get_test_results(path);
 
-        let failures: Vec<&TestCaseResult> = results.iter().filter(|r| r.result.is_err()).collect();
+        let failures: Vec<&CaseResult> = results.iter().filter(|r| r.result.is_err()).collect();
 
         if !failures.is_empty() {
             for f in &failures {
@@ -52,13 +52,13 @@ impl Doc {
     }
 }
 
-pub fn run_test<T, E: EthSpec>(test_doc_yaml: &String) -> Vec<TestCaseResult>
+pub fn run_test<T, E: EthSpec>(test_doc_yaml: &String) -> Vec<CaseResult>
 where
-    Cases<T>: Test + serde::de::DeserializeOwned + YamlDecode,
+    Cases<T>: EfTest + serde::de::DeserializeOwned + YamlDecode,
 {
     let test_cases_yaml = extract_yaml_by_key(test_doc_yaml, "test_cases");
 
     let test_cases: Cases<T> = Cases::yaml_decode(&test_cases_yaml.to_string()).unwrap();
 
-    test_cases.test::<E>()
+    test_cases.test_results::<E>()
 }
