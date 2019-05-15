@@ -1,4 +1,5 @@
 use super::*;
+use crate::yaml_decode::*;
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::{EthSpec, FoundationEthSpec};
 
@@ -53,12 +54,12 @@ impl TestDoc {
 
 pub fn run_test<T, E: EthSpec>(test_doc_yaml: &String) -> Vec<TestCaseResult>
 where
-    TestDocCases<T>: Test + serde::de::DeserializeOwned + TestDecode,
+    TestDocCases<T>: Test + serde::de::DeserializeOwned + YamlDecode,
 {
     let test_cases_yaml = extract_yaml_by_key(test_doc_yaml, "test_cases");
 
     let test_cases: TestDocCases<T> =
-        TestDocCases::test_decode(&test_cases_yaml.to_string()).unwrap();
+        TestDocCases::yaml_decode(&test_cases_yaml.to_string()).unwrap();
 
     test_cases.test::<E>()
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::yaml_decode::*;
 use yaml_rust::YamlLoader;
 
 mod ssz_generic;
@@ -12,9 +13,9 @@ pub struct TestDocCases<T> {
     pub test_cases: Vec<T>,
 }
 
-impl<T: TestDecode> TestDecode for TestDocCases<T> {
+impl<T: YamlDecode> YamlDecode for TestDocCases<T> {
     /// Decodes a YAML list of test cases
-    fn test_decode(yaml: &String) -> Result<Self, Error> {
+    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
         let doc = &YamlLoader::load_from_str(yaml).unwrap()[0];
 
         let mut test_cases: Vec<T> = vec![];
@@ -24,7 +25,7 @@ impl<T: TestDecode> TestDecode for TestDocCases<T> {
             if doc[i].is_badvalue() {
                 break;
             } else {
-                test_cases.push(T::test_decode(&yaml_to_string(&doc[i])).unwrap())
+                test_cases.push(T::yaml_decode(&yaml_to_string(&doc[i])).unwrap())
             }
 
             i += 1;
