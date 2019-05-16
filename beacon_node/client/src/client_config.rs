@@ -9,8 +9,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use types::multiaddr::Protocol;
 use types::multiaddr::ToMultiaddr;
-use types::ChainSpec;
 use types::Multiaddr;
+use types::{ChainSpec, EthSpec, LighthouseTestnetEthSpec};
 
 /// Stores the client configuration for this Lighthouse instance.
 #[derive(Debug, Clone)]
@@ -35,7 +35,7 @@ impl Default for ClientConfig {
         fs::create_dir_all(&data_dir)
             .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
 
-        let default_spec = ChainSpec::lighthouse_testnet();
+        let default_spec = LighthouseTestnetEthSpec::spec();
         let default_net_conf = NetworkConfig::new(default_spec.boot_nodes.clone());
 
         Self {

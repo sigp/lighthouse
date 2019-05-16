@@ -1,9 +1,11 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{ssz_encode, Decode, DecodeError};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -47,37 +49,34 @@ impl FakeSignature {
         true
     }
 
+    /// Convert bytes to fake BLS Signature
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() != BLS_SIG_BYTE_SIZE {
+            Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BLS_SIG_BYTE_SIZE,
+            })
+        } else {
+            Ok(Self {
+                bytes: bytes.to_vec(),
+            })
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.bytes.clone()
+    }
+
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
         FakeSignature::zero()
     }
 }
 
-impl Encodable for FakeSignature {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.bytes);
-    }
-}
+impl_ssz!(FakeSignature, BLS_SIG_BYTE_SIZE, "FakeSignature");
 
-impl Decodable for FakeSignature {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_SIG_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        Ok((
-            FakeSignature {
-                bytes: bytes[i..(i + BLS_SIG_BYTE_SIZE)].to_vec(),
-            },
-            i + BLS_SIG_BYTE_SIZE,
-        ))
-    }
-}
-
-impl TreeHash for FakeSignature {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.bytes)
-    }
-}
+tree_hash_ssz_encoding_as_vector!(FakeSignature);
+cached_tree_hash_ssz_encoding_as_vector!(FakeSignature, 96);
 
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -94,7 +93,7 @@ impl<'de> Deserialize<'de> for FakeSignature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let (pubkey, _) = <_>::ssz_decode(&bytes[..], 0)
+        let pubkey = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(pubkey)
     }
@@ -113,7 +112,7 @@ mod tests {
         let original = FakeSignature::new(&[42, 42], 0, &keypair.sk);
 
         let bytes = ssz_encode(&original);
-        let (decoded, _) = FakeSignature::ssz_decode(&bytes, 0).unwrap();
+        let decoded = FakeSignature::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
     }

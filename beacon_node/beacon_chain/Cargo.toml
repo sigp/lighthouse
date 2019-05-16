@@ -5,7 +5,6 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [dependencies]
-block_proposer = { path = "../../eth2/block_proposer" }
 bls = { path = "../../eth2/utils/bls" }
 boolean-bitfield = { path = "../../eth2/utils/boolean-bitfield" }
 db = { path = "../db" }
@@ -23,4 +22,5 @@ serde_json = "1.0"
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 ssz = { path = "../../eth2/utils/ssz" }
 state_processing = { path = "../../eth2/state_processing" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path = "../../eth2/types" }

@@ -160,8 +160,11 @@ impl ValidatorStatuses {
     /// - Active validators
     /// - Total balances for the current and previous epochs.
     ///
-    /// Spec v0.5.0
-    pub fn new(state: &BeaconState, spec: &ChainSpec) -> Result<Self, BeaconStateError> {
+    /// Spec v0.5.1
+    pub fn new<T: EthSpec>(
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<Self, BeaconStateError> {
         let mut statuses = Vec::with_capacity(state.validator_registry.len());
         let mut total_balances = TotalBalances::default();
 
@@ -195,10 +198,10 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.5.0
-    pub fn process_attestations(
+    /// Spec v0.5.1
+    pub fn process_attestations<T: EthSpec>(
         &mut self,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         for a in state
@@ -243,7 +246,7 @@ impl ValidatorStatuses {
                     status.is_previous_epoch_boundary_attester = true;
                 }
 
-                if has_common_beacon_block_root(a, state, spec)? {
+                if has_common_beacon_block_root(a, state)? {
                     self.total_balances.previous_epoch_head_attesters += attesting_balance;
                     status.is_previous_epoch_head_attester = true;
                 }
@@ -261,10 +264,10 @@ impl ValidatorStatuses {
     /// Update the `statuses` for each validator based upon whether or not they attested to the
     /// "winning" shard block root for the previous epoch.
     ///
-    /// Spec v0.5.0
-    pub fn process_winning_roots(
+    /// Spec v0.5.1
+    pub fn process_winning_roots<T: EthSpec>(
         &mut self,
-        state: &BeaconState,
+        state: &BeaconState<T>,
         winning_roots: &WinningRootHashSet,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
@@ -297,14 +300,14 @@ impl ValidatorStatuses {
 /// Returns the distance between when the attestation was created and when it was included in a
 /// block.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn inclusion_distance(a: &PendingAttestation) -> Slot {
     a.inclusion_slot - a.data.slot
 }
 
 /// Returns `true` if some `PendingAttestation` is from the supplied `epoch`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool {
     a.data.slot.epoch(spec.slots_per_epoch) == epoch
 }
@@ -312,15 +315,15 @@ fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the first slot of the given epoch.
 ///
-/// Spec v0.5.0
-fn has_common_epoch_boundary_root(
+/// Spec v0.5.1
+fn has_common_epoch_boundary_root<T: EthSpec>(
     a: &PendingAttestation,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
     let slot = epoch.start_slot(spec.slots_per_epoch);
-    let state_boundary_root = *state.get_block_root(slot, spec)?;
+    let state_boundary_root = *state.get_block_root(slot)?;
 
     Ok(a.data.target_root == state_boundary_root)
 }
@@ -328,13 +331,12 @@ fn has_common_epoch_boundary_root(
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.5.0
-fn has_common_beacon_block_root(
+/// Spec v0.5.1
+fn has_common_beacon_block_root<T: EthSpec>(
     a: &PendingAttestation,
-    state: &BeaconState,
-    spec: &ChainSpec,
+    state: &BeaconState<T>,
 ) -> Result<bool, BeaconStateError> {
-    let state_block_root = *state.get_block_root(a.data.slot, spec)?;
+    let state_block_root = *state.get_block_root(a.data.slot)?;
 
     Ok(a.data.beacon_block_root == state_block_root)
 }

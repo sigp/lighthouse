@@ -3,9 +3,9 @@ use types::*;
 
 /// Returns validator indices which participated in the attestation.
 ///
-/// Spec v0.5.0
-pub fn get_attestation_participants(
-    state: &BeaconState,
+/// Spec v0.5.1
+pub fn get_attestation_participants<T: EthSpec>(
+    state: &BeaconState<T>,
     attestation_data: &AttestationData,
     bitfield: &Bitfield,
     spec: &ChainSpec,

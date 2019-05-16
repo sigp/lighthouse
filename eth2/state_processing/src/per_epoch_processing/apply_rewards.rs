@@ -32,9 +32,9 @@ impl std::ops::AddAssign for Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.5.0
-pub fn apply_rewards(
-    state: &mut BeaconState,
+/// Spec v0.5.1
+pub fn apply_rewards<T: EthSpec>(
+    state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
@@ -79,10 +79,10 @@ pub fn apply_rewards(
 /// Applies the attestation inclusion reward to each proposer for every validator who included an
 /// attestation in the previous epoch.
 ///
-/// Spec v0.5.0
-fn get_proposer_deltas(
+/// Spec v0.5.1
+fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &mut BeaconState,
+    state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
@@ -120,10 +120,10 @@ fn get_proposer_deltas(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.5.0
-fn get_justification_and_finalization_deltas(
+/// Spec v0.5.1
+fn get_justification_and_finalization_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -163,7 +163,7 @@ fn get_justification_and_finalization_deltas(
 
 /// Determine the delta for a single validator, if the chain is finalizing normally.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn compute_normal_justification_and_finalization_delta(
     validator: &ValidatorStatus,
     total_balances: &TotalBalances,
@@ -215,7 +215,7 @@ fn compute_normal_justification_and_finalization_delta(
 
 /// Determine the delta for a single delta, assuming the chain is _not_ finalizing normally.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn compute_inactivity_leak_delta(
     validator: &ValidatorStatus,
     base_reward: u64,
@@ -261,10 +261,10 @@ fn compute_inactivity_leak_delta(
 
 /// Calculate the deltas based upon the winning roots for attestations during the previous epoch.
 ///
-/// Spec v0.5.0
-fn get_crosslink_deltas(
+/// Spec v0.5.1
+fn get_crosslink_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -295,9 +295,9 @@ fn get_crosslink_deltas(
 
 /// Returns the base reward for some validator.
 ///
-/// Spec v0.5.0
-fn get_base_reward(
-    state: &BeaconState,
+/// Spec v0.5.1
+fn get_base_reward<T: EthSpec>(
+    state: &BeaconState<T>,
     index: usize,
     previous_total_balance: u64,
     spec: &ChainSpec,
@@ -312,9 +312,9 @@ fn get_base_reward(
 
 /// Returns the inactivity penalty for some validator.
 ///
-/// Spec v0.5.0
-fn get_inactivity_penalty(
-    state: &BeaconState,
+/// Spec v0.5.1
+fn get_inactivity_penalty<T: EthSpec>(
+    state: &BeaconState<T>,
     index: usize,
     epochs_since_finality: u64,
     previous_total_balance: u64,
@@ -328,7 +328,7 @@ fn get_inactivity_penalty(
 
 /// Returns the epochs since the last finalized epoch.
 ///
-/// Spec v0.5.0
-fn epochs_since_finality(state: &BeaconState, spec: &ChainSpec) -> Epoch {
+/// Spec v0.5.1
+fn epochs_since_finality<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Epoch {
     state.current_epoch(spec) + 1 - state.finalized_epoch
 }

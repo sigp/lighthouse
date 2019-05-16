@@ -1,5 +1,5 @@
 use crate::*;
-use ssz::SignedRoot;
+use tree_hash::SignedRoot;
 
 /// Builds a transfer to be used for testing purposes.
 ///

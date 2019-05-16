@@ -4,8 +4,11 @@ use types::{BeaconStateError as Error, *};
 /// Iterate through the validator registry and eject active validators with balance below
 /// ``EJECTION_BALANCE``.
 ///
-/// Spec v0.5.0
-pub fn process_ejections(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+/// Spec v0.5.1
+pub fn process_ejections<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
     // There is an awkward double (triple?) loop here because we can't loop across the borrowed
     // active validator indices and mutate state in the one loop.
     let exitable: Vec<usize> = state

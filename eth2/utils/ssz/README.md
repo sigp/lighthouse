@@ -38,8 +38,8 @@ spec is decided.*\
   + [bytes v0.4.9](#bytes-v049)
   + [ethereum-types](#ethereum-types)
 * [Interface](#interface)
-  + [Encodable](#encodable)
-  + [Decodable](#decodable)
+  + [Encode](#encodable)
+  + [Decode](#decodable)
   + [SszStream](#sszstream)
     - [new()](#new)
     - [append(&mut self, value: &E) -> &mut Self](#appendmut-self-value-e---mut-self)
@@ -299,24 +299,24 @@ Github: [ https://github.com/paritytech/primitives ](https://github.com/parityte
 
 ## Interface
 
-### Encodable
+### Encode
 
-A type is **Encodable** if it has a valid ``ssz_append`` function. This is
+A type is **Encode** if it has a valid ``ssz_append`` function. This is
 used to ensure that the object/type can be serialized.
 
 ```rust
-pub trait Encodable {
+pub trait Encode {
     fn ssz_append(&self, s: &mut SszStream);
 }
 ```
 
-### Decodable
+### Decode
 
-A type is **Decodable** if it has a valid ``ssz_decode`` function. This is
+A type is **Decode** if it has a valid ``ssz_decode`` function. This is
 used to ensure the object is deserializable.
 
 ```rust
-pub trait Decodable: Sized {
+pub trait Decode: Sized {
     fn ssz_decode(bytes: &[u8], index: usize) -> Result<(Self, usize), DecodeError>;
 }
 ```
@@ -342,7 +342,7 @@ Appends a value that can be encoded into the stream.
 
 | Parameter | Description                              |
 |:---------:|:-----------------------------------------|
-| ``value`` | Encodable value to append to the stream. |
+| ``value`` | Encode value to append to the stream. |
 
 **Example**
 
@@ -371,7 +371,7 @@ Appends some vector (list) of encodable values to the stream.
 
 | Parameter | Description                                   |
 |:---------:|:----------------------------------------------|
-|  ``vec``  | Vector of Encodable objects to be serialized. |
+|  ``vec``  | Vector of Encode objects to be serialized. |
 
 **Example**
 

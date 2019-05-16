@@ -4,7 +4,7 @@ use self::bytes::{BufMut, BytesMut};
 use super::VALIDATOR_DB_COLUMN as DB_COLUMN;
 use super::{ClientDB, DBError};
 use bls::PublicKey;
-use ssz::{decode, ssz_encode};
+use ssz::{Decode, Encode};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
@@ -55,7 +55,7 @@ impl<T: ClientDB> ValidatorStore<T> {
         public_key: &PublicKey,
     ) -> Result<(), ValidatorStoreError> {
         let key = self.get_db_key_for_index(&KeyPrefixes::PublicKey, index);
-        let val = ssz_encode(public_key);
+        let val = public_key.as_ssz_bytes();
         self.db
             .put(DB_COLUMN, &key[..], &val[..])
             .map_err(ValidatorStoreError::from)
@@ -69,7 +69,7 @@ impl<T: ClientDB> ValidatorStore<T> {
         let val = self.db.get(DB_COLUMN, &key[..])?;
         match val {
             None => Ok(None),
-            Some(val) => match decode::<PublicKey>(&val) {
+            Some(val) => match PublicKey::from_ssz_bytes(&val) {
                 Ok(key) => Ok(Some(key)),
                 Err(_) => Err(ValidatorStoreError::DecodeError),
             },
@@ -125,7 +125,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(public_key_at_index, ssz_encode(&public_key));
+        assert_eq!(public_key_at_index, public_key.as_ssz_bytes());
     }
 
     #[test]
@@ -139,7 +139,7 @@ mod tests {
         db.put(
             DB_COLUMN,
             &store.get_db_key_for_index(&KeyPrefixes::PublicKey, index)[..],
-            &ssz_encode(&public_key)[..],
+            &public_key.as_ssz_bytes(),
         )
         .unwrap();
 
@@ -157,7 +157,7 @@ mod tests {
         db.put(
             DB_COLUMN,
             &store.get_db_key_for_index(&KeyPrefixes::PublicKey, 3)[..],
-            &ssz_encode(&public_key)[..],
+            &public_key.as_ssz_bytes(),
         )
         .unwrap();
 

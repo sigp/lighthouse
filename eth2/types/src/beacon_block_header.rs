@@ -1,15 +1,16 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
-use rand::RngCore;
+
 use serde_derive::{Deserialize, Serialize};
-use ssz::TreeHash;
-use ssz_derive::{Decode, Encode, SignedRoot, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::{SignedRoot, TreeHash};
+use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// A header of a `BeaconBlock`.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(
     Debug,
     PartialEq,
@@ -19,6 +20,7 @@ use test_random_derive::TestRandom;
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     TestRandom,
     SignedRoot,
 )]
@@ -32,16 +34,16 @@ pub struct BeaconBlockHeader {
 }
 
 impl BeaconBlockHeader {
-    /// Returns the `hash_tree_root` of the header.
+    /// Returns the `tree_hash_root` of the header.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.hash_tree_root()[..])
+        Hash256::from_slice(&self.signed_root()[..])
     }
 
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn into_block(self, body: BeaconBlockBody) -> BeaconBlock {
         BeaconBlock {
             slot: self.slot,
@@ -58,4 +60,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(BeaconBlockHeader);
+    cached_tree_hash_tests!(BeaconBlockHeader);
 }

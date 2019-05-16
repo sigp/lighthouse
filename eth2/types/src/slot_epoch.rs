@@ -1,20 +1,21 @@
+//! The `Slot` and `Epoch` types are defined as newtypes over u64 to enforce type-safety between
+//! the two types.
+//!
+//! `Slot` and `Epoch` have implementations which permit conversion, comparison and math operations
+//! between each and `u64`, however specifically not between each other.
+//!
+//! All math operations on `Slot` and `Epoch` are saturating, they never wrap.
+//!
+//! It would be easy to define `PartialOrd` and other traits generically across all types which
+//! implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
+//! may lead to programming errors which are not detected by the compiler.
+
 use crate::slot_height::SlotHeight;
-/// The `Slot` and `Epoch` types are defined as newtypes over u64 to enforce type-safety between
-/// the two types.
-///
-/// `Slot` and `Epoch` have implementations which permit conversion, comparison and math operations
-/// between each and `u64`, however specifically not between each other.
-///
-/// All math operations on `Slot` and `Epoch` are saturating, they never wrap.
-///
-/// It would be easy to define `PartialOrd` and other traits generically across all types which
-/// implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
-/// may lead to programming errors which are not detected by the compiler.
 use crate::test_utils::TestRandom;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use slog;
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -144,11 +145,13 @@ mod epoch_tests {
     #[test]
     fn max_epoch_ssz() {
         let max_epoch = Epoch::max_value();
-        let mut ssz = SszStream::new();
-        ssz.append(&max_epoch);
-        let encoded = ssz.drain();
-        assert_eq!(&encoded, &[255, 255, 255, 255, 255, 255, 255, 255]);
-        let (decoded, _i): (Epoch, usize) = <_>::ssz_decode(&encoded, 0).unwrap();
-        assert_eq!(max_epoch, decoded);
+        assert_eq!(
+            &max_epoch.as_ssz_bytes(),
+            &[255, 255, 255, 255, 255, 255, 255, 255]
+        );
+        assert_eq!(
+            max_epoch,
+            Epoch::from_ssz_bytes(&max_epoch.as_ssz_bytes()).unwrap()
+        );
     }
 }

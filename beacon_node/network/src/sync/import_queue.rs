@@ -2,10 +2,10 @@ use crate::beacon_chain::BeaconChain;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::PeerId;
 use slog::{debug, error};
-use ssz::TreeHash;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256, Slot};
+use tree_hash::TreeHash;
+use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, EthSpec, Hash256, Slot};
 
 /// Provides a queue for fully and partially built `BeaconBlock`s.
 ///
@@ -15,12 +15,12 @@ use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256, Slot};
 ///
 /// - When we receive a `BeaconBlockBody`, the only way we can find it's matching
 /// `BeaconBlockHeader` is to find a header such that `header.beacon_block_body ==
-/// hash_tree_root(body)`. Therefore, if we used a `HashMap` we would need to use the root of
+/// tree_hash_root(body)`. Therefore, if we used a `HashMap` we would need to use the root of
 /// `BeaconBlockBody` as the key.
 /// - It is possible for multiple distinct blocks to have identical `BeaconBlockBodies`. Therefore
 /// we cannot use a `HashMap` keyed by the root of `BeaconBlockBody`.
-pub struct ImportQueue {
-    pub chain: Arc<BeaconChain>,
+pub struct ImportQueue<E: EthSpec> {
+    pub chain: Arc<BeaconChain<E>>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
     pub partials: Vec<PartialBeaconBlock>,
     /// Time before a queue entry is considered state.
@@ -29,9 +29,9 @@ pub struct ImportQueue {
     log: slog::Logger,
 }
 
-impl ImportQueue {
+impl<E: EthSpec> ImportQueue<E> {
     /// Return a new, empty queue.
-    pub fn new(chain: Arc<BeaconChain>, stale_time: Duration, log: slog::Logger) -> Self {
+    pub fn new(chain: Arc<BeaconChain<E>>, stale_time: Duration, log: slog::Logger) -> Self {
         Self {
             chain,
             partials: vec![],
@@ -166,7 +166,7 @@ impl ImportQueue {
         let mut required_bodies: Vec<Hash256> = vec![];
 
         for header in headers {
-            let block_root = Hash256::from_slice(&header.hash_tree_root()[..]);
+            let block_root = Hash256::from_slice(&header.tree_hash_root()[..]);
 
             if self.chain_has_not_seen_block(&block_root) {
                 self.insert_header(block_root, header, sender.clone());
@@ -230,7 +230,7 @@ impl ImportQueue {
     ///
     /// If the body already existed, the `inserted` time is set to `now`.
     fn insert_body(&mut self, body: BeaconBlockBody, sender: PeerId) {
-        let body_root = Hash256::from_slice(&body.hash_tree_root()[..]);
+        let body_root = Hash256::from_slice(&body.tree_hash_root()[..]);
 
         self.partials.iter_mut().for_each(|mut p| {
             if let Some(header) = &mut p.header {
@@ -250,7 +250,7 @@ impl ImportQueue {
     ///
     /// If the partial already existed, the `inserted` time is set to `now`.
     fn insert_full_block(&mut self, block: BeaconBlock, sender: PeerId) {
-        let block_root = Hash256::from_slice(&block.hash_tree_root()[..]);
+        let block_root = Hash256::from_slice(&block.tree_hash_root()[..]);
 
         let partial = PartialBeaconBlock {
             slot: block.slot,

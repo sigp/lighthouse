@@ -1,10 +1,12 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
 use bls_aggregates::Signature as RawSignature;
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{decode, hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{ssz_encode, Decode, DecodeError};
+use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -81,8 +83,11 @@ impl Signature {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         for byte in bytes {
             if *byte != 0 {
-                let raw_signature =
-                    RawSignature::from_bytes(&bytes).map_err(|_| DecodeError::Invalid)?;
+                let raw_signature = RawSignature::from_bytes(&bytes).map_err(|_| {
+                    DecodeError::BytesInvalid(
+                        format!("Invalid Signature bytes: {:?}", bytes).to_string(),
+                    )
+                })?;
                 return Ok(Signature {
                     signature: raw_signature,
                     is_empty: false,
@@ -98,27 +103,10 @@ impl Signature {
     }
 }
 
-impl Encodable for Signature {
-    fn ssz_append(&self, s: &mut SszStream) {
-        s.append_encoded_raw(&self.as_bytes());
-    }
-}
+impl_ssz!(Signature, BLS_SIG_BYTE_SIZE, "Signature");
 
-impl Decodable for Signature {
-    fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-        if bytes.len() - i < BLS_SIG_BYTE_SIZE {
-            return Err(DecodeError::TooShort);
-        }
-        let signature = Signature::from_bytes(&bytes[i..(i + BLS_SIG_BYTE_SIZE)])?;
-        Ok((signature, i + BLS_SIG_BYTE_SIZE))
-    }
-}
-
-impl TreeHash for Signature {
-    fn hash_tree_root(&self) -> Vec<u8> {
-        hash(&self.as_bytes())
-    }
-}
+tree_hash_ssz_encoding_as_vector!(Signature);
+cached_tree_hash_ssz_encoding_as_vector!(Signature, 96);
 
 impl Serialize for Signature {
     /// Serde serialization is compliant the Ethereum YAML test format.
@@ -137,7 +125,7 @@ impl<'de> Deserialize<'de> for Signature {
         D: Deserializer<'de>,
     {
         let bytes = deserializer.deserialize_str(HexVisitor)?;
-        let signature = decode(&bytes[..])
+        let signature = Self::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(signature)
     }
@@ -148,6 +136,7 @@ mod tests {
     use super::super::Keypair;
     use super::*;
     use ssz::ssz_encode;
+    use tree_hash::TreeHash;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -156,9 +145,31 @@ mod tests {
         let original = Signature::new(&[42, 42], 0, &keypair.sk);
 
         let bytes = ssz_encode(&original);
-        let decoded = decode::<Signature>(&bytes).unwrap();
+        let decoded = Signature::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    pub fn test_cached_tree_hash() {
+        let keypair = Keypair::random();
+        let original = Signature::new(&[42, 42], 0, &keypair.sk);
+
+        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
+
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            original.tree_hash_root()
+        );
+
+        let modified = Signature::new(&[99, 99], 0, &keypair.sk);
+
+        cache.update(&modified).unwrap();
+
+        assert_eq!(
+            cache.tree_hash_root().unwrap().to_vec(),
+            modified.tree_hash_root()
+        );
     }
 
     #[test]

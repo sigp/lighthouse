@@ -1,16 +1,29 @@
-use super::{DepositData, Hash256};
 use crate::test_utils::TestRandom;
-use rand::RngCore;
+use crate::*;
+use fixed_len_vec::typenum::U32;
+
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode, TreeHash};
+use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// A deposit to potentially become a beacon chain validator.
 ///
-/// Spec v0.5.0
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+/// Spec v0.5.1
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    CachedTreeHash,
+    TestRandom,
+)]
 pub struct Deposit {
-    pub proof: Vec<Hash256>,
+    pub proof: FixedLenVec<Hash256, U32>,
     pub index: u64,
     pub deposit_data: DepositData,
 }
@@ -20,4 +33,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(Deposit);
+    cached_tree_hash_tests!(Deposit);
 }
