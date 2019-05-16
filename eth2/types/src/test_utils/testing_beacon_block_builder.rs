@@ -23,6 +23,11 @@ impl TestingBeaconBlockBuilder {
         }
     }
 
+    /// Set the previous block root
+    pub fn set_previous_block_root(&mut self, root: Hash256) {
+        self.block.previous_block_root = root;
+    }
+
     /// Set the slot of the block.
     pub fn set_slot(&mut self, slot: Slot) {
         self.block.slot = slot;
