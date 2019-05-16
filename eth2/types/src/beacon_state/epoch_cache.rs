@@ -33,8 +33,6 @@ impl EpochCache {
     pub fn initialized<T: EthSpec>(
         state: &BeaconState<T>,
         epoch: Epoch,
-        seed: Hash256,
-        epoch_start_shard: u64,
         spec: &ChainSpec,
     ) -> Result<EpochCache, BeaconStateError> {
         if epoch != state.previous_epoch() && epoch != state.current_epoch() {
@@ -92,11 +90,7 @@ impl EpochCache {
 
     /// Return `Some(CrosslinkCommittee)` if the given shard has a committee during the given
     /// `epoch`.
-    pub fn get_crosslink_committee_for_shard(
-        &self,
-        shard: Shard,
-        spec: &ChainSpec,
-    ) -> Option<&CrosslinkCommittee> {
+    pub fn get_crosslink_committee_for_shard(&self, shard: Shard) -> Option<&CrosslinkCommittee> {
         if shard > self.shard_crosslink_committees.len() as u64 {
             None
         } else {

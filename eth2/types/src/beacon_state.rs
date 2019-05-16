@@ -331,17 +331,14 @@ impl<T: EthSpec> BeaconState<T> {
             + offset / (committee_count / spec.slots_per_epoch))
     }
 
-    // FIXME(sproul): get_cached_current_active_validator_indices
-    /*
-    pub fn get_cached_active_validator_indices(
-        &self,
-        spec: &ChainSpec,
-    ) -> Result<&[usize], Error> {
-        let cache = self.cache(relative_epoch, spec)?;
+    /// Return the cached active validator indices at some epoch.
+    ///
+    /// Returns an error if that epoch is not cached, or the cache is not initialized.
+    pub fn get_cached_active_validator_indices(&self, epoch: Epoch) -> Result<&[usize], Error> {
+        let cache = self.cache(epoch)?;
 
         Ok(&cache.active_validator_indices)
     }
-    */
 
     /// Returns the active validator indices for the given epoch.
     ///
@@ -359,8 +356,8 @@ impl<T: EthSpec> BeaconState<T> {
     /// Spec v0.5.1
     pub fn get_crosslink_committees_at_slot(
         &self,
-        slot: Slot,
-        spec: &ChainSpec,
+        _slot: Slot,
+        _spec: &ChainSpec,
     ) -> Result<&Vec<CrosslinkCommittee>, Error> {
         unimplemented!("FIXME(sproul)")
     }
@@ -385,7 +382,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
     ///
     /// Spec v0.5.1
-    pub fn get_beacon_proposer_index(&self, spec: &ChainSpec) -> Result<usize, Error> {
+    pub fn get_beacon_proposer_index(&self, _spec: &ChainSpec) -> Result<usize, Error> {
         unimplemented!("FIXME(sproul)")
         /*
         let cache = self.cache(relative_epoch, spec)?;
@@ -474,12 +471,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// See `Self::get_randao_mix`.
     ///
     /// Spec v0.5.1
-    pub fn update_randao_mix(
-        &mut self,
-        epoch: Epoch,
-        signature: &Signature,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
+    pub fn update_randao_mix(&mut self, epoch: Epoch, signature: &Signature) -> Result<(), Error> {
         let i = epoch.as_usize() % T::LatestRandaoMixesLength::to_usize();
 
         let signature_hash = Hash256::from_slice(&hash(&ssz_encode(signature)));
@@ -618,7 +610,6 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_matching_source_attestations(
         &self,
         epoch: Epoch,
-        spec: &ChainSpec,
     ) -> Result<&[PendingAttestation], Error> {
         if epoch == self.current_epoch() {
             Ok(&self.current_epoch_attestations)
@@ -692,7 +683,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
-            self.cache(self.current_epoch(), spec)?
+            self.cache(self.current_epoch())?
                 .active_validator_indices
                 .len() as u64
                 / spec.churn_limit_quotient,
@@ -710,9 +701,8 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_attestation_duties(
         &self,
         validator_index: usize,
-        spec: &ChainSpec,
     ) -> Result<&Option<AttestationDuty>, Error> {
-        let cache = self.cache(self.current_epoch(), spec)?;
+        let cache = self.cache(self.current_epoch())?;
 
         Ok(cache
             .attestation_duties
@@ -770,13 +760,8 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<(), Error> {
         let epoch = relative_epoch.into_epoch(self.current_epoch());
 
-        self.epoch_caches[Self::cache_index(relative_epoch)] = EpochCache::initialized(
-            &self,
-            epoch,
-            self.generate_seed(epoch, spec)?,
-            self.get_epoch_start_shard(epoch, spec)?,
-            spec,
-        )?;
+        self.epoch_caches[Self::cache_index(relative_epoch)] =
+            EpochCache::initialized(&self, epoch, spec)?;
         Ok(())
     }
 
@@ -785,9 +770,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
     ///
     /// Note: whilst this function will preserve already-built caches, it will not build any.
-    pub fn advance_caches(&mut self, spec: &ChainSpec) {
-        let previous = Self::cache_index(RelativeEpoch::Previous);
-        let current = Self::cache_index(RelativeEpoch::Previous);
+    pub fn advance_caches(&mut self) {
         let next = Self::cache_index(RelativeEpoch::Previous);
 
         let caches = &mut self.epoch_caches[..];
@@ -805,9 +788,9 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
-    fn cache(&self, epoch: Epoch, spec: &ChainSpec) -> Result<&EpochCache, Error> {
+    fn cache(&self, epoch: Epoch) -> Result<&EpochCache, Error> {
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)
-            .map_err(|e| Error::EpochOutOfBounds)?;
+            .map_err(|_| Error::EpochOutOfBounds)?;
 
         let cache = &self.epoch_caches[Self::cache_index(relative_epoch)];
 
