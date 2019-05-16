@@ -14,6 +14,20 @@ pub trait EthSpec:
 
     fn spec() -> ChainSpec;
 
+    /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
+    ///
+    /// Spec v0.6.1
+    fn slots_per_epoch() -> u64 {
+        Self::spec().slots_per_epoch
+    }
+
+    /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
+    ///
+    /// Spec v0.6.1
+    fn genesis_epoch() -> Epoch {
+        Self::spec().genesis_epoch
+    }
+
     /// Returns the `SHARD_COUNT` constant for this specification.
     ///
     /// Spec v0.5.1

@@ -16,8 +16,8 @@ impl TestingAttestationDataBuilder {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Self {
-        let current_epoch = state.current_epoch(spec);
-        let previous_epoch = state.previous_epoch(spec);
+        let current_epoch = state.current_epoch();
+        let previous_epoch = state.previous_epoch();
 
         let is_previous_epoch =
             state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
@@ -29,9 +29,9 @@ impl TestingAttestationDataBuilder {
         };
 
         let target_epoch = if is_previous_epoch {
-            state.previous_epoch(spec)
+            state.previous_epoch()
         } else {
-            state.current_epoch(spec)
+            state.current_epoch()
         };
 
         let target_root = if is_previous_epoch {
