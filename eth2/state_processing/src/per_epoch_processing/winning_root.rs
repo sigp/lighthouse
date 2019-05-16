@@ -16,7 +16,7 @@ impl WinningRoot {
     /// A winning root is "better" than another if it has a higher `total_attesting_balance`. Ties
     /// are broken by favouring the higher `crosslink_data_root` value.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn is_better_than(&self, other: &Self) -> bool {
         if self.total_attesting_balance > other.total_attesting_balance {
             true
@@ -34,9 +34,9 @@ impl WinningRoot {
 /// The `WinningRoot` object also contains additional fields that are useful in later stages of
 /// per-epoch processing.
 ///
-/// Spec v0.5.0
-pub fn winning_root(
-    state: &BeaconState,
+/// Spec v0.5.1
+pub fn winning_root<T: EthSpec>(
+    state: &BeaconState<T>,
     shard: u64,
     spec: &ChainSpec,
 ) -> Result<Option<WinningRoot>, BeaconStateError> {
@@ -89,8 +89,12 @@ pub fn winning_root(
 
 /// Returns `true` if pending attestation `a` is eligible to become a winning root.
 ///
-/// Spec v0.5.0
-fn is_eligible_for_winning_root(state: &BeaconState, a: &PendingAttestation, shard: Shard) -> bool {
+/// Spec v0.5.1
+fn is_eligible_for_winning_root<T: EthSpec>(
+    state: &BeaconState<T>,
+    a: &PendingAttestation,
+    shard: Shard,
+) -> bool {
     if shard >= state.latest_crosslinks.len() as u64 {
         return false;
     }
@@ -100,9 +104,9 @@ fn is_eligible_for_winning_root(state: &BeaconState, a: &PendingAttestation, sha
 
 /// Returns all indices which voted for a given crosslink. Does not contain duplicates.
 ///
-/// Spec v0.5.0
-fn get_attesting_validator_indices(
-    state: &BeaconState,
+/// Spec v0.5.1
+fn get_attesting_validator_indices<T: EthSpec>(
+    state: &BeaconState<T>,
     shard: u64,
     crosslink_data_root: &Hash256,
     spec: &ChainSpec,

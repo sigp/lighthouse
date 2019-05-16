@@ -1,4 +1,7 @@
 language: rust
+cache:
+  directories:
+    - /home/travis/.cargo
 before_install:
   - curl -OL https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-linux-x86_64.zip
   - unzip protoc-3.4.0-linux-x86_64.zip -d protoc3
@@ -7,15 +10,8 @@ before_install:
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
 script:
-  - cargo build --verbose --all
-  - cargo build --verbose --release --all
-  - cargo test --verbose --all
-  - cargo test --verbose --release --all
-  - cargo fmt --all -- --check
-  # No clippy until later...
-  #- cargo clippy
+  - cargo build --verbose --all --release
 rust:
-  - stable
   - beta
   - nightly
 matrix:
@@ -24,4 +20,3 @@ matrix:
   fast_finish: true
 install:
   - rustup component add rustfmt
-  - rustup component add clippy

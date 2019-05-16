@@ -8,7 +8,7 @@ const GWEI: u64 = 1_000_000_000;
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub enum Domain {
     BeaconBlock,
     Randao,
@@ -20,7 +20,7 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 #[derive(PartialEq, Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -70,16 +70,8 @@ pub struct ChainSpec {
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
     pub epochs_per_eth1_voting_period: u64,
-    pub slots_per_historical_root: usize,
     pub min_validator_withdrawability_delay: Epoch,
     pub persistent_committee_period: u64,
-
-    /*
-     * State list lengths
-     */
-    pub latest_randao_mixes_length: usize,
-    pub latest_active_index_roots_length: usize,
-    pub latest_slashed_exit_length: usize,
 
     /*
      * Reward and penalty quotients
@@ -126,7 +118,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Return the number of committees in one epoch.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
         std::cmp::max(
             1,
@@ -139,7 +131,7 @@ impl ChainSpec {
 
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.5.0
+    /// Spec v0.5.1
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = match domain {
             Domain::BeaconBlock => self.domain_beacon_block,
@@ -161,8 +153,8 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.5.0
-    pub fn foundation() -> Self {
+    /// Spec v0.5.1
+    pub(crate) fn foundation() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 64;
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
@@ -213,16 +205,8 @@ impl ChainSpec {
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             epochs_per_eth1_voting_period: 16,
-            slots_per_historical_root: 8_192,
             min_validator_withdrawability_delay: Epoch::new(256),
             persistent_committee_period: 2_048,
-
-            /*
-             * State list lengths
-             */
-            latest_randao_mixes_length: 8_192,
-            latest_active_index_roots_length: 8_192,
-            latest_slashed_exit_length: 8_192,
 
             /*
              * Reward and penalty quotients
@@ -264,7 +248,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
     ///
     /// Spec v0.4.0
-    pub fn lighthouse_testnet() -> Self {
+    pub(crate) fn lighthouse_testnet() -> Self {
         /*
          * Lighthouse testnet bootnodes
          */
@@ -280,7 +264,7 @@ impl ChainSpec {
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    pub fn few_validators() -> Self {
+    pub(crate) fn few_validators() -> Self {
         let genesis_slot = Slot::new(2_u64.pow(32));
         let slots_per_epoch = 8;
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);

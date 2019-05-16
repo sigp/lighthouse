@@ -1,16 +1,30 @@
 extern crate bls_aggregates;
 extern crate ssz;
 
+#[macro_use]
+mod macros;
 mod aggregate_public_key;
 mod keypair;
 mod public_key;
 mod secret_key;
 
+#[cfg(not(feature = "fake_crypto"))]
 mod aggregate_signature;
+#[cfg(not(feature = "fake_crypto"))]
 mod signature;
+#[cfg(not(feature = "fake_crypto"))]
 pub use crate::aggregate_signature::AggregateSignature;
+#[cfg(not(feature = "fake_crypto"))]
 pub use crate::signature::Signature;
 
+#[cfg(feature = "fake_crypto")]
+mod fake_aggregate_signature;
+#[cfg(feature = "fake_crypto")]
+mod fake_signature;
+#[cfg(feature = "fake_crypto")]
+pub use crate::fake_aggregate_signature::FakeAggregateSignature as AggregateSignature;
+#[cfg(feature = "fake_crypto")]
+pub use crate::fake_signature::FakeSignature as Signature;
 
 pub use crate::aggregate_public_key::AggregatePublicKey;
 pub use crate::keypair::Keypair;

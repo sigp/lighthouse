@@ -1,5 +1,5 @@
 use super::errors::{ExitInvalid as Invalid, ExitValidationError as Error};
-use ssz::SignedRoot;
+use tree_hash::SignedRoot;
 use types::*;
 
 /// Indicates if an `Exit` is valid to be included in a block in the current epoch of the given
@@ -7,9 +7,9 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
-pub fn verify_exit(
-    state: &BeaconState,
+/// Spec v0.5.1
+pub fn verify_exit<T: EthSpec>(
+    state: &BeaconState<T>,
     exit: &VoluntaryExit,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -17,8 +17,8 @@ pub fn verify_exit(
 }
 
 /// Like `verify_exit` but doesn't run checks which may become true in future states.
-pub fn verify_exit_time_independent_only(
-    state: &BeaconState,
+pub fn verify_exit_time_independent_only<T: EthSpec>(
+    state: &BeaconState<T>,
     exit: &VoluntaryExit,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -26,8 +26,8 @@ pub fn verify_exit_time_independent_only(
 }
 
 /// Parametric version of `verify_exit` that skips some checks if `time_independent_only` is true.
-fn verify_exit_parametric(
-    state: &BeaconState,
+fn verify_exit_parametric<T: EthSpec>(
+    state: &BeaconState<T>,
     exit: &VoluntaryExit,
     spec: &ChainSpec,
     time_independent_only: bool,

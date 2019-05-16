@@ -6,8 +6,8 @@ pub use self::beacon_node_block::{BeaconNodeError, PublishOutcome};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
 use slog::{error, info, warn};
-use ssz::{SignedRoot, TreeHash};
 use std::sync::Arc;
+use tree_hash::{SignedRoot, TreeHash};
 use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
 
 #[derive(Debug, PartialEq)]
@@ -86,7 +86,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     pub fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
         let epoch = self.slot.epoch(self.spec.slots_per_epoch);
 
-        let message = epoch.hash_tree_root();
+        let message = epoch.tree_hash_root();
         let randao_reveal = match self.signer.sign_message(
             &message,
             self.spec.get_domain(epoch, Domain::Randao, &self.fork),

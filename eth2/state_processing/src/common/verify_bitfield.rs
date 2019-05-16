@@ -4,7 +4,7 @@ use types::*;
 ///
 /// Is title `verify_bitfield` in spec.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 pub fn verify_bitfield_length(bitfield: &Bitfield, committee_size: usize) -> bool {
     if bitfield.num_bytes() != ((committee_size + 7) / 8) {
         return false;
@@ -17,4 +17,63 @@ pub fn verify_bitfield_length(bitfield: &Bitfield, committee_size: usize) -> boo
     }
 
     true
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn bitfield_length() {
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0000_0001]), 4),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0001_0001]), 4),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0000_0000]), 4),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b1000_0000]), 8),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b1000_0000, 0b0000_0000]), 16),
+            true
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b1000_0000, 0b0000_0000]), 15),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(&Bitfield::from_bytes(&[0b0000_0000, 0b0000_0000]), 8),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(
+                &Bitfield::from_bytes(&[0b0000_0000, 0b0000_0000, 0b0000_0000]),
+                8
+            ),
+            false
+        );
+
+        assert_eq!(
+            verify_bitfield_length(
+                &Bitfield::from_bytes(&[0b0000_0000, 0b0000_0000, 0b0000_0000]),
+                24
+            ),
+            true
+        );
+    }
 }

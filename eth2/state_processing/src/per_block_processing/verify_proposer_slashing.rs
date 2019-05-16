@@ -1,5 +1,5 @@
 use super::errors::{ProposerSlashingInvalid as Invalid, ProposerSlashingValidationError as Error};
-use ssz::SignedRoot;
+use tree_hash::SignedRoot;
 use types::*;
 
 /// Indicates if a `ProposerSlashing` is valid to be included in a block in the current epoch of the given
@@ -7,10 +7,10 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
-pub fn verify_proposer_slashing(
+/// Spec v0.5.1
+pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let proposer = state
@@ -21,8 +21,9 @@ pub fn verify_proposer_slashing(
         })?;
 
     verify!(
-        proposer_slashing.header_1.slot == proposer_slashing.header_2.slot,
-        Invalid::ProposalSlotMismatch(
+        proposer_slashing.header_1.slot.epoch(spec.slots_per_epoch)
+            == proposer_slashing.header_2.slot.epoch(spec.slots_per_epoch),
+        Invalid::ProposalEpochMismatch(
             proposer_slashing.header_1.slot,
             proposer_slashing.header_2.slot
         )
@@ -66,7 +67,7 @@ pub fn verify_proposer_slashing(
 ///
 /// Returns `true` if the signature is valid.
 ///
-/// Spec v0.5.0
+/// Spec v0.5.1
 fn verify_header_signature(
     header: &BeaconBlockHeader,
     pubkey: &PublicKey,

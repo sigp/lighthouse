@@ -5,19 +5,20 @@ use db::{
 };
 use fork_choice::BitwiseLMDGhost;
 use slot_clock::TestingSlotClock;
-use ssz::TreeHash;
 use std::sync::Arc;
-use types::test_utils::TestingBeaconStateBuilder;
+use tree_hash::TreeHash;
 use types::*;
+use types::{test_utils::TestingBeaconStateBuilder, EthSpec, FewValidatorsEthSpec};
 
-type TestingBeaconChain = BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB>>;
+type TestingBeaconChain<E> =
+    BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>, E>;
 
-pub struct TestingBeaconChainBuilder {
-    state_builder: TestingBeaconStateBuilder,
+pub struct TestingBeaconChainBuilder<E: EthSpec> {
+    state_builder: TestingBeaconStateBuilder<E>,
 }
 
-impl TestingBeaconChainBuilder {
-    pub fn build(self, spec: &ChainSpec) -> TestingBeaconChain {
+impl<E: EthSpec> TestingBeaconChainBuilder<E> {
+    pub fn build(self, spec: &ChainSpec) -> TestingBeaconChain<E> {
         let db = Arc::new(MemoryDB::open());
         let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
         let state_store = Arc::new(BeaconStateStore::new(db.clone()));
@@ -27,7 +28,7 @@ impl TestingBeaconChainBuilder {
         let (genesis_state, _keypairs) = self.state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
-        genesis_block.state_root = Hash256::from_slice(&genesis_state.hash_tree_root());
+        genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
         // Create the Beacon Chain
         BeaconChain::from_genesis(
@@ -43,8 +44,8 @@ impl TestingBeaconChainBuilder {
     }
 }
 
-impl From<TestingBeaconStateBuilder> for TestingBeaconChainBuilder {
-    fn from(state_builder: TestingBeaconStateBuilder) -> TestingBeaconChainBuilder {
+impl<E: EthSpec> From<TestingBeaconStateBuilder<E>> for TestingBeaconChainBuilder<E> {
+    fn from(state_builder: TestingBeaconStateBuilder<E>) -> TestingBeaconChainBuilder<E> {
         TestingBeaconChainBuilder { state_builder }
     }
 }

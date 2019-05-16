@@ -7,9 +7,9 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
-pub fn verify_attester_slashing(
-    state: &BeaconState,
+/// Spec v0.5.1
+pub fn verify_attester_slashing<T: EthSpec>(
+    state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing,
     should_verify_slashable_attestations: bool,
     spec: &ChainSpec,
@@ -41,9 +41,9 @@ pub fn verify_attester_slashing(
 ///
 /// Returns Ok(indices) if `indices.len() > 0`.
 ///
-/// Spec v0.5.0
-pub fn gather_attester_slashing_indices(
-    state: &BeaconState,
+/// Spec v0.5.1
+pub fn gather_attester_slashing_indices<T: EthSpec>(
+    state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing,
     spec: &ChainSpec,
 ) -> Result<Vec<u64>, Error> {
@@ -57,8 +57,8 @@ pub fn gather_attester_slashing_indices(
 
 /// Same as `gather_attester_slashing_indices` but allows the caller to specify the criteria
 /// for determining whether a given validator should be considered slashed.
-pub fn gather_attester_slashing_indices_modular<F>(
-    state: &BeaconState,
+pub fn gather_attester_slashing_indices_modular<F, T: EthSpec>(
+    state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing,
     is_slashed: F,
     spec: &ChainSpec,

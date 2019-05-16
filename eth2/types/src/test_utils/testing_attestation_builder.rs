@@ -1,6 +1,6 @@
 use crate::test_utils::TestingAttestationDataBuilder;
 use crate::*;
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 
 /// Builds an attestation to be used for testing purposes.
 ///
@@ -12,8 +12,8 @@ pub struct TestingAttestationBuilder {
 
 impl TestingAttestationBuilder {
     /// Create a new attestation builder.
-    pub fn new(
-        state: &BeaconState,
+    pub fn new<T: EthSpec>(
+        state: &BeaconState<T>,
         committee: &[usize],
         slot: Slot,
         shard: u64,
@@ -74,7 +74,7 @@ impl TestingAttestationBuilder {
                 data: self.attestation.data.clone(),
                 custody_bit: false,
             }
-            .hash_tree_root();
+            .tree_hash_root();
 
             let domain = spec.get_domain(
                 self.attestation.data.slot.epoch(spec.slots_per_epoch),

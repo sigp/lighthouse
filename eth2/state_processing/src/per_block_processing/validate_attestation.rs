@@ -1,6 +1,6 @@
 use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
 use crate::common::verify_bitfield_length;
-use ssz::TreeHash;
+use tree_hash::TreeHash;
 use types::*;
 
 /// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
@@ -8,9 +8,9 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
-pub fn validate_attestation(
-    state: &BeaconState,
+/// Spec v0.5.1
+pub fn validate_attestation<T: EthSpec>(
+    state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -18,8 +18,8 @@ pub fn validate_attestation(
 }
 
 /// Like `validate_attestation` but doesn't run checks which may become true in future states.
-pub fn validate_attestation_time_independent_only(
-    state: &BeaconState,
+pub fn validate_attestation_time_independent_only<T: EthSpec>(
+    state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -31,9 +31,9 @@ pub fn validate_attestation_time_independent_only(
 ///
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.0
-pub fn validate_attestation_without_signature(
-    state: &BeaconState,
+/// Spec v0.5.1
+pub fn validate_attestation_without_signature<T: EthSpec>(
+    state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -44,9 +44,9 @@ pub fn validate_attestation_without_signature(
 /// given state, optionally validating the aggregate signature.
 ///
 ///
-/// Spec v0.5.0
-fn validate_attestation_parametric(
-    state: &BeaconState,
+/// Spec v0.5.1
+fn validate_attestation_parametric<T: EthSpec>(
+    state: &BeaconState<T>,
     attestation: &Attestation,
     spec: &ChainSpec,
     verify_signature: bool,
@@ -167,10 +167,10 @@ fn validate_attestation_parametric(
 /// Verify that the `source_epoch` and `source_root` of an `Attestation` correctly
 /// match the current (or previous) justified epoch and root from the state.
 ///
-/// Spec v0.5.0
-fn verify_justified_epoch_and_root(
+/// Spec v0.5.1
+fn verify_justified_epoch_and_root<T: EthSpec>(
     attestation: &Attestation,
-    state: &BeaconState,
+    state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let state_epoch = state.slot.epoch(spec.slots_per_epoch);
@@ -222,9 +222,9 @@ fn verify_justified_epoch_and_root(
 ///  - `custody_bitfield` does not have a bit for each index of `committee`.
 ///  - A `validator_index` in `committee` is not in `state.validator_registry`.
 ///
-/// Spec v0.5.0
-fn verify_attestation_signature(
-    state: &BeaconState,
+/// Spec v0.5.1
+fn verify_attestation_signature<T: EthSpec>(
+    state: &BeaconState<T>,
     committee: &[usize],
     a: &Attestation,
     spec: &ChainSpec,
@@ -270,14 +270,14 @@ fn verify_attestation_signature(
         data: a.data.clone(),
         custody_bit: false,
     }
-    .hash_tree_root();
+    .tree_hash_root();
 
     // Message when custody bitfield is `true`
     let message_1 = AttestationDataAndCustodyBit {
         data: a.data.clone(),
         custody_bit: true,
     }
-    .hash_tree_root();
+    .tree_hash_root();
 
     let mut messages = vec![];
     let mut keys = vec![];

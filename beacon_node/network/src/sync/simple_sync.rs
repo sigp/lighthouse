@@ -5,11 +5,11 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, warn};
-use ssz::TreeHash;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{Attestation, BeaconBlock, Epoch, Hash256, Slot};
+use tree_hash::TreeHash;
+use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
@@ -88,8 +88,8 @@ impl From<HelloMessage> for PeerSyncInfo {
     }
 }
 
-impl From<&Arc<BeaconChain>> for PeerSyncInfo {
-    fn from(chain: &Arc<BeaconChain>) -> PeerSyncInfo {
+impl<E: EthSpec> From<&Arc<BeaconChain<E>>> for PeerSyncInfo {
+    fn from(chain: &Arc<BeaconChain<E>>) -> PeerSyncInfo {
         Self::from(chain.hello_message())
     }
 }
@@ -103,22 +103,22 @@ pub enum SyncState {
 }
 
 /// Simple Syncing protocol.
-pub struct SimpleSync {
+pub struct SimpleSync<E: EthSpec> {
     /// A reference to the underlying beacon chain.
-    chain: Arc<BeaconChain>,
+    chain: Arc<BeaconChain<E>>,
     /// A mapping of Peers to their respective PeerSyncInfo.
     known_peers: HashMap<PeerId, PeerSyncInfo>,
     /// A queue to allow importing of blocks
-    import_queue: ImportQueue,
+    import_queue: ImportQueue<E>,
     /// The current state of the syncing protocol.
     state: SyncState,
     /// Sync logger.
     log: slog::Logger,
 }
 
-impl SimpleSync {
+impl<E: EthSpec> SimpleSync<E> {
     /// Instantiate a `SimpleSync` instance, with no peers and an empty queue.
-    pub fn new(beacon_chain: Arc<BeaconChain>, log: &slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<E>>, log: &slog::Logger) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));
 
         let queue_item_stale_time = Duration::from_secs(QUEUE_STALE_SECS);
@@ -565,7 +565,7 @@ impl SimpleSync {
             return false;
         }
 
-        let block_root = Hash256::from_slice(&block.hash_tree_root());
+        let block_root = Hash256::from_slice(&block.tree_hash_root());
 
         // Ignore any block that the chain already knows about.
         if self.chain_has_seen_block(&block_root) {

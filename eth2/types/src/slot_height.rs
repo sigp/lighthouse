@@ -1,8 +1,9 @@
 use crate::slot_epoch::{Epoch, Slot};
 use crate::test_utils::TestRandom;
+
 use rand::RngCore;
 use serde_derive::Serialize;
-use ssz::{hash, ssz_encode, Decodable, DecodeError, Encodable, SszStream, TreeHash};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
 use std::hash::{Hash, Hasher};
