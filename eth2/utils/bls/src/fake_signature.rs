@@ -14,6 +14,7 @@ use tree_hash::tree_hash_ssz_encoding_as_vector;
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct FakeSignature {
     bytes: Vec<u8>,
+    is_empty: bool,
 }
 
 impl FakeSignature {
@@ -26,6 +27,7 @@ impl FakeSignature {
     pub fn zero() -> Self {
         Self {
             bytes: vec![0; BLS_SIG_BYTE_SIZE],
+            is_empty: true,
         }
     }
 
@@ -59,6 +61,7 @@ impl FakeSignature {
         } else {
             Ok(Self {
                 bytes: bytes.to_vec(),
+                is_empty: false,
             })
         }
     }
@@ -70,6 +73,11 @@ impl FakeSignature {
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
         FakeSignature::zero()
+    }
+
+    // Check for empty Signature
+    pub fn is_empty(&self) -> bool {
+        self.is_empty
     }
 }
 

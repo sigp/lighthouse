@@ -1,14 +1,15 @@
 use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::*;
+use tree_hash::SignedRoot;
 
-pub struct BlockProcessingBuilder {
-    pub state_builder: TestingBeaconStateBuilder,
+pub struct BlockProcessingBuilder<T: EthSpec> {
+    pub state_builder: TestingBeaconStateBuilder<T>,
     pub block_builder: TestingBeaconBlockBuilder,
 
     pub num_validators: usize,
 }
 
-impl BlockProcessingBuilder {
+impl<T: EthSpec> BlockProcessingBuilder<T> {
     pub fn new(num_validators: usize, spec: &ChainSpec) -> Self {
         let state_builder =
             TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, &spec);
@@ -30,11 +31,16 @@ impl BlockProcessingBuilder {
         self.state_builder.build_caches(&spec).unwrap();
     }
 
-    pub fn build(mut self, randao_sk: Option<SecretKey>, spec: &ChainSpec) -> (BeaconBlock, BeaconState) {
+    pub fn build(mut self, randao_sk: Option<SecretKey>, previous_block_root: Option<Hash256>, spec: &ChainSpec) -> (BeaconBlock, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
         builder.set_slot(state.slot);
+
+        match previous_block_root {
+            Some(root) => builder.set_previous_block_root(root),
+            None => builder.set_previous_block_root(Hash256::from_slice(&state.latest_block_header.signed_root())),
+        }
 
         let proposer_index = state
             .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
