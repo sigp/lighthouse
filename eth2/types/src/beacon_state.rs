@@ -23,7 +23,7 @@ mod exit_cache;
 mod pubkey_cache;
 mod tests;
 
-pub const CACHED_EPOCHS: usize = 4;
+pub const CACHED_EPOCHS: usize = 3;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -49,6 +49,7 @@ pub enum Error {
     },
     PreviousEpochCacheUninitialized,
     CurrentEpochCacheUnintialized,
+    EpochCacheUnintialized(RelativeEpoch),
     EpochCacheError(EpochCacheError),
     TreeHashCacheError(TreeHashCacheError),
 }
@@ -117,13 +118,7 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub previous_epoch_cache: EpochCache,
-    #[serde(default)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[test_random(default)]
-    pub current_epoch_cache: EpochCache,
+    pub epoch_caches: [EpochCache; CACHED_EPOCHS],
     #[serde(default)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
@@ -214,8 +209,11 @@ impl<T: EthSpec> BeaconState<T> {
             /*
              * Caching (not in spec)
              */
-            previous_epoch_cache: EpochCache::default(),
-            current_epoch_cache: EpochCache::default(),
+            epoch_caches: [
+                EpochCache::default(),
+                EpochCache::default(),
+                EpochCache::default(),
+            ],
             pubkey_cache: PubkeyCache::default(),
             tree_hash_cache: TreeHashCache::default(),
             exit_cache: ExitCache::default(),
@@ -254,8 +252,8 @@ impl<T: EthSpec> BeaconState<T> {
     /// The epoch corresponding to `self.slot`.
     ///
     /// Spec v0.6.1
-    pub fn current_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.slot.epoch(spec.slots_per_epoch)
+    pub fn current_epoch(&self) -> Epoch {
+        self.slot.epoch(T::slots_per_epoch())
     }
 
     /// The epoch prior to `self.current_epoch()`.
@@ -263,9 +261,9 @@ impl<T: EthSpec> BeaconState<T> {
     /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
     ///
     /// Spec v0.6.1
-    pub fn previous_epoch(&self, spec: &ChainSpec) -> Epoch {
-        let current_epoch = self.current_epoch(spec);
-        if current_epoch > spec.genesis_epoch {
+    pub fn previous_epoch(&self) -> Epoch {
+        let current_epoch = self.current_epoch();
+        if current_epoch > T::genesis_epoch() {
             current_epoch - 1
         } else {
             current_epoch
@@ -275,8 +273,8 @@ impl<T: EthSpec> BeaconState<T> {
     /// The epoch following `self.current_epoch()`.
     ///
     /// Spec v0.6.1
-    pub fn next_epoch(&self, spec: &ChainSpec) -> Epoch {
-        self.current_epoch(spec) + 1
+    pub fn next_epoch(&self) -> Epoch {
+        self.current_epoch() + 1
     }
 
     /// Return the number of committees at ``epoch``.
@@ -301,13 +299,13 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.6.1
     pub fn get_epoch_start_shard(&self, epoch: Epoch, spec: &ChainSpec) -> Result<u64, Error> {
-        if epoch > self.current_epoch(spec) + 1 {
+        if epoch > self.current_epoch() + 1 {
             return Err(Error::EpochOutOfBounds);
         }
         let shard_count = T::ShardCount::to_u64();
-        let mut check_epoch = self.current_epoch(spec) + 1;
+        let mut check_epoch = self.current_epoch() + 1;
         let mut shard = (self.latest_start_shard
-            + self.get_shard_delta(self.current_epoch(spec), spec))
+            + self.get_shard_delta(self.current_epoch(), spec))
             % shard_count;
         while check_epoch > epoch {
             check_epoch -= 1;
@@ -458,8 +456,8 @@ impl<T: EthSpec> BeaconState<T> {
     /// Safely obtains the index for `latest_randao_mixes`
     ///
     /// Spec v0.5.1
-    fn get_randao_mix_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
-        let current_epoch = self.current_epoch(spec);
+    fn get_randao_mix_index(&self, epoch: Epoch) -> Result<usize, Error> {
+        let current_epoch = self.current_epoch();
         let len = T::LatestRandaoMixesLength::to_u64();
 
         if (current_epoch - len < epoch) & (epoch <= current_epoch) {
@@ -486,7 +484,7 @@ impl<T: EthSpec> BeaconState<T> {
 
         let signature_hash = Hash256::from_slice(&hash(&ssz_encode(signature)));
 
-        self.latest_randao_mixes[i] = *self.get_randao_mix(epoch, spec)? ^ signature_hash;
+        self.latest_randao_mixes[i] = *self.get_randao_mix(epoch)? ^ signature_hash;
 
         Ok(())
     }
@@ -494,21 +492,16 @@ impl<T: EthSpec> BeaconState<T> {
     /// Return the randao mix at a recent ``epoch``.
     ///
     /// Spec v0.5.1
-    pub fn get_randao_mix(&self, epoch: Epoch, spec: &ChainSpec) -> Result<&Hash256, Error> {
-        let i = self.get_randao_mix_index(epoch, spec)?;
+    pub fn get_randao_mix(&self, epoch: Epoch) -> Result<&Hash256, Error> {
+        let i = self.get_randao_mix_index(epoch)?;
         Ok(&self.latest_randao_mixes[i])
     }
 
     /// Set the randao mix at a recent ``epoch``.
     ///
     /// Spec v0.5.1
-    pub fn set_randao_mix(
-        &mut self,
-        epoch: Epoch,
-        mix: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let i = self.get_randao_mix_index(epoch, spec)?;
+    pub fn set_randao_mix(&mut self, epoch: Epoch, mix: Hash256) -> Result<(), Error> {
+        let i = self.get_randao_mix_index(epoch)?;
         self.latest_randao_mixes[i] = mix;
         Ok(())
     }
@@ -517,7 +510,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.6.1
     fn get_active_index_root_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
-        let current_epoch = self.current_epoch(spec);
+        let current_epoch = self.current_epoch();
 
         if current_epoch - self.latest_active_index_roots.len() as u64 + spec.activation_exit_delay
             < epoch
@@ -627,9 +620,9 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<&[PendingAttestation], Error> {
-        if epoch == self.current_epoch(spec) {
+        if epoch == self.current_epoch() {
             Ok(&self.current_epoch_attestations)
-        } else if epoch == self.previous_epoch(spec) {
+        } else if epoch == self.previous_epoch() {
             Ok(&self.previous_epoch_attestations)
         } else {
             Err(Error::EpochOutOfBounds)
@@ -659,7 +652,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Spec v0.5.1
     pub fn generate_seed(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
         let mut input = self
-            .get_randao_mix(epoch - spec.min_seed_lookahead, spec)?
+            .get_randao_mix(epoch - spec.min_seed_lookahead)?
             .as_bytes()
             .to_vec();
 
@@ -699,7 +692,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
-            self.cache(RelativeEpoch::Current, spec)?
+            self.cache(self.current_epoch(), spec)?
                 .active_validator_indices
                 .len() as u64
                 / spec.churn_limit_quotient,
@@ -719,7 +712,7 @@ impl<T: EthSpec> BeaconState<T> {
         validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<&Option<AttestationDuty>, Error> {
-        let cache = self.cache(RelativeEpoch::Current, spec)?;
+        let cache = self.cache(self.current_epoch(), spec)?;
 
         Ok(cache
             .attestation_duties
@@ -743,8 +736,9 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Build all the caches, if they need to be built.
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        self.build_previous_epoch_cache(spec)?;
-        self.build_current_epoch_cache(spec)?;
+        self.build_epoch_cache(RelativeEpoch::Previous, spec)?;
+        self.build_epoch_cache(RelativeEpoch::Current, spec)?;
+        self.build_epoch_cache(RelativeEpoch::Next, spec)?;
         self.update_pubkey_cache()?;
         self.update_tree_hash_cache()?;
         self.exit_cache
@@ -754,9 +748,14 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build an epoch cache, unless it is has already been built.
-    pub fn build_previous_epoch_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        if self.caches[cache_index].initialized_epoch == Some(self.slot.epoch(spec.slots_per_epoch))
-        {
+    pub fn build_epoch_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let i = Self::cache_index(relative_epoch);
+
+        if self.epoch_caches[i].is_initialized_at(self.previous_epoch()) {
             Ok(())
         } else {
             self.force_build_epoch_cache(relative_epoch, spec)
@@ -764,22 +763,14 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Always builds the previous epoch cache, even if it is already initialized.
-    pub fn force_build_previous_epoch_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        let epoch = self.previous_epoch(spec);
-        self.previous_epoch_cache = EpochCache::initialized(
-            &self,
-            epoch,
-            self.generate_seed(epoch, spec)?,
-            self.get_epoch_start_shard(epoch, spec)?,
-            spec,
-        )?;
-        Ok(())
-    }
+    pub fn force_build_epoch_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let epoch = relative_epoch.into_epoch(self.current_epoch());
 
-    /// Always builds the current epoch cache, even if it is already initialized.
-    pub fn force_build_current_epoch_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        let epoch = self.current_epoch(spec);
-        self.current_epoch_cache = EpochCache::initialized(
+        self.epoch_caches[Self::cache_index(relative_epoch)] = EpochCache::initialized(
             &self,
             epoch,
             self.generate_seed(epoch, spec)?,
@@ -792,10 +783,39 @@ impl<T: EthSpec> BeaconState<T> {
     /// Advances the cache for this state into the next epoch.
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
-    pub fn advance_caches(&mut self) {
-        self.previous_epoch_cache =
-            std::mem::replace(&mut self.current_epoch_cache, EpochCache::default());
-        self.force_build_current_epoch_cache();
+    ///
+    /// Note: whilst this function will preserve already-built caches, it will not build any.
+    pub fn advance_caches(&mut self, spec: &ChainSpec) {
+        let previous = Self::cache_index(RelativeEpoch::Previous);
+        let current = Self::cache_index(RelativeEpoch::Previous);
+        let next = Self::cache_index(RelativeEpoch::Previous);
+
+        let caches = &mut self.epoch_caches[..];
+        caches.rotate_left(1);
+        caches[next] = EpochCache::default();
+    }
+
+    fn cache_index(relative_epoch: RelativeEpoch) -> usize {
+        match relative_epoch {
+            RelativeEpoch::Previous => 0,
+            RelativeEpoch::Current => 1,
+            RelativeEpoch::Next => 2,
+        }
+    }
+
+    /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
+    /// initialized.
+    fn cache(&self, epoch: Epoch, spec: &ChainSpec) -> Result<&EpochCache, Error> {
+        let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)
+            .map_err(|e| Error::EpochOutOfBounds)?;
+
+        let cache = &self.epoch_caches[Self::cache_index(relative_epoch)];
+
+        if cache.is_initialized_at(epoch) {
+            Ok(cache)
+        } else {
+            Err(Error::EpochCacheUnintialized(relative_epoch))
+        }
     }
 
     // FIXME(sproul): drop_previous/current_epoch_cache

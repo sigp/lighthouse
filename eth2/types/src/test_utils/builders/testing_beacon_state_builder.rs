@@ -1,4 +1,4 @@
-use super::{generate_deterministic_keypairs, KeypairsFile};
+use super::super::{generate_deterministic_keypairs, KeypairsFile};
 use crate::test_utils::TestingPendingAttestationBuilder;
 use crate::*;
 use bls::get_withdrawal_credentials;
@@ -166,14 +166,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// Note: this performs the build when called. Ensure that no changes are made that would
     /// invalidate this cache.
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
-        let state = &mut self.state;
-
-        state.build_epoch_cache(RelativeEpoch::Previous, &spec)?;
-        state.build_epoch_cache(RelativeEpoch::Current, &spec)?;
-        state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &spec)?;
-        state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &spec)?;
-
-        state.update_pubkey_cache()?;
+        self.state.build_all_caches(spec);
 
         Ok(())
     }
@@ -218,8 +211,8 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             .build_epoch_cache(RelativeEpoch::Current, spec)
             .unwrap();
 
-        let current_epoch = state.current_epoch(spec);
-        let previous_epoch = state.previous_epoch(spec);
+        let current_epoch = state.current_epoch();
+        let previous_epoch = state.previous_epoch();
 
         let first_slot = previous_epoch.start_slot(spec.slots_per_epoch).as_u64();
         let last_slot = current_epoch.end_slot(spec.slots_per_epoch).as_u64()
@@ -246,7 +239,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
                 builder.add_committee_participation(signers);
                 let attestation = builder.build();
 
-                if attestation.data.target_epoch < state.current_epoch(spec) {
+                if attestation.data.target_epoch < state.current_epoch() {
                     state.previous_epoch_attestations.push(attestation)
                 } else {
                     state.current_epoch_attestations.push(attestation)

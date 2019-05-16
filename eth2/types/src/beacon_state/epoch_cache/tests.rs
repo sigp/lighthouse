@@ -1,4 +1,4 @@
-#![cfg(all(not(test), test))]
+#![cfg(test)]
 
 use super::*;
 use crate::beacon_state::FewValidatorsEthSpec;
