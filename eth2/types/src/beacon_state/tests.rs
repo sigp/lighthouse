@@ -2,9 +2,76 @@
 use super::*;
 use crate::beacon_state::FewValidatorsEthSpec;
 use crate::test_utils::*;
+use std::ops::RangeInclusive;
 
 ssz_tests!(FoundationBeaconState);
 cached_tree_hash_tests!(FoundationBeaconState);
+
+/// Should produce (note the set notation brackets):
+///
+/// (current_epoch - LATEST_ACTIVE_INDEX_ROOTS_LENGTH + ACTIVATION_EXIT_DELAY, current_epoch +
+/// ACTIVATION_EXIT_DELAY]
+fn active_index_range<T: EthSpec>(current_epoch: Epoch) -> RangeInclusive<Epoch> {
+    let delay = T::spec().activation_exit_delay;
+
+    let start: i32 =
+        current_epoch.as_u64() as i32 - T::latest_active_index_roots() as i32 + delay as i32;
+    let end = current_epoch + delay;
+
+    let start: Epoch = if start < 0 {
+        Epoch::new(0)
+    } else {
+        Epoch::from(start as u64 + 1)
+    };
+
+    start..=end
+}
+
+/// Test getting an active index root at the start and end of the valid range, and one either side
+/// of that range.
+fn test_active_index<T: EthSpec>(state_slot: Slot) {
+    let spec = T::spec();
+    let builder: TestingBeaconStateBuilder<T> =
+        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
+    let (mut state, _keypairs) = builder.build();
+    state.slot = state_slot;
+
+    let range = active_index_range::<T>(state.current_epoch());
+
+    let modulo = |epoch: Epoch| epoch.as_usize() % T::latest_active_index_roots();
+
+    // Test the start and end of the range.
+    assert_eq!(
+        state.get_active_index_root_index(*range.start(), &spec),
+        Ok(modulo(*range.start()))
+    );
+    assert_eq!(
+        state.get_active_index_root_index(*range.end(), &spec),
+        Ok(modulo(*range.end()))
+    );
+
+    // One either side of the range.
+    if state.current_epoch() > 0 {
+        // Test is invalid on epoch zero, cannot subtract from zero.
+        assert_eq!(
+            state.get_active_index_root_index(*range.start() - 1, &spec),
+            Err(Error::EpochOutOfBounds)
+        );
+    }
+    assert_eq!(
+        state.get_active_index_root_index(*range.end() + 1, &spec),
+        Err(Error::EpochOutOfBounds)
+    );
+}
+
+#[test]
+fn get_active_index_root_index() {
+    test_active_index::<FoundationEthSpec>(Slot::new(0));
+
+    let epoch = Epoch::from(FoundationEthSpec::latest_active_index_roots() * 4);
+    let slot = epoch.start_slot(FoundationEthSpec::slots_per_epoch());
+    test_active_index::<FoundationEthSpec>(slot);
+}
 
 /*
 /// Test that

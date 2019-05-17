@@ -362,6 +362,21 @@ impl<T: EthSpec> BeaconState<T> {
         unimplemented!("FIXME(sproul)")
     }
 
+    /// Returns the crosslink committees for some shard in some cached epoch.
+    ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
+    /// Spec v0.6.1
+    pub fn get_crosslink_committee_for_shard(
+        &self,
+        shard: u64,
+        epoch: Epoch,
+    ) -> Result<Option<&CrosslinkCommittee>, Error> {
+        let cache = self.cache(epoch)?;
+
+        Ok(cache.get_crosslink_committee_for_shard(shard))
+    }
+
     /// Return the crosslink committeee for `shard` in `epoch`.
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
@@ -457,7 +472,7 @@ impl<T: EthSpec> BeaconState<T> {
         let current_epoch = self.current_epoch();
         let len = T::LatestRandaoMixesLength::to_u64();
 
-        if (current_epoch - len < epoch) & (epoch <= current_epoch) {
+        if (epoch + len > current_epoch) & (epoch <= current_epoch) {
             Ok(epoch.as_usize() % len as usize)
         } else {
             Err(Error::EpochOutOfBounds)
@@ -504,10 +519,10 @@ impl<T: EthSpec> BeaconState<T> {
     fn get_active_index_root_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
         let current_epoch = self.current_epoch();
 
-        if current_epoch - self.latest_active_index_roots.len() as u64 + spec.activation_exit_delay
-            < epoch
-            && epoch <= current_epoch + spec.activation_exit_delay
-        {
+        let lookahead = spec.activation_exit_delay;
+        let lookback = self.latest_active_index_roots.len() as u64 - lookahead;
+
+        if (epoch + lookback > current_epoch) && (current_epoch + lookahead >= epoch) {
             Ok(epoch.as_usize() % self.latest_active_index_roots.len())
         } else {
             Err(Error::EpochOutOfBounds)

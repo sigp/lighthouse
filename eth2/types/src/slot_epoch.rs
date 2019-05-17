@@ -58,10 +58,12 @@ impl Epoch {
         Epoch(u64::max_value())
     }
 
+    /// The first slot in the epoch.
     pub fn start_slot(self, slots_per_epoch: u64) -> Slot {
         Slot::from(self.0.saturating_mul(slots_per_epoch))
     }
 
+    /// The last slot in the epoch.
     pub fn end_slot(self, slots_per_epoch: u64) -> Slot {
         Slot::from(
             self.0
@@ -69,6 +71,20 @@ impl Epoch {
                 .saturating_mul(slots_per_epoch)
                 .saturating_sub(1),
         )
+    }
+
+    /// Position of some slot inside an epoch, if any.
+    ///
+    /// E.g., the first `slot` in `epoch` is at position `0`.
+    pub fn position(&self, slot: Slot, slots_per_epoch: u64) -> Option<usize> {
+        let start = self.start_slot(slots_per_epoch);
+        let end = self.end_slot(slots_per_epoch);
+
+        if (slot >= start) && (slot <= end) {
+            Some(slot.as_usize() - start.as_usize())
+        } else {
+            None
+        }
     }
 
     pub fn slot_iter(&self, slots_per_epoch: u64) -> SlotIter {
@@ -122,6 +138,26 @@ mod epoch_tests {
 
         assert_eq!(epoch.start_slot(slots_per_epoch), Slot::new(0));
         assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(7));
+    }
+
+    #[test]
+    fn position() {
+        let slots_per_epoch = 8;
+
+        let epoch = Epoch::new(0);
+        assert_eq!(epoch.position(Slot::new(0), slots_per_epoch), Some(0));
+        assert_eq!(epoch.position(Slot::new(1), slots_per_epoch), Some(1));
+        assert_eq!(epoch.position(Slot::new(2), slots_per_epoch), Some(2));
+        assert_eq!(epoch.position(Slot::new(3), slots_per_epoch), Some(3));
+        assert_eq!(epoch.position(Slot::new(4), slots_per_epoch), Some(4));
+        assert_eq!(epoch.position(Slot::new(5), slots_per_epoch), Some(5));
+        assert_eq!(epoch.position(Slot::new(6), slots_per_epoch), Some(6));
+        assert_eq!(epoch.position(Slot::new(7), slots_per_epoch), Some(7));
+        assert_eq!(epoch.position(Slot::new(8), slots_per_epoch), None);
+
+        let epoch = Epoch::new(1);
+        assert_eq!(epoch.position(Slot::new(7), slots_per_epoch), None);
+        assert_eq!(epoch.position(Slot::new(8), slots_per_epoch), Some(0));
     }
 
     #[test]

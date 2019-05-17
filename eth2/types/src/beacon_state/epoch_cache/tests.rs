@@ -5,16 +5,15 @@ use crate::beacon_state::FewValidatorsEthSpec;
 use crate::test_utils::*;
 use swap_or_not_shuffle::shuffle_list;
 
-fn do_sane_cache_test<T: EthSpec>(
+fn execute_sane_cache_test<T: EthSpec>(
     state: BeaconState<T>,
     epoch: Epoch,
-    relative_epoch: RelativeEpoch,
     validator_count: usize,
     spec: &ChainSpec,
 ) {
     let active_indices: Vec<usize> = (0..validator_count).collect();
     let seed = state.generate_seed(epoch, spec).unwrap();
-    let expected_shuffling_start = state.get_epoch_start_shard(epoch, spec).unwrap();
+    let start_shard = state.get_epoch_start_shard(epoch, spec).unwrap();
 
     assert_eq!(
         &active_indices[..],
@@ -25,48 +24,43 @@ fn do_sane_cache_test<T: EthSpec>(
     let shuffling =
         shuffle_list(active_indices, spec.shuffle_round_count, &seed[..], false).unwrap();
 
-    let committees_per_epoch = spec.get_epoch_committee_count(shuffling.len());
-    let committees_per_slot = committees_per_epoch / spec.slots_per_epoch;
-
     let mut expected_indices_iter = shuffling.iter();
-    let mut shard_counter = expected_shuffling_start;
 
-    for (i, slot) in epoch.slot_iter(spec.slots_per_epoch).enumerate() {
-        let crosslink_committees_at_slot =
-            state.get_crosslink_committees_at_slot(slot, &spec).unwrap();
+    for i in 0..T::shard_count() {
+        let shard = (i + start_shard as usize) % T::shard_count();
 
-        assert_eq!(
-            crosslink_committees_at_slot.len(),
-            committees_per_slot as usize,
-            "Bad committees per slot ({})",
-            i
-        );
+        dbg!(shard);
+        dbg!(start_shard);
 
-        for c in crosslink_committees_at_slot {
-            assert_eq!(c.shard, shard_counter, "Bad shard");
-            shard_counter += 1;
-            shard_counter %= spec.shard_count;
+        let c = state
+            .get_crosslink_committee_for_shard(shard as u64, epoch)
+            .unwrap()
+            .unwrap();
 
-            for &i in &c.committee {
-                assert_eq!(
-                    i,
-                    *expected_indices_iter.next().unwrap(),
-                    "Non-sequential validators."
-                );
-            }
+        for &i in &c.committee {
+            assert_eq!(
+                i,
+                *expected_indices_iter.next().unwrap(),
+                "Non-sequential validators."
+            );
         }
     }
 }
 
-fn setup_sane_cache_test<T: EthSpec>(validator_count: usize, spec: &ChainSpec) -> BeaconState<T> {
-    let mut builder =
-        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, spec);
+fn sane_cache_test<T: EthSpec>(
+    validator_count: usize,
+    state_epoch: Epoch,
+    cache_epoch: RelativeEpoch,
+) {
+    let spec = &T::spec();
 
-    let epoch = spec.genesis_epoch + 4;
-    let slot = epoch.start_slot(spec.slots_per_epoch);
+    let mut builder =
+        TestingBeaconStateBuilder::from_single_keypair(validator_count, &Keypair::random(), spec);
+
+    let slot = state_epoch.start_slot(spec.slots_per_epoch);
     builder.teleport_to_slot(slot, spec);
 
-    let (mut state, _keypairs) = builder.build();
+    let (mut state, _keypairs): (BeaconState<T>, _) = builder.build();
 
     state
         .build_epoch_cache(RelativeEpoch::Previous, spec)
@@ -76,88 +70,42 @@ fn setup_sane_cache_test<T: EthSpec>(validator_count: usize, spec: &ChainSpec) -
         .unwrap();
     state.build_epoch_cache(RelativeEpoch::Next, spec).unwrap();
 
-    state
+    let cache_epoch = cache_epoch.into_epoch(state_epoch);
+
+    execute_sane_cache_test(state, cache_epoch, validator_count as usize, &spec);
 }
 
-#[test]
-fn builds_sane_current_epoch_cache() {
-    let mut spec = FewValidatorsEthSpec::spec();
+fn sane_cache_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
+    let spec = T::spec();
+
     let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
 
-    let state: BeaconState<FewValidatorsEthSpec> =
-        setup_sane_cache_test(validator_count as usize, &spec);
+    sane_cache_test::<T>(validator_count as usize, Epoch::new(0), cached_epoch);
 
-    let epoch = state.current_epoch();
-
-    do_sane_cache_test(
-        state,
-        epoch,
-        RelativeEpoch::Current,
+    sane_cache_test::<T>(
         validator_count as usize,
-        &spec,
+        spec.genesis_epoch + 4,
+        cached_epoch,
     );
-}
 
-/*
-
-#[test]
-fn builds_sane_current_epoch_cache() {
-    let mut spec = FewValidatorsEthSpec::spec();
-    spec.shard_count = 4;
-    let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
-
-    let state: BeaconState<FewValidatorsEthSpec> =
-        setup_sane_cache_test(validator_count as usize, &spec);
-
-    do_sane_cache_test(
-        state.clone(),
-        state.current_epoch(&spec),
-        RelativeEpoch::Current,
+    sane_cache_test::<T>(
         validator_count as usize,
-        state.current_shuffling_seed,
-        state.current_shuffling_start_shard,
-        &spec,
+        spec.genesis_epoch + T::slots_per_historical_root() as u64 * T::slots_per_epoch() * 4,
+        cached_epoch,
     );
 }
 
 #[test]
-fn builds_sane_previous_epoch_cache() {
-    let mut spec = FewValidatorsEthSpec::spec();
-    spec.shard_count = 2;
-    let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
-
-    let state: BeaconState<FewValidatorsEthSpec> =
-        setup_sane_cache_test(validator_count as usize, &spec);
-
-    do_sane_cache_test(
-        state.clone(),
-        state.previous_epoch(&spec),
-        RelativeEpoch::Previous,
-        validator_count as usize,
-        state.previous_shuffling_seed,
-        state.previous_shuffling_start_shard,
-        &spec,
-    );
+fn current_epoch_suite() {
+    sane_cache_test_suite::<FewValidatorsEthSpec>(RelativeEpoch::Current);
 }
 
 #[test]
-fn builds_sane_next_without_update_epoch_cache() {
-    let mut spec = FewValidatorsEthSpec::spec();
-    spec.shard_count = 2;
-    let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
-
-    let mut state: BeaconState<FewValidatorsEthSpec> =
-        setup_sane_cache_test(validator_count as usize, &spec);
-
-    state.validator_registry_update_epoch = state.slot.epoch(spec.slots_per_epoch);
-    do_sane_cache_test(
-        state.clone(),
-        state.next_epoch(&spec),
-        RelativeEpoch::NextWithoutRegistryChange,
-        validator_count as usize,
-        state.current_shuffling_seed,
-        state.current_shuffling_start_shard,
-        &spec,
-    );
+fn previous_epoch_suite() {
+    sane_cache_test_suite::<FewValidatorsEthSpec>(RelativeEpoch::Previous);
 }
-*/
+
+#[test]
+fn next_epoch_suite() {
+    sane_cache_test_suite::<FewValidatorsEthSpec>(RelativeEpoch::Next);
+}

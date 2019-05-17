@@ -258,7 +258,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
     pub(crate) fn few_validators() -> Self {
-        let genesis_slot = Slot::new(2_u64.pow(32));
+        let genesis_slot = Slot::new(0);
         let slots_per_epoch = 8;
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
 

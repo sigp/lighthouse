@@ -1,5 +1,6 @@
 use super::BeaconState;
 use crate::*;
+use honey_badger_split::SplitExt;
 use serde_derive::{Deserialize, Serialize};
 use swap_or_not_shuffle::shuffle_list;
 
@@ -35,7 +36,7 @@ impl EpochCache {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<EpochCache, BeaconStateError> {
-        if epoch != state.previous_epoch() && epoch != state.current_epoch() {
+        if (epoch < state.previous_epoch()) || (epoch > state.next_epoch()) {
             return Err(BeaconStateError::EpochOutOfBounds);
         }
 
@@ -44,7 +45,7 @@ impl EpochCache {
 
         let epoch_committee_count = state.get_epoch_committee_count(epoch, spec);
 
-        let crosslink_committees = compute_epoch_commitees(
+        let crosslink_committees = compute_epoch_committees(
             epoch,
             state,
             active_validator_indices.clone(),
@@ -58,7 +59,11 @@ impl EpochCache {
 
         for (i, crosslink_committee) in crosslink_committees.iter().enumerate() {
             shard_crosslink_committees[crosslink_committee.shard as usize] = Some(i);
-            slot_crosslink_committees[crosslink_committee.slot.as_usize()] = Some(i);
+
+            let slot_index = epoch
+                .position(crosslink_committee.slot, spec.slots_per_epoch)
+                .ok_or_else(|| BeaconStateError::SlotOutOfBounds)?;
+            slot_crosslink_committees[slot_index] = Some(i);
 
             // Loop through each validator in the committee and store its attestation duties.
             for (committee_index, validator_index) in
@@ -73,6 +78,8 @@ impl EpochCache {
                 attestation_duties[*validator_index] = Some(attestation_duty);
             }
         }
+
+        dbg!(&shard_crosslink_committees);
 
         Ok(EpochCache {
             initialized_epoch: Some(epoch),
@@ -118,7 +125,7 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
     active
 }
 
-pub fn compute_epoch_commitees<T: EthSpec>(
+pub fn compute_epoch_committees<T: EthSpec>(
     epoch: Epoch,
     state: &BeaconState<T>,
     active_validator_indices: Vec<usize>,
@@ -141,15 +148,17 @@ pub fn compute_epoch_commitees<T: EthSpec>(
         .ok_or_else(|| Error::UnableToShuffle)?
     };
 
-    let committee_size = shuffled_active_validator_indices.len() / epoch_committee_count as usize;
-
     let epoch_start_shard = state.get_epoch_start_shard(epoch, spec)?;
 
     Ok(shuffled_active_validator_indices
-        .chunks(committee_size)
+        .honey_badger_split(epoch_committee_count as usize)
         .enumerate()
         .map(|(index, committee)| {
             let shard = (epoch_start_shard + index as u64) % spec.shard_count;
+
+            dbg!(index);
+            dbg!(shard);
+
             let slot = crosslink_committee_slot(
                 shard,
                 epoch,
