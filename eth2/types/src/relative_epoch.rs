@@ -26,8 +26,9 @@ impl RelativeEpoch {
     /// Spec v0.6.1
     pub fn into_epoch(self, base: Epoch) -> Epoch {
         match self {
-            RelativeEpoch::Previous => base - 1,
+            // Due to saturating nature of epoch, check for current first.
             RelativeEpoch::Current => base,
+            RelativeEpoch::Previous => base - 1,
             RelativeEpoch::Next => base + 1,
         }
     }
@@ -41,10 +42,11 @@ impl RelativeEpoch {
     ///
     /// Spec v0.6.1
     pub fn from_epoch(base: Epoch, other: Epoch) -> Result<Self, Error> {
-        if other == base - 1 {
-            Ok(RelativeEpoch::Previous)
-        } else if other == base {
+        // Due to saturating nature of epoch, check for current first.
+        if other == base {
             Ok(RelativeEpoch::Current)
+        } else if other == base - 1 {
+            Ok(RelativeEpoch::Previous)
         } else if other == base + 1 {
             Ok(RelativeEpoch::Next)
         } else if other < base {
