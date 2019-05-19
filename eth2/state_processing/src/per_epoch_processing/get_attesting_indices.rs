@@ -8,13 +8,12 @@ pub fn get_attesting_indices_unsorted<T: EthSpec>(
     state: &BeaconState<T>,
     attestation_data: &AttestationData,
     bitfield: &Bitfield,
-    spec: &ChainSpec,
 ) -> Result<Vec<usize>, BeaconStateError> {
-    let committee = state.get_crosslink_committee(
-        attestation_data.target_epoch,
-        attestation_data.shard,
-        spec,
-    )?;
+    let target_relative_epoch =
+        RelativeEpoch::from_epoch(state.current_epoch(), attestation_data.target_epoch)?;
+
+    let committee =
+        state.get_crosslink_committee_for_shard(attestation_data.shard, target_relative_epoch)?;
 
     if !verify_bitfield_length(&bitfield, committee.committee.len()) {
         return Err(BeaconStateError::InvalidBitfield);

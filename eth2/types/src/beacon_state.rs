@@ -307,12 +307,12 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.6.1
     pub fn get_attestation_slot(&self, attestation_data: &AttestationData) -> Result<Slot, Error> {
-        let target_epoch =
+        let target_relative_epoch =
             RelativeEpoch::from_epoch(self.current_epoch(), attestation_data.target_epoch)?;
 
-        let cc = self
-            .get_crosslink_committee_for_shard(attestation_data.shard, target_epoch)?
-            .ok_or_else(|| Error::NoCommitteeForShard)?;
+        let cc =
+            self.get_crosslink_committee_for_shard(attestation_data.shard, target_relative_epoch)?;
+
         Ok(cc.slot)
     }
 
@@ -361,25 +361,14 @@ impl<T: EthSpec> BeaconState<T> {
         &self,
         shard: u64,
         relative_epoch: RelativeEpoch,
-    ) -> Result<Option<CrosslinkCommittee>, Error> {
+    ) -> Result<CrosslinkCommittee, Error> {
         let cache = self.cache(relative_epoch)?;
 
-        Ok(cache.get_crosslink_committee_for_shard(shard))
-    }
+        let committee = cache
+            .get_crosslink_committee_for_shard(shard)
+            .ok_or_else(|| Error::NoCommitteeForShard)?;
 
-    /// Return the crosslink committeee for `shard` in `epoch`.
-    ///
-    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
-    ///
-    /// Spec v0.6.1
-    pub fn get_crosslink_committee(
-        &self,
-        epoch: Epoch,
-        shard: u64,
-        spec: &ChainSpec,
-    ) -> Result<&CrosslinkCommittee, Error> {
-        drop((epoch, shard, spec));
-        unimplemented!()
+        Ok(committee)
     }
 
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.

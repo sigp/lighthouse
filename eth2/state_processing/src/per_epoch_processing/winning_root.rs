@@ -77,7 +77,7 @@ pub fn winning_root<T: EthSpec>(
     let mut winning_root = None;
     for (crosslink, attestations) in candidate_crosslink_map {
         let attesting_validator_indices =
-            get_unslashed_attesting_indices_unsorted(state, &attestations, spec)?;
+            get_unslashed_attesting_indices_unsorted(state, &attestations)?;
         let total_attesting_balance =
             state.get_total_balance(&attesting_validator_indices, spec)?;
 
@@ -102,7 +102,6 @@ pub fn winning_root<T: EthSpec>(
 pub fn get_unslashed_attesting_indices_unsorted<T: EthSpec>(
     state: &BeaconState<T>,
     attestations: &[&PendingAttestation],
-    spec: &ChainSpec,
 ) -> Result<Vec<usize>, BeaconStateError> {
     let mut output = HashSet::new();
     for a in attestations {
@@ -110,7 +109,6 @@ pub fn get_unslashed_attesting_indices_unsorted<T: EthSpec>(
             state,
             &a.data,
             &a.aggregation_bitfield,
-            spec,
         )?);
     }
     Ok(output

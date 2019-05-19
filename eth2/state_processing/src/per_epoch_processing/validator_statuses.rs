@@ -214,7 +214,7 @@ impl ValidatorStatuses {
             .chain(state.current_epoch_attestations.iter())
         {
             let attesting_indices =
-                get_attesting_indices_unsorted(state, &a.data, &a.aggregation_bitfield, spec)?;
+                get_attesting_indices_unsorted(state, &a.data, &a.aggregation_bitfield)?;
 
             let mut status = ValidatorStatus::default();
 
