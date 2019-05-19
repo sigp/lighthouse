@@ -159,9 +159,10 @@ pub fn process_crosslinks<T: EthSpec>(
 
     state.previous_crosslinks = state.current_crosslinks.clone();
 
-    for epoch in vec![state.previous_epoch(), state.current_epoch()] {
-        for offset in 0..state.get_epoch_committee_count(epoch, spec) {
-            let shard = (state.get_epoch_start_shard(epoch, spec) + offset) % spec.shard_count;
+    for relative_epoch in vec![RelativeEpoch::Previous, RelativeEpoch::Current] {
+        let epoch = relative_epoch.into_epoch(state.current_epoch());
+        for offset in 0..state.get_epoch_committee_count(relative_epoch)? {
+            let shard = (state.get_epoch_start_shard(relative_epoch)? + offset) % spec.shard_count;
             let crosslink_committee = state.get_crosslink_committee(epoch, shard, spec)?;
 
             let winning_root = winning_root(state, shard, epoch, spec)?;
@@ -211,9 +212,7 @@ pub fn process_final_updates<T: EthSpec>(
     }
 
     // Update start shard.
-    state.latest_start_shard = (state.latest_start_shard
-        + state.get_shard_delta(current_epoch, spec))
-        % T::ShardCount::to_u64();
+    state.latest_start_shard = state.next_epoch_start_shard()?;
 
     // This is a hack to allow us to update index roots and slashed balances for the next epoch.
     //

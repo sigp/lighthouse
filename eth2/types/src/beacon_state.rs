@@ -4,7 +4,7 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use hashing::hash;
-use int_to_bytes::int_to_bytes32;
+use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 
 use fixed_len_vec::{typenum::Unsigned, FixedLenVec};
@@ -24,6 +24,7 @@ mod pubkey_cache;
 mod tests;
 
 pub const CACHED_EPOCHS: usize = 3;
+const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -279,6 +280,27 @@ impl<T: EthSpec> BeaconState<T> {
         self.current_epoch() + 1
     }
 
+    pub fn get_epoch_committee_count(&self, relative_epoch: RelativeEpoch) -> Result<u64, Error> {
+        let cache = self.cache(relative_epoch)?;
+
+        Ok(cache.epoch_committee_count() as u64)
+    }
+
+    pub fn get_epoch_start_shard(&self, relative_epoch: RelativeEpoch) -> Result<u64, Error> {
+        let cache = self.cache(relative_epoch)?;
+
+        Ok(cache.epoch_start_shard())
+    }
+
+    pub fn next_epoch_start_shard(&self) -> Result<u64, Error> {
+        let cache = self.cache(RelativeEpoch::Current)?;
+
+        Ok(
+            (cache.epoch_start_shard() + cache.epoch_committee_count() as u64)
+                & T::shard_count() as u64,
+        )
+    }
+
     /// Get the slot of an attestation.
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
@@ -360,33 +382,41 @@ impl<T: EthSpec> BeaconState<T> {
         unimplemented!()
     }
 
-    /// Returns the beacon proposer index for the `slot`.
+    /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
     ///
-    /// If the state does not contain an index for a beacon proposer at the requested `slot`, then `None` is returned.
-    ///
-    /// Spec v0.5.1
-    pub fn get_beacon_proposer_index(&self, _spec: &ChainSpec) -> Result<usize, Error> {
-        unimplemented!("FIXME(sproul)")
-        /*
-        let cache = self.cache(relative_epoch, spec)?;
+    /// Spec v0.6.1
+    // NOTE: be sure to test this bad boy.
+    pub fn get_beacon_proposer_index(
+        &self,
+        slot: Slot,
+        relative_epoch: RelativeEpoch,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
+        let cache = self.cache(relative_epoch)?;
+        let epoch = relative_epoch.into_epoch(self.current_epoch());
 
-        let committees = cache
-            .get_crosslink_committees_at_slot(slot, spec)
+        let first_committee = cache
+            .first_committee_at_slot(slot)
             .ok_or_else(|| Error::SlotOutOfBounds)?;
+        let seed = self.generate_seed(epoch, spec)?;
 
-        let epoch = slot.epoch(spec.slots_per_epoch);
-
-        committees
-            .first()
-            .ok_or(Error::UnableToDetermineProducer)
-            .and_then(|first| {
-                let index = epoch
-                    .as_usize()
-                    .checked_rem(first.committee.len())
-                    .ok_or(Error::UnableToDetermineProducer)?;
-                Ok(first.committee[index])
-            })
-        */
+        let mut i = 0;
+        Ok(loop {
+            let candidate_index = first_committee[(epoch.as_usize() + i) % first_committee.len()];
+            let random_byte = {
+                let mut preimage = seed.as_bytes().to_vec();
+                preimage.append(&mut int_to_bytes8((i / 32) as u64));
+                let hash = hash(&preimage);
+                hash[i % 32]
+            };
+            let effective_balance = self.validator_registry[candidate_index].effective_balance;
+            if (effective_balance * MAX_RANDOM_BYTE)
+                >= (spec.max_effective_balance * random_byte as u64)
+            {
+                break candidate_index;
+            }
+            i += 1;
+        })
     }
 
     /// Safely obtains the index for latest block roots, given some `slot`.

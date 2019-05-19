@@ -42,7 +42,7 @@ pub fn winning_root<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Option<WinningRoot>, BeaconStateError> {
     let shard_attestations: Vec<&PendingAttestation> = state
-        .get_matching_source_attestations(epoch, spec)?
+        .get_matching_source_attestations(epoch)?
         .iter()
         .filter(|a| a.data.shard == shard)
         .collect();

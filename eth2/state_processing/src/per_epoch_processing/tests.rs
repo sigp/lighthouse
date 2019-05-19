@@ -1,5 +1,5 @@
 #![cfg(test)]
-use crate::per_epoch_processing;
+use crate::per_epoch_processing::per_epoch_processing;
 use env_logger::{Builder, Env};
 use types::test_utils::TestingBeaconStateBuilder;
 use types::*;
