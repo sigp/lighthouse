@@ -116,8 +116,8 @@ impl TestingBeaconBlockBuilder {
 
                 committees.push((
                     slot,
-                    crosslink_committee.committee.clone(),
-                    crosslink_committee.committee.clone(),
+                    crosslink_committee.committee.to_vec(),
+                    crosslink_committee.committee.to_vec(),
                     crosslink_committee.shard,
                 ));
 

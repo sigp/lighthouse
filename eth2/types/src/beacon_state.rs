@@ -34,6 +34,7 @@ pub enum Error {
     UnableToDetermineProducer,
     InvalidBitfield,
     ValidatorIsWithdrawable,
+    InsufficientValidators,
     InsufficientRandaoMixes,
     InsufficientBlockRoots,
     InsufficientIndexRoots,
@@ -277,67 +278,30 @@ impl<T: EthSpec> BeaconState<T> {
         self.current_epoch() + 1
     }
 
-    /// Return the number of committees at ``epoch``.
-    ///
-    /// Spec v0.6.1
-    pub fn get_epoch_committee_count(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
-        let active_validator_indices = self.get_active_validator_indices(epoch);
-        spec.get_epoch_committee_count(active_validator_indices.len())
-    }
-
-    /// Return the number of shards to increment `state.latest_start_shard` during `epoch`.
-    ///
-    /// Spec v0.6.1
-    pub fn get_shard_delta(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
-        std::cmp::min(
-            self.get_epoch_committee_count(epoch, spec),
-            T::ShardCount::to_u64() - T::ShardCount::to_u64() / spec.slots_per_epoch,
-        )
-    }
-
-    /// Return the start shard for an epoch less than or equal to the next epoch.
-    ///
-    /// Spec v0.6.1
-    pub fn get_epoch_start_shard(&self, epoch: Epoch, spec: &ChainSpec) -> Result<u64, Error> {
-        if epoch > self.current_epoch() + 1 {
-            return Err(Error::EpochOutOfBounds);
-        }
-        let shard_count = T::ShardCount::to_u64();
-        let mut check_epoch = self.current_epoch() + 1;
-        let mut shard = (self.latest_start_shard
-            + self.get_shard_delta(self.current_epoch(), spec))
-            % shard_count;
-        while check_epoch > epoch {
-            check_epoch -= 1;
-            shard = (shard + shard_count - self.get_shard_delta(check_epoch, spec)) % shard_count;
-        }
-        Ok(shard)
-    }
-
     /// Get the slot of an attestation.
     ///
+    /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
+    ///
     /// Spec v0.6.1
-    pub fn get_attestation_slot(
-        &self,
-        attestation_data: &AttestationData,
-        spec: &ChainSpec,
-    ) -> Result<Slot, Error> {
-        let epoch = attestation_data.target_epoch;
-        let committee_count = self.get_epoch_committee_count(epoch, spec);
-        let offset = (attestation_data.shard + spec.shard_count
-            - self.get_epoch_start_shard(epoch, spec)?)
-            % spec.shard_count;
-        Ok(epoch.start_slot(spec.slots_per_epoch)
-            + offset / (committee_count / spec.slots_per_epoch))
+    pub fn get_attestation_slot(&self, attestation_data: &AttestationData) -> Result<Slot, Error> {
+        let cc = self
+            .get_crosslink_committee_for_shard(
+                attestation_data.shard,
+                attestation_data.target_epoch,
+            )?
+            .ok_or_else(|| Error::NoCommitteeForShard)?;
+        Ok(cc.slot)
     }
 
     /// Return the cached active validator indices at some epoch.
+    ///
+    /// Note: the indices are shuffled (i.e., not in ascending order).
     ///
     /// Returns an error if that epoch is not cached, or the cache is not initialized.
     pub fn get_cached_active_validator_indices(&self, epoch: Epoch) -> Result<&[usize], Error> {
         let cache = self.cache(epoch)?;
 
-        Ok(&cache.active_validator_indices)
+        Ok(&cache.active_validator_indices())
     }
 
     /// Returns the active validator indices for the given epoch.
@@ -371,7 +335,7 @@ impl<T: EthSpec> BeaconState<T> {
         &self,
         shard: u64,
         epoch: Epoch,
-    ) -> Result<Option<&CrosslinkCommittee>, Error> {
+    ) -> Result<Option<CrosslinkCommittee>, Error> {
         let cache = self.cache(epoch)?;
 
         Ok(cache.get_crosslink_committee_for_shard(shard))
@@ -698,9 +662,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
-            self.cache(self.current_epoch())?
-                .active_validator_indices
-                .len() as u64
+            self.cache(self.current_epoch())?.active_validator_count() as u64
                 / spec.churn_limit_quotient,
         ))
     }
