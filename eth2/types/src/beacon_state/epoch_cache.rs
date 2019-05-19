@@ -128,7 +128,7 @@ impl EpochCache {
 
         let committee_index =
             (shard + self.shard_count - self.shuffling_start_shard) % self.shard_count;
-        let committee = self.compute_committee(committee_index as usize, self.committee_count)?;
+        let committee = self.compute_committee(committee_index as usize)?;
         let slot = self.crosslink_slot_for_shard(shard)?;
 
         Some(CrosslinkCommittee {
@@ -142,12 +142,36 @@ impl EpochCache {
         self.shuffling.len()
     }
 
-    fn compute_committee(&self, index: usize, count: usize) -> Option<&[usize]> {
+    pub fn epoch_committee_count(&self) -> usize {
+        self.committee_count
+    }
+
+    pub fn epoch_start_shard(&self) -> u64 {
+        self.shuffling_start_shard
+    }
+
+    pub fn first_committee_at_slot(&self, slot: Slot) -> Option<&[usize]> {
+        let position = self
+            .initialized_epoch?
+            .position(slot, self.slots_per_epoch)?;
+
+        if position > self.committee_count {
+            None
+        } else {
+            let committees_per_slot = self.committee_count / self.slots_per_epoch as usize;
+            let index = position * committees_per_slot;
+
+            self.compute_committee(index)
+        }
+    }
+
+    fn compute_committee(&self, index: usize) -> Option<&[usize]> {
         if self.initialized_epoch.is_none() {
             return None;
         }
 
         let num_validators = self.shuffling.len();
+        let count = self.committee_count;
 
         // Note: `count != 0` is enforced in the constructor.
         let start = (num_validators * index) / count;
