@@ -178,17 +178,9 @@ impl EpochCache {
     }
 
     pub fn first_committee_at_slot(&self, slot: Slot) -> Option<&[usize]> {
-        let position = self
-            .initialized_epoch?
-            .position(slot, self.slots_per_epoch)?;
-        let committees_per_slot = self.committee_count / self.slots_per_epoch as usize;
-        let position = position * committees_per_slot;
-
-        if position >= self.committee_count {
-            None
-        } else {
-            self.compute_committee(position)
-        }
+        self.get_crosslink_committees_for_slot(slot)?
+            .first()
+            .and_then(|cc| Some(cc.committee))
     }
 
     fn compute_committee(&self, index: usize) -> Option<&[usize]> {
