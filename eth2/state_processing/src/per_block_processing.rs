@@ -164,7 +164,7 @@ pub fn process_randao<T: EthSpec>(
     // Verify the RANDAO is a valid signature of the proposer.
     verify!(
         block.body.randao_reveal.verify(
-            &state.current_epoch(spec).tree_hash_root()[..],
+            &state.current_epoch().tree_hash_root()[..],
             spec.get_domain(
                 block.slot.epoch(spec.slots_per_epoch),
                 Domain::Randao,
@@ -176,7 +176,7 @@ pub fn process_randao<T: EthSpec>(
     );
 
     // Update the current epoch RANDAO mix.
-    state.update_randao_mix(state.current_epoch(spec), &block.body.randao_reveal, spec)?;
+    state.update_randao_mix(state.current_epoch(), &block.body.randao_reveal, spec)?;
 
     Ok(())
 }
@@ -330,7 +330,7 @@ pub fn process_attestations<T: EthSpec>(
         let pending_attestation = PendingAttestation::from_attestation(attestation, state.slot);
         let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
 
-        if attestation_epoch == state.current_epoch(spec) {
+        if attestation_epoch == state.current_epoch() {
             state.current_epoch_attestations.push(pending_attestation)
         } else if attestation_epoch == state.previous_epoch(spec) {
             state.previous_epoch_attestations.push(pending_attestation)

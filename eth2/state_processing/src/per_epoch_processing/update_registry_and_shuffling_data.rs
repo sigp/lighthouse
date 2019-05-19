@@ -15,7 +15,7 @@ pub fn update_registry_and_shuffling_data<T: EthSpec>(
     state.previous_shuffling_start_shard = state.previous_shuffling_start_shard;
     state.previous_shuffling_seed = state.previous_shuffling_seed;
 
-    let current_epoch = state.current_epoch(spec);
+    let current_epoch = state.current_epoch();
     let next_epoch = current_epoch + 1;
 
     // Check we should update, and if so, update.
@@ -84,7 +84,7 @@ pub fn update_validator_registry<T: EthSpec>(
     current_total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let current_epoch = state.current_epoch(spec);
+    let current_epoch = state.current_epoch();
 
     let max_balance_churn = std::cmp::max(
         spec.max_deposit_amount,
@@ -140,7 +140,7 @@ pub fn activate_validator<T: EthSpec>(
     is_genesis: bool,
     spec: &ChainSpec,
 ) {
-    let current_epoch = state.current_epoch(spec);
+    let current_epoch = state.current_epoch();
 
     state.validator_registry[validator_index].activation_epoch = if is_genesis {
         spec.genesis_epoch

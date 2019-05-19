@@ -12,7 +12,7 @@ pub fn exit_validator<T: EthSpec>(
         return Err(Error::UnknownValidator);
     }
 
-    let delayed_epoch = state.get_delayed_activation_exit_epoch(state.current_epoch(spec), spec);
+    let delayed_epoch = state.get_delayed_activation_exit_epoch(state.current_epoch(), spec);
 
     if state.validator_registry[validator_index].exit_epoch > delayed_epoch {
         state.validator_registry[validator_index].exit_epoch = delayed_epoch;

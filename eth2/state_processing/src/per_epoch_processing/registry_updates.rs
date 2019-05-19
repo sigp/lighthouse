@@ -14,7 +14,7 @@ pub fn process_registry_updates<T: EthSpec>(
     // Collect eligible and exiting validators (we need to avoid mutating the state while iterating).
     // We assume it's safe to re-order the change in eligibility and `initiate_validator_exit`.
     // Rest assured exiting validators will still be exited in the same order as in the spec.
-    let current_epoch = state.current_epoch(spec);
+    let current_epoch = state.current_epoch();
     let is_eligible = |validator: &Validator| {
         validator.activation_eligibility_epoch == spec.far_future_epoch
             && validator.effective_balance >= spec.max_effective_balance

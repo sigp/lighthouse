@@ -14,7 +14,7 @@ pub fn slash_validator<T: EthSpec>(
         return Err(BeaconStateError::UnknownValidator);
     }
 
-    let current_epoch = state.current_epoch(spec);
+    let current_epoch = state.current_epoch();
 
     initiate_validator_exit(state, slashed_index, spec)?;
 

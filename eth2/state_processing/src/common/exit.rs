@@ -19,7 +19,7 @@ pub fn initiate_validator_exit<T: EthSpec>(
     }
 
     // Compute exit queue epoch
-    let delayed_epoch = state.get_delayed_activation_exit_epoch(state.current_epoch(spec), spec);
+    let delayed_epoch = state.get_delayed_activation_exit_epoch(state.current_epoch(), spec);
     let mut exit_queue_epoch = state
         .exit_cache
         .max_epoch()

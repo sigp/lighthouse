@@ -39,7 +39,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch(spec) == spec.genesis_epoch {
+    if state.current_epoch() == spec.genesis_epoch {
         return Ok(());
     }
 
@@ -118,7 +118,7 @@ fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let finality_delay = (state.previous_epoch(spec) - state.finalized_epoch).as_u64();
+    let finality_delay = (state.previous_epoch() - state.finalized_epoch).as_u64();
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
         let base_reward = get_base_reward(
