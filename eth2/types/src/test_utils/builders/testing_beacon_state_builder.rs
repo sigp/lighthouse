@@ -166,7 +166,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// Note: this performs the build when called. Ensure that no changes are made that would
     /// invalidate this cache.
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
-        self.state.build_all_caches(spec);
+        self.state.build_all_caches(spec).unwrap();
 
         Ok(())
     }
@@ -222,10 +222,12 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
         for slot in first_slot..=last_slot {
             let slot = Slot::from(slot);
 
-            let committees = state
+            let committees: Vec<OwnedCrosslinkCommittee> = state
                 .get_crosslink_committees_at_slot(slot, spec)
                 .unwrap()
-                .clone();
+                .into_iter()
+                .map(|c| c.clone().into_owned())
+                .collect();
 
             for crosslink_committee in committees {
                 let mut builder = TestingPendingAttestationBuilder::new(

@@ -13,11 +13,15 @@ fn execute_sane_cache_test<T: EthSpec>(
 ) {
     let active_indices: Vec<usize> = (0..validator_count).collect();
     let seed = state.generate_seed(epoch, spec).unwrap();
-    let start_shard = state.get_epoch_start_shard(epoch, spec).unwrap();
+    let start_shard = 0;
 
+    let mut ordered_indices = state
+        .get_cached_active_validator_indices(epoch)
+        .unwrap()
+        .to_vec();
+    ordered_indices.sort_unstable();
     assert_eq!(
-        &active_indices[..],
-        state.get_cached_active_validator_indices(epoch).unwrap(),
+        active_indices, ordered_indices,
         "Validator indices mismatch"
     );
 
@@ -29,15 +33,12 @@ fn execute_sane_cache_test<T: EthSpec>(
     for i in 0..T::shard_count() {
         let shard = (i + start_shard as usize) % T::shard_count();
 
-        dbg!(shard);
-        dbg!(start_shard);
-
         let c = state
             .get_crosslink_committee_for_shard(shard as u64, epoch)
             .unwrap()
             .unwrap();
 
-        for &i in &c.committee {
+        for &i in c.committee {
             assert_eq!(
                 i,
                 *expected_indices_iter.next().unwrap(),
