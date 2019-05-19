@@ -50,6 +50,7 @@ pub enum Error {
     },
     PreviousEpochCacheUninitialized,
     CurrentEpochCacheUnintialized,
+    RelativeEpochError(RelativeEpochError),
     EpochCacheUnintialized(RelativeEpoch),
     EpochCacheError(EpochCacheError),
     TreeHashCacheError(TreeHashCacheError),
@@ -284,11 +285,11 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.6.1
     pub fn get_attestation_slot(&self, attestation_data: &AttestationData) -> Result<Slot, Error> {
+        let target_epoch =
+            RelativeEpoch::from_epoch(self.current_epoch(), attestation_data.target_epoch)?;
+
         let cc = self
-            .get_crosslink_committee_for_shard(
-                attestation_data.shard,
-                attestation_data.target_epoch,
-            )?
+            .get_crosslink_committee_for_shard(attestation_data.shard, target_epoch)?
             .ok_or_else(|| Error::NoCommitteeForShard)?;
         Ok(cc.slot)
     }
@@ -298,8 +299,11 @@ impl<T: EthSpec> BeaconState<T> {
     /// Note: the indices are shuffled (i.e., not in ascending order).
     ///
     /// Returns an error if that epoch is not cached, or the cache is not initialized.
-    pub fn get_cached_active_validator_indices(&self, epoch: Epoch) -> Result<&[usize], Error> {
-        let cache = self.cache(epoch)?;
+    pub fn get_cached_active_validator_indices(
+        &self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<&[usize], Error> {
+        let cache = self.cache(relative_epoch)?;
 
         Ok(&cache.active_validator_indices())
     }
@@ -334,9 +338,9 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_crosslink_committee_for_shard(
         &self,
         shard: u64,
-        epoch: Epoch,
+        relative_epoch: RelativeEpoch,
     ) -> Result<Option<CrosslinkCommittee>, Error> {
-        let cache = self.cache(epoch)?;
+        let cache = self.cache(relative_epoch)?;
 
         Ok(cache.get_crosslink_committee_for_shard(shard))
     }
@@ -662,7 +666,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
-            self.cache(self.current_epoch())?.active_validator_count() as u64
+            self.cache(RelativeEpoch::Current)?.active_validator_count() as u64
                 / spec.churn_limit_quotient,
         ))
     }
@@ -679,7 +683,7 @@ impl<T: EthSpec> BeaconState<T> {
         &self,
         validator_index: usize,
     ) -> Result<&Option<AttestationDuty>, Error> {
-        let cache = self.cache(self.current_epoch())?;
+        let cache = self.cache(RelativeEpoch::Current)?;
 
         Ok(cache
             .attestation_duties
@@ -765,13 +769,10 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
-    fn cache(&self, epoch: Epoch) -> Result<&EpochCache, Error> {
-        let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)
-            .map_err(|_| Error::EpochOutOfBounds)?;
-
+    fn cache(&self, relative_epoch: RelativeEpoch) -> Result<&EpochCache, Error> {
         let cache = &self.epoch_caches[Self::cache_index(relative_epoch)];
 
-        if cache.is_initialized_at(epoch) {
+        if cache.is_initialized_at(relative_epoch.into_epoch(self.current_epoch())) {
             Ok(cache)
         } else {
             Err(Error::EpochCacheUnintialized(relative_epoch))
@@ -842,6 +843,12 @@ impl<T: EthSpec> BeaconState<T> {
 impl From<EpochCacheError> for Error {
     fn from(e: EpochCacheError) -> Error {
         Error::EpochCacheError(e)
+    }
+}
+
+impl From<RelativeEpochError> for Error {
+    fn from(e: RelativeEpochError) -> Error {
+        Error::RelativeEpochError(e)
     }
 }
 
