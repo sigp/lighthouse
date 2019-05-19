@@ -14,6 +14,15 @@ pub trait EthSpec:
 
     fn spec() -> ChainSpec;
 
+    /// Returns the minimum number of validators required for this spec.
+    ///
+    /// This is the _absolute_ minimum, the number required to make the chain operate in the most
+    /// basic sense. This count is not required to provide any security guarantees regarding
+    /// decentralization, entropy, etc.
+    fn minimum_validator_count() -> usize {
+        Self::slots_per_epoch() as usize
+    }
+
     /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
     ///
     /// Spec v0.6.1
