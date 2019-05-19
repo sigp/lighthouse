@@ -163,7 +163,8 @@ pub fn process_crosslinks<T: EthSpec>(
         let epoch = relative_epoch.into_epoch(state.current_epoch());
         for offset in 0..state.get_epoch_committee_count(relative_epoch)? {
             let shard = (state.get_epoch_start_shard(relative_epoch)? + offset) % spec.shard_count;
-            let crosslink_committee = state.get_crosslink_committee(epoch, shard, spec)?;
+            let crosslink_committee =
+                state.get_crosslink_committee_for_shard(shard, relative_epoch)?;
 
             let winning_root = winning_root(state, shard, epoch, spec)?;
 
