@@ -30,23 +30,48 @@ fn execute_sane_cache_test<T: EthSpec>(
         shuffle_list(active_indices, spec.shuffle_round_count, &seed[..], false).unwrap();
 
     let mut expected_indices_iter = shuffling.iter();
+    let mut expected_shards_iter = (start_shard..start_shard + T::shard_count() as u64).into_iter();
 
-    for i in 0..T::shard_count() {
-        let shard = (i + start_shard as usize) % T::shard_count();
+    // Loop through all slots in the epoch being tested.
+    for slot in epoch.slot_iter(spec.slots_per_epoch) {
+        let crosslink_committees = state.get_crosslink_committees_at_slot(slot).unwrap();
 
-        let c = state
-            .get_crosslink_committee_for_shard(shard as u64, relative_epoch)
-            .unwrap()
-            .unwrap();
+        // Assert that the number of committees in this slot is consistent with the reported number
+        // of committees in an epoch.
+        assert_eq!(
+            crosslink_committees.len() as u64,
+            state.get_epoch_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
+        );
 
-        for &i in c.committee {
+        for cc in crosslink_committees {
+            // Assert that shards are assigned contiguously across committees.
+            assert_eq!(expected_shards_iter.next().unwrap(), cc.shard);
+            // Assert that a committee lookup via slot is identical to a committee lookup via
+            // shard.
             assert_eq!(
-                i,
-                *expected_indices_iter.next().unwrap(),
-                "Non-sequential validators."
+                state
+                    .get_crosslink_committee_for_shard(cc.shard, relative_epoch)
+                    .unwrap(),
+                cc
             );
+
+            // Loop through each validator in the committee.
+            for &i in cc.committee {
+                // Assert the validators are assigned contiguously across committees.
+                assert_eq!(
+                    i,
+                    *expected_indices_iter.next().unwrap(),
+                    "Non-sequential validators."
+                );
+            }
         }
     }
+
+    // Assert that all validators were assigned to a committee.
+    assert!(expected_indices_iter.next().is_none());
+
+    // Assert that all shards were assigned to a committee.
+    assert!(expected_shards_iter.next().is_none());
 }
 
 fn sane_cache_test<T: EthSpec>(

@@ -109,7 +109,7 @@ impl TestingBeaconBlockBuilder {
                 break;
             }
 
-            for crosslink_committee in state.get_crosslink_committees_at_slot(slot, spec)? {
+            for crosslink_committee in state.get_crosslink_committees_at_slot(slot)? {
                 if attestations_added >= num_attestations {
                     break;
                 }

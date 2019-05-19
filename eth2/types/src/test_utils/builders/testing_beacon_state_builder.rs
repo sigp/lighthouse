@@ -223,7 +223,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             let slot = Slot::from(slot);
 
             let committees: Vec<OwnedCrosslinkCommittee> = state
-                .get_crosslink_committees_at_slot(slot, spec)
+                .get_crosslink_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
                 .map(|c| c.clone().into_owned())

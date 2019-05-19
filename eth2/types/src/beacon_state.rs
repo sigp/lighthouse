@@ -348,7 +348,6 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_crosslink_committees_at_slot(
         &self,
         slot: Slot,
-        spec: &ChainSpec,
     ) -> Result<Vec<CrosslinkCommittee>, Error> {
         let relative_epoch = RelativeEpoch::from_slot(self.slot, slot, T::slots_per_epoch())?;
         let cache = self.cache(relative_epoch)?;
