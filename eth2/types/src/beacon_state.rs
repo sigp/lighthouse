@@ -44,6 +44,7 @@ pub enum Error {
     InsufficientSlashedBalances,
     InsufficientStateRoots,
     NoCommitteeForShard,
+    NoCommitteeForSlot,
     PubkeyCacheInconsistent,
     PubkeyCacheIncomplete {
         cache_len: usize,
@@ -346,10 +347,15 @@ impl<T: EthSpec> BeaconState<T> {
     /// Spec v0.5.1
     pub fn get_crosslink_committees_at_slot(
         &self,
-        _slot: Slot,
-        _spec: &ChainSpec,
-    ) -> Result<&Vec<CrosslinkCommittee>, Error> {
-        unimplemented!("FIXME(sproul)")
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Vec<CrosslinkCommittee>, Error> {
+        let relative_epoch = RelativeEpoch::from_slot(self.slot, slot, T::slots_per_epoch())?;
+        let cache = self.cache(relative_epoch)?;
+
+        cache
+            .get_crosslink_committees_for_slot(slot)
+            .ok_or_else(|| Error::NoCommitteeForSlot)
     }
 
     /// Returns the crosslink committees for some shard in some cached epoch.
