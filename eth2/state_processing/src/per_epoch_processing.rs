@@ -88,12 +88,12 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     total_balances: &TotalBalances,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch(spec) == spec.genesis_epoch {
+    if state.current_epoch() == spec.genesis_epoch {
         return Ok(());
     }
 
-    let previous_epoch = state.previous_epoch(spec);
-    let current_epoch = state.current_epoch(spec);
+    let previous_epoch = state.previous_epoch();
+    let current_epoch = state.current_epoch();
 
     let old_previous_justified_epoch = state.previous_justified_epoch;
     let old_current_justified_epoch = state.current_justified_epoch;
@@ -159,7 +159,7 @@ pub fn process_crosslinks<T: EthSpec>(
 
     state.previous_crosslinks = state.current_crosslinks.clone();
 
-    for epoch in vec![state.previous_epoch(spec), state.current_epoch(spec)] {
+    for epoch in vec![state.previous_epoch(), state.current_epoch()] {
         for offset in 0..state.get_epoch_committee_count(epoch, spec) {
             let shard = (state.get_epoch_start_shard(epoch, spec) + offset) % spec.shard_count;
             let crosslink_committee = state.get_crosslink_committee(epoch, shard, spec)?;
@@ -188,8 +188,8 @@ pub fn process_final_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let current_epoch = state.current_epoch(spec);
-    let next_epoch = state.next_epoch(spec);
+    let current_epoch = state.current_epoch();
+    let next_epoch = state.next_epoch();
 
     // Reset eth1 data votes.
     if (state.slot + 1) % spec.slots_per_eth1_voting_period == 0 {
@@ -233,11 +233,7 @@ pub fn process_final_updates<T: EthSpec>(
         state.set_slashed_balance(next_epoch, state.get_slashed_balance(current_epoch)?)?;
 
         // Set randao mix
-        state.set_randao_mix(
-            next_epoch,
-            *state.get_randao_mix(current_epoch, spec)?,
-            spec,
-        )?;
+        state.set_randao_mix(next_epoch, *state.get_randao_mix(current_epoch)?)?;
 
         state.slot -= 1;
     }

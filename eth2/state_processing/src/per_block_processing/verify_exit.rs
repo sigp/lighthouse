@@ -51,9 +51,9 @@ fn verify_exit_parametric<T: EthSpec>(
 
     // Exits must specify an epoch when they become valid; they are not valid before then.
     verify!(
-        time_independent_only || state.current_epoch(spec) >= exit.epoch,
+        time_independent_only || state.current_epoch() >= exit.epoch,
         Invalid::FutureEpoch {
-            state: state.current_epoch(spec),
+            state: state.current_epoch(),
             exit: exit.epoch
         }
     );

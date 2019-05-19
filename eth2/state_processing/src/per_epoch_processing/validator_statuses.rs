@@ -175,17 +175,17 @@ impl ValidatorStatuses {
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed,
                 is_withdrawable_in_current_epoch: validator
-                    .is_withdrawable_at(state.current_epoch(spec)),
+                    .is_withdrawable_at(state.current_epoch()),
                 current_epoch_effective_balance: effective_balance,
                 ..ValidatorStatus::default()
             };
 
-            if validator.is_active_at(state.current_epoch(spec)) {
+            if validator.is_active_at(state.current_epoch()) {
                 status.is_active_in_current_epoch = true;
                 total_balances.current_epoch += effective_balance;
             }
 
-            if validator.is_active_at(state.previous_epoch(spec)) {
+            if validator.is_active_at(state.previous_epoch()) {
                 status.is_active_in_previous_epoch = true;
                 total_balances.previous_epoch += effective_balance;
             }
@@ -220,17 +220,17 @@ impl ValidatorStatuses {
 
             // Profile this attestation, updating the total balances and generating an
             // `ValidatorStatus` object that applies to all participants in the attestation.
-            if is_from_epoch(a, state.current_epoch(spec)) {
+            if is_from_epoch(a, state.current_epoch()) {
                 status.is_current_epoch_attester = true;
 
-                if target_matches_epoch_start_block(a, state, state.current_epoch(spec), spec)? {
+                if target_matches_epoch_start_block(a, state, state.current_epoch(), spec)? {
                     status.is_current_epoch_target_attester = true;
                 }
-            } else if is_from_epoch(a, state.previous_epoch(spec)) {
+            } else if is_from_epoch(a, state.previous_epoch()) {
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
-                let attestation_slot = state.get_attestation_slot(&a.data, spec)?;
+                let attestation_slot = state.get_attestation_slot(&a.data)?;
                 let inclusion_slot = attestation_slot + a.inclusion_delay;
                 let relative_epoch = RelativeEpoch::from_slot(state.slot, inclusion_slot, spec)?;
                 status.inclusion_info = Some(InclusionInfo {
@@ -243,7 +243,7 @@ impl ValidatorStatuses {
                     )?,
                 });
 
-                if target_matches_epoch_start_block(a, state, state.previous_epoch(spec), spec)? {
+                if target_matches_epoch_start_block(a, state, state.previous_epoch(), spec)? {
                     status.is_previous_epoch_target_attester = true;
                 }
 
@@ -296,7 +296,7 @@ impl ValidatorStatuses {
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         // Loop through each slot in the previous epoch.
-        for slot in state.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
+        for slot in state.previous_epoch().slot_iter(spec.slots_per_epoch) {
             let crosslink_committees_at_slot =
                 state.get_crosslink_committees_at_slot(slot, spec)?;
 
@@ -353,7 +353,7 @@ fn has_common_beacon_block_root<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
-    let attestation_slot = state.get_attestation_slot(&a.data, spec)?;
+    let attestation_slot = state.get_attestation_slot(&a.data)?;
     let state_block_root = *state.get_block_root(attestation_slot)?;
 
     Ok(a.data.beacon_block_root == state_block_root)

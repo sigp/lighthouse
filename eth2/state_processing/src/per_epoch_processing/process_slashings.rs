@@ -8,7 +8,7 @@ pub fn process_slashings<T: EthSpec>(
     current_total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let current_epoch = state.current_epoch(spec);
+    let current_epoch = state.current_epoch();
 
     let total_at_start = state.get_slashed_balance(current_epoch + 1)?;
     let total_at_end = state.get_slashed_balance(current_epoch)?;
