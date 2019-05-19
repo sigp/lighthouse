@@ -150,18 +150,44 @@ impl EpochCache {
         self.shuffling_start_shard
     }
 
+    pub fn get_crosslink_committees_for_slot(&self, slot: Slot) -> Option<Vec<CrosslinkCommittee>> {
+        let position = self
+            .initialized_epoch?
+            .position(slot, self.slots_per_epoch)?;
+        let committees_per_slot = self.committee_count / self.slots_per_epoch as usize;
+        let position = position * committees_per_slot;
+
+        if position >= self.committee_count {
+            None
+        } else {
+            let mut committees = Vec::with_capacity(committees_per_slot);
+
+            for index in position..position + committees_per_slot {
+                let committee = self.compute_committee(index)?;
+                let shard = (self.shuffling_start_shard + index as u64) % self.shard_count;
+
+                committees.push(CrosslinkCommittee {
+                    committee,
+                    shard,
+                    slot,
+                });
+            }
+
+            Some(committees)
+        }
+    }
+
     pub fn first_committee_at_slot(&self, slot: Slot) -> Option<&[usize]> {
         let position = self
             .initialized_epoch?
             .position(slot, self.slots_per_epoch)?;
+        let committees_per_slot = self.committee_count / self.slots_per_epoch as usize;
+        let position = position * committees_per_slot;
 
-        if position > self.committee_count {
+        if position >= self.committee_count {
             None
         } else {
-            let committees_per_slot = self.committee_count / self.slots_per_epoch as usize;
-            let index = position * committees_per_slot;
-
-            self.compute_committee(index)
+            self.compute_committee(position)
         }
     }
 
