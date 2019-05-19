@@ -14,9 +14,10 @@ fn execute_sane_cache_test<T: EthSpec>(
     let active_indices: Vec<usize> = (0..validator_count).collect();
     let seed = state.generate_seed(epoch, spec).unwrap();
     let start_shard = 0;
+    let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).unwrap();
 
     let mut ordered_indices = state
-        .get_cached_active_validator_indices(epoch)
+        .get_cached_active_validator_indices(relative_epoch)
         .unwrap()
         .to_vec();
     ordered_indices.sort_unstable();
@@ -34,7 +35,7 @@ fn execute_sane_cache_test<T: EthSpec>(
         let shard = (i + start_shard as usize) % T::shard_count();
 
         let c = state
-            .get_crosslink_committee_for_shard(shard as u64, epoch)
+            .get_crosslink_committee_for_shard(shard as u64, relative_epoch)
             .unwrap()
             .unwrap();
 
