@@ -4,6 +4,21 @@ use crate::{test_utils::*, *};
 use fixed_len_vec::typenum::*;
 use serde_derive::{Deserialize, Serialize};
 
+#[test]
+fn default_values() {
+    let cache = CommitteeCache::default();
+
+    assert_eq!(cache.attestation_duties, vec![]);
+    assert_eq!(cache.is_initialized_at(Epoch::new(0)), false);
+    assert_eq!(cache.active_validator_indices(), &[]);
+    assert_eq!(cache.get_crosslink_committee_for_shard(0), None);
+    assert_eq!(cache.active_validator_count(), 0);
+    assert_eq!(cache.epoch_committee_count(), 0);
+    assert_eq!(cache.epoch_start_shard(), 0);
+    assert_eq!(cache.get_crosslink_committees_for_slot(Slot::new(0)), None);
+    assert_eq!(cache.first_committee_at_slot(Slot::new(0)), None);
+}
+
 fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
     let spec = &T::spec();
 
