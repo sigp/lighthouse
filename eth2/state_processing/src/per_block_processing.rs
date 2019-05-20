@@ -5,8 +5,7 @@ use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
 pub use self::verify_attester_slashing::{
-    gather_attester_slashing_indices, gather_attester_slashing_indices_modular,
-    verify_attester_slashing,
+    gather_attester_slashing_indices, get_slashable_indices, verify_attester_slashing,
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use validate_attestation::{
@@ -214,7 +213,7 @@ pub fn process_eth1_data<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
@@ -236,18 +235,18 @@ pub fn process_proposer_slashings<T: EthSpec>(
 
     // Update the state.
     for proposer_slashing in proposer_slashings {
-        slash_validator(state, proposer_slashing.proposer_index as usize, spec)?;
+        slash_validator(state, proposer_slashing.proposer_index as usize, None, spec)?;
     }
 
     Ok(())
 }
 
-/// Validates each `AttesterSlsashing` and updates the state, short-circuiting on an invalid object.
+/// Validates each `AttesterSlashing` and updates the state, short-circuiting on an invalid object.
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing],
@@ -289,11 +288,11 @@ pub fn process_attester_slashings<T: EthSpec>(
         )
         .map_err(|e| e.into_with_index(i))?;
 
-        let indexed_indices = gather_attester_slashing_indices(&state, &attester_slashing, spec)
+        let slashable_indices = get_slashable_indices(&state, &attester_slashing, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         for i in indexed_indices {
-            slash_validator(state, i as usize, spec)?;
+            slash_validator(state, i as usize, None, spec)?;
         }
     }
 
