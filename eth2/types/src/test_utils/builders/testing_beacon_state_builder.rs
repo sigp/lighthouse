@@ -205,10 +205,10 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
         let state = &mut self.state;
 
         state
-            .build_epoch_cache(RelativeEpoch::Previous, spec)
+            .build_committee_cache(RelativeEpoch::Previous, spec)
             .unwrap();
         state
-            .build_epoch_cache(RelativeEpoch::Current, spec)
+            .build_committee_cache(RelativeEpoch::Current, spec)
             .unwrap();
 
         let current_epoch = state.current_epoch();

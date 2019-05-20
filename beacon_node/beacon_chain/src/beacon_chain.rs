@@ -332,8 +332,8 @@ where
         // If required, transition the new state to the present slot.
         for _ in state.slot.as_u64()..present_slot.as_u64() {
             // Ensure the next epoch state caches are built in case of an epoch transition.
-            state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
-            state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+            state.build_committee_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
+            state.build_committee_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
 
             per_slot_processing(&mut *state, &self.spec)?;
         }
@@ -439,7 +439,7 @@ where
     pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
         self.state
             .write()
-            .build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
+            .build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         let index = self.state.read().get_beacon_proposer_index(
             slot,
@@ -669,7 +669,7 @@ where
 
         let mut state = self.state.read().clone();
 
-        state.build_epoch_cache(RelativeEpoch::Current, &self.spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         trace!("Finding attestations for new block...");
 

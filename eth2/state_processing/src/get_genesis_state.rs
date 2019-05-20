@@ -30,7 +30,7 @@ pub fn get_genesis_state<T: EthSpec>(
     }
 
     // Ensure the current epoch cache is built.
-    state.build_epoch_cache(RelativeEpoch::Current, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     // Set all the active index roots to be the genesis active index root.
     let active_validator_indices = state

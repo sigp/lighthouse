@@ -1,4 +1,6 @@
-use self::epoch_cache::{get_active_validator_indices, EpochCache, Error as EpochCacheError};
+use self::committee_cache::{
+    get_active_validator_indices, CommitteeCache, Error as CommitteeCacheError,
+};
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -18,7 +20,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 pub use beacon_state_types::*;
 
 mod beacon_state_types;
-mod epoch_cache;
+mod committee_cache;
 mod exit_cache;
 mod pubkey_cache;
 mod tests;
@@ -50,11 +52,11 @@ pub enum Error {
         cache_len: usize,
         registry_len: usize,
     },
-    PreviousEpochCacheUninitialized,
-    CurrentEpochCacheUninitialized,
+    PreviousCommitteeCacheUninitialized,
+    CurrentCommitteeCacheUninitialized,
     RelativeEpochError(RelativeEpochError),
-    EpochCacheUninitialized(RelativeEpoch),
-    EpochCacheError(EpochCacheError),
+    CommitteeCacheUninitialized(RelativeEpoch),
+    CommitteeCacheError(CommitteeCacheError),
     TreeHashCacheError(TreeHashCacheError),
 }
 
@@ -122,7 +124,7 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub epoch_caches: [EpochCache; CACHED_EPOCHS],
+    pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
     #[serde(default)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
@@ -213,10 +215,10 @@ impl<T: EthSpec> BeaconState<T> {
             /*
              * Caching (not in spec)
              */
-            epoch_caches: [
-                EpochCache::default(),
-                EpochCache::default(),
-                EpochCache::default(),
+            committee_caches: [
+                CommitteeCache::default(),
+                CommitteeCache::default(),
+                CommitteeCache::default(),
             ],
             pubkey_cache: PubkeyCache::default(),
             tree_hash_cache: TreeHashCache::default(),
@@ -732,9 +734,9 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Build all the caches, if they need to be built.
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        self.build_epoch_cache(RelativeEpoch::Previous, spec)?;
-        self.build_epoch_cache(RelativeEpoch::Current, spec)?;
-        self.build_epoch_cache(RelativeEpoch::Next, spec)?;
+        self.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        self.build_committee_cache(RelativeEpoch::Current, spec)?;
+        self.build_committee_cache(RelativeEpoch::Next, spec)?;
         self.update_pubkey_cache()?;
         self.update_tree_hash_cache()?;
         self.exit_cache
@@ -744,30 +746,30 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build an epoch cache, unless it is has already been built.
-    pub fn build_epoch_cache(
+    pub fn build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = Self::cache_index(relative_epoch);
 
-        if self.epoch_caches[i].is_initialized_at(self.previous_epoch()) {
+        if self.committee_caches[i].is_initialized_at(self.previous_epoch()) {
             Ok(())
         } else {
-            self.force_build_epoch_cache(relative_epoch, spec)
+            self.force_build_committee_cache(relative_epoch, spec)
         }
     }
 
     /// Always builds the previous epoch cache, even if it is already initialized.
-    pub fn force_build_epoch_cache(
+    pub fn force_build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let epoch = relative_epoch.into_epoch(self.current_epoch());
 
-        self.epoch_caches[Self::cache_index(relative_epoch)] =
-            EpochCache::initialized(&self, epoch, spec)?;
+        self.committee_caches[Self::cache_index(relative_epoch)] =
+            CommitteeCache::initialized(&self, epoch, spec)?;
         Ok(())
     }
 
@@ -779,9 +781,9 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn advance_caches(&mut self) {
         let next = Self::cache_index(RelativeEpoch::Previous);
 
-        let caches = &mut self.epoch_caches[..];
+        let caches = &mut self.committee_caches[..];
         caches.rotate_left(1);
-        caches[next] = EpochCache::default();
+        caches[next] = CommitteeCache::default();
     }
 
     fn cache_index(relative_epoch: RelativeEpoch) -> usize {
@@ -794,22 +796,22 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
-    fn cache(&self, relative_epoch: RelativeEpoch) -> Result<&EpochCache, Error> {
-        let cache = &self.epoch_caches[Self::cache_index(relative_epoch)];
+    fn cache(&self, relative_epoch: RelativeEpoch) -> Result<&CommitteeCache, Error> {
+        let cache = &self.committee_caches[Self::cache_index(relative_epoch)];
 
         if cache.is_initialized_at(relative_epoch.into_epoch(self.current_epoch())) {
             Ok(cache)
         } else {
-            Err(Error::EpochCacheUninitialized(relative_epoch))
+            Err(Error::CommitteeCacheUninitialized(relative_epoch))
         }
     }
 
     /// Drops the cache, leaving it in an uninitialized state.
     fn drop_cache(&mut self, relative_epoch: RelativeEpoch) {
-        self.epoch_caches[Self::cache_index(relative_epoch)] = EpochCache::default();
+        self.committee_caches[Self::cache_index(relative_epoch)] = CommitteeCache::default();
     }
 
-    // FIXME(sproul): drop_previous/current_epoch_cache
+    // FIXME(sproul): drop_previous/current_committee_cache
 
     /// Updates the pubkey cache, if required.
     ///
@@ -870,9 +872,9 @@ impl<T: EthSpec> BeaconState<T> {
     }
 }
 
-impl From<EpochCacheError> for Error {
-    fn from(e: EpochCacheError) -> Error {
-        Error::EpochCacheError(e)
+impl From<CommitteeCacheError> for Error {
+    fn from(e: CommitteeCacheError) -> Error {
+        Error::CommitteeCacheError(e)
     }
 }
 

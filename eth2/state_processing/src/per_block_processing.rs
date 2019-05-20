@@ -79,8 +79,8 @@ fn per_block_processing_signature_optional<T: EthSpec>(
     process_block_header(state, block, spec)?;
 
     // Ensure the current and previous epoch cache is built.
-    state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
-    state.build_epoch_cache(RelativeEpoch::Current, spec)?;
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     if should_verify_block_signature {
         verify_block_signature(&state, &block, &spec)?;
@@ -315,7 +315,7 @@ pub fn process_attestations<T: EthSpec>(
     );
 
     // Ensure the previous epoch cache exists.
-    state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
 
     // Verify attestations in parallel.
     attestations

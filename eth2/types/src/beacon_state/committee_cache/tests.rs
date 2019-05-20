@@ -23,7 +23,7 @@ fn fails_without_validators() {
     let spec = &FewValidatorsEthSpec::spec();
 
     assert_eq!(
-        EpochCache::initialized(&state, state.current_epoch(), &spec),
+        CommitteeCache::initialized(&state, state.current_epoch(), &spec),
         Err(BeaconStateError::InsufficientValidators)
     );
 }
@@ -33,16 +33,16 @@ fn initializes_with_the_right_epoch() {
     let state = new_state::<FewValidatorsEthSpec>(16, Slot::new(0));
     let spec = &FewValidatorsEthSpec::spec();
 
-    let cache = EpochCache::default();
+    let cache = CommitteeCache::default();
     assert_eq!(cache.initialized_epoch, None);
 
-    let cache = EpochCache::initialized(&state, state.current_epoch(), &spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.current_epoch(), &spec).unwrap();
     assert_eq!(cache.initialized_epoch, Some(state.current_epoch()));
 
-    let cache = EpochCache::initialized(&state, state.previous_epoch(), &spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.previous_epoch(), &spec).unwrap();
     assert_eq!(cache.initialized_epoch, Some(state.previous_epoch()));
 
-    let cache = EpochCache::initialized(&state, state.next_epoch(), &spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.next_epoch(), &spec).unwrap();
     assert_eq!(cache.initialized_epoch, Some(state.next_epoch()));
 }
 
@@ -78,13 +78,13 @@ fn shuffles_for_the_right_epoch() {
         .unwrap()
     };
 
-    let cache = EpochCache::initialized(&state, state.current_epoch(), spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(current_seed));
 
-    let cache = EpochCache::initialized(&state, state.previous_epoch(), spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.previous_epoch(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(previous_seed));
 
-    let cache = EpochCache::initialized(&state, state.next_epoch(), spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.next_epoch(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(next_seed));
 }
 
@@ -100,13 +100,13 @@ fn can_start_on_any_shard() {
     for i in 0..FewValidatorsEthSpec::shard_count() as u64 {
         state.latest_start_shard = i;
 
-        let cache = EpochCache::initialized(&state, state.current_epoch(), spec).unwrap();
+        let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard, i);
 
-        let cache = EpochCache::initialized(&state, state.previous_epoch(), spec).unwrap();
+        let cache = CommitteeCache::initialized(&state, state.previous_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard, i);
 
-        let cache = EpochCache::initialized(&state, state.next_epoch(), spec).unwrap();
+        let cache = CommitteeCache::initialized(&state, state.next_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard, i);
     }
 }
@@ -195,16 +195,16 @@ fn starts_on_the_correct_shard() {
     for i in 0..ExcessShardsEthSpec::shard_count() {
         state.latest_start_shard = i as u64;
 
-        let cache = EpochCache::initialized(&state, state.current_epoch(), spec).unwrap();
+        let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard as usize, i);
 
-        let cache = EpochCache::initialized(&state, state.previous_epoch(), spec).unwrap();
+        let cache = CommitteeCache::initialized(&state, state.previous_epoch(), spec).unwrap();
         assert_eq!(
             cache.shuffling_start_shard as usize,
             (i + shard_count - previous_shards) % shard_count
         );
 
-        let cache = EpochCache::initialized(&state, state.next_epoch(), spec).unwrap();
+        let cache = CommitteeCache::initialized(&state, state.next_epoch(), spec).unwrap();
         assert_eq!(
             cache.shuffling_start_shard as usize,
             (i + current_shards) % shard_count
