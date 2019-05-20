@@ -266,7 +266,7 @@ mod committees {
     fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
         let spec = T::spec();
 
-        let validator_count = (spec.shard_count * spec.target_committee_size) + 1;
+        let validator_count = (T::shard_count() * spec.target_committee_size) + 1;
 
         committee_consistency_test::<T>(validator_count as usize, Epoch::new(0), cached_epoch);
 
