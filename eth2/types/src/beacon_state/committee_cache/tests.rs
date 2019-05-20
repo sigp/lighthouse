@@ -8,10 +8,10 @@ use serde_derive::{Deserialize, Serialize};
 fn default_values() {
     let cache = CommitteeCache::default();
 
-    assert_eq!(cache.attestation_duties, vec![]);
     assert_eq!(cache.is_initialized_at(Epoch::new(0)), false);
     assert_eq!(cache.active_validator_indices(), &[]);
     assert_eq!(cache.get_crosslink_committee_for_shard(0), None);
+    assert_eq!(cache.get_attestation_duties(0), None);
     assert_eq!(cache.active_validator_count(), 0);
     assert_eq!(cache.epoch_committee_count(), 0);
     assert_eq!(cache.epoch_start_shard(), 0);
@@ -93,14 +93,27 @@ fn shuffles_for_the_right_epoch() {
         .unwrap()
     };
 
+    let assert_shuffling_positions_accurate = |cache: &CommitteeCache| {
+        for (i, v) in cache.shuffling.iter().enumerate() {
+            assert_eq!(
+                cache.shuffling_positions[*v].unwrap().get() - 1,
+                i,
+                "Shuffling position inaccurate"
+            );
+        }
+    };
+
     let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(current_seed));
+    assert_shuffling_positions_accurate(&cache);
 
     let cache = CommitteeCache::initialized(&state, state.previous_epoch(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(previous_seed));
+    assert_shuffling_positions_accurate(&cache);
 
     let cache = CommitteeCache::initialized(&state, state.next_epoch(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(next_seed));
+    assert_shuffling_positions_accurate(&cache);
 }
 
 #[test]

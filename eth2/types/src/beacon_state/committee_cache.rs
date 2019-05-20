@@ -1,7 +1,8 @@
 use super::BeaconState;
 use crate::*;
-use honey_badger_split::SplitExt;
+use core::num::NonZeroUsize;
 use serde_derive::{Deserialize, Serialize};
+use std::ops::Range;
 use swap_or_not_shuffle::shuffle_list;
 
 mod tests;
@@ -10,15 +11,13 @@ mod tests;
 /// read the committees for the given epoch.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct CommitteeCache {
-    /// `Some(epoch)` if the cache is initialized where `epoch` is the cache it holds.
     initialized_epoch: Option<Epoch>,
-    shuffling_start_shard: u64,
     shuffling: Vec<usize>,
+    shuffling_positions: Vec<Option<NonZeroUsize>>,
+    shuffling_start_shard: u64,
     shard_count: u64,
     committee_count: usize,
     slots_per_epoch: u64,
-    /// Maps validator index to a slot, shard and committee index for attestation.
-    pub attestation_duties: Vec<Option<AttestationDuty>>,
 }
 
 impl CommitteeCache {
@@ -76,41 +75,25 @@ impl CommitteeCache {
         )
         .ok_or_else(|| Error::UnableToShuffle)?;
 
-        let mut cache = CommitteeCache {
+        // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
+        if state.validator_registry.len() >= usize::max_value() - 1 {
+            return Err(Error::TooManyValidators);
+        }
+
+        let mut shuffling_positions = vec![None; state.validator_registry.len()];
+        for (i, v) in shuffling.iter().enumerate() {
+            shuffling_positions[*v] = NonZeroUsize::new(i + 1);
+        }
+
+        Ok(CommitteeCache {
             initialized_epoch: Some(epoch),
             shuffling_start_shard,
             shuffling,
             shard_count: T::shard_count() as u64,
             committee_count,
             slots_per_epoch: T::slots_per_epoch(),
-            attestation_duties: vec![None; state.validator_registry.len()],
-        };
-
-        cache.build_attestation_duties();
-
-        Ok(cache)
-    }
-
-    /// Scans the shuffling and stores the attestation duties required for each active validator.
-    fn build_attestation_duties(&mut self) {
-        for (i, committee) in self
-            .shuffling
-            .honey_badger_split(self.committee_count)
-            .enumerate()
-        {
-            let shard = (self.shuffling_start_shard + i as u64) % self.shard_count;
-
-            let slot = self.crosslink_slot_for_shard(shard).unwrap();
-
-            for (committee_index, validator_index) in committee.iter().enumerate() {
-                self.attestation_duties[*validator_index] = Some(AttestationDuty {
-                    slot,
-                    shard,
-                    committee_index,
-                    committee_len: committee.len(),
-                });
-            }
-        }
+            shuffling_positions,
+        })
     }
 
     /// Returns `true` if the cache has been initialized at the supplied `epoch`.
@@ -152,6 +135,39 @@ impl CommitteeCache {
             committee,
             slot,
         })
+    }
+
+    /// Returns the `AttestationDuty` for the given `validator_index`.
+    ///
+    /// Returns `None` if the `validator_index` does not exist, does not have duties or `Self` is
+    /// non-initialized.
+    pub fn get_attestation_duties(&self, validator_index: usize) -> Option<AttestationDuty> {
+        let i = self.shuffled_position(validator_index)?;
+
+        (0..self.committee_count)
+            .into_iter()
+            .map(|nth_committee| (nth_committee, self.compute_committee_range(nth_committee)))
+            .find(|(_, range)| {
+                if let Some(range) = range {
+                    (range.start <= i) && (range.end > i)
+                } else {
+                    false
+                }
+            })
+            .and_then(|(nth_committee, range)| {
+                let shard = (self.shuffling_start_shard + nth_committee as u64) % self.shard_count;
+                let slot = self.crosslink_slot_for_shard(shard)?;
+                let range = range?;
+                let committee_index = i - range.start;
+                let committee_len = range.end - range.start;
+
+                Some(AttestationDuty {
+                    slot,
+                    shard,
+                    committee_index,
+                    committee_len,
+                })
+            })
     }
 
     /// Returns the number of active validators in the initialized epoch.
@@ -224,10 +240,17 @@ impl CommitteeCache {
 
     /// Returns a slice of `self.shuffling` that represents the `index`'th committee in the epoch.
     ///
+    /// Spec v0.6.1
+    fn compute_committee(&self, index: usize) -> Option<&[usize]> {
+        Some(&self.shuffling[self.compute_committee_range(index)?])
+    }
+
+    /// Returns a range of `self.shuffling` that represents the `index`'th committee in the epoch.
+    ///
     /// To avoid a divide-by-zero, returns `None` if `self.committee_count` is zero.
     ///
     /// Spec v0.6.1
-    fn compute_committee(&self, index: usize) -> Option<&[usize]> {
+    fn compute_committee_range(&self, index: usize) -> Option<Range<usize>> {
         if self.committee_count == 0 {
             return None;
         }
@@ -235,11 +258,10 @@ impl CommitteeCache {
         let num_validators = self.shuffling.len();
         let count = self.committee_count;
 
-        // Note: `count != 0` is enforced in the constructor.
         let start = (num_validators * index) / count;
         let end = (num_validators * (index + 1)) / count;
 
-        Some(&self.shuffling[start..end])
+        Some(start..end)
     }
 
     /// Returns the `slot` that `shard` will be crosslink-ed in during the initialized epoch.
@@ -253,6 +275,15 @@ impl CommitteeCache {
             self.initialized_epoch?.start_slot(self.slots_per_epoch)
                 + offset / (self.committee_count as u64 / self.slots_per_epoch),
         )
+    }
+
+    /// Returns the index of some validator in `self.shuffling`.
+    ///
+    /// Always returns `None` for a non-initialized epoch.
+    fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
+        self.shuffling_positions
+            .get(validator_index)?
+            .and_then(|p| Some(p.get() - 1))
     }
 }
 
