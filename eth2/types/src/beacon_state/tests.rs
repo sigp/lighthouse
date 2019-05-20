@@ -244,6 +244,12 @@ mod committees {
 
         let (mut state, _keypairs): (BeaconState<T>, _) = builder.build();
 
+        let distinct_hashes: Vec<Hash256> = (0..T::latest_randao_mixes_length())
+            .into_iter()
+            .map(|i| Hash256::from(i as u64))
+            .collect();
+        state.latest_randao_mixes = FixedLenVec::from(distinct_hashes);
+
         state
             .build_epoch_cache(RelativeEpoch::Previous, spec)
             .unwrap();
