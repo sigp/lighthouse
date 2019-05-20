@@ -24,8 +24,7 @@ pub struct ChainSpec {
     /*
      * Misc
      */
-    pub shard_count: u64,
-    pub target_committee_size: u64,
+    pub target_committee_size: usize,
     pub max_indices_per_attestation: u64,
     pub min_per_epoch_churn_limit: u64,
     pub churn_limit_quotient: u64,
@@ -113,19 +112,6 @@ pub struct ChainSpec {
 }
 
 impl ChainSpec {
-    /// Return the number of committees in one epoch.
-    ///
-    /// Spec v0.6.1
-    pub fn get_epoch_committee_count(&self, active_validator_count: usize) -> u64 {
-        std::cmp::max(
-            1,
-            std::cmp::min(
-                self.shard_count / self.slots_per_epoch,
-                active_validator_count as u64 / self.slots_per_epoch / self.target_committee_size,
-            ),
-        ) * self.slots_per_epoch
-    }
-
     /// Get the domain number that represents the fork meta and signature domain.
     ///
     /// Spec v0.6.1
@@ -156,7 +142,6 @@ impl ChainSpec {
             /*
              * Misc
              */
-            shard_count: 1_024,
             target_committee_size: 128,
             max_indices_per_attestation: 4096,
             min_per_epoch_churn_limit: 4,
@@ -263,7 +248,6 @@ impl ChainSpec {
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
 
         Self {
-            shard_count: 8,
             target_committee_size: 1,
             genesis_slot,
             genesis_epoch,

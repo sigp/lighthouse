@@ -43,14 +43,13 @@ impl EpochCache {
             return Err(BeaconStateError::InsufficientValidators);
         }
 
-        let committee_count =
-            spec.get_epoch_committee_count(active_validator_indices.len()) as usize;
+        let committee_count = T::get_epoch_committee_count(active_validator_indices.len()) as usize;
 
         let shuffling_start_shard = match relative_epoch {
             RelativeEpoch::Current => state.latest_start_shard,
             RelativeEpoch::Previous => {
                 let committees_in_previous_epoch =
-                    spec.get_epoch_committee_count(active_validator_indices.len());
+                    T::get_epoch_committee_count(active_validator_indices.len()) as u64;
 
                 (state.latest_start_shard + T::shard_count() as u64 - committees_in_previous_epoch)
                     % T::shard_count() as u64
@@ -59,9 +58,9 @@ impl EpochCache {
                 let current_active_validators =
                     get_active_validator_count(&state.validator_registry, state.current_epoch());
                 let committees_in_current_epoch =
-                    spec.get_epoch_committee_count(current_active_validators);
+                    T::get_epoch_committee_count(current_active_validators) as u64;
 
-                (state.latest_start_shard + committees_in_current_epoch) % T::shard_count as u64
+                (state.latest_start_shard + committees_in_current_epoch) % T::shard_count() as u64
             }
         };
 

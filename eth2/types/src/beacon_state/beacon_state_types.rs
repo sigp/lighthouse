@@ -14,6 +14,23 @@ pub trait EthSpec:
 
     fn spec() -> ChainSpec;
 
+    /// Return the number of committees in one epoch.
+    ///
+    /// Spec v0.6.1
+    fn get_epoch_committee_count(active_validator_count: usize) -> usize {
+        let target_committee_size = Self::spec().target_committee_size;
+        let shard_count = Self::shard_count();
+        let slots_per_epoch = Self::slots_per_epoch() as usize;
+
+        std::cmp::max(
+            1,
+            std::cmp::min(
+                shard_count / slots_per_epoch,
+                active_validator_count / slots_per_epoch / target_committee_size,
+            ),
+        ) * slots_per_epoch
+    }
+
     /// Returns the minimum number of validators required for this spec.
     ///
     /// This is the _absolute_ minimum, the number required to make the chain operate in the most
