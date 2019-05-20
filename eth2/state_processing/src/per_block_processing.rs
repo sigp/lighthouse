@@ -86,7 +86,7 @@ fn per_block_processing_signature_optional<T: EthSpec>(
         verify_block_signature(&state, &block, &spec)?;
     }
     process_randao(&mut state, &block, &spec)?;
-    process_eth1_data(&mut state, &block.body.eth1_data)?;
+    process_eth1_data(&mut state, &block.body.eth1_data, spec)?;
     process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
     process_attester_slashings(&mut state, &block.body.attester_slashings, spec)?;
     process_attestations(&mut state, &block.body.attestations, spec)?;
@@ -99,7 +99,7 @@ fn per_block_processing_signature_optional<T: EthSpec>(
 
 /// Processes the block header.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -119,12 +119,17 @@ pub fn process_block_header<T: EthSpec>(
 
     state.latest_block_header = block.temporary_block_header(spec);
 
+    // Verify proposer is not slashed
+    let proposer_idx = state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?;
+    let proposer = &state.validator_registry[proposer_idx];
+    verify!(!proposer.slashed, Invalid::ProposerSlashed(proposer_idx));
+
     Ok(())
 }
 
 /// Verifies the signature of a block.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
     block: &BeaconBlock,
@@ -135,7 +140,7 @@ pub fn verify_block_signature<T: EthSpec>(
 
     let domain = spec.get_domain(
         block.slot.epoch(spec.slots_per_epoch),
-        Domain::BeaconBlock,
+        Domain::BeaconProposer,
         &state.fork,
     );
 
@@ -152,7 +157,7 @@ pub fn verify_block_signature<T: EthSpec>(
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -176,32 +181,29 @@ pub fn process_randao<T: EthSpec>(
     );
 
     // Update the current epoch RANDAO mix.
-    state.update_randao_mix(state.current_epoch(), &block.body.randao_reveal, spec)?;
+    state.update_randao_mix(state.current_epoch(), &block.body.randao_reveal)?;
 
     Ok(())
 }
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
+    spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // Attempt to find a `Eth1DataVote` with matching `Eth1Data`.
-    let matching_eth1_vote_index = state
+    state.eth1_data_votes.push(eth1_data.clone());
+
+    let num_votes = state
         .eth1_data_votes
         .iter()
-        .position(|vote| vote.eth1_data == *eth1_data);
+        .filter(|vote| *vote == eth1_data)
+        .count() as u64;
 
-    // If a vote exists, increment it's `vote_count`. Otherwise, create a new `Eth1DataVote`.
-    if let Some(index) = matching_eth1_vote_index {
-        state.eth1_data_votes[index].vote_count += 1;
-    } else {
-        state.eth1_data_votes.push(Eth1DataVote {
-            eth1_data: eth1_data.clone(),
-            vote_count: 1,
-        });
+    if num_votes * 2 > spec.slots_per_eth1_voting_period {
+        state.latest_eth1_data = eth1_data.clone();
     }
 
     Ok(())
