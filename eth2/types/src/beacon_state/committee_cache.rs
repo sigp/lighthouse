@@ -76,7 +76,7 @@ impl CommitteeCache {
         .ok_or_else(|| Error::UnableToShuffle)?;
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validator_registry.len() >= usize::max_value() - 1 {
+        if state.validator_registry.len() > usize::max_value() - 1 {
             return Err(Error::TooManyValidators);
         }
 
