@@ -1,6 +1,8 @@
 #![cfg(test)]
 use super::*;
 use crate::{test_utils::*, *};
+use fixed_len_vec::typenum::*;
+use serde_derive::{Deserialize, Serialize};
 
 fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
     let spec = &T::spec();
@@ -84,4 +86,126 @@ fn shuffles_for_the_right_epoch() {
 
     let cache = EpochCache::initialized(&state, state.next_epoch(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(next_seed));
+}
+
+#[test]
+fn can_start_on_any_shard() {
+    let num_validators = FewValidatorsEthSpec::minimum_validator_count() * 2;
+    let epoch = Epoch::new(100_000_000);
+    let slot = epoch.start_slot(FewValidatorsEthSpec::slots_per_epoch());
+
+    let mut state = new_state::<FewValidatorsEthSpec>(num_validators, slot);
+    let spec = &FewValidatorsEthSpec::spec();
+
+    for i in 0..FewValidatorsEthSpec::shard_count() as u64 {
+        state.latest_start_shard = i;
+
+        let cache = EpochCache::initialized(&state, state.current_epoch(), spec).unwrap();
+        assert_eq!(cache.shuffling_start_shard, i);
+
+        let cache = EpochCache::initialized(&state, state.previous_epoch(), spec).unwrap();
+        assert_eq!(cache.shuffling_start_shard, i);
+
+        let cache = EpochCache::initialized(&state, state.next_epoch(), spec).unwrap();
+        assert_eq!(cache.shuffling_start_shard, i);
+    }
+}
+
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+pub struct ExcessShardsEthSpec;
+
+impl EthSpec for ExcessShardsEthSpec {
+    type ShardCount = U128;
+    type SlotsPerHistoricalRoot = U8192;
+    type LatestRandaoMixesLength = U8192;
+    type LatestActiveIndexRootsLength = U8192;
+    type LatestSlashedExitLength = U8192;
+
+    fn spec() -> ChainSpec {
+        ChainSpec::few_validators()
+    }
+}
+
+#[test]
+fn starts_on_the_correct_shard() {
+    let spec = &ExcessShardsEthSpec::spec();
+
+    let num_validators = ExcessShardsEthSpec::shard_count();
+
+    let epoch = Epoch::new(100_000_000);
+    let slot = epoch.start_slot(ExcessShardsEthSpec::slots_per_epoch());
+
+    let mut state = new_state::<ExcessShardsEthSpec>(num_validators, slot);
+
+    let validator_count = state.validator_registry.len();
+
+    let previous_epoch = state.previous_epoch();
+    let current_epoch = state.current_epoch();
+    let next_epoch = state.next_epoch();
+
+    for (i, mut v) in state.validator_registry.iter_mut().enumerate() {
+        let epoch = if i < validator_count / 4 {
+            previous_epoch
+        } else if i < validator_count / 2 {
+            current_epoch
+        } else {
+            next_epoch
+        };
+
+        v.activation_epoch = epoch;
+    }
+
+    assert_eq!(
+        get_active_validator_count(&state.validator_registry, previous_epoch),
+        validator_count / 4
+    );
+    assert_eq!(
+        get_active_validator_count(&state.validator_registry, current_epoch),
+        validator_count / 2
+    );
+    assert_eq!(
+        get_active_validator_count(&state.validator_registry, next_epoch),
+        validator_count
+    );
+
+    let previous_shards = ExcessShardsEthSpec::get_epoch_committee_count(
+        get_active_validator_count(&state.validator_registry, previous_epoch),
+    );
+    let current_shards = ExcessShardsEthSpec::get_epoch_committee_count(
+        get_active_validator_count(&state.validator_registry, current_epoch),
+    );
+    let next_shards = ExcessShardsEthSpec::get_epoch_committee_count(get_active_validator_count(
+        &state.validator_registry,
+        next_epoch,
+    ));
+
+    assert_eq!(
+        previous_shards as usize,
+        ExcessShardsEthSpec::shard_count() / 4
+    );
+    assert_eq!(
+        current_shards as usize,
+        ExcessShardsEthSpec::shard_count() / 2
+    );
+    assert_eq!(next_shards as usize, ExcessShardsEthSpec::shard_count());
+
+    let shard_count = ExcessShardsEthSpec::shard_count();
+    for i in 0..ExcessShardsEthSpec::shard_count() {
+        state.latest_start_shard = i as u64;
+
+        let cache = EpochCache::initialized(&state, state.current_epoch(), spec).unwrap();
+        assert_eq!(cache.shuffling_start_shard as usize, i);
+
+        let cache = EpochCache::initialized(&state, state.previous_epoch(), spec).unwrap();
+        assert_eq!(
+            cache.shuffling_start_shard as usize,
+            (i + shard_count - previous_shards) % shard_count
+        );
+
+        let cache = EpochCache::initialized(&state, state.next_epoch(), spec).unwrap();
+        assert_eq!(
+            cache.shuffling_start_shard as usize,
+            (i + current_shards) % shard_count
+        );
+    }
 }
