@@ -546,10 +546,10 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Replace `active_index_roots` with clones of `index_root`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn fill_active_index_roots_with(&mut self, index_root: Hash256) {
         self.latest_active_index_roots =
-            vec![index_root; self.latest_active_index_roots.len() as usize].into()
+            vec![index_root; self.latest_active_index_roots.len()].into()
     }
 
     /// Safely obtains the index for latest state roots, given some `slot`.
