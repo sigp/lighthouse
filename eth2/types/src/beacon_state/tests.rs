@@ -72,7 +72,6 @@ fn get_active_index_root_index() {
     test_active_index::<FoundationEthSpec>(slot);
 }
 
-/*
 /// Test that
 ///
 /// 1. Using the cache before it's built fails.
@@ -89,14 +88,12 @@ fn test_cache_initialization<'a, T: EthSpec>(
 
     // Assuming the cache isn't already built, assert that a call to a cache-using function fails.
     assert_eq!(
-        state.get_attestation_duties(0, spec),
+        state.get_attestation_duties(0, relative_epoch),
         Err(BeaconStateError::EpochCacheUninitialized(relative_epoch))
     );
 
     // Build the cache.
-    state
-        .build_current_epoch_cache(relative_epoch, spec)
-        .unwrap();
+    state.build_epoch_cache(relative_epoch, spec).unwrap();
 
     // Assert a call to a cache-using function passes.
     let _ = state
@@ -125,10 +122,8 @@ fn cache_initialization() {
 
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
-    test_cache_initialization(&mut state, RelativeEpoch::NextWithRegistryChange, &spec);
-    test_cache_initialization(&mut state, RelativeEpoch::NextWithoutRegistryChange, &spec);
+    test_cache_initialization(&mut state, RelativeEpoch::Next, &spec);
 }
-*/
 
 #[test]
 fn tree_hash_cache() {
@@ -208,13 +203,23 @@ mod committees {
                 );
 
                 // Loop through each validator in the committee.
-                for &i in cc.committee {
+                for (committee_i, validator_i) in cc.committee.iter().enumerate() {
                     // Assert the validators are assigned contiguously across committees.
                     assert_eq!(
-                        i,
+                        *validator_i,
                         *expected_indices_iter.next().unwrap(),
                         "Non-sequential validators."
                     );
+                    // Assert a call to `get_attestation_duties` is consistent with a call to
+                    // `get_crosslink_committees_at_slot`
+                    let attestation_duty = state
+                        .get_attestation_duties(*validator_i, relative_epoch)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(attestation_duty.slot, slot);
+                    assert_eq!(attestation_duty.shard, cc.shard);
+                    assert_eq!(attestation_duty.committee_index, committee_i);
+                    assert_eq!(attestation_duty.committee_len, cc.committee.len());
                 }
             }
         }

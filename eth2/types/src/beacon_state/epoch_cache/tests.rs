@@ -111,6 +111,8 @@ fn can_start_on_any_shard() {
     }
 }
 
+/// This spec has more shards than slots in an epoch, permitting epochs where not all shards are
+/// included in the committee.
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct ExcessShardsEthSpec;
 
