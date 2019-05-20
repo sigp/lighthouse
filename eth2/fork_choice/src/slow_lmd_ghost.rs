@@ -1,10 +1,7 @@
 extern crate db;
 
 use crate::{ForkChoice, ForkChoiceError};
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB,
-};
+use db::{Store, StoreItem};
 use log::{debug, trace};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -13,32 +10,23 @@ use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 //TODO: Pruning and syncing
 
-pub struct SlowLMDGhost<T: ClientDB + Sized, E> {
+pub struct SlowLMDGhost<T, E> {
     /// The latest attestation targets as a map of validator index to block hash.
     //TODO: Could this be a fixed size vec
     latest_attestation_targets: HashMap<u64, Hash256>,
     /// Stores the children for any given parent.
     children: HashMap<Hash256, Vec<Hash256>>,
-    /// Block storage access.
-    block_store: Arc<BeaconBlockStore<T>>,
-    /// State storage access.
-    state_store: Arc<BeaconStateStore<T>>,
+    /// Persistent storage
+    store: Arc<T>,
     _phantom: PhantomData<E>,
 }
 
-impl<T, E: EthSpec> SlowLMDGhost<T, E>
-where
-    T: ClientDB + Sized,
-{
-    pub fn new(
-        block_store: Arc<BeaconBlockStore<T>>,
-        state_store: Arc<BeaconStateStore<T>>,
-    ) -> Self {
+impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
+    pub fn new(store: Arc<T>) -> Self {
         SlowLMDGhost {
             latest_attestation_targets: HashMap::new(),
             children: HashMap::new(),
-            block_store,
-            state_store,
+            store,
             _phantom: PhantomData,
         }
     }
@@ -58,8 +46,8 @@ where
         let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
         // gets the current weighted votes
         let current_state: BeaconState<E> = self
-            .state_store
-            .get_deserialized(&state_root)?
+            .store
+            .get(state_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices =
@@ -90,8 +78,8 @@ where
     ) -> Result<u64, ForkChoiceError> {
         let mut count = 0;
         let block_slot = self
-            .block_store
-            .get_deserialized(&block_root)?
+            .store
+            .get::<BeaconBlock>(&block_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_root))?
             .slot;
 
@@ -108,7 +96,7 @@ where
     }
 }
 
-impl<T: ClientDB + Sized, E: EthSpec> ForkChoice for SlowLMDGhost<T, E> {
+impl<T: Store, E: EthSpec> ForkChoice for SlowLMDGhost<T, E> {
     /// Process when a block is added
     fn add_block(
         &mut self,
