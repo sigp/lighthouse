@@ -51,9 +51,9 @@ pub enum Error {
         registry_len: usize,
     },
     PreviousEpochCacheUninitialized,
-    CurrentEpochCacheUnintialized,
+    CurrentEpochCacheUninitialized,
     RelativeEpochError(RelativeEpochError),
-    EpochCacheUnintialized(RelativeEpoch),
+    EpochCacheUninitialized(RelativeEpoch),
     EpochCacheError(EpochCacheError),
     TreeHashCacheError(TreeHashCacheError),
 }
@@ -706,8 +706,9 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_attestation_duties(
         &self,
         validator_index: usize,
+        relative_epoch: RelativeEpoch,
     ) -> Result<&Option<AttestationDuty>, Error> {
-        let cache = self.cache(RelativeEpoch::Current)?;
+        let cache = self.cache(relative_epoch)?;
 
         Ok(cache
             .attestation_duties
@@ -799,8 +800,13 @@ impl<T: EthSpec> BeaconState<T> {
         if cache.is_initialized_at(relative_epoch.into_epoch(self.current_epoch())) {
             Ok(cache)
         } else {
-            Err(Error::EpochCacheUnintialized(relative_epoch))
+            Err(Error::EpochCacheUninitialized(relative_epoch))
         }
+    }
+
+    /// Drops the cache, leaving it in an uninitialized state.
+    fn drop_cache(&mut self, relative_epoch: RelativeEpoch) {
+        self.epoch_caches[Self::cache_index(relative_epoch)] = EpochCache::default();
     }
 
     // FIXME(sproul): drop_previous/current_epoch_cache
