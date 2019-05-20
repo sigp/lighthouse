@@ -9,8 +9,8 @@ pub enum GenesisError {
 
 /// Returns the genesis `BeaconState`
 ///
-/// Spec v0.5.1
-pub fn get_genesis_state<T: EthSpec>(
+/// Spec v0.6.1
+pub fn get_genesis_beacon_state<T: EthSpec>(
     genesis_validator_deposits: &[Deposit],
     genesis_time: u64,
     genesis_eth1_data: Eth1Data,
@@ -23,9 +23,10 @@ pub fn get_genesis_state<T: EthSpec>(
     process_deposits(&mut state, genesis_validator_deposits, spec)?;
 
     // Process genesis activations.
-    for i in 0..state.validator_registry.len() {
-        if state.get_effective_balance(i, spec)? >= spec.max_deposit_amount {
-            state.validator_registry[i].activation_epoch = spec.genesis_epoch;
+    for (i, validator) in state.validator_registry.iter_mut().enumerate() {
+        if validator.effective_balance >= spec.max_effective_balance {
+            validator.activation_eligibility_epoch = spec.genesis_epoch;
+            validator.activation_epoch = spec.genesis_epoch;
         }
     }
 
@@ -38,9 +39,6 @@ pub fn get_genesis_state<T: EthSpec>(
         .to_vec();
     let genesis_active_index_root = Hash256::from_slice(&active_validator_indices.tree_hash_root());
     state.fill_active_index_roots_with(genesis_active_index_root);
-
-    // Generate the current shuffling seed.
-    state.current_shuffling_seed = state.generate_seed(spec.genesis_epoch, spec)?;
 
     Ok(state)
 }
