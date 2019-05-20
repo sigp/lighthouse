@@ -1,6 +1,4 @@
-use self::committee_cache::{
-    get_active_validator_indices, CommitteeCache, Error as CommitteeCacheError,
-};
+use self::committee_cache::{get_active_validator_indices, CommitteeCache};
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -37,6 +35,7 @@ pub enum Error {
     UnableToDetermineProducer,
     InvalidBitfield,
     ValidatorIsWithdrawable,
+    UnableToShuffle,
     InsufficientValidators,
     InsufficientRandaoMixes,
     InsufficientBlockRoots,
@@ -47,6 +46,7 @@ pub enum Error {
     InsufficientStateRoots,
     NoCommitteeForShard,
     NoCommitteeForSlot,
+    ZeroSlotsPerEpoch,
     PubkeyCacheInconsistent,
     PubkeyCacheIncomplete {
         cache_len: usize,
@@ -56,7 +56,6 @@ pub enum Error {
     CurrentCommitteeCacheUninitialized,
     RelativeEpochError(RelativeEpochError),
     CommitteeCacheUninitialized(RelativeEpoch),
-    CommitteeCacheError(CommitteeCacheError),
     TreeHashCacheError(TreeHashCacheError),
 }
 
@@ -869,12 +868,6 @@ impl<T: EthSpec> BeaconState<T> {
             .tree_hash_root()
             .and_then(|b| Ok(Hash256::from_slice(b)))
             .map_err(Into::into)
-    }
-}
-
-impl From<CommitteeCacheError> for Error {
-    fn from(e: CommitteeCacheError) -> Error {
-        Error::CommitteeCacheError(e)
     }
 }
 
