@@ -14,7 +14,7 @@ pub enum Error {
 mod tests;
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct EpochCache {
+pub struct CommitteeCache {
     /// `Some(epoch)` if the cache is initialized, where `epoch` is the cache it holds.
     initialized_epoch: Option<Epoch>,
     shuffling_start_shard: u64,
@@ -26,13 +26,13 @@ pub struct EpochCache {
     pub attestation_duties: Vec<Option<AttestationDuty>>,
 }
 
-impl EpochCache {
+impl CommitteeCache {
     /// Return a new, fully initialized cache.
     pub fn initialized<T: EthSpec>(
         state: &BeaconState<T>,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<EpochCache, BeaconStateError> {
+    ) -> Result<CommitteeCache, BeaconStateError> {
         let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
             .map_err(|_| BeaconStateError::EpochOutOfBounds)?;
 
@@ -74,7 +74,7 @@ impl EpochCache {
         )
         .ok_or_else(|| Error::UnableToShuffle)?;
 
-        let mut cache = EpochCache {
+        let mut cache = CommitteeCache {
             initialized_epoch: Some(epoch),
             shuffling_start_shard,
             shuffling,

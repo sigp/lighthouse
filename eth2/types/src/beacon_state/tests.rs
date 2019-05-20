@@ -89,11 +89,13 @@ fn test_cache_initialization<'a, T: EthSpec>(
     // Assuming the cache isn't already built, assert that a call to a cache-using function fails.
     assert_eq!(
         state.get_attestation_duties(0, relative_epoch),
-        Err(BeaconStateError::EpochCacheUninitialized(relative_epoch))
+        Err(BeaconStateError::CommitteeCacheUninitialized(
+            relative_epoch
+        ))
     );
 
     // Build the cache.
-    state.build_epoch_cache(relative_epoch, spec).unwrap();
+    state.build_committee_cache(relative_epoch, spec).unwrap();
 
     // Assert a call to a cache-using function passes.
     let _ = state
@@ -106,7 +108,9 @@ fn test_cache_initialization<'a, T: EthSpec>(
     // Assert a call to a cache-using function fail.
     assert_eq!(
         state.get_beacon_proposer_index(slot, relative_epoch, spec),
-        Err(BeaconStateError::EpochCacheUninitialized(relative_epoch))
+        Err(BeaconStateError::CommitteeCacheUninitialized(
+            relative_epoch
+        ))
     );
 }
 
@@ -256,12 +260,14 @@ mod committees {
         state.latest_randao_mixes = FixedLenVec::from(distinct_hashes);
 
         state
-            .build_epoch_cache(RelativeEpoch::Previous, spec)
+            .build_committee_cache(RelativeEpoch::Previous, spec)
             .unwrap();
         state
-            .build_epoch_cache(RelativeEpoch::Current, spec)
+            .build_committee_cache(RelativeEpoch::Current, spec)
             .unwrap();
-        state.build_epoch_cache(RelativeEpoch::Next, spec).unwrap();
+        state
+            .build_committee_cache(RelativeEpoch::Next, spec)
+            .unwrap();
 
         let cache_epoch = cache_epoch.into_epoch(state_epoch);
 

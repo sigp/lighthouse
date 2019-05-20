@@ -34,8 +34,8 @@ pub fn per_epoch_processing<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Ensure the previous and next epoch caches are built.
-    state.build_epoch_cache(RelativeEpoch::Previous, spec)?;
-    state.build_epoch_cache(RelativeEpoch::Current, spec)?;
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     // Load the struct we use to assign validators into sets based on their participation.
     //
