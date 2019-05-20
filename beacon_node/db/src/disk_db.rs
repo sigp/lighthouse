@@ -1,9 +1,9 @@
 extern crate rocksdb;
 
-use super::rocksdb::Error as RocksError;
-use super::rocksdb::{Options, DB};
-use super::stores::COLUMNS;
+// use super::stores::COLUMNS;
 use super::{ClientDB, DBError, DBValue};
+use rocksdb::Error as RocksError;
+use rocksdb::{Options, DB};
 use std::fs;
 use std::path::Path;
 
@@ -99,7 +99,7 @@ impl ClientDB for DiskDB {
             None => Err(DBError {
                 message: "Unknown column".to_string(),
             }),
-            Some(handle) => self.db.put_cf(handle, key, val).map_err(Into::into),
+            Some(handle) => self.db.put_cf(handle, key, val).map_err(|e| e.into()),
         }
     }
 

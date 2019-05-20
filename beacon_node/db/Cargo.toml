@@ -8,4 +8,10 @@ edition = "2018"
 blake2-rfc = "0.2.18"
 bls = { path = "../../eth2/utils/bls" }
 bytes = "0.4.10"
+db_encode = { path = "../db_encode" }
+db_encode_derive = { path = "../db_encode_derive" }
+parking_lot = "0.7"
 rocksdb = "0.10.1"
+ssz = { path = "../../eth2/utils/ssz" }
+ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+types = { path =  "../../eth2/types" }
