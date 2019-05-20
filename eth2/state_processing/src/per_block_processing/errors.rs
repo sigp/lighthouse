@@ -71,6 +71,7 @@ pub enum BlockInvalid {
         state: Hash256,
         block: Hash256,
     },
+    ProposerSlashed(usize),
     BadSignature,
     BadRandaoSignature,
     MaxAttestationsExceeded,
