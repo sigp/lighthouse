@@ -36,6 +36,7 @@ pub enum Error {
     InvalidBitfield,
     ValidatorIsWithdrawable,
     UnableToShuffle,
+    TooManyValidators,
     InsufficientValidators,
     InsufficientRandaoMixes,
     InsufficientBlockRoots,
@@ -708,13 +709,10 @@ impl<T: EthSpec> BeaconState<T> {
         &self,
         validator_index: usize,
         relative_epoch: RelativeEpoch,
-    ) -> Result<&Option<AttestationDuty>, Error> {
+    ) -> Result<Option<AttestationDuty>, Error> {
         let cache = self.cache(relative_epoch)?;
 
-        Ok(cache
-            .attestation_duties
-            .get(validator_index)
-            .ok_or_else(|| Error::UnknownValidator)?)
+        Ok(cache.get_attestation_duties(validator_index))
     }
 
     /// Return the combined effective balance of an array of validators.
