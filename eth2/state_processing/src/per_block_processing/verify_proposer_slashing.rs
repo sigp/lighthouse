@@ -7,7 +7,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
@@ -34,11 +34,9 @@ pub fn verify_proposer_slashing<T: EthSpec>(
         Invalid::ProposalsIdentical
     );
 
-    verify!(!proposer.slashed, Invalid::ProposerAlreadySlashed);
-
     verify!(
-        proposer.withdrawable_epoch > state.slot.epoch(spec.slots_per_epoch),
-        Invalid::ProposerAlreadyWithdrawn(proposer_slashing.proposer_index)
+        proposer.is_slashable_at(state.current_epoch()),
+        Invalid::ProposerNotSlashable(proposer_slashing.proposer_index)
     );
 
     verify!(
@@ -67,7 +65,7 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 ///
 /// Returns `true` if the signature is valid.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 fn verify_header_signature(
     header: &BeaconBlockHeader,
     pubkey: &PublicKey,
@@ -77,7 +75,7 @@ fn verify_header_signature(
     let message = header.signed_root();
     let domain = spec.get_domain(
         header.slot.epoch(spec.slots_per_epoch),
-        Domain::BeaconBlock,
+        Domain::BeaconProposer,
         fork,
     );
     header.signature.verify(&message[..], domain, pubkey)

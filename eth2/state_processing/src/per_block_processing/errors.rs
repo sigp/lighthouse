@@ -281,10 +281,8 @@ pub enum ProposerSlashingInvalid {
     ProposalEpochMismatch(Slot, Slot),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
-    /// The specified proposer has already been slashed.
-    ProposerAlreadySlashed,
-    /// The specified proposer has already been withdrawn.
-    ProposerAlreadyWithdrawn(u64),
+    /// The specified proposer cannot be slashed because they are already slashed, or not active.
+    ProposerNotSlashable(u64),
     /// The first proposal signature was invalid.
     BadProposal1Signature,
     /// The second proposal signature was invalid.
