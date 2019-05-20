@@ -11,8 +11,8 @@ use types::*;
 /// Returns `Ok(())` if the `SlashableAttestation` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.5.1
-pub fn verify_slashable_attestation(
-    state: &BeaconState,
+pub fn verify_slashable_attestation<T: EthSpec>(
+    state: &BeaconState<T>,
     slashable_attestation: &SlashableAttestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

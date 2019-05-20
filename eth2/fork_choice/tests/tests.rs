@@ -25,7 +25,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::test_utils::TestingBeaconStateBuilder;
-use types::{BeaconBlock, BeaconBlockBody, ChainSpec, Eth1Data, Hash256, Keypair, Slot};
+use types::{
+    BeaconBlock, BeaconBlockBody, Eth1Data, EthSpec, FoundationEthSpec, Hash256, Keypair, Slot,
+};
 use yaml_rust::yaml;
 
 // Note: We Assume the block Id's are hex-encoded.
@@ -82,7 +84,7 @@ fn test_yaml_vectors(
     let test_cases = load_test_cases_from_yaml(yaml_file_path);
 
     // default vars
-    let spec = ChainSpec::foundation();
+    let spec = FoundationEthSpec::spec();
     let zero_hash = Hash256::zero();
     let eth1_data = Eth1Data {
         deposit_root: zero_hash.clone(),
@@ -227,23 +229,27 @@ fn setup_inital_state(
 
     // the fork choice instantiation
     let fork_choice: Box<ForkChoice> = match fork_choice_algo {
-        ForkChoiceAlgorithm::OptimizedLMDGhost => Box::new(OptimizedLMDGhost::new(
-            block_store.clone(),
-            state_store.clone(),
-        )),
-        ForkChoiceAlgorithm::BitwiseLMDGhost => Box::new(BitwiseLMDGhost::new(
-            block_store.clone(),
-            state_store.clone(),
-        )),
+        ForkChoiceAlgorithm::OptimizedLMDGhost => {
+            let f: OptimizedLMDGhost<MemoryDB, FoundationEthSpec> =
+                OptimizedLMDGhost::new(block_store.clone(), state_store.clone());
+            Box::new(f)
+        }
+        ForkChoiceAlgorithm::BitwiseLMDGhost => {
+            let f: BitwiseLMDGhost<MemoryDB, FoundationEthSpec> =
+                BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
+            Box::new(f)
+        }
         ForkChoiceAlgorithm::SlowLMDGhost => {
-            Box::new(SlowLMDGhost::new(block_store.clone(), state_store.clone()))
+            let f: SlowLMDGhost<MemoryDB, FoundationEthSpec> =
+                SlowLMDGhost::new(block_store.clone(), state_store.clone());
+            Box::new(f)
         }
         ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(block_store.clone())),
     };
 
-    let spec = ChainSpec::foundation();
+    let spec = FoundationEthSpec::spec();
 
-    let mut state_builder =
+    let mut state_builder: TestingBeaconStateBuilder<FoundationEthSpec> =
         TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
     state_builder.build_caches(&spec).unwrap();
     let (state, _keypairs) = state_builder.build();

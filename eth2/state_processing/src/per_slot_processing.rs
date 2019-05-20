@@ -11,7 +11,10 @@ pub enum Error {
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
 /// Spec v0.5.1
-pub fn per_slot_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+pub fn per_slot_processing<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
     cache_state(state, spec)?;
 
     if (state.slot + 1) % spec.slots_per_epoch == 0 {
@@ -23,7 +26,7 @@ pub fn per_slot_processing(state: &mut BeaconState, spec: &ChainSpec) -> Result<
     Ok(())
 }
 
-fn cache_state(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+fn cache_state<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) -> Result<(), Error> {
     let previous_slot_state_root = state.update_tree_hash_cache()?;
 
     // Note: increment the state slot here to allow use of our `state_root` and `block_root`
@@ -39,10 +42,10 @@ fn cache_state(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     }
 
     // Store the previous slot's post state transition root.
-    state.set_state_root(previous_slot, previous_slot_state_root, spec)?;
+    state.set_state_root(previous_slot, previous_slot_state_root)?;
 
     let latest_block_root = Hash256::from_slice(&state.latest_block_header.signed_root()[..]);
-    state.set_block_root(previous_slot, latest_block_root, spec)?;
+    state.set_block_root(previous_slot, latest_block_root)?;
 
     // Set the state slot back to what it should be.
     state.slot -= 1;

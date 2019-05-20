@@ -25,12 +25,12 @@ pub fn keypairs_path() -> PathBuf {
 ///
 /// This struct should **never be used for production purposes.**
 #[derive(Clone)]
-pub struct TestingBeaconStateBuilder {
-    state: BeaconState,
+pub struct TestingBeaconStateBuilder<T: EthSpec> {
+    state: BeaconState<T>,
     keypairs: Vec<Keypair>,
 }
 
-impl TestingBeaconStateBuilder {
+impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// Attempts to load validators from a file in `$HOME/.lighthouse/keypairs.raw_keypairs`. If
     /// the file is unavailable, it generates the keys at runtime.
     ///
@@ -154,7 +154,7 @@ impl TestingBeaconStateBuilder {
     }
 
     /// Consume the builder and return the `BeaconState` and the keypairs for each validator.
-    pub fn build(self) -> (BeaconState, Vec<Keypair>) {
+    pub fn build(self) -> (BeaconState<T>, Vec<Keypair>) {
         (self.state, self.keypairs)
     }
 
