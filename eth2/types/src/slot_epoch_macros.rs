@@ -192,17 +192,31 @@ macro_rules! impl_display {
 
 macro_rules! impl_ssz {
     ($type: ident) => {
-        impl Encodable for $type {
-            fn ssz_append(&self, s: &mut SszStream) {
-                s.append(&self.0);
+        impl Encode for $type {
+            fn is_ssz_fixed_len() -> bool {
+                <u64 as Encode>::is_ssz_fixed_len()
+            }
+
+            fn ssz_fixed_len() -> usize {
+                <u64 as Encode>::ssz_fixed_len()
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                self.0.ssz_append(buf)
             }
         }
 
-        impl Decodable for $type {
-            fn ssz_decode(bytes: &[u8], i: usize) -> Result<(Self, usize), DecodeError> {
-                let (value, i) = <_>::ssz_decode(bytes, i)?;
+        impl Decode for $type {
+            fn is_ssz_fixed_len() -> bool {
+                <u64 as Decode>::is_ssz_fixed_len()
+            }
 
-                Ok(($type(value), i))
+            fn ssz_fixed_len() -> usize {
+                <u64 as Decode>::ssz_fixed_len()
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+                Ok($type(u64::from_ssz_bytes(bytes)?))
             }
         }
 
@@ -244,8 +258,8 @@ macro_rules! impl_ssz {
             }
         }
 
-        impl<T: RngCore> TestRandom<T> for $type {
-            fn random_for_test(rng: &mut T) -> Self {
+        impl TestRandom for $type {
+            fn random_for_test(rng: &mut impl RngCore) -> Self {
                 $type::from(u64::random_for_test(rng))
             }
         }

@@ -11,8 +11,8 @@ use types::*;
 /// Note: this function is incomplete.
 ///
 /// Spec v0.5.1
-pub fn verify_transfer(
-    state: &BeaconState,
+pub fn verify_transfer<T: EthSpec>(
+    state: &BeaconState<T>,
     transfer: &Transfer,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -20,8 +20,8 @@ pub fn verify_transfer(
 }
 
 /// Like `verify_transfer` but doesn't run checks which may become true in future states.
-pub fn verify_transfer_time_independent_only(
-    state: &BeaconState,
+pub fn verify_transfer_time_independent_only<T: EthSpec>(
+    state: &BeaconState<T>,
     transfer: &Transfer,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -29,8 +29,8 @@ pub fn verify_transfer_time_independent_only(
 }
 
 /// Parametric version of `verify_transfer` that allows some checks to be skipped.
-fn verify_transfer_parametric(
-    state: &BeaconState,
+fn verify_transfer_parametric<T: EthSpec>(
+    state: &BeaconState<T>,
     transfer: &Transfer,
     spec: &ChainSpec,
     time_independent_only: bool,
@@ -123,8 +123,8 @@ fn verify_transfer_parametric(
 /// Does not check that the transfer is valid, however checks for overflow in all actions.
 ///
 /// Spec v0.5.1
-pub fn execute_transfer(
-    state: &mut BeaconState,
+pub fn execute_transfer<T: EthSpec>(
+    state: &mut BeaconState<T>,
     transfer: &Transfer,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

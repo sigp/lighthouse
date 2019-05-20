@@ -15,6 +15,7 @@ mod testing_proposer_slashing_builder;
 mod testing_transfer_builder;
 mod testing_voluntary_exit_builder;
 
+pub use generate_deterministic_keypairs::generate_deterministic_keypair;
 pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
 pub use keypairs_file::KeypairsFile;
 pub use rand::{

@@ -7,12 +7,13 @@ use db::{
 };
 use log::{debug, trace};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconBlock, ChainSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 //TODO: Pruning and syncing
 
-pub struct SlowLMDGhost<T: ClientDB + Sized> {
+pub struct SlowLMDGhost<T: ClientDB + Sized, E> {
     /// The latest attestation targets as a map of validator index to block hash.
     //TODO: Could this be a fixed size vec
     latest_attestation_targets: HashMap<u64, Hash256>,
@@ -22,9 +23,10 @@ pub struct SlowLMDGhost<T: ClientDB + Sized> {
     block_store: Arc<BeaconBlockStore<T>>,
     /// State storage access.
     state_store: Arc<BeaconStateStore<T>>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T> SlowLMDGhost<T>
+impl<T, E: EthSpec> SlowLMDGhost<T, E>
 where
     T: ClientDB + Sized,
 {
@@ -37,6 +39,7 @@ where
             children: HashMap::new(),
             block_store,
             state_store,
+            _phantom: PhantomData,
         }
     }
 
@@ -54,7 +57,7 @@ where
         // build a hashmap of block_hash to weighted votes
         let mut latest_votes: HashMap<Hash256, u64> = HashMap::new();
         // gets the current weighted votes
-        let current_state = self
+        let current_state: BeaconState<E> = self
             .state_store
             .get_deserialized(&state_root)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
@@ -105,7 +108,7 @@ where
     }
 }
 
-impl<T: ClientDB + Sized> ForkChoice for SlowLMDGhost<T> {
+impl<T: ClientDB + Sized, E: EthSpec> ForkChoice for SlowLMDGhost<T, E> {
     /// Process when a block is added
     fn add_block(
         &mut self,

@@ -30,7 +30,7 @@ Rust crates containing logic common across the Lighthouse project.
 	- [`ssz`](utils/ssz/): an implementation of the SimpleSerialize 
 	    serialization/deserialization protocol used by Eth 2.0.
 	- [`ssz_derive`](utils/ssz_derive/): provides procedural macros for
-		deriving SSZ `Encodable`, `Decodable`, and `TreeHash` methods.
+		deriving SSZ `Encode`, `Decode`, and `TreeHash` methods.
 	- [`swap_or_not_shuffle`](utils/swap_or_not_shuffle/): a list-shuffling
 		method which is slow, but allows for a subset of indices to be shuffled.
 	- [`test_random_derive`](utils/test_random_derive/): provides procedural

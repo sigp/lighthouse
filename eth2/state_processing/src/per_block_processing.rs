@@ -20,7 +20,9 @@ pub use verify_transfer::{
     execute_transfer, verify_transfer, verify_transfer_time_independent_only,
 };
 
+pub mod block_processing_builder;
 pub mod errors;
+pub mod tests;
 mod validate_attestation;
 mod verify_attester_slashing;
 mod verify_deposit;
@@ -40,8 +42,8 @@ const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = false;
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
 /// Spec v0.5.1
-pub fn per_block_processing(
-    state: &mut BeaconState,
+pub fn per_block_processing<T: EthSpec>(
+    state: &mut BeaconState<T>,
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -55,8 +57,8 @@ pub fn per_block_processing(
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
 /// Spec v0.5.1
-pub fn per_block_processing_without_verifying_block_signature(
-    state: &mut BeaconState,
+pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
+    state: &mut BeaconState<T>,
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -70,8 +72,8 @@ pub fn per_block_processing_without_verifying_block_signature(
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
 /// Spec v0.5.1
-fn per_block_processing_signature_optional(
-    mut state: &mut BeaconState,
+fn per_block_processing_signature_optional<T: EthSpec>(
+    mut state: &mut BeaconState<T>,
     block: &BeaconBlock,
     should_verify_block_signature: bool,
     spec: &ChainSpec,
@@ -100,8 +102,8 @@ fn per_block_processing_signature_optional(
 /// Processes the block header.
 ///
 /// Spec v0.5.1
-pub fn process_block_header(
-    state: &mut BeaconState,
+pub fn process_block_header<T: EthSpec>(
+    state: &mut BeaconState<T>,
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -125,8 +127,8 @@ pub fn process_block_header(
 /// Verifies the signature of a block.
 ///
 /// Spec v0.5.1
-pub fn verify_block_signature(
-    state: &BeaconState,
+pub fn verify_block_signature<T: EthSpec>(
+    state: &BeaconState<T>,
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -153,8 +155,8 @@ pub fn verify_block_signature(
 /// `state.latest_randao_mixes`.
 ///
 /// Spec v0.5.1
-pub fn process_randao(
-    state: &mut BeaconState,
+pub fn process_randao<T: EthSpec>(
+    state: &mut BeaconState<T>,
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -184,7 +186,10 @@ pub fn process_randao(
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 ///
 /// Spec v0.5.1
-pub fn process_eth1_data(state: &mut BeaconState, eth1_data: &Eth1Data) -> Result<(), Error> {
+pub fn process_eth1_data<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    eth1_data: &Eth1Data,
+) -> Result<(), Error> {
     // Attempt to find a `Eth1DataVote` with matching `Eth1Data`.
     let matching_eth1_vote_index = state
         .eth1_data_votes
@@ -210,8 +215,8 @@ pub fn process_eth1_data(state: &mut BeaconState, eth1_data: &Eth1Data) -> Resul
 /// an `Err` describing the invalid object or cause of failure.
 ///
 /// Spec v0.5.1
-pub fn process_proposer_slashings(
-    state: &mut BeaconState,
+pub fn process_proposer_slashings<T: EthSpec>(
+    state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -243,8 +248,8 @@ pub fn process_proposer_slashings(
 /// an `Err` describing the invalid object or cause of failure.
 ///
 /// Spec v0.5.1
-pub fn process_attester_slashings(
-    state: &mut BeaconState,
+pub fn process_attester_slashings<T: EthSpec>(
+    state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -301,8 +306,8 @@ pub fn process_attester_slashings(
 /// an `Err` describing the invalid object or cause of failure.
 ///
 /// Spec v0.5.1
-pub fn process_attestations(
-    state: &mut BeaconState,
+pub fn process_attestations<T: EthSpec>(
+    state: &mut BeaconState<T>,
     attestations: &[Attestation],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -343,8 +348,8 @@ pub fn process_attestations(
 /// an `Err` describing the invalid object or cause of failure.
 ///
 /// Spec v0.5.1
-pub fn process_deposits(
-    state: &mut BeaconState,
+pub fn process_deposits<T: EthSpec>(
+    state: &mut BeaconState<T>,
     deposits: &[Deposit],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -413,8 +418,8 @@ pub fn process_deposits(
 /// an `Err` describing the invalid object or cause of failure.
 ///
 /// Spec v0.5.1
-pub fn process_exits(
-    state: &mut BeaconState,
+pub fn process_exits<T: EthSpec>(
+    state: &mut BeaconState<T>,
     voluntary_exits: &[VoluntaryExit],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -445,8 +450,8 @@ pub fn process_exits(
 /// an `Err` describing the invalid object or cause of failure.
 ///
 /// Spec v0.5.1
-pub fn process_transfers(
-    state: &mut BeaconState,
+pub fn process_transfers<T: EthSpec>(
+    state: &mut BeaconState<T>,
     transfers: &[Transfer],
     spec: &ChainSpec,
 ) -> Result<(), Error> {

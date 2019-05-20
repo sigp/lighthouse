@@ -99,7 +99,7 @@ impl ClientDB for DiskDB {
             None => Err(DBError {
                 message: "Unknown column".to_string(),
             }),
-            Some(handle) => self.db.put_cf(handle, key, val).map_err(|e| e.into()),
+            Some(handle) => self.db.put_cf(handle, key, val).map_err(Into::into),
         }
     }
 

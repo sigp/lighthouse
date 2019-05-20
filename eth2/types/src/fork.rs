@@ -3,7 +3,7 @@ use crate::{
     ChainSpec, Epoch,
 };
 use int_to_bytes::int_to_bytes4;
-use rand::RngCore;
+
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
