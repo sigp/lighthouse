@@ -248,7 +248,7 @@ impl ValidatorStatuses {
                     status.is_previous_epoch_target_attester = true;
                 }
 
-                if has_common_beacon_block_root(a, state, spec)? {
+                if has_common_beacon_block_root(a, state)? {
                     status.is_previous_epoch_head_attester = true;
                 }
             }
@@ -298,8 +298,7 @@ impl ValidatorStatuses {
     ) -> Result<(), BeaconStateError> {
         // Loop through each slot in the previous epoch.
         for slot in state.previous_epoch().slot_iter(spec.slots_per_epoch) {
-            let crosslink_committees_at_slot =
-                state.get_crosslink_committees_at_slot(slot, spec)?;
+            let crosslink_committees_at_slot = state.get_crosslink_committees_at_slot(slot)?;
 
             // Loop through each committee in the slot.
             for c in crosslink_committees_at_slot {
@@ -352,7 +351,6 @@ fn target_matches_epoch_start_block<T: EthSpec>(
 fn has_common_beacon_block_root<T: EthSpec>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
-    spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
     let attestation_slot = state.get_attestation_slot(&a.data)?;
     let state_block_root = *state.get_block_root(attestation_slot)?;
