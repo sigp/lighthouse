@@ -1,4 +1,4 @@
-use client::client_types::{DiskDBTestingClientType, MemoryDBTestingClientType};
+use client::client_types::{DiskStoreTestingClientType, MemoryStoreTestingClientType};
 use client::{error, DBType};
 use client::{notifier, Client, ClientConfig, ClientTypes};
 use futures::sync::oneshot;
@@ -29,9 +29,9 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
             info!(
                 log,
                 "BeaconNode starting";
-                "type" => "DiskDBTestingClientType"
+                "type" => "DiskStoreTestingClientType"
             );
-            let client: Client<DiskDBTestingClientType> =
+            let client: Client<DiskStoreTestingClientType> =
                 Client::new(config, log.clone(), &executor)?;
 
             run(client, executor, runtime, log)
@@ -40,9 +40,9 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
             info!(
                 log,
                 "BeaconNode starting";
-                "type" => "MemoryDBTestingClientType"
+                "type" => "MemoryStoreTestingClientType"
             );
-            let client: Client<MemoryDBTestingClientType> =
+            let client: Client<MemoryStoreTestingClientType> =
                 Client::new(config, log.clone(), &executor)?;
 
             run(client, executor, runtime, log)

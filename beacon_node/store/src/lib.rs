@@ -5,8 +5,8 @@ mod impls;
 mod leveldb_store;
 mod memory_db;
 
-pub use self::leveldb_store::LevelDB as DiskDB;
-pub use self::memory_db::MemoryDB;
+pub use self::leveldb_store::LevelDB as DiskStore;
+pub use self::memory_db::MemoryStore;
 pub use errors::Error;
 pub use types::*;
 pub type DBValue = Vec<u8>;
@@ -154,21 +154,21 @@ mod tests {
     fn diskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = DiskDB::open(&path).unwrap();
+        let store = DiskStore::open(&path).unwrap();
 
         test_impl(store);
     }
 
     #[test]
     fn memorydb() {
-        let store = MemoryDB::open();
+        let store = MemoryStore::open();
 
         test_impl(store);
     }
 
     #[test]
     fn exists() {
-        let store = MemoryDB::open();
+        let store = MemoryStore::open();
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 

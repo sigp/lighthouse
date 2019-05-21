@@ -10,11 +10,11 @@ use std::path::Path;
 /// A on-disk database which implements the ClientDB trait.
 ///
 /// This implementation uses RocksDB with default options.
-pub struct DiskDB {
+pub struct DiskStore {
     db: DB,
 }
 
-impl DiskDB {
+impl DiskStore {
     /// Open the RocksDB database, optionally supplying columns if required.
     ///
     /// The RocksDB database will be contained in a directory titled
@@ -71,7 +71,7 @@ impl From<RocksError> for DBError {
     }
 }
 
-impl ClientDB for DiskDB {
+impl ClientDB for DiskStore {
     /// Get the value for some key on some column.
     ///
     /// Corresponds to the `get_cf()` method on the RocksDB API.
@@ -154,7 +154,7 @@ mod tests {
         let col_name: &str = "TestColumn";
         let column_families = vec![col_name];
 
-        let mut db = DiskDB::open(&path, None);
+        let mut db = DiskStore::open(&path, None);
 
         for cf in column_families {
             db.create_col(&cf).unwrap();

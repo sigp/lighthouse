@@ -1,6 +1,5 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
-use db::{Error as DBError, Store};
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
@@ -16,6 +15,7 @@ use state_processing::{
     per_slot_processing, BlockProcessingError, SlotProcessingError,
 };
 use std::sync::Arc;
+use store::{Error as DBError, Store};
 use types::*;
 
 #[derive(Debug, PartialEq)]

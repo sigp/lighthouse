@@ -1,9 +1,9 @@
 use crate::{ArcBeaconChain, ClientConfig};
 use beacon_chain::{
-    db::{DiskDB, MemoryDB, Store},
     fork_choice::BitwiseLMDGhost,
     initialise,
     slot_clock::{SlotClock, SystemTimeSlotClock},
+    store::{DiskStore, MemoryStore, Store},
 };
 use fork_choice::ForkChoice;
 use types::{EthSpec, FewValidatorsEthSpec, FoundationEthSpec};
@@ -22,7 +22,7 @@ pub trait ClientTypes {
 pub struct StandardClientType;
 
 impl ClientTypes for StandardClientType {
-    type DB = DiskDB;
+    type DB = DiskStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = BitwiseLMDGhost<Self::DB, Self::EthSpec>;
     type EthSpec = FoundationEthSpec;
@@ -34,10 +34,10 @@ impl ClientTypes for StandardClientType {
     }
 }
 
-pub struct MemoryDBTestingClientType;
+pub struct MemoryStoreTestingClientType;
 
-impl ClientTypes for MemoryDBTestingClientType {
-    type DB = MemoryDB;
+impl ClientTypes for MemoryStoreTestingClientType {
+    type DB = MemoryStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = BitwiseLMDGhost<Self::DB, Self::EthSpec>;
     type EthSpec = FewValidatorsEthSpec;
@@ -49,10 +49,10 @@ impl ClientTypes for MemoryDBTestingClientType {
     }
 }
 
-pub struct DiskDBTestingClientType;
+pub struct DiskStoreTestingClientType;
 
-impl ClientTypes for DiskDBTestingClientType {
-    type DB = DiskDB;
+impl ClientTypes for DiskStoreTestingClientType {
+    type DB = DiskStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = BitwiseLMDGhost<Self::DB, Self::EthSpec>;
     type EthSpec = FewValidatorsEthSpec;

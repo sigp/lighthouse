@@ -20,7 +20,7 @@ pub enum BeaconChainError {
     UnableToReadSlot,
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
-    DBError(db::Error),
+    DBError(store::Error),
     ForkChoiceError(ForkChoiceError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),

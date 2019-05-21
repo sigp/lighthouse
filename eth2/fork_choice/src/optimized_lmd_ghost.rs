@@ -1,13 +1,11 @@
 //! The optimised bitwise LMD-GHOST fork choice rule.
-extern crate bit_vec;
-
 use crate::{ForkChoice, ForkChoiceError};
-use db::Store;
 use log::{debug, trace};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use store::Store;
 use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot, SlotHeight};
 
 //TODO: Pruning - Children

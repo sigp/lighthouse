@@ -3,11 +3,11 @@
 // testnet. These are examples. Also. there is code duplication which can/should be cleaned up.
 
 use crate::BeaconChain;
-use db::{DiskDB, MemoryDB};
 use fork_choice::BitwiseLMDGhost;
 use slot_clock::SystemTimeSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
+use store::{DiskStore, MemoryStore};
 use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{BeaconBlock, ChainSpec, FewValidatorsEthSpec, FoundationEthSpec, Hash256};
@@ -19,14 +19,14 @@ pub fn initialise_beacon_chain(
     db_name: Option<&PathBuf>,
 ) -> Arc<
     BeaconChain<
-        DiskDB,
+        DiskStore,
         SystemTimeSlotClock,
-        BitwiseLMDGhost<DiskDB, FoundationEthSpec>,
+        BitwiseLMDGhost<DiskStore, FoundationEthSpec>,
         FoundationEthSpec,
     >,
 > {
     let path = db_name.expect("db_name cannot be None.");
-    let store = DiskDB::open(path).expect("Unable to open DB.");
+    let store = DiskStore::open(path).expect("Unable to open DB.");
     let store = Arc::new(store);
 
     let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, &spec);
@@ -66,13 +66,13 @@ pub fn initialise_test_beacon_chain_with_memory_db(
     _db_name: Option<&PathBuf>,
 ) -> Arc<
     BeaconChain<
-        MemoryDB,
+        MemoryStore,
         SystemTimeSlotClock,
-        BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>,
+        BitwiseLMDGhost<MemoryStore, FewValidatorsEthSpec>,
         FewValidatorsEthSpec,
     >,
 > {
-    let store = Arc::new(MemoryDB::open());
+    let store = Arc::new(MemoryStore::open());
 
     let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, spec);
     let (genesis_state, _keypairs) = state_builder.build();
@@ -111,14 +111,14 @@ pub fn initialise_test_beacon_chain_with_disk_db(
     db_name: Option<&PathBuf>,
 ) -> Arc<
     BeaconChain<
-        DiskDB,
+        DiskStore,
         SystemTimeSlotClock,
-        BitwiseLMDGhost<DiskDB, FewValidatorsEthSpec>,
+        BitwiseLMDGhost<DiskStore, FewValidatorsEthSpec>,
         FewValidatorsEthSpec,
     >,
 > {
     let path = db_name.expect("db_name cannot be None.");
-    let store = DiskDB::open(path).expect("Unable to open DB.");
+    let store = DiskStore::open(path).expect("Unable to open DB.");
     let store = Arc::new(store);
 
     let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, spec);
