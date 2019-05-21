@@ -4,9 +4,7 @@ use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
-pub use self::verify_attester_slashing::{
-    gather_attester_slashing_indices, get_slashable_indices, verify_attester_slashing,
-};
+pub use self::verify_attester_slashing::{get_slashable_indices, verify_attester_slashing};
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use validate_attestation::{
     validate_attestation, validate_attestation_time_independent_only,
@@ -91,9 +89,11 @@ fn per_block_processing_signature_optional<T: EthSpec>(
     process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
     process_attester_slashings(&mut state, &block.body.attester_slashings, spec)?;
     process_attestations(&mut state, &block.body.attestations, spec)?;
+    /*
     process_deposits(&mut state, &block.body.deposits, spec)?;
     process_exits(&mut state, &block.body.voluntary_exits, spec)?;
     process_transfers(&mut state, &block.body.transfers, spec)?;
+    */
 
     Ok(())
 }
@@ -293,7 +293,7 @@ pub fn process_attester_slashings<T: EthSpec>(
         let slashable_indices = get_slashable_indices(&state, &attester_slashing, spec)
             .map_err(|e| e.into_with_index(i))?;
 
-        for i in indexed_indices {
+        for i in slashable_indices {
             slash_validator(state, i as usize, None, spec)?;
         }
     }
@@ -350,6 +350,7 @@ pub fn process_attestations<T: EthSpec>(
     Ok(())
 }
 
+/*
 /// Validates each `Deposit` and updates the state, short-circuiting on an invalid object.
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
@@ -481,3 +482,4 @@ pub fn process_transfers<T: EthSpec>(
 
     Ok(())
 }
+*/

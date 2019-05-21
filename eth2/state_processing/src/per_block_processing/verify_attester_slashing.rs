@@ -1,5 +1,6 @@
 use super::errors::{AttesterSlashingInvalid as Invalid, AttesterSlashingValidationError as Error};
 use super::verify_indexed_attestation::verify_indexed_attestation;
+use std::collections::HashSet;
 use types::*;
 
 /// Indicates if an `AttesterSlashing` is valid to be included in a block in the current epoch of the given
@@ -19,8 +20,8 @@ pub fn verify_attester_slashing<T: EthSpec>(
 
     // Spec: is_slashable_attestation_data
     verify!(
-        attestation_1.is_double_vote(attestation_2, spec)
-            || attestation_1.is_surround_vote(attestation_2, spec),
+        attestation_1.is_double_vote(attestation_2)
+            || attestation_1.is_surround_vote(attestation_2),
         Invalid::NotSlashable
     );
 
@@ -44,7 +45,7 @@ pub fn get_slashable_indices<T: EthSpec>(
     attester_slashing: &AttesterSlashing,
     spec: &ChainSpec,
 ) -> Result<Vec<u64>, Error> {
-    gather_attester_slashing_indices_modular(
+    get_slashable_indices_modular(
         state,
         attester_slashing,
         |_, validator| validator.is_slashable_at(state.current_epoch()),

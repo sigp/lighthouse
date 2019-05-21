@@ -35,7 +35,7 @@ pub fn get_genesis_beacon_state<T: EthSpec>(
 
     // Set all the active index roots to be the genesis active index root.
     let active_validator_indices = state
-        .get_cached_active_validator_indices(RelativeEpoch::Current, spec)?
+        .get_cached_active_validator_indices(RelativeEpoch::Current)?
         .to_vec();
     let genesis_active_index_root = Hash256::from_slice(&active_validator_indices.tree_hash_root());
     state.fill_active_index_roots_with(genesis_active_index_root);
