@@ -1,5 +1,4 @@
 use clap::ArgMatches;
-use db::DBType;
 use fork_choice::ForkChoiceAlgorithm;
 use network::NetworkConfig;
 use slog::error;
@@ -11,6 +10,12 @@ use types::multiaddr::Protocol;
 use types::multiaddr::ToMultiaddr;
 use types::Multiaddr;
 use types::{ChainSpec, EthSpec, LighthouseTestnetEthSpec};
+
+#[derive(Debug, Clone)]
+pub enum DBType {
+    Memory,
+    Disk,
+}
 
 /// Stores the client configuration for this Lighthouse instance.
 #[derive(Debug, Clone)]
@@ -132,7 +137,7 @@ impl ClientConfig {
         }
 
         match args.value_of("db") {
-            Some("rocks") => config.db_type = DBType::RocksDB,
+            Some("disk") => config.db_type = DBType::Disk,
             Some("memory") => config.db_type = DBType::Memory,
             _ => unreachable!(), // clap prevents this.
         };

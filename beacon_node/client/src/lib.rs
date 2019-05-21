@@ -6,9 +6,9 @@ pub mod error;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;
-pub use client_config::ClientConfig;
+pub use client_config::{ClientConfig, DBType};
 pub use client_types::ClientTypes;
-use db::ClientDB;
+use db::Store;
 use exit_future::Signal;
 use fork_choice::ForkChoice;
 use futures::{future::Future, Stream};
@@ -146,7 +146,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
 
 fn do_state_catchup<T, U, F, E>(chain: &Arc<BeaconChain<T, U, F, E>>, log: &slog::Logger)
 where
-    T: ClientDB,
+    T: Store,
     U: SlotClock,
     F: ForkChoice,
     E: EthSpec,

@@ -14,8 +14,8 @@ extern crate yaml_rust;
 
 pub use beacon_chain::BeaconChain;
 use bls::Signature;
-use db::stores::{BeaconBlockStore, BeaconStateStore};
 use db::MemoryDB;
+use db::Store;
 // use env_logger::{Builder, Env};
 use fork_choice::{
     BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimizedLMDGhost, SlowLMDGhost,
@@ -106,7 +106,7 @@ fn test_yaml_vectors(
     // process the tests
     for test_case in test_cases {
         // setup a fresh test
-        let (mut fork_choice, block_store, state_root) =
+        let (mut fork_choice, store, state_root) =
             setup_inital_state(&fork_choice_algo, emulated_validators);
 
         // keep a hashmap of block_id's to block_hashes (random hashes to abstract block_id)
@@ -149,9 +149,7 @@ fn test_yaml_vectors(
             };
 
             // Store the block.
-            block_store
-                .put(&block_hash, &ssz_encode(&beacon_block)[..])
-                .unwrap();
+            store.put(&block_hash, &beacon_block).unwrap();
 
             // run add block for fork choice if not genesis
             if parent_id != block_id {
@@ -222,29 +220,26 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
 fn setup_inital_state(
     fork_choice_algo: &ForkChoiceAlgorithm,
     num_validators: usize,
-) -> (Box<ForkChoice>, Arc<BeaconBlockStore<MemoryDB>>, Hash256) {
-    let db = Arc::new(MemoryDB::open());
-    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
-    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
+) -> (Box<ForkChoice>, Arc<MemoryDB>, Hash256) {
+    let store = Arc::new(MemoryDB::open());
 
     // the fork choice instantiation
     let fork_choice: Box<ForkChoice> = match fork_choice_algo {
         ForkChoiceAlgorithm::OptimizedLMDGhost => {
             let f: OptimizedLMDGhost<MemoryDB, FoundationEthSpec> =
-                OptimizedLMDGhost::new(block_store.clone(), state_store.clone());
+                OptimizedLMDGhost::new(store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::BitwiseLMDGhost => {
             let f: BitwiseLMDGhost<MemoryDB, FoundationEthSpec> =
-                BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
+                BitwiseLMDGhost::new(store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::SlowLMDGhost => {
-            let f: SlowLMDGhost<MemoryDB, FoundationEthSpec> =
-                SlowLMDGhost::new(block_store.clone(), state_store.clone());
+            let f: SlowLMDGhost<MemoryDB, FoundationEthSpec> = SlowLMDGhost::new(store.clone());
             Box::new(f)
         }
-        ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(block_store.clone())),
+        ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(store.clone())),
     };
 
     let spec = FoundationEthSpec::spec();
@@ -255,12 +250,10 @@ fn setup_inital_state(
     let (state, _keypairs) = state_builder.build();
 
     let state_root = state.canonical_root();
-    state_store
-        .put(&state_root, &ssz_encode(&state)[..])
-        .unwrap();
+    store.put(&state_root, &state).unwrap();
 
     // return initialised vars
-    (fork_choice, block_store, state_root)
+    (fork_choice, store, state_root)
 }
 
 // convert a block_id into a Hash256 -- assume input is hex encoded;
