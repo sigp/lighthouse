@@ -47,15 +47,16 @@ pub fn winning_root<T: EthSpec>(
         .filter(|a| a.data.shard == shard)
         .collect();
 
-    let shard_crosslinks = shard_attestations.iter().map(|att| {
-        (
+    let mut shard_crosslinks = Vec::with_capacity(shard_attestations.len());
+    for att in shard_attestations {
+        shard_crosslinks.push((
             att,
-            state.get_crosslink_from_attestation_data(&att.data, spec),
-        )
-    });
+            state.get_crosslink_from_attestation_data(&att.data, spec)?,
+        ));
+    }
 
-    let current_shard_crosslink_root = state.current_crosslinks[shard as usize].tree_hash_root();
-    let candidate_crosslinks = shard_crosslinks.filter(|(_, c)| {
+    let current_shard_crosslink_root = state.get_current_crosslink(shard)?.tree_hash_root();
+    let candidate_crosslinks = shard_crosslinks.into_iter().filter(|(_, c)| {
         c.previous_crosslink_root.as_bytes() == &current_shard_crosslink_root[..]
             || c.tree_hash_root() == current_shard_crosslink_root
     });
@@ -63,7 +64,7 @@ pub fn winning_root<T: EthSpec>(
     // Build a map from candidate crosslink to attestations that support that crosslink.
     let mut candidate_crosslink_map: HashMap<Crosslink, Vec<&PendingAttestation>> = HashMap::new();
 
-    for (&attestation, crosslink) in candidate_crosslinks {
+    for (attestation, crosslink) in candidate_crosslinks {
         let supporting_attestations = candidate_crosslink_map
             .entry(crosslink)
             .or_insert_with(Vec::new);

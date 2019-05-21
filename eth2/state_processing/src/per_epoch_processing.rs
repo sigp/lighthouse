@@ -161,7 +161,8 @@ pub fn process_crosslinks<T: EthSpec>(
     for relative_epoch in vec![RelativeEpoch::Previous, RelativeEpoch::Current] {
         let epoch = relative_epoch.into_epoch(state.current_epoch());
         for offset in 0..state.get_epoch_committee_count(relative_epoch)? {
-            let shard = (state.get_epoch_start_shard(relative_epoch)? + offset) % spec.shard_count;
+            let shard =
+                (state.get_epoch_start_shard(relative_epoch)? + offset) % T::ShardCount::to_u64();
             let crosslink_committee =
                 state.get_crosslink_committee_for_shard(shard, relative_epoch)?;
 
