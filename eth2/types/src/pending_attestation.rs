@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Attestation, AttestationData, Bitfield};
+use crate::{AttestationData, Bitfield};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -26,22 +26,6 @@ pub struct PendingAttestation {
     pub data: AttestationData,
     pub inclusion_delay: u64,
     pub proposer_index: u64,
-}
-
-impl PendingAttestation {
-    /// Create a `PendingAttestation` from an `Attestation`.
-    pub fn from_attestation(
-        attestation: &Attestation,
-        inclusion_delay: u64,
-        proposer_index: u64,
-    ) -> Self {
-        PendingAttestation {
-            data: attestation.data.clone(),
-            aggregation_bitfield: attestation.aggregation_bitfield.clone(),
-            inclusion_delay,
-            proposer_index,
-        }
-    }
 }
 
 #[cfg(test)]

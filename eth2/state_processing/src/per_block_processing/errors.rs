@@ -126,6 +126,8 @@ pub enum AttestationInvalid {
     },
     /// Attestation slot is too far in the past to be included in a block.
     IncludedTooLate { state: Slot, attestation: Slot },
+    /// Attestation target epoch does not match the current or previous epoch.
+    BadTargetEpoch,
     /// Attestation justified epoch does not match the states current or previous justified epoch.
     ///
     /// `is_current` is `true` if the attestation was compared to the
@@ -170,10 +172,19 @@ pub enum AttestationInvalid {
     BadSignature,
     /// The shard block root was not set to zero. This is a phase 0 requirement.
     ShardBlockRootNotZero,
+    /// The indexed attestation created from this attestation was found to be invalid.
+    BadIndexedAttestation(IndexedAttestationInvalid),
 }
 
 impl_from_beacon_state_error!(AttestationValidationError);
 impl_into_with_index_with_beacon_error!(AttestationValidationError, AttestationInvalid);
+
+impl From<IndexedAttestationValidationError> for AttestationValidationError {
+    fn from(err: IndexedAttestationValidationError) -> Self {
+        let IndexedAttestationValidationError::Invalid(e) = err;
+        AttestationValidationError::Invalid(AttestationInvalid::BadIndexedAttestation(e))
+    }
+}
 
 /*
  * `AttesterSlashing` Validation
@@ -224,25 +235,23 @@ pub enum IndexedAttestationValidationError {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum IndexedAttestationInvalid {
+    /// The custody bit 0 validators intersect with the bit 1 validators.
+    CustodyBitValidatorsIntersect,
     /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
     CustodyBitfieldHasSetBits,
     /// No validator indices were specified.
     NoValidatorIndices,
+    /// The number of indices exceeds the global maximum.
+    ///
+    /// (max_indices, indices_given)
+    MaxIndicesExceed(u64, usize),
     /// The validator indices were not in increasing order.
     ///
     /// The error occured between the given `index` and `index + 1`
     BadValidatorIndicesOrdering(usize),
-    /// The custody bitfield length is not the smallest possible size to represent the validators.
-    ///
-    /// (validators_len, bitfield_len)
-    BadCustodyBitfieldLength(usize, usize),
-    /// The number of slashable indices exceed the global maximum.
-    ///
-    /// (max_indices, indices_given)
-    MaxIndicesExceed(usize, usize),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
-    /// The slashable attestation aggregate signature was not valid.
+    /// The indexed attestation aggregate signature was not valid.
     BadSignature,
 }
 

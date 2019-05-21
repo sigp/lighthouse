@@ -14,7 +14,9 @@ pub use validate_attestation::{
 };
 pub use verify_deposit::{get_existing_validator_index, verify_deposit, verify_deposit_index};
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
-pub use verify_indexed_attestation::verify_indexed_attestation;
+pub use verify_indexed_attestation::{
+    verify_indexed_attestation, verify_indexed_attestation_without_signature,
+};
 pub use verify_transfer::{
     execute_transfer, verify_transfer, verify_transfer_time_independent_only,
 };
@@ -304,7 +306,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_attestations<T: EthSpec>(
     state: &mut BeaconState<T>,
     attestations: &[Attestation],
@@ -327,13 +329,20 @@ pub fn process_attestations<T: EthSpec>(
         })?;
 
     // Update the state in series.
+    let proposer_index =
+        state.get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)? as u64;
     for attestation in attestations {
-        let pending_attestation = PendingAttestation::from_attestation(attestation, state.slot);
-        let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
+        let attestation_slot = state.get_attestation_slot(&attestation.data)?;
+        let pending_attestation = PendingAttestation {
+            aggregation_bitfield: attestation.aggregation_bitfield.clone(),
+            data: attestation.data.clone(),
+            inclusion_delay: (state.slot - attestation_slot).as_u64(),
+            proposer_index,
+        };
 
-        if attestation_epoch == state.current_epoch() {
+        if attestation.data.target_epoch == state.current_epoch() {
             state.current_epoch_attestations.push(pending_attestation)
-        } else if attestation_epoch == state.previous_epoch(spec) {
+        } else {
             state.previous_epoch_attestations.push(pending_attestation)
         }
     }

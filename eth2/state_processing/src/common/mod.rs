@@ -1,8 +1,10 @@
+mod convert_to_indexed;
 mod exit;
 mod get_attesting_indices;
 mod slash_validator;
 mod verify_bitfield;
 
+pub use convert_to_indexed::convert_to_indexed;
 pub use exit::initiate_validator_exit;
 pub use get_attesting_indices::{get_attesting_indices, get_attesting_indices_unsorted};
 pub use slash_validator::slash_validator;
