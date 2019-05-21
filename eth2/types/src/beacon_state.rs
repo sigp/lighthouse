@@ -629,6 +629,24 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Get the current crosslink for a shard.
+    ///
+    /// Spec v0.6.1
+    pub fn get_current_crosslink(&self, shard: u64) -> Result<&Crosslink, Error> {
+        self.current_crosslinks
+            .get(shard as usize)
+            .ok_or(Error::ShardOutOfBounds)
+    }
+
+    /// Get the previous crosslink for a shard.
+    ///
+    /// Spec v0.6.1
+    pub fn get_previous_crosslink(&self, shard: u64) -> Result<&Crosslink, Error> {
+        self.previous_crosslinks
+            .get(shard as usize)
+            .ok_or(Error::ShardOutOfBounds)
+    }
+
     /// Transform an attestation into the crosslink that it reinforces.
     ///
     /// Spec v0.6.1
@@ -636,15 +654,16 @@ impl<T: EthSpec> BeaconState<T> {
         &self,
         data: &AttestationData,
         spec: &ChainSpec,
-    ) -> Crosslink {
-        Crosslink {
+    ) -> Result<Crosslink, Error> {
+        let current_crosslink_epoch = self.get_current_crosslink(data.shard)?.epoch;
+        Ok(Crosslink {
             epoch: std::cmp::min(
                 data.target_epoch,
-                self.current_crosslinks[data.shard as usize].epoch + spec.max_crosslink_epochs,
+                current_crosslink_epoch + spec.max_crosslink_epochs,
             ),
             previous_crosslink_root: data.previous_crosslink_root,
             crosslink_data_root: data.crosslink_data_root,
-        }
+        })
     }
 
     /// Generate a seed for the given `epoch`.
