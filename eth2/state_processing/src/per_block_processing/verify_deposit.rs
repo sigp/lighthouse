@@ -3,6 +3,7 @@ use hashing::hash;
 use merkle_proof::verify_merkle_proof;
 use ssz::ssz_encode;
 use ssz_derive::Encode;
+use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
 /// Indicates if a `Deposit` is valid to be included in a block in the current epoch of the given
@@ -15,25 +16,13 @@ use types::*;
 ///
 /// Note: this function is incomplete.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn verify_deposit<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     verify_merkle_branch: bool,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    verify!(
-        deposit
-            .deposit_data
-            .deposit_input
-            .validate_proof_of_possession(
-                state.slot.epoch(spec.slots_per_epoch),
-                &state.fork,
-                spec
-            ),
-        Invalid::BadProofOfPossession
-    );
-
     if verify_merkle_branch {
         verify!(
             verify_deposit_merkle_proof(state, deposit, spec),
@@ -41,12 +30,23 @@ pub fn verify_deposit<T: EthSpec>(
         );
     }
 
+    // NOTE: proof of possession should only be verified when the validator
+    // is not already part of the registry
+    verify!(
+        deposit.data.signature.verify(
+            &deposit.data.signed_root(),
+            spec.get_domain(state.current_epoch(), Domain::Deposit, &state.fork),
+            &deposit.data.pubkey,
+        ),
+        Invalid::BadProofOfPossession
+    );
+
     Ok(())
 }
 
 /// Verify that the `Deposit` index is correct.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn verify_deposit_index<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
@@ -72,16 +72,15 @@ pub fn get_existing_validator_index<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
 ) -> Result<Option<u64>, Error> {
-    let deposit_input = &deposit.deposit_data.deposit_input;
+    let validator_index = state.get_validator_index(&deposit.data.pubkey)?;
 
-    let validator_index = state.get_validator_index(&deposit_input.pubkey)?;
-
+    // NOTE: it seems that v0.6.1 doesn't require the withdrawal credentials to be checked
     match validator_index {
         None => Ok(None),
         Some(index) => {
             verify!(
-                deposit_input.withdrawal_credentials
-                    == state.validator_registry[index as usize].withdrawal_credentials,
+                deposit.data.withdrawal_credentials
+                    == state.validator_registry[index].withdrawal_credentials,
                 Invalid::BadWithdrawalCredentials
             );
             Ok(Some(index as u64))
@@ -91,7 +90,7 @@ pub fn get_existing_validator_index<T: EthSpec>(
 
 /// Verify that a deposit is included in the state's eth1 deposit root.
 ///
-/// Spec v0.6.0
+/// Spec v0.6.1
 fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
