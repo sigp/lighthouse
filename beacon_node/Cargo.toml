@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 types = { path = "../eth2/types" }
-db = { path = "./db" }
+store = { path = "./store" }
 client = { path = "client" }
 version = { path = "version" }
 clap = "2.32.0"

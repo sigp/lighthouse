@@ -1,9 +1,9 @@
 use beacon_chain::BeaconChain as RawBeaconChain;
 use beacon_chain::{
-    db::Store,
     fork_choice::ForkChoice,
     parking_lot::{RwLockReadGuard, RwLockWriteGuard},
     slot_clock::SlotClock,
+    store::Store,
     types::{BeaconState, ChainSpec, Signature},
     AttestationValidationError, BlockProductionError,
 };

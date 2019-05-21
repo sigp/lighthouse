@@ -1,11 +1,9 @@
-extern crate db;
-
 use crate::{ForkChoice, ForkChoiceError};
-use db::Store;
 use log::{debug, trace};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use store::Store;
 use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 //TODO: Pruning and syncing

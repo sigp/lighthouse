@@ -1,26 +1,14 @@
 #![cfg(not(debug_assertions))]
 // Tests the available fork-choice algorithms
 
-extern crate beacon_chain;
-extern crate bls;
-extern crate db;
-// extern crate env_logger; // for debugging
-extern crate fork_choice;
-extern crate hex;
-extern crate log;
-extern crate slot_clock;
-extern crate types;
-extern crate yaml_rust;
-
 pub use beacon_chain::BeaconChain;
 use bls::Signature;
-use db::MemoryDB;
-use db::Store;
+use store::MemoryStore;
+use store::Store;
 // use env_logger::{Builder, Env};
 use fork_choice::{
     BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimizedLMDGhost, SlowLMDGhost,
 };
-use ssz::ssz_encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
@@ -220,23 +208,23 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
 fn setup_inital_state(
     fork_choice_algo: &ForkChoiceAlgorithm,
     num_validators: usize,
-) -> (Box<ForkChoice>, Arc<MemoryDB>, Hash256) {
-    let store = Arc::new(MemoryDB::open());
+) -> (Box<ForkChoice>, Arc<MemoryStore>, Hash256) {
+    let store = Arc::new(MemoryStore::open());
 
     // the fork choice instantiation
     let fork_choice: Box<ForkChoice> = match fork_choice_algo {
         ForkChoiceAlgorithm::OptimizedLMDGhost => {
-            let f: OptimizedLMDGhost<MemoryDB, FoundationEthSpec> =
+            let f: OptimizedLMDGhost<MemoryStore, FoundationEthSpec> =
                 OptimizedLMDGhost::new(store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::BitwiseLMDGhost => {
-            let f: BitwiseLMDGhost<MemoryDB, FoundationEthSpec> =
+            let f: BitwiseLMDGhost<MemoryStore, FoundationEthSpec> =
                 BitwiseLMDGhost::new(store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::SlowLMDGhost => {
-            let f: SlowLMDGhost<MemoryDB, FoundationEthSpec> = SlowLMDGhost::new(store.clone());
+            let f: SlowLMDGhost<MemoryStore, FoundationEthSpec> = SlowLMDGhost::new(store.clone());
             Box::new(f)
         }
         ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(store.clone())),

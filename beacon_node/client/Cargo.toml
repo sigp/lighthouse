@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
-db = { path = "../db" }
+store = { path = "../store" }
 rpc = { path = "../rpc" }
 fork_choice = { path = "../../eth2/fork_choice" }
 types = { path = "../../eth2/types" }

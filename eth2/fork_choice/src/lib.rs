@@ -21,9 +21,9 @@ pub mod longest_chain;
 pub mod optimized_lmd_ghost;
 pub mod slow_lmd_ghost;
 
-// use db::stores::BeaconBlockAtSlotError;
-// use db::DBError;
-use db::Error as DBError;
+// use store::stores::BeaconBlockAtSlotError;
+// use store::DBError;
+use store::Error as DBError;
 use types::{BeaconBlock, ChainSpec, Hash256};
 
 pub use bitwise_lmd_ghost::BitwiseLMDGhost;

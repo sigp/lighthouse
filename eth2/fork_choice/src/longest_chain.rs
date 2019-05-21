@@ -1,6 +1,6 @@
 use crate::{ForkChoice, ForkChoiceError};
-use db::Store;
 use std::sync::Arc;
+use store::Store;
 use types::{BeaconBlock, ChainSpec, Hash256, Slot};
 
 pub struct LongestChain<T> {

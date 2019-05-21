@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn chain_without_skips() {
         let n: usize = 10;
-        let store = MemoryDB::open();
+        let store = MemoryStore::open();
         let spec = FewValidatorsEthSpec::spec();
 
         let slots: Vec<usize> = (0..n).collect();
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn chain_with_skips() {
-        let store = MemoryDB::open();
+        let store = MemoryStore::open();
         let spec = FewValidatorsEthSpec::spec();
 
         let slots = vec![0, 1, 2, 5];
