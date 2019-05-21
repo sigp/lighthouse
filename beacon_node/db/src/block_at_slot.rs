@@ -44,3 +44,140 @@ pub fn get_block_at_preceeding_slot<T: Store>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ssz::Encode;
+    use tree_hash::TreeHash;
+
+    #[test]
+    fn read_slot() {
+        let spec = FewValidatorsEthSpec::spec();
+
+        let test_slot = |slot: Slot| {
+            let mut block = BeaconBlock::empty(&spec);
+            block.slot = slot;
+            let bytes = block.as_ssz_bytes();
+            assert_eq!(read_slot_from_block_bytes(&bytes).unwrap(), slot);
+        };
+
+        test_slot(Slot::new(0));
+        test_slot(Slot::new(1));
+        test_slot(Slot::new(42));
+        test_slot(Slot::new(u64::max_value()));
+    }
+
+    #[test]
+    fn bad_slot() {
+        for i in 0..8 {
+            assert!(read_slot_from_block_bytes(&vec![0; i]).is_err());
+        }
+    }
+
+    #[test]
+    fn read_previous_block_root() {
+        let spec = FewValidatorsEthSpec::spec();
+
+        let test_root = |root: Hash256| {
+            let mut block = BeaconBlock::empty(&spec);
+            block.previous_block_root = root;
+            let bytes = block.as_ssz_bytes();
+            assert_eq!(
+                read_previous_block_root_from_block_bytes(&bytes).unwrap(),
+                root
+            );
+        };
+
+        test_root(Hash256::random());
+        test_root(Hash256::random());
+        test_root(Hash256::random());
+    }
+
+    fn build_chain(
+        store: &impl Store,
+        slots: &[usize],
+        spec: &ChainSpec,
+    ) -> Vec<(Hash256, BeaconBlock)> {
+        let mut blocks_and_roots: Vec<(Hash256, BeaconBlock)> = vec![];
+
+        for (i, slot) in slots.iter().enumerate() {
+            let mut block = BeaconBlock::empty(spec);
+            block.slot = Slot::from(*slot);
+
+            if i > 0 {
+                block.previous_block_root = blocks_and_roots[i - 1].0;
+            }
+
+            let root = Hash256::from_slice(&block.tree_hash_root());
+
+            store.put(&root, &block).unwrap();
+            blocks_and_roots.push((root, block));
+        }
+
+        blocks_and_roots
+    }
+
+    #[test]
+    fn chain_without_skips() {
+        let n: usize = 10;
+        let store = MemoryDB::open();
+        let spec = FewValidatorsEthSpec::spec();
+
+        let slots: Vec<usize> = (0..n).collect();
+        let blocks_and_roots = build_chain(&store, &slots, &spec);
+
+        for source in 1..n {
+            for target in 0..=source {
+                let (source_root, _source_block) = &blocks_and_roots[source];
+                let (target_root, target_block) = &blocks_and_roots[target];
+
+                let (found_root, found_block) = store
+                    .get_block_at_preceeding_slot(*source_root, target_block.slot)
+                    .unwrap()
+                    .unwrap();
+
+                assert_eq!(found_root, *target_root);
+                assert_eq!(found_block, *target_block);
+            }
+        }
+    }
+
+    #[test]
+    fn chain_with_skips() {
+        let store = MemoryDB::open();
+        let spec = FewValidatorsEthSpec::spec();
+
+        let slots = vec![0, 1, 2, 5];
+
+        let blocks_and_roots = build_chain(&store, &slots, &spec);
+
+        // Valid slots
+        for target in 0..3 {
+            let (source_root, _source_block) = &blocks_and_roots[3];
+            let (target_root, target_block) = &blocks_and_roots[target];
+
+            let (found_root, found_block) = store
+                .get_block_at_preceeding_slot(*source_root, target_block.slot)
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(found_root, *target_root);
+            assert_eq!(found_block, *target_block);
+        }
+
+        // Slot that doesn't exist
+        let (source_root, _source_block) = &blocks_and_roots[3];
+        assert!(store
+            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
+            .unwrap()
+            .is_none());
+
+        // Slot too high
+        let (source_root, _source_block) = &blocks_and_roots[3];
+        assert!(store
+            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
+            .unwrap()
+            .is_none());
+    }
+}
