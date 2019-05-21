@@ -6,11 +6,13 @@ use leveldb::error::Error as LevelDBError;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use std::path::Path;
 
+/// A wrapped leveldb database.
 pub struct LevelDB {
     db: Database<BytesKey>,
 }
 
 impl LevelDB {
+    /// Open a database at `path`, creating a new database if one does not already exist.
     pub fn open(path: &Path) -> Result<Self, Error> {
         let mut options = Options::new();
 
@@ -36,6 +38,7 @@ impl LevelDB {
     }
 }
 
+/// Used for keying leveldb.
 pub struct BytesKey {
     key: Vec<u8>,
 }
@@ -51,7 +54,8 @@ impl Key for BytesKey {
 }
 
 impl Store for LevelDB {
-    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, Error> {
+    /// Retrieve some bytes in `column` with `key`.
+    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = Self::get_key_for_col(col, key);
 
         self.db
@@ -59,6 +63,7 @@ impl Store for LevelDB {
             .map_err(Into::into)
     }
 
+    /// Store some `value` in `column`, indexed with `key`.
     fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
 
@@ -67,6 +72,7 @@ impl Store for LevelDB {
             .map_err(Into::into)
     }
 
+    /// Return `true` if `key` exists in `column`.
     fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
         let column_key = Self::get_key_for_col(col, key);
 
@@ -76,6 +82,7 @@ impl Store for LevelDB {
             .and_then(|val| Ok(val.is_some()))
     }
 
+    /// Removes `key` from `column`.
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
         self.db

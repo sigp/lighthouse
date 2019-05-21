@@ -1,33 +1,55 @@
-// mod disk_db;
+//! Storage functionality for Lighthouse.
+//!
+//! Provides the following stores:
+//!
+//! - `DiskStore`: an on-disk store backed by leveldb. Used in production.
+//! - `MemoryStore`: an in-memory store backed by a hash-map. Used for testing.
+//!
+//! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
+//! tests for implementation examples.
+
 mod block_at_slot;
 mod errors;
 mod impls;
 mod leveldb_store;
-mod memory_db;
+mod memory_store;
 
 pub use self::leveldb_store::LevelDB as DiskStore;
-pub use self::memory_db::MemoryStore;
+pub use self::memory_store::MemoryStore;
 pub use errors::Error;
 pub use types::*;
-pub type DBValue = Vec<u8>;
 
+/// An object capable of storing and retrieving objects implementing `StoreItem`.
+///
+/// A `Store` is fundamentally backed by a key-value database, however it provides support for
+/// columns. A simple column implementation might involve prefixing a key with some bytes unique to
+/// each column.
 pub trait Store: Sync + Send + Sized {
+    /// Store an item in `Self`.
     fn put(&self, key: &Hash256, item: &impl StoreItem) -> Result<(), Error> {
         item.db_put(self, key)
     }
 
+    /// Retrieve an item from `Self`.
     fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         I::db_get(self, key)
     }
 
+    /// Returns `true` if the given key represents an item in `Self`.
     fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         I::db_exists(self, key)
     }
 
+    /// Remove an item from `Self`.
     fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
         I::db_delete(self, key)
     }
 
+    /// Given the root of an existing block in the store (`start_block_root`), return a parent
+    /// block with the specified `slot`.
+    ///
+    /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
+    /// slot of `start_block_root`.
     fn get_block_at_preceeding_slot(
         &self,
         start_block_root: Hash256,
@@ -36,15 +58,20 @@ pub trait Store: Sync + Send + Sized {
         block_at_slot::get_block_at_preceeding_slot(self, slot, start_block_root)
     }
 
-    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, Error>;
+    /// Retrieve some bytes in `column` with `key`.
+    fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
-    fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error>;
+    /// Store some `value` in `column`, indexed with `key`.
+    fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
 
-    fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error>;
+    /// Return `true` if `key` exists in `column`.
+    fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error>;
 
-    fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error>;
+    /// Removes `key` from `column`.
+    fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 }
 
+/// A unique column identifier.
 pub enum DBColumn {
     BeaconBlock,
     BeaconState,
@@ -62,22 +89,31 @@ impl<'a> Into<&'a str> for DBColumn {
     }
 }
 
+/// An item that may be stored in a `Store`.
+///
+/// Provides default methods that are suitable for most applications, however when overridden they
+/// provide full customizability of `Store` operations.
 pub trait StoreItem: Sized {
+    /// Identifies which column this item should be placed in.
     fn db_column() -> DBColumn;
 
+    /// Serialize `self` as bytes.
     fn as_store_bytes(&self) -> Vec<u8>;
 
+    /// De-serialize `self` from bytes.
     fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error>;
 
+    /// Store `self`.
     fn db_put(&self, store: &impl Store, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
         store
             .put_bytes(column, key, &self.as_store_bytes())
-            .map_err(|e| e.into())
+            .map_err(Into::into)
     }
 
+    /// Retrieve an instance of `Self`.
     fn db_get(store: &impl Store, key: &Hash256) -> Result<Option<Self>, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
@@ -88,6 +124,7 @@ pub trait StoreItem: Sized {
         }
     }
 
+    /// Return `true` if an instance of `Self` exists in `Store`.
     fn db_exists(store: &impl Store, key: &Hash256) -> Result<bool, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
@@ -95,6 +132,7 @@ pub trait StoreItem: Sized {
         store.key_exists(column, key)
     }
 
+    /// Delete `self` from the `Store`.
     fn db_delete(store: &impl Store, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();

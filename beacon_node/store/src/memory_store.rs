@@ -1,14 +1,16 @@
-use super::{DBValue, Error, Store};
+use super::{Error, Store};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 
+/// A thread-safe `HashMap` wrapper.
 pub struct MemoryStore {
     db: RwLock<DBHashMap>,
 }
 
 impl MemoryStore {
+    /// Create a new, empty database.
     pub fn open() -> Self {
         Self {
             db: RwLock::new(HashMap::new()),
@@ -24,7 +26,7 @@ impl MemoryStore {
 
 impl Store for MemoryStore {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
-    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, Error> {
+    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = MemoryStore::get_key_for_col(col, key);
 
         Ok(self
