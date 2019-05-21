@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
 use typenum::Unsigned;
 
@@ -70,6 +70,14 @@ impl<T, N: Unsigned, I: SliceIndex<[T]>> IndexMut<I> for FixedLenVec<T, N> {
     }
 }
 
+impl<T, N: Unsigned> Deref for FixedLenVec<T, N> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.vec[..]
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -103,6 +111,16 @@ mod test {
         let vec = vec![];
         let fixed: FixedLenVec<u64, U4> = FixedLenVec::from(vec.clone());
         assert_eq!(&fixed[..], &vec![0, 0, 0, 0][..]);
+    }
+
+    #[test]
+    fn deref() {
+        let vec = vec![0, 2, 4, 6];
+        let fixed: FixedLenVec<u64, U4> = FixedLenVec::from(vec);
+
+        assert_eq!(fixed.get(0), Some(&0));
+        assert_eq!(fixed.get(3), Some(&6));
+        assert_eq!(fixed.get(4), None);
     }
 }
 
