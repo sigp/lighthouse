@@ -1,6 +1,6 @@
+use tree_hash::SignedRoot;
 use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::*;
-use tree_hash::SignedRoot;
 
 pub struct BlockProcessingBuilder<T: EthSpec> {
     pub state_builder: TestingBeaconStateBuilder<T>,
@@ -31,7 +31,12 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         self.state_builder.build_caches(&spec).unwrap();
     }
 
-    pub fn build(mut self, randao_sk: Option<SecretKey>, previous_block_root: Option<Hash256>, spec: &ChainSpec) -> (BeaconBlock, BeaconState<T>) {
+    pub fn build(
+        mut self,
+        randao_sk: Option<SecretKey>,
+        previous_block_root: Option<Hash256>,
+        spec: &ChainSpec,
+    ) -> (BeaconBlock, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -39,7 +44,9 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         match previous_block_root {
             Some(root) => builder.set_previous_block_root(root),
-            None => builder.set_previous_block_root(Hash256::from_slice(&state.latest_block_header.signed_root())),
+            None => builder.set_previous_block_root(Hash256::from_slice(
+                &state.latest_block_header.signed_root(),
+            )),
         }
 
         let proposer_index = state
@@ -56,5 +63,4 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         (block, state)
     }
-
 }
