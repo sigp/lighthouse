@@ -28,8 +28,8 @@ pub trait Store: Sync + Send + Sized {
 
     fn get_block_at_preceeding_slot(
         &self,
-        slot: Slot,
         start_block_root: Hash256,
+        slot: Slot,
     ) -> Result<Option<(Hash256, BeaconBlock)>, Error> {
         block_at_slot::get_block_at_preceeding_slot(self, slot, start_block_root)
     }
