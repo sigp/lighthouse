@@ -1,6 +1,6 @@
 use beacon_chain::BeaconChain as RawBeaconChain;
 use beacon_chain::{
-    db::ClientDB,
+    db::Store,
     fork_choice::ForkChoice,
     parking_lot::{RwLockReadGuard, RwLockWriteGuard},
     slot_clock::SlotClock,
@@ -36,7 +36,7 @@ pub trait BeaconChain<E: EthSpec>: Send + Sync {
 
 impl<T, U, F, E> BeaconChain<E> for RawBeaconChain<T, U, F, E>
 where
-    T: ClientDB + Sized,
+    T: Store,
     U: SlotClock,
     F: ForkChoice,
     E: EthSpec,

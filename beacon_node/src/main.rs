@@ -74,7 +74,7 @@ fn main() {
                 .value_name("DB")
                 .help("Type of database to use.")
                 .takes_value(true)
-                .possible_values(&["rocks", "memory"])
+                .possible_values(&["disk", "memory"])
                 .default_value("memory"),
         )
         .get_matches();

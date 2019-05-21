@@ -1,7 +1,6 @@
 use client::client_types::{DiskDBTestingClientType, MemoryDBTestingClientType};
-use client::error;
+use client::{error, DBType};
 use client::{notifier, Client, ClientConfig, ClientTypes};
-use db::DBType;
 use futures::sync::oneshot;
 use futures::Future;
 use slog::info;
@@ -26,7 +25,7 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
     let executor = runtime.executor();
 
     match config.db_type {
-        DBType::RocksDB => {
+        DBType::Disk => {
             info!(
                 log,
                 "BeaconNode starting";
