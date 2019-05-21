@@ -4,11 +4,10 @@ use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
-use parking_lot::RwLock;
 use std::path::Path;
 
 pub struct LevelDB<K: Key> {
-    db: RwLock<Database<K>>,
+    db: Database<K>,
 }
 
 impl<K: Key> LevelDB<K> {
@@ -19,9 +18,7 @@ impl<K: Key> LevelDB<K> {
 
         let db = Database::open(path, options)?;
 
-        Ok(Self {
-            db: RwLock::new(db),
-        })
+        Ok(Self { db })
     }
 
     fn read_options(&self) -> ReadOptions<K> {
@@ -58,7 +55,6 @@ impl Store for LevelDB<BytesKey> {
         let column_key = Self::get_key_for_col(col, key);
 
         self.db
-            .read()
             .get(self.read_options(), column_key)
             .map_err(Into::into)
     }
@@ -67,7 +63,6 @@ impl Store for LevelDB<BytesKey> {
         let column_key = Self::get_key_for_col(col, key);
 
         self.db
-            .write()
             .put(self.write_options(), column_key, val)
             .map_err(Into::into)
     }
@@ -76,7 +71,6 @@ impl Store for LevelDB<BytesKey> {
         let column_key = Self::get_key_for_col(col, key);
 
         self.db
-            .read()
             .get(self.read_options(), column_key)
             .map_err(Into::into)
             .and_then(|val| Ok(val.is_some()))
@@ -85,7 +79,6 @@ impl Store for LevelDB<BytesKey> {
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
         self.db
-            .write()
             .delete(self.write_options(), column_key)
             .map_err(Into::into)
     }
