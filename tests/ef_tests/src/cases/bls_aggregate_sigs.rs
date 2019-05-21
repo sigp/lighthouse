@@ -1,10 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use bls::{AggregateSignature, Signature};
-use ethereum_types::{U128, U256};
 use serde_derive::Deserialize;
-use ssz::Decode;
-use std::fmt::Debug;
 use types::EthSpec;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -25,7 +22,7 @@ impl EfTest for Cases<BlsAggregateSigs> {
             .iter()
             .enumerate()
             .map(|(i, tc)| {
-                let result = bls_add_aggregates::<AggregateSignature>(&tc.input, &tc.output);
+                let result = bls_add_signatures(&tc.input, &tc.output);
 
                 CaseResult::new(i, tc, result)
             })
@@ -34,20 +31,20 @@ impl EfTest for Cases<BlsAggregateSigs> {
 }
 
 /// Execute a `aggregate_sigs` test case.
-fn bls_add_aggregates<T>(
-    inputs: &[String],
-    output: &String,
-) -> Result<(), Error> {
+fn bls_add_signatures(inputs: &[String], output: &String) -> Result<(), Error> {
     let mut aggregate_signature = AggregateSignature::new();
 
     for key_str in inputs {
-        let sig = hex::decode(&key_str[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-        let sig = Signature::from_bytes(&sig).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+        let sig =
+            hex::decode(&key_str[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+        let sig = Signature::from_bytes(&sig)
+            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
         aggregate_signature.add(&sig);
     }
 
-    let output_bytes = Some(hex::decode(&output[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?);
+    let output_bytes =
+        Some(hex::decode(&output[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?);
     let aggregate_signature = Ok(aggregate_signature.as_bytes());
 
     compare_result::<Vec<u8>, Vec<u8>>(&aggregate_signature, &output_bytes)
