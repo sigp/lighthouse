@@ -10,7 +10,6 @@ use winning_root::{winning_root, WinningRoot};
 
 pub mod apply_rewards;
 pub mod errors;
-pub mod get_attesting_indices;
 pub mod inclusion_distance;
 pub mod process_slashings;
 pub mod registry_updates;

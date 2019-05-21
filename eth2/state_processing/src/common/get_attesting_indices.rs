@@ -1,7 +1,22 @@
 use crate::common::verify_bitfield_length;
 use types::*;
 
-/// Returns validator indices which participated in the attestation.
+/// Returns validator indices which participated in the attestation, sorted by increasing index.
+///
+/// Spec v0.6.1
+pub fn get_attesting_indices<T: EthSpec>(
+    state: &BeaconState<T>,
+    attestation_data: &AttestationData,
+    bitfield: &Bitfield,
+) -> Result<Vec<usize>, BeaconStateError> {
+    get_attesting_indices_unsorted(state, attestation_data, bitfield).map(|mut indices| {
+        // Fast unstable sort is safe because validator indices are unique
+        indices.sort_unstable();
+        indices
+    })
+}
+
+/// Returns validator indices which participated in the attestation, unsorted.
 ///
 /// Spec v0.6.1
 pub fn get_attesting_indices_unsorted<T: EthSpec>(
