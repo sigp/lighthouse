@@ -1,3 +1,5 @@
+extern crate rand;
+
 use super::BLS_SECRET_KEY_BYTE_SIZE;
 use bls_aggregates::SecretKey as RawSecretKey;
 use hex::encode as hex_encode;
@@ -16,7 +18,7 @@ pub struct SecretKey(RawSecretKey);
 
 impl SecretKey {
     pub fn random() -> Self {
-        SecretKey(RawSecretKey::random())
+        SecretKey(RawSecretKey::random(&mut rand::thread_rng()))
     }
 
     /// Returns the underlying point as compressed bytes.
