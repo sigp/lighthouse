@@ -89,11 +89,9 @@ fn per_block_processing_signature_optional<T: EthSpec>(
     process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
     process_attester_slashings(&mut state, &block.body.attester_slashings, spec)?;
     process_attestations(&mut state, &block.body.attestations, spec)?;
-    /*
     process_deposits(&mut state, &block.body.deposits, spec)?;
     process_exits(&mut state, &block.body.voluntary_exits, spec)?;
     process_transfers(&mut state, &block.body.transfers, spec)?;
-    */
 
     Ok(())
 }
@@ -350,21 +348,24 @@ pub fn process_attestations<T: EthSpec>(
     Ok(())
 }
 
-/*
 /// Validates each `Deposit` and updates the state, short-circuiting on an invalid object.
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_deposits<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposits: &[Deposit],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(
-        deposits.len() as u64 <= spec.max_deposits,
-        Invalid::MaxDepositsExceeded
+        deposits.len() as u64
+            == std::cmp::min(
+                spec.max_deposits,
+                state.latest_eth1_data.deposit_count - state.deposit_index
+            ),
+        Invalid::DepositCountInvalid
     );
 
     // Verify deposits in parallel.
@@ -391,28 +392,28 @@ pub fn process_deposits<T: EthSpec>(
         let validator_index =
             get_existing_validator_index(state, deposit).map_err(|e| e.into_with_index(i))?;
 
-        let deposit_data = &deposit.deposit_data;
-        let deposit_input = &deposit.deposit_data.deposit_input;
+        let amount = deposit.data.amount;
 
         if let Some(index) = validator_index {
             // Update the existing validator balance.
-            safe_add_assign!(
-                state.validator_balances[index as usize],
-                deposit_data.amount
-            );
+            safe_add_assign!(state.balances[index as usize], amount);
         } else {
             // Create a new validator.
             let validator = Validator {
-                pubkey: deposit_input.pubkey.clone(),
-                withdrawal_credentials: deposit_input.withdrawal_credentials,
+                pubkey: deposit.data.pubkey.clone(),
+                withdrawal_credentials: deposit.data.withdrawal_credentials,
+                activation_eligibility_epoch: spec.far_future_epoch,
                 activation_epoch: spec.far_future_epoch,
                 exit_epoch: spec.far_future_epoch,
                 withdrawable_epoch: spec.far_future_epoch,
-                initiated_exit: false,
+                effective_balance: std::cmp::min(
+                    amount - amount % spec.effective_balance_increment,
+                    spec.max_effective_balance,
+                ),
                 slashed: false,
             };
             state.validator_registry.push(validator);
-            state.validator_balances.push(deposit_data.amount);
+            state.balances.push(deposit.data.amount);
         }
 
         state.deposit_index += 1;
@@ -482,4 +483,3 @@ pub fn process_transfers<T: EthSpec>(
 
     Ok(())
 }
-*/

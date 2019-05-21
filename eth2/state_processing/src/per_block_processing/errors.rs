@@ -77,7 +77,7 @@ pub enum BlockInvalid {
     MaxAttestationsExceeded,
     MaxAttesterSlashingsExceed,
     MaxProposerSlashingsExceeded,
-    MaxDepositsExceeded,
+    DepositCountInvalid,
     MaxExitsExceeded,
     MaxTransfersExceed,
     AttestationInvalid(usize, AttestationInvalid),
