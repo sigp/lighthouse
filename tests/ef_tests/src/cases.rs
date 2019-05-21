@@ -4,9 +4,13 @@ use yaml_rust::YamlLoader;
 
 mod ssz_generic;
 mod ssz_static;
+mod bls_aggregate_pubkeys;
+mod bls_aggregate_sigs;
 
 pub use ssz_generic::*;
 pub use ssz_static::*;
+pub use bls_aggregate_pubkeys::*;
+pub use bls_aggregate_sigs::*;
 
 #[derive(Debug)]
 pub struct Cases<T> {

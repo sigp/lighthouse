@@ -25,4 +25,12 @@ impl FakeAggregatePublicKey {
     pub fn add(&mut self, _public_key: &PublicKey) {
         // No nothing.
     }
+
+    pub fn as_raw(&self) -> &FakeAggregatePublicKey {
+        &self
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.bytes.clone()
+    }
 }

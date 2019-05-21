@@ -35,6 +35,9 @@ impl Doc {
             ("ssz", "uint", _) => run_test::<SszGeneric, MainnetEthSpec>(&self.yaml),
             ("ssz", "static", "minimal") => run_test::<SszStatic, MinimalEthSpec>(&self.yaml),
             ("ssz", "static", "mainnet") => run_test::<SszStatic, MainnetEthSpec>(&self.yaml),
+            ("bls", "aggregate_pubkeys", "mainnet") => run_test::<BlsAggregatePubkeys, MainnetEthSpec>(&self.yaml),
+            ("bls", "aggregate_sigs", "mainnet") => run_test::<BlsAggregateSigs, MainnetEthSpec>(&self.yaml),
+
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
