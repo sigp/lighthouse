@@ -1,5 +1,5 @@
-use super::get_attesting_indices::get_attesting_indices_unsorted;
 use super::WinningRootHashSet;
+use crate::common::get_attesting_indices_unsorted;
 use types::*;
 
 /// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`

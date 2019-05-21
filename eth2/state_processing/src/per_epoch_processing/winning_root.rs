@@ -1,4 +1,4 @@
-use super::get_attesting_indices::get_attesting_indices_unsorted;
+use crate::common::get_attesting_indices_unsorted;
 use std::collections::{HashMap, HashSet};
 use tree_hash::TreeHash;
 use types::*;
