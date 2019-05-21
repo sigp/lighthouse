@@ -49,8 +49,8 @@ fn invalid_parent_block_root() {
     assert_eq!(
         result,
         Err(BlockProcessingError::Invalid(
-            BlockInvalid::ParentBlockRootMismatch{
-                state: Hash256::from_slice(&state.latest_block_header.signed_root()), 
+            BlockInvalid::ParentBlockRootMismatch {
+                state: Hash256::from_slice(&state.latest_block_header.signed_root()),
                 block: block.previous_block_root
             }
         ))
@@ -88,13 +88,15 @@ fn invalid_randao_reveal_signature() {
     // sign randao reveal with random keypair
     let keypair = Keypair::random();
     let (block, mut state) = builder.build(Some(keypair.sk), None, &spec);
-    
+
     let result = per_block_processing(&mut state, &block, &spec);
 
     // should get a BadRandaoSignature error
     assert_eq!(
         result,
-        Err(BlockProcessingError::Invalid(BlockInvalid::BadRandaoSignature))
+        Err(BlockProcessingError::Invalid(
+            BlockInvalid::BadRandaoSignature
+        ))
     );
 }
 
