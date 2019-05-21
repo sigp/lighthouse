@@ -1,9 +1,6 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB, DBError,
-};
+use db::{Error as DBError, Store};
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
@@ -83,9 +80,8 @@ impl BlockProcessingOutcome {
     }
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, E: EthSpec> {
-    pub block_store: Arc<BeaconBlockStore<T>>,
-    pub state_store: Arc<BeaconStateStore<T>>,
+pub struct BeaconChain<T, U, F, E: EthSpec> {
+    pub store: Arc<T>,
     pub slot_clock: U,
     pub op_pool: OperationPool<E>,
     canonical_head: RwLock<CheckPoint<E>>,
@@ -97,15 +93,14 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, E: EthS
 
 impl<T, U, F, E> BeaconChain<T, U, F, E>
 where
-    T: ClientDB,
+    T: Store,
     U: SlotClock,
     F: ForkChoice,
     E: EthSpec,
 {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
-        state_store: Arc<BeaconStateStore<T>>,
-        block_store: Arc<BeaconBlockStore<T>>,
+        store: Arc<T>,
         slot_clock: U,
         mut genesis_state: BeaconState<E>,
         genesis_block: BeaconBlock,
@@ -113,10 +108,10 @@ where
         fork_choice: F,
     ) -> Result<Self, Error> {
         let state_root = genesis_state.canonical_root();
-        state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
+        store.put(&state_root, &genesis_state)?;
 
         let block_root = genesis_block.block_header().canonical_root();
-        block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
+        store.put(&block_root, &genesis_block)?;
 
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
@@ -134,8 +129,7 @@ where
         genesis_state.build_all_caches(&spec)?;
 
         Ok(Self {
-            block_store,
-            state_store,
+            store,
             slot_clock,
             op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
