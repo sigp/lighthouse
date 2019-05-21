@@ -16,11 +16,9 @@
 //! [`slow_lmd_ghost`]: struct.SlowLmdGhost.html
 //! [`bitwise_lmd_ghost`]: struct.OptimisedLmdGhost.html
 
-/*
 pub mod bitwise_lmd_ghost;
 pub mod longest_chain;
 pub mod optimized_lmd_ghost;
-*/
 pub mod slow_lmd_ghost;
 
 // use db::stores::BeaconBlockAtSlotError;
@@ -28,11 +26,9 @@ pub mod slow_lmd_ghost;
 use db::Error as DBError;
 use types::{BeaconBlock, ChainSpec, Hash256};
 
-/*
 pub use bitwise_lmd_ghost::BitwiseLMDGhost;
 pub use longest_chain::LongestChain;
 pub use optimized_lmd_ghost::OptimizedLMDGhost;
-*/
 pub use slow_lmd_ghost::SlowLMDGhost;
 
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures

@@ -1,7 +1,7 @@
 extern crate db;
 
 use crate::{ForkChoice, ForkChoiceError};
-use db::{Store, StoreItem};
+use db::Store;
 use log::{debug, trace};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -16,7 +16,7 @@ pub struct SlowLMDGhost<T, E> {
     latest_attestation_targets: HashMap<u64, Hash256>,
     /// Stores the children for any given parent.
     children: HashMap<Hash256, Vec<Hash256>>,
-    /// Persistent storage
+    /// Block and state storage.
     store: Arc<T>,
     _phantom: PhantomData<E>,
 }
@@ -85,8 +85,8 @@ impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
 
         for (vote_hash, votes) in latest_votes.iter() {
             let (root_at_slot, _) = self
-                .block_store
-                .block_at_slot(&vote_hash, block_slot)?
+                .store
+                .get_block_at_preceeding_slot(*vote_hash, block_slot)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_root))?;
             if root_at_slot == *block_root {
                 count += votes;
@@ -138,16 +138,16 @@ impl<T: Store, E: EthSpec> ForkChoice for SlowLMDGhost<T, E> {
             trace!("Old attestation found: {:?}", attestation_target);
             // get the height of the target block
             let block_height = self
-                .block_store
-                .get_deserialized(&target_block_root)?
+                .store
+                .get::<BeaconBlock>(&target_block_root)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*target_block_root))?
                 .slot
                 .height(spec.genesis_slot);
 
             // get the height of the past target block
             let past_block_height = self
-                .block_store
-                .get_deserialized(&attestation_target)?
+                .store
+                .get::<BeaconBlock>(&attestation_target)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*attestation_target))?
                 .slot
                 .height(spec.genesis_slot);
@@ -168,8 +168,8 @@ impl<T: Store, E: EthSpec> ForkChoice for SlowLMDGhost<T, E> {
     ) -> Result<Hash256, ForkChoiceError> {
         debug!("Running LMD Ghost Fork-choice rule");
         let start = self
-            .block_store
-            .get_deserialized(&justified_block_start)?
+            .store
+            .get::<BeaconBlock>(&justified_block_start)?
             .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*justified_block_start))?;
 
         let start_state_root = start.state_root;
