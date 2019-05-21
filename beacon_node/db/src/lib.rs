@@ -130,35 +130,40 @@ mod tests {
         }
     }
 
-    #[test]
-    fn leveldb_can_store_and_retrieve() {
-        let dir = tempdir().unwrap();
-        let path = dir.path();
-
-        let store = LevelDB::open(&path).unwrap();
-
+    fn test_impl(store: impl Store) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
+        assert_eq!(store.exists::<StorableThing>(&key), Ok(false));
+
         store.put(&key, &item).unwrap();
 
-        let retrieved = store.get(&key).unwrap().unwrap();
+        assert_eq!(store.exists::<StorableThing>(&key), Ok(true));
 
+        let retrieved = store.get(&key).unwrap().unwrap();
         assert_eq!(item, retrieved);
+
+        store.delete::<StorableThing>(&key).unwrap();
+
+        assert_eq!(store.exists::<StorableThing>(&key), Ok(false));
+
+        assert_eq!(store.get::<StorableThing>(&key), Ok(None));
     }
 
     #[test]
-    fn memorydb_can_store_and_retrieve() {
+    fn leveldb() {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
+        let store = LevelDB::open(&path).unwrap();
+
+        test_impl(store);
+    }
+
+    #[test]
+    fn memorydb() {
         let store = MemoryDB::open();
 
-        let key = Hash256::random();
-        let item = StorableThing { a: 1, b: 42 };
-
-        store.put(&key, &item).unwrap();
-
-        let retrieved = store.get(&key).unwrap().unwrap();
-
-        assert_eq!(item, retrieved);
+        test_impl(store);
     }
 
     #[test]
