@@ -26,6 +26,7 @@ fn yaml_files_in_test_dir(dir: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/*
 #[test]
 fn ssz_generic() {
     yaml_files_in_test_dir("ssz_generic")
@@ -38,6 +39,16 @@ fn ssz_generic() {
 #[test]
 fn ssz_static() {
     yaml_files_in_test_dir("ssz_static")
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+*/
+
+#[test]
+fn bls() {
+    yaml_files_in_test_dir("bls")
         .into_par_iter()
         .for_each(|file| {
             Doc::assert_tests_pass(file);
