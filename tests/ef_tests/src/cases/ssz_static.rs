@@ -3,7 +3,7 @@ use crate::case_result::compare_result;
 use cached_tree_hash::{CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use serde_derive::Deserialize;
-use ssz::Decode;
+use ssz::{Decode, Encode, ssz_encode};
 use std::fmt::Debug;
 use tree_hash::TreeHash;
 use types::{
@@ -91,8 +91,10 @@ impl EfTest for Cases<SszStatic> {
 
 fn ssz_static_test<T>(tc: &SszStatic) -> Result<(), Error>
 where
-    T: Decode
+    T: Clone
+        + Decode
         + Debug
+        + Encode
         + PartialEq<T>
         + serde::de::DeserializeOwned
         + TreeHash
@@ -106,8 +108,12 @@ where
     let decode_result = T::from_ssz_bytes(&ssz);
     compare_result(&decode_result, &Some(expected))?;
 
-    // Verify the TreeHash root of the decoded struct matches the test.
+    // Verify we can encode the result back into original ssz bytes
     let decoded = decode_result.unwrap();
+    let encoded_result = decoded.as_ssz_bytes();
+    compare_result::<Vec<u8>, Error>(&Ok(encoded_result), &Some(ssz));
+
+    // Verify the TreeHash root of the decoded struct matches the test.
     let expected_root =
         &hex::decode(&tc.root[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
     let expected_root = Hash256::from_slice(&expected_root);
