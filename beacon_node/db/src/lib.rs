@@ -2,8 +2,10 @@
 mod block_at_slot;
 mod errors;
 mod impls;
+mod leveldb_store;
 mod memory_db;
 
+pub use self::leveldb_store::LevelDB;
 pub use self::memory_db::MemoryDB;
 pub use errors::Error;
 pub use types::*;
@@ -106,6 +108,7 @@ mod tests {
     use super::*;
     use ssz::{Decode, Encode};
     use ssz_derive::{Decode, Encode};
+    use tempfile::tempdir;
 
     #[derive(PartialEq, Debug, Encode, Decode)]
     struct StorableThing {
@@ -125,6 +128,23 @@ mod tests {
         fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error> {
             Self::from_ssz_bytes(bytes).map_err(Into::into)
         }
+    }
+
+    #[test]
+    fn leveldb_can_store_and_retrieve() {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
+
+        let store = LevelDB::open(&path).unwrap();
+
+        let key = Hash256::random();
+        let item = StorableThing { a: 1, b: 42 };
+
+        store.put(&key, &item).unwrap();
+
+        let retrieved = store.get(&key).unwrap().unwrap();
+
+        assert_eq!(item, retrieved);
     }
 
     #[test]
