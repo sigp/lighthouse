@@ -53,7 +53,7 @@ impl Default for ClientConfig {
             // default to memory db for now
             db_type: DBType::Memory,
             // default db name for disk-based dbs
-            db_name: data_dir.join("chain.db"),
+            db_name: data_dir.join("chain_db"),
             rpc_conf: rpc::RPCConfig::default(),
         }
     }
