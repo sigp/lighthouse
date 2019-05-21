@@ -35,9 +35,22 @@ impl Doc {
             ("ssz", "uint", _) => run_test::<SszGeneric, MainnetEthSpec>(&self.yaml),
             ("ssz", "static", "minimal") => run_test::<SszStatic, MinimalEthSpec>(&self.yaml),
             ("ssz", "static", "mainnet") => run_test::<SszStatic, MainnetEthSpec>(&self.yaml),
-            ("bls", "aggregate_pubkeys", "mainnet") => run_test::<BlsAggregatePubkeys, MainnetEthSpec>(&self.yaml),
-            ("bls", "aggregate_sigs", "mainnet") => run_test::<BlsAggregateSigs, MainnetEthSpec>(&self.yaml),
-
+            ("bls", "aggregate_pubkeys", "mainnet") => {
+                run_test::<BlsAggregatePubkeys, MainnetEthSpec>(&self.yaml)
+            }
+            ("bls", "aggregate_sigs", "mainnet") => {
+                run_test::<BlsAggregateSigs, MainnetEthSpec>(&self.yaml)
+            }
+            ("bls", "msg_hash_compressed", "mainnet") => {
+                run_test::<BlsG2Compressed, MainnetEthSpec>(&self.yaml)
+            }
+            ("bls", "msg_hash_uncompressed", "mainnet") => {
+                run_test::<BlsG2Uncompressed, MainnetEthSpec>(&self.yaml)
+            }
+            ("bls", "priv_to_pub", "mainnet") => {
+                run_test::<BlsPrivToPub, MainnetEthSpec>(&self.yaml)
+            }
+            ("bls", "sign_msg", "mainnet") => run_test::<BlsSign, MainnetEthSpec>(&self.yaml),
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
