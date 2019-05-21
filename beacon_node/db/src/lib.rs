@@ -5,7 +5,7 @@ mod impls;
 mod leveldb_store;
 mod memory_db;
 
-pub use self::leveldb_store::LevelDB;
+pub use self::leveldb_store::LevelDB as DiskDB;
 pub use self::memory_db::MemoryDB;
 pub use errors::Error;
 pub use types::*;
@@ -151,10 +151,10 @@ mod tests {
     }
 
     #[test]
-    fn leveldb() {
+    fn diskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = LevelDB::open(&path).unwrap();
+        let store = DiskDB::open(&path).unwrap();
 
         test_impl(store);
     }
