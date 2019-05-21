@@ -6,11 +6,11 @@ use leveldb::error::Error as LevelDBError;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use std::path::Path;
 
-pub struct LevelDB<K: Key> {
-    db: Database<K>,
+pub struct LevelDB {
+    db: Database<BytesKey>,
 }
 
-impl<K: Key> LevelDB<K> {
+impl LevelDB {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let mut options = Options::new();
 
@@ -21,7 +21,7 @@ impl<K: Key> LevelDB<K> {
         Ok(Self { db })
     }
 
-    fn read_options(&self) -> ReadOptions<K> {
+    fn read_options(&self) -> ReadOptions<BytesKey> {
         ReadOptions::new()
     }
 
@@ -50,7 +50,7 @@ impl Key for BytesKey {
     }
 }
 
-impl Store for LevelDB<BytesKey> {
+impl Store for LevelDB {
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<DBValue>, Error> {
         let column_key = Self::get_key_for_col(col, key);
 
