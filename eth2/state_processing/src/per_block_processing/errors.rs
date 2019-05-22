@@ -348,6 +348,8 @@ pub enum ExitValidationError {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum ExitInvalid {
+    /// The specified validator is not active.
+    NotActive(u64),
     /// The specified validator is not in the state's validator registry.
     ValidatorUnknown(u64),
     /// The specified validator has a non-maximum exit epoch.
