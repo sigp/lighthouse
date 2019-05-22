@@ -1,7 +1,7 @@
 #[derive(Debug, PartialEq, Clone)]
 pub struct FieldComparison {
-    pub equal: bool,
     pub field_name: String,
+    pub equal: bool,
     pub a: String,
     pub b: String,
 }
