@@ -108,9 +108,11 @@ pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
     println!("");
 
     for failure in failures {
+        let error = failure.result.clone().unwrap_err();
+
         println!("-------");
-        println!("case[{}].result:", failure.case_index);
-        println!("{:#?}", failure.result);
+        println!("case[{}] failed with {}:", failure.case_index, error.name());
+        println!("{}", error.message());
     }
     println!("");
 }

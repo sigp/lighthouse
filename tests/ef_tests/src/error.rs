@@ -7,3 +7,21 @@ pub enum Error {
     /// Failed to parse the test (internal error).
     FailedToParseTest(String),
 }
+
+impl Error {
+    pub fn name(&self) -> &str {
+        match self {
+            Error::NotEqual(_) => "NotEqual",
+            Error::DidntFail(_) => "DidntFail",
+            Error::FailedToParseTest(_) => "FailedToParseTest",
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            Error::NotEqual(m) => m.as_str(),
+            Error::DidntFail(m) => m.as_str(),
+            Error::FailedToParseTest(m) => m.as_str(),
+        }
+    }
+}

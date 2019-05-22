@@ -1,5 +1,5 @@
 use super::*;
-use compare_fields::CompareFields;
+use compare_fields::{CompareFields, FieldComparison};
 use std::fmt::Debug;
 use types::BeaconState;
 
@@ -51,16 +51,16 @@ where
 {
     match (result, expected) {
         (Ok(result), Some(expected)) => {
-            let mismatching_fields: Vec<String> = expected
+            let mismatching_fields: Vec<FieldComparison> = expected
                 .compare_fields(result)
                 .into_iter()
                 .filter(|c| !c.equal)
-                .map(|c| c.field_name)
+                // .map(|c| c.field_name)
                 .collect();
 
             if !mismatching_fields.is_empty() {
                 Err(Error::NotEqual(format!(
-                    "Result mismatch. Fields not equal: {:?}",
+                    "Fields not equal: {:#?}",
                     mismatching_fields
                 )))
             } else {
