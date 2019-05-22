@@ -9,6 +9,7 @@ pub use typenum;
 mod impls;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct FixedLenVec<T, N> {
     vec: Vec<T>,
     _phantom: PhantomData<N>,
