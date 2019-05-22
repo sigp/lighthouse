@@ -95,9 +95,9 @@ fn attestation_score<T: EthSpec>(
 
     let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
 
-    let state_attestations = if attestation_epoch == state.current_epoch(spec) {
+    let state_attestations = if attestation_epoch == state.current_epoch() {
         &state.current_epoch_attestations
-    } else if attestation_epoch == state.previous_epoch(spec) {
+    } else if attestation_epoch == state.previous_epoch() {
         &state.previous_epoch_attestations
     } else {
         return 0;
@@ -181,8 +181,8 @@ impl<T: EthSpec> OperationPool<T> {
     /// Get a list of attestations for inclusion in a block.
     pub fn get_attestations(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Attestation> {
         // Attestations for the current fork, which may be from the current or previous epoch.
-        let prev_epoch = state.previous_epoch(spec);
-        let current_epoch = state.current_epoch(spec);
+        let prev_epoch = state.previous_epoch();
+        let current_epoch = state.current_epoch();
         let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
         let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
         self.attestations
@@ -384,8 +384,7 @@ impl<T: EthSpec> OperationPool<T> {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
             |validator| {
-                validator.slashed
-                    || validator.is_withdrawable_at(finalized_state.current_epoch(spec))
+                validator.slashed || validator.is_withdrawable_at(finalized_state.current_epoch())
             },
             finalized_state,
         );
@@ -396,7 +395,7 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         self.attester_slashings.write().retain(|id, slashing| {
             let fork_ok = &Self::attester_slashing_id(slashing, finalized_state, spec) == id;
-            let curr_epoch = finalized_state.current_epoch(spec);
+            let curr_epoch = finalized_state.current_epoch();
             let slashing_ok = gather_attester_slashing_indices_modular(
                 finalized_state,
                 slashing,
@@ -439,7 +438,7 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
-            |validator| validator.is_exited_at(finalized_state.current_epoch(spec)),
+            |validator| validator.is_exited_at(finalized_state.current_epoch()),
             finalized_state,
         );
     }
