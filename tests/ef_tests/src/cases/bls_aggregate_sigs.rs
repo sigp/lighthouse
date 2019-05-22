@@ -2,7 +2,6 @@ use super::*;
 use crate::case_result::compare_result;
 use bls::{AggregateSignature, Signature};
 use serde_derive::Deserialize;
-use types::EthSpec;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsAggregateSigs {
@@ -16,36 +15,25 @@ impl YamlDecode for BlsAggregateSigs {
     }
 }
 
-impl EfTest for Cases<BlsAggregateSigs> {
-    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
-        self.test_cases
-            .iter()
-            .enumerate()
-            .map(|(i, tc)| {
-                let result = bls_add_signatures(&tc.input, &tc.output);
+impl Case for BlsAggregateSigs {
+    fn result(&self) -> Result<(), Error> {
+        let mut aggregate_signature = AggregateSignature::new();
 
-                CaseResult::new(i, tc, result)
-            })
-            .collect()
+        for key_str in &self.input {
+            let sig = hex::decode(&key_str[2..])
+                .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+            let sig = Signature::from_bytes(&sig)
+                .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+
+            aggregate_signature.add(&sig);
+        }
+
+        let output_bytes = Some(
+            hex::decode(&self.output[2..])
+                .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?,
+        );
+        let aggregate_signature = Ok(aggregate_signature.as_bytes());
+
+        compare_result::<Vec<u8>, Vec<u8>>(&aggregate_signature, &output_bytes)
     }
-}
-
-/// Execute a `aggregate_sigs` test case.
-fn bls_add_signatures(inputs: &[String], output: &String) -> Result<(), Error> {
-    let mut aggregate_signature = AggregateSignature::new();
-
-    for key_str in inputs {
-        let sig =
-            hex::decode(&key_str[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-        let sig = Signature::from_bytes(&sig)
-            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-
-        aggregate_signature.add(&sig);
-    }
-
-    let output_bytes =
-        Some(hex::decode(&output[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?);
-    let aggregate_signature = Ok(aggregate_signature.as_bytes());
-
-    compare_result::<Vec<u8>, Vec<u8>>(&aggregate_signature, &output_bytes)
 }

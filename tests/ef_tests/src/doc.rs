@@ -6,7 +6,6 @@ use crate::yaml_decode::{yaml_split_header_and_cases, YamlDecode};
 use crate::EfTest;
 use serde_derive::Deserialize;
 use std::{fs::File, io::prelude::*, path::PathBuf};
-use types::EthSpec;
 
 #[derive(Debug, Deserialize)]
 pub struct Doc {
@@ -39,31 +38,27 @@ impl Doc {
             header.handler.as_ref(),
             header.config.as_ref(),
         ) {
-            ("ssz", "uint", _) => run_test::<SszGeneric, MainnetEthSpec>(self),
-            ("ssz", "static", "minimal") => run_test::<SszStatic, MinimalEthSpec>(self),
-            ("ssz", "static", "mainnet") => run_test::<SszStatic, MainnetEthSpec>(self),
-            ("bls", "aggregate_pubkeys", "mainnet") => {
-                run_test::<BlsAggregatePubkeys, MainnetEthSpec>(self)
-            }
-            ("bls", "aggregate_sigs", "mainnet") => {
-                run_test::<BlsAggregateSigs, MainnetEthSpec>(self)
-            }
-            ("bls", "msg_hash_compressed", "mainnet") => {
-                run_test::<BlsG2Compressed, MainnetEthSpec>(self)
-            }
+            ("ssz", "uint", _) => run_test::<SszGeneric>(self),
+            ("ssz", "static", "minimal") => run_test::<SszStatic<MinimalEthSpec>>(self),
+            ("ssz", "static", "mainnet") => run_test::<SszStatic<MainnetEthSpec>>(self),
+            ("bls", "aggregate_pubkeys", "mainnet") => run_test::<BlsAggregatePubkeys>(self),
+            ("bls", "aggregate_sigs", "mainnet") => run_test::<BlsAggregateSigs>(self),
+            ("bls", "msg_hash_compressed", "mainnet") => run_test::<BlsG2Compressed>(self),
             // Note this test fails due to a difference in our internal representations. It does
             // not effect verification or external representation.
             //
             // It is skipped.
             ("bls", "msg_hash_uncompressed", "mainnet") => vec![],
-            ("bls", "priv_to_pub", "mainnet") => run_test::<BlsPrivToPub, MainnetEthSpec>(self),
-            ("bls", "sign_msg", "mainnet") => run_test::<BlsSign, MainnetEthSpec>(self),
+            ("bls", "priv_to_pub", "mainnet") => run_test::<BlsPrivToPub>(self),
+            ("bls", "sign_msg", "mainnet") => run_test::<BlsSign>(self),
+            /*
             ("operations", "deposit", "mainnet") => {
-                run_test::<OperationsDeposit<MainnetEthSpec>, MainnetEthSpec>(self)
+                run_test::<OperationsDeposit<MainnetEthSpec>>(self)
             }
             ("operations", "deposit", "minimal") => {
-                run_test::<OperationsDeposit<MinimalEthSpec>, MinimalEthSpec>(self)
+                run_test::<OperationsDeposit<MinimalEthSpec>>(self)
             }
+            */
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
@@ -84,7 +79,7 @@ impl Doc {
     }
 }
 
-pub fn run_test<T, E: EthSpec>(doc: &Doc) -> Vec<CaseResult>
+pub fn run_test<T>(doc: &Doc) -> Vec<CaseResult>
 where
     Cases<T>: EfTest + YamlDecode,
 {
@@ -94,7 +89,7 @@ where
     // Pass only the "test_cases" YAML string to `yaml_decode`.
     let test_cases: Cases<T> = Cases::yaml_decode(&doc.cases_yaml).unwrap();
 
-    test_cases.test_results::<E>()
+    test_cases.test_results()
 }
 
 pub fn print_failures(doc: &Doc, results: &[CaseResult]) {

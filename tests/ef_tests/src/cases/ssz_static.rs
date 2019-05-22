@@ -1,10 +1,10 @@
 use super::*;
 use crate::case_result::compare_result;
 use cached_tree_hash::{CachedTreeHash, TreeHashCache};
-use rayon::prelude::*;
 use serde_derive::Deserialize;
-use ssz::{Decode, Encode, ssz_encode};
+use ssz::{Decode, Encode};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
@@ -15,12 +15,14 @@ use types::{
 };
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SszStatic {
+pub struct SszStatic<E> {
     pub type_name: String,
     pub serialized: String,
     pub root: String,
     #[serde(skip)]
     pub raw_yaml: String,
+    #[serde(skip, default)]
+    _phantom: PhantomData<E>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,9 +30,9 @@ pub struct Value<T> {
     value: T,
 }
 
-impl YamlDecode for SszStatic {
+impl<E> YamlDecode for SszStatic<E> {
     fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        let mut ssz_static: SszStatic = serde_yaml::from_str(&yaml.as_str()).unwrap();
+        let mut ssz_static: SszStatic<E> = serde_yaml::from_str(&yaml.as_str()).unwrap();
 
         ssz_static.raw_yaml = yaml.clone();
 
@@ -38,7 +40,7 @@ impl YamlDecode for SszStatic {
     }
 }
 
-impl SszStatic {
+impl<E> SszStatic<E> {
     fn value<T: serde::de::DeserializeOwned>(&self) -> Result<T, Error> {
         let wrapper: Value<T> = serde_yaml::from_str(&self.raw_yaml.as_str()).map_err(|e| {
             Error::FailedToParseTest(format!("Unable to parse {} YAML: {:?}", self.type_name, e))
@@ -48,48 +50,40 @@ impl SszStatic {
     }
 }
 
-impl EfTest for Cases<SszStatic> {
-    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
-        self.test_cases
-            .par_iter()
-            .enumerate()
-            .map(|(i, tc)| {
-                let result = match tc.type_name.as_ref() {
-                    "Fork" => ssz_static_test::<Fork>(tc),
-                    "Crosslink" => ssz_static_test::<Crosslink>(tc),
-                    "Eth1Data" => ssz_static_test::<Eth1Data>(tc),
-                    "AttestationData" => ssz_static_test::<AttestationData>(tc),
-                    "AttestationDataAndCustodyBit" => {
-                        ssz_static_test::<AttestationDataAndCustodyBit>(tc)
-                    }
-                    "IndexedAttestation" => ssz_static_test::<IndexedAttestation>(tc),
-                    "DepositData" => ssz_static_test::<DepositData>(tc),
-                    "BeaconBlockHeader" => ssz_static_test::<BeaconBlockHeader>(tc),
-                    "Validator" => ssz_static_test::<Validator>(tc),
-                    "PendingAttestation" => ssz_static_test::<PendingAttestation>(tc),
-                    "HistoricalBatch" => ssz_static_test::<HistoricalBatch<E>>(tc),
-                    "ProposerSlashing" => ssz_static_test::<ProposerSlashing>(tc),
-                    "AttesterSlashing" => ssz_static_test::<AttesterSlashing>(tc),
-                    "Attestation" => ssz_static_test::<Attestation>(tc),
-                    "Deposit" => ssz_static_test::<Deposit>(tc),
-                    "VoluntaryExit" => ssz_static_test::<VoluntaryExit>(tc),
-                    "Transfer" => ssz_static_test::<Transfer>(tc),
-                    "BeaconBlockBody" => ssz_static_test::<BeaconBlockBody>(tc),
-                    "BeaconBlock" => ssz_static_test::<BeaconBlock>(tc),
-                    "BeaconState" => ssz_static_test::<BeaconState<E>>(tc),
-                    _ => Err(Error::FailedToParseTest(format!(
-                        "Unknown type: {}",
-                        tc.type_name
-                    ))),
-                };
-
-                CaseResult::new(i, tc, result)
-            })
-            .collect()
+impl<E: EthSpec> Case for SszStatic<E> {
+    fn result(&self) -> Result<(), Error> {
+        match self.type_name.as_ref() {
+            "Fork" => ssz_static_test::<Fork, E>(self),
+            "Crosslink" => ssz_static_test::<Crosslink, E>(self),
+            "Eth1Data" => ssz_static_test::<Eth1Data, E>(self),
+            "AttestationData" => ssz_static_test::<AttestationData, E>(self),
+            "AttestationDataAndCustodyBit" => {
+                ssz_static_test::<AttestationDataAndCustodyBit, E>(self)
+            }
+            "IndexedAttestation" => ssz_static_test::<IndexedAttestation, E>(self),
+            "DepositData" => ssz_static_test::<DepositData, E>(self),
+            "BeaconBlockHeader" => ssz_static_test::<BeaconBlockHeader, E>(self),
+            "Validator" => ssz_static_test::<Validator, E>(self),
+            "PendingAttestation" => ssz_static_test::<PendingAttestation, E>(self),
+            "HistoricalBatch" => ssz_static_test::<HistoricalBatch<E>, E>(self),
+            "ProposerSlashing" => ssz_static_test::<ProposerSlashing, E>(self),
+            "AttesterSlashing" => ssz_static_test::<AttesterSlashing, E>(self),
+            "Attestation" => ssz_static_test::<Attestation, E>(self),
+            "Deposit" => ssz_static_test::<Deposit, E>(self),
+            "VoluntaryExit" => ssz_static_test::<VoluntaryExit, E>(self),
+            "Transfer" => ssz_static_test::<Transfer, E>(self),
+            "BeaconBlockBody" => ssz_static_test::<BeaconBlockBody, E>(self),
+            "BeaconBlock" => ssz_static_test::<BeaconBlock, E>(self),
+            "BeaconState" => ssz_static_test::<BeaconState<E>, E>(self),
+            _ => Err(Error::FailedToParseTest(format!(
+                "Unknown type: {}",
+                self.type_name
+            ))),
+        }
     }
 }
 
-fn ssz_static_test<T>(tc: &SszStatic) -> Result<(), Error>
+fn ssz_static_test<T, E: EthSpec>(tc: &SszStatic<E>) -> Result<(), Error>
 where
     T: Clone
         + Decode
@@ -111,7 +105,7 @@ where
     // Verify we can encode the result back into original ssz bytes
     let decoded = decode_result.unwrap();
     let encoded_result = decoded.as_ssz_bytes();
-    compare_result::<Vec<u8>, Error>(&Ok(encoded_result), &Some(ssz));
+    compare_result::<Vec<u8>, Error>(&Ok(encoded_result), &Some(ssz))?;
 
     // Verify the TreeHash root of the decoded struct matches the test.
     let expected_root =

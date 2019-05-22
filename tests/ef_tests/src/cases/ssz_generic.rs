@@ -4,7 +4,6 @@ use ethereum_types::{U128, U256};
 use serde_derive::Deserialize;
 use ssz::Decode;
 use std::fmt::Debug;
-use types::EthSpec;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SszGeneric {
@@ -21,35 +20,27 @@ impl YamlDecode for SszGeneric {
     }
 }
 
-impl EfTest for Cases<SszGeneric> {
-    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
-        self.test_cases
-            .iter()
-            .enumerate()
-            .map(|(i, tc)| {
-                let result = if let Some(ssz) = &tc.ssz {
-                    match tc.type_name.as_ref() {
-                        "uint8" => ssz_generic_test::<u8>(tc.valid, ssz, &tc.value),
-                        "uint16" => ssz_generic_test::<u16>(tc.valid, ssz, &tc.value),
-                        "uint32" => ssz_generic_test::<u32>(tc.valid, ssz, &tc.value),
-                        "uint64" => ssz_generic_test::<u64>(tc.valid, ssz, &tc.value),
-                        "uint128" => ssz_generic_test::<U128>(tc.valid, ssz, &tc.value),
-                        "uint256" => ssz_generic_test::<U256>(tc.valid, ssz, &tc.value),
-                        _ => Err(Error::FailedToParseTest(format!(
-                            "Unknown type: {}",
-                            tc.type_name
-                        ))),
-                    }
-                } else {
-                    // Skip tests that do not have an ssz field.
-                    //
-                    // See: https://github.com/ethereum/eth2.0-specs/issues/1079
-                    Ok(())
-                };
-
-                CaseResult::new(i, tc, result)
-            })
-            .collect()
+impl Case for SszGeneric {
+    fn result(&self) -> Result<(), Error> {
+        if let Some(ssz) = &self.ssz {
+            match self.type_name.as_ref() {
+                "uint8" => ssz_generic_test::<u8>(self.valid, ssz, &self.value),
+                "uint16" => ssz_generic_test::<u16>(self.valid, ssz, &self.value),
+                "uint32" => ssz_generic_test::<u32>(self.valid, ssz, &self.value),
+                "uint64" => ssz_generic_test::<u64>(self.valid, ssz, &self.value),
+                "uint128" => ssz_generic_test::<U128>(self.valid, ssz, &self.value),
+                "uint256" => ssz_generic_test::<U256>(self.valid, ssz, &self.value),
+                _ => Err(Error::FailedToParseTest(format!(
+                    "Unknown type: {}",
+                    self.type_name
+                ))),
+            }
+        } else {
+            // Skip tests that do not have an ssz field.
+            //
+            // See: https://github.com/ethereum/eth2.0-specs/issues/1079
+            Ok(())
+        }
     }
 }
 

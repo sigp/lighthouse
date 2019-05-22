@@ -18,6 +18,7 @@ impl<E: EthSpec> YamlDecode for OperationsDeposit<E> {
     }
 }
 
+/*
 impl<T: EthSpec> EfTest for Cases<OperationsDeposit<T>> {
     fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
         self.test_cases
@@ -32,3 +33,4 @@ impl<T: EthSpec> EfTest for Cases<OperationsDeposit<T>> {
             .collect()
     }
 }
+*/
