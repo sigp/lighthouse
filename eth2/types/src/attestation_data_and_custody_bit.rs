@@ -1,6 +1,6 @@
 use super::AttestationData;
 use crate::test_utils::TestRandom;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
@@ -14,6 +14,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     PartialEq,
     Default,
     Serialize,
+    Deserialize,
     Encode,
     Decode,
     TreeHash,
