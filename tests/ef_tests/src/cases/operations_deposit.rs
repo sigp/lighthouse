@@ -21,13 +21,14 @@ impl<E: EthSpec> YamlDecode for OperationsDeposit<E> {
 }
 
 impl<E: EthSpec> Case for OperationsDeposit<E> {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let deposit = self.deposit.clone();
         let mut expected = self.post.clone();
 
-        let mut result =
-            process_deposits(&mut state, &[deposit], &E::spec()).and_then(|_| Ok(state));
+        let result = process_deposits(&mut state, &[deposit], &E::spec());
+
+        let mut result = result.and_then(|_| Ok(state));
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

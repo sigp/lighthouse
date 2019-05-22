@@ -21,7 +21,7 @@ impl YamlDecode for SszGeneric {
 }
 
 impl Case for SszGeneric {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         if let Some(ssz) = &self.ssz {
             match self.type_name.as_ref() {
                 "uint8" => ssz_generic_test::<u8>(self.valid, ssz, &self.value),

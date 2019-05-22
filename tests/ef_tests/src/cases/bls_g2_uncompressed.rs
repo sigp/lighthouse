@@ -22,7 +22,7 @@ impl YamlDecode for BlsG2Uncompressed {
 }
 
 impl Case for BlsG2Uncompressed {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         // Convert message and domain to required types
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;

@@ -51,7 +51,7 @@ impl<E> SszStatic<E> {
 }
 
 impl<E: EthSpec> Case for SszStatic<E> {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         match self.type_name.as_ref() {
             "Fork" => ssz_static_test::<Fork, E>(self),
             "Crosslink" => ssz_static_test::<Crosslink, E>(self),

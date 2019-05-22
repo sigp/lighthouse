@@ -16,7 +16,7 @@ impl YamlDecode for BlsAggregatePubkeys {
 }
 
 impl Case for BlsAggregatePubkeys {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut aggregate_pubkey = AggregatePublicKey::new();
 
         for key_str in &self.input {
