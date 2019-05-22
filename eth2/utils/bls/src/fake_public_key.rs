@@ -16,7 +16,7 @@ use tree_hash::tree_hash_ssz_encoding_as_vector;
 /// serialization).
 #[derive(Debug, Clone, Eq)]
 pub struct FakePublicKey {
-    bytes: Vec<u8>
+    bytes: Vec<u8>,
 }
 
 impl FakePublicKey {
@@ -34,14 +34,14 @@ impl FakePublicKey {
     /// Returns the underlying point as compressed bytes.
     ///
     /// Identical to `self.as_uncompressed_bytes()`.
-    fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> Vec<u8> {
         self.bytes.clone()
     }
 
     /// Converts compressed bytes to FakePublicKey
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         Ok(Self {
-            bytes: bytes.to_vec()
+            bytes: bytes.to_vec(),
         })
     }
 
@@ -62,6 +62,11 @@ impl FakePublicKey {
         let bytes = ssz_encode(self);
         let end_bytes = &bytes[bytes.len().saturating_sub(6)..bytes.len()];
         hex_encode(end_bytes)
+    }
+
+    // Returns itself
+    pub fn as_raw(&self) -> &Self {
+        self
     }
 }
 

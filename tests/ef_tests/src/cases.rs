@@ -2,9 +2,21 @@ use super::*;
 use crate::yaml_decode::*;
 use yaml_rust::YamlLoader;
 
+mod bls_aggregate_pubkeys;
+mod bls_aggregate_sigs;
+mod bls_g2_compressed;
+mod bls_g2_uncompressed;
+mod bls_priv_to_pub;
+mod bls_sign_msg;
 mod ssz_generic;
 mod ssz_static;
 
+pub use bls_aggregate_pubkeys::*;
+pub use bls_aggregate_sigs::*;
+pub use bls_g2_compressed::*;
+pub use bls_g2_uncompressed::*;
+pub use bls_priv_to_pub::*;
+pub use bls_sign_msg::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 
