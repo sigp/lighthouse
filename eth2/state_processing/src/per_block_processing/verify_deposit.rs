@@ -1,44 +1,23 @@
 use super::errors::{DepositInvalid as Invalid, DepositValidationError as Error};
-use hashing::hash;
 use merkle_proof::verify_merkle_proof;
-use ssz::ssz_encode;
-use ssz_derive::Encode;
 use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
-/// Indicates if a `Deposit` is valid to be included in a block in the current epoch of the given
-/// state.
-///
-/// Returns `Ok(())` if the `Deposit` is valid, otherwise indicates the reason for invalidity.
-///
-/// This function _does not_ check `state.deposit_index` so this function may be run in parallel.
-/// See the `verify_deposit_index` function for this.
-///
-/// Note: this function is incomplete.
+/// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
 /// Spec v0.6.1
-pub fn verify_deposit<T: EthSpec>(
+pub fn verify_deposit_signature<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
-    verify_merkle_branch: bool,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if verify_merkle_branch {
-        verify!(
-            verify_deposit_merkle_proof(state, deposit, spec),
-            Invalid::BadMerkleProof
-        );
-    }
-
-    // NOTE: proof of possession should only be verified when the validator
-    // is not already part of the registry
     verify!(
         deposit.data.signature.verify(
             &deposit.data.signed_root(),
             spec.get_domain(state.current_epoch(), Domain::Deposit, &state.fork),
             &deposit.data.pubkey,
         ),
-        Invalid::BadProofOfPossession
+        Invalid::BadSignature
     );
 
     Ok(())
@@ -91,17 +70,23 @@ pub fn get_existing_validator_index<T: EthSpec>(
 /// Verify that a deposit is included in the state's eth1 deposit root.
 ///
 /// Spec v0.6.1
-fn verify_deposit_merkle_proof<T: EthSpec>(
+pub fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     spec: &ChainSpec,
-) -> bool {
+) -> Result<(), Error> {
     let leaf = deposit.data.tree_hash_root();
-    verify_merkle_proof(
-        Hash256::from_slice(&leaf),
-        &deposit.proof[..],
-        spec.deposit_contract_tree_depth as usize,
-        deposit.index as usize,
-        state.latest_eth1_data.deposit_root,
-    )
+
+    verify!(
+        verify_merkle_proof(
+            Hash256::from_slice(&leaf),
+            &deposit.proof[..],
+            spec.deposit_contract_tree_depth as usize,
+            deposit.index as usize,
+            state.latest_eth1_data.deposit_root,
+        ),
+        Invalid::BadMerkleProof
+    );
+
+    Ok(())
 }

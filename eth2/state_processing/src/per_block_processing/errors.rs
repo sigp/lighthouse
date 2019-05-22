@@ -321,8 +321,8 @@ pub enum DepositValidationError {
 pub enum DepositInvalid {
     /// The deposit index does not match the state index.
     BadIndex { state: u64, deposit: u64 },
-    /// The proof-of-possession does not match the given pubkey.
-    BadProofOfPossession,
+    /// The signature (proof-of-possession) does not match the given pubkey.
+    BadSignature,
     /// The withdrawal credentials for the depositing validator did not match the withdrawal
     /// credentials of an existing validator with the same public key.
     BadWithdrawalCredentials,
