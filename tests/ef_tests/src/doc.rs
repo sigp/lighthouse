@@ -57,6 +57,12 @@ impl Doc {
             ("operations", "deposit", "minimal") => {
                 run_test::<OperationsDeposit<MinimalEthSpec>>(self)
             }
+            ("operations", "transfer", "mainnet") => {
+                run_test::<OperationsTransfer<MainnetEthSpec>>(self)
+            }
+            ("operations", "transfer", "minimal") => {
+                run_test::<OperationsTransfer<MinimalEthSpec>>(self)
+            }
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config

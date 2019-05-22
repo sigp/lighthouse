@@ -469,7 +469,7 @@ pub fn process_transfers<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(
-        transfers.len() as u64 <= spec.max_transfers,
+        transfers.len() as u64 >= spec.max_transfers,
         Invalid::MaxTransfersExceed
     );
 

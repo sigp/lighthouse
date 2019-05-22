@@ -14,7 +14,7 @@ fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
         "Unable to locate test files. Did you init git submoules?"
     );
 
-    WalkDir::new(base_path)
+    let mut paths: Vec<PathBuf> = WalkDir::new(base_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter_map(|entry| {
@@ -28,7 +28,13 @@ fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
                 None
             }
         })
-        .collect()
+        .collect();
+
+    // Reverse the file order. Assuming files come in lexicographical order, doing it in
+    // reverse means we get the "minimal" tests before the "mainnet" tests. This makes life
+    // easier for debugging.
+    paths.reverse();
+    paths
 }
 
 #[test]
@@ -55,6 +61,19 @@ fn ssz_static() {
 #[cfg(not(feature = "fake_crypto"))]
 fn operations_deposit() {
     yaml_files_in_test_dir(&Path::new("operations").join("deposit"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+// No transfers are permitted in phase 0.
+/*
+#[test]
+#[should_panic]
+#[cfg(not(feature = "fake_crypto"))]
+fn operations_transfer() {
+    yaml_files_in_test_dir(&Path::new("operations").join("transfer"))
         // .into_par_iter()
         .into_iter()
         .rev()
@@ -62,6 +81,7 @@ fn operations_deposit() {
             Doc::assert_tests_pass(file);
         });
 }
+*/
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
