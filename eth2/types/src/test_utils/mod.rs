@@ -14,5 +14,5 @@ pub use rand::{
     RngCore,
     {prng::XorShiftRng, SeedableRng},
 };
-pub use serde_utils::{fork_from_hex_str, u8_from_hex_str};
+pub use serde_utils::{fork_from_hex_str, graffiti_from_hex_str, u8_from_hex_str};
 pub use test_random::TestRandom;
