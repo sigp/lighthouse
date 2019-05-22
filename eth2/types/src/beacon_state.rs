@@ -762,6 +762,16 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
+    /// Drop all caches on the state.
+    pub fn drop_all_caches(&mut self) {
+        self.drop_committee_cache(RelativeEpoch::Previous);
+        self.drop_committee_cache(RelativeEpoch::Current);
+        self.drop_committee_cache(RelativeEpoch::Next);
+        self.drop_pubkey_cache();
+        self.drop_tree_hash_cache();
+        self.exit_cache = ExitCache::default();
+    }
+
     /// Build an epoch cache, unless it is has already been built.
     pub fn build_committee_cache(
         &mut self,
@@ -824,7 +834,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Drops the cache, leaving it in an uninitialized state.
-    fn drop_cache(&mut self, relative_epoch: RelativeEpoch) {
+    fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) {
         self.committee_caches[Self::cache_index(relative_epoch)] = CommitteeCache::default();
     }
 
@@ -886,6 +896,11 @@ impl<T: EthSpec> BeaconState<T> {
             .tree_hash_root()
             .and_then(|b| Ok(Hash256::from_slice(b)))
             .map_err(Into::into)
+    }
+
+    /// Completely drops the tree hash cache, replacing it with a new, empty cache.
+    pub fn drop_tree_hash_cache(&mut self) {
+        self.tree_hash_cache = TreeHashCache::default()
     }
 }
 

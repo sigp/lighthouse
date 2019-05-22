@@ -1,5 +1,7 @@
 use super::*;
+use compare_fields::CompareFields;
 use std::fmt::Debug;
+use types::BeaconState;
 
 pub const MAX_VALUE_STRING_LEN: usize = 500;
 
@@ -17,6 +19,55 @@ impl CaseResult {
             desc: format!("{:?}", case),
             result,
         }
+    }
+}
+
+/// Same as `compare_result_detailed`, however it drops the caches on both states before
+/// comparison.
+pub fn compare_beacon_state_results_without_caches<T: EthSpec, E: Debug>(
+    result: &mut Result<BeaconState<T>, E>,
+    expected: &mut Option<BeaconState<T>>,
+) -> Result<(), Error> {
+    match (result.as_mut(), expected.as_mut()) {
+        (Ok(ref mut result), Some(ref mut expected)) => {
+            result.drop_all_caches();
+            expected.drop_all_caches();
+        }
+        _ => (),
+    };
+
+    compare_result_detailed(&result, &expected)
+}
+
+/// Same as `compare_result`, however utilizes the `CompareFields` trait to give a list of
+/// mismatching fields when `Ok(result) != Some(expected)`.
+pub fn compare_result_detailed<T, E>(
+    result: &Result<T, E>,
+    expected: &Option<T>,
+) -> Result<(), Error>
+where
+    T: PartialEq<T> + Debug + CompareFields,
+    E: Debug,
+{
+    match (result, expected) {
+        (Ok(result), Some(expected)) => {
+            let mismatching_fields: Vec<String> = expected
+                .compare_fields(result)
+                .into_iter()
+                .filter(|c| !c.equal)
+                .map(|c| c.field_name)
+                .collect();
+
+            if !mismatching_fields.is_empty() {
+                Err(Error::NotEqual(format!(
+                    "Result mismatch. Fields not equal: {:?}",
+                    mismatching_fields
+                )))
+            } else {
+                Ok(())
+            }
+        }
+        _ => compare_result(result, expected),
     }
 }
 

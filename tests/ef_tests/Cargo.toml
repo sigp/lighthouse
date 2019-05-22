@@ -9,6 +9,7 @@ fake_crypto = ["bls/fake_crypto"]
 
 [dependencies]
 bls = { path = "../../eth2/utils/bls" }
+compare_fields = { path = "../../eth2/utils/compare_fields" }
 ethereum-types = "0.5"
 hex = "0.3"
 rayon = "1.0"
