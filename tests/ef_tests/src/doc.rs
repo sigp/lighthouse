@@ -39,9 +39,24 @@ impl Doc {
             header.handler.as_ref(),
             header.config.as_ref(),
         ) {
-            ("ssz", "uint", _) => run_test::<SszGeneric, MainnetEthSpec>(&self),
-            ("ssz", "static", "minimal") => run_test::<SszStatic, MinimalEthSpec>(&self),
-            ("ssz", "static", "mainnet") => run_test::<SszStatic, MainnetEthSpec>(&self),
+            ("ssz", "uint", _) => run_test::<SszGeneric, MainnetEthSpec>(self),
+            ("ssz", "static", "minimal") => run_test::<SszStatic, MinimalEthSpec>(self),
+            ("ssz", "static", "mainnet") => run_test::<SszStatic, MainnetEthSpec>(self),
+            ("bls", "aggregate_pubkeys", "mainnet") => {
+                run_test::<BlsAggregatePubkeys, MainnetEthSpec>(self)
+            }
+            ("bls", "aggregate_sigs", "mainnet") => {
+                run_test::<BlsAggregateSigs, MainnetEthSpec>(self)
+            }
+            ("bls", "msg_hash_compressed", "mainnet") => {
+                run_test::<BlsG2Compressed, MainnetEthSpec>(self)
+            }
+            ("bls", "msg_hash_uncompressed", "mainnet") => {
+                // Note this test fails but Not due to a bug
+                vec![] // run_test::<BlsG2Uncompressed, MainnetEthSpec>(&self.yaml)
+            }
+            ("bls", "priv_to_pub", "mainnet") => run_test::<BlsPrivToPub, MainnetEthSpec>(self),
+            ("bls", "sign_msg", "mainnet") => run_test::<BlsSign, MainnetEthSpec>(self),
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config

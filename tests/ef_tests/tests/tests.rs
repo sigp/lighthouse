@@ -43,3 +43,12 @@ fn ssz_static() {
             Doc::assert_tests_pass(file);
         });
 }
+
+#[test]
+fn bls() {
+    yaml_files_in_test_dir("bls")
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
