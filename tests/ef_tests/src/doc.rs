@@ -51,10 +51,11 @@ impl Doc {
             ("bls", "msg_hash_compressed", "mainnet") => {
                 run_test::<BlsG2Compressed, MainnetEthSpec>(self)
             }
-            ("bls", "msg_hash_uncompressed", "mainnet") => {
-                // Note this test fails but Not due to a bug
-                vec![] // run_test::<BlsG2Uncompressed, MainnetEthSpec>(&self.yaml)
-            }
+            // Note this test fails due to a difference in our internal representations. It does
+            // not effect verification or external representation.
+            //
+            // It is skipped.
+            ("bls", "msg_hash_uncompressed", "mainnet") => vec![],
             ("bls", "priv_to_pub", "mainnet") => run_test::<BlsPrivToPub, MainnetEthSpec>(self),
             ("bls", "sign_msg", "mainnet") => run_test::<BlsSign, MainnetEthSpec>(self),
             (runner, handler, config) => panic!(

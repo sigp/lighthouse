@@ -27,6 +27,7 @@ fn yaml_files_in_test_dir(dir: &str) -> Vec<PathBuf> {
 }
 
 #[test]
+#[cfg(feature = "fake_crypto")]
 fn ssz_generic() {
     yaml_files_in_test_dir("ssz_generic")
         .into_par_iter()
@@ -36,6 +37,7 @@ fn ssz_generic() {
 }
 
 #[test]
+#[cfg(feature = "fake_crypto")]
 fn ssz_static() {
     yaml_files_in_test_dir("ssz_static")
         .into_par_iter()
@@ -45,6 +47,7 @@ fn ssz_static() {
 }
 
 #[test]
+#[cfg(not(feature = "fake_crypto"))]
 fn bls() {
     yaml_files_in_test_dir("bls")
         .into_par_iter()
