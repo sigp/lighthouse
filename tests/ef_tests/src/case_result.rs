@@ -1,6 +1,8 @@
 use super::*;
 use std::fmt::Debug;
 
+pub const MAX_VALUE_STRING_LEN: usize = 500;
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct CaseResult {
     pub case_index: usize,
@@ -32,21 +34,29 @@ where
         (Err(_), None) => Ok(()),
         // Fail: The test failed when it should have produced a result (fail).
         (Err(e), Some(expected)) => Err(Error::NotEqual(format!(
-            "Got {:?} Expected {:?}",
-            e, expected
+            "Got {:?} | Expected {:?}",
+            e,
+            fmt_val(expected)
         ))),
         // Fail: The test produced a result when it should have failed (fail).
-        (Ok(result), None) => Err(Error::DidntFail(format!("Got {:?}", result))),
+        (Ok(result), None) => Err(Error::DidntFail(format!("Got {:?}", fmt_val(result)))),
         // Potential Pass: The test should have produced a result, and it did.
         (Ok(result), Some(expected)) => {
             if result == expected {
                 Ok(())
             } else {
                 Err(Error::NotEqual(format!(
-                    "Got {:?} expected {:?}",
-                    result, expected
+                    "Got {:?} | Expected {:?}",
+                    fmt_val(result),
+                    fmt_val(expected)
                 )))
             }
         }
     }
+}
+
+fn fmt_val<T: Debug>(val: T) -> String {
+    let mut string = format!("{:?}", val);
+    string.truncate(MAX_VALUE_STRING_LEN);
+    string
 }

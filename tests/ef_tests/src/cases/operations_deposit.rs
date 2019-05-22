@@ -1,5 +1,7 @@
 use super::*;
+use crate::case_result::compare_result;
 use serde_derive::Deserialize;
+use state_processing::per_block_processing::process_deposits;
 use types::{BeaconState, Deposit, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -18,19 +20,13 @@ impl<E: EthSpec> YamlDecode for OperationsDeposit<E> {
     }
 }
 
-/*
-impl<T: EthSpec> EfTest for Cases<OperationsDeposit<T>> {
-    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
-        self.test_cases
-            .iter()
-            .enumerate()
-            .map(|(i, tc)| {
-                // TODO: run test
-                let result = Ok(());
+impl<E: EthSpec> Case for OperationsDeposit<E> {
+    fn result(&self) -> Result<(), Error> {
+        let mut state = self.pre.clone();
+        let deposit = self.deposit.clone();
 
-                CaseResult::new(i, tc, result)
-            })
-            .collect()
+        let result = process_deposits(&mut state, &[deposit], &E::spec()).and_then(|_| Ok(state));
+
+        compare_result(&result, &self.post)
     }
 }
-*/

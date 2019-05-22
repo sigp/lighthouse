@@ -51,14 +51,12 @@ impl Doc {
             ("bls", "msg_hash_uncompressed", "mainnet") => vec![],
             ("bls", "priv_to_pub", "mainnet") => run_test::<BlsPrivToPub>(self),
             ("bls", "sign_msg", "mainnet") => run_test::<BlsSign>(self),
-            /*
             ("operations", "deposit", "mainnet") => {
                 run_test::<OperationsDeposit<MainnetEthSpec>>(self)
             }
             ("operations", "deposit", "minimal") => {
                 run_test::<OperationsDeposit<MinimalEthSpec>>(self)
             }
-            */
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
