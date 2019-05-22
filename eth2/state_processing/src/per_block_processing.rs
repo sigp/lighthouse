@@ -10,7 +10,10 @@ pub use validate_attestation::{
     validate_attestation, validate_attestation_time_independent_only,
     validate_attestation_without_signature,
 };
-pub use verify_deposit::{get_existing_validator_index, verify_deposit, verify_deposit_index};
+pub use verify_deposit::{
+    get_existing_validator_index, verify_deposit_index, verify_deposit_merkle_proof,
+    verify_deposit_signature,
+};
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
 pub use verify_indexed_attestation::{
     verify_indexed_attestation, verify_indexed_attestation_without_signature,
@@ -27,9 +30,6 @@ mod verify_exit;
 mod verify_indexed_attestation;
 mod verify_proposer_slashing;
 mod verify_transfer;
-
-// Set to `true` to check the merkle proof that a deposit is in the eth1 deposit root.
-const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = true;
 
 /// Updates the state for a new block, whilst validating that the block is valid.
 ///
@@ -371,13 +371,14 @@ pub fn process_deposits<T: EthSpec>(
         .par_iter()
         .enumerate()
         .try_for_each(|(i, deposit)| {
-            verify_deposit(state, deposit, VERIFY_DEPOSIT_MERKLE_PROOFS, spec)
-                .map_err(|e| e.into_with_index(i))
+            verify_deposit_merkle_proof(state, deposit, spec).map_err(|e| e.into_with_index(i))
         })?;
 
     // Check `state.deposit_index` and update the state in series.
     for (i, deposit) in deposits.iter().enumerate() {
         verify_deposit_index(state, deposit).map_err(|e| e.into_with_index(i))?;
+
+        state.deposit_index += 1;
 
         // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
         // depositing validator already exists in the registry.
@@ -396,6 +397,12 @@ pub fn process_deposits<T: EthSpec>(
             // Update the existing validator balance.
             safe_add_assign!(state.balances[index as usize], amount);
         } else {
+            // The signature should be checked for new validators. Return early for a bad
+            // signature.
+            if verify_deposit_signature(state, deposit, spec).is_err() {
+                return Ok(());
+            }
+
             // Create a new validator.
             let validator = Validator {
                 pubkey: deposit.data.pubkey.clone(),
@@ -413,8 +420,6 @@ pub fn process_deposits<T: EthSpec>(
             state.validator_registry.push(validator);
             state.balances.push(deposit.data.amount);
         }
-
-        state.deposit_index += 1;
     }
 
     Ok(())
