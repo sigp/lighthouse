@@ -8,6 +8,7 @@ mod bls_g2_uncompressed;
 mod bls_priv_to_pub;
 mod bls_sign_msg;
 mod operations_deposit;
+mod operations_transfer;
 mod ssz_generic;
 mod ssz_static;
 
@@ -18,6 +19,7 @@ pub use bls_g2_uncompressed::*;
 pub use bls_priv_to_pub::*;
 pub use bls_sign_msg::*;
 pub use operations_deposit::*;
+pub use operations_transfer::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 
