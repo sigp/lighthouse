@@ -9,7 +9,7 @@ pub enum Error {
 /// Defines the epochs relative to some epoch. Most useful when referring to the committees prior
 /// to and following some epoch.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RelativeEpoch {
     /// The prior epoch.
