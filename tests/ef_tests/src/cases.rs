@@ -22,7 +22,11 @@ pub use ssz_generic::*;
 pub use ssz_static::*;
 
 pub trait Case {
-    fn result(&self) -> Result<(), Error>;
+    /// Execute a test and return the result.
+    ///
+    /// `case_index` reports the index of the case in the set of test cases. It is not strictly
+    /// necessary, but it's useful when troubleshooting specific failing tests.
+    fn result(&self, case_index: usize) -> Result<(), Error>;
 }
 
 #[derive(Debug)]
@@ -38,7 +42,7 @@ where
         self.test_cases
             .iter()
             .enumerate()
-            .map(|(i, tc)| CaseResult::new(i, tc, tc.result()))
+            .map(|(i, tc)| CaseResult::new(i, tc, tc.result(i)))
             .collect()
     }
 }

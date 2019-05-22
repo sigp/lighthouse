@@ -52,11 +52,12 @@ fn ssz_static() {
 }
 
 #[test]
-#[cfg(feature = "fake_crypto")]
+#[cfg(not(feature = "fake_crypto"))]
 fn operations_deposit() {
     yaml_files_in_test_dir(&Path::new("operations").join("deposit"))
         // .into_par_iter()
         .into_iter()
+        .rev()
         .for_each(|file| {
             Doc::assert_tests_pass(file);
         });

@@ -16,7 +16,7 @@ impl YamlDecode for BlsPrivToPub {
 }
 
 impl Case for BlsPrivToPub {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         let secret = &self.input;
 
         // Convert message and domain to required types

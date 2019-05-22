@@ -16,7 +16,7 @@ impl YamlDecode for BlsAggregateSigs {
 }
 
 impl Case for BlsAggregateSigs {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut aggregate_signature = AggregateSignature::new();
 
         for key_str in &self.input {

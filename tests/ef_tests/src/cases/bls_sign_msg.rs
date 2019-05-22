@@ -23,7 +23,7 @@ impl YamlDecode for BlsSign {
 }
 
 impl Case for BlsSign {
-    fn result(&self) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         // Convert private_key, message and domain to required types
         let mut sk = hex::decode(&self.input.privkey[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
