@@ -38,7 +38,7 @@ const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = false;
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn per_block_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -53,7 +53,7 @@ pub fn per_block_processing<T: EthSpec>(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -68,7 +68,7 @@ pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 fn per_block_processing_signature_optional<T: EthSpec>(
     mut state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -77,7 +77,7 @@ fn per_block_processing_signature_optional<T: EthSpec>(
 ) -> Result<(), Error> {
     process_block_header(state, block, spec)?;
 
-    // Ensure the current and previous epoch cache is built.
+    // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
@@ -427,7 +427,7 @@ pub fn process_deposits<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_exits<T: EthSpec>(
     state: &mut BeaconState<T>,
     voluntary_exits: &[VoluntaryExit],
@@ -459,7 +459,7 @@ pub fn process_exits<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_transfers<T: EthSpec>(
     state: &mut BeaconState<T>,
     transfers: &[Transfer],
