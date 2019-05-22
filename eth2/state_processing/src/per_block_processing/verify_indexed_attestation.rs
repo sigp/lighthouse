@@ -41,7 +41,7 @@ fn verify_indexed_attestation_parametric<T: EthSpec>(
     let custody_bit_1_indices = &indexed_attestation.custody_bit_1_indices;
 
     // Ensure no duplicate indices across custody bits
-    let custody_bit_intersection =
+    let custody_bit_intersection: HashSet<&u64> =
         &HashSet::from_iter(custody_bit_0_indices) & &HashSet::from_iter(custody_bit_1_indices);
     verify!(
         custody_bit_intersection.is_empty(),
