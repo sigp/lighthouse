@@ -1,4 +1,4 @@
-use crate::common::slash_validator;
+use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
@@ -448,7 +448,7 @@ pub fn process_exits<T: EthSpec>(
 
     // Update the state in series.
     for exit in voluntary_exits {
-        state.initiate_validator_exit(exit.validator_index as usize);
+        initiate_validator_exit(state, exit.validator_index as usize, spec)?;
     }
 
     Ok(())
