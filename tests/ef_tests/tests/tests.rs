@@ -9,6 +9,11 @@ fn yaml_files_in_test_dir(dir: &str) -> Vec<PathBuf> {
     base_path.push("tests");
     base_path.push(dir);
 
+    assert!(
+        base_path.exists(),
+        "Unable to locate test files. Did you init git submoules?"
+    );
+
     WalkDir::new(base_path)
         .into_iter()
         .filter_map(|e| e.ok())
