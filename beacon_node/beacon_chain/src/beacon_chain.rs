@@ -1,16 +1,11 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB, DBError,
-};
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
 use operation_pool::OperationPool;
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
-use ssz::ssz_encode;
 use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
@@ -20,6 +15,7 @@ use state_processing::{
     per_slot_processing, BlockProcessingError, SlotProcessingError,
 };
 use std::sync::Arc;
+use store::{Error as DBError, Store};
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -83,9 +79,8 @@ impl BlockProcessingOutcome {
     }
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, E: EthSpec> {
-    pub block_store: Arc<BeaconBlockStore<T>>,
-    pub state_store: Arc<BeaconStateStore<T>>,
+pub struct BeaconChain<T, U, F, E: EthSpec> {
+    pub store: Arc<T>,
     pub slot_clock: U,
     pub op_pool: OperationPool<E>,
     canonical_head: RwLock<CheckPoint<E>>,
@@ -97,15 +92,14 @@ pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, E: EthS
 
 impl<T, U, F, E> BeaconChain<T, U, F, E>
 where
-    T: ClientDB,
+    T: Store,
     U: SlotClock,
     F: ForkChoice,
     E: EthSpec,
 {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
-        state_store: Arc<BeaconStateStore<T>>,
-        block_store: Arc<BeaconBlockStore<T>>,
+        store: Arc<T>,
         slot_clock: U,
         mut genesis_state: BeaconState<E>,
         genesis_block: BeaconBlock,
@@ -113,10 +107,10 @@ where
         fork_choice: F,
     ) -> Result<Self, Error> {
         let state_root = genesis_state.canonical_root();
-        state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
+        store.put(&state_root, &genesis_state)?;
 
         let block_root = genesis_block.block_header().canonical_root();
-        block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
+        store.put(&block_root, &genesis_block)?;
 
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
@@ -134,8 +128,7 @@ where
         genesis_state.build_all_caches(&spec)?;
 
         Ok(Self {
-            block_store,
-            state_store,
+            store,
             slot_clock,
             op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
@@ -235,7 +228,7 @@ where
                     let new_state_root = state.get_state_root(earliest_historic_slot)?;
 
                     // Break if the DB is unable to load the state.
-                    state = match self.state_store.get_deserialized(&new_state_root) {
+                    state = match self.store.get(&new_state_root) {
                         Ok(Some(state)) => state,
                         _ => break,
                     }
@@ -262,7 +255,7 @@ where
     ///
     /// May return a database error.
     pub fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, Error> {
-        Ok(self.block_store.get_deserialized(block_root)?)
+        Ok(self.store.get(block_root)?)
     }
 
     /// Update the canonical head to some new values.
@@ -588,7 +581,7 @@ where
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
         let parent_block_root = block.previous_block_root;
-        let parent_block = match self.block_store.get_deserialized(&parent_block_root)? {
+        let parent_block: BeaconBlock = match self.store.get(&parent_block_root)? {
             Some(previous_block_root) => previous_block_root,
             None => {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -601,15 +594,15 @@ where
         // It is an error because if know the parent block we should also know the parent state.
         let parent_state_root = parent_block.state_root;
         let parent_state = self
-            .state_store
-            .get_deserialized(&parent_state_root)?
+            .store
+            .get(&parent_state_root)?
             .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
 
         // TODO: check the block proposer signature BEFORE doing a state transition. This will
         // significantly lower exposure surface to DoS attacks.
 
         // Transition the parent state to the block slot.
-        let mut state = parent_state;
+        let mut state: BeaconState<E> = parent_state;
         for _ in state.slot.as_u64()..block.slot.as_u64() {
             if let Err(e) = per_slot_processing(&mut state, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -635,8 +628,8 @@ where
         }
 
         // Store the block and state.
-        self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
-        self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
+        self.store.put(&block_root, &block)?;
+        self.store.put(&state_root, &state)?;
 
         // run the fork_choice add_block logic
         self.fork_choice
@@ -729,15 +722,15 @@ where
             .find_head(&present_head, &self.spec)?;
 
         if new_head != present_head {
-            let block = self
-                .block_store
-                .get_deserialized(&new_head)?
+            let block: BeaconBlock = self
+                .store
+                .get(&new_head)?
                 .ok_or_else(|| Error::MissingBeaconBlock(new_head))?;
             let block_root = block.canonical_root();
 
-            let state = self
-                .state_store
-                .get_deserialized(&block.state_root)?
+            let state: BeaconState<E> = self
+                .store
+                .get(&block.state_root)?
                 .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
             let state_root = state.canonical_root();
 
@@ -752,7 +745,7 @@ where
 
     /// Returns `true` if the given block root has not been processed.
     pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
-        Ok(!self.block_store.exists(beacon_block_root)?)
+        Ok(!self.store.exists::<BeaconBlock>(beacon_block_root)?)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
@@ -778,19 +771,14 @@ where
                 break; // Genesis has been reached.
             }
 
-            let beacon_block = self
-                .block_store
-                .get_deserialized(&beacon_block_root)?
-                .ok_or_else(|| {
+            let beacon_block: BeaconBlock =
+                self.store.get(&beacon_block_root)?.ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
             let beacon_state_root = beacon_block.state_root;
-            let beacon_state = self
-                .state_store
-                .get_deserialized(&beacon_state_root)?
-                .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
-                })?;
+            let beacon_state = self.store.get(&beacon_state_root)?.ok_or_else(|| {
+                Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
+            })?;
 
             let slot = CheckPoint {
                 beacon_block,
@@ -811,7 +799,7 @@ where
 
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
-        Error::DBError(e.message)
+        Error::DBError(e)
     }
 }
 

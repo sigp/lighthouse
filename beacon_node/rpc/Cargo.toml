@@ -17,7 +17,7 @@ protos = { path = "../../protos" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protobuf = "2.0.2"
 clap = "2.32.0"
-db = { path = "../db" }
+store = { path = "../store" }
 dirs = "1.0.3"
 futures = "0.1.23"
 slog = "^2.2.3"

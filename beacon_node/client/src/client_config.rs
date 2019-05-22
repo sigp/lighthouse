@@ -1,5 +1,4 @@
 use clap::ArgMatches;
-use db::DBType;
 use fork_choice::ForkChoiceAlgorithm;
 use network::NetworkConfig;
 use slog::error;
@@ -11,6 +10,12 @@ use types::multiaddr::Protocol;
 use types::multiaddr::ToMultiaddr;
 use types::Multiaddr;
 use types::{ChainSpec, EthSpec, LighthouseTestnetEthSpec};
+
+#[derive(Debug, Clone)]
+pub enum DBType {
+    Memory,
+    Disk,
+}
 
 /// Stores the client configuration for this Lighthouse instance.
 #[derive(Debug, Clone)]
@@ -48,7 +53,7 @@ impl Default for ClientConfig {
             // default to memory db for now
             db_type: DBType::Memory,
             // default db name for disk-based dbs
-            db_name: data_dir.join("chain.db"),
+            db_name: data_dir.join("chain_db"),
             rpc_conf: rpc::RPCConfig::default(),
         }
     }
@@ -130,6 +135,12 @@ impl ClientConfig {
                 return Err("Invalid RPC port");
             }
         }
+
+        match args.value_of("db") {
+            Some("disk") => config.db_type = DBType::Disk,
+            Some("memory") => config.db_type = DBType::Memory,
+            _ => unreachable!(), // clap prevents this.
+        };
 
         Ok(config)
     }

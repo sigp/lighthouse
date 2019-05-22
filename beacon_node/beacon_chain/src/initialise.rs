@@ -3,12 +3,11 @@
 // testnet. These are examples. Also. there is code duplication which can/should be cleaned up.
 
 use crate::BeaconChain;
-use db::stores::{BeaconBlockStore, BeaconStateStore};
-use db::{DiskDB, MemoryDB};
 use fork_choice::BitwiseLMDGhost;
 use slot_clock::SystemTimeSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
+use store::{DiskStore, MemoryStore};
 use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{BeaconBlock, ChainSpec, FewValidatorsEthSpec, FoundationEthSpec, Hash256};
@@ -20,20 +19,15 @@ pub fn initialise_beacon_chain(
     db_name: Option<&PathBuf>,
 ) -> Arc<
     BeaconChain<
-        DiskDB,
+        DiskStore,
         SystemTimeSlotClock,
-        BitwiseLMDGhost<DiskDB, FoundationEthSpec>,
+        BitwiseLMDGhost<DiskStore, FoundationEthSpec>,
         FoundationEthSpec,
     >,
 > {
-    // set up the db
-    let db = Arc::new(DiskDB::open(
-        db_name.expect("Database directory must be included"),
-        None,
-    ));
-
-    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
-    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
+    let path = db_name.expect("db_name cannot be None.");
+    let store = DiskStore::open(path).expect("Unable to open DB.");
+    let store = Arc::new(store);
 
     let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, &spec);
     let (genesis_state, _keypairs) = state_builder.build();
@@ -49,14 +43,13 @@ pub fn initialise_beacon_chain(
     )
     .expect("Unable to load SystemTimeSlotClock");
     // Choose the fork choice
-    let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
+    let fork_choice = BitwiseLMDGhost::new(store.clone());
 
     // Genesis chain
     //TODO: Handle error correctly
     Arc::new(
         BeaconChain::from_genesis(
-            state_store.clone(),
-            block_store.clone(),
+            store,
             slot_clock,
             genesis_state,
             genesis_block,
@@ -68,20 +61,18 @@ pub fn initialise_beacon_chain(
 }
 
 /// Initialisation of a test beacon chain, uses an in memory db with fixed genesis time.
-pub fn initialise_test_beacon_chain(
+pub fn initialise_test_beacon_chain_with_memory_db(
     spec: &ChainSpec,
     _db_name: Option<&PathBuf>,
 ) -> Arc<
     BeaconChain<
-        MemoryDB,
+        MemoryStore,
         SystemTimeSlotClock,
-        BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>,
+        BitwiseLMDGhost<MemoryStore, FewValidatorsEthSpec>,
         FewValidatorsEthSpec,
     >,
 > {
-    let db = Arc::new(MemoryDB::open());
-    let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
-    let state_store = Arc::new(BeaconStateStore::new(db.clone()));
+    let store = Arc::new(MemoryStore::open());
 
     let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, spec);
     let (genesis_state, _keypairs) = state_builder.build();
@@ -97,14 +88,60 @@ pub fn initialise_test_beacon_chain(
     )
     .expect("Unable to load SystemTimeSlotClock");
     // Choose the fork choice
-    let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
+    let fork_choice = BitwiseLMDGhost::new(store.clone());
 
     // Genesis chain
     //TODO: Handle error correctly
     Arc::new(
         BeaconChain::from_genesis(
-            state_store.clone(),
-            block_store.clone(),
+            store,
+            slot_clock,
+            genesis_state,
+            genesis_block,
+            spec.clone(),
+            fork_choice,
+        )
+        .expect("Terminate if beacon chain generation fails"),
+    )
+}
+
+/// Initialisation of a test beacon chain, uses an in memory db with fixed genesis time.
+pub fn initialise_test_beacon_chain_with_disk_db(
+    spec: &ChainSpec,
+    db_name: Option<&PathBuf>,
+) -> Arc<
+    BeaconChain<
+        DiskStore,
+        SystemTimeSlotClock,
+        BitwiseLMDGhost<DiskStore, FewValidatorsEthSpec>,
+        FewValidatorsEthSpec,
+    >,
+> {
+    let path = db_name.expect("db_name cannot be None.");
+    let store = DiskStore::open(path).expect("Unable to open DB.");
+    let store = Arc::new(store);
+
+    let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, spec);
+    let (genesis_state, _keypairs) = state_builder.build();
+
+    let mut genesis_block = BeaconBlock::empty(spec);
+    genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
+
+    // Slot clock
+    let slot_clock = SystemTimeSlotClock::new(
+        spec.genesis_slot,
+        genesis_state.genesis_time,
+        spec.seconds_per_slot,
+    )
+    .expect("Unable to load SystemTimeSlotClock");
+    // Choose the fork choice
+    let fork_choice = BitwiseLMDGhost::new(store.clone());
+
+    // Genesis chain
+    //TODO: Handle error correctly
+    Arc::new(
+        BeaconChain::from_genesis(
+            store,
             slot_clock,
             genesis_state,
             genesis_block,

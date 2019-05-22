@@ -1,15 +1,15 @@
 use crate::{ArcBeaconChain, ClientConfig};
 use beacon_chain::{
-    db::{ClientDB, DiskDB, MemoryDB},
     fork_choice::BitwiseLMDGhost,
     initialise,
     slot_clock::{SlotClock, SystemTimeSlotClock},
+    store::{DiskStore, MemoryStore, Store},
 };
 use fork_choice::ForkChoice;
 use types::{EthSpec, FewValidatorsEthSpec, FoundationEthSpec};
 
 pub trait ClientTypes {
-    type DB: ClientDB + 'static;
+    type DB: Store + 'static;
     type SlotClock: SlotClock + 'static;
     type ForkChoice: ForkChoice + 'static;
     type EthSpec: EthSpec + 'static;
@@ -22,9 +22,9 @@ pub trait ClientTypes {
 pub struct StandardClientType;
 
 impl ClientTypes for StandardClientType {
-    type DB = DiskDB;
+    type DB = DiskStore;
     type SlotClock = SystemTimeSlotClock;
-    type ForkChoice = BitwiseLMDGhost<DiskDB, Self::EthSpec>;
+    type ForkChoice = BitwiseLMDGhost<Self::DB, Self::EthSpec>;
     type EthSpec = FoundationEthSpec;
 
     fn initialise_beacon_chain(
@@ -34,17 +34,32 @@ impl ClientTypes for StandardClientType {
     }
 }
 
-pub struct TestingClientType;
+pub struct MemoryStoreTestingClientType;
 
-impl ClientTypes for TestingClientType {
-    type DB = MemoryDB;
+impl ClientTypes for MemoryStoreTestingClientType {
+    type DB = MemoryStore;
     type SlotClock = SystemTimeSlotClock;
-    type ForkChoice = BitwiseLMDGhost<MemoryDB, Self::EthSpec>;
+    type ForkChoice = BitwiseLMDGhost<Self::DB, Self::EthSpec>;
     type EthSpec = FewValidatorsEthSpec;
 
     fn initialise_beacon_chain(
         config: &ClientConfig,
     ) -> ArcBeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::EthSpec> {
-        initialise::initialise_test_beacon_chain(&config.spec, None)
+        initialise::initialise_test_beacon_chain_with_memory_db(&config.spec, None)
+    }
+}
+
+pub struct DiskStoreTestingClientType;
+
+impl ClientTypes for DiskStoreTestingClientType {
+    type DB = DiskStore;
+    type SlotClock = SystemTimeSlotClock;
+    type ForkChoice = BitwiseLMDGhost<Self::DB, Self::EthSpec>;
+    type EthSpec = FewValidatorsEthSpec;
+
+    fn initialise_beacon_chain(
+        config: &ClientConfig,
+    ) -> ArcBeaconChain<Self::DB, Self::SlotClock, Self::ForkChoice, Self::EthSpec> {
+        initialise::initialise_test_beacon_chain_with_disk_db(&config.spec, Some(&config.db_name))
     }
 }

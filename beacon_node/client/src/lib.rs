@@ -6,9 +6,8 @@ pub mod error;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;
-pub use client_config::ClientConfig;
+pub use client_config::{ClientConfig, DBType};
 pub use client_types::ClientTypes;
-use db::ClientDB;
 use exit_future::Signal;
 use fork_choice::ForkChoice;
 use futures::{future::Future, Stream};
@@ -18,6 +17,7 @@ use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use store::Store;
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 use types::EthSpec;
@@ -146,7 +146,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
 
 fn do_state_catchup<T, U, F, E>(chain: &Arc<BeaconChain<T, U, F, E>>, log: &slog::Logger)
 where
-    T: ClientDB,
+    T: Store,
     U: SlotClock,
     F: ForkChoice,
     E: EthSpec,

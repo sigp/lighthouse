@@ -1,9 +1,9 @@
 use beacon_chain::BeaconChain as RawBeaconChain;
 use beacon_chain::{
-    db::ClientDB,
     fork_choice::ForkChoice,
     parking_lot::RwLockReadGuard,
     slot_clock::SlotClock,
+    store::Store,
     types::{BeaconState, ChainSpec},
     AttestationValidationError, CheckPoint,
 };
@@ -66,7 +66,7 @@ pub trait BeaconChain<E: EthSpec>: Send + Sync {
 
 impl<T, U, F, E> BeaconChain<E> for RawBeaconChain<T, U, F, E>
 where
-    T: ClientDB + Sized,
+    T: Store,
     U: SlotClock,
     F: ForkChoice,
     E: EthSpec,
