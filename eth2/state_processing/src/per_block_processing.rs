@@ -29,9 +29,7 @@ mod verify_proposer_slashing;
 mod verify_transfer;
 
 // Set to `true` to check the merkle proof that a deposit is in the eth1 deposit root.
-//
-// Presently disabled to make testing easier.
-const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = false;
+const VERIFY_DEPOSIT_MERKLE_PROOFS: bool = true;
 
 /// Updates the state for a new block, whilst validating that the block is valid.
 ///
