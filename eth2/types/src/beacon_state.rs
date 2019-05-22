@@ -3,11 +3,11 @@ use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
+use compare_fields_derive::CompareFields;
+use fixed_len_vec::{typenum::Unsigned, FixedLenVec};
 use hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
-
-use fixed_len_vec::{typenum::Unsigned, FixedLenVec};
 use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
@@ -74,6 +74,7 @@ pub enum Error {
     Decode,
     TreeHash,
     CachedTreeHash,
+    CompareFields,
 )]
 pub struct BeaconState<T>
 where
