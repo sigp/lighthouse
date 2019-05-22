@@ -1,4 +1,5 @@
 use super::*;
+use std::fmt::Debug;
 
 mod bls_aggregate_pubkeys;
 mod bls_aggregate_sigs;
@@ -20,9 +21,26 @@ pub use operations_deposit::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 
+pub trait Case {
+    fn result(&self) -> Result<(), Error>;
+}
+
 #[derive(Debug)]
 pub struct Cases<T> {
     pub test_cases: Vec<T>,
+}
+
+impl<T> EfTest for Cases<T>
+where
+    T: Case + Debug,
+{
+    fn test_results(&self) -> Vec<CaseResult> {
+        self.test_cases
+            .iter()
+            .enumerate()
+            .map(|(i, tc)| CaseResult::new(i, tc, tc.result()))
+            .collect()
+    }
 }
 
 impl<T: YamlDecode> YamlDecode for Cases<T> {

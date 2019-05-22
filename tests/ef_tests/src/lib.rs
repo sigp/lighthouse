@@ -17,5 +17,5 @@ mod yaml_decode;
 /// Foundation testing format.
 pub trait EfTest {
     /// Returns the results of executing one or more tests.
-    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult>;
+    fn test_results(&self) -> Vec<CaseResult>;
 }

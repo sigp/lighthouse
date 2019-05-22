@@ -2,7 +2,6 @@ use super::*;
 use crate::case_result::compare_result;
 use bls::{PublicKey, SecretKey};
 use serde_derive::Deserialize;
-use types::EthSpec;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsPrivToPub {
@@ -16,33 +15,22 @@ impl YamlDecode for BlsPrivToPub {
     }
 }
 
-impl EfTest for Cases<BlsPrivToPub> {
-    fn test_results<E: EthSpec>(&self) -> Vec<CaseResult> {
-        self.test_cases
-            .iter()
-            .enumerate()
-            .map(|(i, tc)| {
-                let result = secret_to_public(&tc.input, &tc.output);
+impl Case for BlsPrivToPub {
+    fn result(&self) -> Result<(), Error> {
+        let secret = &self.input;
 
-                CaseResult::new(i, tc, result)
-            })
-            .collect()
+        // Convert message and domain to required types
+        let mut sk =
+            hex::decode(&secret[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+        pad_to_48(&mut sk);
+        let sk = SecretKey::from_bytes(&sk).unwrap();
+        let pk = PublicKey::from_secret_key(&sk);
+
+        let decoded = hex::decode(&self.output[2..])
+            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+
+        compare_result::<Vec<u8>, Vec<u8>>(&Ok(pk.as_raw().as_bytes()), &Some(decoded))
     }
-}
-
-/// Execute a `Private key to public key` test case.
-fn secret_to_public(secret: &String, output: &String) -> Result<(), Error> {
-    // Convert message and domain to required types
-    let mut sk =
-        hex::decode(&secret[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-    pad_to_48(&mut sk);
-    let sk = SecretKey::from_bytes(&sk).unwrap();
-    let pk = PublicKey::from_secret_key(&sk);
-
-    let decoded =
-        hex::decode(&output[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-
-    compare_result::<Vec<u8>, Vec<u8>>(&Ok(pk.as_raw().as_bytes()), &Some(decoded))
 }
 
 // Increase the size of an array to 48 bytes
