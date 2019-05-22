@@ -49,7 +49,7 @@ impl Validator {
 
     /// Returns `true` if the validator is able to withdraw at some epoch.
     pub fn is_withdrawable_at(&self, epoch: Epoch) -> bool {
-        self.withdrawable_epoch <= epoch
+        epoch >= self.withdrawable_epoch
     }
 }
 
