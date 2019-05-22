@@ -68,6 +68,15 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("db")
+                .long("db")
+                .value_name("DB")
+                .help("Type of database to use.")
+                .takes_value(true)
+                .possible_values(&["disk", "memory"])
+                .default_value("memory"),
+        )
         .get_matches();
 
     // invalid arguments, panic

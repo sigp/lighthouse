@@ -1,15 +1,17 @@
-use client::client_types::TestingClientType;
-use client::error;
-use client::{notifier, Client, ClientConfig};
+use client::client_types::{DiskStoreTestingClientType, MemoryStoreTestingClientType};
+use client::{error, DBType};
+use client::{notifier, Client, ClientConfig, ClientTypes};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::info;
 use std::cell::RefCell;
 use tokio::runtime::Builder;
+use tokio::runtime::Runtime;
+use tokio::runtime::TaskExecutor;
 use tokio_timer::clock::Clock;
 
 pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Result<()> {
-    let mut runtime = Builder::new()
+    let runtime = Builder::new()
         .name_prefix("main-")
         .clock(Clock::system())
         .build()
@@ -20,8 +22,42 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
           "data_dir" => &config.data_dir.to_str(),
           "port" => &config.net_conf.listen_port);
 
+    let executor = runtime.executor();
+
+    match config.db_type {
+        DBType::Disk => {
+            info!(
+                log,
+                "BeaconNode starting";
+                "type" => "DiskStoreTestingClientType"
+            );
+            let client: Client<DiskStoreTestingClientType> =
+                Client::new(config, log.clone(), &executor)?;
+
+            run(client, executor, runtime, log)
+        }
+        DBType::Memory => {
+            info!(
+                log,
+                "BeaconNode starting";
+                "type" => "MemoryStoreTestingClientType"
+            );
+            let client: Client<MemoryStoreTestingClientType> =
+                Client::new(config, log.clone(), &executor)?;
+
+            run(client, executor, runtime, log)
+        }
+    }
+}
+
+pub fn run<T: ClientTypes>(
+    client: Client<T>,
+    executor: TaskExecutor,
+    mut runtime: Runtime,
+    log: &slog::Logger,
+) -> error::Result<()> {
     // run service until ctrl-c
-    let (ctrlc_send, ctrlc) = oneshot::channel();
+    let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
     let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
     ctrlc::set_handler(move || {
         if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
@@ -32,14 +68,10 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
 
     let (exit_signal, exit) = exit_future::signal();
 
-    let executor = runtime.executor();
-
-    // currently testing - using TestingClientType
-    let client: Client<TestingClientType> = Client::new(config, log.clone(), &executor)?;
     notifier::run(&client, executor, exit);
 
     runtime
-        .block_on(ctrlc)
+        .block_on(ctrlc_oneshot)
         .map_err(|e| format!("Ctrlc oneshot failed: {:?}", e))?;
 
     // perform global shutdown operations.

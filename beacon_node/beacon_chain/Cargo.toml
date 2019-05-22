@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 bls = { path = "../../eth2/utils/bls" }
 boolean-bitfield = { path = "../../eth2/utils/boolean-bitfield" }
-db = { path = "../db" }
+store = { path = "../store" }
 failure = "0.1"
 failure_derive = "0.1"
 hashing = { path = "../../eth2/utils/hashing" }

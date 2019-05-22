@@ -1,31 +1,25 @@
 use crate::{ForkChoice, ForkChoiceError};
-use db::{stores::BeaconBlockStore, ClientDB};
 use std::sync::Arc;
+use store::Store;
 use types::{BeaconBlock, ChainSpec, Hash256, Slot};
 
-pub struct LongestChain<T>
-where
-    T: ClientDB + Sized,
-{
+pub struct LongestChain<T> {
     /// List of head block hashes
     head_block_hashes: Vec<Hash256>,
-    /// Block storage access.
-    block_store: Arc<BeaconBlockStore<T>>,
+    /// Block storage.
+    store: Arc<T>,
 }
 
-impl<T> LongestChain<T>
-where
-    T: ClientDB + Sized,
-{
-    pub fn new(block_store: Arc<BeaconBlockStore<T>>) -> Self {
+impl<T: Store> LongestChain<T> {
+    pub fn new(store: Arc<T>) -> Self {
         LongestChain {
             head_block_hashes: Vec::new(),
-            block_store,
+            store,
         }
     }
 }
 
-impl<T: ClientDB + Sized> ForkChoice for LongestChain<T> {
+impl<T: Store> ForkChoice for LongestChain<T> {
     fn add_block(
         &mut self,
         block: &BeaconBlock,
@@ -55,9 +49,9 @@ impl<T: ClientDB + Sized> ForkChoice for LongestChain<T> {
          * Load all the head_block hashes from the DB as SszBeaconBlocks.
          */
         for (index, block_hash) in self.head_block_hashes.iter().enumerate() {
-            let block = self
-                .block_store
-                .get_deserialized(&block_hash)?
+            let block: BeaconBlock = self
+                .store
+                .get(&block_hash)?
                 .ok_or_else(|| ForkChoiceError::MissingBeaconBlock(*block_hash))?;
             head_blocks.push((index, block));
         }

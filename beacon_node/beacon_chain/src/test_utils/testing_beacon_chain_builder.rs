@@ -1,17 +1,18 @@
 pub use crate::{BeaconChain, BeaconChainError, CheckPoint};
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    MemoryDB,
-};
 use fork_choice::BitwiseLMDGhost;
 use slot_clock::TestingSlotClock;
 use std::sync::Arc;
+use store::MemoryStore;
 use tree_hash::TreeHash;
 use types::*;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, FewValidatorsEthSpec};
 
-type TestingBeaconChain<E> =
-    BeaconChain<MemoryDB, TestingSlotClock, BitwiseLMDGhost<MemoryDB, FewValidatorsEthSpec>, E>;
+type TestingBeaconChain<E> = BeaconChain<
+    MemoryStore,
+    TestingSlotClock,
+    BitwiseLMDGhost<MemoryStore, FewValidatorsEthSpec>,
+    E,
+>;
 
 pub struct TestingBeaconChainBuilder<E: EthSpec> {
     state_builder: TestingBeaconStateBuilder<E>,
@@ -19,11 +20,9 @@ pub struct TestingBeaconChainBuilder<E: EthSpec> {
 
 impl<E: EthSpec> TestingBeaconChainBuilder<E> {
     pub fn build(self, spec: &ChainSpec) -> TestingBeaconChain<E> {
-        let db = Arc::new(MemoryDB::open());
-        let block_store = Arc::new(BeaconBlockStore::new(db.clone()));
-        let state_store = Arc::new(BeaconStateStore::new(db.clone()));
+        let store = Arc::new(MemoryStore::open());
         let slot_clock = TestingSlotClock::new(spec.genesis_slot.as_u64());
-        let fork_choice = BitwiseLMDGhost::new(block_store.clone(), state_store.clone());
+        let fork_choice = BitwiseLMDGhost::new(store.clone());
 
         let (genesis_state, _keypairs) = self.state_builder.build();
 
@@ -32,8 +31,7 @@ impl<E: EthSpec> TestingBeaconChainBuilder<E> {
 
         // Create the Beacon Chain
         BeaconChain::from_genesis(
-            state_store.clone(),
-            block_store.clone(),
+            store,
             slot_clock,
             genesis_state,
             genesis_block,
