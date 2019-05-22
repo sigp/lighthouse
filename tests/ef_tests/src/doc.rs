@@ -2,7 +2,7 @@ use crate::case_result::CaseResult;
 use crate::cases::*;
 use crate::doc_header::DocHeader;
 use crate::eth_specs::{MainnetEthSpec, MinimalEthSpec};
-use crate::yaml_decode::{extract_yaml_by_key, yaml_split_header_and_cases, YamlDecode};
+use crate::yaml_decode::{yaml_split_header_and_cases, YamlDecode};
 use crate::EfTest;
 use serde_derive::Deserialize;
 use std::{fs::File, io::prelude::*, path::PathBuf};
@@ -58,6 +58,12 @@ impl Doc {
             ("bls", "msg_hash_uncompressed", "mainnet") => vec![],
             ("bls", "priv_to_pub", "mainnet") => run_test::<BlsPrivToPub, MainnetEthSpec>(self),
             ("bls", "sign_msg", "mainnet") => run_test::<BlsSign, MainnetEthSpec>(self),
+            ("operations", "deposit", "mainnet") => {
+                run_test::<OperationsDeposit<MainnetEthSpec>, MainnetEthSpec>(self)
+            }
+            ("operations", "deposit", "minimal") => {
+                run_test::<OperationsDeposit<MinimalEthSpec>, MinimalEthSpec>(self)
+            }
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
