@@ -398,7 +398,12 @@ pub enum TransferInvalid {
     /// min_deposit_amount`
     ///
     /// (resulting_amount, min_deposit_amount)
-    InvalidResultingFromBalance(u64, u64),
+    SenderDust(u64, u64),
+    /// This transfer would result in the `transfer.to` account to have `0 < balance <
+    /// min_deposit_amount`
+    ///
+    /// (resulting_amount, min_deposit_amount)
+    RecipientDust(u64, u64),
     /// The state slot does not match `transfer.slot`.
     ///
     /// (state_slot, transfer_slot)

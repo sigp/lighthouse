@@ -44,11 +44,15 @@ fn verify_transfer_parametric<T: EthSpec>(
     spec: &ChainSpec,
     time_independent_only: bool,
 ) -> Result<(), Error> {
-    // Load the sender balance from state.
     let sender_balance = *state
         .balances
         .get(transfer.sender as usize)
         .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.sender)))?;
+
+    let recipient_balance = *state
+        .balances
+        .get(transfer.recipient as usize)
+        .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.recipient)))?;
 
     // Safely determine `amount + fee`.
     let total_amount = transfer
@@ -62,16 +66,19 @@ fn verify_transfer_parametric<T: EthSpec>(
         Invalid::FromBalanceInsufficient(transfer.amount, sender_balance)
     );
 
-    // Verify balances are not "dust" (i.e., greater than zero but less than the minimum deposit
+    // Verify sender balance will not be "dust" (i.e., greater than zero but less than the minimum deposit
     // amount).
     verify!(
         time_independent_only
             || (sender_balance == total_amount)
             || (sender_balance >= (total_amount + spec.min_deposit_amount)),
-        Invalid::InvalidResultingFromBalance(
-            sender_balance - total_amount,
-            spec.min_deposit_amount
-        )
+        Invalid::SenderDust(sender_balance - total_amount, spec.min_deposit_amount)
+    );
+
+    // Verify the recipient balance will not be dust.
+    verify!(
+        time_independent_only || ((recipient_balance + transfer.amount) >= spec.min_deposit_amount),
+        Invalid::RecipientDust(sender_balance - total_amount, spec.min_deposit_amount)
     );
 
     // If loosely enforcing `transfer.slot`, ensure the slot is not in the past. Otherwise, ensure
