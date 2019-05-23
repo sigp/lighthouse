@@ -15,6 +15,5 @@ hex = "0.3"
 ethereum-types = "0.5"
 
 [dependencies]
-bytes = "0.4"
 hashing = { path = "../hashing" }
 int_to_bytes = { path = "../int_to_bytes" }
