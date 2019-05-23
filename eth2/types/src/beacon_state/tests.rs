@@ -153,7 +153,7 @@ fn test_cache_initialization<'a, T: EthSpec>(
         .unwrap();
 
     // Drop the cache.
-    state.drop_cache(relative_epoch);
+    state.drop_committee_cache(relative_epoch);
 
     // Assert a call to a cache-using function fail.
     assert_eq!(

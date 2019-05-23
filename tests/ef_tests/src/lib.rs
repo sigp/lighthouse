@@ -1,6 +1,7 @@
 use types::EthSpec;
 
 pub use case_result::CaseResult;
+pub use cases::Case;
 pub use doc::Doc;
 pub use error::Error;
 pub use yaml_decode::YamlDecode;

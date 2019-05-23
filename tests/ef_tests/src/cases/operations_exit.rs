@@ -21,12 +21,16 @@ impl<E: EthSpec> YamlDecode for OperationsExit<E> {
 }
 
 impl<E: EthSpec> Case for OperationsExit<E> {
+    fn description(&self) -> String {
+        self.description.clone()
+    }
+
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let exit = self.voluntary_exit.clone();
         let mut expected = self.post.clone();
 
-        // Epoch processing requires the epoch cache.
+        // Exit processing requires the epoch cache.
         state.build_all_caches(&E::spec()).unwrap();
 
         let result = process_exits(&mut state, &[exit], &E::spec());

@@ -21,12 +21,22 @@ impl<E: EthSpec> YamlDecode for OperationsTransfer<E> {
 }
 
 impl<E: EthSpec> Case for OperationsTransfer<E> {
+    fn description(&self) -> String {
+        self.description.clone()
+    }
+
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let transfer = self.transfer.clone();
         let mut expected = self.post.clone();
 
-        let result = process_transfers(&mut state, &[transfer], &E::spec());
+        // Transfer processing requires the epoch cache.
+        state.build_all_caches(&E::spec()).unwrap();
+
+        let mut spec = E::spec();
+        spec.max_transfers = 1;
+
+        let result = process_transfers(&mut state, &[transfer], &spec);
 
         let mut result = result.and_then(|_| Ok(state));
 
