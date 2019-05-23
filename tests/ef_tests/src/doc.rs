@@ -71,6 +71,12 @@ impl Doc {
             ("operations", "voluntary_exit", "minimal") => {
                 run_test::<OperationsExit<MinimalEthSpec>>(self)
             }
+            ("operations", "proposer_slashing", "mainnet") => {
+                run_test::<OperationsProposerSlashing<MainnetEthSpec>>(self)
+            }
+            ("operations", "proposer_slashing", "minimal") => {
+                run_test::<OperationsProposerSlashing<MinimalEthSpec>>(self)
+            }
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
