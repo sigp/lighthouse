@@ -63,6 +63,12 @@ impl Doc {
             ("operations", "transfer", "minimal") => {
                 run_test::<OperationsTransfer<MinimalEthSpec>>(self)
             }
+            ("operations", "voluntary_exit", "mainnet") => {
+                run_test::<OperationsExit<MainnetEthSpec>>(self)
+            }
+            ("operations", "voluntary_exit", "minimal") => {
+                run_test::<OperationsExit<MinimalEthSpec>>(self)
+            }
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
