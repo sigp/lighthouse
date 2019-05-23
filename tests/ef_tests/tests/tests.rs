@@ -11,7 +11,10 @@ fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
 
     assert!(
         base_path.exists(),
-        "Unable to locate test files. Did you init git submoules?"
+        format!(
+            "Unable to locate {:?}. Did you init git submoules?",
+            base_path
+        )
     );
 
     let mut paths: Vec<PathBuf> = WalkDir::new(base_path)
@@ -70,7 +73,6 @@ fn operations_deposit() {
 // No transfers are permitted in phase 0.
 /*
 #[test]
-#[should_panic]
 #[cfg(not(feature = "fake_crypto"))]
 fn operations_transfer() {
     yaml_files_in_test_dir(&Path::new("operations").join("transfer"))
@@ -82,6 +84,16 @@ fn operations_transfer() {
         });
 }
 */
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn operations_exit() {
+    yaml_files_in_test_dir(&Path::new("operations").join("voluntary_exit"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
