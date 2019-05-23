@@ -114,6 +114,15 @@ impl CommitteeCache {
         &self.shuffling
     }
 
+    /// Returns the shuffled list of active validator indices for the initialized epoch.
+    ///
+    /// Always returns `&[]` for a non-initialized epoch.
+    ///
+    /// Spec v0.6.1
+    pub fn shuffling(&self) -> &[usize] {
+        &self.shuffling
+    }
+
     /// Return `Some(CrosslinkCommittee)` if the given shard has a committee during the given
     /// `epoch`.
     ///

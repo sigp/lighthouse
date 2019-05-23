@@ -343,6 +343,17 @@ impl<T: EthSpec> BeaconState<T> {
         get_active_validator_indices(&self.validator_registry, epoch)
     }
 
+    /// Return the cached active validator indices at some epoch.
+    ///
+    /// Note: the indices are shuffled (i.e., not in ascending order).
+    ///
+    /// Returns an error if that epoch is not cached, or the cache is not initialized.
+    pub fn get_shuffling(&self, relative_epoch: RelativeEpoch) -> Result<&[usize], Error> {
+        let cache = self.cache(relative_epoch)?;
+
+        Ok(cache.shuffling())
+    }
+
     /// Returns the crosslink committees for some slot.
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
