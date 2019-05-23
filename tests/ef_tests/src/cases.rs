@@ -10,6 +10,7 @@ mod bls_sign_msg;
 mod operations_deposit;
 mod operations_exit;
 mod operations_transfer;
+mod shuffling;
 mod ssz_generic;
 mod ssz_static;
 
@@ -22,6 +23,7 @@ pub use bls_sign_msg::*;
 pub use operations_deposit::*;
 pub use operations_exit::*;
 pub use operations_transfer::*;
+pub use shuffling::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 

@@ -61,6 +61,15 @@ fn ssz_static() {
 }
 
 #[test]
+fn shuffling() {
+    yaml_files_in_test_dir(&Path::new("shuffling").join("core"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn operations_deposit() {
     yaml_files_in_test_dir(&Path::new("operations").join("deposit"))
