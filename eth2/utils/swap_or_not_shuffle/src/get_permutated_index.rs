@@ -41,7 +41,7 @@ pub fn get_permutated_index(
 }
 
 fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize) -> Option<usize> {
-    let flip = (pivot + list_size - index) % list_size;
+    let flip = (pivot + (list_size - index)) % list_size;
     let position = max(index, flip);
     let source = hash_with_round_and_position(seed, round, position)?;
     let byte = source[(position % 256) / 8];
