@@ -62,11 +62,13 @@ fn verify_indexed_attestation_parametric<T: EthSpec>(
 
     // Check that both vectors of indices are sorted
     let check_sorted = |list: &Vec<u64>| {
-        for i in 0..list.len() - 1 {
-            if list[i] >= list[i + 1] {
+        list.windows(2).enumerate().try_for_each(|(i, pair)| {
+            if pair[0] >= pair[1] {
                 invalid!(Invalid::BadValidatorIndicesOrdering(i));
+            } else {
+                Ok(())
             }
-        }
+        })?;
         Ok(())
     };
     check_sorted(custody_bit_0_indices)?;
