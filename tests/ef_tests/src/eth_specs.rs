@@ -21,7 +21,9 @@ impl EthSpec for MinimalEthSpec {
 
     fn spec() -> ChainSpec {
         // TODO: this spec is likely incorrect!
-        FewValidatorsEthSpec::spec()
+        let mut spec = FewValidatorsEthSpec::spec();
+        spec.shuffle_round_count = 10;
+        spec
     }
 }
 

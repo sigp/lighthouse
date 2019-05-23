@@ -41,6 +41,8 @@ impl Doc {
             ("ssz", "uint", _) => run_test::<SszGeneric>(self),
             ("ssz", "static", "minimal") => run_test::<SszStatic<MinimalEthSpec>>(self),
             ("ssz", "static", "mainnet") => run_test::<SszStatic<MainnetEthSpec>>(self),
+            ("shuffling", "core", "minimal") => run_test::<Shuffling<MinimalEthSpec>>(self),
+            ("shuffling", "core", "mainnet") => run_test::<Shuffling<MainnetEthSpec>>(self),
             ("bls", "aggregate_pubkeys", "mainnet") => run_test::<BlsAggregatePubkeys>(self),
             ("bls", "aggregate_sigs", "mainnet") => run_test::<BlsAggregateSigs>(self),
             ("bls", "msg_hash_compressed", "mainnet") => run_test::<BlsG2Compressed>(self),
