@@ -680,18 +680,23 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Generate a seed for the given `epoch`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn generate_seed(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
-        let mut input = self
-            .get_randao_mix(epoch - spec.min_seed_lookahead)?
-            .as_bytes()
-            .to_vec();
+        // Bypass the safe getter for RANDAO so we can gracefully handle the scenario where `epoch
+        // == 0`.
+        let randao = {
+            let i = epoch + T::latest_randao_mixes_length() as u64 - spec.min_seed_lookahead;
+            self.latest_randao_mixes[i.as_usize() % self.latest_randao_mixes.len()]
+        };
+        let active_index_root = self.get_active_index_root(epoch, spec)?;
+        let epoch_bytes = int_to_bytes32(epoch.as_u64());
 
-        input.append(&mut self.get_active_index_root(epoch, spec)?.as_bytes().to_vec());
+        let mut preimage = [0; 32 * 3];
+        preimage[0..32].copy_from_slice(&randao[..]);
+        preimage[32..64].copy_from_slice(&active_index_root[..]);
+        preimage[64..].copy_from_slice(&epoch_bytes);
 
-        input.append(&mut int_to_bytes32(epoch.as_u64()));
-
-        Ok(Hash256::from_slice(&hash(&input[..])[..]))
+        Ok(Hash256::from_slice(&hash(&preimage)))
     }
 
     /// Return the effective balance (also known as "balance at stake") for a validator with the given ``index``.
