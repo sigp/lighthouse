@@ -33,9 +33,9 @@ fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
         })
         .collect();
 
-    // Reverse the file order. Assuming files come in lexicographical order, doing it in
-    // reverse means we get the "minimal" tests before the "mainnet" tests. This makes life
-    // easier for debugging.
+    // Reverse the file order. Assuming files come in lexicographical order, executing tests in
+    // reverse means we get the "minimal" tests before the "mainnet" tests. This makes life easier
+    // for debugging.
     paths.reverse();
     paths
 }
@@ -70,20 +70,16 @@ fn operations_deposit() {
         });
 }
 
-// No transfers are permitted in phase 0.
-/*
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn operations_transfer() {
     yaml_files_in_test_dir(&Path::new("operations").join("transfer"))
-        // .into_par_iter()
-        .into_iter()
+        .into_par_iter()
         .rev()
         .for_each(|file| {
             Doc::assert_tests_pass(file);
         });
 }
-*/
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]

@@ -25,7 +25,14 @@ pub use operations_transfer::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 
-pub trait Case {
+pub trait Case: Debug {
+    /// An optional field for implementing a custom description.
+    ///
+    /// Defaults to "no description".
+    fn description(&self) -> String {
+        "no description".to_string()
+    }
+
     /// Execute a test and return the result.
     ///
     /// `case_index` reports the index of the case in the set of test cases. It is not strictly

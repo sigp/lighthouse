@@ -13,10 +13,10 @@ pub struct CaseResult {
 }
 
 impl CaseResult {
-    pub fn new<T: Debug>(case_index: usize, case: &T, result: Result<(), Error>) -> Self {
+    pub fn new(case_index: usize, case: &impl Case, result: Result<(), Error>) -> Self {
         CaseResult {
             case_index,
-            desc: format!("{:?}", case),
+            desc: case.description(),
             result,
         }
     }
@@ -60,7 +60,7 @@ where
 
             if !mismatching_fields.is_empty() {
                 Err(Error::NotEqual(format!(
-                    "Fields not equal: {:#?}",
+                    "Fields not equal (a = expected, b = result): {:#?}",
                     mismatching_fields
                 )))
             } else {

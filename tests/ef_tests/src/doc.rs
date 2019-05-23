@@ -123,7 +123,12 @@ pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
         let error = failure.result.clone().unwrap_err();
 
         println!("-------");
-        println!("case[{}] failed with {}:", failure.case_index, error.name());
+        println!(
+            "case[{}] ({}) failed with {}:",
+            failure.case_index,
+            failure.desc,
+            error.name()
+        );
         println!("{}", error.message());
     }
     println!("");

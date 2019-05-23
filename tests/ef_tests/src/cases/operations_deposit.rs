@@ -21,6 +21,10 @@ impl<E: EthSpec> YamlDecode for OperationsDeposit<E> {
 }
 
 impl<E: EthSpec> Case for OperationsDeposit<E> {
+    fn description(&self) -> String {
+        self.description.clone()
+    }
+
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let deposit = self.deposit.clone();
