@@ -6,6 +6,56 @@ use std::ops::RangeInclusive;
 ssz_tests!(FoundationBeaconState);
 cached_tree_hash_tests!(FoundationBeaconState);
 
+fn test_beacon_proposer_index<T: EthSpec>() {
+    let spec = T::spec();
+    let relative_epoch = RelativeEpoch::Current;
+
+    // Build a state for testing.
+    let build_state = |validator_count: usize| -> BeaconState<T> {
+        let builder: TestingBeaconStateBuilder<T> =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+        let (mut state, _keypairs) = builder.build();
+        state.build_committee_cache(relative_epoch, &spec).unwrap();
+
+        state
+    };
+
+    // Run a test on the state.
+    let test = |state: &BeaconState<T>, slot: Slot, shuffling_index: usize| {
+        let shuffling = state.get_shuffling(relative_epoch).unwrap();
+        assert_eq!(
+            state.get_beacon_proposer_index(slot, relative_epoch, &spec),
+            Ok(shuffling[shuffling_index])
+        );
+    };
+
+    // Test where we have one validator per slot
+    let state = build_state(T::slots_per_epoch() as usize);
+    for i in 0..T::slots_per_epoch() {
+        test(&state, Slot::from(i), i as usize);
+    }
+
+    // Test where we have two validators per slot
+    let state = build_state(T::slots_per_epoch() as usize * 2);
+    for i in 0..T::slots_per_epoch() {
+        test(&state, Slot::from(i), i as usize * 2);
+    }
+
+    // Test with two validators per slot, first validator has zero balance.
+    let mut state = build_state(T::slots_per_epoch() as usize * 2);
+    let shuffling = state.get_shuffling(relative_epoch).unwrap().to_vec();
+    state.validator_registry[shuffling[0]].effective_balance = 0;
+    test(&state, Slot::new(0), 1);
+    for i in 1..T::slots_per_epoch() {
+        test(&state, Slot::from(i), i as usize * 2);
+    }
+}
+
+#[test]
+fn beacon_proposer_index() {
+    test_beacon_proposer_index::<FewValidatorsEthSpec>();
+}
+
 /// Should produce (note the set notation brackets):
 ///
 /// (current_epoch - LATEST_ACTIVE_INDEX_ROOTS_LENGTH + ACTIVATION_EXIT_DELAY, current_epoch +
