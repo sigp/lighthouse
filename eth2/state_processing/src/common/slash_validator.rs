@@ -37,7 +37,7 @@ pub fn slash_validator<T: EthSpec>(
     safe_add_assign!(state.balances[proposer_index], proposer_reward);
     safe_add_assign!(
         state.balances[whistleblower_index],
-        whistleblowing_reward - proposer_reward
+        whistleblowing_reward.saturating_sub(proposer_reward)
     );
     safe_sub_assign!(state.balances[slashed_index], whistleblowing_reward);
 
