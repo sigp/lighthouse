@@ -86,7 +86,9 @@ where
     pub fork: Fork,
 
     // Validator registry
+    #[compare_fields(as_slice)]
     pub validator_registry: Vec<Validator>,
+    #[compare_fields(as_slice)]
     pub balances: Vec<u64>,
 
     // Randomness and committees
