@@ -7,7 +7,6 @@ use clap::{App, Arg};
 use client::ClientConfig;
 use slog::{error, o, Drain};
 
-
 fn main() {
     // Logging
     let decorator = slog_term::TermDecorator::new().build();

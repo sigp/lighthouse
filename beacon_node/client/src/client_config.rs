@@ -158,7 +158,10 @@ impl ClientConfig {
                 .open(&config.log_file)
                 .unwrap();
 
-            info!(*log, "Log file specified output will now be written to {} in json", &config.log_file);
+            info!(
+                *log,
+                "Log file specified output will now be written to {} in json", &config.log_file
+            );
             let drain = Mutex::new(slog_json::Json::default(file)).fuse();
             let drain = slog_async::Async::new(drain).build().fuse();
             *log = slog::Logger::root(drain, o!());
