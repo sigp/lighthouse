@@ -95,13 +95,15 @@ impl ClientConfig {
         }
 
         // Custom bootnodes
-        // TODO: Handle list of addresses
         if let Some(boot_addresses_str) = args.value_of("boot-nodes") {
-            if let Ok(boot_address) = boot_addresses_str.parse::<Multiaddr>() {
-                config.net_conf.boot_nodes.append(&mut vec![boot_address]);
-            } else {
-                error!(log, "Invalid Bootnode multiaddress"; "Multiaddr" => boot_addresses_str);
-                return Err("Invalid IP Address");
+            let mut boot_addresses_split = boot_addresses_str.split(",");
+            for boot_address in boot_addresses_split {
+                if let Ok(boot_address) = boot_address.parse::<Multiaddr>() {
+                    config.net_conf.boot_nodes.append(&mut vec![boot_address]);
+                } else {
+                    error!(log, "Invalid Bootnode multiaddress"; "Multiaddr" => boot_addresses_str);
+                    return Err("Invalid IP Address");
+                }
             }
         }
 
