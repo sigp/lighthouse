@@ -1,4 +1,5 @@
 extern crate slog;
+extern crate slog_json;
 
 mod run;
 
@@ -6,12 +7,15 @@ use clap::{App, Arg};
 use client::ClientConfig;
 use slog::{error, o, Drain};
 
+
 fn main() {
+    // Logging
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let logger = slog::Logger::root(drain, o!());
+    let mut log = slog::Logger::root(drain, o!());
 
+    // CLI
     let matches = App::new("Lighthouse")
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
@@ -22,6 +26,13 @@ fn main() {
                 .long("datadir")
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("logfile")
+                .long("logfile")
+                .value_name("logfile")
+                .help("File path where output will be written.")
                 .takes_value(true),
         )
         // network related arguments
@@ -80,10 +91,10 @@ fn main() {
         .get_matches();
 
     // invalid arguments, panic
-    let config = ClientConfig::parse_args(matches, &logger).unwrap();
+    let config = ClientConfig::parse_args(matches, &mut log).unwrap();
 
-    match run::run_beacon_node(config, &logger) {
+    match run::run_beacon_node(config, &log) {
         Ok(_) => {}
-        Err(e) => error!(logger, "Beacon node failed because {:?}", e),
+        Err(e) => error!(log, "Beacon node failed because {:?}", e),
     }
 }

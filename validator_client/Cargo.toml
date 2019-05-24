@@ -24,8 +24,9 @@ protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
 slog = "^2.2.3"
-slog-term = "^2.4.0"
 slog-async = "^2.3.0"
+slog-json = "^2.3"
+slog-term = "^2.4.0"
 tokio = "0.1.18"
 tokio-timer = "0.2.10"
 error-chain = "0.12.0"

@@ -10,7 +10,7 @@ fn main() {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let log = slog::Logger::root(drain, o!());
+    let mut log = slog::Logger::root(drain, o!());
 
     // CLI
     let matches = App::new("Lighthouse Accounts Manager")
@@ -22,6 +22,13 @@ fn main() {
                 .long("datadir")
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("logfile")
+                .long("logfile")
+                .value_name("logfile")
+                .help("File path where output will be written.")
                 .takes_value(true),
         )
         .subcommand(
@@ -47,7 +54,7 @@ fn main() {
         )
         .get_matches();
 
-    let config = ValidatorClientConfig::parse_args(&matches, &log)
+    let config = ValidatorClientConfig::parse_args(&matches, &mut log)
         .expect("Unable to build a configuration for the account manager.");
 
     // Log configuration

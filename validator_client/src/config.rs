@@ -1,11 +1,12 @@
 use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
-use slog::{debug, error, info};
+use slog::{debug, error, info, o, Drain};
 use std::fs;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use types::{
     ChainSpec, EthSpec, FewValidatorsEthSpec, FoundationEthSpec, LighthouseTestnetEthSpec,
 };
@@ -19,6 +20,8 @@ pub struct Config {
     pub server: String,
     /// The chain specification that we are connecting to
     pub spec: ChainSpec,
+    ///
+    pub log_file: String,
 }
 
 const DEFAULT_PRIVATE_KEY_FILENAME: &str = "private.key";
@@ -39,19 +42,20 @@ impl Default for Config {
             data_dir,
             server,
             spec,
+            log_file: "".to_string(),
         }
     }
 }
 
 impl Config {
     /// Build a new configuration from defaults, which are overrided by arguments provided.
-    pub fn parse_args(args: &ArgMatches, log: &slog::Logger) -> Result<Self, Error> {
+    pub fn parse_args(args: &ArgMatches, log: &mut slog::Logger) -> Result<Self, Error> {
         let mut config = Config::default();
 
         // Use the specified datadir, or default in the home directory
         if let Some(datadir) = args.value_of("datadir") {
             config.data_dir = PathBuf::from(datadir);
-            info!(log, "Using custom data dir: {:?}", &config.data_dir);
+            info!(*log, "Using custom data dir: {:?}", &config.data_dir);
         };
 
         fs::create_dir_all(&config.data_dir)
@@ -60,12 +64,12 @@ impl Config {
         if let Some(srv) = args.value_of("server") {
             //TODO: Validate the server value, to ensure it makes sense.
             config.server = srv.to_string();
-            info!(log, "Using custom server: {:?}", &config.server);
+            info!(*log, "Using custom server: {:?}", &config.server);
         };
 
         // TODO: Permit loading a custom spec from file.
         if let Some(spec_str) = args.value_of("spec") {
-            info!(log, "Using custom spec: {:?}", spec_str);
+            info!(*log, "Using custom spec: {:?}", spec_str);
             config.spec = match spec_str {
                 "foundation" => FoundationEthSpec::spec(),
                 "few_validators" => FewValidatorsEthSpec::spec(),
@@ -75,9 +79,27 @@ impl Config {
             };
         };
         // Log configuration
-        info!(log, "";
+        info!(*log, "";
               "data_dir" => &config.data_dir.to_str(),
               "server" => &config.server);
+
+        // If an output file is specified, convert logs to json for specified file
+        if let Some(logfile) = args.value_of("logfile") {
+            config.log_file = logfile.to_string();
+            // Panics if bad file
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&config.log_file)
+                .unwrap();
+
+            info!(*log, "Log file specified output will now be written to {} in json", &config.log_file);
+
+            let drain = Mutex::new(slog_json::Json::default(file)).fuse();
+            let drain = slog_async::Async::new(drain).build().fuse();
+            *log = slog::Logger::root(drain, o!());
+        };
 
         Ok(config)
     }
