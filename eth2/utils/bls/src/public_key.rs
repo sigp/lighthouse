@@ -4,7 +4,7 @@ use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{ssz_encode, Decode, DecodeError};
+use ssz::{Decode, DecodeError, Encode};
 use std::default;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -14,7 +14,7 @@ use tree_hash::tree_hash_ssz_encoding_as_vector;
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, Clone, Eq)]
+#[derive(Clone, Eq)]
 pub struct PublicKey(RawPublicKey);
 
 impl PublicKey {
@@ -60,15 +60,26 @@ impl PublicKey {
     ///
     /// Useful for providing a short identifier to the user.
     pub fn concatenated_hex_id(&self) -> String {
-        let bytes = ssz_encode(self);
-        let end_bytes = &bytes[bytes.len().saturating_sub(6)..bytes.len()];
-        hex_encode(end_bytes)
+        self.as_hex_string()[0..6].to_string()
+    }
+
+    /// Returns the point as a hex string of the SSZ encoding.
+    ///
+    /// Note: the string is prefixed with `0x`.
+    pub fn as_hex_string(&self) -> String {
+        hex_encode(self.as_ssz_bytes())
     }
 }
 
 impl fmt::Display for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.concatenated_hex_id())
+    }
+}
+
+impl fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_hex_string())
     }
 }
 
@@ -107,7 +118,7 @@ cached_tree_hash_ssz_encoding_as_vector!(PublicKey, 48);
 
 impl PartialEq for PublicKey {
     fn eq(&self, other: &PublicKey) -> bool {
-        ssz_encode(self) == ssz_encode(other)
+        self.as_ssz_bytes() == other.as_ssz_bytes()
     }
 }
 
