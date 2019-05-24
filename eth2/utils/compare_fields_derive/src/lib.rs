@@ -5,7 +5,16 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
-#[proc_macro_derive(CompareFields)]
+fn is_slice(field: &syn::Field) -> bool {
+    for attr in &field.attrs {
+        if attr.tts.to_string() == "( as_slice )" {
+            return true;
+        }
+    }
+    false
+}
+
+#[proc_macro_derive(CompareFields, attributes(compare_fields))]
 pub fn compare_fields_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
@@ -17,37 +26,47 @@ pub fn compare_fields_derive(input: TokenStream) -> TokenStream {
         _ => panic!("compare_fields_derive only supports structs."),
     };
 
-    let mut idents_a = vec![];
-    let mut field_names = vec![];
+    let mut quotes = vec![];
 
     for field in struct_data.fields.iter() {
-        let ident = match &field.ident {
+        let ident_a = match &field.ident {
             Some(ref ident) => ident,
             _ => panic!("compare_fields_derive only supports named struct fields."),
         };
 
-        field_names.push(format!("{:}", ident));
-        idents_a.push(ident);
-    }
+        let field_name = format!("{:}", ident_a);
+        let ident_b = ident_a.clone();
 
-    let idents_b = idents_a.clone();
-    let idents_c = idents_a.clone();
-    let idents_d = idents_a.clone();
+        let quote = if is_slice(field) {
+            quote! {
+                comparisons.push(compare_fields::Comparison::from_slice(
+                        #field_name.to_string(),
+                        &self.#ident_a,
+                        &b.#ident_b)
+                );
+            }
+        } else {
+            quote! {
+                comparisons.push(
+                    compare_fields::Comparison::child(
+                        #field_name.to_string(),
+                        &self.#ident_a,
+                        &b.#ident_b
+                    )
+                );
+            }
+        };
+
+        quotes.push(quote);
+    }
 
     let output = quote! {
         impl #impl_generics compare_fields::CompareFields for #name #ty_generics #where_clause {
-            fn compare_fields(&self, b: &Self) -> Vec<compare_fields::FieldComparison> {
+            fn compare_fields(&self, b: &Self) -> Vec<compare_fields::Comparison> {
                 let mut comparisons = vec![];
 
                 #(
-                    comparisons.push(
-                        compare_fields::FieldComparison {
-                            equal: self.#idents_a == b.#idents_b,
-                            field_name: #field_names.to_string(),
-                            a: format!("{:?}", self.#idents_c),
-                            b: format!("{:?}", b.#idents_d),
-                        }
-                    );
+                    #quotes
                 )*
 
                 comparisons
