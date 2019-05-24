@@ -77,6 +77,12 @@ impl Doc {
             ("operations", "proposer_slashing", "minimal") => {
                 run_test::<OperationsProposerSlashing<MinimalEthSpec>>(self)
             }
+            ("operations", "attester_slashing", "mainnet") => {
+                run_test::<OperationsAttesterSlashing<MainnetEthSpec>>(self)
+            }
+            ("operations", "attester_slashing", "minimal") => {
+                run_test::<OperationsAttesterSlashing<MinimalEthSpec>>(self)
+            }
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
