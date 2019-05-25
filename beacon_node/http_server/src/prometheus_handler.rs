@@ -1,22 +1,17 @@
-use beacon_chain::BeaconChain;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::{status::Status, Handler, IronResult, Request, Response};
 use prometheus::{Encoder, IntCounter, Opts, Registry, TextEncoder};
+use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{EthSpec, Slot};
+use types::Slot;
 
-pub struct PrometheusHandler<T, U, F, E: EthSpec> {
-    pub beacon_chain: Arc<BeaconChain<T, U, F, E>>,
+pub struct PrometheusHandler<T: BeaconChainTypes> {
+    pub beacon_chain: Arc<BeaconChain<T>>,
 }
 
-impl<T, U, F, E> PrometheusHandler<T, U, F, E> where E: EthSpec {}
+impl<T: BeaconChainTypes> PrometheusHandler<T> {}
 
-impl<T, U, F, E> Handler for PrometheusHandler<T, U, F, E>
-where
-    E: EthSpec + 'static,
-    U: slot_clock::SlotClock + Send + Sync + 'static,
-    T: Send + Sync + 'static,
-    F: Send + Sync + 'static,
-{
+impl<T: BeaconChainTypes + 'static> Handler for PrometheusHandler<T> {
     fn handle(&self, _: &mut Request) -> IronResult<Response> {
         let r = Registry::new();
 

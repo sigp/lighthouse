@@ -1,6 +1,7 @@
-use client::client_types::{DiskStoreTestingClientType, MemoryStoreTestingClientType};
-use client::{error, DBType};
-use client::{notifier, Client, ClientConfig, ClientTypes};
+use client::{
+    error, notifier, BeaconChainTypes, Client, ClientConfig, DBType, TestnetDiskBeaconChainTypes,
+    TestnetMemoryBeaconChainTypes,
+};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::info;
@@ -29,9 +30,9 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
             info!(
                 log,
                 "BeaconNode starting";
-                "type" => "DiskStoreTestingClientType"
+                "type" => "TestnetDiskBeaconChainTypes"
             );
-            let client: Client<DiskStoreTestingClientType> =
+            let client: Client<TestnetDiskBeaconChainTypes> =
                 Client::new(config, log.clone(), &executor)?;
 
             run(client, executor, runtime, log)
@@ -40,9 +41,9 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
             info!(
                 log,
                 "BeaconNode starting";
-                "type" => "MemoryStoreTestingClientType"
+                "type" => "TestnetMemoryBeaconChainTypes"
             );
-            let client: Client<MemoryStoreTestingClientType> =
+            let client: Client<TestnetMemoryBeaconChainTypes> =
                 Client::new(config, log.clone(), &executor)?;
 
             run(client, executor, runtime, log)
@@ -50,7 +51,7 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
     }
 }
 
-pub fn run<T: ClientTypes>(
+pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
     client: Client<T>,
     executor: TaskExecutor,
     mut runtime: Runtime,

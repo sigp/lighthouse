@@ -1,6 +1,6 @@
 mod prometheus_handler;
 
-use beacon_chain::BeaconChain;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::Future;
 use iron::prelude::*;
 use iron::{status::Status, Handler, IronResult, Request, Response};
@@ -10,7 +10,6 @@ use router::Router;
 use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use types::EthSpec;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct HttpServerConfig {
@@ -45,15 +44,9 @@ impl Handler for IndexHandler {
     }
 }
 
-pub fn create_iron_http_server<T, U, F, E>(
-    beacon_chain: Arc<BeaconChain<T, U, F, E>>,
-) -> Iron<Router>
-where
-    T: store::Store + 'static,
-    U: slot_clock::SlotClock + 'static,
-    F: fork_choice::ForkChoice + 'static,
-    E: EthSpec + 'static,
-{
+pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> Iron<Router> {
     let index_handler = IndexHandler {
         message: "Hello world".to_string(),
     };
@@ -67,19 +60,13 @@ where
     Iron::new(router)
 }
 
-pub fn start_service<T, U, F, E>(
+pub fn start_service<T: BeaconChainTypes + 'static>(
     config: &HttpServerConfig,
     executor: &TaskExecutor,
     _network_chan: crossbeam_channel::Sender<NetworkMessage>,
-    beacon_chain: Arc<BeaconChain<T, U, F, E>>,
+    beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
-) -> exit_future::Signal
-where
-    T: store::Store + 'static,
-    U: slot_clock::SlotClock + 'static,
-    F: fork_choice::ForkChoice + 'static,
-    E: EthSpec + 'static,
-{
+) -> exit_future::Signal {
     let log = log.new(o!("Service"=>"HTTP"));
 
     // Create:

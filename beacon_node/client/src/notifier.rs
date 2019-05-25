@@ -1,5 +1,5 @@
 use crate::Client;
-use crate::ClientTypes;
+use beacon_chain::BeaconChainTypes;
 use exit_future::Exit;
 use futures::{Future, Stream};
 use slog::{debug, o};
@@ -10,7 +10,11 @@ use tokio::timer::Interval;
 
 /// Thread that monitors the client and reports useful statistics to the user.
 
-pub fn run<T: ClientTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exit) {
+pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
+    client: &Client<T>,
+    executor: TaskExecutor,
+    exit: Exit,
+) {
     // notification heartbeat
     let interval = Interval::new(Instant::now(), Duration::from_secs(5));
 

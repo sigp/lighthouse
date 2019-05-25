@@ -7,7 +7,7 @@ mod validator;
 
 use self::attestation::AttestationServiceInstance;
 use self::beacon_block::BeaconBlockServiceInstance;
-use self::beacon_chain::BeaconChain;
+use self::beacon_chain::{BeaconChain, BeaconChainTypes};
 use self::beacon_node::BeaconNodeServiceInstance;
 use self::validator::ValidatorServiceInstance;
 pub use config::Config as RPCConfig;
@@ -21,13 +21,12 @@ use protos::services_grpc::{
 use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use types::EthSpec;
 
-pub fn start_server<E: EthSpec>(
+pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &RPCConfig,
     executor: &TaskExecutor,
     network_chan: crossbeam_channel::Sender<NetworkMessage>,
-    beacon_chain: Arc<BeaconChain<E>>,
+    beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
     let log = log.new(o!("Service"=>"RPC"));

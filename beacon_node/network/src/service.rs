@@ -1,4 +1,4 @@
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::NetworkConfig;
@@ -13,20 +13,20 @@ use slog::{debug, info, o, trace};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use types::{EthSpec, Topic};
+use types::Topic;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
-pub struct Service<E: EthSpec> {
+pub struct Service<T: BeaconChainTypes> {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     _libp2p_exit: oneshot::Sender<()>,
     network_send: crossbeam_channel::Sender<NetworkMessage>,
-    _phantom: PhantomData<E>, //message_handler: MessageHandler,
+    _phantom: PhantomData<T>, //message_handler: MessageHandler,
                               //message_handler_send: Sender<HandlerMessage>
 }
 
-impl<E: EthSpec> Service<E> {
+impl<T: BeaconChainTypes + 'static> Service<T> {
     pub fn new(
-        beacon_chain: Arc<BeaconChain<E>>,
+        beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,
