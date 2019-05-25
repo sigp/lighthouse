@@ -19,6 +19,7 @@ protos = { path = "../../protos" }
 fork_choice = { path = "../../eth2/fork_choice" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protobuf = "2.0.2"
+prometheus = "^0.6"
 clap = "2.32.0"
 store = { path = "../store" }
 dirs = "1.0.3"

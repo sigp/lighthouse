@@ -1,13 +1,16 @@
+mod prometheus_handler;
+
 use beacon_chain::BeaconChain;
 use futures::Future;
+use iron::prelude::*;
+use iron::{status::Status, Handler, IronResult, Request, Response};
 use network::NetworkMessage;
+use prometheus_handler::PrometheusHandler;
+use router::Router;
 use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
-use iron::prelude::*;
-use iron::{status::Status, Handler, IronResult, Request, Response};
-use router::Router;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct HttpServerConfig {
@@ -42,13 +45,25 @@ impl Handler for IndexHandler {
     }
 }
 
-pub fn create_iron_http_server() -> Iron<Router> {
+pub fn create_iron_http_server<T, U, F, E>(
+    beacon_chain: Arc<BeaconChain<T, U, F, E>>,
+) -> Iron<Router>
+where
+    T: store::Store + 'static,
+    U: slot_clock::SlotClock + 'static,
+    F: fork_choice::ForkChoice + 'static,
+    E: EthSpec + 'static,
+{
     let index_handler = IndexHandler {
         message: "Hello world".to_string(),
+    };
+    let prom_handler = PrometheusHandler {
+        beacon_chain: beacon_chain,
     };
 
     let mut router = Router::new();
     router.get("/", index_handler, "index");
+    router.get("/prometheus/", prom_handler, "prometheus");
     Iron::new(router)
 }
 
@@ -56,16 +71,16 @@ pub fn start_service<T, U, F, E>(
     config: &HttpServerConfig,
     executor: &TaskExecutor,
     _network_chan: crossbeam_channel::Sender<NetworkMessage>,
-    _beacon_chain: Arc<BeaconChain<T, U, F, E>>,
+    beacon_chain: Arc<BeaconChain<T, U, F, E>>,
     log: &slog::Logger,
 ) -> exit_future::Signal
 where
-    T: store::Store,
-    U: slot_clock::SlotClock,
-    F: fork_choice::ForkChoice,
-    E: EthSpec,
+    T: store::Store + 'static,
+    U: slot_clock::SlotClock + 'static,
+    F: fork_choice::ForkChoice + 'static,
+    E: EthSpec + 'static,
 {
-    let log = log.new(o!("Service"=>"RPC"));
+    let log = log.new(o!("Service"=>"HTTP"));
 
     // Create:
     //  - `shutdown_trigger` a one-shot to shut down this service.
@@ -73,9 +88,14 @@ where
     let (shutdown_trigger, wait_for_shutdown) = exit_future::signal();
 
     // Create an `iron` http, without starting it yet.
-    let iron = create_iron_http_server();
+    let iron = create_iron_http_server(beacon_chain);
 
-    let spawn_rpc = {
+    // Create a HTTP server future.
+    //
+    // 1. Start the HTTP server
+    // 2. Build an exit future that will shutdown the server when requested.
+    // 3. Return the exit future, so the caller may shutdown the service when desired.
+    let http_service = {
         // Start the HTTP server
         let server_start_result = iron.http(config.listen_address.clone());
 
@@ -102,13 +122,16 @@ where
                 //
                 // See: https://docs.rs/iron/0.6.0/iron/struct.Listening.html#impl
                 match server.close() {
-                    _=> ()
+                    _ => (),
                 };
             }
             info!(log, "HTTP server shutdown complete.");
             Ok(())
         })
     };
-    executor.spawn(spawn_rpc);
+
+    // Attach the HTTP server to the executor.
+    executor.spawn(http_service);
+
     shutdown_trigger
 }
