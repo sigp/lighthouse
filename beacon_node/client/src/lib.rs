@@ -35,6 +35,8 @@ pub struct Client<T: ClientTypes> {
     pub network: Arc<NetworkService<T::EthSpec>>,
     /// Signal to terminate the RPC server.
     pub rpc_exit_signal: Option<Signal>,
+    /// Signal to terminate the HTTP server.
+    pub http_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
     pub slot_timer_exit_signal: Option<Signal>,
     /// The clients logger.
@@ -109,13 +111,13 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         // Start the `http_server` service.
         //
         // Note: presently we are ignoring the config and _always_ starting a HTTP server.
-        http_server::start_service(
+        let http_exit_signal = Some(http_server::start_service(
             &config.http_conf,
             executor,
             network_send,
             beacon_chain.clone(),
             &log,
-        );
+        ));
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
@@ -146,6 +148,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         Ok(Client {
             _config: config,
             _beacon_chain: beacon_chain,
+            http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
             log,
