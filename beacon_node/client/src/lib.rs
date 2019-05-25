@@ -98,13 +98,24 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             Some(rpc::start_server(
                 &config.rpc_conf,
                 executor,
-                network_send,
+                network_send.clone(),
                 beacon_chain.clone(),
                 &log,
             ))
         } else {
             None
         };
+
+        // Start the `http_server` service.
+        //
+        // Note: presently we are ignoring the config and _always_ starting a HTTP server.
+        http_server::start_service(
+            &config.http_conf,
+            executor,
+            network_send,
+            beacon_chain.clone(),
+            &log,
+        );
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
