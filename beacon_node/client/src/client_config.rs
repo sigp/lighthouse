@@ -1,5 +1,6 @@
 use clap::ArgMatches;
 use fork_choice::ForkChoiceAlgorithm;
+use http_server::HttpServerConfig;
 use network::NetworkConfig;
 use slog::error;
 use std::fs;
@@ -27,7 +28,7 @@ pub struct ClientConfig {
     pub db_type: DBType,
     pub db_name: PathBuf,
     pub rpc_conf: rpc::RPCConfig,
-    //pub ipc_conf:
+    pub http_conf: HttpServerConfig, //pub ipc_conf:
 }
 
 impl Default for ClientConfig {
@@ -55,6 +56,7 @@ impl Default for ClientConfig {
             // default db name for disk-based dbs
             db_name: data_dir.join("chain_db"),
             rpc_conf: rpc::RPCConfig::default(),
+            http_conf: HttpServerConfig::default(),
         }
     }
 }
