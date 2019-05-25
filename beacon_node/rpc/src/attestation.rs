@@ -1,4 +1,4 @@
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{
@@ -9,15 +9,15 @@ use protos::services_grpc::AttestationService;
 use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decode};
 use std::sync::Arc;
-use types::{Attestation, EthSpec};
+use types::Attestation;
 
 #[derive(Clone)]
-pub struct AttestationServiceInstance<E: EthSpec> {
-    pub chain: Arc<BeaconChain<E>>,
+pub struct AttestationServiceInstance<T: BeaconChainTypes> {
+    pub chain: Arc<BeaconChain<T>>,
     pub log: slog::Logger,
 }
 
-impl<E: EthSpec> AttestationService for AttestationServiceInstance<E> {
+impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
     /// Produce the `AttestationData` for signing by a validator.
     fn produce_attestation_data(
         &mut self,

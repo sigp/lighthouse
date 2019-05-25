@@ -1,4 +1,4 @@
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
@@ -7,16 +7,16 @@ use protos::services_grpc::ValidatorService;
 use slog::{trace, warn};
 use ssz::Decode;
 use std::sync::Arc;
-use types::{Epoch, EthSpec, RelativeEpoch};
+use types::{Epoch, RelativeEpoch};
 
 #[derive(Clone)]
-pub struct ValidatorServiceInstance<E: EthSpec> {
-    pub chain: Arc<BeaconChain<E>>,
+pub struct ValidatorServiceInstance<T: BeaconChainTypes> {
+    pub chain: Arc<BeaconChain<T>>,
     pub log: slog::Logger,
 }
 //TODO: Refactor Errors
 
-impl<E: EthSpec> ValidatorService for ValidatorServiceInstance<E> {
+impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
     /// For a list of validator public keys, this function returns the slot at which each
     /// validator must propose a block, attest to a shard, their shard committee and the shard they
     /// need to attest to.

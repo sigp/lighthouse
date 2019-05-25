@@ -1,15 +1,13 @@
 extern crate slog;
 
+mod beacon_chain_types;
 mod client_config;
-pub mod client_types;
 pub mod error;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;
-pub use client_config::{ClientConfig, DBType};
-pub use client_types::ClientTypes;
+use beacon_chain_types::InitialiseBeaconChain;
 use exit_future::Signal;
-use fork_choice::ForkChoice;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
 use slog::{error, info, o};
@@ -17,22 +15,22 @@ use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use store::Store;
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::EthSpec;
 
-type ArcBeaconChain<D, S, F, B> = Arc<BeaconChain<D, S, F, B>>;
+pub use beacon_chain::BeaconChainTypes;
+pub use beacon_chain_types::{TestnetDiskBeaconChainTypes, TestnetMemoryBeaconChainTypes};
+pub use client_config::{ClientConfig, DBType};
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
-pub struct Client<T: ClientTypes> {
+pub struct Client<T: BeaconChainTypes> {
     /// Configuration for the lighthouse client.
     _config: ClientConfig,
     /// The beacon chain for the running client.
-    _beacon_chain: ArcBeaconChain<T::DB, T::SlotClock, T::ForkChoice, T::EthSpec>,
+    _beacon_chain: Arc<BeaconChain<T>>,
     /// Reference to the network service.
-    pub network: Arc<NetworkService<T::EthSpec>>,
+    pub network: Arc<NetworkService<T>>,
     /// Signal to terminate the RPC server.
     pub rpc_exit_signal: Option<Signal>,
     /// Signal to terminate the HTTP server.
@@ -45,7 +43,10 @@ pub struct Client<T: ClientTypes> {
     phantom: PhantomData<T>,
 }
 
-impl<TClientType: ClientTypes> Client<TClientType> {
+impl<T> Client<T>
+where
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + 'static,
+{
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
         config: ClientConfig,
@@ -53,7 +54,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
         // generate a beacon chain
-        let beacon_chain = TClientType::initialise_beacon_chain(&config);
+        let beacon_chain = Arc::new(T::initialise_beacon_chain(&config));
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
@@ -158,13 +159,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
     }
 }
 
-fn do_state_catchup<T, U, F, E>(chain: &Arc<BeaconChain<T, U, F, E>>, log: &slog::Logger)
-where
-    T: Store,
-    U: SlotClock,
-    F: ForkChoice,
-    E: EthSpec,
-{
+fn do_state_catchup<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Logger) {
     if let Some(genesis_height) = chain.slots_since_genesis() {
         let result = chain.catchup_state();
 
