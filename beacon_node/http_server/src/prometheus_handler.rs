@@ -1,8 +1,8 @@
 use beacon_chain::BeaconChain;
 use iron::{status::Status, Handler, IronResult, Request, Response};
-use prometheus::{IntCounter, Encoder, Opts, Registry, TextEncoder};
+use prometheus::{Encoder, IntCounter, Opts, Registry, TextEncoder};
 use std::sync::Arc;
-use types::EthSpec;
+use types::{EthSpec, Slot};
 
 pub struct PrometheusHandler<T, U, F, E: EthSpec> {
     pub beacon_chain: Arc<BeaconChain<T, U, F, E>>,
@@ -18,17 +18,19 @@ where
     F: Send + Sync + 'static,
 {
     fn handle(&self, _: &mut Request) -> IronResult<Response> {
-        // Create a Counter.
-        let counter_opts = Opts::new("present_slot", "direct_slot_clock_reading");
-        let counter = IntCounter::with_opts(counter_opts).unwrap();
-
-        // Create a Registry and register Counter.
         let r = Registry::new();
-        r.register(Box::new(counter.clone())).unwrap();
 
-        if let Ok(Some(slot)) = self.beacon_chain.slot_clock.present_slot() {
-            counter.inc_by(slot.as_u64() as i64);
-        }
+        let present_slot = if let Ok(Some(slot)) = self.beacon_chain.slot_clock.present_slot() {
+            slot
+        } else {
+            Slot::new(0)
+        };
+        register_and_set_slot(
+            &r,
+            "present_slot",
+            "direct_slock_clock_reading",
+            present_slot,
+        );
 
         // Gather the metrics.
         let mut buffer = vec![];
@@ -40,4 +42,11 @@ where
 
         Ok(Response::with((Status::Ok, prom_string)))
     }
+}
+
+fn register_and_set_slot(registry: &Registry, name: &str, help: &str, slot: Slot) {
+    let counter_opts = Opts::new(name, help);
+    let counter = IntCounter::with_opts(counter_opts).unwrap();
+    registry.register(Box::new(counter.clone())).unwrap();
+    counter.inc_by(slot.as_u64() as i64);
 }
