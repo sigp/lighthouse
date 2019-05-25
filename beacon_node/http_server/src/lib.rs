@@ -1,17 +1,10 @@
 use beacon_chain::BeaconChain;
 use futures::Future;
-use grpcio::{Environment, ServerBuilder};
 use network::NetworkMessage;
-use protos::services_grpc::{
-    create_attestation_service, create_beacon_block_service, create_beacon_node_service,
-    create_validator_service,
-};
 use slog::{info, o, warn};
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
-
 use iron::prelude::*;
 use iron::{status::Status, Handler, IronResult, Request, Response};
 use router::Router;
@@ -62,8 +55,8 @@ pub fn create_iron_http_server() -> Iron<Router> {
 pub fn start_service<T, U, F, E>(
     config: &HttpServerConfig,
     executor: &TaskExecutor,
-    network_chan: crossbeam_channel::Sender<NetworkMessage>,
-    beacon_chain: Arc<BeaconChain<T, U, F, E>>,
+    _network_chan: crossbeam_channel::Sender<NetworkMessage>,
+    _beacon_chain: Arc<BeaconChain<T, U, F, E>>,
     log: &slog::Logger,
 ) -> exit_future::Signal
 where
@@ -73,19 +66,20 @@ where
     E: EthSpec,
 {
     let log = log.new(o!("Service"=>"RPC"));
-    let env = Arc::new(Environment::new(1));
 
     // Create:
     //  - `shutdown_trigger` a one-shot to shut down this service.
     //  - `wait_for_shutdown` a future that will wait until someone calls shutdown.
     let (shutdown_trigger, wait_for_shutdown) = exit_future::signal();
 
+    // Create an `iron` http, without starting it yet.
     let iron = create_iron_http_server();
 
     let spawn_rpc = {
-        let result = iron.http(config.listen_address.clone());
+        // Start the HTTP server
+        let server_start_result = iron.http(config.listen_address.clone());
 
-        if result.is_ok() {
+        if server_start_result.is_ok() {
             info!(log, "HTTP server running on {}", config.listen_address);
         } else {
             warn!(
@@ -94,19 +88,24 @@ where
             );
         }
 
+        // Build a future that will shutdown the HTTP server when the `shutdown_trigger` is
+        // triggered.
         wait_for_shutdown.and_then(move |_| {
             info!(log, "HTTP server shutting down");
 
-            // TODO: shutdown server.
-            /*
-            server
-                .shutdown()
-                .wait()
-                .map(|_| ())
-                .map_err(|e| warn!(log, "RPC server failed to shutdown: {:?}", e))?;
-            Ok(())
-            */
-            info!(log, "HTTP server exited");
+            if let Ok(mut server) = server_start_result {
+                // According to the documentation, this function "doesn't work" and the server
+                // keeps listening.
+                //
+                // It is being called anyway, because it seems like the right thing to do. If you
+                // know this has negative side-effects, please create an issue to discuss.
+                //
+                // See: https://docs.rs/iron/0.6.0/iron/struct.Listening.html#impl
+                match server.close() {
+                    _=> ()
+                };
+            }
+            info!(log, "HTTP server shutdown complete.");
             Ok(())
         })
     };
