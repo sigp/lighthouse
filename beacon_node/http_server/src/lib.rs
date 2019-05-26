@@ -15,10 +15,6 @@ use tokio::runtime::TaskExecutor;
 pub struct HttpServerConfig {
     pub enabled: bool,
     pub listen_address: String,
-    /*
-    pub listen_address: Ipv4Addr,
-    pub port: u16,
-    */
 }
 
 impl Default for HttpServerConfig {
@@ -26,10 +22,6 @@ impl Default for HttpServerConfig {
         Self {
             enabled: false,
             listen_address: "127.0.0.1:5051".to_string(),
-            /*
-            listen_address: Ipv4Addr::new(127, 0, 0, 1),
-            port: 5051,
-            */
         }
     }
 }
