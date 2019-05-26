@@ -56,7 +56,7 @@ pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
 
     let mut router = Router::new();
     router.get("/", index_handler, "index");
-    router.get("/prometheus/", prom_handler, "prometheus");
+    router.get("/metrics", prom_handler, "metrics");
     Iron::new(router)
 }
 
