@@ -1,4 +1,4 @@
-use crate::key::BeaconChainKey;
+use crate::{key::BeaconChainKey, map_persistent_err_to_500};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::prelude::*;
 use iron::{
@@ -58,8 +58,9 @@ impl AfterMiddleware for SetJsonContentType {
 }
 
 fn handle_fork<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResult<Response> {
-    // TODO: investigate unwrap - I'm _guessing_ we'll never hit it but we should check to be sure.
-    let beacon_chain = req.get::<Read<BeaconChainKey<T>>>().unwrap();
+    let beacon_chain = req
+        .get::<Read<BeaconChainKey<T>>>()
+        .map_err(map_persistent_err_to_500)?;
 
     let response = json!({
         "fork": beacon_chain.head().beacon_state.fork,

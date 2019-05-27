@@ -1,4 +1,4 @@
-use crate::key::BeaconChainKey;
+use crate::{key::BeaconChainKey, map_persistent_err_to_500};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::prelude::*;
 use iron::{status::Status, Handler, IronResult, Request, Response};
@@ -23,7 +23,9 @@ pub fn build_handler<T: BeaconChainTypes + 'static>(
 ///
 /// Returns a text string containing all metrics.
 fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResult<Response> {
-    let beacon_chain = req.get::<Read<BeaconChainKey<T>>>().unwrap();
+    let beacon_chain = req
+        .get::<Read<BeaconChainKey<T>>>()
+        .map_err(map_persistent_err_to_500)?;
 
     let r = Registry::new();
 
