@@ -1,4 +1,4 @@
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crossbeam_channel;
 use eth2_libp2p::PubsubMessage;
 use futures::Future;
@@ -13,16 +13,16 @@ use slog::Logger;
 use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decode};
 use std::sync::Arc;
-use types::{BeaconBlock, EthSpec, Signature, Slot};
+use types::{BeaconBlock, Signature, Slot};
 
 #[derive(Clone)]
-pub struct BeaconBlockServiceInstance<E: EthSpec> {
-    pub chain: Arc<BeaconChain<E>>,
+pub struct BeaconBlockServiceInstance<T: BeaconChainTypes> {
+    pub chain: Arc<BeaconChain<T>>,
     pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
     pub log: Logger,
 }
 
-impl<E: EthSpec> BeaconBlockService for BeaconBlockServiceInstance<E> {
+impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
     /// Produce a `BeaconBlock` for signing by a validator.
     fn produce_beacon_block(
         &mut self,

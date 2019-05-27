@@ -1,11 +1,11 @@
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::PeerId;
 use slog::{debug, error};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, EthSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256, Slot};
 
 /// Provides a queue for fully and partially built `BeaconBlock`s.
 ///
@@ -19,8 +19,8 @@ use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, EthSpec, Hash256, S
 /// `BeaconBlockBody` as the key.
 /// - It is possible for multiple distinct blocks to have identical `BeaconBlockBodies`. Therefore
 /// we cannot use a `HashMap` keyed by the root of `BeaconBlockBody`.
-pub struct ImportQueue<E: EthSpec> {
-    pub chain: Arc<BeaconChain<E>>,
+pub struct ImportQueue<T: BeaconChainTypes> {
+    pub chain: Arc<BeaconChain<T>>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
     pub partials: Vec<PartialBeaconBlock>,
     /// Time before a queue entry is considered state.
@@ -29,9 +29,9 @@ pub struct ImportQueue<E: EthSpec> {
     log: slog::Logger,
 }
 
-impl<E: EthSpec> ImportQueue<E> {
+impl<T: BeaconChainTypes> ImportQueue<T> {
     /// Return a new, empty queue.
-    pub fn new(chain: Arc<BeaconChain<E>>, stale_time: Duration, log: slog::Logger) -> Self {
+    pub fn new(chain: Arc<BeaconChain<T>>, stale_time: Duration, log: slog::Logger) -> Self {
         Self {
             chain,
             partials: vec![],
