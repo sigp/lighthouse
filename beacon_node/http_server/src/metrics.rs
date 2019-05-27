@@ -8,6 +8,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::Slot;
 
+/// Yields a handler for the metrics endpoint.
 pub fn build_handler<T: BeaconChainTypes + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> impl Handler {

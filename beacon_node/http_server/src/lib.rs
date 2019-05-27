@@ -87,7 +87,7 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
             info!(log, "HTTP server shutting down");
 
             if let Ok(mut server) = server_start_result {
-                // According to the documentation, this function "doesn't work" and the server
+                // According to the documentation, `server.close()` "doesn't work" and the server
                 // keeps listening.
                 //
                 // It is being called anyway, because it seems like the right thing to do. If you
