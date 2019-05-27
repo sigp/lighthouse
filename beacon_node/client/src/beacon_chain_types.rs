@@ -5,6 +5,8 @@ use beacon_chain::{
     store::{DiskStore, MemoryStore, Store},
     BeaconChain, BeaconChainTypes,
 };
+use fork_choice::ForkChoice;
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
@@ -36,7 +38,7 @@ where
     >,
 {
     fn initialise_beacon_chain(_config: &ClientConfig) -> BeaconChain<T> {
-        initialize_chain(MemoryStore::open())
+        initialize_chain::<_, _, FewValidatorsEthSpec>(MemoryStore::open())
     }
 }
 
@@ -62,18 +64,15 @@ where
     fn initialise_beacon_chain(config: &ClientConfig) -> BeaconChain<T> {
         let store = DiskStore::open(&config.db_name).expect("Unable to open DB.");
 
-        initialize_chain(store)
+        initialize_chain::<_, _, FewValidatorsEthSpec>(store)
     }
 }
 
 /// Produces a `BeaconChain` given some pre-initialized `Store`.
 fn initialize_chain<T, U: Store, V: EthSpec>(store: U) -> BeaconChain<T>
 where
-    T: BeaconChainTypes<
-        Store = U,
-        SlotClock = SystemTimeSlotClock,
-        ForkChoice = BitwiseLMDGhost<U, V>,
-    >,
+    T: BeaconChainTypes<Store = U>,
+    T::ForkChoice: ForkChoice<U>,
 {
     let spec = T::EthSpec::spec();
 
@@ -86,14 +85,13 @@ where
     genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
     // Slot clock
-    let slot_clock = SystemTimeSlotClock::new(
+    let slot_clock = T::SlotClock::new(
         spec.genesis_slot,
         genesis_state.genesis_time,
         spec.seconds_per_slot,
-    )
-    .expect("Unable to load SystemTimeSlotClock");
+    );
     // Choose the fork choice
-    let fork_choice = BitwiseLMDGhost::new(store.clone());
+    let fork_choice = T::ForkChoice::new(store.clone());
 
     // Genesis chain
     //TODO: Handle error correctly

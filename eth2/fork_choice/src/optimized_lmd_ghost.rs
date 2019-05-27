@@ -48,18 +48,6 @@ pub struct OptimizedLMDGhost<T, E> {
 }
 
 impl<T: Store, E: EthSpec> OptimizedLMDGhost<T, E> {
-    pub fn new(store: Arc<T>) -> Self {
-        OptimizedLMDGhost {
-            cache: HashMap::new(),
-            ancestors: vec![HashMap::new(); 16],
-            latest_attestation_targets: HashMap::new(),
-            children: HashMap::new(),
-            max_known_height: SlotHeight::new(0),
-            store,
-            _phantom: PhantomData,
-        }
-    }
-
     /// Finds the latest votes weighted by validator balance. Returns a hashmap of block_hash to
     /// weighted votes.
     pub fn get_latest_votes(
@@ -200,7 +188,19 @@ impl<T: Store, E: EthSpec> OptimizedLMDGhost<T, E> {
     }
 }
 
-impl<T: Store, E: EthSpec> ForkChoice for OptimizedLMDGhost<T, E> {
+impl<T: Store, E: EthSpec> ForkChoice<T> for OptimizedLMDGhost<T, E> {
+    fn new(store: Arc<T>) -> Self {
+        OptimizedLMDGhost {
+            cache: HashMap::new(),
+            ancestors: vec![HashMap::new(); 16],
+            latest_attestation_targets: HashMap::new(),
+            children: HashMap::new(),
+            max_known_height: SlotHeight::new(0),
+            store,
+            _phantom: PhantomData,
+        }
+    }
+
     fn add_block(
         &mut self,
         block: &BeaconBlock,

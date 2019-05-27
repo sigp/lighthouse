@@ -82,7 +82,7 @@ impl BlockProcessingOutcome {
 pub trait BeaconChainTypes {
     type Store: store::Store;
     type SlotClock: slot_clock::SlotClock;
-    type ForkChoice: fork_choice::ForkChoice;
+    type ForkChoice: fork_choice::ForkChoice<Self::Store>;
     type EthSpec: types::EthSpec;
 }
 

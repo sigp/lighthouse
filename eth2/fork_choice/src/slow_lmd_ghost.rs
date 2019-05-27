@@ -20,15 +20,6 @@ pub struct SlowLMDGhost<T, E> {
 }
 
 impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
-    pub fn new(store: Arc<T>) -> Self {
-        SlowLMDGhost {
-            latest_attestation_targets: HashMap::new(),
-            children: HashMap::new(),
-            store,
-            _phantom: PhantomData,
-        }
-    }
-
     /// Finds the latest votes weighted by validator balance. Returns a hashmap of block_hash to
     /// weighted votes.
     pub fn get_latest_votes(
@@ -94,7 +85,16 @@ impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
     }
 }
 
-impl<T: Store, E: EthSpec> ForkChoice for SlowLMDGhost<T, E> {
+impl<T: Store, E: EthSpec> ForkChoice<T> for SlowLMDGhost<T, E> {
+    fn new(store: Arc<T>) -> Self {
+        SlowLMDGhost {
+            latest_attestation_targets: HashMap::new(),
+            children: HashMap::new(),
+            store,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Process when a block is added
     fn add_block(
         &mut self,
