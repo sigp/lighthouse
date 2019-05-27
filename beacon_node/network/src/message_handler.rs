@@ -1,4 +1,4 @@
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::error;
 use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
@@ -13,7 +13,6 @@ use slog::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use types::EthSpec;
 
 /// Timeout for RPC requests.
 // const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -21,11 +20,11 @@ use types::EthSpec;
 // const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
-pub struct MessageHandler<E: EthSpec> {
+pub struct MessageHandler<T: BeaconChainTypes> {
     /// Currently loaded and initialised beacon chain.
-    _chain: Arc<BeaconChain<E>>,
+    _chain: Arc<BeaconChain<T>>,
     /// The syncing framework.
-    sync: SimpleSync<E>,
+    sync: SimpleSync<T>,
     /// The context required to send messages to, and process messages from peers.
     network_context: NetworkContext,
     /// The `MessageHandler` logger.
@@ -45,10 +44,10 @@ pub enum HandlerMessage {
     PubsubMessage(PeerId, Box<PubsubMessage>),
 }
 
-impl<E: EthSpec> MessageHandler<E> {
+impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
-        beacon_chain: Arc<BeaconChain<E>>,
+        beacon_chain: Arc<BeaconChain<T>>,
         network_send: crossbeam_channel::Sender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
