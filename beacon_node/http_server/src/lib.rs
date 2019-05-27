@@ -108,3 +108,11 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
 
     shutdown_trigger
 }
+
+/// Helper function for mapping a failure to read state to a 500 server error.
+fn map_persistent_err_to_500(e: persistent::PersistentError) -> iron::error::IronError {
+    iron::error::IronError {
+        error: Box::new(e),
+        response: iron::Response::with(iron::status::Status::InternalServerError),
+    }
+}
