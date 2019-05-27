@@ -155,8 +155,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
 
         // build the validator slot clock
         let slot_clock =
-            SystemTimeSlotClock::new(genesis_slot, genesis_time, config.spec.seconds_per_slot)
-                .expect("Unable to instantiate SystemTimeSlotClock.");
+            SystemTimeSlotClock::new(genesis_slot, genesis_time, config.spec.seconds_per_slot);
 
         let current_slot = slot_clock
             .present_slot()
