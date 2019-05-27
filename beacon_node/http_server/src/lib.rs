@@ -1,11 +1,11 @@
-mod prometheus_handler;
+mod api;
+mod key;
+mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::Future;
 use iron::prelude::*;
-use iron::{status::Status, Handler, IronResult, Request, Response};
 use network::NetworkMessage;
-use prometheus_handler::PrometheusHandler;
 use router::Router;
 use slog::{info, o, warn};
 use std::sync::Arc;
@@ -26,32 +26,26 @@ impl Default for HttpServerConfig {
     }
 }
 
-pub struct IndexHandler {
-    message: String,
-}
-
-impl Handler for IndexHandler {
-    fn handle(&self, _: &mut Request) -> IronResult<Response> {
-        Ok(Response::with((Status::Ok, self.message.clone())))
-    }
-}
-
+/// Build the `iron` HTTP server, defining the core routes.
 pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> Iron<Router> {
-    let index_handler = IndexHandler {
-        message: "Hello world".to_string(),
-    };
-    let prom_handler = PrometheusHandler {
-        beacon_chain: beacon_chain,
-    };
-
     let mut router = Router::new();
-    router.get("/", index_handler, "index");
-    router.get("/metrics", prom_handler, "metrics");
+
+    // A `GET` request to `/metrics` is handled by the `metrics` module.
+    router.get(
+        "/metrics",
+        metrics::build_handler(beacon_chain.clone()),
+        "metrics",
+    );
+
+    // Any request to all other endpoints is handled by the `api` module.
+    router.any("/*", api::build_handler(beacon_chain.clone()), "api");
+
     Iron::new(router)
 }
 
+/// Start the HTTP service on the tokio `TaskExecutor`.
 pub fn start_service<T: BeaconChainTypes + 'static>(
     config: &HttpServerConfig,
     executor: &TaskExecutor,
