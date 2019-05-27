@@ -28,7 +28,7 @@ pub struct Client<T: BeaconChainTypes> {
     /// Configuration for the lighthouse client.
     _config: ClientConfig,
     /// The beacon chain for the running client.
-    _beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: Arc<BeaconChain<T>>,
     /// Reference to the network service.
     pub network: Arc<NetworkService<T>>,
     /// Signal to terminate the RPC server.
@@ -57,7 +57,7 @@ where
         let store = Arc::new(store);
 
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
-        let beacon_chain = Arc::new(T::initialise_beacon_chain(store));
+        let beacon_chain = Arc::new(T::initialise_beacon_chain(store, log.clone()));
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
@@ -151,7 +151,7 @@ where
 
         Ok(Client {
             _config: config,
-            _beacon_chain: beacon_chain,
+            beacon_chain,
             http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
@@ -159,6 +159,14 @@ where
             network,
             phantom: PhantomData,
         })
+    }
+}
+
+impl<T: BeaconChainTypes> Drop for Client<T> {
+    fn drop(&mut self) {
+        // Save the beacon chain to it's store before dropping.
+        let _result = self.beacon_chain.persist();
+        dbg!("Saved BeaconChain to store");
     }
 }
 

@@ -336,6 +336,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head.read()
     }
 
+    /// Returns the slot of the highest block in the canonical chain.
+    pub fn best_slot(&self) -> Slot {
+        self.canonical_head.read().beacon_block.slot
+    }
+
     /// Updates the canonical `BeaconState` with the supplied state.
     ///
     /// Advances the chain forward to the present slot. This method is better than just setting

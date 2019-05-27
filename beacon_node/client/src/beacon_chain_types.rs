@@ -5,6 +5,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use fork_choice::ForkChoice;
+use slog::{info, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -14,7 +15,7 @@ use types::{
 
 /// Provides a new, initialized `BeaconChain`
 pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
-    fn initialise_beacon_chain(store: Arc<T::Store>) -> BeaconChain<T>;
+    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T>;
 }
 
 /// A testnet-suitable BeaconChainType, using `MemoryStore`.
@@ -29,8 +30,8 @@ impl BeaconChainTypes for TestnetMemoryBeaconChainTypes {
 }
 
 impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes {
-    fn initialise_beacon_chain(store: Arc<T::Store>) -> BeaconChain<T> {
-        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store)
+    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T> {
+        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store, log)
     }
 }
 
@@ -46,20 +47,31 @@ impl BeaconChainTypes for TestnetDiskBeaconChainTypes {
 }
 
 impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes {
-    fn initialise_beacon_chain(store: Arc<T::Store>) -> BeaconChain<T> {
-        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store)
+    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T> {
+        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store, log)
     }
 }
 
 /// Loads a `BeaconChain` from `store`, if it exists. Otherwise, create a new chain from genesis.
-fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(store: Arc<U>) -> BeaconChain<T>
+fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(
+    store: Arc<U>,
+    log: Logger,
+) -> BeaconChain<T>
 where
     T: BeaconChainTypes<Store = U>,
     T::ForkChoice: ForkChoice<U>,
 {
     if let Ok(Some(beacon_chain)) = BeaconChain::from_store(store.clone()) {
+        info!(
+            log,
+            "Loaded BeaconChain from store";
+            "slot" => beacon_chain.state.read().slot,
+            "best_slot" => beacon_chain.best_slot(),
+        );
+
         beacon_chain
     } else {
+        info!(log, "Initializing new BeaconChain from genesis");
         let spec = T::EthSpec::spec();
 
         let state_builder =
