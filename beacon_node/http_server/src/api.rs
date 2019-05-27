@@ -11,6 +11,7 @@ use router::Router;
 use serde_json::json;
 use std::sync::Arc;
 
+/// Yields a handler for the HTTP API.
 pub fn build_handler<T: BeaconChainTypes + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> impl Handler {
