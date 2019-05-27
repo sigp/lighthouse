@@ -1,6 +1,6 @@
 use super::errors::{AttesterSlashingInvalid as Invalid, AttesterSlashingValidationError as Error};
 use super::verify_indexed_attestation::verify_indexed_attestation;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use types::*;
 
 /// Indicates if an `AttesterSlashing` is valid to be included in a block in the current epoch of the given
@@ -67,13 +67,18 @@ where
     let attestation_1 = &attester_slashing.attestation_1;
     let attestation_2 = &attester_slashing.attestation_2;
 
-    let mut attesting_indices_1 = HashSet::new();
-    attesting_indices_1.extend(attestation_1.custody_bit_0_indices.clone());
-    attesting_indices_1.extend(attestation_1.custody_bit_1_indices.clone());
-
-    let mut attesting_indices_2 = HashSet::new();
-    attesting_indices_2.extend(attestation_2.custody_bit_0_indices.clone());
-    attesting_indices_2.extend(attestation_2.custody_bit_1_indices.clone());
+    let attesting_indices_1 = attestation_1
+        .custody_bit_0_indices
+        .iter()
+        .chain(&attestation_1.custody_bit_1_indices)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let attesting_indices_2 = attestation_2
+        .custody_bit_0_indices
+        .iter()
+        .chain(&attestation_2.custody_bit_1_indices)
+        .cloned()
+        .collect::<BTreeSet<_>>();
 
     let mut slashable_indices = vec![];
 
