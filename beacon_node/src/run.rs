@@ -6,6 +6,7 @@ use futures::sync::oneshot;
 use futures::Future;
 use slog::info;
 use std::cell::RefCell;
+use store::{DiskStore, MemoryStore};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use tokio::runtime::TaskExecutor;
@@ -32,8 +33,11 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
                 "BeaconNode starting";
                 "type" => "TestnetDiskBeaconChainTypes"
             );
+
+            let store = DiskStore::open(&config.db_name).expect("Unable to open DB.");
+
             let client: Client<TestnetDiskBeaconChainTypes> =
-                Client::new(config, log.clone(), &executor)?;
+                Client::new(config, store, log.clone(), &executor)?;
 
             run(client, executor, runtime, log)
         }
@@ -43,8 +47,11 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
                 "BeaconNode starting";
                 "type" => "TestnetMemoryBeaconChainTypes"
             );
+
+            let store = MemoryStore::open();
+
             let client: Client<TestnetMemoryBeaconChainTypes> =
-                Client::new(config, log.clone(), &executor)?;
+                Client::new(config, store, log.clone(), &executor)?;
 
             run(client, executor, runtime, log)
         }

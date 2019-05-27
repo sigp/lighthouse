@@ -5,7 +5,7 @@ use beacon_chain::{
     AttestationValidationError, BlockProductionError,
 };
 pub use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessingOutcome};
-use types::{Attestation, AttestationData, BeaconBlock, EthSpec};
+use types::{Attestation, AttestationData, BeaconBlock};
 
 /// The RPC's API to the beacon chain.
 pub trait BeaconChain<T: BeaconChainTypes>: Send + Sync {

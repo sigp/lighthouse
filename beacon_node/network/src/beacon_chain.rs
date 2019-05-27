@@ -5,9 +5,7 @@ use beacon_chain::{
     AttestationValidationError, CheckPoint,
 };
 use eth2_libp2p::rpc::HelloMessage;
-use types::{
-    Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot,
-};
+use types::{Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
 
 pub use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessingOutcome, InvalidBlock};
 
