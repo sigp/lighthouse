@@ -347,6 +347,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// state and calling `catchup_state` as it will not result in an old state being installed and
     /// then having it iteratively updated -- in such a case it's possible for another thread to
     /// find the state at an old slot.
+    ///
+    /// Also persists the `BeaconChain` to the store, in the case the client does not exit
+    /// gracefully.
     pub fn update_state(&self, mut state: BeaconState<T::EthSpec>) -> Result<(), Error> {
         let present_slot = match self.slot_clock.present_slot() {
             Ok(Some(slot)) => slot,
@@ -361,6 +364,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state.build_all_caches(&self.spec)?;
 
         *self.state.write() = state;
+
+        self.persist()?;
 
         Ok(())
     }
