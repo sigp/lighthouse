@@ -1,4 +1,3 @@
-use crate::ClientConfig;
 use beacon_chain::{
     fork_choice::BitwiseLMDGhost,
     slot_clock::SystemTimeSlotClock,
@@ -15,7 +14,7 @@ use types::{
 
 /// Provides a new, initialized `BeaconChain`
 pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
-    fn initialise_beacon_chain(config: &ClientConfig) -> BeaconChain<T>;
+    fn initialise_beacon_chain(store: Arc<T::Store>) -> BeaconChain<T>;
 }
 
 /// A testnet-suitable BeaconChainType, using `MemoryStore`.
@@ -29,16 +28,9 @@ impl BeaconChainTypes for TestnetMemoryBeaconChainTypes {
     type EthSpec = FewValidatorsEthSpec;
 }
 
-impl<T> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes
-where
-    T: BeaconChainTypes<
-        Store = MemoryStore,
-        SlotClock = SystemTimeSlotClock,
-        ForkChoice = BitwiseLMDGhost<MemoryStore, FewValidatorsEthSpec>,
-    >,
-{
-    fn initialise_beacon_chain(_config: &ClientConfig) -> BeaconChain<T> {
-        initialize_chain::<_, _, FewValidatorsEthSpec>(MemoryStore::open())
+impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes {
+    fn initialise_beacon_chain(store: Arc<T::Store>) -> BeaconChain<T> {
+        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store)
     }
 }
 
@@ -53,55 +45,49 @@ impl BeaconChainTypes for TestnetDiskBeaconChainTypes {
     type EthSpec = FewValidatorsEthSpec;
 }
 
-impl<T> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes
-where
-    T: BeaconChainTypes<
-        Store = DiskStore,
-        SlotClock = SystemTimeSlotClock,
-        ForkChoice = BitwiseLMDGhost<DiskStore, FewValidatorsEthSpec>,
-    >,
-{
-    fn initialise_beacon_chain(config: &ClientConfig) -> BeaconChain<T> {
-        let store = DiskStore::open(&config.db_name).expect("Unable to open DB.");
-
-        initialize_chain::<_, _, FewValidatorsEthSpec>(store)
+impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes {
+    fn initialise_beacon_chain(store: Arc<T::Store>) -> BeaconChain<T> {
+        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store)
     }
 }
 
-/// Produces a `BeaconChain` given some pre-initialized `Store`.
-fn initialize_chain<T, U: Store, V: EthSpec>(store: U) -> BeaconChain<T>
+/// Loads a `BeaconChain` from `store`, if it exists. Otherwise, create a new chain from genesis.
+fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(store: Arc<U>) -> BeaconChain<T>
 where
     T: BeaconChainTypes<Store = U>,
     T::ForkChoice: ForkChoice<U>,
 {
-    let spec = T::EthSpec::spec();
+    if let Ok(Some(beacon_chain)) = BeaconChain::from_store(store.clone()) {
+        beacon_chain
+    } else {
+        let spec = T::EthSpec::spec();
 
-    let store = Arc::new(store);
+        let state_builder =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, &spec);
+        let (genesis_state, _keypairs) = state_builder.build();
 
-    let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, &spec);
-    let (genesis_state, _keypairs) = state_builder.build();
+        let mut genesis_block = BeaconBlock::empty(&spec);
+        genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
-    let mut genesis_block = BeaconBlock::empty(&spec);
-    genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
+        // Slot clock
+        let slot_clock = T::SlotClock::new(
+            spec.genesis_slot,
+            genesis_state.genesis_time,
+            spec.seconds_per_slot,
+        );
+        // Choose the fork choice
+        let fork_choice = T::ForkChoice::new(store.clone());
 
-    // Slot clock
-    let slot_clock = T::SlotClock::new(
-        spec.genesis_slot,
-        genesis_state.genesis_time,
-        spec.seconds_per_slot,
-    );
-    // Choose the fork choice
-    let fork_choice = T::ForkChoice::new(store.clone());
-
-    // Genesis chain
-    //TODO: Handle error correctly
-    BeaconChain::from_genesis(
-        store,
-        slot_clock,
-        genesis_state,
-        genesis_block,
-        spec.clone(),
-        fork_choice,
-    )
-    .expect("Terminate if beacon chain generation fails")
+        // Genesis chain
+        //TODO: Handle error correctly
+        BeaconChain::from_genesis(
+            store,
+            slot_clock,
+            genesis_state,
+            genesis_block,
+            spec.clone(),
+            fork_choice,
+        )
+        .expect("Terminate if beacon chain generation fails")
+    }
 }

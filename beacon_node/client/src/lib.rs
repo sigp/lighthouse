@@ -50,11 +50,14 @@ where
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
         config: ClientConfig,
+        store: T::Store,
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
-        // generate a beacon chain
-        let beacon_chain = Arc::new(T::initialise_beacon_chain(&config));
+        let store = Arc::new(store);
+
+        // Load a `BeaconChain` from the store, or create a new one if it does not exist.
+        let beacon_chain = Arc::new(T::initialise_beacon_chain(store));
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")

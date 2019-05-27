@@ -1,5 +1,6 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
@@ -138,6 +139,51 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec,
             fork_choice: RwLock::new(fork_choice),
         })
+    }
+
+    /// Attempt to load an existing instance from the given `store`.
+    pub fn from_store(store: Arc<T::Store>) -> Result<Option<BeaconChain<T>>, Error> {
+        let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
+        let p: PersistedBeaconChain<T> = match store.get(&key) {
+            Err(e) => return Err(e.into()),
+            Ok(None) => return Ok(None),
+            Ok(Some(p)) => p,
+        };
+
+        let spec = T::EthSpec::spec();
+
+        let slot_clock = T::SlotClock::new(
+            spec.genesis_slot,
+            p.state.genesis_time,
+            spec.seconds_per_slot,
+        );
+
+        let fork_choice = T::ForkChoice::new(store.clone());
+
+        Ok(Some(BeaconChain {
+            store,
+            slot_clock,
+            op_pool: OperationPool::default(),
+            canonical_head: RwLock::new(p.canonical_head),
+            finalized_head: RwLock::new(p.finalized_head),
+            state: RwLock::new(p.state),
+            spec,
+            fork_choice: RwLock::new(fork_choice),
+        }))
+    }
+
+    /// Attempt to save this instance to `self.store`.
+    pub fn persist(&self) -> Result<(), Error> {
+        let p: PersistedBeaconChain<T> = PersistedBeaconChain {
+            canonical_head: self.canonical_head.read().clone(),
+            finalized_head: self.finalized_head.read().clone(),
+            state: self.state.read().clone(),
+        };
+
+        let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
+        self.store.put(&key, &p)?;
+
+        Ok(())
     }
 
     /// Returns the beacon block body for each beacon block root in `roots`.
