@@ -176,4 +176,4 @@ Ping @paulhauner or @AgeManning to get the quickest response.
 
 If you support the cause, we could certainly use donations to help fund development:
 
-`0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b`
+`0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth)
