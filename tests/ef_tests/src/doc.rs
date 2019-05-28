@@ -83,6 +83,15 @@ impl Doc {
             ("operations", "attester_slashing", "minimal") => {
                 run_test::<OperationsAttesterSlashing<MinimalEthSpec>>(self)
             }
+            ("epoch_processing", "crosslinks", "minimal") => {
+                run_test::<EpochProcessingCrosslinks<MinimalEthSpec>>(self)
+            }
+            ("epoch_processing", "registry_updates", "minimal") => {
+                run_test::<EpochProcessingRegistryUpdates<MinimalEthSpec>>(self)
+            }
+            ("epoch_processing", "registry_updates", "mainnet") => {
+                run_test::<EpochProcessingRegistryUpdates<MainnetEthSpec>>(self)
+            }
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
