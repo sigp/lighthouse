@@ -2,11 +2,11 @@
 #[macro_use] extern crate libfuzzer_sys;
 extern crate ssz;
 
-use ssz::{DecodeError, decode};
+use ssz::{DecodeError, Decode};
 
 // Fuzz ssz_decode()
 fuzz_target!(|data: &[u8]| {
-    let result: Result<bool, DecodeError> = decode(data);
+    let result: Result<bool, DecodeError> = bool::from_ssz_bytes(data);
     if data.len() == 1 {
         if data[0] == 1 {
             let val_bool = result.unwrap();
@@ -15,7 +15,7 @@ fuzz_target!(|data: &[u8]| {
             let val_bool = result.unwrap();
             assert!(!val_bool);
         } else {
-            assert_eq!(result, Err(DecodeError::Invalid));
+            assert!(result.is_err());
         }
     } else {
         // Length of 0 should return error
