@@ -124,8 +124,9 @@ impl<T: Store, E: EthSpec> OptimizedLMDGhost<T, E> {
                 [log2_int((block_height - target_height - 1u64).as_u64()) as usize]
                 .get(&block_hash)
                 //TODO: Panic if we can't lookup and fork choice fails
-                .expect("All blocks should be added to the ancestor log lookup table");
-            self.get_ancestor(*ancestor_lookup, target_height, &spec)
+                .expect("All blocks should be added to the ancestor log lookup table")
+                .clone();
+            self.get_ancestor(ancestor_lookup, target_height, &spec)
         } {
             // add the result to the cache
             self.cache.insert(cache_key, ancestor);
@@ -151,7 +152,7 @@ impl<T: Store, E: EthSpec> OptimizedLMDGhost<T, E> {
         // these have already been weighted by balance
         for (hash, votes) in latest_votes.iter() {
             if let Some(ancestor) = self.get_ancestor(*hash, block_height, spec) {
-                let current_vote_value = current_votes.get(&ancestor).unwrap_or_else(|| &0);
+                let current_vote_value = current_votes.get(&ancestor).unwrap_or_else(|| &0).clone();
                 current_votes.insert(ancestor, current_vote_value + *votes);
                 total_vote_count += votes;
             }
