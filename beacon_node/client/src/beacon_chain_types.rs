@@ -10,7 +10,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::TestingBeaconStateBuilder, BeaconBlock, EthSpec, FewValidatorsEthSpec, Hash256,
+    test_utils::TestingBeaconStateBuilder, BeaconBlock, EthSpec, Hash256, LighthouseTestnetEthSpec,
 };
 
 /// Provides a new, initialized `BeaconChain`
@@ -26,7 +26,7 @@ impl BeaconChainTypes for TestnetMemoryBeaconChainTypes {
     type Store = MemoryStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = BitwiseLMDGhost<Self::Store, Self::EthSpec>;
-    type EthSpec = FewValidatorsEthSpec;
+    type EthSpec = LighthouseTestnetEthSpec;
 }
 
 impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes {
@@ -43,7 +43,7 @@ impl BeaconChainTypes for TestnetDiskBeaconChainTypes {
     type Store = DiskStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = BitwiseLMDGhost<Self::Store, Self::EthSpec>;
-    type EthSpec = FewValidatorsEthSpec;
+    type EthSpec = LighthouseTestnetEthSpec;
 }
 
 impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes {
