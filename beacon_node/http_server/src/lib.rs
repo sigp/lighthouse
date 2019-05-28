@@ -21,7 +21,7 @@ impl Default for HttpServerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_address: "127.0.0.1:5051".to_string(),
+            listen_address: "127.0.0.1:5052".to_string(),
         }
     }
 }
