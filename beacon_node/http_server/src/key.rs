@@ -1,3 +1,4 @@
+use crate::metrics::LocalMetrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::typemap::Key;
 use prometheus::Registry;
@@ -16,4 +17,10 @@ pub struct MetricsRegistryKey;
 
 impl Key for MetricsRegistryKey {
     type Value = Registry;
+}
+
+pub struct LocalMetricsKey;
+
+impl Key for LocalMetricsKey {
+    type Value = LocalMetrics;
 }
