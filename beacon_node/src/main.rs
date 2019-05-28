@@ -68,6 +68,28 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
+        // HTTP related arguments
+        .arg(
+            Arg::with_name("http")
+                .long("http")
+                .value_name("HTTP")
+                .help("Enable the HTTP server.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("http-address")
+                .long("http-address")
+                .value_name("HTTPADDRESS")
+                .help("Listen address for the HTTP server.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-port")
+                .long("http-port")
+                .value_name("HTTPPORT")
+                .help("Listen port for the HTTP server.")
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("db")
                 .long("db")

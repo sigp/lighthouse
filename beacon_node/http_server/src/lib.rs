@@ -15,13 +15,15 @@ use tokio::runtime::TaskExecutor;
 pub struct HttpServerConfig {
     pub enabled: bool,
     pub listen_address: String,
+    pub listen_port: String,
 }
 
 impl Default for HttpServerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_address: "127.0.0.1:5052".to_string(),
+            listen_address: "127.0.0.1".to_string(),
+            listen_port: "5052".to_string(),
         }
     }
 }
@@ -69,16 +71,14 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
     // 2. Build an exit future that will shutdown the server when requested.
     // 3. Return the exit future, so the caller may shutdown the service when desired.
     let http_service = {
+        let listen_address = format!("{}:{}", config.listen_address, config.listen_port);
         // Start the HTTP server
-        let server_start_result = iron.http(config.listen_address.clone());
+        let server_start_result = iron.http(listen_address.clone());
 
         if server_start_result.is_ok() {
-            info!(log, "HTTP server running on {}", config.listen_address);
+            info!(log, "HTTP server running on {}", listen_address);
         } else {
-            warn!(
-                log,
-                "HTTP server failed to start on {}", config.listen_address
-            );
+            warn!(log, "HTTP server failed to start on {}", listen_address);
         }
 
         // Build a future that will shutdown the HTTP server when the `shutdown_trigger` is

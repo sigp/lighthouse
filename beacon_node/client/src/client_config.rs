@@ -140,6 +140,19 @@ impl ClientConfig {
             }
         }
 
+        /* HTTP related arguments */
+
+        if args.is_present("http") {
+            config.http_conf.enabled = true;
+        }
+
+        if let Some(listen_address) = args.value_of("http-address") {
+            config.http_conf.listen_address = listen_address.to_string();
+        }
+        if let Some(listen_port) = args.value_of("http-port") {
+            config.http_conf.listen_port = listen_port.to_string();
+        }
+
         match args.value_of("db") {
             Some("disk") => config.db_type = DBType::Disk,
             Some("memory") => config.db_type = DBType::Memory,

@@ -115,13 +115,17 @@ where
         // Start the `http_server` service.
         //
         // Note: presently we are ignoring the config and _always_ starting a HTTP server.
-        let http_exit_signal = Some(http_server::start_service(
-            &config.http_conf,
-            executor,
-            network_send,
-            beacon_chain.clone(),
-            &log,
-        ));
+        let http_exit_signal = if config.http_conf.enabled {
+            Some(http_server::start_service(
+                &config.http_conf,
+                executor,
+                network_send,
+                beacon_chain.clone(),
+                &log,
+            ))
+        } else {
+            None
+        };
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
