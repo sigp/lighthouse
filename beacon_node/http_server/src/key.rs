@@ -1,5 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::typemap::Key;
+use prometheus::Registry;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -9,4 +10,10 @@ pub struct BeaconChainKey<T> {
 
 impl<T: BeaconChainTypes + 'static> Key for BeaconChainKey<T> {
     type Value = Arc<BeaconChain<T>>;
+}
+
+pub struct MetricsRegistryKey;
+
+impl Key for MetricsRegistryKey {
+    type Value = Registry;
 }

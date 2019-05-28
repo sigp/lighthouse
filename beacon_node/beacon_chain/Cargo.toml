@@ -13,6 +13,7 @@ failure_derive = "0.1"
 hashing = { path = "../../eth2/utils/hashing" }
 fork_choice = { path = "../../eth2/fork_choice" }
 parking_lot = "0.7"
+prometheus = "^0.6"
 log = "0.4"
 operation_pool = { path = "../../eth2/operation_pool" }
 env_logger = "0.6"

@@ -1,5 +1,6 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
@@ -96,6 +97,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub state: RwLock<BeaconState<T::EthSpec>>,
     pub spec: ChainSpec,
     pub fork_choice: RwLock<T::ForkChoice>,
+    pub metrics: Metrics,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -138,6 +140,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head,
             spec,
             fork_choice: RwLock::new(fork_choice),
+            metrics: Metrics::new()?,
         })
     }
 
@@ -169,6 +172,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state: RwLock::new(p.state),
             spec,
             fork_choice: RwLock::new(fork_choice),
+            metrics: Metrics::new()?,
         }))
     }
 
@@ -621,6 +625,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
     pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot);
+        self.metrics.blocks_processed.inc();
 
         let block_root = block.block_header().canonical_root();
 
@@ -704,6 +709,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.update_state(state)?;
         }
 
+        self.metrics.valid_blocks_processed.inc();
+
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
     }
 
@@ -716,6 +723,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
     ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
         debug!("Producing block at slot {}...", self.state.read().slot);
+        self.metrics.block_production_requests.inc();
 
         let mut state = self.state.read().clone();
 
@@ -765,6 +773,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_root = state.canonical_root();
 
         block.state_root = state_root;
+
+        self.metrics.block_production_successes.inc();
 
         Ok((block, state))
     }
