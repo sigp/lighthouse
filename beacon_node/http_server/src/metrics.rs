@@ -29,16 +29,22 @@ fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResul
 
     let r = Registry::new();
 
-    let present_slot = if let Ok(Some(slot)) = beacon_chain.slot_clock.present_slot() {
-        slot
-    } else {
-        Slot::new(0)
-    };
-    register_and_set_slot(
+    let present_slot = beacon_chain
+        .slot_clock
+        .present_slot()
+        .unwrap_or_else(|_| None)
+        .unwrap_or_else(|| Slot::new(0));
+    register_and_set_slot(&r, "present_slot", "slock_clock_reading", present_slot);
+
+    let best_slot = beacon_chain.head().beacon_block.slot;
+    register_and_set_slot(&r, "best_slot", "slot_of_block_at_head_of_chain", best_slot);
+
+    let validator_count = beacon_chain.head().beacon_state.validator_registry.len();
+    register_and_set(
         &r,
-        "present_slot",
-        "direct_slock_clock_reading",
-        present_slot,
+        "validator_count",
+        "total_number_of_validators",
+        validator_count as i64,
     );
 
     // Gather the metrics.
@@ -50,6 +56,13 @@ fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResul
     let prom_string = String::from_utf8(buffer).unwrap();
 
     Ok(Response::with((Status::Ok, prom_string)))
+}
+
+fn register_and_set(registry: &Registry, name: &str, help: &str, value: i64) {
+    let counter_opts = Opts::new(name, help);
+    let counter = IntCounter::with_opts(counter_opts).unwrap();
+    registry.register(Box::new(counter.clone())).unwrap();
+    counter.inc_by(value);
 }
 
 fn register_and_set_slot(registry: &Registry, name: &str, help: &str, slot: Slot) {
