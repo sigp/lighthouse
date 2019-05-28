@@ -10,6 +10,7 @@ use beacon_chain_types::InitialiseBeaconChain;
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
+use prometheus::Registry;
 use slog::{error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -54,10 +55,16 @@ where
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
+        let metrics_registry = Registry::new();
         let store = Arc::new(store);
 
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
         let beacon_chain = Arc::new(T::initialise_beacon_chain(store, log.clone()));
+        // Registry all beacon chain metrics with the global registry.
+        beacon_chain
+            .metrics
+            .register(&metrics_registry)
+            .expect("Failed to registry metrics");
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
@@ -121,6 +128,7 @@ where
                 executor,
                 network_send,
                 beacon_chain.clone(),
+                metrics_registry,
                 &log,
             ))
         } else {

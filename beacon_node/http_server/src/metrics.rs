@@ -1,4 +1,7 @@
-use crate::{key::BeaconChainKey, map_persistent_err_to_500};
+use crate::{
+    key::{BeaconChainKey, MetricsRegistryKey},
+    map_persistent_err_to_500,
+};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::prelude::*;
 use iron::{status::Status, Handler, IronResult, Request, Response};
@@ -11,10 +14,12 @@ use types::Slot;
 /// Yields a handler for the metrics endpoint.
 pub fn build_handler<T: BeaconChainTypes + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
+    metrics_registry: Registry,
 ) -> impl Handler {
     let mut chain = Chain::new(handle_metrics::<T>);
 
     chain.link(Read::<BeaconChainKey<T>>::both(beacon_chain));
+    chain.link(Read::<MetricsRegistryKey>::both(metrics_registry));
 
     chain
 }
@@ -27,7 +32,9 @@ fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResul
         .get::<Read<BeaconChainKey<T>>>()
         .map_err(map_persistent_err_to_500)?;
 
-    let r = Registry::new();
+    let r = req
+        .get::<Read<MetricsRegistryKey>>()
+        .map_err(map_persistent_err_to_500)?;
 
     let present_slot = beacon_chain
         .slot_clock

@@ -1,6 +1,7 @@
 mod beacon_chain;
 mod checkpoint;
 mod errors;
+mod metrics;
 mod persisted_beacon_chain;
 
 pub use self::beacon_chain::{
