@@ -1,12 +1,12 @@
 use crate::{
-    key::{BeaconChainKey, MetricsRegistryKey},
+    key::{BeaconChainKey, LocalMetricsKey, MetricsRegistryKey},
     map_persistent_err_to_500,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::prelude::*;
 use iron::{status::Status, Handler, IronResult, Request, Response};
 use persistent::Read;
-use prometheus::{Encoder, IntCounter, Opts, Registry, TextEncoder};
+use prometheus::{Encoder, IntGauge, Opts, Registry, TextEncoder};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::Slot;
@@ -18,10 +18,40 @@ pub fn build_handler<T: BeaconChainTypes + 'static>(
 ) -> impl Handler {
     let mut chain = Chain::new(handle_metrics::<T>);
 
+    let local_metrics = LocalMetrics::new().unwrap();
+    local_metrics.register(&metrics_registry).unwrap();
+
     chain.link(Read::<BeaconChainKey<T>>::both(beacon_chain));
     chain.link(Read::<MetricsRegistryKey>::both(metrics_registry));
+    chain.link(Read::<LocalMetricsKey>::both(local_metrics));
 
     chain
+}
+
+pub struct LocalMetrics {
+    present_slot: IntGauge,
+    validator_count: IntGauge,
+}
+
+impl LocalMetrics {
+    pub fn new() -> Result<Self, prometheus::Error> {
+        Ok(Self {
+            present_slot: {
+                let opts = Opts::new("present_slot", "slot_at_time_of_scrape");
+                IntGauge::with_opts(opts)?
+            },
+            validator_count: {
+                let opts = Opts::new("validator_count", "number_of_validators");
+                IntGauge::with_opts(opts)?
+            },
+        })
+    }
+
+    pub fn register(&self, registry: &Registry) -> Result<(), prometheus::Error> {
+        registry.register(Box::new(self.present_slot.clone()))?;
+
+        Ok(())
+    }
 }
 
 /// Handle a request for Prometheus metrics.
@@ -36,23 +66,19 @@ fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResul
         .get::<Read<MetricsRegistryKey>>()
         .map_err(map_persistent_err_to_500)?;
 
+    let local_metrics = req
+        .get::<Read<LocalMetricsKey>>()
+        .map_err(map_persistent_err_to_500)?;
+
     let present_slot = beacon_chain
         .slot_clock
         .present_slot()
         .unwrap_or_else(|_| None)
         .unwrap_or_else(|| Slot::new(0));
-    register_and_set_slot(&r, "present_slot", "slock_clock_reading", present_slot);
-
-    let best_slot = beacon_chain.head().beacon_block.slot;
-    register_and_set_slot(&r, "best_slot", "slot_of_block_at_head_of_chain", best_slot);
+    local_metrics.present_slot.set(present_slot.as_u64() as i64);
 
     let validator_count = beacon_chain.head().beacon_state.validator_registry.len();
-    register_and_set(
-        &r,
-        "validator_count",
-        "total_number_of_validators",
-        validator_count as i64,
-    );
+    local_metrics.validator_count.set(validator_count as i64);
 
     // Gather the metrics.
     let mut buffer = vec![];
@@ -63,18 +89,4 @@ fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResul
     let prom_string = String::from_utf8(buffer).unwrap();
 
     Ok(Response::with((Status::Ok, prom_string)))
-}
-
-fn register_and_set(registry: &Registry, name: &str, help: &str, value: i64) {
-    let counter_opts = Opts::new(name, help);
-    let counter = IntCounter::with_opts(counter_opts).unwrap();
-    registry.register(Box::new(counter.clone())).unwrap();
-    counter.inc_by(value);
-}
-
-fn register_and_set_slot(registry: &Registry, name: &str, help: &str, slot: Slot) {
-    let counter_opts = Opts::new(name, help);
-    let counter = IntCounter::with_opts(counter_opts).unwrap();
-    registry.register(Box::new(counter.clone())).unwrap();
-    counter.inc_by(slot.as_u64() as i64);
 }
