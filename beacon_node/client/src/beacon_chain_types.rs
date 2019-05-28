@@ -13,6 +13,9 @@ use types::{
     test_utils::TestingBeaconStateBuilder, BeaconBlock, EthSpec, Hash256, LighthouseTestnetEthSpec,
 };
 
+/// The number initial validators when starting the `LighthouseTestnet`.
+const TESTNET_VALIDATOR_COUNT: usize = 16;
+
 /// Provides a new, initialized `BeaconChain`
 pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
     fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T>;
@@ -74,8 +77,10 @@ where
         info!(log, "Initializing new BeaconChain from genesis");
         let spec = T::EthSpec::spec();
 
-        let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(8, &spec);
+        let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
+            TESTNET_VALIDATOR_COUNT,
+            &spec,
+        );
         let (genesis_state, _keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
