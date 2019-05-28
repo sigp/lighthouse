@@ -50,8 +50,8 @@ macro_rules! impl_decode_via_from {
 
 #[cfg(test)]
 mod tests {
-    use crate as ssz;
     use self::ssz::{Decode, Encode};
+    use crate as ssz;
 
     #[derive(PartialEq, Debug, Clone, Copy)]
     struct Wrapper(u64);
