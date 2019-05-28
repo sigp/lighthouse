@@ -54,11 +54,9 @@ impl Decode for bool {
             match bytes[0] {
                 0b0000_0000 => Ok(false),
                 0b0000_0001 => Ok(true),
-                _ => {
-                    return Err(DecodeError::BytesInvalid(
-                        format!("Out-of-range for boolean: {}", bytes[0]).to_string(),
-                    ))
-                }
+                _ => Err(DecodeError::BytesInvalid(
+                    format!("Out-of-range for boolean: {}", bytes[0]).to_string(),
+                )),
             }
         }
     }
@@ -121,7 +119,7 @@ impl<T: Decode> Decode for Vec<T> {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        if bytes.len() == 0 {
+        if bytes.is_empty() {
             Ok(vec![])
         } else if T::is_ssz_fixed_len() {
             bytes
