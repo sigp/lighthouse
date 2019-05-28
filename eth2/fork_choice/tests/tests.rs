@@ -194,7 +194,7 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
 
 fn setup_inital_state<T>(
     // fork_choice_algo: &ForkChoiceAlgorithm,
-    num_validators: usize
+    num_validators: usize,
 ) -> (T, Arc<MemoryStore>, Hash256)
 where
     T: ForkChoice<MemoryStore>,
