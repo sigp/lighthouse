@@ -120,12 +120,11 @@ impl<T: Store, E: EthSpec> BitwiseLMDGhost<T, E> {
 
         // not in the cache recursively search for ancestors using a log-lookup
         if let Some(ancestor) = {
-            let ancestor_lookup = self.ancestors
+            let ancestor_lookup = *self.ancestors
                 [log2_int((block_height - target_height - 1u64).as_u64()) as usize]
                 .get(&block_hash)
                 //TODO: Panic if we can't lookup and fork choice fails
-                .expect("All blocks should be added to the ancestor log lookup table")
-                .clone();
+                .expect("All blocks should be added to the ancestor log lookup table");
             self.get_ancestor(ancestor_lookup, target_height, &spec)
         } {
             // add the result to the cache
@@ -152,7 +151,7 @@ impl<T: Store, E: EthSpec> BitwiseLMDGhost<T, E> {
         // these have already been weighted by balance
         for (hash, votes) in latest_votes.iter() {
             if let Some(ancestor) = self.get_ancestor(*hash, block_height, spec) {
-                let current_vote_value = current_votes.get(&ancestor).unwrap_or_else(|| &0).clone();
+                let current_vote_value = *current_votes.get(&ancestor).unwrap_or_else(|| &0);
                 current_votes.insert(ancestor, current_vote_value + *votes);
                 total_vote_count += votes;
             }
