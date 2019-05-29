@@ -530,8 +530,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         trace!("BeaconChain::produce_attestation: shard: {}", shard);
+
         self.metrics.attestation_production_requests.inc();
-        let timer = self.metrics.attestation_production_histogram.start_timer();
+        let timer = self.metrics.attestation_production_times.start_timer();
 
         let state = self.state.read();
 
@@ -583,8 +584,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation,
     ) -> Result<(), AttestationValidationError> {
-        self.op_pool
-            .insert_attestation(attestation, &*self.state.read(), &self.spec)
+        self.metrics.attestation_processing_requests.inc();
+        let timer = self.metrics.attestation_processing_times.start_timer();
+
+        let result = self
+            .op_pool
+            .insert_attestation(attestation, &*self.state.read(), &self.spec);
+
+        if result.is_ok() {
+            self.metrics.attestation_production_successes.inc();
+        }
+
+        timer.observe_duration();
+
+        result
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
@@ -632,7 +645,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot);
         self.metrics.block_processing_requests.inc();
-        let timer = self.metrics.block_processing_historgram.start_timer();
+        let timer = self.metrics.block_processing_times.start_timer();
 
         let block_root = block.block_header().canonical_root();
 
@@ -732,7 +745,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
         debug!("Producing block at slot {}...", self.state.read().slot);
         self.metrics.block_production_requests.inc();
-        let timer = self.metrics.block_production_historgram.start_timer();
+        let timer = self.metrics.block_production_times.start_timer();
 
         let mut state = self.state.read().clone();
 
@@ -789,29 +802,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((block, state))
     }
 
-    // TODO: Left this as is, modify later
+    /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub fn fork_choice(&self) -> Result<(), Error> {
-        let present_head = self.finalized_head().beacon_block_root;
+        self.metrics.fork_choice_requests.inc();
 
-        let new_head = self
+        let present_head_root = self.finalized_head().beacon_block_root;
+
+        let timer = self.metrics.fork_choice_times.start_timer();
+
+        let new_head_root = self
             .fork_choice
             .write()
-            .find_head(&present_head, &self.spec)?;
+            .find_head(&present_head_root, &self.spec)?;
 
-        if new_head != present_head {
+        timer.observe_duration();
+
+        if new_head_root != present_head_root {
+            self.metrics.fork_choice_changed_head.inc();
+
             let block: BeaconBlock = self
                 .store
-                .get(&new_head)?
-                .ok_or_else(|| Error::MissingBeaconBlock(new_head))?;
-            let block_root = block.canonical_root();
-
+                .get(&new_head_root)?
+                .ok_or_else(|| Error::MissingBeaconBlock(new_head_root))?;
             let state: BeaconState<T::EthSpec> = self
                 .store
                 .get(&block.state_root)?
                 .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
-            let state_root = state.canonical_root();
 
-            self.update_canonical_head(block, block_root, state.clone(), state_root);
+            // Log if we switched to a new chain.
+            if present_head_root != block.previous_block_root {
+                self.metrics.fork_choice_reorg_count.inc();
+            };
+
+            let state_root = block.state_root;
+            self.update_canonical_head(block, new_head_root, state.clone(), state_root);
 
             // Update the canonical `BeaconState`.
             self.update_state(state)?;
