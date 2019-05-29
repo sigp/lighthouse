@@ -713,21 +713,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put(&block_root, &block)?;
         self.store.put(&state_root, &state)?;
 
-        // run the fork_choice add_block logic
+        // Register the new block with the fork choice service.
         self.fork_choice
             .write()
             .add_block(&block, &block_root, &self.spec)?;
 
-        // If the parent block was the parent_block, automatically update the canonical head.
+        // Execute the fork choice algorithm, enthroning a new head if discovered.
         //
-        // TODO: this is a first-in-best-dressed scenario that is not ideal; fork_choice should be
-        // run instead.
-        if self.head().beacon_block_root == parent_block_root {
-            self.update_canonical_head(block.clone(), block_root, state.clone(), state_root);
-
-            // Update the canonical `BeaconState`.
-            self.update_state(state)?;
-        }
+        // Note: in the future we may choose to run fork-choice less often, potentially based upon
+        // some heuristic around number of attestations seen for the block.
+        self.fork_choice()?;
 
         self.metrics.block_processing_successes.inc();
         timer.observe_duration();
