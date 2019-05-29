@@ -3,9 +3,7 @@ use fixed_len_vec::typenum::{Unsigned, U1024, U8, U8192};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub trait EthSpec:
-    'static + Default + Sync + Send + Clone + Debug + PartialEq + serde::de::DeserializeOwned
-{
+pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;

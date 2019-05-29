@@ -86,6 +86,9 @@ impl Doc {
             ("epoch_processing", "crosslinks", "minimal") => {
                 run_test::<EpochProcessingCrosslinks<MinimalEthSpec>>(self)
             }
+            ("epoch_processing", "crosslinks", "mainnet") => {
+                run_test::<EpochProcessingCrosslinks<MainnetEthSpec>>(self)
+            }
             ("epoch_processing", "registry_updates", "minimal") => {
                 run_test::<EpochProcessingRegistryUpdates<MinimalEthSpec>>(self)
             }

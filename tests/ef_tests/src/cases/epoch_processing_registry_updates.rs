@@ -1,17 +1,14 @@
 use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
-use state_processing::per_block_processing::per_block_processing;
 use state_processing::per_epoch_processing::registry_updates::process_registry_updates;
-use state_processing::per_slot_processing;
-use types::{BeaconBlock, BeaconState, EthSpec};
+use types::{BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EpochProcessingRegistryUpdates<E: EthSpec> {
     pub description: String,
     #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
-    pub trigger_block: BeaconBlock,
     #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
@@ -34,13 +31,6 @@ impl<E: EthSpec> Case for EpochProcessingRegistryUpdates<E> {
 
         // Processing requires the epoch cache.
         state.build_all_caches(spec).unwrap();
-
-        // Apply the trigger block.
-        // FIXME: trigger block gets applied to state after per-epoch processing (test bug)
-        while state.slot < self.trigger_block.slot {
-            per_slot_processing(&mut state, spec).expect("slot processing failed");
-        }
-        per_block_processing(&mut state, &self.trigger_block, spec).expect("process block");
 
         let mut result = process_registry_updates(&mut state, spec).map(|_| state);
 
