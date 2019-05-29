@@ -286,8 +286,8 @@ pub fn process_attester_slashings<T: EthSpec>(
         )
         .map_err(|e| e.into_with_index(i))?;
 
-        let slashable_indices = get_slashable_indices(&state, &attester_slashing, spec)
-            .map_err(|e| e.into_with_index(i))?;
+        let slashable_indices =
+            get_slashable_indices(&state, &attester_slashing).map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, spec)?;

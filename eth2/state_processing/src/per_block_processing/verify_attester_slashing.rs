@@ -35,7 +35,7 @@ pub fn verify_attester_slashing<T: EthSpec>(
     Ok(())
 }
 
-/// For a given attester slashing, return the indices able to be slashed.
+/// For a given attester slashing, return the indices able to be slashed in ascending order.
 ///
 /// Returns Ok(indices) if `indices.len() > 0`.
 ///
@@ -43,14 +43,10 @@ pub fn verify_attester_slashing<T: EthSpec>(
 pub fn get_slashable_indices<T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing,
-    spec: &ChainSpec,
 ) -> Result<Vec<u64>, Error> {
-    get_slashable_indices_modular(
-        state,
-        attester_slashing,
-        |_, validator| validator.is_slashable_at(state.current_epoch()),
-        spec,
-    )
+    get_slashable_indices_modular(state, attester_slashing, |_, validator| {
+        validator.is_slashable_at(state.current_epoch())
+    })
 }
 
 /// Same as `gather_attester_slashing_indices` but allows the caller to specify the criteria
@@ -59,7 +55,6 @@ pub fn get_slashable_indices_modular<F, T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing,
     is_slashable: F,
-    spec: &ChainSpec,
 ) -> Result<Vec<u64>, Error>
 where
     F: Fn(u64, &Validator) -> bool,
