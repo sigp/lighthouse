@@ -14,76 +14,82 @@ use types::{
     ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
+// Enum variant names are used by Serde when deserializing the test YAML
 #[derive(Debug, Clone, Deserialize)]
-pub struct SszStatic<E> {
-    pub type_name: String,
+pub enum SszStatic<E>
+where
+    E: EthSpec,
+{
+    Fork(SszStaticInner<Fork, E>),
+    Crosslink(SszStaticInner<Crosslink, E>),
+    Eth1Data(SszStaticInner<Eth1Data, E>),
+    AttestationData(SszStaticInner<AttestationData, E>),
+    AttestationDataAndCustodyBit(SszStaticInner<AttestationDataAndCustodyBit, E>),
+    IndexedAttestation(SszStaticInner<IndexedAttestation, E>),
+    DepositData(SszStaticInner<DepositData, E>),
+    BeaconBlockHeader(SszStaticInner<BeaconBlockHeader, E>),
+    Validator(SszStaticInner<Validator, E>),
+    PendingAttestation(SszStaticInner<PendingAttestation, E>),
+    HistoricalBatch(SszStaticInner<HistoricalBatch<E>, E>),
+    ProposerSlashing(SszStaticInner<ProposerSlashing, E>),
+    AttesterSlashing(SszStaticInner<AttesterSlashing, E>),
+    Attestation(SszStaticInner<Attestation, E>),
+    Deposit(SszStaticInner<Deposit, E>),
+    VoluntaryExit(SszStaticInner<VoluntaryExit, E>),
+    Transfer(SszStaticInner<Transfer, E>),
+    BeaconBlockBody(SszStaticInner<BeaconBlockBody, E>),
+    BeaconBlock(SszStaticInner<BeaconBlock, E>),
+    BeaconState(SszStaticInner<BeaconState<E>, E>),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SszStaticInner<T, E>
+where
+    E: EthSpec,
+{
+    pub value: T,
     pub serialized: String,
     pub root: String,
-    #[serde(skip)]
-    pub raw_yaml: String,
     #[serde(skip, default)]
     _phantom: PhantomData<E>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Value<T> {
-    value: T,
-}
-
-impl<E> YamlDecode for SszStatic<E> {
+impl<E: EthSpec + serde::de::DeserializeOwned> YamlDecode for SszStatic<E> {
     fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        let mut ssz_static: SszStatic<E> = serde_yaml::from_str(&yaml.as_str()).unwrap();
-
-        ssz_static.raw_yaml = yaml.clone();
-
-        Ok(ssz_static)
-    }
-}
-
-impl<E> SszStatic<E> {
-    fn value<T: serde::de::DeserializeOwned>(&self) -> Result<T, Error> {
-        let wrapper: Value<T> = serde_yaml::from_str(&self.raw_yaml.as_str()).map_err(|e| {
-            Error::FailedToParseTest(format!("Unable to parse {} YAML: {:?}", self.type_name, e))
-        })?;
-
-        Ok(wrapper.value)
+        serde_yaml::from_str(yaml).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
     }
 }
 
 impl<E: EthSpec> Case for SszStatic<E> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
-        match self.type_name.as_ref() {
-            "Fork" => ssz_static_test::<Fork, E>(self),
-            "Crosslink" => ssz_static_test::<Crosslink, E>(self),
-            "Eth1Data" => ssz_static_test::<Eth1Data, E>(self),
-            "AttestationData" => ssz_static_test::<AttestationData, E>(self),
-            "AttestationDataAndCustodyBit" => {
-                ssz_static_test::<AttestationDataAndCustodyBit, E>(self)
-            }
-            "IndexedAttestation" => ssz_static_test::<IndexedAttestation, E>(self),
-            "DepositData" => ssz_static_test::<DepositData, E>(self),
-            "BeaconBlockHeader" => ssz_static_test::<BeaconBlockHeader, E>(self),
-            "Validator" => ssz_static_test::<Validator, E>(self),
-            "PendingAttestation" => ssz_static_test::<PendingAttestation, E>(self),
-            "HistoricalBatch" => ssz_static_test::<HistoricalBatch<E>, E>(self),
-            "ProposerSlashing" => ssz_static_test::<ProposerSlashing, E>(self),
-            "AttesterSlashing" => ssz_static_test::<AttesterSlashing, E>(self),
-            "Attestation" => ssz_static_test::<Attestation, E>(self),
-            "Deposit" => ssz_static_test::<Deposit, E>(self),
-            "VoluntaryExit" => ssz_static_test::<VoluntaryExit, E>(self),
-            "Transfer" => ssz_static_test::<Transfer, E>(self),
-            "BeaconBlockBody" => ssz_static_test::<BeaconBlockBody, E>(self),
-            "BeaconBlock" => ssz_static_test::<BeaconBlock, E>(self),
-            "BeaconState" => ssz_static_test::<BeaconState<E>, E>(self),
-            _ => Err(Error::FailedToParseTest(format!(
-                "Unknown type: {}",
-                self.type_name
-            ))),
+        use self::SszStatic::*;
+
+        match *self {
+            Fork(ref val) => ssz_static_test(val),
+            Crosslink(ref val) => ssz_static_test(val),
+            Eth1Data(ref val) => ssz_static_test(val),
+            AttestationData(ref val) => ssz_static_test(val),
+            AttestationDataAndCustodyBit(ref val) => ssz_static_test(val),
+            IndexedAttestation(ref val) => ssz_static_test(val),
+            DepositData(ref val) => ssz_static_test(val),
+            BeaconBlockHeader(ref val) => ssz_static_test(val),
+            Validator(ref val) => ssz_static_test(val),
+            PendingAttestation(ref val) => ssz_static_test(val),
+            HistoricalBatch(ref val) => ssz_static_test(val),
+            ProposerSlashing(ref val) => ssz_static_test(val),
+            AttesterSlashing(ref val) => ssz_static_test(val),
+            Attestation(ref val) => ssz_static_test(val),
+            Deposit(ref val) => ssz_static_test(val),
+            VoluntaryExit(ref val) => ssz_static_test(val),
+            Transfer(ref val) => ssz_static_test(val),
+            BeaconBlockBody(ref val) => ssz_static_test(val),
+            BeaconBlock(ref val) => ssz_static_test(val),
+            BeaconState(ref val) => ssz_static_test(val),
         }
     }
 }
 
-fn ssz_static_test<T, E: EthSpec>(tc: &SszStatic<E>) -> Result<(), Error>
+fn ssz_static_test<T, E: EthSpec>(tc: &SszStaticInner<T, E>) -> Result<(), Error>
 where
     T: Clone
         + Decode
@@ -98,7 +104,7 @@ where
     // Verify we can decode SSZ in the same way we can decode YAML.
     let ssz = hex::decode(&tc.serialized[2..])
         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-    let expected = tc.value::<T>()?;
+    let expected = tc.value.clone();
     let decode_result = T::from_ssz_bytes(&ssz);
     compare_result(&decode_result, &Some(expected))?;
 
