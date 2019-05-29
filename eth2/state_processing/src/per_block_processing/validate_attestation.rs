@@ -77,7 +77,7 @@ fn validate_attestation_parametric<T: EthSpec>(
 
     // Verify the Casper FFG vote.
     if !time_independent_only {
-        verify_casper_ffg_vote(attestation, state, spec)?;
+        verify_casper_ffg_vote(attestation, state)?;
     }
 
     // Crosslink data root is zero (to be removed in phase 1).
@@ -103,7 +103,6 @@ fn validate_attestation_parametric<T: EthSpec>(
 fn verify_casper_ffg_vote<T: EthSpec>(
     attestation: &Attestation,
     state: &BeaconState<T>,
-    spec: &ChainSpec,
 ) -> Result<(), Error> {
     let data = &attestation.data;
     if data.target_epoch == state.current_epoch() {
