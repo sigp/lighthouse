@@ -24,11 +24,11 @@ impl Metrics {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
             block_processing_requests: {
-                let opts = Opts::new("blocks_processed", "total_blocks_processed");
+                let opts = Opts::new("block_processing_requests", "total_blocks_processed");
                 IntCounter::with_opts(opts)?
             },
             block_processing_successes: {
-                let opts = Opts::new("valid_blocks_processed", "total_valid_blocks_processed");
+                let opts = Opts::new("block_processing_successes", "total_valid_blocks_processed");
                 IntCounter::with_opts(opts)?
             },
             block_processing_times: {
@@ -101,7 +101,7 @@ impl Metrics {
                 IntCounter::with_opts(opts)?
             },
             fork_choice_reorg_count: {
-                let opts = Opts::new("fork_choice_reorg_depth", "depth_of_reorg");
+                let opts = Opts::new("fork_choice_reorg_count", "number_of_reorgs");
                 IntCounter::with_opts(opts)?
             },
             fork_choice_times: {
