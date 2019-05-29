@@ -45,12 +45,13 @@ fn main() {
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("end validator index")
-                        .long("end_index")
-                        .short("j")
-                        .value_name("end_index")
-                        .help("If supplied along with `index`, generates a range of keys.")
-                        .takes_value(true),
+                    Arg::with_name("validator count")
+                        .long("validator_count")
+                        .short("n")
+                        .value_name("validator_count")
+                        .help("If supplied along with `index`, generates keys `i..i + n`.")
+                        .takes_value(true)
+                        .default_value("1"),
                 ),
         )
         .get_matches();
@@ -67,10 +68,10 @@ fn main() {
         ("generate_deterministic", Some(m)) => {
             if let Some(string) = m.value_of("validator index") {
                 let i: usize = string.parse().expect("Invalid validator index");
-                if let Some(string) = m.value_of("end validator index") {
-                    let j: usize = string.parse().expect("Invalid end validator index");
+                if let Some(string) = m.value_of("validator count") {
+                    let n: usize = string.parse().expect("Invalid end validator count");
 
-                    let indices: Vec<usize> = (i..j).collect();
+                    let indices: Vec<usize> = (i..i + n).collect();
                     generate_deterministic_multiple(&indices, &config, &log)
                 } else {
                     generate_deterministic(i, &config, &log)
