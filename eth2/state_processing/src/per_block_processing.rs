@@ -386,8 +386,6 @@ pub fn process_deposits<T: EthSpec>(
 
         // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
         // already exists in the beacon_state.
-        //
-        // This function also verifies the withdrawal credentials.
         let validator_index =
             get_existing_validator_index(state, deposit).map_err(|e| e.into_with_index(i))?;
 
