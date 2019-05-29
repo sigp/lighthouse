@@ -52,19 +52,7 @@ pub fn get_existing_validator_index<T: EthSpec>(
     deposit: &Deposit,
 ) -> Result<Option<u64>, Error> {
     let validator_index = state.get_validator_index(&deposit.data.pubkey)?;
-
-    // NOTE: it seems that v0.6.1 doesn't require the withdrawal credentials to be checked
-    match validator_index {
-        None => Ok(None),
-        Some(index) => {
-            verify!(
-                deposit.data.withdrawal_credentials
-                    == state.validator_registry[index].withdrawal_credentials,
-                Invalid::BadWithdrawalCredentials
-            );
-            Ok(Some(index as u64))
-        }
-    }
+    Ok(validator_index.map(|idx| idx as u64))
 }
 
 /// Verify that a deposit is included in the state's eth1 deposit root.
