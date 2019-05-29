@@ -530,6 +530,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         trace!("BeaconChain::produce_attestation: shard: {}", shard);
+        self.metrics.attestation_production_requests.inc();
+        let timer = self.metrics.attestation_production_histogram.start_timer();
+
         let state = self.state.read();
 
         let current_epoch_start_slot = self
@@ -556,6 +559,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // If we're not on the first slot of the epoch.
             *self.state.read().get_block_root(current_epoch_start_slot)?
         };
+
+        self.metrics.attestation_production_successes.inc();
+        timer.observe_duration();
 
         Ok(AttestationData {
             slot: self.state.read().slot,
@@ -625,7 +631,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
     pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
         debug!("Processing block with slot {}...", block.slot);
-        self.metrics.blocks_processed.inc();
+        self.metrics.block_processing_requests.inc();
+        let timer = self.metrics.block_processing_historgram.start_timer();
 
         let block_root = block.block_header().canonical_root();
 
@@ -709,7 +716,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.update_state(state)?;
         }
 
-        self.metrics.valid_blocks_processed.inc();
+        self.metrics.block_processing_successes.inc();
+        timer.observe_duration();
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
     }
@@ -724,6 +732,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
         debug!("Producing block at slot {}...", self.state.read().slot);
         self.metrics.block_production_requests.inc();
+        let timer = self.metrics.block_production_historgram.start_timer();
 
         let mut state = self.state.read().clone();
 
@@ -775,6 +784,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block.state_root = state_root;
 
         self.metrics.block_production_successes.inc();
+        timer.observe_duration();
 
         Ok((block, state))
     }
