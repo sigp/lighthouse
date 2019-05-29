@@ -70,7 +70,6 @@ fn shuffling() {
 }
 
 #[test]
-#[cfg(not(feature = "fake_crypto"))]
 fn operations_deposit() {
     yaml_files_in_test_dir(&Path::new("operations").join("deposit"))
         .into_par_iter()
@@ -80,7 +79,6 @@ fn operations_deposit() {
 }
 
 #[test]
-#[cfg(not(feature = "fake_crypto"))]
 fn operations_transfer() {
     yaml_files_in_test_dir(&Path::new("operations").join("transfer"))
         .into_par_iter()
@@ -91,7 +89,6 @@ fn operations_transfer() {
 }
 
 #[test]
-#[cfg(not(feature = "fake_crypto"))]
 fn operations_exit() {
     yaml_files_in_test_dir(&Path::new("operations").join("voluntary_exit"))
         .into_par_iter()
@@ -101,7 +98,6 @@ fn operations_exit() {
 }
 
 #[test]
-#[cfg(not(feature = "fake_crypto"))]
 fn operations_proposer_slashing() {
     yaml_files_in_test_dir(&Path::new("operations").join("proposer_slashing"))
         .into_par_iter()
@@ -111,7 +107,6 @@ fn operations_proposer_slashing() {
 }
 
 #[test]
-#[cfg(not(feature = "fake_crypto"))]
 fn operations_attester_slashing() {
     yaml_files_in_test_dir(&Path::new("operations").join("attester_slashing"))
         .into_par_iter()

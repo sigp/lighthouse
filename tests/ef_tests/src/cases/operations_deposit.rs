@@ -6,6 +6,7 @@ use types::{BeaconState, Deposit, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct OperationsDeposit<E: EthSpec> {
+    pub bls_setting: Option<u8>,
     pub description: String,
     #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
@@ -26,6 +27,9 @@ impl<E: EthSpec> Case for OperationsDeposit<E> {
     }
 
     fn result(&self, _case_index: usize) -> Result<(), Error> {
+        if self.bls_setting == Some(cfg!(feature = "fake_crypto") as u8) {
+            return Ok(());
+        }
         let mut state = self.pre.clone();
         let deposit = self.deposit.clone();
         let mut expected = self.post.clone();
