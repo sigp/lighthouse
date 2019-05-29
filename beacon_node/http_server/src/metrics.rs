@@ -42,7 +42,7 @@ impl LocalMetrics {
                 IntGauge::with_opts(opts)?
             },
             best_slot: {
-                let opts = Opts::new("present_slot", "slot_of_block_at_chain_head");
+                let opts = Opts::new("best_slot", "slot_of_block_at_chain_head");
                 IntGauge::with_opts(opts)?
             },
             validator_count: {
