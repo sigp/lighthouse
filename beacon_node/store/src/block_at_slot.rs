@@ -25,15 +25,23 @@ pub fn get_block_at_preceeding_slot<T: Store>(
     slot: Slot,
     start_root: Hash256,
 ) -> Result<Option<(Hash256, BeaconBlock)>, Error> {
-    let mut root = start_root;
+    Ok(match get_at_preceeding_slot(store, slot, start_root)? {
+        Some((hash, bytes)) => Some((hash, BeaconBlock::from_ssz_bytes(&bytes)?)),
+        None => None,
+    })
+}
 
+fn get_at_preceeding_slot<T: Store>(
+    store: &T,
+    slot: Slot,
+    mut root: Hash256,
+) -> Result<Option<(Hash256, Vec<u8>)>, Error> {
     loop {
         if let Some(bytes) = get_block_bytes(store, root)? {
             let this_slot = read_slot_from_block_bytes(&bytes)?;
 
             if this_slot == slot {
-                let block = BeaconBlock::from_ssz_bytes(&bytes)?;
-                break Ok(Some((root, block)));
+                break Ok(Some((root, bytes)));
             } else if this_slot < slot {
                 break Ok(None);
             } else {
