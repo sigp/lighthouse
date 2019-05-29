@@ -30,6 +30,7 @@ pub fn build_handler<T: BeaconChainTypes + 'static>(
 
 pub struct LocalMetrics {
     present_slot: IntGauge,
+    best_slot: IntGauge,
     validator_count: IntGauge,
 }
 
@@ -38,6 +39,10 @@ impl LocalMetrics {
         Ok(Self {
             present_slot: {
                 let opts = Opts::new("present_slot", "slot_at_time_of_scrape");
+                IntGauge::with_opts(opts)?
+            },
+            best_slot: {
+                let opts = Opts::new("present_slot", "slot_of_block_at_chain_head");
                 IntGauge::with_opts(opts)?
             },
             validator_count: {
@@ -49,6 +54,8 @@ impl LocalMetrics {
 
     pub fn register(&self, registry: &Registry) -> Result<(), prometheus::Error> {
         registry.register(Box::new(self.present_slot.clone()))?;
+        registry.register(Box::new(self.best_slot.clone()))?;
+        registry.register(Box::new(self.validator_count.clone()))?;
 
         Ok(())
     }
@@ -76,6 +83,9 @@ fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResul
         .unwrap_or_else(|_| None)
         .unwrap_or_else(|| Slot::new(0));
     local_metrics.present_slot.set(present_slot.as_u64() as i64);
+
+    let best_slot = beacon_chain.head().beacon_block.slot;
+    local_metrics.best_slot.set(best_slot.as_u64() as i64);
 
     let validator_count = beacon_chain.head().beacon_state.validator_registry.len();
     local_metrics.validator_count.set(validator_count as i64);
