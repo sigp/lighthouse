@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::PeerId;
 use slog::{debug, error};
