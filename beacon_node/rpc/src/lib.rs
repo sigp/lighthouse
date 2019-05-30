@@ -1,15 +1,14 @@
 mod attestation;
 mod beacon_block;
-pub mod beacon_chain;
 mod beacon_node;
 pub mod config;
 mod validator;
 
 use self::attestation::AttestationServiceInstance;
 use self::beacon_block::BeaconBlockServiceInstance;
-use self::beacon_chain::{BeaconChain, BeaconChainTypes};
 use self::beacon_node::BeaconNodeServiceInstance;
 use self::validator::ValidatorServiceInstance;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 pub use config::Config as RPCConfig;
 use futures::Future;
 use grpcio::{Environment, ServerBuilder};
