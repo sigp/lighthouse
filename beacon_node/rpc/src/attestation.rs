@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use protos::services::{
@@ -34,7 +34,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
         // verify the slot, drop lock on state afterwards
         {
             let slot_requested = req.get_slot();
-            let state = self.chain.get_state();
+            let state = &self.chain.head().beacon_state;
 
             // Start by performing some checks
             // Check that the AttestionData is for the current slot (otherwise it will not be valid)

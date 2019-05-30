@@ -1,10 +1,11 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::Future;
 use grpcio::{RpcContext, UnarySink};
 use protos::services::{Empty, Fork, NodeInfoResponse};
 use protos::services_grpc::BeaconNodeService;
 use slog::{trace, warn};
 use std::sync::Arc;
+use types::EthSpec;
 
 #[derive(Clone)]
 pub struct BeaconNodeServiceInstance<T: BeaconChainTypes> {
@@ -22,7 +23,7 @@ impl<T: BeaconChainTypes> BeaconNodeService for BeaconNodeServiceInstance<T> {
         node_info.set_version(version::version());
 
         // get the chain state
-        let state = self.chain.get_state();
+        let state = &self.chain.head().beacon_state;
         let state_fork = state.fork.clone();
         let genesis_time = state.genesis_time;
 
@@ -32,10 +33,12 @@ impl<T: BeaconChainTypes> BeaconNodeService for BeaconNodeServiceInstance<T> {
         fork.set_current_version(state_fork.current_version.to_vec());
         fork.set_epoch(state_fork.epoch.into());
 
+        let spec = T::EthSpec::spec();
+
         node_info.set_fork(fork);
         node_info.set_genesis_time(genesis_time);
-        node_info.set_genesis_slot(self.chain.get_spec().genesis_slot.as_u64());
-        node_info.set_chain_id(u32::from(self.chain.get_spec().chain_id));
+        node_info.set_genesis_slot(spec.genesis_slot.as_u64());
+        node_info.set_chain_id(u32::from(spec.chain_id));
 
         // send the node_info the requester
         let error_log = self.log.clone();

@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use crossbeam_channel;
 use eth2_libp2p::PubsubMessage;
 use futures::Future;

@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
@@ -7,7 +7,7 @@ use protos::services_grpc::ValidatorService;
 use slog::{trace, warn};
 use ssz::Decode;
 use std::sync::Arc;
-use types::{Epoch, RelativeEpoch};
+use types::{Epoch, EthSpec, RelativeEpoch};
 
 #[derive(Clone)]
 pub struct ValidatorServiceInstance<T: BeaconChainTypes> {
@@ -29,8 +29,8 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         let validators = req.get_validators();
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
-        let spec = self.chain.get_spec();
-        let state = self.chain.get_state();
+        let spec = T::EthSpec::spec();
+        let state = &self.chain.head().beacon_state;
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
