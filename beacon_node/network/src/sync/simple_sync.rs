@@ -1,6 +1,8 @@
 use super::import_queue::ImportQueue;
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome, InvalidBlock};
 use crate::message_handler::NetworkContext;
+use beacon_chain::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessingOutcome, InvalidBlock,
+};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
@@ -9,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
-use types::{Attestation, BeaconBlock, Epoch, Hash256, Slot};
+use types::{Attestation, BeaconBlock, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
@@ -90,7 +92,7 @@ impl From<HelloMessage> for PeerSyncInfo {
 
 impl<T: BeaconChainTypes> From<&Arc<BeaconChain<T>>> for PeerSyncInfo {
     fn from(chain: &Arc<BeaconChain<T>>) -> PeerSyncInfo {
-        Self::from(chain.hello_message())
+        Self::from(hello_message(chain))
     }
 }
 
@@ -153,7 +155,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     pub fn on_connect(&self, peer_id: PeerId, network: &mut NetworkContext) {
         info!(self.log, "PeerConnect"; "peer" => format!("{:?}", peer_id));
 
-        network.send_rpc_request(peer_id, RPCRequest::Hello(self.chain.hello_message()));
+        network.send_rpc_request(peer_id, RPCRequest::Hello(hello_message(&self.chain)));
     }
 
     /// Handle a `Hello` request.
@@ -172,7 +174,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         network.send_rpc_response(
             peer_id.clone(),
             request_id,
-            RPCResponse::Hello(self.chain.hello_message()),
+            RPCResponse::Hello(hello_message(&self.chain)),
         );
 
         self.process_hello(peer_id, hello, network);
@@ -202,7 +204,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         if local.has_higher_finalized_epoch_than(peer) {
             let peer_finalized_slot = peer
                 .latest_finalized_epoch
-                .start_slot(self.chain.get_spec().slots_per_epoch);
+                .start_slot(T::EthSpec::spec().slots_per_epoch);
 
             let local_roots = self.chain.get_block_roots(peer_finalized_slot, 1, 0);
 
@@ -245,7 +247,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         hello: HelloMessage,
         network: &mut NetworkContext,
     ) {
-        let spec = self.chain.get_spec();
+        let spec = T::EthSpec::spec();
 
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
@@ -424,7 +426,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "count" => req.max_headers,
         );
 
-        let headers = match self.chain.get_block_headers(
+        let headers = match get_block_headers(
+            &self.chain,
             req.start_slot,
             req.max_headers as usize,
             req.skip_slots as usize,
@@ -596,7 +599,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 // parent(s).
                 network.send_rpc_request(
                     peer_id.clone(),
-                    RPCRequest::Hello(self.chain.hello_message()),
+                    RPCRequest::Hello(hello_message(&self.chain)),
                 );
                 // Forward the block onto our peers.
                 //
@@ -835,15 +838,39 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
     /// Returns `true` if the given slot is finalized in our chain.
     fn slot_is_finalized(&self, slot: Slot) -> bool {
-        slot <= self
-            .chain
-            .hello_message()
+        slot <= hello_message(&self.chain)
             .latest_finalized_epoch
-            .start_slot(self.chain.get_spec().slots_per_epoch)
+            .start_slot(T::EthSpec::spec().slots_per_epoch)
     }
 
     /// Generates our current state in the form of a HELLO RPC message.
     pub fn generate_hello(&self) -> HelloMessage {
-        self.chain.hello_message()
+        hello_message(&self.chain)
     }
+}
+
+/// Build a `HelloMessage` representing the state of the given `beacon_chain`.
+fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMessage {
+    let spec = T::EthSpec::spec();
+    let state = &beacon_chain.head().beacon_state;
+
+    HelloMessage {
+        network_id: spec.chain_id,
+        latest_finalized_root: state.finalized_root,
+        latest_finalized_epoch: state.finalized_epoch,
+        best_root: beacon_chain.head().beacon_block_root,
+        best_slot: beacon_chain.head().beacon_block.slot,
+    }
+}
+
+/// Return a list of `BeaconBlockHeader` from the given `BeaconChain`, starting at `start_slot` and
+/// returning `count` headers with a gap of `skip` slots between each.
+fn get_block_headers<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+    start_slot: Slot,
+    count: usize,
+    skip: usize,
+) -> Result<Vec<BeaconBlockHeader>, BeaconChainError> {
+    let roots = beacon_chain.get_block_roots(start_slot, count, skip)?;
+    beacon_chain.get_block_headers(&roots)
 }

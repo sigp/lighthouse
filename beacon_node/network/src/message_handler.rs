@@ -1,7 +1,7 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::error;
 use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use crossbeam_channel::{unbounded as channel, Sender};
 use eth2_libp2p::{
     behaviour::PubsubMessage,
