@@ -90,9 +90,13 @@ fn handle_metrics<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResul
     let validator_count = beacon_chain.head().beacon_state.validator_registry.len();
     local_metrics.validator_count.set(validator_count as i64);
 
-    // Gather the metrics.
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
+
+    // Gather `DEFAULT_REGISTRY` metrics.
+    encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
+
+    // Gather metrics from our registry.
     let metric_families = r.gather();
     encoder.encode(&metric_families, &mut buffer).unwrap();
 
