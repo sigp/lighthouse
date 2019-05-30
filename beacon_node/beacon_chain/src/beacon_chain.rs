@@ -94,7 +94,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub op_pool: OperationPool<T::EthSpec>,
     canonical_head: RwLock<CheckPoint<T::EthSpec>>,
     finalized_head: RwLock<CheckPoint<T::EthSpec>>,
-    pub state: RwLock<BeaconState<T::EthSpec>>,
+    state: RwLock<BeaconState<T::EthSpec>>,
     pub spec: ChainSpec,
     pub fork_choice: RwLock<T::ForkChoice>,
     pub metrics: Metrics,
@@ -310,7 +310,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Update the canonical head to some new values.
-    pub fn update_canonical_head(
+    fn update_canonical_head(
         &self,
         new_beacon_block: BeaconBlock,
         new_beacon_block_root: Hash256,
@@ -354,7 +354,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Also persists the `BeaconChain` to the store, in the case the client does not exit
     /// gracefully.
-    pub fn update_state(&self, mut state: BeaconState<T::EthSpec>) -> Result<(), Error> {
+    fn update_state(&self, mut state: BeaconState<T::EthSpec>) -> Result<(), Error> {
         let present_slot = match self.slot_clock.present_slot() {
             Ok(Some(slot)) => slot,
             _ => return Err(Error::UnableToReadSlot),
@@ -407,7 +407,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Update the justified head to some new values.
-    pub fn update_finalized_head(
+    fn update_finalized_head(
         &self,
         new_beacon_block: BeaconBlock,
         new_beacon_block_root: Hash256,

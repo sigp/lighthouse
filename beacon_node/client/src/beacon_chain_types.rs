@@ -68,7 +68,7 @@ where
         info!(
             log,
             "Loaded BeaconChain from store";
-            "slot" => beacon_chain.state.read().slot,
+            "slot" => beacon_chain.head().beacon_state.slot,
             "best_slot" => beacon_chain.best_slot(),
         );
 
