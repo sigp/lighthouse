@@ -75,7 +75,7 @@ where
         // If we don't block here we create an initial scenario where we're unable to process any
         // blocks and we're basically useless.
         {
-            let state_slot = beacon_chain.state.read().slot;
+            let state_slot = beacon_chain.head().beacon_state.slot;
             let wall_clock_slot = beacon_chain.read_slot_clock().unwrap();
             let slots_since_genesis = beacon_chain.slots_since_genesis().unwrap();
             info!(
@@ -91,7 +91,7 @@ where
         info!(
             log,
             "State initialized";
-            "state_slot" => beacon_chain.state.read().slot,
+            "state_slot" => beacon_chain.head().beacon_state.slot,
             "wall_clock_slot" => beacon_chain.read_slot_clock().unwrap(),
         );
 
@@ -190,7 +190,7 @@ fn do_state_catchup<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog
             "best_slot" => chain.head().beacon_block.slot,
             "latest_block_root" => format!("{}", chain.head().beacon_block_root),
             "wall_clock_slot" => chain.read_slot_clock().unwrap(),
-            "state_slot" => chain.state.read().slot,
+            "state_slot" => chain.head().beacon_state.slot,
             "slots_since_genesis" => genesis_height,
         );
 
