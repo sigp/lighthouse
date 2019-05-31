@@ -3,12 +3,17 @@ use prometheus::{IntGauge, Opts, Registry};
 use slot_clock::SlotClock;
 use types::Slot;
 
+// If set to `true` will iterate and sum the balances of all validators in the state for each
+// scrape.
+const SHOULD_SUM_VALIDATOR_BALANCES: bool = true;
+
 pub struct LocalMetrics {
     present_slot: IntGauge,
     best_slot: IntGauge,
     validator_count: IntGauge,
     justified_epoch: IntGauge,
     finalized_epoch: IntGauge,
+    validator_balances_sum: IntGauge,
 }
 
 impl LocalMetrics {
@@ -35,6 +40,10 @@ impl LocalMetrics {
                 let opts = Opts::new("finalized_epoch", "state_finalized_epoch");
                 IntGauge::with_opts(opts)?
             },
+            validator_balances_sum: {
+                let opts = Opts::new("validator_balances_sum", "sum_of_all_validator_balances");
+                IntGauge::with_opts(opts)?
+            },
         })
     }
 
@@ -43,6 +52,9 @@ impl LocalMetrics {
         registry.register(Box::new(self.present_slot.clone()))?;
         registry.register(Box::new(self.best_slot.clone()))?;
         registry.register(Box::new(self.validator_count.clone()))?;
+        registry.register(Box::new(self.finalized_epoch.clone()))?;
+        registry.register(Box::new(self.justified_epoch.clone()))?;
+        registry.register(Box::new(self.validator_balances_sum.clone()))?;
 
         Ok(())
     }
@@ -62,5 +74,8 @@ impl LocalMetrics {
         self.validator_count.set(state.validator_registry.len() as i64);
         self.justified_epoch.set(state.current_justified_epoch.as_u64() as i64);
         self.finalized_epoch.set(state.finalized_epoch.as_u64() as i64);
+        if SHOULD_SUM_VALIDATOR_BALANCES {
+            self.validator_balances_sum.set(state.validator_balances.iter().sum::<u64>() as i64);
+        }
     }
 }
