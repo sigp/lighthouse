@@ -100,8 +100,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub op_pool: OperationPool<T::EthSpec>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was recieved.
     canonical_head: RwLock<CheckPoint<T::EthSpec>>,
-    /// Stores a "snapshot" of the chain at the latest finalized point.
-    finalized_head: RwLock<CheckPoint<T::EthSpec>>,
     /// The same state from `self.canonical_head`, but updated at the start of each slot with a
     /// skip slot if no block is recieved. This is effectively a cache that avoids repeating calls
     /// to `per_slot_processing`.
@@ -129,12 +127,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = genesis_block.block_header().canonical_root();
         store.put(&block_root, &genesis_block)?;
 
-        let finalized_head = RwLock::new(CheckPoint::new(
-            genesis_block.clone(),
-            block_root,
-            genesis_state.clone(),
-            state_root,
-        ));
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
@@ -149,7 +141,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot_clock,
             op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
-            finalized_head,
             canonical_head,
             fork_choice: RwLock::new(fork_choice),
             metrics: Metrics::new()?,
@@ -180,7 +171,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot_clock,
             op_pool: OperationPool::default(),
             canonical_head: RwLock::new(p.canonical_head),
-            finalized_head: RwLock::new(p.finalized_head),
             state: RwLock::new(p.state),
             fork_choice: RwLock::new(fork_choice),
             metrics: Metrics::new()?,
@@ -191,7 +181,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist(&self) -> Result<(), Error> {
         let p: PersistedBeaconChain<T> = PersistedBeaconChain {
             canonical_head: self.canonical_head.read().clone(),
-            finalized_head: self.finalized_head.read().clone(),
             state: self.state.read().clone(),
         };
 
@@ -351,23 +340,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Update the justified head to some new values.
-    fn update_finalized_head(
-        &self,
-        new_beacon_block: BeaconBlock,
-        new_beacon_block_root: Hash256,
-        new_beacon_state: BeaconState<T::EthSpec>,
-        new_beacon_state_root: Hash256,
-    ) {
-        let mut finalized_head = self.finalized_head.write();
-        finalized_head.update(
-            new_beacon_block,
-            new_beacon_block_root,
-            new_beacon_state,
-            new_beacon_state_root,
-        );
-    }
-
     /*
     /// Updates the canonical `BeaconState` with the supplied state.
     ///
@@ -446,12 +418,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.state.write().build_all_caches(&T::EthSpec::spec())?;
 
         Ok(())
-    }
-
-    /// Returns a read-lock guarded `CheckPoint` struct for reading the justified head (as chosen,
-    /// indirectly,  by the fork-choice rule).
-    pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint<T::EthSpec>> {
-        self.finalized_head.read()
     }
 
     /// Returns the validator index (if any) for the given public key.
@@ -840,40 +806,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn fork_choice(&self) -> Result<(), Error> {
         self.metrics.fork_choice_requests.inc();
 
-        let present_head_root = self.finalized_head().beacon_block_root;
-
+        // Start fork choice metrics timer.
         let timer = self.metrics.fork_choice_times.start_timer();
 
-        let new_head_root = self
+        // Determine the root of the block that is the head of the chain.
+        let beacon_block_root = self
             .fork_choice
             .write()
-            .find_head(&present_head_root, &T::EthSpec::spec())?;
+            .find_head(&self.head().beacon_state.current_justified_root, &T::EthSpec::spec())?;
 
+        // End fork choice metrics timer.
         timer.observe_duration();
 
-        if new_head_root != present_head_root {
+        // If a new head was chosen.
+        if beacon_block_root != self.head().beacon_block_root {
             self.metrics.fork_choice_changed_head.inc();
 
-            let block: BeaconBlock = self
+            let beacon_block: BeaconBlock = self
                 .store
-                .get(&new_head_root)?
-                .ok_or_else(|| Error::MissingBeaconBlock(new_head_root))?;
-            let state: BeaconState<T::EthSpec> = self
-                .store
-                .get(&block.state_root)?
-                .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+                .get(&beacon_block_root)?
+                .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
 
-            // Log if we switched to a new chain.
-            if present_head_root != block.previous_block_root {
+            let beacon_state_root = beacon_block.state_root;
+            let beacon_state: BeaconState<T::EthSpec> = self
+                .store
+                .get(&beacon_state_root)?
+                .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
+
+            // If we switched to a new chain (instead of building atop the present chain).
+            if self.head().beacon_block_root != beacon_block.previous_block_root {
                 self.metrics.fork_choice_reorg_count.inc();
             };
 
-            let state_root = block.state_root;
             self.update_canonical_head(CheckPoint {
-                beacon_block: block,
-                beacon_block_root: new_head_root,
-                beacon_state: state.clone(),
-                beacon_state_root: state_root,
+                beacon_block,
+                beacon_block_root,
+                beacon_state,
+                beacon_state_root,
             })?;
         }
 
