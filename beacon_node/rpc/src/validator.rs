@@ -30,7 +30,7 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
         let spec = T::EthSpec::spec();
-        let state = &self.chain.head().beacon_state;
+        let state = &self.chain.current_state();
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
