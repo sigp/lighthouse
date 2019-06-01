@@ -1,6 +1,8 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use prometheus::{IntGauge, Opts, Registry};
 use slot_clock::SlotClock;
+use std::path::PathBuf;
+use std::fs::File;
 use types::Slot;
 
 // If set to `true` will iterate and sum the balances of all validators in the state for each
@@ -14,6 +16,7 @@ pub struct LocalMetrics {
     justified_epoch: IntGauge,
     finalized_epoch: IntGauge,
     validator_balances_sum: IntGauge,
+    database_size: IntGauge,
 }
 
 impl LocalMetrics {
@@ -44,6 +47,10 @@ impl LocalMetrics {
                 let opts = Opts::new("validator_balances_sum", "sum_of_all_validator_balances");
                 IntGauge::with_opts(opts)?
             },
+            database_size: {
+                let opts = Opts::new("database_size", "size_of_on_disk_db_in_mb");
+                IntGauge::with_opts(opts)?
+            },
         })
     }
 
@@ -55,12 +62,13 @@ impl LocalMetrics {
         registry.register(Box::new(self.finalized_epoch.clone()))?;
         registry.register(Box::new(self.justified_epoch.clone()))?;
         registry.register(Box::new(self.validator_balances_sum.clone()))?;
+        registry.register(Box::new(self.database_size.clone()))?;
 
         Ok(())
     }
 
     /// Update the metrics in `self` to the latest values.
-    pub fn update<T: BeaconChainTypes>(&self, beacon_chain: &BeaconChain<T>) {
+    pub fn update<T: BeaconChainTypes>(&self, beacon_chain: &BeaconChain<T>, db_path: &PathBuf) {
         let state = &beacon_chain.head().beacon_state;
 
         let present_slot = beacon_chain
@@ -77,5 +85,10 @@ impl LocalMetrics {
         if SHOULD_SUM_VALIDATOR_BALANCES {
             self.validator_balances_sum.set(state.validator_balances.iter().sum::<u64>() as i64);
         }
+        let db_size = File::open(db_path)
+            .and_then(|f| f.metadata())
+            .and_then(|m| Ok(m.len()))
+            .unwrap_or(0);
+        self.database_size.set(db_size as i64);
     }
 }
