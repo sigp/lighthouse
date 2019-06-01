@@ -104,6 +104,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// skip slot if no block is recieved. This is effectively a cache that avoids repeating calls
     /// to `per_slot_processing`.
     state: RwLock<BeaconState<T::EthSpec>>,
+    /// The root of the genesis block.
+    genesis_block_root: Hash256,
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
     pub fork_choice: RwLock<T::ForkChoice>,
@@ -124,20 +126,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_root = genesis_state.canonical_root();
         store.put(&state_root, &genesis_state)?;
 
-        let block_root = genesis_block.block_header().canonical_root();
-        store.put(&block_root, &genesis_block)?;
-
-        // Store the genesis block under the `0x00..00` hash too.
-        //
-        // The spec declares that for fork choice, the `ZERO_HASH` should alias to the genesis
-        // block. See:
-        //
-        // github.com/ethereum/eth2.0-specs/blob/dev/specs/core/0_fork-choice.md#implementation-notes
-        store.put(&spec.zero_hash, &genesis_block)?;
+        let genesis_block_root = genesis_block.block_header().canonical_root();
+        store.put(&genesis_block_root, &genesis_block)?;
 
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
-            block_root,
+            genesis_block_root,
             genesis_state.clone(),
             state_root,
         ));
@@ -150,6 +144,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
             canonical_head,
+            genesis_block_root,
             fork_choice: RwLock::new(fork_choice),
             metrics: Metrics::new()?,
         })
@@ -181,6 +176,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head: RwLock::new(p.canonical_head),
             state: RwLock::new(p.state),
             fork_choice: RwLock::new(fork_choice),
+            genesis_block_root: p.genesis_block_root,
             metrics: Metrics::new()?,
         }))
     }
@@ -189,6 +185,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist(&self) -> Result<(), Error> {
         let p: PersistedBeaconChain<T> = PersistedBeaconChain {
             canonical_head: self.canonical_head.read().clone(),
+            genesis_block_root: self.genesis_block_root,
             state: self.state.read().clone(),
         };
 
@@ -823,11 +820,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Start fork choice metrics timer.
         let timer = self.metrics.fork_choice_times.start_timer();
 
+        let justified_root = {
+            let root = self.head().beacon_state.current_justified_root;
+            if root == T::EthSpec::spec().zero_hash {
+                 self.genesis_block_root
+            } else {
+                root
+            }
+        };
+
         // Determine the root of the block that is the head of the chain.
         let beacon_block_root = self
             .fork_choice
             .write()
-            .find_head(&self.head().beacon_state.current_justified_root, &T::EthSpec::spec())?;
+            .find_head(&justified_root, &T::EthSpec::spec())?;
 
         // End fork choice metrics timer.
         timer.observe_duration();

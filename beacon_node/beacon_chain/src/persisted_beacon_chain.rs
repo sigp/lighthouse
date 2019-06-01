@@ -2,7 +2,7 @@ use crate::{BeaconChainTypes, CheckPoint};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, StoreItem};
-use types::BeaconState;
+use types::{BeaconState, Hash256};
 
 /// 32-byte key for accessing the `PersistedBeaconChain`.
 pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
@@ -11,6 +11,7 @@ pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
 pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub canonical_head: CheckPoint<T::EthSpec>,
     // TODO: operations pool.
+    pub genesis_block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
 }
 
