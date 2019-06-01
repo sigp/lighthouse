@@ -371,6 +371,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
     */
 
+    /// Returns a read-lock guarded `BeaconState` which is the `canonical_head` that has been
+    /// updated to match the current slot clock.
+    pub fn current_state(&self) -> RwLockReadGuard<BeaconState<T::EthSpec>> {
+        self.state.read()
+    }
+
     /// Returns a read-lock guarded `CheckPoint` struct for reading the head (as chosen by the
     /// fork-choice rule).
     ///
