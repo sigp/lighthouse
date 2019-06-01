@@ -18,6 +18,7 @@ pub struct Metrics {
     pub fork_choice_changed_head: IntCounter,
     pub fork_choice_reorg_count: IntCounter,
     pub fork_choice_times: Histogram,
+    pub operations_per_block_attestation: Histogram,
 }
 
 impl Metrics {
@@ -108,6 +109,13 @@ impl Metrics {
                 let opts = HistogramOpts::new("fork_choice_time", "total_time_to_run_fork_choice");
                 Histogram::with_opts(opts)?
             },
+            operations_per_block_attestation: {
+                let opts = HistogramOpts::new(
+                    "operations_per_block_attestation",
+                    "count_of_attestations_per_block",
+                );
+                Histogram::with_opts(opts)?
+            },
         })
     }
 
@@ -128,6 +136,7 @@ impl Metrics {
         registry.register(Box::new(self.fork_choice_changed_head.clone()))?;
         registry.register(Box::new(self.fork_choice_reorg_count.clone()))?;
         registry.register(Box::new(self.fork_choice_times.clone()))?;
+        registry.register(Box::new(self.operations_per_block_attestation.clone()))?;
 
         Ok(())
     }

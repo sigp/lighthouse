@@ -345,37 +345,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /*
-    /// Updates the canonical `BeaconState` with the supplied state.
-    ///
-    /// Advances the chain forward to the present slot. This method is better than just setting
-    /// state and calling `catchup_state` as it will not result in an old state being installed and
-    /// then having it iteratively updated -- in such a case it's possible for another thread to
-    /// find the state at an old slot.
-    ///
-    /// Also persists the `BeaconChain` to the store, in the case the client does not exit
-    /// gracefully.
-    fn update_state(&self, mut state: BeaconState<T::EthSpec>) -> Result<(), Error> {
-        let present_slot = match self.slot_clock.present_slot() {
-            Ok(Some(slot)) => slot,
-            _ => return Err(Error::UnableToReadSlot),
-        };
-
-        // If required, transition the new state to the present slot.
-        for _ in state.slot.as_u64()..present_slot.as_u64() {
-            per_slot_processing(&mut state, &T::EthSpec::spec())?;
-        }
-
-        state.build_all_caches(&T::EthSpec::spec())?;
-
-        *self.state.write() = state;
-
-        self.persist()?;
-
-        Ok(())
-    }
-    */
-
     /// Returns a read-lock guarded `BeaconState` which is the `canonical_head` that has been
     /// updated to match the current slot clock.
     pub fn current_state(&self) -> RwLockReadGuard<BeaconState<T::EthSpec>> {
@@ -732,6 +701,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.fork_choice()?;
 
         self.metrics.block_processing_successes.inc();
+        self.metrics.operations_per_block_attestation.observe(block.body.attestations.len() as f64);
         timer.observe_duration();
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
