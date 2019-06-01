@@ -127,6 +127,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = genesis_block.block_header().canonical_root();
         store.put(&block_root, &genesis_block)?;
 
+        // Store the genesis block under the `0x00..00` hash too.
+        //
+        // The spec declares that for fork choice, the `ZERO_HASH` should alias to the genesis
+        // block. See:
+        //
+        // github.com/ethereum/eth2.0-specs/blob/dev/specs/core/0_fork-choice.md#implementation-notes
+        store.put(&spec.zero_hash, &genesis_block)?;
+
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             block_root,
