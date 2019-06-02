@@ -1,16 +1,13 @@
 extern crate slog;
 
+mod beacon_chain_types;
 mod client_config;
-pub mod client_types;
 pub mod error;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;
-pub use client_config::ClientConfig;
-pub use client_types::ClientTypes;
-use db::ClientDB;
+use beacon_chain_types::InitialiseBeaconChain;
 use exit_future::Signal;
-use fork_choice::ForkChoice;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
 use slog::{error, info, o};
@@ -20,21 +17,24 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::EthSpec;
 
-type ArcBeaconChain<D, S, F, B> = Arc<BeaconChain<D, S, F, B>>;
+pub use beacon_chain::BeaconChainTypes;
+pub use beacon_chain_types::{TestnetDiskBeaconChainTypes, TestnetMemoryBeaconChainTypes};
+pub use client_config::{ClientConfig, DBType};
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
-pub struct Client<T: ClientTypes> {
+pub struct Client<T: BeaconChainTypes> {
     /// Configuration for the lighthouse client.
     _config: ClientConfig,
     /// The beacon chain for the running client.
-    _beacon_chain: ArcBeaconChain<T::DB, T::SlotClock, T::ForkChoice, T::EthSpec>,
+    _beacon_chain: Arc<BeaconChain<T>>,
     /// Reference to the network service.
-    pub network: Arc<NetworkService<T::EthSpec>>,
+    pub network: Arc<NetworkService<T>>,
     /// Signal to terminate the RPC server.
     pub rpc_exit_signal: Option<Signal>,
+    /// Signal to terminate the HTTP server.
+    pub http_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
     pub slot_timer_exit_signal: Option<Signal>,
     /// The clients logger.
@@ -43,7 +43,10 @@ pub struct Client<T: ClientTypes> {
     phantom: PhantomData<T>,
 }
 
-impl<TClientType: ClientTypes> Client<TClientType> {
+impl<T> Client<T>
+where
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + 'static,
+{
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
         config: ClientConfig,
@@ -51,7 +54,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
         // generate a beacon chain
-        let beacon_chain = TClientType::initialise_beacon_chain(&config);
+        let beacon_chain = Arc::new(T::initialise_beacon_chain(&config));
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
@@ -98,13 +101,24 @@ impl<TClientType: ClientTypes> Client<TClientType> {
             Some(rpc::start_server(
                 &config.rpc_conf,
                 executor,
-                network_send,
+                network_send.clone(),
                 beacon_chain.clone(),
                 &log,
             ))
         } else {
             None
         };
+
+        // Start the `http_server` service.
+        //
+        // Note: presently we are ignoring the config and _always_ starting a HTTP server.
+        let http_exit_signal = Some(http_server::start_service(
+            &config.http_conf,
+            executor,
+            network_send,
+            beacon_chain.clone(),
+            &log,
+        ));
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
@@ -135,6 +149,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
         Ok(Client {
             _config: config,
             _beacon_chain: beacon_chain,
+            http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
             log,
@@ -144,13 +159,7 @@ impl<TClientType: ClientTypes> Client<TClientType> {
     }
 }
 
-fn do_state_catchup<T, U, F, E>(chain: &Arc<BeaconChain<T, U, F, E>>, log: &slog::Logger)
-where
-    T: ClientDB,
-    U: SlotClock,
-    F: ForkChoice,
-    E: EthSpec,
-{
+fn do_state_catchup<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Logger) {
     if let Some(genesis_height) = chain.slots_since_genesis() {
         let result = chain.catchup_state();
 

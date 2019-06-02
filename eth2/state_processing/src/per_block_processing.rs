@@ -22,7 +22,9 @@ pub use verify_transfer::{
     execute_transfer, verify_transfer, verify_transfer_time_independent_only,
 };
 
+pub mod block_processing_builder;
 pub mod errors;
+pub mod tests;
 mod validate_attestation;
 mod verify_attester_slashing;
 mod verify_deposit;

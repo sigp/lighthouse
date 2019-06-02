@@ -111,7 +111,7 @@ tests and benchmarks which may be of interest.
 
 A few basic steps are needed to get set up:
 
-   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macos | Windows). For installation run the below command in your terminal `$ curl https://sh.rustup.rs -sSf | sh`
+   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macOS | Windows). For installation, download the script with `$ curl -f https://sh.rustup.rs > rustup.sh`, review its content (e.g. `$ less ./rustup.sh`) and run the script `$ ./rustup.sh` (you may need to change the permissions to allow execution, i.e. `$ chmod +x rustup.sh`) 
    2. (Linux & MacOS) To configure your current shell run: `$ source $HOME/.cargo/env`
    3. Use the command `rustup show` to get information about the Rust installation. You should see that the
    active toolchain is the stable version.
@@ -176,4 +176,4 @@ Ping @paulhauner or @AgeManning to get the quickest response.
 
 If you support the cause, we could certainly use donations to help fund development:
 
-`0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b`
+`0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth)

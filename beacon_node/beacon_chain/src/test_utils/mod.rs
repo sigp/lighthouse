@@ -1,3 +1,0 @@
-mod testing_beacon_chain_builder;
-
-pub use testing_beacon_chain_builder::TestingBeaconChainBuilder;

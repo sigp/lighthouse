@@ -1,0 +1,20 @@
+[package]
+name = "store"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dev-dependencies]
+tempfile = "3"
+
+[dependencies]
+blake2-rfc = "0.2.18"
+bls = { path = "../../eth2/utils/bls" }
+bytes = "0.4.10"
+db-key = "0.0.5"
+leveldb = "0.8.4"
+parking_lot = "0.7"
+ssz = { path = "../../eth2/utils/ssz" }
+ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
+types = { path =  "../../eth2/types" }

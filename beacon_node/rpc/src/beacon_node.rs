@@ -1,19 +1,18 @@
-use crate::beacon_chain::BeaconChain;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::Future;
 use grpcio::{RpcContext, UnarySink};
 use protos::services::{Empty, Fork, NodeInfoResponse};
 use protos::services_grpc::BeaconNodeService;
 use slog::{trace, warn};
 use std::sync::Arc;
-use types::EthSpec;
 
 #[derive(Clone)]
-pub struct BeaconNodeServiceInstance<E: EthSpec> {
-    pub chain: Arc<BeaconChain<E>>,
+pub struct BeaconNodeServiceInstance<T: BeaconChainTypes> {
+    pub chain: Arc<BeaconChain<T>>,
     pub log: slog::Logger,
 }
 
-impl<E: EthSpec> BeaconNodeService for BeaconNodeServiceInstance<E> {
+impl<T: BeaconChainTypes> BeaconNodeService for BeaconNodeServiceInstance<T> {
     /// Provides basic node information.
     fn info(&mut self, ctx: RpcContext, _req: Empty, sink: UnarySink<NodeInfoResponse>) {
         trace!(self.log, "Node info requested via RPC");
