@@ -16,17 +16,14 @@
 //! [`slow_lmd_ghost`]: struct.SlowLmdGhost.html
 //! [`bitwise_lmd_ghost`]: struct.OptimisedLmdGhost.html
 
-extern crate db;
-extern crate ssz;
-extern crate types;
-
 pub mod bitwise_lmd_ghost;
 pub mod longest_chain;
 pub mod optimized_lmd_ghost;
 pub mod slow_lmd_ghost;
 
-use db::stores::BeaconBlockAtSlotError;
-use db::DBError;
+// use store::stores::BeaconBlockAtSlotError;
+// use store::DBError;
+use store::Error as DBError;
 use types::{BeaconBlock, ChainSpec, Hash256};
 
 pub use bitwise_lmd_ghost::BitwiseLMDGhost;
@@ -77,10 +74,11 @@ pub enum ForkChoiceError {
 
 impl From<DBError> for ForkChoiceError {
     fn from(e: DBError) -> ForkChoiceError {
-        ForkChoiceError::StorageError(e.message)
+        ForkChoiceError::StorageError(format!("{:?}", e))
     }
 }
 
+/*
 impl From<BeaconBlockAtSlotError> for ForkChoiceError {
     fn from(e: BeaconBlockAtSlotError) -> ForkChoiceError {
         match e {
@@ -94,6 +92,7 @@ impl From<BeaconBlockAtSlotError> for ForkChoiceError {
         }
     }
 }
+*/
 
 /// Fork choice options that are currently implemented.
 #[derive(Debug, Clone)]

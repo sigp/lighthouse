@@ -1,22 +1,19 @@
 use beacon_chain::BeaconChain as RawBeaconChain;
 use beacon_chain::{
-    db::ClientDB,
-    fork_choice::ForkChoice,
     parking_lot::{RwLockReadGuard, RwLockWriteGuard},
-    slot_clock::SlotClock,
     types::{BeaconState, ChainSpec, Signature},
     AttestationValidationError, BlockProductionError,
 };
-pub use beacon_chain::{BeaconChainError, BlockProcessingOutcome};
+pub use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessingOutcome};
 use types::{Attestation, AttestationData, BeaconBlock, EthSpec};
 
 /// The RPC's API to the beacon chain.
-pub trait BeaconChain<E: EthSpec>: Send + Sync {
+pub trait BeaconChain<T: BeaconChainTypes>: Send + Sync {
     fn get_spec(&self) -> &ChainSpec;
 
-    fn get_state(&self) -> RwLockReadGuard<BeaconState<E>>;
+    fn get_state(&self) -> RwLockReadGuard<BeaconState<T::EthSpec>>;
 
-    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState<E>>;
+    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState<T::EthSpec>>;
 
     fn process_block(&self, block: BeaconBlock)
         -> Result<BlockProcessingOutcome, BeaconChainError>;
@@ -24,7 +21,7 @@ pub trait BeaconChain<E: EthSpec>: Send + Sync {
     fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState<E>), BlockProductionError>;
+    ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError>;
 
     fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, BeaconChainError>;
 
@@ -34,22 +31,16 @@ pub trait BeaconChain<E: EthSpec>: Send + Sync {
     ) -> Result<(), AttestationValidationError>;
 }
 
-impl<T, U, F, E> BeaconChain<E> for RawBeaconChain<T, U, F, E>
-where
-    T: ClientDB + Sized,
-    U: SlotClock,
-    F: ForkChoice,
-    E: EthSpec,
-{
+impl<T: BeaconChainTypes> BeaconChain<T> for RawBeaconChain<T> {
     fn get_spec(&self) -> &ChainSpec {
         &self.spec
     }
 
-    fn get_state(&self) -> RwLockReadGuard<BeaconState<E>> {
+    fn get_state(&self) -> RwLockReadGuard<BeaconState<T::EthSpec>> {
         self.state.read()
     }
 
-    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState<E>> {
+    fn get_mut_state(&self) -> RwLockWriteGuard<BeaconState<T::EthSpec>> {
         self.state.write()
     }
 
@@ -63,7 +54,7 @@ where
     fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState<E>), BlockProductionError> {
+    ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
         self.produce_block(randao_reveal)
     }
 

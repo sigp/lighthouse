@@ -1,6 +1,6 @@
 use clap::ArgMatches;
-use db::DBType;
 use fork_choice::ForkChoiceAlgorithm;
+use http_server::HttpServerConfig;
 use network::NetworkConfig;
 use slog::error;
 use std::fs;
@@ -12,6 +12,12 @@ use types::multiaddr::ToMultiaddr;
 use types::Multiaddr;
 use types::{ChainSpec, EthSpec, LighthouseTestnetEthSpec};
 
+#[derive(Debug, Clone)]
+pub enum DBType {
+    Memory,
+    Disk,
+}
+
 /// Stores the client configuration for this Lighthouse instance.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -22,7 +28,7 @@ pub struct ClientConfig {
     pub db_type: DBType,
     pub db_name: PathBuf,
     pub rpc_conf: rpc::RPCConfig,
-    //pub ipc_conf:
+    pub http_conf: HttpServerConfig, //pub ipc_conf:
 }
 
 impl Default for ClientConfig {
@@ -48,8 +54,9 @@ impl Default for ClientConfig {
             // default to memory db for now
             db_type: DBType::Memory,
             // default db name for disk-based dbs
-            db_name: data_dir.join("chain.db"),
+            db_name: data_dir.join("chain_db"),
             rpc_conf: rpc::RPCConfig::default(),
+            http_conf: HttpServerConfig::default(),
         }
     }
 }
@@ -90,13 +97,15 @@ impl ClientConfig {
         }
 
         // Custom bootnodes
-        // TODO: Handle list of addresses
         if let Some(boot_addresses_str) = args.value_of("boot-nodes") {
-            if let Ok(boot_address) = boot_addresses_str.parse::<Multiaddr>() {
-                config.net_conf.boot_nodes.append(&mut vec![boot_address]);
-            } else {
-                error!(log, "Invalid Bootnode multiaddress"; "Multiaddr" => boot_addresses_str);
-                return Err("Invalid IP Address");
+            let mut boot_addresses_split = boot_addresses_str.split(",");
+            for boot_address in boot_addresses_split {
+                if let Ok(boot_address) = boot_address.parse::<Multiaddr>() {
+                    config.net_conf.boot_nodes.append(&mut vec![boot_address]);
+                } else {
+                    error!(log, "Invalid Bootnode multiaddress"; "Multiaddr" => boot_addresses_str);
+                    return Err("Invalid IP Address");
+                }
             }
         }
 
@@ -130,6 +139,12 @@ impl ClientConfig {
                 return Err("Invalid RPC port");
             }
         }
+
+        match args.value_of("db") {
+            Some("disk") => config.db_type = DBType::Disk,
+            Some("memory") => config.db_type = DBType::Memory,
+            _ => unreachable!(), // clap prevents this.
+        };
 
         Ok(config)
     }

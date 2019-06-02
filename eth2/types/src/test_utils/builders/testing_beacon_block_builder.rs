@@ -23,6 +23,11 @@ impl TestingBeaconBlockBuilder {
         }
     }
 
+    /// Set the previous block root
+    pub fn set_previous_block_root(&mut self, root: Hash256) {
+        self.block.previous_block_root = root;
+    }
+
     /// Set the slot of the block.
     pub fn set_slot(&mut self, slot: Slot) {
         self.block.slot = slot;
@@ -46,6 +51,11 @@ impl TestingBeaconBlockBuilder {
         let message = epoch.tree_hash_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
         self.block.body.randao_reveal = Signature::new(&message, domain, sk);
+    }
+
+    /// Has the randao reveal been set?
+    pub fn randao_reveal_not_set(&mut self) -> bool {
+        self.block.body.randao_reveal.is_empty()
     }
 
     /// Inserts a signed, valid `ProposerSlashing` for the validator.

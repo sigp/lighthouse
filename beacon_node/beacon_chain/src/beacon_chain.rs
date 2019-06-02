@@ -1,16 +1,11 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
-use db::{
-    stores::{BeaconBlockStore, BeaconStateStore},
-    ClientDB, DBError,
-};
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
 use operation_pool::OperationPool;
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
-use ssz::ssz_encode;
 use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
@@ -20,6 +15,7 @@ use state_processing::{
     per_slot_processing, BlockProcessingError, SlotProcessingError,
 };
 use std::sync::Arc;
+use store::{Error as DBError, Store};
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -83,40 +79,39 @@ impl BlockProcessingOutcome {
     }
 }
 
-pub struct BeaconChain<T: ClientDB + Sized, U: SlotClock, F: ForkChoice, E: EthSpec> {
-    pub block_store: Arc<BeaconBlockStore<T>>,
-    pub state_store: Arc<BeaconStateStore<T>>,
-    pub slot_clock: U,
-    pub op_pool: OperationPool<E>,
-    canonical_head: RwLock<CheckPoint<E>>,
-    finalized_head: RwLock<CheckPoint<E>>,
-    pub state: RwLock<BeaconState<E>>,
-    pub spec: ChainSpec,
-    pub fork_choice: RwLock<F>,
+pub trait BeaconChainTypes {
+    type Store: store::Store;
+    type SlotClock: slot_clock::SlotClock;
+    type ForkChoice: fork_choice::ForkChoice;
+    type EthSpec: types::EthSpec;
 }
 
-impl<T, U, F, E> BeaconChain<T, U, F, E>
-where
-    T: ClientDB,
-    U: SlotClock,
-    F: ForkChoice,
-    E: EthSpec,
-{
+pub struct BeaconChain<T: BeaconChainTypes> {
+    pub store: Arc<T::Store>,
+    pub slot_clock: T::SlotClock,
+    pub op_pool: OperationPool<T::EthSpec>,
+    canonical_head: RwLock<CheckPoint<T::EthSpec>>,
+    finalized_head: RwLock<CheckPoint<T::EthSpec>>,
+    pub state: RwLock<BeaconState<T::EthSpec>>,
+    pub spec: ChainSpec,
+    pub fork_choice: RwLock<T::ForkChoice>,
+}
+
+impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
-        state_store: Arc<BeaconStateStore<T>>,
-        block_store: Arc<BeaconBlockStore<T>>,
-        slot_clock: U,
-        mut genesis_state: BeaconState<E>,
+        store: Arc<T::Store>,
+        slot_clock: T::SlotClock,
+        mut genesis_state: BeaconState<T::EthSpec>,
         genesis_block: BeaconBlock,
         spec: ChainSpec,
-        fork_choice: F,
+        fork_choice: T::ForkChoice,
     ) -> Result<Self, Error> {
         let state_root = genesis_state.canonical_root();
-        state_store.put(&state_root, &ssz_encode(&genesis_state)[..])?;
+        store.put(&state_root, &genesis_state)?;
 
         let block_root = genesis_block.block_header().canonical_root();
-        block_store.put(&block_root, &ssz_encode(&genesis_block)[..])?;
+        store.put(&block_root, &genesis_block)?;
 
         let finalized_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
@@ -134,8 +129,7 @@ where
         genesis_state.build_all_caches(&spec)?;
 
         Ok(Self {
-            block_store,
-            state_store,
+            store,
             slot_clock,
             op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
@@ -230,12 +224,12 @@ where
                 Err(BeaconStateError::SlotOutOfBounds) => {
                     // Read the earliest historic state in the current slot.
                     let earliest_historic_slot =
-                        state.slot - Slot::from(E::SlotsPerHistoricalRoot::to_usize());
+                        state.slot - Slot::from(T::EthSpec::slots_per_historical_root());
                     // Load the earlier state from disk.
                     let new_state_root = state.get_state_root(earliest_historic_slot)?;
 
                     // Break if the DB is unable to load the state.
-                    state = match self.state_store.get_deserialized(&new_state_root) {
+                    state = match self.store.get(&new_state_root) {
                         Ok(Some(state)) => state,
                         _ => break,
                     }
@@ -262,7 +256,7 @@ where
     ///
     /// May return a database error.
     pub fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, Error> {
-        Ok(self.block_store.get_deserialized(block_root)?)
+        Ok(self.store.get(block_root)?)
     }
 
     /// Update the canonical head to some new values.
@@ -270,7 +264,7 @@ where
         &self,
         new_beacon_block: BeaconBlock,
         new_beacon_block_root: Hash256,
-        new_beacon_state: BeaconState<E>,
+        new_beacon_state: BeaconState<T::EthSpec>,
         new_beacon_state_root: Hash256,
     ) {
         debug!(
@@ -292,7 +286,7 @@ where
     /// It is important to note that the `beacon_state` returned may not match the present slot. It
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
-    pub fn head(&self) -> RwLockReadGuard<CheckPoint<E>> {
+    pub fn head(&self) -> RwLockReadGuard<CheckPoint<T::EthSpec>> {
         self.canonical_head.read()
     }
 
@@ -302,7 +296,7 @@ where
     /// state and calling `catchup_state` as it will not result in an old state being installed and
     /// then having it iteratively updated -- in such a case it's possible for another thread to
     /// find the state at an old slot.
-    pub fn update_state(&self, mut state: BeaconState<E>) -> Result<(), Error> {
+    pub fn update_state(&self, mut state: BeaconState<T::EthSpec>) -> Result<(), Error> {
         let present_slot = match self.slot_clock.present_slot() {
             Ok(Some(slot)) => slot,
             _ => return Err(Error::UnableToReadSlot),
@@ -357,7 +351,7 @@ where
         &self,
         new_beacon_block: BeaconBlock,
         new_beacon_block_root: Hash256,
-        new_beacon_state: BeaconState<E>,
+        new_beacon_state: BeaconState<T::EthSpec>,
         new_beacon_state_root: Hash256,
     ) {
         let mut finalized_head = self.finalized_head.write();
@@ -371,7 +365,7 @@ where
 
     /// Returns a read-lock guarded `CheckPoint` struct for reading the justified head (as chosen,
     /// indirectly,  by the fork-choice rule).
-    pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint<E>> {
+    pub fn finalized_head(&self) -> RwLockReadGuard<CheckPoint<T::EthSpec>> {
         self.finalized_head.read()
     }
 
@@ -588,7 +582,7 @@ where
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
         let parent_block_root = block.previous_block_root;
-        let parent_block = match self.block_store.get_deserialized(&parent_block_root)? {
+        let parent_block: BeaconBlock = match self.store.get(&parent_block_root)? {
             Some(previous_block_root) => previous_block_root,
             None => {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -601,15 +595,15 @@ where
         // It is an error because if know the parent block we should also know the parent state.
         let parent_state_root = parent_block.state_root;
         let parent_state = self
-            .state_store
-            .get_deserialized(&parent_state_root)?
+            .store
+            .get(&parent_state_root)?
             .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
 
         // TODO: check the block proposer signature BEFORE doing a state transition. This will
         // significantly lower exposure surface to DoS attacks.
 
         // Transition the parent state to the block slot.
-        let mut state = parent_state;
+        let mut state: BeaconState<T::EthSpec> = parent_state;
         for _ in state.slot.as_u64()..block.slot.as_u64() {
             if let Err(e) = per_slot_processing(&mut state, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
@@ -635,8 +629,8 @@ where
         }
 
         // Store the block and state.
-        self.block_store.put(&block_root, &ssz_encode(&block)[..])?;
-        self.state_store.put(&state_root, &ssz_encode(&state)[..])?;
+        self.store.put(&block_root, &block)?;
+        self.store.put(&state_root, &state)?;
 
         // run the fork_choice add_block logic
         self.fork_choice
@@ -664,7 +658,7 @@ where
     pub fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState<E>), BlockProductionError> {
+    ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
         debug!("Producing block at slot {}...", self.state.read().slot);
 
         let mut state = self.state.read().clone();
@@ -729,15 +723,15 @@ where
             .find_head(&present_head, &self.spec)?;
 
         if new_head != present_head {
-            let block = self
-                .block_store
-                .get_deserialized(&new_head)?
+            let block: BeaconBlock = self
+                .store
+                .get(&new_head)?
                 .ok_or_else(|| Error::MissingBeaconBlock(new_head))?;
             let block_root = block.canonical_root();
 
-            let state = self
-                .state_store
-                .get_deserialized(&block.state_root)?
+            let state: BeaconState<T::EthSpec> = self
+                .store
+                .get(&block.state_root)?
                 .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
             let state_root = state.canonical_root();
 
@@ -752,14 +746,14 @@ where
 
     /// Returns `true` if the given block root has not been processed.
     pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
-        Ok(!self.block_store.exists(beacon_block_root)?)
+        Ok(!self.store.exists::<BeaconBlock>(beacon_block_root)?)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
     /// activities.
-    pub fn chain_dump(&self) -> Result<Vec<CheckPoint<E>>, Error> {
+    pub fn chain_dump(&self) -> Result<Vec<CheckPoint<T::EthSpec>>, Error> {
         let mut dump = vec![];
 
         let mut last_slot = CheckPoint {
@@ -778,19 +772,14 @@ where
                 break; // Genesis has been reached.
             }
 
-            let beacon_block = self
-                .block_store
-                .get_deserialized(&beacon_block_root)?
-                .ok_or_else(|| {
+            let beacon_block: BeaconBlock =
+                self.store.get(&beacon_block_root)?.ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
             let beacon_state_root = beacon_block.state_root;
-            let beacon_state = self
-                .state_store
-                .get_deserialized(&beacon_state_root)?
-                .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
-                })?;
+            let beacon_state = self.store.get(&beacon_state_root)?.ok_or_else(|| {
+                Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
+            })?;
 
             let slot = CheckPoint {
                 beacon_block,
@@ -811,7 +800,7 @@ where
 
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
-        Error::DBError(e.message)
+        Error::DBError(e)
     }
 }
 

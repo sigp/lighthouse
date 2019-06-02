@@ -5,7 +5,7 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
-db = { path = "../../beacon_node/db" }
+store = { path = "../../beacon_node/store" }
 ssz = { path = "../utils/ssz" }
 types = { path = "../types" }
 log = "0.4.6"
