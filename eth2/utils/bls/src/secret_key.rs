@@ -1,8 +1,8 @@
 extern crate rand;
 
 use super::BLS_SECRET_KEY_BYTE_SIZE;
-use bls_aggregates::SecretKey as RawSecretKey;
 use hex::encode as hex_encode;
+use milagro_bls::SecretKey as RawSecretKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
