@@ -5,10 +5,11 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-bls-aggregates = { git = "https://github.com/sigp/signature-schemes", tag = "0.6.1" }
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v0.9.0" }
 cached_tree_hash = { path = "../cached_tree_hash" }
 hashing = { path = "../hashing" }
 hex = "0.3"
+rand = "^0.5"
 serde = "1.0"
 serde_derive = "1.0"
 serde_hex = { path = "../serde_hex" }
