@@ -128,6 +128,7 @@ where
                 executor,
                 network_send,
                 beacon_chain.clone(),
+                config.db_name.clone(),
                 metrics_registry,
                 &log,
             ))

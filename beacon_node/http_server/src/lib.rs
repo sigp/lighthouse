@@ -9,6 +9,7 @@ use network::NetworkMessage;
 use prometheus::Registry;
 use router::Router;
 use slog::{info, o, warn};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
@@ -32,6 +33,7 @@ impl Default for HttpServerConfig {
 /// Build the `iron` HTTP server, defining the core routes.
 pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
+    db_path: PathBuf,
     metrics_registry: Registry,
 ) -> Iron<Router> {
     let mut router = Router::new();
@@ -39,7 +41,7 @@ pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
     // A `GET` request to `/metrics` is handled by the `metrics` module.
     router.get(
         "/metrics",
-        metrics::build_handler(beacon_chain.clone(), metrics_registry),
+        metrics::build_handler(beacon_chain.clone(), db_path, metrics_registry),
         "metrics",
     );
 
@@ -55,6 +57,7 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
     executor: &TaskExecutor,
     _network_chan: crossbeam_channel::Sender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
+    db_path: PathBuf,
     metrics_registry: Registry,
     log: &slog::Logger,
 ) -> exit_future::Signal {
@@ -66,7 +69,7 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
     let (shutdown_trigger, wait_for_shutdown) = exit_future::signal();
 
     // Create an `iron` http, without starting it yet.
-    let iron = create_iron_http_server(beacon_chain, metrics_registry);
+    let iron = create_iron_http_server(beacon_chain, db_path, metrics_registry);
 
     // Create a HTTP server future.
     //

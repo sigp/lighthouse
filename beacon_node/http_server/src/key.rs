@@ -3,6 +3,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use iron::typemap::Key;
 use prometheus::Registry;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub struct BeaconChainKey<T> {
@@ -23,4 +24,10 @@ pub struct LocalMetricsKey;
 
 impl Key for LocalMetricsKey {
     type Value = LocalMetrics;
+}
+
+pub struct DBPathKey;
+
+impl Key for DBPathKey {
+    type Value = PathBuf;
 }

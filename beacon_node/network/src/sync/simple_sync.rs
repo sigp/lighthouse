@@ -859,7 +859,7 @@ fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMes
         latest_finalized_root: state.finalized_root,
         latest_finalized_epoch: state.finalized_epoch,
         best_root: beacon_chain.head().beacon_block_root,
-        best_slot: beacon_chain.head().beacon_block.slot,
+        best_slot: state.slot,
     }
 }
 
