@@ -1,4 +1,4 @@
-extern crate bls_aggregates;
+extern crate milagro_bls;
 extern crate ssz;
 
 #[macro_use]
@@ -8,7 +8,7 @@ mod secret_key;
 
 pub use crate::keypair::Keypair;
 pub use crate::secret_key::SecretKey;
-pub use bls_aggregates::{compress_g2, hash_on_g2};
+pub use milagro_bls::{compress_g2, hash_on_g2};
 
 #[cfg(feature = "fake_crypto")]
 mod fake_aggregate_public_key;

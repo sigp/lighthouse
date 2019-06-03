@@ -1,6 +1,6 @@
 use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use bls_aggregates::PublicKey as RawPublicKey;
 use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
+use milagro_bls::PublicKey as RawPublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
