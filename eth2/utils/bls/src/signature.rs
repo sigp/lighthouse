@@ -1,7 +1,7 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
-use bls_aggregates::Signature as RawSignature;
 use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use hex::encode as hex_encode;
+use milagro_bls::Signature as RawSignature;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
