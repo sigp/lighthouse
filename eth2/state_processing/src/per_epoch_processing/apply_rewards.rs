@@ -32,57 +32,52 @@ impl std::ops::AddAssign for Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.5.1
-pub fn apply_rewards<T: EthSpec>(
+/// Spec v0.6.1
+pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    if state.current_epoch() == spec.genesis_epoch {
+        return Ok(());
+    }
+
     // Guard against an out-of-bounds during the validator balance update.
-    if validator_statuses.statuses.len() != state.validator_balances.len() {
-        return Err(Error::ValidatorStatusesInconsistent);
-    }
-    // Guard against an out-of-bounds during the attester inclusion balance update.
-    if validator_statuses.statuses.len() != state.validator_registry.len() {
+    if validator_statuses.statuses.len() != state.balances.len()
+        || validator_statuses.statuses.len() != state.validator_registry.len()
+    {
         return Err(Error::ValidatorStatusesInconsistent);
     }
 
-    let mut deltas = vec![Delta::default(); state.validator_balances.len()];
+    let mut deltas = vec![Delta::default(); state.balances.len()];
 
-    get_justification_and_finalization_deltas(&mut deltas, state, &validator_statuses, spec)?;
+    get_attestation_deltas(&mut deltas, state, &validator_statuses, spec)?;
     get_crosslink_deltas(&mut deltas, state, &validator_statuses, spec)?;
 
-    // Apply the proposer deltas if we are finalizing normally.
-    //
-    // This is executed slightly differently to the spec because of the way our functions are
-    // structured. It should be functionally equivalent.
-    if epochs_since_finality(state, spec) <= 4 {
-        get_proposer_deltas(
-            &mut deltas,
-            state,
-            validator_statuses,
-            winning_root_for_shards,
-            spec,
-        )?;
-    }
+    get_proposer_deltas(
+        &mut deltas,
+        state,
+        validator_statuses,
+        winning_root_for_shards,
+        spec,
+    )?;
 
     // Apply the deltas, over-flowing but not under-flowing (saturating at 0 instead).
     for (i, delta) in deltas.iter().enumerate() {
-        state.validator_balances[i] += delta.rewards;
-        state.validator_balances[i] = state.validator_balances[i].saturating_sub(delta.penalties);
+        state.balances[i] += delta.rewards;
+        state.balances[i] = state.balances[i].saturating_sub(delta.penalties);
     }
 
     Ok(())
 }
 
-/// Applies the attestation inclusion reward to each proposer for every validator who included an
-/// attestation in the previous epoch.
+/// For each attesting validator, reward the proposer who was first to include their attestation.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &mut BeaconState<T>,
+    state: &BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
@@ -90,9 +85,7 @@ fn get_proposer_deltas<T: EthSpec>(
     // Update statuses with the information from winning roots.
     validator_statuses.process_winning_roots(state, winning_root_for_shards, spec)?;
 
-    for (index, validator) in validator_statuses.statuses.iter().enumerate() {
-        let mut delta = Delta::default();
-
+    for validator in &validator_statuses.statuses {
         if validator.is_previous_epoch_attester {
             let inclusion = validator
                 .inclusion_info
@@ -101,7 +94,7 @@ fn get_proposer_deltas<T: EthSpec>(
             let base_reward = get_base_reward(
                 state,
                 inclusion.proposer_index,
-                validator_statuses.total_balances.previous_epoch,
+                validator_statuses.total_balances.current_epoch,
                 spec,
             )?;
 
@@ -109,10 +102,8 @@ fn get_proposer_deltas<T: EthSpec>(
                 return Err(Error::ValidatorStatusesInconsistent);
             }
 
-            delta.reward(base_reward / spec.attestation_inclusion_reward_quotient);
+            deltas[inclusion.proposer_index].reward(base_reward / spec.proposer_reward_quotient);
         }
-
-        deltas[index] += delta;
     }
 
     Ok(())
@@ -120,40 +111,30 @@ fn get_proposer_deltas<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.5.1
-fn get_justification_and_finalization_deltas<T: EthSpec>(
+/// Spec v0.6.1
+fn get_attestation_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let epochs_since_finality = epochs_since_finality(state, spec);
+    let finality_delay = (state.previous_epoch() - state.finalized_epoch).as_u64();
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
         let base_reward = get_base_reward(
             state,
             index,
-            validator_statuses.total_balances.previous_epoch,
-            spec,
-        )?;
-        let inactivity_penalty = get_inactivity_penalty(
-            state,
-            index,
-            epochs_since_finality.as_u64(),
-            validator_statuses.total_balances.previous_epoch,
+            validator_statuses.total_balances.current_epoch,
             spec,
         )?;
 
-        let delta = if epochs_since_finality <= 4 {
-            compute_normal_justification_and_finalization_delta(
-                &validator,
-                &validator_statuses.total_balances,
-                base_reward,
-                spec,
-            )
-        } else {
-            compute_inactivity_leak_delta(&validator, base_reward, inactivity_penalty, spec)
-        };
+        let delta = get_attestation_delta(
+            &validator,
+            &validator_statuses.total_balances,
+            base_reward,
+            finality_delay,
+            spec,
+        );
 
         deltas[index] += delta;
     }
@@ -161,51 +142,79 @@ fn get_justification_and_finalization_deltas<T: EthSpec>(
     Ok(())
 }
 
-/// Determine the delta for a single validator, if the chain is finalizing normally.
+/// Determine the delta for a single validator, sans proposer rewards.
 ///
-/// Spec v0.5.1
-fn compute_normal_justification_and_finalization_delta(
+/// Spec v0.6.1
+fn get_attestation_delta(
     validator: &ValidatorStatus,
     total_balances: &TotalBalances,
     base_reward: u64,
+    finality_delay: u64,
     spec: &ChainSpec,
 ) -> Delta {
     let mut delta = Delta::default();
 
-    let boundary_attesting_balance = total_balances.previous_epoch_boundary_attesters;
-    let total_balance = total_balances.previous_epoch;
+    // Is this validator eligible to be rewarded or penalized?
+    // Spec: validator index in `eligible_validator_indices`
+    let is_eligible = validator.is_active_in_previous_epoch
+        || (validator.is_slashed && !validator.is_withdrawable_in_current_epoch);
+
+    if !is_eligible {
+        return delta;
+    }
+
+    let total_balance = total_balances.current_epoch;
     let total_attesting_balance = total_balances.previous_epoch_attesters;
-    let matching_head_balance = total_balances.previous_epoch_boundary_attesters;
+    let matching_target_balance = total_balances.previous_epoch_target_attesters;
+    let matching_head_balance = total_balances.previous_epoch_head_attesters;
 
     // Expected FFG source.
-    if validator.is_previous_epoch_attester {
+    // Spec:
+    // - validator index in `get_unslashed_attesting_indices(state, matching_source_attestations)`
+    if validator.is_previous_epoch_attester && !validator.is_slashed {
         delta.reward(base_reward * total_attesting_balance / total_balance);
         // Inclusion speed bonus
         let inclusion = validator
             .inclusion_info
             .expect("It is a logic error for an attester not to have an inclusion distance.");
-        delta.reward(
-            base_reward * spec.min_attestation_inclusion_delay / inclusion.distance.as_u64(),
-        );
-    } else if validator.is_active_in_previous_epoch {
+        delta.reward(base_reward * spec.min_attestation_inclusion_delay / inclusion.distance);
+    } else {
         delta.penalize(base_reward);
     }
 
     // Expected FFG target.
-    if validator.is_previous_epoch_boundary_attester {
-        delta.reward(base_reward / boundary_attesting_balance / total_balance);
-    } else if validator.is_active_in_previous_epoch {
+    // Spec:
+    // - validator index in `get_unslashed_attesting_indices(state, matching_target_attestations)`
+    if validator.is_previous_epoch_target_attester && !validator.is_slashed {
+        delta.reward(base_reward * matching_target_balance / total_balance);
+    } else {
         delta.penalize(base_reward);
     }
 
     // Expected head.
-    if validator.is_previous_epoch_head_attester {
+    // Spec:
+    // - validator index in `get_unslashed_attesting_indices(state, matching_head_attestations)`
+    if validator.is_previous_epoch_head_attester && !validator.is_slashed {
         delta.reward(base_reward * matching_head_balance / total_balance);
-    } else if validator.is_active_in_previous_epoch {
+    } else {
         delta.penalize(base_reward);
-    };
+    }
 
-    // Proposer bonus is handled in `apply_proposer_deltas`.
+    // Inactivity penalty
+    if finality_delay > spec.min_epochs_to_inactivity_penalty {
+        // All eligible validators are penalized
+        delta.penalize(spec.base_rewards_per_epoch * base_reward);
+
+        // Additionally, all validators whose FFG target didn't match are penalized extra
+        if !validator.is_previous_epoch_target_attester {
+            delta.penalize(
+                validator.current_epoch_effective_balance * finality_delay
+                    / spec.inactivity_penalty_quotient,
+            );
+        }
+    }
+
+    // Proposer bonus is handled in `get_proposer_deltas`.
     //
     // This function only computes the delta for a single validator, so it cannot also return a
     // delta for a validator.
@@ -213,55 +222,9 @@ fn compute_normal_justification_and_finalization_delta(
     delta
 }
 
-/// Determine the delta for a single delta, assuming the chain is _not_ finalizing normally.
-///
-/// Spec v0.5.1
-fn compute_inactivity_leak_delta(
-    validator: &ValidatorStatus,
-    base_reward: u64,
-    inactivity_penalty: u64,
-    spec: &ChainSpec,
-) -> Delta {
-    let mut delta = Delta::default();
-
-    if validator.is_active_in_previous_epoch {
-        if !validator.is_previous_epoch_attester {
-            delta.penalize(inactivity_penalty);
-        } else {
-            // If a validator did attest, apply a small penalty for getting attestations included
-            // late.
-            let inclusion = validator
-                .inclusion_info
-                .expect("It is a logic error for an attester not to have an inclusion distance.");
-            delta.reward(
-                base_reward * spec.min_attestation_inclusion_delay / inclusion.distance.as_u64(),
-            );
-            delta.penalize(base_reward);
-        }
-
-        if !validator.is_previous_epoch_boundary_attester {
-            delta.reward(inactivity_penalty);
-        }
-
-        if !validator.is_previous_epoch_head_attester {
-            delta.penalize(inactivity_penalty);
-        }
-    }
-
-    // Penalize slashed-but-inactive validators as though they were active but offline.
-    if !validator.is_active_in_previous_epoch
-        & validator.is_slashed
-        & !validator.is_withdrawable_in_current_epoch
-    {
-        delta.penalize(2 * inactivity_penalty + base_reward);
-    }
-
-    delta
-}
-
 /// Calculate the deltas based upon the winning roots for attestations during the previous epoch.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 fn get_crosslink_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -274,7 +237,7 @@ fn get_crosslink_deltas<T: EthSpec>(
         let base_reward = get_base_reward(
             state,
             index,
-            validator_statuses.total_balances.previous_epoch,
+            validator_statuses.total_balances.current_epoch,
             spec,
         )?;
 
@@ -295,40 +258,20 @@ fn get_crosslink_deltas<T: EthSpec>(
 
 /// Returns the base reward for some validator.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 fn get_base_reward<T: EthSpec>(
     state: &BeaconState<T>,
     index: usize,
-    previous_total_balance: u64,
+    // Should be == get_total_active_balance(state, spec)
+    total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<u64, BeaconStateError> {
-    if previous_total_balance == 0 {
+    if total_active_balance == 0 {
         Ok(0)
     } else {
-        let adjusted_quotient = previous_total_balance.integer_sqrt() / spec.base_reward_quotient;
-        Ok(state.get_effective_balance(index, spec)? / adjusted_quotient / 5)
+        let adjusted_quotient = total_active_balance.integer_sqrt() / spec.base_reward_quotient;
+        Ok(state.get_effective_balance(index, spec)?
+            / adjusted_quotient
+            / spec.base_rewards_per_epoch)
     }
-}
-
-/// Returns the inactivity penalty for some validator.
-///
-/// Spec v0.5.1
-fn get_inactivity_penalty<T: EthSpec>(
-    state: &BeaconState<T>,
-    index: usize,
-    epochs_since_finality: u64,
-    previous_total_balance: u64,
-    spec: &ChainSpec,
-) -> Result<u64, BeaconStateError> {
-    Ok(get_base_reward(state, index, previous_total_balance, spec)?
-        + state.get_effective_balance(index, spec)? * epochs_since_finality
-            / spec.inactivity_penalty_quotient
-            / 2)
-}
-
-/// Returns the epochs since the last finalized epoch.
-///
-/// Spec v0.5.1
-fn epochs_since_finality<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Epoch {
-    state.current_epoch(spec) + 1 - state.finalized_epoch
 }

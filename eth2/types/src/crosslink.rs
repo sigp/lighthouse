@@ -8,11 +8,12 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Specifies the block hash for a shard at an epoch.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 #[derive(
     Debug,
     Clone,
     PartialEq,
+    Eq,
     Default,
     Serialize,
     Deserialize,
@@ -25,6 +26,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 )]
 pub struct Crosslink {
     pub epoch: Epoch,
+    pub previous_crosslink_root: Hash256,
     pub crosslink_data_root: Hash256,
 }
 

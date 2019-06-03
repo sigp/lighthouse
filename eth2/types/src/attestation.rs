@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 #[derive(
     Debug,
     Clone,
@@ -28,7 +28,7 @@ pub struct Attestation {
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
     #[signed_root(skip_hashing)]
-    pub aggregate_signature: AggregateSignature,
+    pub signature: AggregateSignature,
 }
 
 impl Attestation {
@@ -49,8 +49,7 @@ impl Attestation {
         self.aggregation_bitfield
             .union_inplace(&other.aggregation_bitfield);
         self.custody_bitfield.union_inplace(&other.custody_bitfield);
-        self.aggregate_signature
-            .add_aggregate(&other.aggregate_signature);
+        self.signature.add_aggregate(&other.signature);
     }
 }
 

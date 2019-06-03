@@ -9,8 +9,8 @@ pub enum GenesisError {
 
 /// Returns the genesis `BeaconState`
 ///
-/// Spec v0.5.1
-pub fn get_genesis_state<T: EthSpec>(
+/// Spec v0.6.1
+pub fn get_genesis_beacon_state<T: EthSpec>(
     genesis_validator_deposits: &[Deposit],
     genesis_time: u64,
     genesis_eth1_data: Eth1Data,
@@ -23,24 +23,22 @@ pub fn get_genesis_state<T: EthSpec>(
     process_deposits(&mut state, genesis_validator_deposits, spec)?;
 
     // Process genesis activations.
-    for i in 0..state.validator_registry.len() {
-        if state.get_effective_balance(i, spec)? >= spec.max_deposit_amount {
-            state.validator_registry[i].activation_epoch = spec.genesis_epoch;
+    for validator in &mut state.validator_registry {
+        if validator.effective_balance >= spec.max_effective_balance {
+            validator.activation_eligibility_epoch = spec.genesis_epoch;
+            validator.activation_epoch = spec.genesis_epoch;
         }
     }
 
     // Ensure the current epoch cache is built.
-    state.build_epoch_cache(RelativeEpoch::Current, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     // Set all the active index roots to be the genesis active index root.
     let active_validator_indices = state
-        .get_cached_active_validator_indices(RelativeEpoch::Current, spec)?
+        .get_cached_active_validator_indices(RelativeEpoch::Current)?
         .to_vec();
     let genesis_active_index_root = Hash256::from_slice(&active_validator_indices.tree_hash_root());
     state.fill_active_index_roots_with(genesis_active_index_root);
-
-    // Generate the current shuffling seed.
-    state.current_shuffling_seed = state.generate_seed(spec.genesis_epoch, spec)?;
 
     Ok(state)
 }

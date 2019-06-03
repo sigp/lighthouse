@@ -67,7 +67,7 @@ fn invalid_block_signature() {
     let keypair = Keypair::random();
     let message = block.signed_root();
     let epoch = block.slot.epoch(spec.slots_per_epoch);
-    let domain = spec.get_domain(epoch, Domain::BeaconBlock, &state.fork);
+    let domain = spec.get_domain(epoch, Domain::BeaconProposer, &state.fork);
     block.signature = Signature::new(&message, domain, &keypair.sk);
 
     // process block with invalid block signature

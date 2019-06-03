@@ -52,7 +52,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             Ok(ValidatorEvent::SignerRejection(_slot)) => {
                 error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string())
             }
-            Ok(ValidatorEvent::SlashableAttestationNotProduced(_slot)) => {
+            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => {
                 error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string())
             }
             Ok(ValidatorEvent::PublishAttestationFailed) => {
@@ -99,7 +99,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
                 Ok(ValidatorEvent::SignerRejection(self.duty.slot))
             }
         } else {
-            Ok(ValidatorEvent::SlashableAttestationNotProduced(
+            Ok(ValidatorEvent::IndexedAttestationNotProduced(
                 self.duty.slot,
             ))
         }
@@ -140,7 +140,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             aggregation_bitfield,
             data: attestation,
             custody_bitfield,
-            aggregate_signature,
+            signature: aggregate_signature,
         })
     }
 

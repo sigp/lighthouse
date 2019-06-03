@@ -1,5 +1,5 @@
-use super::get_attestation_participants::get_attestation_participants;
 use super::WinningRootHashSet;
+use crate::common::get_attesting_indices_unsorted;
 use types::*;
 
 /// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`
@@ -29,7 +29,7 @@ pub struct InclusionInfo {
     pub slot: Slot,
     /// The distance between the attestation slot and the slot that attestation was included in a
     /// block.
-    pub distance: Slot,
+    pub distance: u64,
     /// The index of the proposer at the slot where the attestation was included.
     pub proposer_index: usize,
 }
@@ -39,7 +39,7 @@ impl Default for InclusionInfo {
     fn default() -> Self {
         Self {
             slot: Slot::max_value(),
-            distance: Slot::max_value(),
+            distance: u64::max_value(),
             proposer_index: 0,
         }
     }
@@ -68,17 +68,19 @@ pub struct ValidatorStatus {
     pub is_active_in_current_epoch: bool,
     /// True if the validator was active in the state's _previous_ epoch.
     pub is_active_in_previous_epoch: bool,
+    /// The validator's effective balance in the _current_ epoch.
+    pub current_epoch_effective_balance: u64,
 
     /// True if the validator had an attestation included in the _current_ epoch.
     pub is_current_epoch_attester: bool,
     /// True if the validator's beacon block root attestation for the first slot of the _current_
     /// epoch matches the block root known to the state.
-    pub is_current_epoch_boundary_attester: bool,
+    pub is_current_epoch_target_attester: bool,
     /// True if the validator had an attestation included in the _previous_ epoch.
     pub is_previous_epoch_attester: bool,
     /// True if the validator's beacon block root attestation for the first slot of the _previous_
     /// epoch matches the block root known to the state.
-    pub is_previous_epoch_boundary_attester: bool,
+    pub is_previous_epoch_target_attester: bool,
     /// True if the validator's beacon block root attestation in the _previous_ epoch at the
     /// attestation's slot (`attestation_data.slot`) matches the block root known to the state.
     pub is_previous_epoch_head_attester: bool,
@@ -106,9 +108,9 @@ impl ValidatorStatus {
         set_self_if_other_is_true!(self, other, is_active_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_previous_epoch);
         set_self_if_other_is_true!(self, other, is_current_epoch_attester);
-        set_self_if_other_is_true!(self, other, is_current_epoch_boundary_attester);
+        set_self_if_other_is_true!(self, other, is_current_epoch_target_attester);
         set_self_if_other_is_true!(self, other, is_previous_epoch_attester);
-        set_self_if_other_is_true!(self, other, is_previous_epoch_boundary_attester);
+        set_self_if_other_is_true!(self, other, is_previous_epoch_target_attester);
         set_self_if_other_is_true!(self, other, is_previous_epoch_head_attester);
 
         if let Some(other_info) = other.inclusion_info {
@@ -133,12 +135,12 @@ pub struct TotalBalances {
     pub current_epoch_attesters: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
-    pub current_epoch_boundary_attesters: u64,
+    pub current_epoch_target_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch.
     pub previous_epoch_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _previous_ epoch.
-    pub previous_epoch_boundary_attesters: u64,
+    pub previous_epoch_target_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch and
     /// agreed with the state about the beacon block at the time of attestation.
     pub previous_epoch_head_attesters: u64,
@@ -160,7 +162,7 @@ impl ValidatorStatuses {
     /// - Active validators
     /// - Total balances for the current and previous epochs.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -169,21 +171,23 @@ impl ValidatorStatuses {
         let mut total_balances = TotalBalances::default();
 
         for (i, validator) in state.validator_registry.iter().enumerate() {
+            let effective_balance = state.get_effective_balance(i, spec)?;
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed,
                 is_withdrawable_in_current_epoch: validator
-                    .is_withdrawable_at(state.current_epoch(spec)),
+                    .is_withdrawable_at(state.current_epoch()),
+                current_epoch_effective_balance: effective_balance,
                 ..ValidatorStatus::default()
             };
 
-            if validator.is_active_at(state.current_epoch(spec)) {
+            if validator.is_active_at(state.current_epoch()) {
                 status.is_active_in_current_epoch = true;
-                total_balances.current_epoch += state.get_effective_balance(i, spec)?;
+                total_balances.current_epoch += effective_balance;
             }
 
-            if validator.is_active_at(state.previous_epoch(spec)) {
+            if validator.is_active_at(state.previous_epoch()) {
                 status.is_active_in_previous_epoch = true;
-                total_balances.previous_epoch += state.get_effective_balance(i, spec)?;
+                total_balances.previous_epoch += effective_balance;
             }
 
             statuses.push(status);
@@ -198,7 +202,7 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn process_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -210,44 +214,41 @@ impl ValidatorStatuses {
             .chain(state.current_epoch_attestations.iter())
         {
             let attesting_indices =
-                get_attestation_participants(state, &a.data, &a.aggregation_bitfield, spec)?;
-            let attesting_balance = state.get_total_balance(&attesting_indices, spec)?;
+                get_attesting_indices_unsorted(state, &a.data, &a.aggregation_bitfield)?;
 
             let mut status = ValidatorStatus::default();
 
             // Profile this attestation, updating the total balances and generating an
             // `ValidatorStatus` object that applies to all participants in the attestation.
-            if is_from_epoch(a, state.current_epoch(spec), spec) {
-                self.total_balances.current_epoch_attesters += attesting_balance;
+            if is_from_epoch(a, state.current_epoch()) {
                 status.is_current_epoch_attester = true;
 
-                if has_common_epoch_boundary_root(a, state, state.current_epoch(spec), spec)? {
-                    self.total_balances.current_epoch_boundary_attesters += attesting_balance;
-                    status.is_current_epoch_boundary_attester = true;
+                if target_matches_epoch_start_block(a, state, state.current_epoch(), spec)? {
+                    status.is_current_epoch_target_attester = true;
                 }
-            } else if is_from_epoch(a, state.previous_epoch(spec), spec) {
-                self.total_balances.previous_epoch_attesters += attesting_balance;
+            } else if is_from_epoch(a, state.previous_epoch()) {
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
-                let relative_epoch = RelativeEpoch::from_slot(state.slot, a.inclusion_slot, spec)?;
+                let attestation_slot = state.get_attestation_slot(&a.data)?;
+                let inclusion_slot = attestation_slot + a.inclusion_delay;
+                let relative_epoch =
+                    RelativeEpoch::from_slot(state.slot, inclusion_slot, spec.slots_per_epoch)?;
                 status.inclusion_info = Some(InclusionInfo {
-                    slot: a.inclusion_slot,
-                    distance: inclusion_distance(a),
+                    slot: inclusion_slot,
+                    distance: a.inclusion_delay,
                     proposer_index: state.get_beacon_proposer_index(
-                        a.inclusion_slot,
+                        attestation_slot,
                         relative_epoch,
                         spec,
                     )?,
                 });
 
-                if has_common_epoch_boundary_root(a, state, state.previous_epoch(spec), spec)? {
-                    self.total_balances.previous_epoch_boundary_attesters += attesting_balance;
-                    status.is_previous_epoch_boundary_attester = true;
+                if target_matches_epoch_start_block(a, state, state.previous_epoch(), spec)? {
+                    status.is_previous_epoch_target_attester = true;
                 }
 
                 if has_common_beacon_block_root(a, state)? {
-                    self.total_balances.previous_epoch_head_attesters += attesting_balance;
                     status.is_previous_epoch_head_attester = true;
                 }
             }
@@ -258,13 +259,37 @@ impl ValidatorStatuses {
             }
         }
 
+        // Compute the total balances
+        for (index, v) in self.statuses.iter().enumerate() {
+            // According to the spec, we only count unslashed validators towards the totals.
+            if !v.is_slashed {
+                let validator_balance = state.get_effective_balance(index, spec)?;
+
+                if v.is_current_epoch_attester {
+                    self.total_balances.current_epoch_attesters += validator_balance;
+                }
+                if v.is_current_epoch_target_attester {
+                    self.total_balances.current_epoch_target_attesters += validator_balance;
+                }
+                if v.is_previous_epoch_attester {
+                    self.total_balances.previous_epoch_attesters += validator_balance;
+                }
+                if v.is_previous_epoch_target_attester {
+                    self.total_balances.previous_epoch_target_attesters += validator_balance;
+                }
+                if v.is_previous_epoch_head_attester {
+                    self.total_balances.previous_epoch_head_attesters += validator_balance;
+                }
+            }
+        }
+
         Ok(())
     }
 
     /// Update the `statuses` for each validator based upon whether or not they attested to the
     /// "winning" shard block root for the previous epoch.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.1
     pub fn process_winning_roots<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -272,9 +297,8 @@ impl ValidatorStatuses {
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         // Loop through each slot in the previous epoch.
-        for slot in state.previous_epoch(spec).slot_iter(spec.slots_per_epoch) {
-            let crosslink_committees_at_slot =
-                state.get_crosslink_committees_at_slot(slot, spec)?;
+        for slot in state.previous_epoch().slot_iter(spec.slots_per_epoch) {
+            let crosslink_committees_at_slot = state.get_crosslink_committees_at_slot(slot)?;
 
             // Loop through each committee in the slot.
             for c in crosslink_committees_at_slot {
@@ -297,26 +321,18 @@ impl ValidatorStatuses {
     }
 }
 
-/// Returns the distance between when the attestation was created and when it was included in a
-/// block.
-///
-/// Spec v0.5.1
-fn inclusion_distance(a: &PendingAttestation) -> Slot {
-    a.inclusion_slot - a.data.slot
-}
-
 /// Returns `true` if some `PendingAttestation` is from the supplied `epoch`.
 ///
-/// Spec v0.5.1
-fn is_from_epoch(a: &PendingAttestation, epoch: Epoch, spec: &ChainSpec) -> bool {
-    a.data.slot.epoch(spec.slots_per_epoch) == epoch
+/// Spec v0.6.1
+fn is_from_epoch(a: &PendingAttestation, epoch: Epoch) -> bool {
+    a.data.target_epoch == epoch
 }
 
-/// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
-/// the first slot of the given epoch.
+/// Returns `true` if the attestation's FFG target is equal to the hash of the `state`'s first
+/// beacon block in the given `epoch`.
 ///
-/// Spec v0.5.1
-fn has_common_epoch_boundary_root<T: EthSpec>(
+/// Spec v0.6.1
+fn target_matches_epoch_start_block<T: EthSpec>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
     epoch: Epoch,
@@ -331,12 +347,13 @@ fn has_common_epoch_boundary_root<T: EthSpec>(
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 fn has_common_beacon_block_root<T: EthSpec>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
 ) -> Result<bool, BeaconStateError> {
-    let state_block_root = *state.get_block_root(a.data.slot)?;
+    let attestation_slot = state.get_attestation_slot(&a.data)?;
+    let state_block_root = *state.get_block_root(attestation_slot)?;
 
     Ok(a.data.beacon_block_root == state_block_root)
 }

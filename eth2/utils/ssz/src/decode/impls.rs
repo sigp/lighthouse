@@ -1,5 +1,5 @@
 use super::*;
-use ethereum_types::H256;
+use ethereum_types::{H256, U128, U256};
 
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -83,6 +83,48 @@ impl Decode for H256 {
     }
 }
 
+impl Decode for U256 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        32
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let len = bytes.len();
+        let expected = <Self as Decode>::ssz_fixed_len();
+
+        if len != expected {
+            Err(DecodeError::InvalidByteLength { len, expected })
+        } else {
+            Ok(U256::from_little_endian(bytes))
+        }
+    }
+}
+
+impl Decode for U128 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        16
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let len = bytes.len();
+        let expected = <Self as Decode>::ssz_fixed_len();
+
+        if len != expected {
+            Err(DecodeError::InvalidByteLength { len, expected })
+        } else {
+            Ok(U128::from_little_endian(bytes))
+        }
+    }
+}
+
 macro_rules! impl_decodable_for_u8_array {
     ($len: expr) => {
         impl Decode for [u8; $len] {
@@ -112,6 +154,7 @@ macro_rules! impl_decodable_for_u8_array {
 }
 
 impl_decodable_for_u8_array!(4);
+impl_decodable_for_u8_array!(32);
 
 impl<T: Decode> Decode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {

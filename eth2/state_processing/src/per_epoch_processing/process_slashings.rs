@@ -2,13 +2,13 @@ use types::{BeaconStateError as Error, *};
 
 /// Process slashings.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.1
 pub fn process_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     current_total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let current_epoch = state.current_epoch(spec);
+    let current_epoch = state.current_epoch();
 
     let total_at_start = state.get_slashed_balance(current_epoch + 1)?;
     let total_at_end = state.get_slashed_balance(current_epoch)?;
@@ -24,10 +24,10 @@ pub fn process_slashings<T: EthSpec>(
             let penalty = std::cmp::max(
                 effective_balance * std::cmp::min(total_penalities * 3, current_total_balance)
                     / current_total_balance,
-                effective_balance / spec.min_penalty_quotient,
+                effective_balance / spec.min_slashing_penalty_quotient,
             );
 
-            state.validator_balances[index] -= penalty;
+            safe_sub_assign!(state.balances[index], penalty);
         }
     }
 

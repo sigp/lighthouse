@@ -24,7 +24,7 @@ pub enum ValidatorEvent {
     /// A block was not produced as it would have been slashable.
     SlashableBlockNotProduced(Slot),
     /// An attestation was not produced as it would have been slashable.
-    SlashableAttestationNotProduced(Slot),
+    IndexedAttestationNotProduced(Slot),
     /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(Slot),
     /// The signer failed to sign the message.
@@ -100,7 +100,9 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
             .produce_beacon_block(self.slot, &randao_reveal)?
         {
             if self.safe_to_produce(&block) {
-                let domain = self.spec.get_domain(epoch, Domain::BeaconBlock, &self.fork);
+                let domain = self
+                    .spec
+                    .get_domain(epoch, Domain::BeaconProposer, &self.fork);
                 if let Some(block) = self.sign_block(block, domain) {
                     self.beacon_node.publish_beacon_block(block)?;
                     Ok(ValidatorEvent::BlockProduced(self.slot))
