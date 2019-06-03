@@ -1,8 +1,6 @@
 use slot_clock;
 
-use error_chain::{
-    error_chain
-};
+use error_chain::error_chain;
 
 error_chain! {
    links  { }
