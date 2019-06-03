@@ -1,4 +1,4 @@
-extern crate bls_aggregates;
+extern crate milagro_bls;
 extern crate ssz;
 
 #[macro_use]
