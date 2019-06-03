@@ -140,7 +140,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             aggregation_bitfield,
             data: attestation,
             custody_bitfield,
-            aggregate_signature,
+            signature: aggregate_signature,
         })
     }
 

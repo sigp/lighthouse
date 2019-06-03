@@ -738,11 +738,9 @@ impl<T: EthSpec> BeaconState<T> {
     /// Returns the `slot`, `shard` and `committee_index` for which a validator must produce an
     /// attestation.
     ///
-    /// Only reads the current epoch.
-    ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.2
     pub fn get_attestation_duties(
         &self,
         validator_index: usize,

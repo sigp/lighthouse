@@ -75,6 +75,7 @@ fn test_yaml_vectors(
     let spec = FoundationEthSpec::spec();
     let zero_hash = Hash256::zero();
     let eth1_data = Eth1Data {
+        deposit_count: 0,
         deposit_root: zero_hash.clone(),
         block_hash: zero_hash.clone(),
     };
@@ -83,6 +84,7 @@ fn test_yaml_vectors(
     let body = BeaconBlockBody {
         eth1_data,
         randao_reveal,
+        graffiti: [0; 32],
         proposer_slashings: vec![],
         attester_slashings: vec![],
         attestations: vec![],
