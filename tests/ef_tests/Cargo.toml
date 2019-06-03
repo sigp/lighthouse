@@ -1,0 +1,26 @@
+[package]
+name = "ef_tests"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[features]
+fake_crypto = ["bls/fake_crypto"]
+
+[dependencies]
+bls = { path = "../../eth2/utils/bls" }
+compare_fields = { path = "../../eth2/utils/compare_fields" }
+ethereum-types = "0.5"
+hex = "0.3"
+rayon = "1.0"
+serde = "1.0"
+serde_derive = "1.0"
+serde_yaml = "0.8"
+ssz = { path = "../../eth2/utils/ssz" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
+cached_tree_hash = { path = "../../eth2/utils/cached_tree_hash" }
+state_processing = { path = "../../eth2/state_processing" }
+swap_or_not_shuffle = { path = "../../eth2/utils/swap_or_not_shuffle" }
+types = { path = "../../eth2/types" }
+walkdir = "2"
+yaml-rust = { git = "https://github.com/sigp/yaml-rust", branch = "escape_all_str"}

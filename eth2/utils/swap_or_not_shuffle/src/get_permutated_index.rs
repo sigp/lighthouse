@@ -1,8 +1,6 @@
-use bytes::Buf;
 use hashing::hash;
 use int_to_bytes::{int_to_bytes1, int_to_bytes4};
 use std::cmp::max;
-use std::io::Cursor;
 
 /// Return `p(index)` in a pseudorandom permutation `p` of `0...list_size-1` with ``seed`` as entropy.
 ///
@@ -43,7 +41,7 @@ pub fn get_permutated_index(
 }
 
 fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize) -> Option<usize> {
-    let flip = (pivot + list_size - index) % list_size;
+    let flip = (pivot + (list_size - index)) % list_size;
     let position = max(index, flip);
     let source = hash_with_round_and_position(seed, round, position)?;
     let byte = source[(position % 256) / 8];
@@ -68,9 +66,10 @@ fn hash_with_round(seed: &[u8], round: u8) -> Vec<u8> {
     hash(&seed[..])
 }
 
-fn bytes_to_int64(bytes: &[u8]) -> u64 {
-    let mut cursor = Cursor::new(bytes);
-    cursor.get_u64_le()
+fn bytes_to_int64(slice: &[u8]) -> u64 {
+    let mut bytes = [0; 8];
+    bytes.copy_from_slice(&slice[0..8]);
+    u64::from_le_bytes(bytes)
 }
 
 #[cfg(test)]

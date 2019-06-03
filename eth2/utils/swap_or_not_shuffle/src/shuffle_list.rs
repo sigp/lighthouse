@@ -1,7 +1,5 @@
-use bytes::Buf;
 use hashing::hash;
 use int_to_bytes::int_to_bytes4;
-use std::io::Cursor;
 
 const SEED_SIZE: usize = 32;
 const ROUND_SIZE: usize = 1;
@@ -117,9 +115,10 @@ pub fn shuffle_list(
     Some(input)
 }
 
-fn bytes_to_int64(bytes: &[u8]) -> u64 {
-    let mut cursor = Cursor::new(bytes);
-    cursor.get_u64_le()
+fn bytes_to_int64(slice: &[u8]) -> u64 {
+    let mut bytes = [0; 8];
+    bytes.copy_from_slice(&slice[0..8]);
+    u64::from_le_bytes(bytes)
 }
 
 #[cfg(test)]

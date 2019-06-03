@@ -18,6 +18,7 @@ use state_processing::{
 };
 use std::sync::Arc;
 use store::{Error as DBError, Store};
+use tree_hash::TreeHash;
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -380,8 +381,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If required, transition the new state to the present slot.
         for _ in state.slot.as_u64()..present_slot.as_u64() {
             // Ensure the next epoch state caches are built in case of an epoch transition.
-            state.build_epoch_cache(RelativeEpoch::NextWithoutRegistryChange, spec)?;
-            state.build_epoch_cache(RelativeEpoch::NextWithRegistryChange, spec)?;
+            state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
             per_slot_processing(&mut *state, spec)?;
         }
@@ -463,7 +463,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
         self.state
             .write()
-            .build_epoch_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
+            .build_committee_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
 
         let index = self.state.read().get_beacon_proposer_index(
             slot,
@@ -489,7 +489,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(attestation_duty) = self
             .state
             .read()
-            .get_attestation_duties(validator_index, &T::EthSpec::spec())?
+            .get_attestation_duties(validator_index, RelativeEpoch::Current)?
         {
             Ok(Some((attestation_duty.slot, attestation_duty.shard)))
         } else {
@@ -531,18 +531,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             *self.state.read().get_block_root(current_epoch_start_slot)?
         };
 
+        let previous_crosslink_root =
+            Hash256::from_slice(&state.get_current_crosslink(shard)?.tree_hash_root());
+
         self.metrics.attestation_production_successes.inc();
         timer.observe_duration();
 
         Ok(AttestationData {
-            slot: self.state.read().slot,
-            shard,
             beacon_block_root: self.head().beacon_block_root,
-            target_root,
-            crosslink_data_root: Hash256::zero(),
-            previous_crosslink: state.latest_crosslinks[shard as usize].clone(),
             source_epoch: state.current_justified_epoch,
             source_root: state.current_justified_root,
+            target_epoch: state.current_epoch(),
+            target_root,
+            shard,
+            previous_crosslink_root,
+            crosslink_data_root: Hash256::zero(),
         })
     }
 
@@ -701,7 +704,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.fork_choice()?;
 
         self.metrics.block_processing_successes.inc();
-        self.metrics.operations_per_block_attestation.observe(block.body.attestations.len() as f64);
+        self.metrics
+            .operations_per_block_attestation
+            .observe(block.body.attestations.len() as f64);
         timer.observe_duration();
 
         Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed))
@@ -742,9 +747,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 randao_reveal,
                 eth1_data: Eth1Data {
                     // TODO: replace with real data
+                    deposit_count: 0,
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
                 },
+                // TODO: badass Lighthouse graffiti
+                graffiti: [0; 32],
                 proposer_slashings,
                 attester_slashings,
                 attestations: self
@@ -793,7 +801,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let justified_root = {
             let root = self.head().beacon_state.current_justified_root;
             if root == T::EthSpec::spec().zero_hash {
-                 self.genesis_block_root
+                self.genesis_block_root
             } else {
                 root
             }

@@ -52,6 +52,38 @@ impl<T> SplitExt<T> for [T] {
 mod tests {
     use super::*;
 
+    fn alternative_split_at_index<T>(indices: &[T], index: usize, count: usize) -> &[T] {
+        let start = (indices.len() * index) / count;
+        let end = (indices.len() * (index + 1)) / count;
+
+        &indices[start..end]
+    }
+
+    fn alternative_split<T: Clone>(input: &[T], n: usize) -> Vec<&[T]> {
+        (0..n)
+            .into_iter()
+            .map(|i| alternative_split_at_index(&input, i, n))
+            .collect()
+    }
+
+    fn honey_badger_vs_alternative_fn(num_items: usize, num_chunks: usize) {
+        let input: Vec<usize> = (0..num_items).collect();
+
+        let hb: Vec<&[usize]> = input.honey_badger_split(num_chunks).collect();
+        let spec: Vec<&[usize]> = alternative_split(&input, num_chunks);
+
+        assert_eq!(hb, spec);
+    }
+
+    #[test]
+    fn vs_eth_spec_fn() {
+        for i in 0..10 {
+            for j in 0..10 {
+                honey_badger_vs_alternative_fn(i, j);
+            }
+        }
+    }
+
     #[test]
     fn test_honey_badger_split() {
         /*

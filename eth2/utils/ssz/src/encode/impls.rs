@@ -1,5 +1,5 @@
 use super::*;
-use ethereum_types::H256;
+use ethereum_types::{H256, U128, U256};
 
 macro_rules! impl_encodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -77,6 +77,42 @@ impl Encode for H256 {
     }
 }
 
+impl Encode for U256 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        32
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let n = <Self as Encode>::ssz_fixed_len();
+        let s = buf.len();
+
+        buf.resize(s + n, 0);
+        self.to_little_endian(&mut buf[s..]);
+    }
+}
+
+impl Encode for U128 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        16
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let n = <Self as Encode>::ssz_fixed_len();
+        let s = buf.len();
+
+        buf.resize(s + n, 0);
+        self.to_little_endian(&mut buf[s..]);
+    }
+}
+
 macro_rules! impl_encodable_for_u8_array {
     ($len: expr) => {
         impl Encode for [u8; $len] {
@@ -96,6 +132,7 @@ macro_rules! impl_encodable_for_u8_array {
 }
 
 impl_encodable_for_u8_array!(4);
+impl_encodable_for_u8_array!(32);
 
 #[cfg(test)]
 mod tests {

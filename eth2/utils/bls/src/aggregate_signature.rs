@@ -1,8 +1,8 @@
 use super::*;
-use bls_aggregates::{
+use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
+use milagro_bls::{
     AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
 };
-use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
