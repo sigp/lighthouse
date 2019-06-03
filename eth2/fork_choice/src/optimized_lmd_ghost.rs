@@ -69,12 +69,11 @@ impl<T: Store, E: EthSpec> OptimizedLMDGhost<T, E> {
 
         let active_validator_indices =
             current_state.get_active_validator_indices(block_slot.epoch(spec.slots_per_epoch));
+        let validator_balances = &current_state.validator_balances;
 
         for index in active_validator_indices {
-            let balance = std::cmp::min(
-                current_state.validator_balances[index],
-                spec.max_deposit_amount,
-            ) / spec.fork_choice_balance_increment;
+            let balance = std::cmp::min(validator_balances[index], spec.max_deposit_amount)
+                / spec.fork_choice_balance_increment;
             if balance > 0 {
                 if let Some(target) = self.latest_attestation_targets.get(&(index as u64)) {
                     *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
