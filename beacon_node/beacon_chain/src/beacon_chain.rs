@@ -16,6 +16,7 @@ use state_processing::{
 };
 use std::sync::Arc;
 use store::{Error as DBError, Store};
+use tree_hash::TreeHash;
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -326,8 +327,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If required, transition the new state to the present slot.
         for _ in state.slot.as_u64()..present_slot.as_u64() {
             // Ensure the next epoch state caches are built in case of an epoch transition.
-            state.build_committee_cache(RelativeEpoch::NextWithoutRegistryChange, &self.spec)?;
-            state.build_committee_cache(RelativeEpoch::NextWithRegistryChange, &self.spec)?;
+            state.build_committee_cache(RelativeEpoch::Next, &self.spec)?;
 
             per_slot_processing(&mut *state, &self.spec)?;
         }
@@ -459,7 +459,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(attestation_duty) = self
             .state
             .read()
-            .get_attestation_duties(validator_index, &self.spec)?
+            .get_attestation_duties(validator_index, RelativeEpoch::Current)?
         {
             Ok(Some((attestation_duty.slot, attestation_duty.shard)))
         } else {
@@ -497,15 +497,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             *self.state.read().get_block_root(current_epoch_start_slot)?
         };
 
+        let previous_crosslink_root =
+            Hash256::from_slice(&state.get_current_crosslink(shard)?.tree_hash_root());
+
         Ok(AttestationData {
-            slot: self.state.read().slot,
-            shard,
             beacon_block_root: self.head().beacon_block_root,
-            target_root,
-            crosslink_data_root: Hash256::zero(),
-            previous_crosslink: state.latest_crosslinks[shard as usize].clone(),
             source_epoch: state.current_justified_epoch,
             source_root: state.current_justified_root,
+            target_epoch: state.current_epoch(),
+            target_root,
+            shard,
+            previous_crosslink_root,
+            crosslink_data_root: Hash256::zero(),
         })
     }
 
@@ -678,14 +681,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot: state.slot,
             previous_block_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
-            signature: self.spec.empty_signature.clone(), // To be completed by a validator.
+            signature: Signature::empty_signature(), // To be completed by a validator.
             body: BeaconBlockBody {
                 randao_reveal,
                 eth1_data: Eth1Data {
                     // TODO: replace with real data
+                    deposit_count: 0,
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
                 },
+                // TODO: badass Lighthouse graffiti
+                graffiti: [0; 32],
                 proposer_slashings,
                 attester_slashings,
                 attestations: self

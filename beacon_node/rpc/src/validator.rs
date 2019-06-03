@@ -115,7 +115,9 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
             };
 
             // get attestation duties and check if validator is active
-            let attestation_duties = match state.get_attestation_duties(val_index, &spec) {
+            let attestation_duties = match state
+                .get_attestation_duties(val_index, RelativeEpoch::Current)
+            {
                 Ok(Some(v)) => v,
                 Ok(_) => {
                     // validator is inactive, go to the next validator
