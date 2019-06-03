@@ -6,10 +6,12 @@ use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
+#[cfg(not(test))]
+use state_processing::per_block_processing::verify_deposit_merkle_proof;
 use state_processing::per_block_processing::{
-    gather_attester_slashing_indices_modular, validate_attestation,
-    validate_attestation_time_independent_only, verify_attester_slashing, verify_deposit,
-    verify_exit, verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
+    get_slashable_indices_modular, validate_attestation,
+    validate_attestation_time_independent_only, verify_attester_slashing, verify_exit,
+    verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
     verify_transfer_time_independent_only,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
@@ -19,11 +21,6 @@ use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconState, ChainSpec, Deposit, Epoch,
     EthSpec, ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
-
-#[cfg(test)]
-const VERIFY_DEPOSIT_PROOFS: bool = false;
-#[cfg(not(test))]
-const VERIFY_DEPOSIT_PROOFS: bool = false; // TODO: enable this
 
 #[derive(Default)]
 pub struct OperationPool<T: EthSpec + Default> {
@@ -60,7 +57,7 @@ impl AttestationId {
         spec: &ChainSpec,
     ) -> Self {
         let mut bytes = ssz_encode(attestation);
-        let epoch = attestation.slot.epoch(spec.slots_per_epoch);
+        let epoch = attestation.target_epoch;
         bytes.extend_from_slice(&AttestationId::compute_domain_bytes(epoch, state, spec));
         AttestationId(bytes)
     }
@@ -85,19 +82,13 @@ impl AttestationId {
 /// receive for including it in a block.
 // TODO: this could be optimised with a map from validator index to whether that validator has
 // attested in each of the current and previous epochs. Currently quadractic in number of validators.
-fn attestation_score<T: EthSpec>(
-    attestation: &Attestation,
-    state: &BeaconState<T>,
-    spec: &ChainSpec,
-) -> usize {
+fn attestation_score<T: EthSpec>(attestation: &Attestation, state: &BeaconState<T>) -> usize {
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = attestation.aggregation_bitfield.clone();
 
-    let attestation_epoch = attestation.data.slot.epoch(spec.slots_per_epoch);
-
-    let state_attestations = if attestation_epoch == state.current_epoch() {
+    let state_attestations = if attestation.data.target_epoch == state.current_epoch() {
         &state.current_epoch_attestations
-    } else if attestation_epoch == state.previous_epoch() {
+    } else if attestation.data.target_epoch == state.previous_epoch() {
         &state.previous_epoch_attestations
     } else {
         return 0;
@@ -199,7 +190,7 @@ impl<T: EthSpec> OperationPool<T> {
             .filter(|attestation| validate_attestation(state, attestation, spec).is_ok())
             // Scored by the number of new attestations they introduce (descending)
             // TODO: need to consider attestations introduced in THIS block
-            .map(|att| (att, attestation_score(att, state, spec)))
+            .map(|att| (att, attestation_score(att, state)))
             // Don't include any useless attestations (score 0)
             .filter(|&(_, score)| score != 0)
             .sorted_by_key(|&(_, score)| std::cmp::Reverse(score))
@@ -211,15 +202,16 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Remove attestations which are too old to be included in a block.
-    // TODO: we could probably prune other attestations here:
-    // - ones that are completely covered by attestations included in the state
-    // - maybe ones invalidated by the confirmation of one fork over another
-    pub fn prune_attestations(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
+    pub fn prune_attestations(&self, finalized_state: &BeaconState<T>) {
+        // We know we can include an attestation if:
+        // state.slot <= attestation_slot + SLOTS_PER_EPOCH
+        // We approximate this check using the attestation's epoch, to avoid computing
+        // the slot or relying on the committee cache of the finalized state.
         self.attestations.write().retain(|_, attestations| {
             // All the attestations in this bucket have the same data, so we only need to
             // check the first one.
             attestations.first().map_or(false, |att| {
-                finalized_state.slot < att.data.slot + spec.slots_per_epoch
+                finalized_state.current_epoch() <= att.data.target_epoch + 1
             })
         });
     }
@@ -227,6 +219,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Add a deposit to the pool.
     ///
     /// No two distinct deposits should be added with the same index.
+    #[cfg_attr(test, allow(unused_variables))]
     pub fn insert_deposit(
         &self,
         deposit: Deposit,
@@ -237,7 +230,9 @@ impl<T: EthSpec> OperationPool<T> {
 
         match self.deposits.write().entry(deposit.index) {
             Entry::Vacant(entry) => {
-                verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec)?;
+                // TODO: fix tests to generate valid merkle proofs
+                #[cfg(not(test))]
+                verify_deposit_merkle_proof(state, &deposit, spec)?;
                 entry.insert(deposit);
                 Ok(Fresh)
             }
@@ -245,7 +240,9 @@ impl<T: EthSpec> OperationPool<T> {
                 if entry.get() == &deposit {
                     Ok(Duplicate)
                 } else {
-                    verify_deposit(state, &deposit, VERIFY_DEPOSIT_PROOFS, spec)?;
+                    // TODO: fix tests to generate valid merkle proofs
+                    #[cfg(not(test))]
+                    verify_deposit_merkle_proof(state, &deposit, spec)?;
                     Ok(Replaced(Box::new(entry.insert(deposit))))
                 }
             }
@@ -256,6 +253,7 @@ impl<T: EthSpec> OperationPool<T> {
     ///
     /// Take at most the maximum number of deposits, beginning from the current deposit index.
     pub fn get_deposits(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Deposit> {
+        // TODO: might want to re-check the Merkle proof to account for Eth1 forking
         let start_idx = state.deposit_index;
         (start_idx..start_idx + spec.max_deposits)
             .map(|idx| self.deposits.read().get(&idx).cloned())
@@ -300,8 +298,8 @@ impl<T: EthSpec> OperationPool<T> {
         spec: &ChainSpec,
     ) -> (AttestationId, AttestationId) {
         (
-            AttestationId::from_data(&slashing.slashable_attestation_1.data, state, spec),
-            AttestationId::from_data(&slashing.slashable_attestation_2.data, state, spec),
+            AttestationId::from_data(&slashing.attestation_1.data, state, spec),
+            AttestationId::from_data(&slashing.attestation_2.data, state, spec),
         )
     }
 
@@ -356,12 +354,10 @@ impl<T: EthSpec> OperationPool<T> {
             })
             .filter(|(_, slashing)| {
                 // Take all slashings that will slash 1 or more validators.
-                let slashed_validators = gather_attester_slashing_indices_modular(
-                    state,
-                    slashing,
-                    |index, validator| validator.slashed || to_be_slashed.contains(&index),
-                    spec,
-                );
+                let slashed_validators =
+                    get_slashable_indices_modular(state, slashing, |index, validator| {
+                        validator.slashed || to_be_slashed.contains(&index)
+                    });
 
                 // Extend the `to_be_slashed` set so subsequent iterations don't try to include
                 // useless slashings.
@@ -380,7 +376,7 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune proposer slashings for all slashed or withdrawn validators.
-    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
+    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
             |validator| {
@@ -396,13 +392,11 @@ impl<T: EthSpec> OperationPool<T> {
         self.attester_slashings.write().retain(|id, slashing| {
             let fork_ok = &Self::attester_slashing_id(slashing, finalized_state, spec) == id;
             let curr_epoch = finalized_state.current_epoch();
-            let slashing_ok = gather_attester_slashing_indices_modular(
-                finalized_state,
-                slashing,
-                |_, validator| validator.slashed || validator.is_withdrawable_at(curr_epoch),
-                spec,
-            )
-            .is_ok();
+            let slashing_ok =
+                get_slashable_indices_modular(finalized_state, slashing, |_, validator| {
+                    validator.slashed || validator.is_withdrawable_at(curr_epoch)
+                })
+                .is_ok();
             fork_ok && slashing_ok
         });
     }
@@ -435,7 +429,7 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune if validator has already exited at the last finalized state.
-    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
+    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
             |validator| validator.is_exited_at(finalized_state.current_epoch()),
@@ -481,11 +475,11 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Prune all types of transactions given the latest finalized state.
     pub fn prune_all(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
-        self.prune_attestations(finalized_state, spec);
+        self.prune_attestations(finalized_state);
         self.prune_deposits(finalized_state);
-        self.prune_proposer_slashings(finalized_state, spec);
+        self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state, spec);
-        self.prune_voluntary_exits(finalized_state, spec);
+        self.prune_voluntary_exits(finalized_state);
         self.prune_transfers(finalized_state);
     }
 }
@@ -565,8 +559,8 @@ mod tests {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
         let (ref spec, ref state) = test_state(rng);
         let op_pool = OperationPool::new();
-        let deposit1 = make_deposit(rng, state, spec);
-        let mut deposit2 = make_deposit(rng, state, spec);
+        let deposit1 = make_deposit(rng);
+        let mut deposit2 = make_deposit(rng);
         deposit2.index = deposit1.index;
 
         assert_eq!(
@@ -594,7 +588,7 @@ mod tests {
         let offset = 1;
         assert!(offset <= extra);
 
-        let deposits = dummy_deposits(rng, &state, &spec, start, max_deposits + extra);
+        let deposits = dummy_deposits(rng, start, max_deposits + extra);
 
         for deposit in &deposits {
             assert_eq!(
@@ -625,8 +619,8 @@ mod tests {
         let gap = 25;
         let start2 = start1 + count + gap;
 
-        let deposits1 = dummy_deposits(rng, &state, &spec, start1, count);
-        let deposits2 = dummy_deposits(rng, &state, &spec, start2, count);
+        let deposits1 = dummy_deposits(rng, start1, count);
+        let deposits2 = dummy_deposits(rng, start2, count);
 
         for d in deposits1.into_iter().chain(deposits2) {
             assert!(op_pool.insert_deposit(d, &state, &spec).is_ok());
@@ -664,38 +658,14 @@ mod tests {
         assert_eq!(op_pool.num_deposits(), 0);
     }
 
-    // Create a random deposit (with a valid proof of posession)
-    fn make_deposit<T: EthSpec>(
-        rng: &mut XorShiftRng,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Deposit {
-        let keypair = Keypair::random();
-        let mut deposit = Deposit::random_for_test(rng);
-        let mut deposit_input = DepositInput {
-            pubkey: keypair.pk.clone(),
-            withdrawal_credentials: Hash256::zero(),
-            proof_of_possession: Signature::empty_signature(),
-        };
-        deposit_input.proof_of_possession = deposit_input.create_proof_of_possession(
-            &keypair.sk,
-            state.slot.epoch(spec.slots_per_epoch),
-            &state.fork,
-            spec,
-        );
-        deposit.deposit_data.deposit_input = deposit_input;
-        deposit
+    // Create a random deposit
+    fn make_deposit(rng: &mut XorShiftRng) -> Deposit {
+        Deposit::random_for_test(rng)
     }
 
     // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
-    fn dummy_deposits<T: EthSpec>(
-        rng: &mut XorShiftRng,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-        start: u64,
-        count: u64,
-    ) -> Vec<Deposit> {
-        let proto_deposit = make_deposit(rng, state, spec);
+    fn dummy_deposits(rng: &mut XorShiftRng, start: u64, count: u64) -> Vec<Deposit> {
+        let proto_deposit = make_deposit(rng);
         (start..start + count)
             .map(|index| {
                 let mut deposit = proto_deposit.clone();
@@ -722,7 +692,8 @@ mod tests {
         /// Create a signed attestation for use in tests.
         /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
         fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>, E: EthSpec>(
-            committee: &CrosslinkCommittee,
+            committee: &[usize],
+            shard: u64,
             keypairs: &[Keypair],
             signing_range: R,
             slot: Slot,
@@ -730,18 +701,12 @@ mod tests {
             spec: &ChainSpec,
             extra_signer: Option<usize>,
         ) -> Attestation {
-            let mut builder = TestingAttestationBuilder::new(
-                state,
-                &committee.committee,
-                slot,
-                committee.shard,
-                spec,
-            );
-            let signers = &committee.committee[signing_range];
+            let mut builder = TestingAttestationBuilder::new(state, committee, slot, shard, spec);
+            let signers = &committee[signing_range];
             let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
             builder.sign(signers, &committee_keys, &state.fork, spec);
             extra_signer.map(|c_idx| {
-                let validator_index = committee.committee[c_idx];
+                let validator_index = committee[c_idx];
                 builder.sign(
                     &[validator_index],
                     &[&keypairs[validator_index].sk],
@@ -759,7 +724,7 @@ mod tests {
             let spec = E::spec();
 
             let num_validators =
-                num_committees * (spec.slots_per_epoch * spec.target_committee_size) as usize;
+                num_committees * spec.slots_per_epoch as usize * spec.target_committee_size;
             let mut state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
                 num_validators,
                 &spec,
@@ -773,18 +738,6 @@ mod tests {
             (state, keypairs, FoundationEthSpec::spec())
         }
 
-        /// Set the latest crosslink in the state to match the attestation.
-        fn fake_latest_crosslink<E: EthSpec>(
-            att: &Attestation,
-            state: &mut BeaconState<E>,
-            spec: &ChainSpec,
-        ) {
-            state.latest_crosslinks[att.data.shard as usize] = Crosslink {
-                crosslink_data_root: att.data.crosslink_data_root,
-                epoch: att.data.slot.epoch(spec.slots_per_epoch),
-            };
-        }
-
         #[test]
         fn test_attestation_score() {
             let (ref mut state, ref keypairs, ref spec) =
@@ -792,27 +745,47 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot, spec)
+                .get_crosslink_committees_at_slot(slot)
                 .unwrap()
-                .clone();
+                .into_iter()
+                .map(CrosslinkCommittee::into_owned)
+                .collect::<Vec<_>>();
 
-            for committee in committees {
-                let att1 = signed_attestation(&committee, keypairs, ..2, slot, state, spec, None);
-                let att2 = signed_attestation(&committee, keypairs, .., slot, state, spec, None);
+            for cc in committees {
+                let att1 = signed_attestation(
+                    &cc.committee,
+                    cc.shard,
+                    keypairs,
+                    ..2,
+                    slot,
+                    state,
+                    spec,
+                    None,
+                );
+                let att2 = signed_attestation(
+                    &cc.committee,
+                    cc.shard,
+                    keypairs,
+                    ..,
+                    slot,
+                    state,
+                    spec,
+                    None,
+                );
 
                 assert_eq!(
                     att1.aggregation_bitfield.num_set_bits(),
-                    attestation_score(&att1, state, spec)
+                    attestation_score(&att1, state)
                 );
 
-                state
-                    .current_epoch_attestations
-                    .push(PendingAttestation::from_attestation(&att1, state.slot));
+                state.current_epoch_attestations.push(PendingAttestation {
+                    aggregation_bitfield: att1.aggregation_bitfield.clone(),
+                    data: att1.data.clone(),
+                    inclusion_delay: 0,
+                    proposer_index: 0,
+                });
 
-                assert_eq!(
-                    committee.committee.len() - 2,
-                    attestation_score(&att2, state, spec)
-                );
+                assert_eq!(cc.committee.len() - 2, attestation_score(&att2, state));
             }
         }
 
@@ -826,9 +799,11 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot, spec)
+                .get_crosslink_committees_at_slot(slot)
                 .unwrap()
-                .clone();
+                .into_iter()
+                .map(CrosslinkCommittee::into_owned)
+                .collect::<Vec<_>>();
 
             assert_eq!(
                 committees.len(),
@@ -836,11 +811,12 @@ mod tests {
                 "we expect just one committee with this many validators"
             );
 
-            for committee in &committees {
+            for cc in &committees {
                 let step_size = 2;
-                for i in (0..committee.committee.len()).step_by(step_size) {
+                for i in (0..cc.committee.len()).step_by(step_size) {
                     let att = signed_attestation(
-                        committee,
+                        &cc.committee,
+                        cc.shard,
                         keypairs,
                         i..i + step_size,
                         slot,
@@ -848,7 +824,6 @@ mod tests {
                         spec,
                         None,
                     );
-                    fake_latest_crosslink(&att, state, spec);
                     op_pool.insert_attestation(att, state, spec).unwrap();
                 }
             }
@@ -872,13 +847,13 @@ mod tests {
             );
 
             // Prune attestations shouldn't do anything at this point.
-            op_pool.prune_attestations(state, spec);
+            op_pool.prune_attestations(state);
             assert_eq!(op_pool.num_attestations(), committees.len());
 
-            // But once we advance to an epoch after the attestation, it should prune it out of
-            // existence.
-            state.slot = slot + spec.slots_per_epoch;
-            op_pool.prune_attestations(state, spec);
+            // But once we advance to more than an epoch after the attestation, it should prune it
+            // out of existence.
+            state.slot += 2 * spec.slots_per_epoch;
+            op_pool.prune_attestations(state);
             assert_eq!(op_pool.num_attestations(), 0);
         }
 
@@ -892,13 +867,23 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot, spec)
+                .get_crosslink_committees_at_slot(slot)
                 .unwrap()
-                .clone();
+                .into_iter()
+                .map(CrosslinkCommittee::into_owned)
+                .collect::<Vec<_>>();
 
-            for committee in &committees {
-                let att = signed_attestation(committee, keypairs, .., slot, state, spec, None);
-                fake_latest_crosslink(&att, state, spec);
+            for cc in &committees {
+                let att = signed_attestation(
+                    &cc.committee,
+                    cc.shard,
+                    keypairs,
+                    ..,
+                    slot,
+                    state,
+                    spec,
+                    None,
+                );
                 op_pool
                     .insert_attestation(att.clone(), state, spec)
                     .unwrap();
@@ -919,17 +904,20 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot, spec)
+                .get_crosslink_committees_at_slot(slot)
                 .unwrap()
-                .clone();
+                .into_iter()
+                .map(CrosslinkCommittee::into_owned)
+                .collect::<Vec<_>>();
 
             let step_size = 2;
-            for committee in &committees {
+            for cc in &committees {
                 // Create attestations that overlap on `step_size` validators, like:
                 // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
-                for i in (0..committee.committee.len() - step_size).step_by(step_size) {
+                for i in (0..cc.committee.len() - step_size).step_by(step_size) {
                     let att = signed_attestation(
-                        committee,
+                        &cc.committee,
+                        cc.shard,
                         keypairs,
                         i..i + 2 * step_size,
                         slot,
@@ -937,7 +925,6 @@ mod tests {
                         spec,
                         None,
                     );
-                    fake_latest_crosslink(&att, state, spec);
                     op_pool.insert_attestation(att, state, spec).unwrap();
                 }
             }
@@ -965,17 +952,20 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot, spec)
+                .get_crosslink_committees_at_slot(slot)
                 .unwrap()
-                .clone();
+                .into_iter()
+                .map(CrosslinkCommittee::into_owned)
+                .collect::<Vec<_>>();
 
             let max_attestations = spec.max_attestations as usize;
             let target_committee_size = spec.target_committee_size as usize;
 
-            let mut insert_attestations = |committee, step_size| {
+            let insert_attestations = |cc: &OwnedCrosslinkCommittee, step_size| {
                 for i in (0..target_committee_size).step_by(step_size) {
                     let att = signed_attestation(
-                        committee,
+                        &cc.committee,
+                        cc.shard,
                         keypairs,
                         i..i + step_size,
                         slot,
@@ -983,7 +973,6 @@ mod tests {
                         spec,
                         if i == 0 { None } else { Some(0) },
                     );
-                    fake_latest_crosslink(&att, state, spec);
                     op_pool.insert_attestation(att, state, spec).unwrap();
                 }
             };

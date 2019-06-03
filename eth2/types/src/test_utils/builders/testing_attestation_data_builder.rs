@@ -1,4 +1,5 @@
 use crate::*;
+use tree_hash::TreeHash;
 
 /// Builds an `AttestationData` to be used for testing purposes.
 ///
@@ -44,6 +45,17 @@ impl TestingAttestationDataBuilder {
                 .unwrap()
         };
 
+        let previous_crosslink_root = if is_previous_epoch {
+            Hash256::from_slice(
+                &state
+                    .get_previous_crosslink(shard)
+                    .unwrap()
+                    .tree_hash_root(),
+            )
+        } else {
+            Hash256::from_slice(&state.get_current_crosslink(shard).unwrap().tree_hash_root())
+        };
+
         let source_root = *state
             .get_block_root(source_epoch.start_slot(spec.slots_per_epoch))
             .unwrap();
@@ -60,7 +72,7 @@ impl TestingAttestationDataBuilder {
 
             // Crosslink vote
             shard,
-            previous_crosslink_root: spec.zero_hash,
+            previous_crosslink_root,
             crosslink_data_root: spec.zero_hash,
         };
 

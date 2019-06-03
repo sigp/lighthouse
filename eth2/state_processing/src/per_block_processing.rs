@@ -4,7 +4,9 @@ use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
 use types::*;
 
-pub use self::verify_attester_slashing::{get_slashable_indices, verify_attester_slashing};
+pub use self::verify_attester_slashing::{
+    get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
+};
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use validate_attestation::{
     validate_attestation, validate_attestation_time_independent_only,
