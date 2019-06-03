@@ -34,7 +34,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
         // verify the slot, drop lock on state afterwards
         {
             let slot_requested = req.get_slot();
-            let state = &self.chain.head().beacon_state;
+            let state = &self.chain.current_state();
 
             // Start by performing some checks
             // Check that the AttestionData is for the current slot (otherwise it will not be valid)

@@ -1,5 +1,5 @@
 use beacon_chain::{
-    fork_choice::BitwiseLMDGhost,
+    fork_choice::OptimizedLMDGhost,
     slot_clock::SystemTimeSlotClock,
     store::{DiskStore, MemoryStore, Store},
     BeaconChain, BeaconChainTypes,
@@ -28,7 +28,7 @@ pub struct TestnetMemoryBeaconChainTypes;
 impl BeaconChainTypes for TestnetMemoryBeaconChainTypes {
     type Store = MemoryStore;
     type SlotClock = SystemTimeSlotClock;
-    type ForkChoice = BitwiseLMDGhost<Self::Store, Self::EthSpec>;
+    type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
     type EthSpec = LighthouseTestnetEthSpec;
 }
 
@@ -45,7 +45,7 @@ pub struct TestnetDiskBeaconChainTypes;
 impl BeaconChainTypes for TestnetDiskBeaconChainTypes {
     type Store = DiskStore;
     type SlotClock = SystemTimeSlotClock;
-    type ForkChoice = BitwiseLMDGhost<Self::Store, Self::EthSpec>;
+    type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
     type EthSpec = LighthouseTestnetEthSpec;
 }
 
