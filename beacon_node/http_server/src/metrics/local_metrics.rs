@@ -1,8 +1,8 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use prometheus::{IntGauge, Opts, Registry};
 use slot_clock::SlotClock;
-use std::path::PathBuf;
 use std::fs::File;
+use std::path::PathBuf;
 use types::Slot;
 
 // If set to `true` will iterate and sum the balances of all validators in the state for each
@@ -79,11 +79,15 @@ impl LocalMetrics {
         self.present_slot.set(present_slot.as_u64() as i64);
 
         self.best_slot.set(state.slot.as_u64() as i64);
-        self.validator_count.set(state.validator_registry.len() as i64);
-        self.justified_epoch.set(state.current_justified_epoch.as_u64() as i64);
-        self.finalized_epoch.set(state.finalized_epoch.as_u64() as i64);
+        self.validator_count
+            .set(state.validator_registry.len() as i64);
+        self.justified_epoch
+            .set(state.current_justified_epoch.as_u64() as i64);
+        self.finalized_epoch
+            .set(state.finalized_epoch.as_u64() as i64);
         if SHOULD_SUM_VALIDATOR_BALANCES {
-            self.validator_balances_sum.set(state.validator_balances.iter().sum::<u64>() as i64);
+            self.validator_balances_sum
+                .set(state.balances.iter().sum::<u64>() as i64);
         }
         let db_size = File::open(db_path)
             .and_then(|f| f.metadata())

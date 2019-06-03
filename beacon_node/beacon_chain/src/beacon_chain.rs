@@ -726,7 +726,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut state = self.state.read().clone();
 
-        state.build_epoch_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
+        state.build_committee_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
 
         trace!("Finding attestations for new block...");
 
@@ -742,7 +742,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot: state.slot,
             previous_block_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
-            signature: T::EthSpec::spec().empty_signature.clone(), // To be completed by a validator.
+            signature: Signature::empty_signature(), // To be completed by a validator.
             body: BeaconBlockBody {
                 randao_reveal,
                 eth1_data: Eth1Data {
