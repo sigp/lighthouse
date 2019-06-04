@@ -1,6 +1,8 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2_libp2p::PubsubMessage;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
+use network::NetworkMessage;
 use protos::services::{
     AttestationData as AttestationDataProto, ProduceAttestationDataRequest,
     ProduceAttestationDataResponse, PublishAttestationRequest, PublishAttestationResponse,
@@ -14,6 +16,7 @@ use types::Attestation;
 #[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
+    pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
     pub log: slog::Logger,
 }
 
@@ -124,7 +127,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
             }
         };
 
-        match self.chain.process_attestation(attestation) {
+        match self.chain.process_attestation(attestation.clone()) {
             Ok(_) => {
                 // Attestation was successfully processed.
                 info!(
@@ -132,6 +135,25 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                     "PublishAttestation";
                     "type" => "valid_attestation",
                 );
+
+                // TODO: Obtain topics from the network service properly.
+                let topic = types::TopicBuilder::new("beacon_chain".to_string()).build();
+                let message = PubsubMessage::Attestation(attestation);
+
+                // Publish the attestation to the p2p network via gossipsub.
+                self.network_chan
+                    .send(NetworkMessage::Publish {
+                        topics: vec![topic],
+                        message: Box::new(message),
+                    })
+                    .unwrap_or_else(|e| {
+                        error!(
+                            self.log,
+                            "PublishAttestation";
+                            "type" => "failed to publish to gossipsub",
+                            "error" => format!("{:?}", e)
+                        );
+                    });
 
                 resp.set_success(true);
             }
