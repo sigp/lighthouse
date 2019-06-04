@@ -565,7 +565,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .insert_attestation(attestation, &*self.state.read(), &T::EthSpec::spec());
 
         if result.is_ok() {
-            self.metrics.attestation_production_successes.inc();
+            self.metrics.attestation_processing_successes.inc();
         }
 
         timer.observe_duration();
