@@ -62,6 +62,36 @@ impl Decode for bool {
     }
 }
 
+/// The SSZ union type.
+impl<T: Decode> Decode for Option<T> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() < BYTES_PER_LENGTH_OFFSET {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BYTES_PER_LENGTH_OFFSET,
+            });
+        }
+
+        let (index_bytes, value_bytes) = bytes.split_at(BYTES_PER_LENGTH_OFFSET);
+
+        let index = read_union_index(index_bytes)?;
+        if index == 0 {
+            Ok(None)
+        } else if index == 1 {
+            Ok(Some(T::from_ssz_bytes(value_bytes)?))
+        } else {
+            Err(DecodeError::BytesInvalid(format!(
+                "{} is not a valid union index for Option<T>",
+                index
+            )))
+        }
+    }
+}
+
 impl Decode for H256 {
     fn is_ssz_fixed_len() -> bool {
         true
