@@ -125,6 +125,33 @@ fn operations_attestation() {
 }
 
 #[test]
+fn operations_block_header() {
+    yaml_files_in_test_dir(&Path::new("operations").join("block_header"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
+fn sanity_blocks() {
+    yaml_files_in_test_dir(&Path::new("sanity").join("blocks"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
+fn sanity_slots() {
+    yaml_files_in_test_dir(&Path::new("sanity").join("slots"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls() {
     yaml_files_in_test_dir(&Path::new("bls"))
