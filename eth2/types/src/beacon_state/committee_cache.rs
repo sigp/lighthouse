@@ -49,19 +49,17 @@ impl CommitteeCache {
         let shuffling_start_shard = match relative_epoch {
             RelativeEpoch::Current => state.latest_start_shard,
             RelativeEpoch::Previous => {
-                let committees_in_previous_epoch =
-                    T::get_epoch_committee_count(active_validator_indices.len()) as u64;
+                let shard_delta = T::get_shard_delta(active_validator_indices.len());
 
-                (state.latest_start_shard + T::shard_count() as u64 - committees_in_previous_epoch)
-                    % T::shard_count() as u64
+                (state.latest_start_shard + T::ShardCount::to_u64() - shard_delta)
+                    % T::ShardCount::to_u64()
             }
             RelativeEpoch::Next => {
                 let current_active_validators =
                     get_active_validator_count(&state.validator_registry, state.current_epoch());
-                let committees_in_current_epoch =
-                    T::get_epoch_committee_count(current_active_validators) as u64;
+                let shard_delta = T::get_shard_delta(current_active_validators);
 
-                (state.latest_start_shard + committees_in_current_epoch) % T::shard_count() as u64
+                (state.latest_start_shard + shard_delta) % T::ShardCount::to_u64()
             }
         };
 

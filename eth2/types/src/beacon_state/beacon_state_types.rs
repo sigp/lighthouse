@@ -29,6 +29,16 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
         ) * slots_per_epoch
     }
 
+    /// Return the number of shards to increment `state.latest_start_shard` by in a given epoch.
+    ///
+    /// Spec v0.6.3
+    fn get_shard_delta(active_validator_count: usize) -> u64 {
+        std::cmp::min(
+            Self::get_epoch_committee_count(active_validator_count) as u64,
+            Self::ShardCount::to_u64() - Self::ShardCount::to_u64() / Self::spec().slots_per_epoch,
+        )
+    }
+
     /// Returns the minimum number of validators required for this spec.
     ///
     /// This is the _absolute_ minimum, the number required to make the chain operate in the most
