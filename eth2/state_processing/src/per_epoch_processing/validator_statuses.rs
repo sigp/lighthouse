@@ -238,7 +238,7 @@ impl ValidatorStatuses {
                     slot: inclusion_slot,
                     distance: a.inclusion_delay,
                     proposer_index: state.get_beacon_proposer_index(
-                        attestation_slot,
+                        inclusion_slot,
                         relative_epoch,
                         spec,
                     )?,
