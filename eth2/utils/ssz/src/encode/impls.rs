@@ -1,4 +1,5 @@
 use super::*;
+use core::num::NonZeroUsize;
 use ethereum_types::{H256, U128, U256};
 
 macro_rules! impl_encodable_for_uint {
@@ -77,6 +78,20 @@ impl Encode for bool {
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&(*self as u8).to_le_bytes());
+    }
+}
+
+impl Encode for NonZeroUsize {
+    fn is_ssz_fixed_len() -> bool {
+        <usize as Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <usize as Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.get().ssz_append(buf)
     }
 }
 

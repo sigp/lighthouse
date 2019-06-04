@@ -1,5 +1,6 @@
 use super::*;
 use ethereum_types::{H256, U128, U256};
+use core::num::NonZeroUsize;
 
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -58,6 +59,28 @@ impl Decode for bool {
                     format!("Out-of-range for boolean: {}", bytes[0]).to_string(),
                 )),
             }
+        }
+    }
+}
+
+impl Decode for NonZeroUsize {
+    fn is_ssz_fixed_len() -> bool {
+        <usize as Decode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <usize as Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let x = usize::from_ssz_bytes(bytes)?;
+
+        if x == 0 {
+            Err(DecodeError::BytesInvalid("NonZeroUsize cannot be zero.".to_string()))
+        } else {
+            // `unwrap` is safe here as `NonZeroUsize::new()` succeeds if `x > 0` and this path
+            // never executes when `x == 0`.
+            Ok(NonZeroUsize::new(x).unwrap())
         }
     }
 }
