@@ -41,6 +41,8 @@ impl Doc {
             ("ssz", "uint", _) => run_test::<SszGeneric>(self),
             ("ssz", "static", "minimal") => run_test::<SszStatic<MinimalEthSpec>>(self),
             ("ssz", "static", "mainnet") => run_test::<SszStatic<MainnetEthSpec>>(self),
+            ("sanity", "slots", "minimal") => run_test::<SanitySlots<MinimalEthSpec>>(self),
+            ("sanity", "slots", "mainnet") => run_test::<SanitySlots<MainnetEthSpec>>(self),
             ("shuffling", "core", "minimal") => run_test::<Shuffling<MinimalEthSpec>>(self),
             ("shuffling", "core", "mainnet") => run_test::<Shuffling<MainnetEthSpec>>(self),
             ("bls", "aggregate_pubkeys", "mainnet") => run_test::<BlsAggregatePubkeys>(self),
@@ -88,6 +90,12 @@ impl Doc {
             }
             ("operations", "attestation", "minimal") => {
                 run_test::<OperationsAttestation<MinimalEthSpec>>(self)
+            }
+            ("operations", "block_header", "mainnet") => {
+                run_test::<OperationsBlockHeader<MainnetEthSpec>>(self)
+            }
+            ("operations", "block_header", "minimal") => {
+                run_test::<OperationsBlockHeader<MinimalEthSpec>>(self)
             }
             ("epoch_processing", "crosslinks", "minimal") => {
                 run_test::<EpochProcessingCrosslinks<MinimalEthSpec>>(self)

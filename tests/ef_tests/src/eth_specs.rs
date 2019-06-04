@@ -20,10 +20,12 @@ impl EthSpec for MinimalEthSpec {
     type LatestSlashedExitLength = U64;
 
     fn spec() -> ChainSpec {
-        // TODO: this spec is likely incorrect!
         let mut spec = FewValidatorsEthSpec::spec();
+        spec.target_committee_size = 4;
         spec.shuffle_round_count = 10;
         spec.min_attestation_inclusion_delay = 2;
+        spec.slots_per_epoch = 8;
+        spec.slots_per_eth1_voting_period = 16;
         spec
     }
 }
