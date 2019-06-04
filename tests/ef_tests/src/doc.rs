@@ -83,6 +83,12 @@ impl Doc {
             ("operations", "attester_slashing", "minimal") => {
                 run_test::<OperationsAttesterSlashing<MinimalEthSpec>>(self)
             }
+            ("operations", "attestation", "mainnet") => {
+                run_test::<OperationsAttestation<MainnetEthSpec>>(self)
+            }
+            ("operations", "attestation", "minimal") => {
+                run_test::<OperationsAttestation<MinimalEthSpec>>(self)
+            }
             ("epoch_processing", "crosslinks", "minimal") => {
                 run_test::<EpochProcessingCrosslinks<MinimalEthSpec>>(self)
             }
