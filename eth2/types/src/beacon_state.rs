@@ -1,4 +1,4 @@
-use self::committee_cache::{get_active_validator_indices, CommitteeCache};
+use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -15,6 +15,7 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
+pub use self::committee_cache::CommitteeCache;
 pub use beacon_state_types::*;
 
 mod beacon_state_types;
