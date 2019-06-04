@@ -672,6 +672,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        state.build_committee_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
+
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
         if let Err(e) = per_block_processing(&mut state, &block, &T::EthSpec::spec()) {
