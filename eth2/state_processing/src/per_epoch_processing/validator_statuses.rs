@@ -233,7 +233,7 @@ impl ValidatorStatuses {
                 let attestation_slot = state.get_attestation_slot(&a.data)?;
                 let inclusion_slot = attestation_slot + a.inclusion_delay;
                 let relative_epoch =
-                    RelativeEpoch::from_slot(state.slot, inclusion_slot, spec.slots_per_epoch)?;
+                    RelativeEpoch::from_slot(state.slot, attestation_slot, spec.slots_per_epoch)?;
                 status.inclusion_info = Some(InclusionInfo {
                     slot: inclusion_slot,
                     distance: a.inclusion_delay,
