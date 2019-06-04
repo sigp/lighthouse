@@ -23,6 +23,7 @@ impl EthSpec for MinimalEthSpec {
         // TODO: this spec is likely incorrect!
         let mut spec = FewValidatorsEthSpec::spec();
         spec.shuffle_round_count = 10;
+        spec.min_attestation_inclusion_delay = 2;
         spec
     }
 }

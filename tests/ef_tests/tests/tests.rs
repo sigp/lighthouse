@@ -116,6 +116,15 @@ fn operations_attester_slashing() {
 }
 
 #[test]
+fn operations_attestation() {
+    yaml_files_in_test_dir(&Path::new("operations").join("attestation"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls() {
     yaml_files_in_test_dir(&Path::new("bls"))
