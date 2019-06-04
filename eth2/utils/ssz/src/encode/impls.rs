@@ -25,6 +25,23 @@ impl_encodable_for_uint!(u32, 32);
 impl_encodable_for_uint!(u64, 64);
 impl_encodable_for_uint!(usize, 64);
 
+/// The SSZ "union" type.
+impl<T: Encode> Encode for Option<T> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        match self {
+            None => buf.append(&mut encode_union_index(0)),
+            Some(t) => {
+                buf.append(&mut encode_union_index(1));
+                t.ssz_append(buf);
+            }
+        }
+    }
+}
+
 impl<T: Encode> Encode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {
         false
@@ -166,6 +183,25 @@ mod tests {
             vec.as_ssz_bytes(),
             vec![8, 0, 0, 0, 11, 0, 0, 0, 0, 1, 2, 11, 22, 33]
         );
+    }
+
+    #[test]
+    fn ssz_encode_option_u16() {
+        assert_eq!(Some(65535_u16).as_ssz_bytes(), vec![1, 0, 0, 0, 255, 255]);
+
+        let none: Option<u16> = None;
+        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn ssz_encode_option_vec_u16() {
+        assert_eq!(
+            Some(vec![0_u16, 1]).as_ssz_bytes(),
+            vec![1, 0, 0, 0, 0, 0, 1, 0]
+        );
+
+        let none: Option<Vec<u16>> = None;
+        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
     }
 
     #[test]
