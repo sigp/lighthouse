@@ -77,15 +77,12 @@ fn per_block_processing_signature_optional<T: EthSpec>(
     should_verify_block_signature: bool,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    process_block_header(state, block, spec)?;
+    process_block_header(state, block, spec, should_verify_block_signature)?;
 
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-    if should_verify_block_signature {
-        verify_block_signature(&state, &block, &spec)?;
-    }
     process_randao(&mut state, &block, &spec)?;
     process_eth1_data(&mut state, &block.body.eth1_data, spec)?;
     process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
@@ -105,6 +102,7 @@ pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
     spec: &ChainSpec,
+    should_verify_block_signature: bool,
 ) -> Result<(), Error> {
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
@@ -124,6 +122,10 @@ pub fn process_block_header<T: EthSpec>(
     let proposer_idx = state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?;
     let proposer = &state.validator_registry[proposer_idx];
     verify!(!proposer.slashed, Invalid::ProposerSlashed(proposer_idx));
+
+    if should_verify_block_signature {
+        verify_block_signature(&state, &block, &spec)?;
+    }
 
     Ok(())
 }
