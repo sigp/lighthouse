@@ -3,7 +3,7 @@ use prometheus::{IntGauge, Opts, Registry};
 use slot_clock::SlotClock;
 use std::fs::File;
 use std::path::PathBuf;
-use types::Slot;
+use types::{EthSpec, Slot};
 
 // If set to `true` will iterate and sum the balances of all validators in the state for each
 // scrape.
@@ -11,6 +11,7 @@ const SHOULD_SUM_VALIDATOR_BALANCES: bool = true;
 
 pub struct LocalMetrics {
     present_slot: IntGauge,
+    present_epoch: IntGauge,
     best_slot: IntGauge,
     validator_count: IntGauge,
     justified_epoch: IntGauge,
@@ -25,6 +26,10 @@ impl LocalMetrics {
         Ok(Self {
             present_slot: {
                 let opts = Opts::new("present_slot", "slot_at_time_of_scrape");
+                IntGauge::with_opts(opts)?
+            },
+            present_epoch: {
+                let opts = Opts::new("present_epoch", "epoch_at_time_of_scrape");
                 IntGauge::with_opts(opts)?
             },
             best_slot: {
@@ -57,6 +62,7 @@ impl LocalMetrics {
     /// Registry this instance with the `registry`.
     pub fn register(&self, registry: &Registry) -> Result<(), prometheus::Error> {
         registry.register(Box::new(self.present_slot.clone()))?;
+        registry.register(Box::new(self.present_epoch.clone()))?;
         registry.register(Box::new(self.best_slot.clone()))?;
         registry.register(Box::new(self.validator_count.clone()))?;
         registry.register(Box::new(self.finalized_epoch.clone()))?;
@@ -77,6 +83,8 @@ impl LocalMetrics {
             .unwrap_or_else(|_| None)
             .unwrap_or_else(|| Slot::new(0));
         self.present_slot.set(present_slot.as_u64() as i64);
+        self.present_epoch
+            .set(present_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64() as i64);
 
         self.best_slot.set(state.slot.as_u64() as i64);
         self.validator_count
