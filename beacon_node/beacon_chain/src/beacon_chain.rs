@@ -2,6 +2,7 @@ use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::iter::BlockRootsIterator;
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
@@ -226,6 +227,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(headers?)
     }
 
+    /// Iterate in reverse through all block roots starting from the current state, through to
+    /// genesis.
+    ///
+    /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
+    ///
+    /// Contains duplicate roots when skip slots are encountered.
+    pub fn iter_block_roots(&self) -> BlockRootsIterator<T::EthSpec, T::Store> {
+        BlockRootsIterator::from_state(self.store.clone(), self.state.read().clone())
+    }
+
+    /*
     /// Returns `count `beacon block roots, starting from `start_slot` with an
     /// interval of `skip` slots between each root.
     ///
@@ -305,6 +317,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Err(BeaconStateError::SlotOutOfBounds.into())
         }
     }
+        */
 
     /// Returns the block at the given root, if any.
     ///

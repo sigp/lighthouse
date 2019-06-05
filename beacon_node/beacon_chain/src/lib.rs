@@ -1,6 +1,7 @@
 mod beacon_chain;
 mod checkpoint;
 mod errors;
+pub mod iter;
 mod metrics;
 mod persisted_beacon_chain;
 
