@@ -1,6 +1,29 @@
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconState, BeaconStateError, EthSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot};
+
+/// Extends `BlockRootsIterator`, returning `BeaconBlock` instances, instead of their roots.
+pub struct BlockIterator<T: EthSpec, U> {
+    roots: BlockRootsIterator<T, U>,
+}
+
+impl<T: EthSpec, U: Store> BlockIterator<T, U> {
+    /// Create a new iterator over all blocks in the given `beacon_state` and prior states.
+    pub fn new(store: Arc<U>, beacon_state: BeaconState<T>, start_slot: Slot) -> Self {
+        Self {
+            roots: BlockRootsIterator::new(store, beacon_state, start_slot),
+        }
+    }
+}
+
+impl<T: EthSpec, U: Store> Iterator for BlockIterator<T, U> {
+    type Item = BeaconBlock;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let root = self.roots.next()?;
+        self.roots.store.get(&root).ok()?
+    }
+}
 
 /// Iterates backwards through block roots.
 ///
@@ -17,9 +40,9 @@ pub struct BlockRootsIterator<T: EthSpec, U> {
 
 impl<T: EthSpec, U: Store> BlockRootsIterator<T, U> {
     /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
-    pub fn from_state(store: Arc<U>, beacon_state: BeaconState<T>) -> Self {
+    pub fn new(store: Arc<U>, beacon_state: BeaconState<T>, start_slot: Slot) -> Self {
         Self {
-            slot: beacon_state.slot,
+            slot: start_slot,
             beacon_state,
             store,
         }
@@ -95,7 +118,7 @@ mod test {
         state_b.latest_state_roots[0] = state_a_root;
         store.put(&state_a_root, &state_a).unwrap();
 
-        let iter = BlockRootsIterator::from_state(store.clone(), state_b.clone());
+        let iter = BlockRootsIterator::new(store.clone(), state_b.clone(), state_b.slot);
         let mut collected: Vec<Hash256> = iter.collect();
         collected.reverse();
 

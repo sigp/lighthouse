@@ -1,8 +1,8 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::iter::{BlockIterator, BlockRootsIterator};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-use crate::iter::BlockRootsIterator;
 use fork_choice::{ForkChoice, ForkChoiceError};
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
@@ -226,15 +226,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(headers?)
     }
+    /// Iterate in reverse (highest to lowest slot) through all blocks from the block at `slot`
+    /// through to the genesis block.
+    ///
+    /// Returns `None` for headers prior to genesis or when there is an error reading from `Store`.
+    ///
+    /// Contains duplicate headers when skip slots are encountered.
+    pub fn rev_iter_blocks(&self, slot: Slot) -> BlockIterator<T::EthSpec, T::Store> {
+        BlockIterator::new(self.store.clone(), self.state.read().clone(), slot)
+    }
 
-    /// Iterate in reverse through all block roots starting from the current state, through to
+    /// Iterates in reverse (highest to lowest slot) through all block roots from `slot` through to
     /// genesis.
     ///
     /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
     ///
     /// Contains duplicate roots when skip slots are encountered.
-    pub fn iter_block_roots(&self) -> BlockRootsIterator<T::EthSpec, T::Store> {
-        BlockRootsIterator::from_state(self.store.clone(), self.state.read().clone())
+    pub fn rev_iter_block_roots(&self, slot: Slot) -> BlockRootsIterator<T::EthSpec, T::Store> {
+        BlockRootsIterator::new(self.store.clone(), self.state.read().clone(), slot)
     }
 
     /*
