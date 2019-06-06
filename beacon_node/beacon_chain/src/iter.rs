@@ -53,7 +53,7 @@ impl<T: EthSpec, U: Store> Iterator for BlockRootsIterator<T, U> {
     type Item = Hash256;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.slot == 0 {
+        if (self.slot == 0) || (self.slot > self.beacon_state.slot) {
             return None;
         }
 
