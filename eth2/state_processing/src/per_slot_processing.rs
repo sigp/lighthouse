@@ -1,5 +1,4 @@
 use crate::*;
-use tree_hash::SignedRoot;
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -44,7 +43,7 @@ fn cache_state<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) -> Resu
     // Store the previous slot's post state transition root.
     state.set_state_root(previous_slot, previous_slot_state_root)?;
 
-    let latest_block_root = Hash256::from_slice(&state.latest_block_header.signed_root()[..]);
+    let latest_block_root = state.latest_block_header.canonical_root();
     state.set_block_root(previous_slot, latest_block_root)?;
 
     // Set the state slot back to what it should be.

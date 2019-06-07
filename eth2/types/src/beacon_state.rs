@@ -111,7 +111,7 @@ where
     pub current_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
     pub previous_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
     pub latest_block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
-    latest_state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    pub latest_state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
     latest_active_index_roots: FixedLenVec<Hash256, T::LatestActiveIndexRootsLength>,
     latest_slashed_balances: FixedLenVec<u64, T::LatestSlashedExitLength>,
     pub latest_block_header: BeaconBlockHeader,

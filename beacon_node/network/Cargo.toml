@@ -9,6 +9,7 @@ sloggers = "0.3.2"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
+store =  { path = "../store" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }

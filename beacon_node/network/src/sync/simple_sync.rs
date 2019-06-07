@@ -8,8 +8,11 @@ use slog::{debug, error, info, o, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use store::Store;
 use tree_hash::TreeHash;
-use types::{Attestation, BeaconBlock, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot,
+};
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
@@ -160,67 +163,88 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
 
-        let network_id_mismatch = local.network_id != remote.network_id;
-        let on_different_finalized_chain = (local.latest_finalized_epoch
-            >= remote.latest_finalized_epoch)
-            && (!self
-                .chain
-                .rev_iter_block_roots(local.best_slot)
-                .any(|root| root == remote.latest_finalized_root));
-
-        if network_id_mismatch || on_different_finalized_chain {
+        // Disconnect nodes who are on a different network.
+        if local.network_id != remote.network_id {
             info!(
                 self.log, "HandshakeFailure";
                 "peer" => format!("{:?}", peer_id),
                 "reason" => "network_id"
             );
             network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
-            return;
+        // Disconnect nodes if our finalized epoch is greater than thieirs, and their finalized
+        // epoch is not in our chain. Viz., they are on another chain.
+        //
+        // If the local or remote have a `latest_finalized_root == ZERO_HASH`, skips checks about
+        // the finalized_root. The logic is akward and I think we're better without it.
+        } else if (local.latest_finalized_epoch >= remote.latest_finalized_epoch)
+            && (!self
+                .chain
+                .rev_iter_block_roots(local.best_slot)
+                .any(|root| root == remote.latest_finalized_root))
+            && (local.latest_finalized_root != spec.zero_hash)
+            && (remote.latest_finalized_root != spec.zero_hash)
+        {
+            info!(
+                self.log, "HandshakeFailure";
+                "peer" => format!("{:?}", peer_id),
+                "reason" => "wrong_finalized_chain"
+            );
+            network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
+        // Process handshakes from peers that seem to be on our chain.
         } else {
             info!(self.log, "HandshakeSuccess"; "peer" => format!("{:?}", peer_id));
             self.known_peers.insert(peer_id.clone(), remote);
-        }
 
-        // If we have equal or better finalized epochs and best slots, we require nothing else from
-        // this peer.
-        if (remote.latest_finalized_epoch <= local.latest_finalized_epoch)
-            && (remote.best_slot <= local.best_slot)
-        {
-            return;
-        }
+            // If we have equal or better finalized epochs and best slots, we require nothing else from
+            // this peer.
+            //
+            // We make an exception when our best slot is 0. Best slot does not indicate wether or
+            // not there is a block at slot zero.
+            if (remote.latest_finalized_epoch <= local.latest_finalized_epoch)
+                && (remote.best_slot <= local.best_slot)
+                && (local.best_slot > 0)
+            {
+                debug!(self.log, "Peer is naive"; "peer" => format!("{:?}", peer_id));
+                return;
+            }
 
-        // If the remote has a higher finalized epoch, request all block roots from our finalized
-        // epoch through to its best slot.
-        if remote.latest_finalized_epoch > local.latest_finalized_epoch {
-            let start_slot = local
-                .latest_finalized_epoch
-                .start_slot(spec.slots_per_epoch);
-            let required_slots = start_slot - remote.best_slot;
+            // If the remote has a higher finalized epoch, request all block roots from our finalized
+            // epoch through to its best slot.
+            if remote.latest_finalized_epoch > local.latest_finalized_epoch {
+                debug!(self.log, "Peer has high finalized epoch"; "peer" => format!("{:?}", peer_id));
+                let start_slot = local
+                    .latest_finalized_epoch
+                    .start_slot(spec.slots_per_epoch);
+                let required_slots = remote.best_slot - start_slot;
 
-            self.request_block_roots(
-                peer_id,
-                BeaconBlockRootsRequest {
-                    start_slot,
-                    count: required_slots.into(),
-                },
-                network,
-            );
-        // If the remote has a greater best slot, request the roots between our best slot and their
-        // best slot.
-        } else if remote.best_root > local.best_root {
-            let start_slot = local
-                .latest_finalized_epoch
-                .start_slot(spec.slots_per_epoch);
-            let required_slots = start_slot - remote.best_slot;
+                self.request_block_roots(
+                    peer_id,
+                    BeaconBlockRootsRequest {
+                        start_slot,
+                        count: required_slots.into(),
+                    },
+                    network,
+                );
+            // If the remote has a greater best slot, request the roots between our best slot and their
+            // best slot.
+            } else if remote.best_slot > local.best_slot {
+                debug!(self.log, "Peer has higher best slot"; "peer" => format!("{:?}", peer_id));
+                let start_slot = local
+                    .latest_finalized_epoch
+                    .start_slot(spec.slots_per_epoch);
+                let required_slots = remote.best_slot - start_slot;
 
-            self.request_block_roots(
-                peer_id,
-                BeaconBlockRootsRequest {
-                    start_slot,
-                    count: required_slots.into(),
-                },
-                network,
-            );
+                self.request_block_roots(
+                    peer_id,
+                    BeaconBlockRootsRequest {
+                        start_slot,
+                        count: required_slots.into(),
+                    },
+                    network,
+                );
+            } else {
+                debug!(self.log, "Nothing to request from peer"; "peer" => format!("{:?}", peer_id));
+            }
         }
     }
 
@@ -237,18 +261,39 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "BlockRootsRequest";
             "peer" => format!("{:?}", peer_id),
             "count" => req.count,
+            "start_slot" => req.start_slot,
         );
 
-        let roots = self
+        let mut roots: Vec<Hash256> = self
             .chain
-            .rev_iter_block_roots(req.start_slot)
+            .rev_iter_block_roots(req.start_slot + req.count)
+            .skip(1)
             .take(req.count as usize)
+            .collect();
+
+        if roots.len() as u64 != req.count {
+            debug!(
+                self.log,
+                "BlockRootsRequest";
+                "peer" => format!("{:?}", peer_id),
+                "msg" => "Failed to return all requested hashes",
+                "requested" => req.count,
+                "returned" => roots.len(),
+            );
+        }
+
+        roots.reverse();
+
+        let mut roots: Vec<BlockRootSlot> = roots
+            .iter()
             .enumerate()
             .map(|(i, block_root)| BlockRootSlot {
                 slot: req.start_slot + Slot::from(i),
-                block_root,
+                block_root: *block_root,
             })
             .collect();
+
+        roots.dedup_by_key(|brs| brs.block_root);
 
         network.send_rpc_response(
             peer_id,
@@ -335,12 +380,28 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "count" => req.max_headers,
         );
 
-        let headers = get_block_headers(
-            &self.chain,
-            req.start_slot,
-            req.max_headers as usize,
-            req.skip_slots as usize,
-        );
+        let count = req.max_headers;
+
+        // Collect the block roots.
+        //
+        // Instead of using `chain.rev_iter_blocks` we collect the roots first. This avoids
+        // unnecessary block deserialization when `req.skip_slots > 0`.
+        let mut roots: Vec<Hash256> = self
+            .chain
+            .rev_iter_block_roots(req.start_slot + (count - 1))
+            .take(count as usize)
+            .collect();
+
+        roots.reverse();
+
+        let headers: Vec<BeaconBlockHeader> = roots
+            .into_iter()
+            .step_by(req.skip_slots as usize + 1)
+            .filter_map(|root| {
+                let block = self.chain.store.get::<BeaconBlock>(&root).ok()?;
+                Some(block?.block_header())
+            })
+            .collect();
 
         network.send_rpc_response(
             peer_id,
@@ -388,26 +449,32 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         req: BeaconBlockBodiesRequest,
         network: &mut NetworkContext,
     ) {
+        let block_bodies: Vec<BeaconBlockBody> = req
+            .block_roots
+            .iter()
+            .filter_map(|root| {
+                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock>(root) {
+                    Some(block.body)
+                } else {
+                    debug!(
+                        self.log,
+                        "Peer requested unknown block";
+                        "peer" => format!("{:?}", peer_id),
+                        "request_root" => format!("{:}", root),
+                    );
+
+                    None
+                }
+            })
+            .collect();
+
         debug!(
             self.log,
             "BlockBodiesRequest";
             "peer" => format!("{:?}", peer_id),
-            "count" => req.block_roots.len(),
+            "requested" => req.block_roots.len(),
+            "returned" => block_bodies.len(),
         );
-
-        let block_bodies = match self.chain.get_block_bodies(&req.block_roots) {
-            Ok(bodies) => bodies,
-            Err(e) => {
-                // TODO: return RPC error.
-                warn!(
-                    self.log,
-                    "RPCRequest"; "peer" => format!("{:?}", peer_id),
-                    "req" => "BeaconBlockBodies",
-                    "error" => format!("{:?}", e)
-                );
-                return;
-            }
-        };
 
         network.send_rpc_response(
             peer_id,
@@ -449,18 +516,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         block: BeaconBlock,
         network: &mut NetworkContext,
     ) -> bool {
-        info!(
-            self.log,
-            "GossipBlockReceived";
-            "peer" => format!("{:?}", peer_id),
-            "block_slot" => format!("{:?}", block.slot),
-        );
-
         // Ignore any block from a finalized slot.
         if self.slot_is_finalized(block.slot) {
-            warn!(
-                self.log, "IgnoredGossipBlock";
-                "msg" => "new block slot is finalized.",
+            debug!(
+                self.log, "IgnoredFinalizedBlock";
+                "source" => "gossip",
+                "msg" => "chain is finalized at block slot",
                 "block_slot" => block.slot,
             );
             return false;
@@ -475,11 +536,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         }
 
         match self.chain.process_block(block.clone()) {
-            Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::ParentUnknown)) => {
+            Ok(BlockProcessingOutcome::InvalidBlock(InvalidBlock::ParentUnknown { .. })) => {
                 // The block was valid and we processed it successfully.
                 debug!(
-                    self.log, "InvalidGossipBlock";
-                    "msg" => "parent block unknown",
+                    self.log, "ParentBlockUnknown";
+                    "source" => "gossip",
                     "parent_root" => format!("{}", block.previous_block_root),
                     "peer" => format!("{:?}", peer_id),
                 );
@@ -505,8 +566,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 if block_slot - present_slot > FUTURE_SLOT_TOLERANCE {
                     // The block is too far in the future, drop it.
                     warn!(
-                        self.log, "InvalidGossipBlock";
-                        "msg" => "future block rejected",
+                        self.log, "FutureBlock";
+                        "source" => "gossip",
+                        "msg" => "block for future slot rejected, check your time",
                         "present_slot" => present_slot,
                         "block_slot" => block_slot,
                         "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
@@ -517,8 +579,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 } else {
                     // The block is in the future, but not too far.
                     warn!(
-                        self.log, "FutureGossipBlock";
-                        "msg" => "queuing future block",
+                        self.log, "QueuedFutureBlock";
+                        "source" => "gossip",
+                        "msg" => "queuing future block, check your time",
                         "present_slot" => present_slot,
                         "block_slot" => block_slot,
                         "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
@@ -534,7 +597,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 if outcome.is_invalid() {
                     // The peer has sent a block which is fundamentally invalid.
                     warn!(
-                        self.log, "InvalidGossipBlock";
+                        self.log, "InvalidBlock";
+                        "source" => "gossip",
                         "msg" => "peer sent objectively invalid block",
                         "outcome" => format!("{:?}", outcome),
                         "peer" => format!("{:?}", peer_id),
@@ -546,7 +610,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 } else if outcome.sucessfully_processed() {
                     // The block was valid and we processed it successfully.
                     info!(
-                        self.log, "ValidGossipBlock";
+                        self.log, "ImportedBlock";
+                        "source" => "gossip",
                         "peer" => format!("{:?}", peer_id),
                     );
                     // Forward the block to peers
@@ -555,7 +620,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     // The block wasn't necessarily invalid but we didn't process it successfully.
                     // This condition shouldn't be reached.
                     error!(
-                        self.log, "InvalidGossipBlock";
+                        self.log, "BlockProcessingFailure";
+                        "source" => "gossip",
                         "msg" => "unexpected condition in processing block.",
                         "outcome" => format!("{:?}", outcome),
                     );
@@ -569,8 +635,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 // Blocks should not be able to trigger errors, instead they should be flagged as
                 // invalid.
                 error!(
-                    self.log, "InvalidGossipBlock";
+                    self.log, "BlockProcessingError";
                     "msg" => "internal error in processing block.",
+                    "source" => "gossip",
                     "error" => format!("{:?}", e),
                 );
                 // Do not forward the block to peers.
@@ -584,19 +651,15 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Not currently implemented.
     pub fn on_attestation_gossip(
         &mut self,
-        peer_id: PeerId,
+        _peer_id: PeerId,
         msg: Attestation,
         _network: &mut NetworkContext,
     ) {
-        info!(
-            self.log,
-            "NewAttestationGossip";
-            "peer" => format!("{:?}", peer_id),
-        );
-
         match self.chain.process_attestation(msg) {
-            Ok(()) => info!(self.log, "ImportedAttestation"),
-            Err(e) => warn!(self.log, "InvalidAttestation"; "error" => format!("{:?}", e)),
+            Ok(()) => info!(self.log, "ImportedAttestation"; "source" => "gossip"),
+            Err(e) => {
+                warn!(self.log, "InvalidAttestation"; "source" => "gossip", "error" => format!("{:?}", e))
+            }
         }
     }
 
@@ -611,6 +674,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         // Loop through all of the complete blocks in the queue.
         for (block_root, block, sender) in self.import_queue.complete_blocks() {
+            let slot = block.slot;
+            let parent_root = block.previous_block_root;
+
             match self.chain.process_block(block) {
                 Ok(outcome) => {
                     if outcome.is_invalid() {
@@ -618,15 +684,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         warn!(
                             self.log,
                             "InvalidBlock";
-                            "sender_peer_id" => format!("{:?}", sender),
+                            "sender_peer_id" => format!("{:?}", sender.clone()),
+                            "block_root" => format!("{}", block_root),
                             "reason" => format!("{:?}", outcome),
                         );
                         network.disconnect(sender, GoodbyeReason::Fault);
-                        break;
-                    }
-
-                    // If this results to true, the item will be removed from the queue.
-                    if outcome.sucessfully_processed() {
+                    } else if outcome.sucessfully_processed() {
                         successful += 1;
                         self.import_queue.remove(block_root);
                     } else {
@@ -635,6 +698,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                             "ProcessImportQueue";
                             "msg" => "Block not imported",
                             "outcome" => format!("{:?}", outcome),
+                            "block_slot" => format!("{:?}", slot),
+                            "parent_root" => format!("{}", parent_root),
                             "peer" => format!("{:?}", sender),
                         );
                     }
@@ -751,20 +816,4 @@ fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMes
         best_root: beacon_chain.head().beacon_block_root,
         best_slot: state.slot,
     }
-}
-
-/// Return a list of `BeaconBlockHeader` from the given `BeaconChain`, starting at `start_slot` and
-/// returning `count` headers with a gap of `skip` slots between each.
-fn get_block_headers<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
-    start_slot: Slot,
-    count: usize,
-    skip: usize,
-) -> Vec<BeaconBlockHeader> {
-    beacon_chain
-        .rev_iter_blocks(start_slot)
-        .step_by(skip + 1)
-        .take(count)
-        .map(|block| block.block_header())
-        .collect()
 }
