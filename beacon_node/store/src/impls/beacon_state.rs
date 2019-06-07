@@ -2,7 +2,7 @@ use crate::*;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use types::beacon_state::{CACHED_EPOCHS, CommitteeCache};
+use types::beacon_state::{CommitteeCache, CACHED_EPOCHS};
 
 /// A container for storing `BeaconState` components.
 #[derive(Encode, Decode)]
