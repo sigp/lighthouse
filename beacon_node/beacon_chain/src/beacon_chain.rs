@@ -30,6 +30,8 @@ pub enum ValidBlock {
 
 #[derive(Debug, PartialEq)]
 pub enum InvalidBlock {
+    /// Don't re-process the genesis block.
+    GenesisBlock,
     /// The block slot is greater than the present slot.
     FutureSlot {
         present_slot: Slot,
@@ -38,7 +40,7 @@ pub enum InvalidBlock {
     /// The block state_root does not match the generated state.
     StateRootMismatch,
     /// The blocks parent_root is unknown.
-    ParentUnknown,
+    ParentUnknown { parent: Hash256 },
     /// There was an error whilst advancing the parent state to the present slot. This condition
     /// should not occur, it likely represents an internal error.
     SlotProcessingError(SlotProcessingError),
@@ -61,9 +63,10 @@ impl BlockProcessingOutcome {
         match self {
             BlockProcessingOutcome::ValidBlock(_) => false,
             BlockProcessingOutcome::InvalidBlock(r) => match r {
+                InvalidBlock::GenesisBlock { .. } => true,
                 InvalidBlock::FutureSlot { .. } => true,
                 InvalidBlock::StateRootMismatch => true,
-                InvalidBlock::ParentUnknown => false,
+                InvalidBlock::ParentUnknown { .. } => false,
                 InvalidBlock::SlotProcessingError(_) => false,
                 InvalidBlock::PerBlockProcessingError(e) => match e {
                     BlockProcessingError::Invalid(_) => true,
@@ -130,6 +133,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let genesis_block_root = genesis_block.block_header().canonical_root();
         store.put(&genesis_block_root, &genesis_block)?;
+
+        // Also store the genesis block under the `ZERO_HASH` key.
+        let genesis_block_root = genesis_block.block_header().canonical_root();
+        store.put(&spec.zero_hash, &genesis_block)?;
 
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
@@ -205,7 +212,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .iter()
             .map(|root| match self.get_block(root)? {
                 Some(block) => Ok(block.body),
-                None => Err(Error::DBInconsistent("Missing block".into())),
+                None => Err(Error::DBInconsistent(
+                    format!("Missing block: {}", root).into(),
+                )),
             })
             .collect();
 
@@ -648,7 +657,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.block_processing_requests.inc();
         let timer = self.metrics.block_processing_times.start_timer();
 
+        if block.slot == 0 {
+            return Ok(BlockProcessingOutcome::InvalidBlock(
+                InvalidBlock::GenesisBlock,
+            ));
+        }
+
         let block_root = block.block_header().canonical_root();
+
+        if block_root == self.genesis_block_root {
+            return Ok(BlockProcessingOutcome::ValidBlock(ValidBlock::Processed));
+        }
 
         let present_slot = self.present_slot();
 
@@ -668,7 +687,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(previous_block_root) => previous_block_root,
             None => {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
-                    InvalidBlock::ParentUnknown,
+                    InvalidBlock::ParentUnknown {
+                        parent: parent_block_root,
+                    },
                 ));
             }
         };
@@ -754,9 +775,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         trace!("Finding attestations for new block...");
 
-        let previous_block_root = *state
-            .get_block_root(state.slot - 1)
-            .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?;
+        let previous_block_root = if state.slot > 0 {
+            *state
+                .get_block_root(state.slot - 1)
+                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
+        } else {
+            state.latest_block_header.canonical_root()
+        };
 
         let (proposer_slashings, attester_slashings) = self
             .op_pool
