@@ -18,42 +18,32 @@ const TESTNET_VALIDATOR_COUNT: usize = 16;
 
 /// Provides a new, initialized `BeaconChain`
 pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
-    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T>;
+    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T> {
+        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store, log)
+    }
 }
 
 /// A testnet-suitable BeaconChainType, using `MemoryStore`.
 #[derive(Clone)]
 pub struct TestnetMemoryBeaconChainTypes;
-
 impl BeaconChainTypes for TestnetMemoryBeaconChainTypes {
     type Store = MemoryStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
     type EthSpec = LighthouseTestnetEthSpec;
 }
-
-impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes {
-    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T> {
-        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store, log)
-    }
-}
+impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes {}
 
 /// A testnet-suitable BeaconChainType, using `DiskStore`.
 #[derive(Clone)]
 pub struct TestnetDiskBeaconChainTypes;
-
 impl BeaconChainTypes for TestnetDiskBeaconChainTypes {
     type Store = DiskStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
     type EthSpec = LighthouseTestnetEthSpec;
 }
-
-impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes {
-    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T> {
-        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store, log)
-    }
-}
+impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes {}
 
 /// Loads a `BeaconChain` from `store`, if it exists. Otherwise, create a new chain from genesis.
 fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(

@@ -8,6 +8,7 @@ edition = "2018"
 types = { path = "../eth2/types" }
 store = { path = "./store" }
 client = { path = "client" }
+fork_choice = { path = "../eth2/fork_choice" }
 version = { path = "version" }
 clap = "2.32.0"
 slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_debug"] }

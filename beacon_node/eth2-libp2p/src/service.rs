@@ -57,7 +57,7 @@ impl Service {
         };
 
         // listen on all addresses
-        for address in &config.listen_addresses {
+        for address in config.listen_addresses().expect("invalid listen multiaddr") {
             match Swarm::listen_on(&mut swarm, address.clone()) {
                 Ok(mut listen_addr) => {
                     listen_addr.append(Protocol::P2p(local_peer_id.clone().into()));
@@ -68,7 +68,7 @@ impl Service {
         }
         // connect to boot nodes - these are currently stored as multiaddrs
         // Once we have discovery, can set to peerId
-        for bootnode in config.boot_nodes {
+        for bootnode in config.boot_nodes().expect("invalid boot node multiaddr") {
             match Swarm::dial_addr(&mut swarm, bootnode.clone()) {
                 Ok(()) => debug!(log, "Dialing bootnode: {}", bootnode),
                 Err(err) => debug!(

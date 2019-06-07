@@ -20,6 +20,8 @@ clap = "2.32.0"
 store = { path = "../store" }
 dirs = "1.0.3"
 futures = "0.1.23"
+serde = "1.0"
+serde_derive = "1.0"
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
