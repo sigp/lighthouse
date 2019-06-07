@@ -57,28 +57,21 @@ impl<T: EthSpec, U: Store> Iterator for BlockRootsIterator<T, U> {
             return None;
         }
 
-        let slot = self.slot - 1;
+        self.slot = self.slot - 1;
 
-        match self.beacon_state.get_block_root(slot) {
+        match self.beacon_state.get_block_root(self.slot) {
             Ok(root) => Some(*root),
             Err(BeaconStateError::SlotOutOfBounds) => {
                 // Read a `BeaconState` from the store that has access to prior historical root.
                 self.beacon_state = {
-                    // Read the earliest historic state in the current slot.
-                    let earliest_historic_slot =
-                        self.beacon_state.slot - Slot::from(T::slots_per_historical_root());
+                    // Load the earlier state from disk. Skip forward one slot, because a state
+                    // doesn't return it's own state root.
+                    let new_state_root = self.beacon_state.get_state_root(self.slot + 1).ok()?;
 
-                    // Load the earlier state from disk.
-                    let new_state_root = self
-                        .beacon_state
-                        .get_state_root(earliest_historic_slot)
-                        .ok()?;
+                    self.store.get(&new_state_root).ok()?
+                }?;
 
-                    let state_option = self.store.get(&new_state_root).ok()?;
-                    state_option?
-                };
-
-                self.beacon_state.get_block_root(slot).ok().cloned()
+                self.beacon_state.get_block_root(self.slot).ok().cloned()
             }
             _ => return None,
         }
@@ -101,9 +94,13 @@ mod test {
     #[test]
     fn root_iter() {
         let store = Arc::new(MemoryStore::open());
+        let slots_per_historical_root = FoundationEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<FoundationEthSpec> = get_state();
         let mut state_b: BeaconState<FoundationEthSpec> = get_state();
+
+        state_a.slot = Slot::from(slots_per_historical_root);
+        state_b.slot = Slot::from(slots_per_historical_root * 2);
 
         let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
 
@@ -118,12 +115,16 @@ mod test {
         state_b.latest_state_roots[0] = state_a_root;
         store.put(&state_a_root, &state_a).unwrap();
 
-        let iter = BlockRootsIterator::new(store.clone(), state_b.clone(), state_b.slot);
+        let iter = BlockRootsIterator::new(store.clone(), state_b.clone(), state_b.slot - 1);
         let mut collected: Vec<Hash256> = iter.collect();
         collected.reverse();
 
-        for (i, item) in collected.iter().enumerate() {
-            assert_eq!(*item, Hash256::from(i as u64));
+        let expected_len = 2 * FoundationEthSpec::slots_per_historical_root() - 1;
+
+        assert_eq!(collected.len(), expected_len);
+
+        for i in 0..expected_len {
+            assert_eq!(collected[i], Hash256::from(i as u64));
         }
     }
 }
