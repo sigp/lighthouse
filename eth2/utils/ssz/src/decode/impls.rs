@@ -1,6 +1,6 @@
 use super::*;
-use ethereum_types::{H256, U128, U256};
 use core::num::NonZeroUsize;
+use ethereum_types::{H256, U128, U256};
 
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -76,7 +76,9 @@ impl Decode for NonZeroUsize {
         let x = usize::from_ssz_bytes(bytes)?;
 
         if x == 0 {
-            Err(DecodeError::BytesInvalid("NonZeroUsize cannot be zero.".to_string()))
+            Err(DecodeError::BytesInvalid(
+                "NonZeroUsize cannot be zero.".to_string(),
+            ))
         } else {
             // `unwrap` is safe here as `NonZeroUsize::new()` succeeds if `x > 0` and this path
             // never executes when `x == 0`.
