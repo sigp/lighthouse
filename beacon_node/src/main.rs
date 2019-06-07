@@ -4,7 +4,7 @@ mod run;
 
 use clap::{App, Arg};
 use client::ClientConfig;
-use slog::{error, o, Drain};
+use slog::{crit, o, Drain};
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -29,21 +29,14 @@ fn main() {
             Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("Listen Address")
-                .help("The Network address to listen for p2p connections.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("port")
-                .long("port")
-                .value_name("PORT")
-                .help("Network listen port for p2p connections.")
+                .help("One or more comma-delimited multi-addresses to listen for p2p connections.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("boot-nodes")
                 .long("boot-nodes")
                 .value_name("BOOTNODES")
-                .help("A list of comma separated multi addresses representing bootnodes to connect to.")
+                .help("One or more comma-delimited multi-addresses to bootstrap the p2p network.")
                 .takes_value(true),
         )
         // rpc related arguments
@@ -101,11 +94,18 @@ fn main() {
         )
         .get_matches();
 
-    // invalid arguments, panic
-    let config = ClientConfig::parse_args(matches, &logger).unwrap();
+    let mut config = ClientConfig::default();
+
+    match config.apply_cli_args(&matches) {
+        Ok(()) => (),
+        Err(s) => {
+            crit!(logger, "Failed to parse CLI arguments"; "error" => s);
+            return;
+        }
+    };
 
     match run::run_beacon_node(config, &logger) {
         Ok(_) => {}
-        Err(e) => error!(logger, "Beacon node failed because {:?}", e),
+        Err(e) => crit!(logger, "Beacon node failed to start"; "reason" => format!("{:}", e)),
     }
 }

@@ -3,17 +3,19 @@ mod key;
 mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use clap::ArgMatches;
 use futures::Future;
 use iron::prelude::*;
 use network::NetworkMessage;
 use prometheus::Registry;
 use router::Router;
+use serde_derive::{Deserialize, Serialize};
 use slog::{info, o, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct HttpServerConfig {
     pub enabled: bool,
     pub listen_address: String,
@@ -27,6 +29,24 @@ impl Default for HttpServerConfig {
             listen_address: "127.0.0.1".to_string(),
             listen_port: "5052".to_string(),
         }
+    }
+}
+
+impl HttpServerConfig {
+    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
+        if args.is_present("http") {
+            self.enabled = true;
+        }
+
+        if let Some(listen_address) = args.value_of("http-address") {
+            self.listen_address = listen_address.to_string();
+        }
+
+        if let Some(listen_port) = args.value_of("http-port") {
+            self.listen_port = listen_port.to_string();
+        }
+
+        Ok(())
     }
 }
 

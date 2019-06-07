@@ -6,7 +6,6 @@ pub mod error;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;
-use beacon_chain_types::InitialiseBeaconChain;
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
@@ -18,10 +17,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
+use types::EthSpec;
 
 pub use beacon_chain::BeaconChainTypes;
+pub use beacon_chain_types::InitialiseBeaconChain;
 pub use beacon_chain_types::{TestnetDiskBeaconChainTypes, TestnetMemoryBeaconChainTypes};
-pub use client_config::{ClientConfig, DBType};
+pub use client_config::ClientConfig;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
@@ -57,6 +58,7 @@ where
     ) -> error::Result<Self> {
         let metrics_registry = Registry::new();
         let store = Arc::new(store);
+        let spec = T::EthSpec::spec();
 
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
         let beacon_chain = Arc::new(T::initialise_beacon_chain(store, log.clone()));
@@ -97,7 +99,7 @@ where
 
         // Start the network service, libp2p and syncing threads
         // TODO: Add beacon_chain reference to network parameters
-        let network_config = &config.net_conf;
+        let network_config = &config.network;
         let network_logger = log.new(o!("Service" => "Network"));
         let (network, network_send) = NetworkService::new(
             beacon_chain.clone(),
@@ -107,9 +109,9 @@ where
         )?;
 
         // spawn the RPC server
-        let rpc_exit_signal = if config.rpc_conf.enabled {
+        let rpc_exit_signal = if config.rpc.enabled {
             Some(rpc::start_server(
-                &config.rpc_conf,
+                &config.rpc,
                 executor,
                 network_send.clone(),
                 beacon_chain.clone(),
@@ -122,13 +124,13 @@ where
         // Start the `http_server` service.
         //
         // Note: presently we are ignoring the config and _always_ starting a HTTP server.
-        let http_exit_signal = if config.http_conf.enabled {
+        let http_exit_signal = if config.http.enabled {
             Some(http_server::start_service(
-                &config.http_conf,
+                &config.http,
                 executor,
                 network_send,
                 beacon_chain.clone(),
-                config.db_name.clone(),
+                config.db_path().expect("unable to read datadir"),
                 metrics_registry,
                 &log,
             ))
@@ -141,7 +143,7 @@ where
             // set up the validator work interval - start at next slot and proceed every slot
             let interval = {
                 // Set the interval to start at the next slot, and every slot after
-                let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
+                let slot_duration = Duration::from_secs(spec.seconds_per_slot);
                 //TODO: Handle checked add correctly
                 Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
             };

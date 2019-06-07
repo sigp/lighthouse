@@ -6,5 +6,4 @@ error_chain! {
    links  {
        Network(network::error::Error, network::error::ErrorKind);
    }
-
 }

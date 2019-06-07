@@ -1,11 +1,13 @@
 use client::{
-    error, notifier, BeaconChainTypes, Client, ClientConfig, DBType, TestnetDiskBeaconChainTypes,
-    TestnetMemoryBeaconChainTypes,
+    error, notifier, BeaconChainTypes, Client, ClientConfig, InitialiseBeaconChain,
+    TestnetDiskBeaconChainTypes, TestnetMemoryBeaconChainTypes,
 };
 use futures::sync::oneshot;
 use futures::Future;
-use slog::info;
+use slog::{error, info};
 use std::cell::RefCell;
+use std::path::Path;
+use std::path::PathBuf;
 use store::{DiskStore, MemoryStore};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
@@ -19,51 +21,58 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
         .build()
         .map_err(|e| format!("{:?}", e))?;
 
-    // Log configuration
-    info!(log, "Listening on {:?}", &config.net_conf.listen_addresses;
-          "data_dir" => &config.data_dir.to_str(),
-          "port" => &config.net_conf.listen_port);
-
     let executor = runtime.executor();
 
-    match config.db_type {
-        DBType::Disk => {
-            info!(
-                log,
-                "BeaconNode starting";
-                "type" => "TestnetDiskBeaconChainTypes"
-            );
+    let db_path: PathBuf = config
+        .db_path()
+        .ok_or_else::<error::Error, _>(|| "Unable to access database path".into())?;
+    let db_type = &config.db_type;
+    let spec = &config.spec;
 
-            let store = DiskStore::open(&config.db_name).expect("Unable to open DB.");
+    let other_config = config.clone();
 
-            let client: Client<TestnetDiskBeaconChainTypes> =
-                Client::new(config, store, log.clone(), &executor)?;
-
-            run(client, executor, runtime, log)
+    let result = match (db_type.as_str(), spec.as_str()) {
+        ("disk", "testnet") => {
+            run::<TestnetDiskBeaconChainTypes>(&db_path, config, executor, runtime, log)
         }
-        DBType::Memory => {
-            info!(
-                log,
-                "BeaconNode starting";
-                "type" => "TestnetMemoryBeaconChainTypes"
-            );
-
-            let store = MemoryStore::open();
-
-            let client: Client<TestnetMemoryBeaconChainTypes> =
-                Client::new(config, store, log.clone(), &executor)?;
-
-            run(client, executor, runtime, log)
+        ("memory", "testnet") => {
+            run::<TestnetMemoryBeaconChainTypes>(&db_path, config, executor, runtime, log)
         }
+        (db_type, spec) => {
+            error!(log, "Unknown runtime configuration"; "spec" => spec, "db_type" => db_type);
+            Err("Unknown specification and/or db_type.".into())
+        }
+    };
+
+    if result.is_ok() {
+        info!(
+            log,
+            "Started beacon node";
+            "p2p_listen_addresses" => format!("{:?}", &other_config.network.listen_addresses()),
+            "data_dir" => format!("{:?}", other_config.data_dir()),
+            "spec" => &other_config.spec,
+            "db_type" => &other_config.db_type,
+        );
     }
+
+    result
 }
 
-pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
-    client: Client<T>,
+pub fn run<T>(
+    db_path: &Path,
+    config: ClientConfig,
     executor: TaskExecutor,
     mut runtime: Runtime,
     log: &slog::Logger,
-) -> error::Result<()> {
+) -> error::Result<()>
+where
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Send + Sync + 'static + Clone,
+    T::Store: OpenDatabase,
+{
+    let store = T::Store::open_database(&db_path)?;
+
+    let client: Client<T> = Client::new(config, store, log.clone(), &executor)?;
+
     // run service until ctrl-c
     let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
     let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
@@ -90,4 +99,23 @@ pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
     drop(client);
     runtime.shutdown_on_idle().wait().unwrap();
     Ok(())
+}
+
+/// A convenience trait, providing a method to open a database.
+///
+/// Panics if unable to open the database.
+pub trait OpenDatabase: Sized {
+    fn open_database(path: &Path) -> error::Result<Self>;
+}
+
+impl OpenDatabase for MemoryStore {
+    fn open_database(_path: &Path) -> error::Result<Self> {
+        Ok(MemoryStore::open())
+    }
+}
+
+impl OpenDatabase for DiskStore {
+    fn open_database(path: &Path) -> error::Result<Self> {
+        DiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e).into())
+    }
 }
