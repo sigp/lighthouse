@@ -31,7 +31,7 @@ impl Default for ClientConfig {
             network: NetworkConfig::new(vec![]),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
-            spec: ChainSpec::lighthouse_testnet(),
+            spec: ChainSpec::minimal(),
         }
     }
 }

@@ -1,7 +1,7 @@
 use fork_choice::{test_utils::TestingForkChoiceBuilder, ForkChoice, OptimizedLMDGhost};
 use std::sync::Arc;
 use store::{MemoryStore, Store};
-use types::{BeaconBlock, ChainSpec, EthSpec, FoundationEthSpec, Hash256};
+use types::{BeaconBlock, ChainSpec, EthSpec, Hash256, MainnetEthSpec};
 
 fn main() {
     let validator_count = 16;
@@ -9,15 +9,15 @@ fn main() {
     let repetitions = 50;
 
     let store = MemoryStore::open();
-    let builder: TestingForkChoiceBuilder<MemoryStore, FoundationEthSpec> =
+    let builder: TestingForkChoiceBuilder<MemoryStore, MainnetEthSpec> =
         TestingForkChoiceBuilder::new(validator_count, chain_length, Arc::new(store));
 
-    let fork_choosers: Vec<OptimizedLMDGhost<MemoryStore, FoundationEthSpec>> = (0..repetitions)
+    let fork_choosers: Vec<OptimizedLMDGhost<MemoryStore, MainnetEthSpec>> = (0..repetitions)
         .into_iter()
         .map(|_| builder.build())
         .collect();
 
-    let spec = &FoundationEthSpec::default_spec();
+    let spec = &MainnetEthSpec::default_spec();
 
     println!("Running {} times...", repetitions);
     for fc in fork_choosers {

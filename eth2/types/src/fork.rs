@@ -63,7 +63,7 @@ mod tests {
     cached_tree_hash_tests!(Fork);
 
     fn test_genesis(epoch: Epoch) {
-        let mut spec = ChainSpec::foundation();
+        let mut spec = ChainSpec::mainnet();
 
         let fork = Fork::genesis(epoch);
 

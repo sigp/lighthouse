@@ -11,10 +11,10 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
     test_utils::TestingBeaconStateBuilder, BeaconBlock, ChainSpec, EthSpec, Hash256,
-    LighthouseTestnetEthSpec,
+    MinimalEthSpec,
 };
 
-/// The number initial validators when starting the `LighthouseTestnet`.
+/// The number initial validators when starting the `Minimal`.
 const TESTNET_VALIDATOR_COUNT: usize = 16;
 
 /// Provides a new, initialized `BeaconChain`
@@ -35,7 +35,7 @@ impl BeaconChainTypes for TestnetMemoryBeaconChainTypes {
     type Store = MemoryStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
-    type EthSpec = LighthouseTestnetEthSpec;
+    type EthSpec = MinimalEthSpec;
 }
 impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes {}
 
@@ -46,7 +46,7 @@ impl BeaconChainTypes for TestnetDiskBeaconChainTypes {
     type Store = DiskStore;
     type SlotClock = SystemTimeSlotClock;
     type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
-    type EthSpec = LighthouseTestnetEthSpec;
+    type EthSpec = MinimalEthSpec;
 }
 impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes {}
 

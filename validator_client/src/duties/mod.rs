@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     pub fn polling() {
-        let spec = Arc::new(ChainSpec::foundation());
+        let spec = Arc::new(ChainSpec::mainnet());
         let duties_map = Arc::new(EpochDutiesMap::new(T::slots_per_epoch()));
         let keypair = Keypair::random();
         let slot_clock = Arc::new(TestingSlotClock::new(0));

@@ -53,7 +53,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
 
 #[test]
 fn beacon_proposer_index() {
-    test_beacon_proposer_index::<FewValidatorsEthSpec>();
+    test_beacon_proposer_index::<MinimalEthSpec>();
 }
 
 /// Should produce (note the set notation brackets):
@@ -115,11 +115,11 @@ fn test_active_index<T: EthSpec>(state_slot: Slot) {
 
 #[test]
 fn get_active_index_root_index() {
-    test_active_index::<FoundationEthSpec>(Slot::new(0));
+    test_active_index::<MainnetEthSpec>(Slot::new(0));
 
-    let epoch = Epoch::from(FoundationEthSpec::latest_active_index_roots() * 4);
-    let slot = epoch.start_slot(FoundationEthSpec::slots_per_epoch());
-    test_active_index::<FoundationEthSpec>(slot);
+    let epoch = Epoch::from(MainnetEthSpec::latest_active_index_roots() * 4);
+    let slot = epoch.start_slot(MainnetEthSpec::slots_per_epoch());
+    test_active_index::<MainnetEthSpec>(slot);
 }
 
 /// Test that
@@ -166,14 +166,14 @@ fn test_cache_initialization<'a, T: EthSpec>(
 
 #[test]
 fn cache_initialization() {
-    let spec = FewValidatorsEthSpec::default_spec();
+    let spec = MinimalEthSpec::default_spec();
 
-    let builder: TestingBeaconStateBuilder<FewValidatorsEthSpec> =
+    let builder: TestingBeaconStateBuilder<MinimalEthSpec> =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
     let (mut state, _keypairs) = builder.build();
 
-    state.slot = (FewValidatorsEthSpec::genesis_epoch() + 1)
-        .start_slot(FewValidatorsEthSpec::slots_per_epoch());
+    state.slot =
+        (MinimalEthSpec::genesis_epoch() + 1).start_slot(MinimalEthSpec::slots_per_epoch());
 
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
@@ -203,7 +203,7 @@ fn tree_hash_cache() {
 #[cfg(test)]
 mod committees {
     use super::*;
-    use crate::beacon_state::FewValidatorsEthSpec;
+    use crate::beacon_state::MinimalEthSpec;
     use swap_or_not_shuffle::shuffle_list;
 
     fn execute_committee_consistency_test<T: EthSpec>(
@@ -347,16 +347,16 @@ mod committees {
 
     #[test]
     fn current_epoch_committee_consistency() {
-        committee_consistency_test_suite::<FewValidatorsEthSpec>(RelativeEpoch::Current);
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Current);
     }
 
     #[test]
     fn previous_epoch_committee_consistency() {
-        committee_consistency_test_suite::<FewValidatorsEthSpec>(RelativeEpoch::Previous);
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Previous);
     }
 
     #[test]
     fn next_epoch_committee_consistency() {
-        committee_consistency_test_suite::<FewValidatorsEthSpec>(RelativeEpoch::Next);
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Next);
     }
 }

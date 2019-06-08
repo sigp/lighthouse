@@ -25,7 +25,7 @@ pub fn block_processing_worst_case(c: &mut Criterion) {
     );
 
     // Use the specifications from the Eth2.0 spec.
-    let spec = ChainSpec::foundation();
+    let spec = ChainSpec::mainnet();
 
     // Create a builder for configuring the block and state for benching.
     let mut bench_builder = BlockBenchingBuilder::new(VALIDATOR_COUNT, &spec);
@@ -59,7 +59,7 @@ pub fn block_processing_reasonable_case(c: &mut Criterion) {
     );
 
     // Use the specifications from the Eth2.0 spec.
-    let spec = ChainSpec::foundation();
+    let spec = ChainSpec::mainnet();
 
     // Create a builder for configuring the block and state for benching.
     let mut bench_builder = BlockBenchingBuilder::new(VALIDATOR_COUNT, &spec);

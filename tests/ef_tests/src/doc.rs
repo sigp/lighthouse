@@ -1,11 +1,11 @@
 use crate::case_result::CaseResult;
 use crate::cases::*;
 use crate::doc_header::DocHeader;
-use crate::eth_specs::{MainnetEthSpec, MinimalEthSpec};
 use crate::yaml_decode::{yaml_split_header_and_cases, YamlDecode};
 use crate::EfTest;
 use serde_derive::Deserialize;
 use std::{fs::File, io::prelude::*, path::PathBuf};
+use types::{MainnetEthSpec, MinimalEthSpec};
 
 #[derive(Debug, Deserialize)]
 pub struct Doc {

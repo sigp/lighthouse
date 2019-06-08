@@ -3,10 +3,10 @@ use criterion::{criterion_group, criterion_main, Benchmark};
 use fork_choice::{test_utils::TestingForkChoiceBuilder, ForkChoice, OptimizedLMDGhost};
 use std::sync::Arc;
 use store::MemoryStore;
-use types::{ChainSpec, EthSpec, FoundationEthSpec};
+use types::{ChainSpec, EthSpec, MainnetEthSpec};
 
 pub type TestedForkChoice<T, U> = OptimizedLMDGhost<T, U>;
-pub type TestedEthSpec = FoundationEthSpec;
+pub type TestedEthSpec = MainnetEthSpec;
 
 /// Helper function to setup a builder and spec.
 fn setup(

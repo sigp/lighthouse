@@ -183,7 +183,7 @@ mod tests {
     pub fn polling() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
-        let spec = Arc::new(ChainSpec::foundation());
+        let spec = Arc::new(ChainSpec::mainnet());
         let slot_clock = Arc::new(TestingSlotClock::new(0));
         let beacon_node = Arc::new(SimulatedBeaconNode::default());
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
