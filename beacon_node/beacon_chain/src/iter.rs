@@ -85,8 +85,11 @@ mod test {
     use types::{test_utils::TestingBeaconStateBuilder, FoundationEthSpec, Keypair};
 
     fn get_state<T: EthSpec>() -> BeaconState<T> {
-        let builder =
-            TestingBeaconStateBuilder::from_single_keypair(0, &Keypair::random(), &T::spec());
+        let builder = TestingBeaconStateBuilder::from_single_keypair(
+            0,
+            &Keypair::random(),
+            &T::default_spec(),
+        );
         let (state, _keypairs) = builder.build();
         state
     }

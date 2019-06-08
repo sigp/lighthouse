@@ -47,6 +47,7 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static> {
     slot_clock: SystemTimeSlotClock,
     /// The current slot we are processing.
     current_slot: Slot,
+    slots_per_epoch: u64,
     /// The chain specification for this clients instance.
     spec: Arc<ChainSpec>,
     /// The duties manager which maintains the state of when to perform actions.
@@ -177,7 +178,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
         // where EpochDuty contains slot numbers and attestation data that each validator needs to
         // produce work on.
-        let duties_map = RwLock::new(EpochDutiesMap::new(config.spec.slots_per_epoch));
+        let duties_map = RwLock::new(EpochDutiesMap::new(config.slots_per_epoch));
 
         // builds a manager which maintains the list of current duties for all known validators
         // and can check when a validator needs to perform a task.
@@ -194,6 +195,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             fork,
             slot_clock,
             current_slot,
+            slots_per_epoch: config.slots_per_epoch,
             spec,
             duties_manager,
             beacon_block_client,
@@ -204,7 +206,10 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
 
     /// Initialise the service then run the core thread.
     // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
-    pub fn start(config: ValidatorConfig, log: slog::Logger) -> error_chain::Result<()> {
+    pub fn start(
+        config: ValidatorConfig,
+        log: slog::Logger,
+    ) -> error_chain::Result<()> {
         // connect to the node and retrieve its properties and initialize the gRPC clients
         let mut service =
             Service::<ValidatorServiceClient, Keypair>::initialize_service(config, log)?;
@@ -274,7 +279,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             Ok(slot) => slot.expect("Genesis is in the future"),
         };
 
-        let current_epoch = current_slot.epoch(self.spec.slots_per_epoch);
+        let current_epoch = current_slot.epoch(self.slots_per_epoch);
 
         // this is a fatal error. If the slot clock repeats, there is something wrong with
         // the timer, terminate immediately.
@@ -291,7 +296,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
     fn check_for_duties(&mut self) {
         let cloned_manager = self.duties_manager.clone();
         let cloned_log = self.log.clone();
-        let current_epoch = self.current_slot.epoch(self.spec.slots_per_epoch);
+        let current_epoch = self.current_slot.epoch(self.slots_per_epoch);
         // spawn a new thread separate to the runtime
         // TODO: Handle thread termination/timeout
         // TODO: Add duties thread back in, with channel to process duties in duty change.
@@ -316,6 +321,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                     let spec = self.spec.clone();
                     let beacon_node = self.beacon_block_client.clone();
                     let log = self.log.clone();
+                    let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
                         info!(log, "Producing a block"; "Validator"=> format!("{}", signers[signer_index]));
                         let signer = &signers[signer_index];
@@ -325,6 +331,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             spec,
                             beacon_node,
                             signer,
+                            slots_per_epoch,
                         };
                         block_producer.handle_produce_block(log);
                     });
@@ -337,6 +344,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                     let spec = self.spec.clone();
                     let beacon_node = self.attestation_client.clone();
                     let log = self.log.clone();
+                    let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
                         info!(log, "Producing an attestation"; "Validator"=> format!("{}", signers[signer_index]));
                         let signer = &signers[signer_index];
@@ -346,6 +354,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             spec,
                             beacon_node,
                             signer,
+                            slots_per_epoch,
                         };
                         attestation_producer.handle_produce_attestation(log);
                     });

@@ -19,6 +19,7 @@ pub struct Config {
     pub server: String,
     /// The chain specification that we are connecting to
     pub spec: ChainSpec,
+    pub slots_per_epoch: u64,
 }
 
 const DEFAULT_PRIVATE_KEY_FILENAME: &str = "private.key";
@@ -33,12 +34,13 @@ impl Default for Config {
 
         let server = "localhost:5051".to_string();
 
-        let spec = FoundationEthSpec::spec();
+        let spec = FoundationEthSpec::default_spec();
 
         Self {
             data_dir,
             server,
             spec,
+            slots_per_epoch: FoundationEthSpec::slots_per_epoch(),
         }
     }
 }
@@ -67,9 +69,9 @@ impl Config {
         if let Some(spec_str) = args.value_of("spec") {
             info!(log, "Using custom spec: {:?}", spec_str);
             config.spec = match spec_str {
-                "foundation" => FoundationEthSpec::spec(),
-                "few_validators" => FewValidatorsEthSpec::spec(),
-                "lighthouse_testnet" => LighthouseTestnetEthSpec::spec(),
+                "foundation" => FoundationEthSpec::default_spec(),
+                "few_validators" => FewValidatorsEthSpec::default_spec(),
+                "lighthouse_testnet" => LighthouseTestnetEthSpec::default_spec(),
                 // Should be impossible due to clap's `possible_values(..)` function.
                 _ => unreachable!(),
             };

@@ -14,7 +14,6 @@ pub struct ValidatorServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub log: slog::Logger,
 }
-//TODO: Refactor Errors
 
 impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
     /// For a list of validator public keys, this function returns the slot at which each
@@ -29,14 +28,15 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         let validators = req.get_validators();
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
-        let spec = T::EthSpec::spec();
+        let spec = &self.chain.spec;
         let state = &self.chain.current_state();
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
 
         let relative_epoch =
-            match RelativeEpoch::from_epoch(state.slot.epoch(spec.slots_per_epoch), epoch) {
+            match RelativeEpoch::from_epoch(state.slot.epoch(T::EthSpec::slots_per_epoch()), epoch)
+            {
                 Ok(v) => v,
                 Err(e) => {
                     // incorrect epoch
@@ -52,7 +52,7 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
             };
 
         let validator_proposers: Result<Vec<usize>, _> = epoch
-            .slot_iter(spec.slots_per_epoch)
+            .slot_iter(T::EthSpec::slots_per_epoch())
             .map(|slot| state.get_beacon_proposer_index(slot, relative_epoch, &spec))
             .collect();
         let validator_proposers = match validator_proposers {
@@ -148,7 +148,7 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
             // check if the validator needs to propose a block
             if let Some(slot) = validator_proposers.iter().position(|&v| val_index == v) {
                 duty.set_block_production_slot(
-                    epoch.start_slot(spec.slots_per_epoch).as_u64() + slot as u64,
+                    epoch.start_slot(T::EthSpec::slots_per_epoch()).as_u64() + slot as u64,
                 );
             } else {
                 // no blocks to propose this epoch

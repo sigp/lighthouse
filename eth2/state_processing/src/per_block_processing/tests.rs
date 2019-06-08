@@ -9,7 +9,7 @@ pub const VALIDATOR_COUNT: usize = 10;
 
 #[test]
 fn valid_block_ok() {
-    let spec = FoundationEthSpec::spec();
+    let spec = FoundationEthSpec::default_spec();
     let builder = get_builder(&spec);
     let (block, mut state) = builder.build(None, None, &spec);
 
@@ -20,7 +20,7 @@ fn valid_block_ok() {
 
 #[test]
 fn invalid_block_header_state_slot() {
-    let spec = FoundationEthSpec::spec();
+    let spec = FoundationEthSpec::default_spec();
     let builder = get_builder(&spec);
     let (mut block, mut state) = builder.build(None, None, &spec);
 
@@ -39,7 +39,7 @@ fn invalid_block_header_state_slot() {
 
 #[test]
 fn invalid_parent_block_root() {
-    let spec = FoundationEthSpec::spec();
+    let spec = FoundationEthSpec::default_spec();
     let builder = get_builder(&spec);
     let invalid_parent_root = Hash256::from([0xAA; 32]);
     let (block, mut state) = builder.build(None, Some(invalid_parent_root), &spec);
@@ -59,14 +59,14 @@ fn invalid_parent_block_root() {
 
 #[test]
 fn invalid_block_signature() {
-    let spec = FoundationEthSpec::spec();
+    let spec = FoundationEthSpec::default_spec();
     let builder = get_builder(&spec);
     let (mut block, mut state) = builder.build(None, None, &spec);
 
     // sign the block with a keypair that is not the expected proposer
     let keypair = Keypair::random();
     let message = block.signed_root();
-    let epoch = block.slot.epoch(spec.slots_per_epoch);
+    let epoch = block.slot.epoch(FoundationEthSpec::slots_per_epoch());
     let domain = spec.get_domain(epoch, Domain::BeaconProposer, &state.fork);
     block.signature = Signature::new(&message, domain, &keypair.sk);
 
@@ -82,7 +82,7 @@ fn invalid_block_signature() {
 
 #[test]
 fn invalid_randao_reveal_signature() {
-    let spec = FoundationEthSpec::spec();
+    let spec = FoundationEthSpec::default_spec();
     let builder = get_builder(&spec);
 
     // sign randao reveal with random keypair
@@ -104,7 +104,8 @@ fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<FoundationEthSpec>) 
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
 
     // Set the state and block to be in the last slot of the 4th epoch.
-    let last_slot_of_epoch = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
+    let last_slot_of_epoch =
+        (spec.genesis_epoch + 4).end_slot(FoundationEthSpec::slots_per_epoch());
     builder.set_slot(last_slot_of_epoch, &spec);
     builder.build_caches(&spec);
 

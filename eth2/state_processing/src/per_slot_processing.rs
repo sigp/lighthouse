@@ -16,7 +16,7 @@ pub fn per_slot_processing<T: EthSpec>(
 ) -> Result<(), Error> {
     cache_state(state, spec)?;
 
-    if (state.slot > spec.genesis_slot) && ((state.slot + 1) % spec.slots_per_epoch == 0) {
+    if (state.slot > spec.genesis_slot) && ((state.slot + 1) % T::slots_per_epoch() == 0) {
         per_epoch_processing(state, spec)?;
     }
 

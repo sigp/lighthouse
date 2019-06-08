@@ -20,7 +20,7 @@ fn default_values() {
 }
 
 fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
-    let spec = &T::spec();
+    let spec = &T::default_spec();
 
     let mut builder =
         TestingBeaconStateBuilder::from_single_keypair(validator_count, &Keypair::random(), spec);
@@ -35,7 +35,7 @@ fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
 #[test]
 fn fails_without_validators() {
     let state = new_state::<FewValidatorsEthSpec>(0, Slot::new(0));
-    let spec = &FewValidatorsEthSpec::spec();
+    let spec = &FewValidatorsEthSpec::default_spec();
 
     assert_eq!(
         CommitteeCache::initialized(&state, state.current_epoch(), &spec),
@@ -46,7 +46,7 @@ fn fails_without_validators() {
 #[test]
 fn initializes_with_the_right_epoch() {
     let state = new_state::<FewValidatorsEthSpec>(16, Slot::new(0));
-    let spec = &FewValidatorsEthSpec::spec();
+    let spec = &FewValidatorsEthSpec::default_spec();
 
     let cache = CommitteeCache::default();
     assert_eq!(cache.initialized_epoch, None);
@@ -68,7 +68,7 @@ fn shuffles_for_the_right_epoch() {
     let slot = epoch.start_slot(FewValidatorsEthSpec::slots_per_epoch());
 
     let mut state = new_state::<FewValidatorsEthSpec>(num_validators, slot);
-    let spec = &FewValidatorsEthSpec::spec();
+    let spec = &FewValidatorsEthSpec::default_spec();
 
     let distinct_hashes: Vec<Hash256> = (0..FewValidatorsEthSpec::latest_randao_mixes_length())
         .into_iter()
@@ -123,7 +123,7 @@ fn can_start_on_any_shard() {
     let slot = epoch.start_slot(FewValidatorsEthSpec::slots_per_epoch());
 
     let mut state = new_state::<FewValidatorsEthSpec>(num_validators, slot);
-    let spec = &FewValidatorsEthSpec::spec();
+    let spec = &FewValidatorsEthSpec::default_spec();
 
     for i in 0..FewValidatorsEthSpec::shard_count() as u64 {
         state.latest_start_shard = i;
@@ -150,15 +150,17 @@ impl EthSpec for ExcessShardsEthSpec {
     type LatestRandaoMixesLength = U8192;
     type LatestActiveIndexRootsLength = U8192;
     type LatestSlashedExitLength = U8192;
+    type SlotsPerEpoch = U8;
+    type GenesisEpoch = U0;
 
-    fn spec() -> ChainSpec {
-        ChainSpec::few_validators()
+    fn default_spec() -> ChainSpec {
+        ChainSpec::few_validators(Self::slots_per_epoch())
     }
 }
 
 #[test]
 fn starts_on_the_correct_shard() {
-    let spec = &ExcessShardsEthSpec::spec();
+    let spec = &ExcessShardsEthSpec::default_spec();
 
     let num_validators = ExcessShardsEthSpec::shard_count();
 
@@ -200,14 +202,16 @@ fn starts_on_the_correct_shard() {
 
     let previous_shards = ExcessShardsEthSpec::get_epoch_committee_count(
         get_active_validator_count(&state.validator_registry, previous_epoch),
+        spec.target_committee_size,
     );
     let current_shards = ExcessShardsEthSpec::get_epoch_committee_count(
         get_active_validator_count(&state.validator_registry, current_epoch),
+        spec.target_committee_size,
     );
-    let next_shards = ExcessShardsEthSpec::get_epoch_committee_count(get_active_validator_count(
-        &state.validator_registry,
-        next_epoch,
-    ));
+    let next_shards = ExcessShardsEthSpec::get_epoch_committee_count(
+        get_active_validator_count(&state.validator_registry, next_epoch),
+        spec.target_committee_size,
+    );
 
     assert_eq!(
         previous_shards as usize,

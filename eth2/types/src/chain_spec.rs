@@ -1,6 +1,6 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use test_utils::u8_from_hex_str;
 
 /// Each of the BLS signature domains.
@@ -18,7 +18,7 @@ pub enum Domain {
 /// Holds all the "constants" for a BeaconChain.
 ///
 /// Spec v0.6.1
-#[derive(PartialEq, Debug, Clone, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
     /*
@@ -59,7 +59,7 @@ pub struct ChainSpec {
      */
     pub seconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
-    pub slots_per_epoch: u64,
+    //pub slots_per_epoch: u64,
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
     pub slots_per_eth1_voting_period: u64,
@@ -137,7 +137,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
     /// Spec v0.6.1
-    pub(crate) fn foundation() -> Self {
+    pub fn foundation() -> Self {
         Self {
             /*
              * Misc
@@ -176,7 +176,7 @@ impl ChainSpec {
              */
             seconds_per_slot: 6,
             min_attestation_inclusion_delay: 4,
-            slots_per_epoch: 64,
+            // slots_per_epoch: 64,
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             slots_per_eth1_voting_period: 1_024,
@@ -226,7 +226,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
     ///
     /// Spec v0.4.0
-    pub(crate) fn lighthouse_testnet() -> Self {
+    pub fn lighthouse_testnet(slots_per_epoch: u64) -> Self {
         /*
          * Lighthouse testnet bootnodes
          */
@@ -237,21 +237,19 @@ impl ChainSpec {
         Self {
             boot_nodes,
             chain_id: 2, // lighthouse testnet chain id
-            ..ChainSpec::few_validators()
+            ..ChainSpec::few_validators(slots_per_epoch)
         }
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    pub(crate) fn few_validators() -> Self {
+    pub fn few_validators(slots_per_epoch: u64) -> Self {
         let genesis_slot = Slot::new(0);
-        let slots_per_epoch = 8;
         let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
 
         Self {
             target_committee_size: 1,
             genesis_slot,
             genesis_epoch,
-            slots_per_epoch,
             ..ChainSpec::foundation()
         }
     }

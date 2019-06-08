@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use types::{
-    typenum::{U64, U8},
+    typenum::{U0, U64, U8},
     ChainSpec, EthSpec, FewValidatorsEthSpec, FoundationEthSpec,
 };
 
@@ -18,10 +18,12 @@ impl EthSpec for MinimalEthSpec {
     type LatestRandaoMixesLength = U64;
     type LatestActiveIndexRootsLength = U64;
     type LatestSlashedExitLength = U64;
+    type SlotsPerEpoch = U8;
+    type GenesisEpoch = U0;
 
-    fn spec() -> ChainSpec {
+    fn default_spec() -> ChainSpec {
         // TODO: this spec is likely incorrect!
-        let mut spec = FewValidatorsEthSpec::spec();
+        let mut spec = FewValidatorsEthSpec::default_spec();
         spec.shuffle_round_count = 10;
         spec
     }

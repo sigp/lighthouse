@@ -237,7 +237,7 @@ pub fn process_final_updates<T: EthSpec>(
         state.slot -= 1;
     }
 
-    if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / spec.slots_per_epoch) == 0 {
+    if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / T::slots_per_epoch()) == 0 {
         let historical_batch = state.historical_batch();
         state
             .historical_roots

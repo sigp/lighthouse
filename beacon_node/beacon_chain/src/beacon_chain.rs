@@ -96,6 +96,7 @@ pub trait BeaconChainTypes {
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
+    pub spec: ChainSpec,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: Arc<T::Store>,
     /// Reports the current slot, typically based upon the system clock.
@@ -148,6 +149,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         genesis_state.build_all_caches(&spec)?;
 
         Ok(Self {
+            spec,
             store,
             slot_clock,
             op_pool: OperationPool::new(),
@@ -160,15 +162,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Attempt to load an existing instance from the given `store`.
-    pub fn from_store(store: Arc<T::Store>) -> Result<Option<BeaconChain<T>>, Error> {
+    pub fn from_store(
+        store: Arc<T::Store>,
+        spec: ChainSpec,
+    ) -> Result<Option<BeaconChain<T>>, Error> {
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
         let p: PersistedBeaconChain<T> = match store.get(&key) {
             Err(e) => return Err(e.into()),
             Ok(None) => return Ok(None),
             Ok(Some(p)) => p,
         };
-
-        let spec = T::EthSpec::spec();
 
         let slot_clock = T::SlotClock::new(
             spec.genesis_slot,
@@ -179,6 +182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let fork_choice = T::ForkChoice::new(store.clone());
 
         Ok(Some(BeaconChain {
+            spec,
             store,
             slot_clock,
             op_pool: OperationPool::default(),
@@ -363,10 +367,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // If required, transition the new state to the present slot.
             for _ in state.slot.as_u64()..present_slot.as_u64() {
-                per_slot_processing(&mut state, &T::EthSpec::spec())?;
+                per_slot_processing(&mut state, &self.spec)?;
             }
 
-            state.build_all_caches(&T::EthSpec::spec())?;
+            state.build_all_caches(&self.spec)?;
 
             state
         };
@@ -400,7 +404,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Ensures the current canonical `BeaconState` has been transitioned to match the `slot_clock`.
     pub fn catchup_state(&self) -> Result<(), Error> {
-        let spec = &T::EthSpec::spec();
+        let spec = &self.spec;
 
         let present_slot = match self.slot_clock.present_slot() {
             Ok(Some(slot)) => slot,
@@ -426,7 +430,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Ideally this shouldn't be required, however we leave it here for testing.
     pub fn ensure_state_caches_are_built(&self) -> Result<(), Error> {
-        self.state.write().build_all_caches(&T::EthSpec::spec())?;
+        self.state.write().build_all_caches(&self.spec)?;
 
         Ok(())
     }
@@ -469,7 +473,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// genesis.
     pub fn slots_since_genesis(&self) -> Option<SlotHeight> {
         let now = self.read_slot_clock()?;
-        let genesis_slot = T::EthSpec::spec().genesis_slot;
+        let genesis_slot = self.spec.genesis_slot;
 
         if now < genesis_slot {
             None
@@ -494,12 +498,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
         self.state
             .write()
-            .build_committee_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
+            .build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         let index = self.state.read().get_beacon_proposer_index(
             slot,
             RelativeEpoch::Current,
-            &T::EthSpec::spec(),
+            &self.spec,
         )?;
 
         Ok(index)
@@ -530,7 +534,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
-        let slots_per_epoch = T::EthSpec::spec().slots_per_epoch;
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
 
         self.metrics.attestation_production_requests.inc();
         let timer = self.metrics.attestation_production_times.start_timer();
@@ -591,9 +595,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
-        let result =
-            self.op_pool
-                .insert_attestation(attestation, &*self.state.read(), &T::EthSpec::spec());
+        let result = self
+            .op_pool
+            .insert_attestation(attestation, &*self.state.read(), &self.spec);
 
         if result.is_ok() {
             self.metrics.attestation_processing_successes.inc();
@@ -610,19 +614,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         deposit: Deposit,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
         self.op_pool
-            .insert_deposit(deposit, &*self.state.read(), &T::EthSpec::spec())
+            .insert_deposit(deposit, &*self.state.read(), &self.spec)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
         self.op_pool
-            .insert_voluntary_exit(exit, &*self.state.read(), &T::EthSpec::spec())
+            .insert_voluntary_exit(exit, &*self.state.read(), &self.spec)
     }
 
     /// Accept some transfer and queue it for inclusion in an appropriate block.
     pub fn process_transfer(&self, transfer: Transfer) -> Result<(), TransferValidationError> {
         self.op_pool
-            .insert_transfer(transfer, &*self.state.read(), &T::EthSpec::spec())
+            .insert_transfer(transfer, &*self.state.read(), &self.spec)
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
@@ -630,11 +634,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         proposer_slashing: ProposerSlashing,
     ) -> Result<(), ProposerSlashingValidationError> {
-        self.op_pool.insert_proposer_slashing(
-            proposer_slashing,
-            &*self.state.read(),
-            &T::EthSpec::spec(),
-        )
+        self.op_pool
+            .insert_proposer_slashing(proposer_slashing, &*self.state.read(), &self.spec)
     }
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
@@ -642,11 +643,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attester_slashing: AttesterSlashing,
     ) -> Result<(), AttesterSlashingValidationError> {
-        self.op_pool.insert_attester_slashing(
-            attester_slashing,
-            &*self.state.read(),
-            &T::EthSpec::spec(),
-        )
+        self.op_pool
+            .insert_attester_slashing(attester_slashing, &*self.state.read(), &self.spec)
     }
 
     /// Accept some block and attempt to add it to block DAG.
@@ -708,18 +706,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
         for _ in state.slot.as_u64()..block.slot.as_u64() {
-            if let Err(e) = per_slot_processing(&mut state, &T::EthSpec::spec()) {
+            if let Err(e) = per_slot_processing(&mut state, &self.spec) {
                 return Ok(BlockProcessingOutcome::InvalidBlock(
                     InvalidBlock::SlotProcessingError(e),
                 ));
             }
         }
 
-        state.build_committee_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
-        if let Err(e) = per_block_processing(&mut state, &block, &T::EthSpec::spec()) {
+        if let Err(e) = per_block_processing(&mut state, &block, &self.spec) {
             return Ok(BlockProcessingOutcome::InvalidBlock(
                 InvalidBlock::PerBlockProcessingError(e),
             ));
@@ -740,7 +738,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Register the new block with the fork choice service.
         self.fork_choice
             .write()
-            .add_block(&block, &block_root, &T::EthSpec::spec())?;
+            .add_block(&block, &block_root, &self.spec)?;
 
         // Execute the fork choice algorithm, enthroning a new head if discovered.
         //
@@ -771,7 +769,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut state = self.state.read().clone();
 
-        state.build_committee_cache(RelativeEpoch::Current, &T::EthSpec::spec())?;
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         trace!("Finding attestations for new block...");
 
@@ -783,9 +781,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
-        let (proposer_slashings, attester_slashings) = self
-            .op_pool
-            .get_slashings(&*self.state.read(), &T::EthSpec::spec());
+        let (proposer_slashings, attester_slashings) =
+            self.op_pool.get_slashings(&*self.state.read(), &self.spec);
 
         let mut block = BeaconBlock {
             slot: state.slot,
@@ -806,16 +803,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 attester_slashings,
                 attestations: self
                     .op_pool
-                    .get_attestations(&*self.state.read(), &T::EthSpec::spec()),
-                deposits: self
-                    .op_pool
-                    .get_deposits(&*self.state.read(), &T::EthSpec::spec()),
+                    .get_attestations(&*self.state.read(), &self.spec),
+                deposits: self.op_pool.get_deposits(&*self.state.read(), &self.spec),
                 voluntary_exits: self
                     .op_pool
-                    .get_voluntary_exits(&*self.state.read(), &T::EthSpec::spec()),
-                transfers: self
-                    .op_pool
-                    .get_transfers(&*self.state.read(), &T::EthSpec::spec()),
+                    .get_voluntary_exits(&*self.state.read(), &self.spec),
+                transfers: self.op_pool.get_transfers(&*self.state.read(), &self.spec),
             },
         };
 
@@ -824,11 +817,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block.body.attestations.len()
         );
 
-        per_block_processing_without_verifying_block_signature(
-            &mut state,
-            &block,
-            &T::EthSpec::spec(),
-        )?;
+        per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
 
         let state_root = state.canonical_root();
 
@@ -849,7 +838,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let justified_root = {
             let root = self.head().beacon_state.current_justified_root;
-            if root == T::EthSpec::spec().zero_hash {
+            if root == self.spec.zero_hash {
                 self.genesis_block_root
             } else {
                 root
@@ -860,7 +849,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root = self
             .fork_choice
             .write()
-            .find_head(&justified_root, &T::EthSpec::spec())?;
+            .find_head(&justified_root, &self.spec)?;
 
         // End fork choice metrics timer.
         timer.observe_duration();
@@ -920,7 +909,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         loop {
             let beacon_block_root = last_slot.beacon_block.previous_block_root;
 
-            if beacon_block_root == T::EthSpec::spec().zero_hash {
+            if beacon_block_root == self.spec.zero_hash {
                 break; // Genesis has been reached.
             }
 

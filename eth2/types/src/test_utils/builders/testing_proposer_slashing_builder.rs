@@ -17,8 +17,9 @@ impl TestingProposerSlashingBuilder {
     /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
-    pub fn double_vote<F>(proposer_index: u64, signer: F, spec: &ChainSpec) -> ProposerSlashing
+    pub fn double_vote<T, F>(proposer_index: u64, signer: F, spec: &ChainSpec) -> ProposerSlashing
     where
+        T: EthSpec,
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
         let slot = Slot::new(0);
@@ -40,13 +41,13 @@ impl TestingProposerSlashingBuilder {
 
         header_1.signature = {
             let message = header_1.signed_root();
-            let epoch = slot.epoch(spec.slots_per_epoch);
+            let epoch = slot.epoch(T::slots_per_epoch());
             signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
         };
 
         header_2.signature = {
             let message = header_2.signed_root();
-            let epoch = slot.epoch(spec.slots_per_epoch);
+            let epoch = slot.epoch(T::slots_per_epoch());
             signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
         };
 

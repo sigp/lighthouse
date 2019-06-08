@@ -24,7 +24,7 @@ impl<T: EthSpec> Case for Shuffling<T> {
         if self.count == 0 {
             compare_result::<_, Error>(&Ok(vec![]), &Some(self.shuffled.clone()))?;
         } else {
-            let spec = T::spec();
+            let spec = T::default_spec();
             let seed = hex::decode(&self.seed[2..])
                 .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 

@@ -4,24 +4,26 @@ use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use types::ChainSpec;
 
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
     pub data_dir: String,
-    pub spec: String,
+    pub spec_constants: String,
     pub db_type: String,
     db_name: String,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub http: HttpServerConfig, //pub ipc_conf:
+    pub spec: ChainSpec,
 }
 
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             data_dir: ".lighthouse".to_string(),
-            spec: "testnet".to_string(),
+            spec_constants: "testnet".to_string(),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
             // Note: there are no default bootnodes specified.
@@ -29,6 +31,7 @@ impl Default for ClientConfig {
             network: NetworkConfig::new(vec![]),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
+            spec: ChainSpec::lighthouse_testnet(8),
         }
     }
 }

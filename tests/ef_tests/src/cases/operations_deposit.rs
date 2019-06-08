@@ -34,7 +34,7 @@ impl<E: EthSpec> Case for OperationsDeposit<E> {
         let deposit = self.deposit.clone();
         let mut expected = self.post.clone();
 
-        let result = process_deposits(&mut state, &[deposit], &E::spec());
+        let result = process_deposits(&mut state, &[deposit], &E::default_spec());
 
         let mut result = result.and_then(|_| Ok(state));
 

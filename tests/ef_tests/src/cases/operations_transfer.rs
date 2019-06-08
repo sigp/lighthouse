@@ -31,9 +31,9 @@ impl<E: EthSpec> Case for OperationsTransfer<E> {
         let mut expected = self.post.clone();
 
         // Transfer processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(&E::default_spec()).unwrap();
 
-        let mut spec = E::spec();
+        let mut spec = E::default_spec();
         spec.max_transfers = 1;
 
         let result = process_transfers(&mut state, &[transfer], &spec);

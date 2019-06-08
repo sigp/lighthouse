@@ -34,7 +34,7 @@ pub fn block_processing_worst_case(c: &mut Criterion) {
     bench_builder.maximize_block_operations(&spec);
 
     // Set the state and block to be in the last slot of the 4th epoch.
-    let last_slot_of_epoch = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
+    let last_slot_of_epoch = (spec.genesis_epoch + 4).end_slot(T::slots_per_epoch());
     bench_builder.set_slot(last_slot_of_epoch, &spec);
 
     // Build all the state caches so the build times aren't included in the benches.
@@ -67,13 +67,13 @@ pub fn block_processing_reasonable_case(c: &mut Criterion) {
     // Set the number of included operations to what we might expect normally.
     bench_builder.num_proposer_slashings = 0;
     bench_builder.num_attester_slashings = 0;
-    bench_builder.num_attestations = (spec.shard_count / spec.slots_per_epoch) as usize;
+    bench_builder.num_attestations = (spec.shard_count / T::slots_per_epoch()) as usize;
     bench_builder.num_deposits = 2;
     bench_builder.num_exits = 2;
     bench_builder.num_transfers = 2;
 
     // Set the state and block to be in the last slot of the 4th epoch.
-    let last_slot_of_epoch = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
+    let last_slot_of_epoch = (spec.genesis_epoch + 4).end_slot(T::slots_per_epoch());
     bench_builder.set_slot(last_slot_of_epoch, &spec);
 
     // Build all the state caches so the build times aren't included in the benches.

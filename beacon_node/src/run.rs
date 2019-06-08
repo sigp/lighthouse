@@ -27,11 +27,11 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
         .db_path()
         .ok_or_else::<error::Error, _>(|| "Unable to access database path".into())?;
     let db_type = &config.db_type;
-    let spec = &config.spec;
+    let spec_constants = &config.spec_constants;
 
     let other_config = config.clone();
 
-    let result = match (db_type.as_str(), spec.as_str()) {
+    let result = match (db_type.as_str(), spec_constants.as_str()) {
         ("disk", "testnet") => {
             run::<TestnetDiskBeaconChainTypes>(&db_path, config, executor, runtime, log)
         }
@@ -50,7 +50,7 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
             "Started beacon node";
             "p2p_listen_addresses" => format!("{:?}", &other_config.network.listen_addresses()),
             "data_dir" => format!("{:?}", other_config.data_dir()),
-            "spec" => &other_config.spec,
+            "spec_constants" => &other_config.spec_constants,
             "db_type" => &other_config.db_type,
         );
     }

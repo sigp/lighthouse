@@ -458,7 +458,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<&Hash256, BeaconStateError> {
-        self.get_block_root(epoch.start_slot(spec.slots_per_epoch))
+        self.get_block_root(epoch.start_slot(T::slots_per_epoch()))
     }
 
     /// Sets the block root for some given slot.

@@ -101,7 +101,7 @@ fn verify_transfer_parametric<T: EthSpec>(
         .get(transfer.sender as usize)
         .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.sender)))?;
 
-    let epoch = state.slot.epoch(spec.slots_per_epoch);
+    let epoch = state.slot.epoch(T::slots_per_epoch());
 
     // Ensure one of the following is met:
     //
@@ -136,7 +136,7 @@ fn verify_transfer_parametric<T: EthSpec>(
     // Verify the transfer signature.
     let message = transfer.signed_root();
     let domain = spec.get_domain(
-        transfer.slot.epoch(spec.slots_per_epoch),
+        transfer.slot.epoch(T::slots_per_epoch()),
         Domain::Transfer,
         &state.fork,
     );
