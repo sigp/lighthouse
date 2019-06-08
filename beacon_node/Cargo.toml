@@ -12,6 +12,7 @@ store = { path = "./store" }
 client = { path = "client" }
 version = { path = "version" }
 clap = "2.32.0"
+serde = "1.0"
 slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_debug"] }
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"

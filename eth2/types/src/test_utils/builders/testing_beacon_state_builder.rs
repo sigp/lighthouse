@@ -6,7 +6,6 @@ use dirs;
 use log::debug;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
 
@@ -123,20 +122,8 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             })
             .collect();
 
-        // TODO: Testing only. Burn with fire later.
-        // set genesis to the last 30 minute block.
-        // this is used for testing only. Allows multiple nodes to connect within a 30min window
-        // and agree on a genesis
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let secs_after_last_period = now.checked_rem(30 * 60).unwrap_or(0);
-        // genesis is now the last 30 minute block.
-        let genesis_time = now - secs_after_last_period;
-
         let mut state = BeaconState::genesis(
-            genesis_time,
+            spec.genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
                 deposit_count: 0,
@@ -172,8 +159,8 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     }
 
     /// Sets the `BeaconState` to be in a slot, calling `teleport_to_epoch` to update the epoch.
-    pub fn teleport_to_slot(&mut self, slot: Slot, spec: &ChainSpec) {
-        self.teleport_to_epoch(slot.epoch(T::slots_per_epoch()), spec);
+    pub fn teleport_to_slot(&mut self, slot: Slot) {
+        self.teleport_to_epoch(slot.epoch(T::slots_per_epoch()));
         self.state.slot = slot;
     }
 
@@ -181,7 +168,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     ///
     /// Sets all justification/finalization parameters to be be as "perfect" as possible (i.e.,
     /// highest justified and finalized slots, full justification bitfield, etc).
-    fn teleport_to_epoch(&mut self, epoch: Epoch, spec: &ChainSpec) {
+    fn teleport_to_epoch(&mut self, epoch: Epoch) {
         let state = &mut self.state;
 
         let slot = epoch.start_slot(T::slots_per_epoch());
