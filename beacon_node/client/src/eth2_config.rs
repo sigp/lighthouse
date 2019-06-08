@@ -21,6 +21,22 @@ impl Default for Eth2Config {
 }
 
 impl Eth2Config {
+    pub fn mainnet() -> Self {
+        Self {
+            spec_constants: "mainnet".to_string(),
+            spec: ChainSpec::mainnet(),
+        }
+    }
+
+    pub fn minimal() -> Self {
+        Self {
+            spec_constants: "minimal".to_string(),
+            spec: ChainSpec::minimal(),
+        }
+    }
+}
+
+impl Eth2Config {
     /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
     ///
     /// Returns an error if arguments are obviously invalid. May succeed even if some values are

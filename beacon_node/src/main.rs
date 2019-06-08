@@ -102,19 +102,37 @@ fn main() {
                 .default_value("memory"),
         )
         .arg(
-            Arg::with_name("recent_genesis")
-                .long("recent_genesis")
+            Arg::with_name("spec-constants")
+                .long("spec-constants")
+                .value_name("TITLE")
+                .help("The title of the spec constants for chain config..")
+                .takes_value(true)
+                .possible_values(&["mainnet", "minimal"])
+                .default_value("minimal"),
+        )
+        .arg(
+            Arg::with_name("recent-genesis")
+                .long("recent-genesis")
                 .help("When present, genesis will be within 30 minutes prior. Only for testing"),
         )
         .get_matches();
 
-    let mut client_config = match load_config::<ClientConfig>(
+    // Attempt to lead the `ClientConfig` from disk. If it fails, write
+    let mut client_config = match read_from_file::<ClientConfig>(
         matches.value_of("data_dir"),
         CLIENT_CONFIG_FILENAME,
     ) {
-        Ok(c) => c,
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            let default = ClientConfig::default();
+            if let Err(e) = write_to_file(matches.value_of("data_dir"), CLIENT_CONFIG_FILENAME, &default) {
+                crit!(logger, "Failed to write default ClientConfig to file"; "error" => format!("{:?}", e));
+                return;
+            }
+            default
+        },
         Err(e) => {
-            crit!(logger, "Failed to load/generate a ChainConfig"; "error" => format!("{:?}", e));
+            crit!(logger, "Failed to load a ChainConfig file"; "error" => format!("{:?}", e));
             return;
         }
     };
@@ -131,11 +149,23 @@ fn main() {
         }
     };
 
-    let mut eth2_config = match load_config::<Eth2Config>(
+    let mut eth2_config = match read_from_file::<Eth2Config>(
         matches.value_of("data_dir"),
         ETH2_CONFIG_FILENAME,
     ) {
-        Ok(c) => c,
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            let default = match matches.value_of("spec-constants") {
+                Some("mainnet") => Eth2Config::mainnet(),
+                Some("minimal") => Eth2Config::minimal(),
+                _ => unreachable!(), // Guarded by slog.
+            };
+            if let Err(e) = write_to_file(matches.value_of("data_dir"), ETH2_CONFIG_FILENAME, &default) {
+                crit!(logger, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
+                return;
+            }
+            default
+        }
         Err(e) => {
             crit!(logger, "Failed to load/generate an Eth2Config"; "error" => format!("{:?}", e));
             return;
@@ -156,9 +186,35 @@ fn main() {
     }
 }
 
+/// Write a configuration to file.
+fn write_to_file<T>(data_dir: Option<&str>, config_filename: &str, config: &T) -> Result<(), String>
+where
+    T: Default + serde::de::DeserializeOwned + serde::Serialize,
+{
+    let data_dir = data_dir.unwrap_or_else(|| DEFAULT_DATA_DIR);
+
+    let path = dirs::home_dir()
+        .ok_or_else(|| "Unable to locate home directory")?
+        .join(&data_dir);
+    fs::create_dir_all(&path).map_err(|_| "Unable to open data_dir")?;
+
+    if let Ok(mut file) = File::create(path.join(config_filename)) {
+        let toml_encoded = toml::to_string(&config).map_err(|e| {
+            format!(
+                "Failed to write configuration to {}. Error: {:?}",
+                config_filename, e
+            )
+        })?;
+        file.write_all(toml_encoded.as_bytes())
+            .expect(&format!("Unable to write to {}", config_filename));
+    }
+
+    Ok(())
+}
+
 /// Loads a `ClientConfig` from file. If unable to load from file, generates a default
 /// configuration and saves that as a sample file.
-fn load_config<T>(data_dir: Option<&str>, config_filename: &str) -> Result<T, String>
+fn read_from_file<T>(data_dir: Option<&str>, config_filename: &str) -> Result<Option<T>, String>
 where
     T: Default + serde::de::DeserializeOwned + serde::Serialize,
 {
@@ -178,21 +234,11 @@ where
             )
         })?;
 
-        toml::from_str(&contents).map_err(|e| format!("Unable to parse {}: {:?}", config_filename, e))
+        let config = toml::from_str(&contents)
+            .map_err(|e| format!("Unable to parse {}: {:?}", config_filename, e))?;
+
+        Ok(Some(config))
     } else {
-        let config = T::default();
-
-        if let Ok(mut file) = File::create(path.join(config_filename)) {
-            let toml_encoded = toml::to_string(&config).map_err(|e| {
-                format!(
-                    "Failed to write configuration to {}. Error: {:?}",
-                    config_filename, e
-                )
-            })?;
-            file.write_all(toml_encoded.as_bytes())
-                .expect(&format!("Unable to write to {}", config_filename));
-        }
-
-        Ok(config)
+        Ok(None)
     }
 }
