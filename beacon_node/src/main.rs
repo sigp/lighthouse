@@ -3,15 +3,16 @@ extern crate slog;
 mod run;
 
 use clap::{App, Arg};
-use client::ClientConfig;
+use client::{ClientConfig, Eth2Config};
 use slog::{crit, o, Drain};
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 
-pub const SAMPLE_CONFIG_FILENAME: &str = "beacon_node_config.sample.toml";
-pub const CONFIG_FILENAME: &str = "beacon_node_config.toml";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
+
+pub const CLIENT_CONFIG_FILENAME: &str = "client_config.toml";
+pub const ETH2_CONFIG_FILENAME: &str = "eth2_config.toml";
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
@@ -100,9 +101,17 @@ fn main() {
                 .possible_values(&["disk", "memory"])
                 .default_value("memory"),
         )
+        .arg(
+            Arg::with_name("recent_genesis")
+                .long("recent_genesis")
+                .help("When present, genesis will be within 30 minutes prior. Only for testing"),
+        )
         .get_matches();
 
-    let mut config = match load_config(matches.value_of("data_dir")) {
+    let mut client_config = match load_config::<ClientConfig>(
+        matches.value_of("data_dir"),
+        CLIENT_CONFIG_FILENAME,
+    ) {
         Ok(c) => c,
         Err(e) => {
             crit!(logger, "Failed to load/generate a ChainConfig"; "error" => format!("{:?}", e));
@@ -110,15 +119,38 @@ fn main() {
         }
     };
 
-    match config.apply_cli_args(&matches) {
+    if let Some(data_dir) = matches.value_of("data_dir") {
+        client_config.data_dir = data_dir.to_string();
+    }
+
+    match client_config.apply_cli_args(&matches) {
         Ok(()) => (),
         Err(s) => {
-            crit!(logger, "Failed to parse CLI arguments"; "error" => s);
+            crit!(logger, "Failed to parse ClientConfig CLI arguments"; "error" => s);
             return;
         }
     };
 
-    match run::run_beacon_node(config, &logger) {
+    let mut eth2_config = match load_config::<Eth2Config>(
+        matches.value_of("data_dir"),
+        ETH2_CONFIG_FILENAME,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            crit!(logger, "Failed to load/generate an Eth2Config"; "error" => format!("{:?}", e));
+            return;
+        }
+    };
+
+    match eth2_config.apply_cli_args(&matches) {
+        Ok(()) => (),
+        Err(s) => {
+            crit!(logger, "Failed to parse Eth2Config CLI arguments"; "error" => s);
+            return;
+        }
+    };
+
+    match run::run_beacon_node(client_config, eth2_config, &logger) {
         Ok(_) => {}
         Err(e) => crit!(logger, "Beacon node failed to start"; "reason" => format!("{:}", e)),
     }
@@ -126,7 +158,10 @@ fn main() {
 
 /// Loads a `ClientConfig` from file. If unable to load from file, generates a default
 /// configuration and saves that as a sample file.
-fn load_config(data_dir: Option<&str>) -> Result<ClientConfig, String> {
+fn load_config<T>(data_dir: Option<&str>, config_filename: &str) -> Result<T, String>
+where
+    T: Default + serde::de::DeserializeOwned + serde::Serialize,
+{
     let data_dir = data_dir.unwrap_or_else(|| DEFAULT_DATA_DIR);
 
     let path = dirs::home_dir()
@@ -134,29 +169,28 @@ fn load_config(data_dir: Option<&str>) -> Result<ClientConfig, String> {
         .join(&data_dir);
     fs::create_dir_all(&path).map_err(|_| "Unable to open data_dir")?;
 
-    if let Ok(mut file) = File::open(path.join(CONFIG_FILENAME)) {
+    if let Ok(mut file) = File::open(path.join(config_filename)) {
         let mut contents = String::new();
         file.read_to_string(&mut contents).map_err(|e| {
             format!(
                 "Unable to read existing {}. Error: {:?}",
-                CONFIG_FILENAME, e
+                config_filename, e
             )
         })?;
 
-        toml::from_str(&contents).map_err(|_| format!("Unable to parse {}", CONFIG_FILENAME))
+        toml::from_str(&contents).map_err(|e| format!("Unable to parse {}: {:?}", config_filename, e))
     } else {
-        let mut config = ClientConfig::default();
-        config.data_dir = data_dir.to_string();
+        let config = T::default();
 
-        if let Ok(mut file) = File::create(path.join(SAMPLE_CONFIG_FILENAME)) {
+        if let Ok(mut file) = File::create(path.join(config_filename)) {
             let toml_encoded = toml::to_string(&config).map_err(|e| {
                 format!(
                     "Failed to write configuration to {}. Error: {:?}",
-                    SAMPLE_CONFIG_FILENAME, e
+                    config_filename, e
                 )
             })?;
             file.write_all(toml_encoded.as_bytes())
-                .expect(&format!("Unable to write to {}", SAMPLE_CONFIG_FILENAME));
+                .expect(&format!("Unable to write to {}", config_filename));
         }
 
         Ok(config)

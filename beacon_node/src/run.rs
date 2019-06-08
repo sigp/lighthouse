@@ -1,9 +1,10 @@
 use client::{
-    error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, InitialiseBeaconChain,
+    error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, Eth2Config,
+    InitialiseBeaconChain,
 };
 use futures::sync::oneshot;
 use futures::Future;
-use slog::{warn, error, info};
+use slog::{error, info, warn};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
@@ -14,7 +15,11 @@ use tokio::runtime::TaskExecutor;
 use tokio_timer::clock::Clock;
 use types::{MainnetEthSpec, MinimalEthSpec};
 
-pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Result<()> {
+pub fn run_beacon_node(
+    client_config: ClientConfig,
+    eth2_config: Eth2Config,
+    log: &slog::Logger,
+) -> error::Result<()> {
     let runtime = Builder::new()
         .name_prefix("main-")
         .clock(Clock::system())
@@ -23,29 +28,54 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
 
     let executor = runtime.executor();
 
-    let db_path: PathBuf = config
+    let db_path: PathBuf = client_config
         .db_path()
         .ok_or_else::<error::Error, _>(|| "Unable to access database path".into())?;
-    let db_type = &config.db_type;
-    let spec_constants = config.spec_constants.clone();
+    let db_type = &client_config.db_type;
+    let spec_constants = eth2_config.spec_constants.clone();
 
-    let other_config = config.clone();
+    let other_client_config = client_config.clone();
+
+    warn!(
+        log,
+        "This software is EXPERIMENTAL and provides no guarantees or warranties."
+    );
 
     let result = match (db_type.as_str(), spec_constants.as_str()) {
-        ("disk", "minimal") => {
-            run::<ClientType<DiskStore, MinimalEthSpec>>(&db_path, config, executor, runtime, log)
-        }
-        ("memory", "minimal") => {
-            run::<ClientType<MemoryStore, MinimalEthSpec>>(&db_path, config, executor, runtime, log)
-        }
-        ("disk", "mainnet") => {
-            run::<ClientType<DiskStore, MainnetEthSpec>>(&db_path, config, executor, runtime, log)
-        }
-        ("memory", "mainnet") => {
-            run::<ClientType<MemoryStore, MainnetEthSpec>>(&db_path, config, executor, runtime, log)
-        }
+        ("disk", "minimal") => run::<ClientType<DiskStore, MinimalEthSpec>>(
+            &db_path,
+            client_config,
+            eth2_config,
+            executor,
+            runtime,
+            log,
+        ),
+        ("memory", "minimal") => run::<ClientType<MemoryStore, MinimalEthSpec>>(
+            &db_path,
+            client_config,
+            eth2_config,
+            executor,
+            runtime,
+            log,
+        ),
+        ("disk", "mainnet") => run::<ClientType<DiskStore, MainnetEthSpec>>(
+            &db_path,
+            client_config,
+            eth2_config,
+            executor,
+            runtime,
+            log,
+        ),
+        ("memory", "mainnet") => run::<ClientType<MemoryStore, MainnetEthSpec>>(
+            &db_path,
+            client_config,
+            eth2_config,
+            executor,
+            runtime,
+            log,
+        ),
         (db_type, spec) => {
-            error!(log, "Unknown runtime configuration"; "spec" => spec, "db_type" => db_type);
+            error!(log, "Unknown runtime configuration"; "spec_constants" => spec, "db_type" => db_type);
             Err("Unknown specification and/or db_type.".into())
         }
     };
@@ -54,28 +84,11 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
         info!(
             log,
             "Started beacon node";
-            "p2p_listen_addresses" => format!("{:?}", &other_config.network.listen_addresses()),
-            "data_dir" => format!("{:?}", other_config.data_dir()),
-            "spec_constants" => &other_config.spec_constants,
-            "db_type" => &other_config.db_type,
+            "p2p_listen_addresses" => format!("{:?}", &other_client_config.network.listen_addresses()),
+            "data_dir" => format!("{:?}", other_client_config.data_dir()),
+            "spec_constants" => &spec_constants,
+            "db_type" => &other_client_config.db_type,
         );
-
-        // `SHUFFLE_ROUND_COUNT == 10` in minimal, this is not considered safe.
-        if spec_constants.as_str() == "minimal" {
-            warn!(
-                log,
-                "The minimal specification does not use cryptographically secure committee selection."
-            )
-        }
-
-        // Mainnet is not really complete, it still generates determinitic, unsafe initial
-        // validators.
-        if spec_constants.as_str() == "mainnet" {
-            warn!(
-                log,
-                "The mainnet specification uses unsafe validator keypairs."
-            )
-        }
     }
 
     result
@@ -83,7 +96,8 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
 
 pub fn run<T>(
     db_path: &Path,
-    config: ClientConfig,
+    client_config: ClientConfig,
+    eth2_config: Eth2Config,
     executor: TaskExecutor,
     mut runtime: Runtime,
     log: &slog::Logger,
@@ -94,7 +108,7 @@ where
 {
     let store = T::Store::open_database(&db_path)?;
 
-    let client: Client<T> = Client::new(config, store, log.clone(), &executor)?;
+    let client: Client<T> = Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
 
     // run service until ctrl-c
     let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();

@@ -1,7 +1,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use test_utils::u8_from_hex_str;
+use test_utils::{u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///
@@ -48,17 +48,19 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_slot: Slot,
+    // Skipped because serde TOML can't handle u64::max_value, the typical value for this field.
+    #[serde(skip_serializing)]
     pub far_future_epoch: Epoch,
     pub zero_hash: Hash256,
-    #[serde(deserialize_with = "u8_from_hex_str")]
+    #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
      */
+    pub genesis_time: u64,
     pub seconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
-    //pub slots_per_epoch: u64,
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
     pub slots_per_eth1_voting_period: u64,
@@ -172,9 +174,9 @@ impl ChainSpec {
             /*
              * Time parameters
              */
+            genesis_time: u32::max_value() as u64,
             seconds_per_slot: 6,
             min_attestation_inclusion_delay: 4,
-            // slots_per_epoch: 64,
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             slots_per_eth1_voting_period: 1_024,

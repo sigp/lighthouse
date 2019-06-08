@@ -3,6 +3,7 @@ extern crate slog;
 mod beacon_chain_types;
 mod client_config;
 pub mod error;
+mod eth2_config;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;
@@ -22,12 +23,13 @@ pub use beacon_chain::BeaconChainTypes;
 pub use beacon_chain_types::ClientType;
 pub use beacon_chain_types::InitialiseBeaconChain;
 pub use client_config::ClientConfig;
+pub use eth2_config::Eth2Config;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
 pub struct Client<T: BeaconChainTypes> {
     /// Configuration for the lighthouse client.
-    _config: ClientConfig,
+    _client_config: ClientConfig,
     /// The beacon chain for the running client.
     beacon_chain: Arc<BeaconChain<T>>,
     /// Reference to the network service.
@@ -50,19 +52,20 @@ where
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
-        config: ClientConfig,
+        client_config: ClientConfig,
+        eth2_config: Eth2Config,
         store: T::Store,
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
         let metrics_registry = Registry::new();
         let store = Arc::new(store);
-        let seconds_per_slot = config.spec.seconds_per_slot;
+        let seconds_per_slot = eth2_config.spec.seconds_per_slot;
 
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
         let beacon_chain = Arc::new(T::initialise_beacon_chain(
             store,
-            config.spec.clone(),
+            eth2_config.spec.clone(),
             log.clone(),
         ));
         // Registry all beacon chain metrics with the global registry.
@@ -102,7 +105,7 @@ where
 
         // Start the network service, libp2p and syncing threads
         // TODO: Add beacon_chain reference to network parameters
-        let network_config = &config.network;
+        let network_config = &client_config.network;
         let network_logger = log.new(o!("Service" => "Network"));
         let (network, network_send) = NetworkService::new(
             beacon_chain.clone(),
@@ -112,9 +115,9 @@ where
         )?;
 
         // spawn the RPC server
-        let rpc_exit_signal = if config.rpc.enabled {
+        let rpc_exit_signal = if client_config.rpc.enabled {
             Some(rpc::start_server(
-                &config.rpc,
+                &client_config.rpc,
                 executor,
                 network_send.clone(),
                 beacon_chain.clone(),
@@ -127,13 +130,13 @@ where
         // Start the `http_server` service.
         //
         // Note: presently we are ignoring the config and _always_ starting a HTTP server.
-        let http_exit_signal = if config.http.enabled {
+        let http_exit_signal = if client_config.http.enabled {
             Some(http_server::start_service(
-                &config.http,
+                &client_config.http,
                 executor,
                 network_send,
                 beacon_chain.clone(),
-                config.db_path().expect("unable to read datadir"),
+                client_config.db_path().expect("unable to read datadir"),
                 metrics_registry,
                 &log,
             ))
@@ -168,7 +171,7 @@ where
         }
 
         Ok(Client {
-            _config: config,
+            _client_config: client_config,
             beacon_chain,
             http_exit_signal,
             rpc_exit_signal,

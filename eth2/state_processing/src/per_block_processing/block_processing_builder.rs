@@ -23,7 +23,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
     }
 
     pub fn set_slot(&mut self, slot: Slot, spec: &ChainSpec) {
-        self.state_builder.teleport_to_slot(slot, &spec);
+        self.state_builder.teleport_to_slot(slot);
     }
 
     pub fn build_caches(&mut self, spec: &ChainSpec) {

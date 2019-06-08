@@ -23,6 +23,7 @@ use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Slot(u64);
 
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]

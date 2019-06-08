@@ -1,5 +1,5 @@
 use serde::de::Error;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serializer};
 
 pub const FORK_BYTES_LEN: usize = 4;
 pub const GRAFFITI_BYTES_LEN: usize = 32;
@@ -11,6 +11,16 @@ where
     let s: String = Deserialize::deserialize(deserializer)?;
 
     u8::from_str_radix(&s.as_str()[2..], 16).map_err(D::Error::custom)
+}
+
+pub fn u8_to_hex_str<S>(byte: &u8, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut hex: String = "0x".to_string();
+    hex.push_str(&hex::encode(&[*byte]));
+
+    serializer.serialize_str(&hex)
 }
 
 pub fn fork_from_hex_str<'de, D>(deserializer: D) -> Result<[u8; FORK_BYTES_LEN], D::Error>
