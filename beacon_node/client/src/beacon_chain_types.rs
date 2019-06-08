@@ -1,18 +1,14 @@
 use beacon_chain::{
-    fork_choice::OptimizedLMDGhost,
-    slot_clock::SystemTimeSlotClock,
-    store::{DiskStore, MemoryStore, Store},
-    BeaconChain, BeaconChainTypes,
+    fork_choice::OptimizedLMDGhost, slot_clock::SystemTimeSlotClock, store::Store, BeaconChain,
+    BeaconChainTypes,
 };
 use fork_choice::ForkChoice;
 use slog::{info, Logger};
 use slot_clock::SlotClock;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::{
-    test_utils::TestingBeaconStateBuilder, BeaconBlock, ChainSpec, EthSpec, Hash256,
-    MinimalEthSpec,
-};
+use types::{test_utils::TestingBeaconStateBuilder, BeaconBlock, ChainSpec, EthSpec, Hash256};
 
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_VALIDATOR_COUNT: usize = 16;
@@ -28,27 +24,19 @@ pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
     }
 }
 
-/// A testnet-suitable BeaconChainType, using `MemoryStore`.
 #[derive(Clone)]
-pub struct TestnetMemoryBeaconChainTypes;
-impl BeaconChainTypes for TestnetMemoryBeaconChainTypes {
-    type Store = MemoryStore;
-    type SlotClock = SystemTimeSlotClock;
-    type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
-    type EthSpec = MinimalEthSpec;
+pub struct ClientType<S: Store, E: EthSpec> {
+    _phantom_t: PhantomData<S>,
+    _phantom_u: PhantomData<E>,
 }
-impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetMemoryBeaconChainTypes {}
 
-/// A testnet-suitable BeaconChainType, using `DiskStore`.
-#[derive(Clone)]
-pub struct TestnetDiskBeaconChainTypes;
-impl BeaconChainTypes for TestnetDiskBeaconChainTypes {
-    type Store = DiskStore;
+impl<S: Store, E: EthSpec + Clone> BeaconChainTypes for ClientType<S, E> {
+    type Store = S;
     type SlotClock = SystemTimeSlotClock;
-    type ForkChoice = OptimizedLMDGhost<Self::Store, Self::EthSpec>;
-    type EthSpec = MinimalEthSpec;
+    type ForkChoice = OptimizedLMDGhost<S, E>;
+    type EthSpec = E;
 }
-impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTypes {}
+impl<T: Store, E: EthSpec, X: BeaconChainTypes> InitialiseBeaconChain<X> for ClientType<T, E> {}
 
 /// Loads a `BeaconChain` from `store`, if it exists. Otherwise, create a new chain from genesis.
 fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(
