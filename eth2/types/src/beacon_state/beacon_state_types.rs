@@ -127,7 +127,7 @@ impl EthSpec for FewValidatorsEthSpec {
     type GenesisEpoch = U0;
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::few_validators(Self::slots_per_epoch())
+        ChainSpec::few_validators()
     }
 }
 
@@ -147,7 +147,7 @@ impl EthSpec for LighthouseTestnetEthSpec {
     type GenesisEpoch = U0;
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::lighthouse_testnet(Self::slots_per_epoch())
+        ChainSpec::lighthouse_testnet()
     }
 }
 

@@ -113,8 +113,8 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
                     pubkey: keypair.pk.clone(),
                     withdrawal_credentials,
                     // All validators start active.
-                    activation_eligibility_epoch: spec.genesis_epoch,
-                    activation_epoch: spec.genesis_epoch,
+                    activation_eligibility_epoch: T::genesis_epoch(),
+                    activation_epoch: T::genesis_epoch(),
                     exit_epoch: spec.far_future_epoch,
                     withdrawable_epoch: spec.far_future_epoch,
                     slashed: false,

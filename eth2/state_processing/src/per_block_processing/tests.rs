@@ -105,7 +105,7 @@ fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<FoundationEthSpec>) 
 
     // Set the state and block to be in the last slot of the 4th epoch.
     let last_slot_of_epoch =
-        (spec.genesis_epoch + 4).end_slot(FoundationEthSpec::slots_per_epoch());
+        (FoundationEthSpec::genesis_epoch() + 4).end_slot(FoundationEthSpec::slots_per_epoch());
     builder.set_slot(last_slot_of_epoch, &spec);
     builder.build_caches(&spec);
 
