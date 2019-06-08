@@ -5,7 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [dependencies]
+dirs = "1.0.3"
 types = { path = "../eth2/types" }
+toml = "^0.5"
 store = { path = "./store" }
 client = { path = "client" }
 fork_choice = { path = "../eth2/fork_choice" }
