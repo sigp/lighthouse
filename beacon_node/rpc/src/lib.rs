@@ -27,7 +27,8 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     network_chan: crossbeam_channel::Sender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
-) -> exit_future::Signal {
+) -> exit_future::Signal
+{
     let log = log.new(o!("Service"=>"RPC"));
     let env = Arc::new(Environment::new(1));
 

@@ -19,8 +19,8 @@ use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 
 pub use beacon_chain::BeaconChainTypes;
+pub use beacon_chain_types::ClientType;
 pub use beacon_chain_types::InitialiseBeaconChain;
-pub use beacon_chain_types::{TestnetDiskBeaconChainTypes, TestnetMemoryBeaconChainTypes};
 pub use client_config::ClientConfig;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients

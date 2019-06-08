@@ -1,10 +1,9 @@
 use client::{
-    error, notifier, BeaconChainTypes, Client, ClientConfig, InitialiseBeaconChain,
-    TestnetDiskBeaconChainTypes, TestnetMemoryBeaconChainTypes,
+    error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, InitialiseBeaconChain,
 };
 use futures::sync::oneshot;
 use futures::Future;
-use slog::{error, info};
+use slog::{warn, error, info};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
@@ -13,6 +12,7 @@ use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use tokio::runtime::TaskExecutor;
 use tokio_timer::clock::Clock;
+use types::{MainnetEthSpec, MinimalEthSpec};
 
 pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Result<()> {
     let runtime = Builder::new()
@@ -27,16 +27,22 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
         .db_path()
         .ok_or_else::<error::Error, _>(|| "Unable to access database path".into())?;
     let db_type = &config.db_type;
-    let spec_constants = &config.spec_constants;
+    let spec_constants = config.spec_constants.clone();
 
     let other_config = config.clone();
 
     let result = match (db_type.as_str(), spec_constants.as_str()) {
-        ("disk", "testnet") => {
-            run::<TestnetDiskBeaconChainTypes>(&db_path, config, executor, runtime, log)
+        ("disk", "minimal") => {
+            run::<ClientType<DiskStore, MinimalEthSpec>>(&db_path, config, executor, runtime, log)
         }
-        ("memory", "testnet") => {
-            run::<TestnetMemoryBeaconChainTypes>(&db_path, config, executor, runtime, log)
+        ("memory", "minimal") => {
+            run::<ClientType<MemoryStore, MinimalEthSpec>>(&db_path, config, executor, runtime, log)
+        }
+        ("disk", "mainnet") => {
+            run::<ClientType<DiskStore, MainnetEthSpec>>(&db_path, config, executor, runtime, log)
+        }
+        ("memory", "mainnet") => {
+            run::<ClientType<MemoryStore, MainnetEthSpec>>(&db_path, config, executor, runtime, log)
         }
         (db_type, spec) => {
             error!(log, "Unknown runtime configuration"; "spec" => spec, "db_type" => db_type);
@@ -53,6 +59,23 @@ pub fn run_beacon_node(config: ClientConfig, log: &slog::Logger) -> error::Resul
             "spec_constants" => &other_config.spec_constants,
             "db_type" => &other_config.db_type,
         );
+
+        // `SHUFFLE_ROUND_COUNT == 10` in minimal, this is not considered safe.
+        if spec_constants.as_str() == "minimal" {
+            warn!(
+                log,
+                "The minimal specification does not use cryptographically secure committee selection."
+            )
+        }
+
+        // Mainnet is not really complete, it still generates determinitic, unsafe initial
+        // validators.
+        if spec_constants.as_str() == "mainnet" {
+            warn!(
+                log,
+                "The mainnet specification uses unsafe validator keypairs."
+            )
+        }
     }
 
     result
@@ -66,7 +89,7 @@ pub fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Send + Sync + 'static + Clone,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + Send + Sync + 'static,
     T::Store: OpenDatabase,
 {
     let store = T::Store::open_database(&db_path)?;
