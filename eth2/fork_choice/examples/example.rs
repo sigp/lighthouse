@@ -17,7 +17,7 @@ fn main() {
         .map(|_| builder.build())
         .collect();
 
-    let spec = &FoundationEthSpec::spec();
+    let spec = &FoundationEthSpec::default_spec();
 
     println!("Running {} times...", repetitions);
     for fc in fork_choosers {

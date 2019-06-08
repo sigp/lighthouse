@@ -40,7 +40,7 @@ impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices =
-            current_state.get_active_validator_indices(block_slot.epoch(spec.slots_per_epoch));
+            current_state.get_active_validator_indices(block_slot.epoch(E::slots_per_epoch()));
 
         for index in active_validator_indices {
             let balance = std::cmp::min(current_state.balances[index], spec.max_effective_balance)

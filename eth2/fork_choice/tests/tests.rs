@@ -61,7 +61,7 @@ fn test_yaml_vectors<T: ForkChoice<MemoryStore>>(
     let test_cases = load_test_cases_from_yaml(yaml_file_path);
 
     // default vars
-    let spec = FoundationEthSpec::spec();
+    let spec = FoundationEthSpec::default_spec();
     let zero_hash = Hash256::zero();
     let eth1_data = Eth1Data {
         deposit_count: 0,
@@ -204,7 +204,7 @@ where
     let store = Arc::new(MemoryStore::open());
 
     let fork_choice = ForkChoice::new(store.clone());
-    let spec = FoundationEthSpec::spec();
+    let spec = FoundationEthSpec::default_spec();
 
     let mut state_builder: TestingBeaconStateBuilder<FoundationEthSpec> =
         TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);

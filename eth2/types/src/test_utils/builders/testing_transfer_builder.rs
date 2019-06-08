@@ -29,10 +29,10 @@ impl TestingTransferBuilder {
     /// Signs the transfer.
     ///
     /// The keypair must match that of the `from` validator index.
-    pub fn sign(&mut self, keypair: Keypair, fork: &Fork, spec: &ChainSpec) {
+    pub fn sign<T: EthSpec>(&mut self, keypair: Keypair, fork: &Fork, spec: &ChainSpec) {
         self.transfer.pubkey = keypair.pk;
         let message = self.transfer.signed_root();
-        let epoch = self.transfer.slot.epoch(spec.slots_per_epoch);
+        let epoch = self.transfer.slot.epoch(T::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::Transfer, fork);
 
         self.transfer.signature = Signature::new(&message, domain, &keypair.sk);

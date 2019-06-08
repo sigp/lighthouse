@@ -29,9 +29,9 @@ impl<E: EthSpec> Case for EpochProcessingCrosslinks<E> {
         let mut expected = self.post.clone();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(&E::default_spec()).unwrap();
 
-        let mut result = process_crosslinks(&mut state, &E::spec()).map(|_| state);
+        let mut result = process_crosslinks(&mut state, &E::default_spec()).map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

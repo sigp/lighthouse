@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::EthSpec;
 
 pub use beacon_chain::BeaconChainTypes;
 pub use beacon_chain_types::InitialiseBeaconChain;
@@ -58,10 +57,14 @@ where
     ) -> error::Result<Self> {
         let metrics_registry = Registry::new();
         let store = Arc::new(store);
-        let spec = T::EthSpec::spec();
+        let seconds_per_slot = config.spec.seconds_per_slot;
 
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
-        let beacon_chain = Arc::new(T::initialise_beacon_chain(store, log.clone()));
+        let beacon_chain = Arc::new(T::initialise_beacon_chain(
+            store,
+            config.spec.clone(),
+            log.clone(),
+        ));
         // Registry all beacon chain metrics with the global registry.
         beacon_chain
             .metrics
@@ -143,7 +146,7 @@ where
             // set up the validator work interval - start at next slot and proceed every slot
             let interval = {
                 // Set the interval to start at the next slot, and every slot after
-                let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+                let slot_duration = Duration::from_secs(seconds_per_slot);
                 //TODO: Handle checked add correctly
                 Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
             };

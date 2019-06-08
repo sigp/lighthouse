@@ -7,7 +7,7 @@ ssz_tests!(FoundationBeaconState);
 cached_tree_hash_tests!(FoundationBeaconState);
 
 fn test_beacon_proposer_index<T: EthSpec>() {
-    let spec = T::spec();
+    let spec = T::default_spec();
     let relative_epoch = RelativeEpoch::Current;
 
     // Build a state for testing.
@@ -61,7 +61,7 @@ fn beacon_proposer_index() {
 /// (current_epoch - LATEST_ACTIVE_INDEX_ROOTS_LENGTH + ACTIVATION_EXIT_DELAY, current_epoch +
 /// ACTIVATION_EXIT_DELAY]
 fn active_index_range<T: EthSpec>(current_epoch: Epoch) -> RangeInclusive<Epoch> {
-    let delay = T::spec().activation_exit_delay;
+    let delay = T::default_spec().activation_exit_delay;
 
     let start: i32 =
         current_epoch.as_u64() as i32 - T::latest_active_index_roots() as i32 + delay as i32;
@@ -79,7 +79,7 @@ fn active_index_range<T: EthSpec>(current_epoch: Epoch) -> RangeInclusive<Epoch>
 /// Test getting an active index root at the start and end of the valid range, and one either side
 /// of that range.
 fn test_active_index<T: EthSpec>(state_slot: Slot) {
-    let spec = T::spec();
+    let spec = T::default_spec();
     let builder: TestingBeaconStateBuilder<T> =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
     let (mut state, _keypairs) = builder.build();
@@ -133,8 +133,8 @@ fn test_cache_initialization<'a, T: EthSpec>(
     spec: &ChainSpec,
 ) {
     let slot = relative_epoch
-        .into_epoch(state.slot.epoch(spec.slots_per_epoch))
-        .start_slot(spec.slots_per_epoch);
+        .into_epoch(state.slot.epoch(T::slots_per_epoch()))
+        .start_slot(T::slots_per_epoch());
 
     // Assuming the cache isn't already built, assert that a call to a cache-using function fails.
     assert_eq!(
@@ -166,13 +166,13 @@ fn test_cache_initialization<'a, T: EthSpec>(
 
 #[test]
 fn cache_initialization() {
-    let spec = FewValidatorsEthSpec::spec();
+    let spec = FewValidatorsEthSpec::default_spec();
 
     let builder: TestingBeaconStateBuilder<FewValidatorsEthSpec> =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
     let (mut state, _keypairs) = builder.build();
 
-    state.slot = (spec.genesis_epoch + 1).start_slot(spec.slots_per_epoch);
+    state.slot = (spec.genesis_epoch + 1).start_slot(FewValidatorsEthSpec::slots_per_epoch());
 
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
@@ -234,7 +234,7 @@ mod committees {
             (start_shard..start_shard + T::shard_count() as u64).into_iter();
 
         // Loop through all slots in the epoch being tested.
-        for slot in epoch.slot_iter(spec.slots_per_epoch) {
+        for slot in epoch.slot_iter(T::slots_per_epoch()) {
             let crosslink_committees = state.get_crosslink_committees_at_slot(slot).unwrap();
 
             // Assert that the number of committees in this slot is consistent with the reported number
@@ -290,7 +290,7 @@ mod committees {
         state_epoch: Epoch,
         cache_epoch: RelativeEpoch,
     ) {
-        let spec = &T::spec();
+        let spec = &T::default_spec();
 
         let mut builder = TestingBeaconStateBuilder::from_single_keypair(
             validator_count,
@@ -298,7 +298,7 @@ mod committees {
             spec,
         );
 
-        let slot = state_epoch.start_slot(spec.slots_per_epoch);
+        let slot = state_epoch.start_slot(T::slots_per_epoch());
         builder.teleport_to_slot(slot, spec);
 
         let (mut state, _keypairs): (BeaconState<T>, _) = builder.build();
@@ -325,7 +325,7 @@ mod committees {
     }
 
     fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
-        let spec = T::spec();
+        let spec = T::default_spec();
 
         let validator_count = (T::shard_count() * spec.target_committee_size) + 1;
 

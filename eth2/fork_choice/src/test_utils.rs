@@ -40,10 +40,10 @@ impl<S: Store, E: EthSpec> TestingForkChoiceBuilder<S, E> {
 }
 
 fn get_state<T: EthSpec>(validator_count: usize) -> BeaconState<T> {
-    let spec = &T::spec();
+    let spec = T::default_spec();
 
     let builder: TestingBeaconStateBuilder<T> =
-        TestingBeaconStateBuilder::from_single_keypair(validator_count, &Keypair::random(), spec);
+        TestingBeaconStateBuilder::from_single_keypair(validator_count, &Keypair::random(), &spec);
     let (state, _keypairs) = builder.build();
     state
 }
@@ -58,7 +58,7 @@ fn get_chain_of_blocks<T: EthSpec, U: Store>(
     validator_count: usize,
     store: Arc<U>,
 ) -> Vec<(Hash256, BeaconBlock)> {
-    let spec = T::spec();
+    let spec = T::default_spec();
     let mut blocks_and_roots: Vec<(Hash256, BeaconBlock)> = vec![];
     let mut unique_hashes = (0..).into_iter().map(|i| Hash256::from(i));
     let mut random_block = BeaconBlock::random_for_test(&mut XorShiftRng::from_seed([42; 16]));

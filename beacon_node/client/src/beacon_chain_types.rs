@@ -10,7 +10,8 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::TestingBeaconStateBuilder, BeaconBlock, EthSpec, Hash256, LighthouseTestnetEthSpec,
+    test_utils::TestingBeaconStateBuilder, BeaconBlock, ChainSpec, EthSpec, Hash256,
+    LighthouseTestnetEthSpec,
 };
 
 /// The number initial validators when starting the `LighthouseTestnet`.
@@ -18,8 +19,12 @@ const TESTNET_VALIDATOR_COUNT: usize = 16;
 
 /// Provides a new, initialized `BeaconChain`
 pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
-    fn initialise_beacon_chain(store: Arc<T::Store>, log: Logger) -> BeaconChain<T> {
-        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store, log)
+    fn initialise_beacon_chain(
+        store: Arc<T::Store>,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> BeaconChain<T> {
+        maybe_load_from_store_for_testnet::<_, T::Store, T::EthSpec>(store, spec, log)
     }
 }
 
@@ -48,13 +53,14 @@ impl<T: BeaconChainTypes> InitialiseBeaconChain<T> for TestnetDiskBeaconChainTyp
 /// Loads a `BeaconChain` from `store`, if it exists. Otherwise, create a new chain from genesis.
 fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(
     store: Arc<U>,
+    spec: ChainSpec,
     log: Logger,
 ) -> BeaconChain<T>
 where
     T: BeaconChainTypes<Store = U>,
     T::ForkChoice: ForkChoice<U>,
 {
-    if let Ok(Some(beacon_chain)) = BeaconChain::from_store(store.clone()) {
+    if let Ok(Some(beacon_chain)) = BeaconChain::from_store(store.clone(), spec.clone()) {
         info!(
             log,
             "Loaded BeaconChain from store";
@@ -65,8 +71,6 @@ where
         beacon_chain
     } else {
         info!(log, "Initializing new BeaconChain from genesis");
-        let spec = T::EthSpec::spec();
-
         let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
             TESTNET_VALIDATOR_COUNT,
             &spec,
@@ -92,7 +96,7 @@ where
             slot_clock,
             genesis_state,
             genesis_block,
-            spec.clone(),
+            spec,
             fork_choice,
         )
         .expect("Terminate if beacon chain generation fails")

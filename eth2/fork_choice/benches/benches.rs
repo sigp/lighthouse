@@ -19,7 +19,7 @@ fn setup(
     let store = MemoryStore::open();
     let builder: TestingForkChoiceBuilder<MemoryStore, TestedEthSpec> =
         TestingForkChoiceBuilder::new(validator_count, chain_length, Arc::new(store));
-    let spec = TestedEthSpec::spec();
+    let spec = TestedEthSpec::default_spec();
 
     (builder, spec)
 }

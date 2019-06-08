@@ -31,9 +31,10 @@ impl<E: EthSpec> Case for OperationsProposerSlashing<E> {
         let mut expected = self.post.clone();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(&E::default_spec()).unwrap();
 
-        let result = process_proposer_slashings(&mut state, &[proposer_slashing], &E::spec());
+        let result =
+            process_proposer_slashings(&mut state, &[proposer_slashing], &E::default_spec());
 
         let mut result = result.and_then(|_| Ok(state));
 

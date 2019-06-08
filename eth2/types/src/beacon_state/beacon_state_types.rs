@@ -1,5 +1,5 @@
 use crate::*;
-use fixed_len_vec::typenum::{Unsigned, U1024, U8, U8192};
+use fixed_len_vec::typenum::{Unsigned, U0, U1024, U64, U8, U8192};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -9,14 +9,24 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type LatestActiveIndexRootsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type LatestSlashedExitLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// Note: `SlotsPerEpoch` is not necessarily required to be a compile-time constant. We include
+    /// it here just for the convenience of not passing `slots_per_epoch` around all the time.
+    type SlotsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
-    fn spec() -> ChainSpec;
+    fn default_spec() -> ChainSpec;
+
+    fn genesis_epoch() -> Epoch {
+        Epoch::new(Self::GenesisEpoch::to_u64())
+    }
 
     /// Return the number of committees in one epoch.
     ///
     /// Spec v0.6.1
-    fn get_epoch_committee_count(active_validator_count: usize) -> usize {
-        let target_committee_size = Self::spec().target_committee_size;
+    fn get_epoch_committee_count(
+        active_validator_count: usize,
+        target_committee_size: usize,
+    ) -> usize {
         let shard_count = Self::shard_count();
         let slots_per_epoch = Self::slots_per_epoch() as usize;
 
@@ -35,21 +45,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /// basic sense. This count is not required to provide any security guarantees regarding
     /// decentralization, entropy, etc.
     fn minimum_validator_count() -> usize {
-        Self::slots_per_epoch() as usize
+        Self::SlotsPerEpoch::to_usize()
     }
 
     /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
     ///
     /// Spec v0.6.1
     fn slots_per_epoch() -> u64 {
-        Self::spec().slots_per_epoch
-    }
-
-    /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
-    ///
-    /// Spec v0.6.1
-    fn genesis_epoch() -> Epoch {
-        Self::spec().genesis_epoch
+        Self::SlotsPerEpoch::to_u64()
     }
 
     /// Returns the `SHARD_COUNT` constant for this specification.
@@ -100,8 +103,10 @@ impl EthSpec for FoundationEthSpec {
     type LatestRandaoMixesLength = U8192;
     type LatestActiveIndexRootsLength = U8192;
     type LatestSlashedExitLength = U8192;
+    type SlotsPerEpoch = U64;
+    type GenesisEpoch = U0;
 
-    fn spec() -> ChainSpec {
+    fn default_spec() -> ChainSpec {
         ChainSpec::foundation()
     }
 }
@@ -118,9 +123,11 @@ impl EthSpec for FewValidatorsEthSpec {
     type LatestRandaoMixesLength = U8192;
     type LatestActiveIndexRootsLength = U8192;
     type LatestSlashedExitLength = U8192;
+    type SlotsPerEpoch = U8;
+    type GenesisEpoch = U0;
 
-    fn spec() -> ChainSpec {
-        ChainSpec::few_validators()
+    fn default_spec() -> ChainSpec {
+        ChainSpec::few_validators(Self::slots_per_epoch())
     }
 }
 
@@ -136,9 +143,11 @@ impl EthSpec for LighthouseTestnetEthSpec {
     type LatestRandaoMixesLength = U8192;
     type LatestActiveIndexRootsLength = U8192;
     type LatestSlashedExitLength = U8192;
+    type SlotsPerEpoch = U8;
+    type GenesisEpoch = U0;
 
-    fn spec() -> ChainSpec {
-        ChainSpec::lighthouse_testnet()
+    fn default_spec() -> ChainSpec {
+        ChainSpec::lighthouse_testnet(Self::slots_per_epoch())
     }
 }
 

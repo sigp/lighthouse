@@ -158,7 +158,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         hello: HelloMessage,
         network: &mut NetworkContext,
     ) {
-        let spec = T::EthSpec::spec();
+        let spec = &self.chain.spec;
 
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 debug!(self.log, "Peer has high finalized epoch"; "peer" => format!("{:?}", peer_id));
                 let start_slot = local
                     .latest_finalized_epoch
-                    .start_slot(spec.slots_per_epoch);
+                    .start_slot(T::EthSpec::slots_per_epoch());
                 let required_slots = remote.best_slot - start_slot;
 
                 self.request_block_roots(
@@ -231,7 +231,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 debug!(self.log, "Peer has higher best slot"; "peer" => format!("{:?}", peer_id));
                 let start_slot = local
                     .latest_finalized_epoch
-                    .start_slot(spec.slots_per_epoch);
+                    .start_slot(T::EthSpec::slots_per_epoch());
                 let required_slots = remote.best_slot - start_slot;
 
                 self.request_block_roots(
@@ -795,7 +795,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     fn slot_is_finalized(&self, slot: Slot) -> bool {
         slot <= hello_message(&self.chain)
             .latest_finalized_epoch
-            .start_slot(T::EthSpec::spec().slots_per_epoch)
+            .start_slot(T::EthSpec::slots_per_epoch())
     }
 
     /// Generates our current state in the form of a HELLO RPC message.
@@ -806,7 +806,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
 /// Build a `HelloMessage` representing the state of the given `beacon_chain`.
 fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMessage {
-    let spec = T::EthSpec::spec();
+    let spec = &beacon_chain.spec;
     let state = &beacon_chain.head().beacon_state;
 
     HelloMessage {

@@ -27,7 +27,7 @@ impl<E: EthSpec> Case for EpochProcessingRegistryUpdates<E> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &E::spec();
+        let spec = &E::default_spec();
 
         // Processing requires the epoch cache.
         state.build_all_caches(spec).unwrap();

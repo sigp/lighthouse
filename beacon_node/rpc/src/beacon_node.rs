@@ -5,7 +5,6 @@ use protos::services::{Empty, Fork, NodeInfoResponse};
 use protos::services_grpc::BeaconNodeService;
 use slog::{trace, warn};
 use std::sync::Arc;
-use types::EthSpec;
 
 #[derive(Clone)]
 pub struct BeaconNodeServiceInstance<T: BeaconChainTypes> {
@@ -33,7 +32,7 @@ impl<T: BeaconChainTypes> BeaconNodeService for BeaconNodeServiceInstance<T> {
         fork.set_current_version(state_fork.current_version.to_vec());
         fork.set_epoch(state_fork.epoch.into());
 
-        let spec = T::EthSpec::spec();
+        let spec = &self.chain.spec;
 
         node_info.set_fork(fork);
         node_info.set_genesis_time(genesis_time);

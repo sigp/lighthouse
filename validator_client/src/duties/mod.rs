@@ -164,7 +164,7 @@ mod tests {
     #[test]
     pub fn polling() {
         let spec = Arc::new(ChainSpec::foundation());
-        let duties_map = Arc::new(EpochDutiesMap::new(spec.slots_per_epoch));
+        let duties_map = Arc::new(EpochDutiesMap::new(T::slots_per_epoch()));
         let keypair = Keypair::random();
         let slot_clock = Arc::new(TestingSlotClock::new(0));
         let beacon_node = Arc::new(TestBeaconNode::default());

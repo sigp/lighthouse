@@ -31,9 +31,9 @@ impl<E: EthSpec> Case for OperationsExit<E> {
         let mut expected = self.post.clone();
 
         // Exit processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(&E::default_spec()).unwrap();
 
-        let result = process_exits(&mut state, &[exit], &E::spec());
+        let result = process_exits(&mut state, &[exit], &E::default_spec());
 
         let mut result = result.and_then(|_| Ok(state));
 

@@ -39,6 +39,8 @@ pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer> {
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
     pub signer: &'a S,
+    /// Used for caclulating epoch.
+    pub slots_per_epoch: u64,
 }
 
 impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
@@ -78,7 +80,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
     pub fn produce_attestation(&mut self) -> Result<ValidatorEvent, Error> {
-        let epoch = self.duty.slot.epoch(self.spec.slots_per_epoch);
+        let epoch = self.duty.slot.epoch(self.slots_per_epoch);
 
         let attestation = self
             .beacon_node

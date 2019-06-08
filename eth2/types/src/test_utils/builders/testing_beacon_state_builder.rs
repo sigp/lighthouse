@@ -173,7 +173,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
     /// Sets the `BeaconState` to be in a slot, calling `teleport_to_epoch` to update the epoch.
     pub fn teleport_to_slot(&mut self, slot: Slot, spec: &ChainSpec) {
-        self.teleport_to_epoch(slot.epoch(spec.slots_per_epoch), spec);
+        self.teleport_to_epoch(slot.epoch(T::slots_per_epoch()), spec);
         self.state.slot = slot;
     }
 
@@ -184,7 +184,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     fn teleport_to_epoch(&mut self, epoch: Epoch, spec: &ChainSpec) {
         let state = &mut self.state;
 
-        let slot = epoch.start_slot(spec.slots_per_epoch);
+        let slot = epoch.start_slot(T::slots_per_epoch());
 
         state.slot = slot;
 
@@ -214,8 +214,8 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
         let current_epoch = state.current_epoch();
         let previous_epoch = state.previous_epoch();
 
-        let first_slot = previous_epoch.start_slot(spec.slots_per_epoch).as_u64();
-        let last_slot = current_epoch.end_slot(spec.slots_per_epoch).as_u64()
+        let first_slot = previous_epoch.start_slot(T::slots_per_epoch()).as_u64();
+        let last_slot = current_epoch.end_slot(T::slots_per_epoch()).as_u64()
             - spec.min_attestation_inclusion_delay;
         let last_slot = std::cmp::min(state.slot.as_u64(), last_slot);
 

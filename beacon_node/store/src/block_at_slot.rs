@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn read_slot() {
-        let spec = FewValidatorsEthSpec::spec();
+        let spec = FewValidatorsEthSpec::default_spec();
 
         let test_slot = |slot: Slot| {
             let mut block = BeaconBlock::empty(&spec);
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn read_previous_block_root() {
-        let spec = FewValidatorsEthSpec::spec();
+        let spec = FewValidatorsEthSpec::default_spec();
 
         let test_root = |root: Hash256| {
             let mut block = BeaconBlock::empty(&spec);
@@ -130,7 +130,7 @@ mod tests {
     fn chain_without_skips() {
         let n: usize = 10;
         let store = MemoryStore::open();
-        let spec = FewValidatorsEthSpec::spec();
+        let spec = FewValidatorsEthSpec::default_spec();
 
         let slots: Vec<usize> = (0..n).collect();
         let blocks_and_roots = build_chain(&store, &slots, &spec);
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn chain_with_skips() {
         let store = MemoryStore::open();
-        let spec = FewValidatorsEthSpec::spec();
+        let spec = FewValidatorsEthSpec::default_spec();
 
         let slots = vec![0, 1, 2, 5];
 

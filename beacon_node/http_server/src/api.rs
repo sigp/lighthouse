@@ -10,7 +10,6 @@ use persistent::Read;
 use router::Router;
 use serde_json::json;
 use std::sync::Arc;
-use types::EthSpec;
 
 /// Yields a handler for the HTTP API.
 pub fn build_handler<T: BeaconChainTypes + 'static>(
@@ -65,7 +64,7 @@ fn handle_fork<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResult<R
 
     let response = json!({
         "fork": beacon_chain.head().beacon_state.fork,
-        "chain_id": T::EthSpec::spec().chain_id
+        "chain_id": beacon_chain.spec.chain_id
     });
 
     Ok(Response::with((Status::Ok, response.to_string())))
