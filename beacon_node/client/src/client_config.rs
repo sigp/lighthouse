@@ -8,7 +8,7 @@ use std::path::PathBuf;
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
-    data_dir: String,
+    pub data_dir: String,
     pub spec: String,
     pub db_type: String,
     db_name: String,
