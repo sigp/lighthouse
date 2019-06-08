@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{
-    BeaconBlock, BeaconBlockBody, Eth1Data, EthSpec, FoundationEthSpec, Hash256, Keypair, Slot,
+    BeaconBlock, BeaconBlockBody, Eth1Data, EthSpec, Hash256, Keypair, MainnetEthSpec, Slot,
 };
 use yaml_rust::yaml;
 
@@ -22,7 +22,7 @@ fn test_optimized_lmd_ghost() {
     // set up logging
     // Builder::from_env(Env::default().default_filter_or("trace")).init();
 
-    test_yaml_vectors::<OptimizedLMDGhost<MemoryStore, FoundationEthSpec>>(
+    test_yaml_vectors::<OptimizedLMDGhost<MemoryStore, MainnetEthSpec>>(
         "tests/lmd_ghost_test_vectors.yaml",
         100,
     );
@@ -33,7 +33,7 @@ fn test_bitwise_lmd_ghost() {
     // set up logging
     //Builder::from_env(Env::default().default_filter_or("trace")).init();
 
-    test_yaml_vectors::<BitwiseLMDGhost<MemoryStore, FoundationEthSpec>>(
+    test_yaml_vectors::<BitwiseLMDGhost<MemoryStore, MainnetEthSpec>>(
         "tests/bitwise_lmd_ghost_test_vectors.yaml",
         100,
     );
@@ -41,7 +41,7 @@ fn test_bitwise_lmd_ghost() {
 
 #[test]
 fn test_slow_lmd_ghost() {
-    test_yaml_vectors::<SlowLMDGhost<MemoryStore, FoundationEthSpec>>(
+    test_yaml_vectors::<SlowLMDGhost<MemoryStore, MainnetEthSpec>>(
         "tests/lmd_ghost_test_vectors.yaml",
         100,
     );
@@ -61,7 +61,7 @@ fn test_yaml_vectors<T: ForkChoice<MemoryStore>>(
     let test_cases = load_test_cases_from_yaml(yaml_file_path);
 
     // default vars
-    let spec = FoundationEthSpec::default_spec();
+    let spec = MainnetEthSpec::default_spec();
     let zero_hash = Hash256::zero();
     let eth1_data = Eth1Data {
         deposit_count: 0,
@@ -204,9 +204,9 @@ where
     let store = Arc::new(MemoryStore::open());
 
     let fork_choice = ForkChoice::new(store.clone());
-    let spec = FoundationEthSpec::default_spec();
+    let spec = MainnetEthSpec::default_spec();
 
-    let mut state_builder: TestingBeaconStateBuilder<FoundationEthSpec> =
+    let mut state_builder: TestingBeaconStateBuilder<MainnetEthSpec> =
         TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
     state_builder.build_caches(&spec).unwrap();
     let (state, _keypairs) = state_builder.build();

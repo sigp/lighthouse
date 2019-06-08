@@ -675,12 +675,12 @@ mod tests {
             .collect()
     }
 
-    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<FoundationEthSpec>) {
-        let spec = FoundationEthSpec::default_spec();
+    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<MainnetEthSpec>) {
+        let spec = MainnetEthSpec::default_spec();
 
         let mut state = BeaconState::random_for_test(rng);
 
-        state.fork = Fork::genesis(FoundationEthSpec::genesis_epoch());
+        state.fork = Fork::genesis(MainnetEthSpec::genesis_epoch());
 
         (spec, state)
     }
@@ -735,13 +735,13 @@ mod tests {
             state_builder.build_caches(&spec).unwrap();
             let (state, keypairs) = state_builder.build();
 
-            (state, keypairs, FoundationEthSpec::default_spec())
+            (state, keypairs, MainnetEthSpec::default_spec())
         }
 
         #[test]
         fn test_attestation_score() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let slot = state.slot - 1;
             let committees = state
@@ -793,7 +793,7 @@ mod tests {
         #[test]
         fn attestation_aggregation_insert_get_prune() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -861,7 +861,7 @@ mod tests {
         #[test]
         fn attestation_duplicate() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -898,7 +898,7 @@ mod tests {
         #[test]
         fn attestation_pairwise_overlapping() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -946,7 +946,7 @@ mod tests {
             let big_step_size = 4;
 
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(big_step_size);
+                attestation_test_state::<MainnetEthSpec>(big_step_size);
 
             let op_pool = OperationPool::new();
 

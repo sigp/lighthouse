@@ -82,7 +82,7 @@ impl<T: EthSpec, U: Store> Iterator for BlockRootsIterator<T, U> {
 mod test {
     use super::*;
     use store::MemoryStore;
-    use types::{test_utils::TestingBeaconStateBuilder, FoundationEthSpec, Keypair};
+    use types::{test_utils::TestingBeaconStateBuilder, Keypair, MainnetEthSpec};
 
     fn get_state<T: EthSpec>() -> BeaconState<T> {
         let builder = TestingBeaconStateBuilder::from_single_keypair(
@@ -97,10 +97,10 @@ mod test {
     #[test]
     fn root_iter() {
         let store = Arc::new(MemoryStore::open());
-        let slots_per_historical_root = FoundationEthSpec::slots_per_historical_root();
+        let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
-        let mut state_a: BeaconState<FoundationEthSpec> = get_state();
-        let mut state_b: BeaconState<FoundationEthSpec> = get_state();
+        let mut state_a: BeaconState<MainnetEthSpec> = get_state();
+        let mut state_b: BeaconState<MainnetEthSpec> = get_state();
 
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
@@ -122,7 +122,7 @@ mod test {
         let mut collected: Vec<Hash256> = iter.collect();
         collected.reverse();
 
-        let expected_len = 2 * FoundationEthSpec::slots_per_historical_root() - 1;
+        let expected_len = 2 * MainnetEthSpec::slots_per_historical_root() - 1;
 
         assert_eq!(collected.len(), expected_len);
 

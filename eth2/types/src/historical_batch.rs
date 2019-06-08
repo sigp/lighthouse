@@ -31,7 +31,7 @@ pub struct HistoricalBatch<T: EthSpec> {
 mod tests {
     use super::*;
 
-    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationEthSpec>;
+    pub type FoundationHistoricalBatch = HistoricalBatch<MainnetEthSpec>;
 
     ssz_tests!(FoundationHistoricalBatch);
     cached_tree_hash_tests!(FoundationHistoricalBatch);

@@ -6,9 +6,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
-use types::{
-    ChainSpec, EthSpec, FewValidatorsEthSpec, FoundationEthSpec, LighthouseTestnetEthSpec,
-};
+use types::{ChainSpec, EthSpec, MainnetEthSpec, MinimalEthSpec};
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone)]
@@ -34,13 +32,13 @@ impl Default for Config {
 
         let server = "localhost:5051".to_string();
 
-        let spec = FoundationEthSpec::default_spec();
+        let spec = MainnetEthSpec::default_spec();
 
         Self {
             data_dir,
             server,
             spec,
-            slots_per_epoch: FoundationEthSpec::slots_per_epoch(),
+            slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }
     }
 }
@@ -69,9 +67,8 @@ impl Config {
         if let Some(spec_str) = args.value_of("spec") {
             info!(log, "Using custom spec: {:?}", spec_str);
             config.spec = match spec_str {
-                "foundation" => FoundationEthSpec::default_spec(),
-                "few_validators" => FewValidatorsEthSpec::default_spec(),
-                "lighthouse_testnet" => LighthouseTestnetEthSpec::default_spec(),
+                "mainnet" => MainnetEthSpec::default_spec(),
+                "minimal" => MinimalEthSpec::default_spec(),
                 // Should be impossible due to clap's `possible_values(..)` function.
                 _ => unreachable!(),
             };

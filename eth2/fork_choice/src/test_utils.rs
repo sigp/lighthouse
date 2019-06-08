@@ -4,7 +4,7 @@ use std::sync::Arc;
 use store::Store;
 use types::{
     test_utils::{SeedableRng, TestRandom, TestingBeaconStateBuilder, XorShiftRng},
-    BeaconBlock, BeaconState, EthSpec, FoundationEthSpec, Hash256, Keypair,
+    BeaconBlock, BeaconState, EthSpec, Hash256, Keypair, MainnetEthSpec,
 };
 
 /// Creates a chain of blocks and produces `ForkChoice` instances with pre-filled stores.
@@ -16,11 +16,8 @@ pub struct TestingForkChoiceBuilder<S, E> {
 
 impl<S: Store, E: EthSpec> TestingForkChoiceBuilder<S, E> {
     pub fn new(validator_count: usize, chain_length: usize, store: Arc<S>) -> Self {
-        let chain = get_chain_of_blocks::<FoundationEthSpec, S>(
-            chain_length,
-            validator_count,
-            store.clone(),
-        );
+        let chain =
+            get_chain_of_blocks::<MainnetEthSpec, S>(chain_length, validator_count, store.clone());
 
         Self {
             store,

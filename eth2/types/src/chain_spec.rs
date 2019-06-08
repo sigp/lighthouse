@@ -136,7 +136,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
     /// Spec v0.6.1
-    pub fn foundation() -> Self {
+    pub fn mainnet() -> Self {
         Self {
             /*
              * Misc
@@ -217,43 +217,35 @@ impl ChainSpec {
              * Boot nodes
              */
             boot_nodes: vec![],
-            chain_id: 1, // foundation chain id
+            chain_id: 1, // mainnet chain id
         }
     }
 
-    /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
-    ///
-    /// Spec v0.4.0
-    pub fn lighthouse_testnet() -> Self {
-        /*
-         * Lighthouse testnet bootnodes
-         */
+    /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
+    pub fn minimal() -> Self {
+        let genesis_slot = Slot::new(0);
+
+        // Note: these bootnodes are placeholders.
+        //
+        // Should be updated once static bootnodes exist.
         let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
             .parse()
             .expect("correct multiaddr")];
 
         Self {
             boot_nodes,
-            chain_id: 2, // lighthouse testnet chain id
-            ..ChainSpec::few_validators()
-        }
-    }
-
-    /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    pub fn few_validators() -> Self {
-        let genesis_slot = Slot::new(0);
-
-        Self {
             target_committee_size: 1,
+            chain_id: 2, // lighthouse testnet chain id
             genesis_slot,
-            ..ChainSpec::foundation()
+            shuffle_round_count: 10,
+            ..ChainSpec::mainnet()
         }
     }
 }
 
 impl Default for ChainSpec {
     fn default() -> Self {
-        Self::foundation()
+        Self::mainnet()
     }
 }
 
@@ -263,8 +255,8 @@ mod tests {
     use int_to_bytes::int_to_bytes8;
 
     #[test]
-    fn test_foundation_spec_can_be_constructed() {
-        let _ = ChainSpec::foundation();
+    fn test_mainnet_spec_can_be_constructed() {
+        let _ = ChainSpec::mainnet();
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
@@ -281,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_get_domain() {
-        let spec = ChainSpec::foundation();
+        let spec = ChainSpec::mainnet();
 
         test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);

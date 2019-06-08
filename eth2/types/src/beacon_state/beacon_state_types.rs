@@ -95,9 +95,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 ///
 /// Spec v0.6.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
-pub struct FoundationEthSpec;
+pub struct MainnetEthSpec;
 
-impl EthSpec for FoundationEthSpec {
+impl EthSpec for MainnetEthSpec {
     type ShardCount = U1024;
     type SlotsPerHistoricalRoot = U8192;
     type LatestRandaoMixesLength = U8192;
@@ -107,17 +107,17 @@ impl EthSpec for FoundationEthSpec {
     type GenesisEpoch = U0;
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::foundation()
+        ChainSpec::mainnet()
     }
 }
 
-pub type FoundationBeaconState = BeaconState<FoundationEthSpec>;
+pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 
 /// Ethereum Foundation specifications, modified to be suitable for < 1000 validators.
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
-pub struct FewValidatorsEthSpec;
+pub struct MinimalEthSpec;
 
-impl EthSpec for FewValidatorsEthSpec {
+impl EthSpec for MinimalEthSpec {
     type ShardCount = U8;
     type SlotsPerHistoricalRoot = U8192;
     type LatestRandaoMixesLength = U8192;
@@ -127,28 +127,8 @@ impl EthSpec for FewValidatorsEthSpec {
     type GenesisEpoch = U0;
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::few_validators()
+        ChainSpec::minimal()
     }
 }
 
-pub type FewValidatorsBeaconState = BeaconState<FewValidatorsEthSpec>;
-
-/// Specifications suitable for a small-scale (< 1000 validators) lighthouse testnet.
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
-pub struct LighthouseTestnetEthSpec;
-
-impl EthSpec for LighthouseTestnetEthSpec {
-    type ShardCount = U8;
-    type SlotsPerHistoricalRoot = U8192;
-    type LatestRandaoMixesLength = U8192;
-    type LatestActiveIndexRootsLength = U8192;
-    type LatestSlashedExitLength = U8192;
-    type SlotsPerEpoch = U8;
-    type GenesisEpoch = U0;
-
-    fn default_spec() -> ChainSpec {
-        ChainSpec::lighthouse_testnet()
-    }
-}
-
-pub type LighthouseTestnetBeaconState = BeaconState<LighthouseTestnetEthSpec>;
+pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
