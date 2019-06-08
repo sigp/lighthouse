@@ -48,7 +48,6 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_slot: Slot,
-    pub genesis_epoch: Epoch,
     pub far_future_epoch: Epoch,
     pub zero_hash: Hash256,
     #[serde(deserialize_with = "u8_from_hex_str")]
@@ -166,7 +165,6 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_slot: Slot::new(0),
-            genesis_epoch: Epoch::new(0),
             far_future_epoch: Epoch::new(u64::max_value()),
             zero_hash: Hash256::zero(),
             bls_withdrawal_prefix_byte: 0,
@@ -226,7 +224,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
     ///
     /// Spec v0.4.0
-    pub fn lighthouse_testnet(slots_per_epoch: u64) -> Self {
+    pub fn lighthouse_testnet() -> Self {
         /*
          * Lighthouse testnet bootnodes
          */
@@ -237,19 +235,17 @@ impl ChainSpec {
         Self {
             boot_nodes,
             chain_id: 2, // lighthouse testnet chain id
-            ..ChainSpec::few_validators(slots_per_epoch)
+            ..ChainSpec::few_validators()
         }
     }
 
     /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    pub fn few_validators(slots_per_epoch: u64) -> Self {
+    pub fn few_validators() -> Self {
         let genesis_slot = Slot::new(0);
-        let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
 
         Self {
             target_committee_size: 1,
             genesis_slot,
-            genesis_epoch,
             ..ChainSpec::foundation()
         }
     }
@@ -272,7 +268,7 @@ mod tests {
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
-        let fork = Fork::genesis(&spec);
+        let fork = Fork::genesis(Epoch::new(0));
         let epoch = Epoch::new(0);
 
         let domain = spec.get_domain(epoch, domain_type, &fork);

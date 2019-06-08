@@ -36,11 +36,11 @@ impl Fork {
     /// Initialize the `Fork` from the genesis parameters in the `spec`.
     ///
     /// Spec v0.6.1
-    pub fn genesis(spec: &ChainSpec) -> Self {
+    pub fn genesis(genesis_epoch: Epoch) -> Self {
         Self {
             previous_version: [0; 4],
             current_version: [0; 4],
-            epoch: spec.genesis_epoch,
+            epoch: genesis_epoch,
         }
     }
 
@@ -65,11 +65,9 @@ mod tests {
     fn test_genesis(epoch: Epoch) {
         let mut spec = ChainSpec::foundation();
 
-        spec.genesis_epoch = epoch;
+        let fork = Fork::genesis(epoch);
 
-        let fork = Fork::genesis(&spec);
-
-        assert_eq!(fork.epoch, spec.genesis_epoch, "epoch incorrect");
+        assert_eq!(fork.epoch, epoch, "epoch incorrect");
         assert_eq!(
             fork.previous_version, fork.current_version,
             "previous and current are not identical"

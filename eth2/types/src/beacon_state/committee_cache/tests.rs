@@ -154,7 +154,7 @@ impl EthSpec for ExcessShardsEthSpec {
     type GenesisEpoch = U0;
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::few_validators(Self::slots_per_epoch())
+        ChainSpec::few_validators()
     }
 }
 

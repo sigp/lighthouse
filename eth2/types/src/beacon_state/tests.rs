@@ -172,7 +172,8 @@ fn cache_initialization() {
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
     let (mut state, _keypairs) = builder.build();
 
-    state.slot = (spec.genesis_epoch + 1).start_slot(FewValidatorsEthSpec::slots_per_epoch());
+    state.slot = (FewValidatorsEthSpec::genesis_epoch() + 1)
+        .start_slot(FewValidatorsEthSpec::slots_per_epoch());
 
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
@@ -333,13 +334,13 @@ mod committees {
 
         committee_consistency_test::<T>(
             validator_count as usize,
-            spec.genesis_epoch + 4,
+            T::genesis_epoch() + 4,
             cached_epoch,
         );
 
         committee_consistency_test::<T>(
             validator_count as usize,
-            spec.genesis_epoch + T::slots_per_historical_root() as u64 * T::slots_per_epoch() * 4,
+            T::genesis_epoch() + T::slots_per_historical_root() as u64 * T::slots_per_epoch() * 4,
             cached_epoch,
         );
     }

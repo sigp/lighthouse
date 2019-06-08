@@ -23,7 +23,7 @@ pub fn bench_epoch_processing_n_validators(c: &mut Criterion, validator_count: u
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
 
     // Set the state to be just before an epoch transition.
-    let target_slot = (spec.genesis_epoch + 4).end_slot(T::slots_per_epoch());
+    let target_slot = (T::genesis_epoch() + 4).end_slot(T::slots_per_epoch());
     builder.teleport_to_slot(target_slot, &spec);
 
     // Builds all caches; benches will not contain shuffling/committee building times.

@@ -162,7 +162,7 @@ impl<T: EthSpec> BeaconState<T> {
         spec: &ChainSpec,
     ) -> BeaconState<T> {
         let initial_crosslink = Crosslink {
-            epoch: spec.genesis_epoch,
+            epoch: T::genesis_epoch(),
             previous_crosslink_root: spec.zero_hash,
             crosslink_data_root: spec.zero_hash,
         };
@@ -171,7 +171,7 @@ impl<T: EthSpec> BeaconState<T> {
             // Misc
             slot: spec.genesis_slot,
             genesis_time,
-            fork: Fork::genesis(spec),
+            fork: Fork::genesis(T::genesis_epoch()),
 
             // Validator registry
             validator_registry: vec![], // Set later in the function.
@@ -187,12 +187,12 @@ impl<T: EthSpec> BeaconState<T> {
             // Finality
             previous_epoch_attestations: vec![],
             current_epoch_attestations: vec![],
-            previous_justified_epoch: spec.genesis_epoch,
-            current_justified_epoch: spec.genesis_epoch,
+            previous_justified_epoch: T::genesis_epoch(),
+            current_justified_epoch: T::genesis_epoch(),
             previous_justified_root: spec.zero_hash,
             current_justified_root: spec.zero_hash,
             justification_bitfield: 0,
-            finalized_epoch: spec.genesis_epoch,
+            finalized_epoch: T::genesis_epoch(),
             finalized_root: spec.zero_hash,
 
             // Recent state

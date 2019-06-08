@@ -86,7 +86,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     total_balances: &TotalBalances,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == spec.genesis_epoch {
+    if state.current_epoch() == T::genesis_epoch() {
         return Ok(());
     }
 

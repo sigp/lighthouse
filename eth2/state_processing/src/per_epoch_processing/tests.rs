@@ -13,7 +13,8 @@ fn runs_without_error() {
     let mut builder: TestingBeaconStateBuilder<FewValidatorsEthSpec> =
         TestingBeaconStateBuilder::from_deterministic_keypairs(8, &spec);
 
-    let target_slot = (spec.genesis_epoch + 4).end_slot(FewValidatorsEthSpec::slots_per_epoch());
+    let target_slot = (FewValidatorsEthSpec::genesis_epoch() + 4)
+        .end_slot(FewValidatorsEthSpec::slots_per_epoch());
     builder.teleport_to_slot(target_slot, &spec);
 
     let (mut state, _keypairs) = builder.build();
