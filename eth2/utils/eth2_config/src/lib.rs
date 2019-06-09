@@ -1,5 +1,8 @@
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::PathBuf;
 use std::time::SystemTime;
 use types::ChainSpec;
 
@@ -42,7 +45,7 @@ impl Eth2Config {
     /// Returns an error if arguments are obviously invalid. May succeed even if some values are
     /// invalid.
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
-        if args.is_present("recent_genesis") {
+        if args.is_present("recent-genesis") {
             self.spec.genesis_time = recent_genesis_time()
         }
 
@@ -61,4 +64,43 @@ fn recent_genesis_time() -> u64 {
     let secs_after_last_period = now.checked_rem(30 * 60).unwrap_or(0);
     // genesis is now the last 30 minute block.
     now - secs_after_last_period
+}
+
+/// Write a configuration to file.
+pub fn write_to_file<T>(path: PathBuf, config: &T) -> Result<(), String>
+where
+    T: Default + serde::de::DeserializeOwned + serde::Serialize,
+{
+    if let Ok(mut file) = File::create(path.clone()) {
+        let toml_encoded = toml::to_string(&config).map_err(|e| {
+            format!(
+                "Failed to write configuration to {:?}. Error: {:?}",
+                path, e
+            )
+        })?;
+        file.write_all(toml_encoded.as_bytes())
+            .expect(&format!("Unable to write to {:?}", path));
+    }
+
+    Ok(())
+}
+
+/// Loads a `ClientConfig` from file. If unable to load from file, generates a default
+/// configuration and saves that as a sample file.
+pub fn read_from_file<T>(path: PathBuf) -> Result<Option<T>, String>
+where
+    T: Default + serde::de::DeserializeOwned + serde::Serialize,
+{
+    if let Ok(mut file) = File::open(path.clone()) {
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|e| format!("Unable to read {:?}. Error: {:?}", path, e))?;
+
+        let config = toml::from_str(&contents)
+            .map_err(|e| format!("Unable to parse {:?}: {:?}", path, e))?;
+
+        Ok(Some(config))
+    } else {
+        Ok(None)
+    }
 }

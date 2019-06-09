@@ -1,22 +1,22 @@
 use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
+use serde_derive::{Deserialize, Serialize};
 use slog::{debug, error, info};
 use std::fs;
 use std::fs::File;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, MainnetEthSpec};
 
 /// Stores the core configuration for this validator instance.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub data_dir: PathBuf,
     /// The server at which the Beacon Node can be contacted
     pub server: String,
-    /// The chain specification that we are connecting to
-    pub spec: ChainSpec,
+    /// The number of slots per epoch.
     pub slots_per_epoch: u64,
 }
 
@@ -25,25 +25,33 @@ const DEFAULT_PRIVATE_KEY_FILENAME: &str = "private.key";
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let data_dir = {
-            let home = dirs::home_dir().expect("Unable to determine home directory.");
-            home.join(".lighthouse-validator")
-        };
-
-        let server = "localhost:5051".to_string();
-
-        let spec = MainnetEthSpec::default_spec();
-
         Self {
-            data_dir,
-            server,
-            spec,
+            data_dir: PathBuf::from(".lighthouse-validator"),
+            server: "localhost:5051".to_string(),
             slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }
     }
 }
 
 impl Config {
+    /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
+    ///
+    /// Returns an error if arguments are obviously invalid. May succeed even if some values are
+    /// invalid.
+    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
+        if let Some(datadir) = args.value_of("datadir") {
+            self.data_dir = PathBuf::from(datadir);
+        };
+
+        if let Some(srv) = args.value_of("server") {
+            self.server = srv.to_string();
+        };
+
+        Ok(())
+        //
+    }
+
+    /*
     /// Build a new configuration from defaults, which are overrided by arguments provided.
     pub fn parse_args(args: &ArgMatches, log: &slog::Logger) -> Result<Self, Error> {
         let mut config = Config::default();
@@ -80,12 +88,13 @@ impl Config {
 
         Ok(config)
     }
+    */
 
     /// Try to load keys from validator_dir, returning None if none are found or an error.
     #[allow(dead_code)]
     pub fn fetch_keys(&self, log: &slog::Logger) -> Option<Vec<Keypair>> {
         let key_pairs: Vec<Keypair> = fs::read_dir(&self.data_dir)
-            .unwrap()
+            .ok()?
             .filter_map(|validator_dir| {
                 let validator_dir = validator_dir.ok()?;
 
