@@ -25,7 +25,7 @@ fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
     let mut builder =
         TestingBeaconStateBuilder::from_single_keypair(validator_count, &Keypair::random(), spec);
 
-    builder.teleport_to_slot(slot, spec);
+    builder.teleport_to_slot(slot);
 
     let (state, _keypairs) = builder.build();
 

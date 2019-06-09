@@ -15,7 +15,7 @@ fn runs_without_error() {
 
     let target_slot =
         (MinimalEthSpec::genesis_epoch() + 4).end_slot(MinimalEthSpec::slots_per_epoch());
-    builder.teleport_to_slot(target_slot, &spec);
+    builder.teleport_to_slot(target_slot);
 
     let (mut state, _keypairs) = builder.build();
 

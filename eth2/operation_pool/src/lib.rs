@@ -724,14 +724,14 @@ mod tests {
             let spec = E::default_spec();
 
             let num_validators =
-                num_committees * T::slots_per_epoch() as usize * spec.target_committee_size;
+                num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
             let mut state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
                 num_validators,
                 &spec,
             );
-            let slot_offset = 1000 * T::slots_per_epoch() + T::slots_per_epoch() / 2;
+            let slot_offset = 1000 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
             let slot = spec.genesis_slot + slot_offset;
-            state_builder.teleport_to_slot(slot, &spec);
+            state_builder.teleport_to_slot(slot);
             state_builder.build_caches(&spec).unwrap();
             let (state, keypairs) = state_builder.build();
 
@@ -852,7 +852,7 @@ mod tests {
 
             // But once we advance to more than an epoch after the attestation, it should prune it
             // out of existence.
-            state.slot += 2 * T::slots_per_epoch();
+            state.slot += 2 * MainnetEthSpec::slots_per_epoch();
             op_pool.prune_attestations(state);
             assert_eq!(op_pool.num_attestations(), 0);
         }
