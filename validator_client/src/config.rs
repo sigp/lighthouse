@@ -48,47 +48,7 @@ impl Config {
         };
 
         Ok(())
-        //
     }
-
-    /*
-    /// Build a new configuration from defaults, which are overrided by arguments provided.
-    pub fn parse_args(args: &ArgMatches, log: &slog::Logger) -> Result<Self, Error> {
-        let mut config = Config::default();
-
-        // Use the specified datadir, or default in the home directory
-        if let Some(datadir) = args.value_of("datadir") {
-            config.data_dir = PathBuf::from(datadir);
-            info!(log, "Using custom data dir: {:?}", &config.data_dir);
-        };
-
-        fs::create_dir_all(&config.data_dir)
-            .unwrap_or_else(|_| panic!("Unable to create {:?}", &config.data_dir));
-
-        if let Some(srv) = args.value_of("server") {
-            //TODO: Validate the server value, to ensure it makes sense.
-            config.server = srv.to_string();
-            info!(log, "Using custom server: {:?}", &config.server);
-        };
-
-        // TODO: Permit loading a custom spec from file.
-        if let Some(spec_str) = args.value_of("spec") {
-            info!(log, "Using custom spec: {:?}", spec_str);
-            config.spec = match spec_str {
-                "mainnet" => MainnetEthSpec::default_spec(),
-                "minimal" => MinimalEthSpec::default_spec(),
-                // Should be impossible due to clap's `possible_values(..)` function.
-                _ => unreachable!(),
-            };
-        };
-        // Log configuration
-        info!(log, "";
-              "data_dir" => &config.data_dir.to_str(),
-              "server" => &config.server);
-
-        Ok(config)
-    }
-    */
 
     /// Try to load keys from validator_dir, returning None if none are found or an error.
     #[allow(dead_code)]
