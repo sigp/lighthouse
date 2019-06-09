@@ -223,7 +223,7 @@ impl ValidatorStatuses {
             if is_from_epoch(a, state.current_epoch()) {
                 status.is_current_epoch_attester = true;
 
-                if target_matches_epoch_start_block(a, state, state.current_epoch(), spec)? {
+                if target_matches_epoch_start_block(a, state, state.current_epoch())? {
                     status.is_current_epoch_target_attester = true;
                 }
             } else if is_from_epoch(a, state.previous_epoch()) {
@@ -244,7 +244,7 @@ impl ValidatorStatuses {
                     )?,
                 });
 
-                if target_matches_epoch_start_block(a, state, state.previous_epoch(), spec)? {
+                if target_matches_epoch_start_block(a, state, state.previous_epoch())? {
                     status.is_previous_epoch_target_attester = true;
                 }
 
@@ -336,7 +336,6 @@ fn target_matches_epoch_start_block<T: EthSpec>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
     epoch: Epoch,
-    spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
     let slot = epoch.start_slot(T::slots_per_epoch());
     let state_boundary_root = *state.get_block_root(slot)?;

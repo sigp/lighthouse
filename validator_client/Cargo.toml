@@ -18,7 +18,6 @@ ssz = { path = "../eth2/utils/ssz" }
 eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = { path = "../eth2/utils/tree_hash" }
 clap = "2.32.0"
-dirs = "1.0.3"
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protobuf = "2.0.2"
 protos = { path = "../protos" }

@@ -1,6 +1,6 @@
 use crate::{
     test_utils::{fork_from_hex_str, TestRandom},
-    ChainSpec, Epoch,
+    Epoch,
 };
 
 use serde_derive::{Deserialize, Serialize};
@@ -58,6 +58,7 @@ impl Fork {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ChainSpec;
 
     ssz_tests!(Fork);
     cached_tree_hash_tests!(Fork);

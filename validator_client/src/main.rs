@@ -7,10 +7,9 @@ mod service;
 mod signer;
 
 use crate::config::Config as ValidatorClientConfig;
-use std::fs;
 use crate::service::Service as ValidatorService;
-use clap::{App, Arg, ArgMatches};
-use eth2_config::{read_from_file, write_to_file, Eth2Config};
+use clap::{App, Arg};
+use eth2_config::{get_data_dir, read_from_file, write_to_file, Eth2Config};
 use protos::services_grpc::ValidatorServiceClient;
 use slog::{crit, error, info, o, Drain};
 use std::path::PathBuf;
@@ -18,8 +17,8 @@ use types::{Keypair, MainnetEthSpec, MinimalEthSpec};
 
 pub const DEFAULT_SPEC: &str = "minimal";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
-pub const CLIENT_CONFIG_FILENAME: &str = "client_config.toml";
-pub const ETH2_CONFIG_FILENAME: &str = "eth2_config.toml";
+pub const CLIENT_CONFIG_FILENAME: &str = "client-config.toml";
+pub const ETH2_CONFIG_FILENAME: &str = "eth2-config.toml";
 
 fn main() {
     // Logging
@@ -38,7 +37,7 @@ fn main() {
                 .long("datadir")
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("eth-config")
@@ -68,11 +67,11 @@ fn main() {
         )
         .get_matches();
 
-    let data_dir = match get_data_dir(&matches) {
+    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
         Ok(dir) => dir,
         Err(e) => {
             crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
-            return
+            return;
         }
     };
 
@@ -119,9 +118,7 @@ fn main() {
     // Attempt to load the `Eth2Config` from file.
     //
     // If the file doesn't exist, create a default one depending on the CLI flags.
-    let mut eth2_config = match read_from_file::<Eth2Config>(
-        eth2_config_path.clone()
-    ) {
+    let mut eth2_config = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
         Ok(Some(c)) => c,
         Ok(None) => {
             let default = match matches.value_of("spec-constants") {
@@ -179,17 +176,5 @@ fn main() {
     match result {
         Ok(_) => info!(log, "Validator client shutdown successfully."),
         Err(e) => crit!(log, "Validator client exited with error"; "error" => e.to_string()),
-    }
-}
-
-fn get_data_dir(args: &ArgMatches) -> Result<PathBuf, &'static str> {
-    if let Some(data_dir) = args.value_of("data_dir") {
-        Ok(PathBuf::from(data_dir))
-    } else {
-        let path = dirs::home_dir()
-            .ok_or_else(|| "Unable to locate home directory")?
-            .join(&DEFAULT_DATA_DIR);
-        fs::create_dir_all(&path).map_err(|_| "Unable to create data_dir")?;
-        Ok(path)
     }
 }

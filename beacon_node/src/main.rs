@@ -4,7 +4,7 @@ mod run;
 
 use clap::{App, Arg, ArgMatches};
 use client::{ClientConfig, Eth2Config};
-use eth2_config::{read_from_file, write_to_file};
+use eth2_config::{get_data_dir, read_from_file, write_to_file};
 use slog::{crit, o, Drain};
 use std::fs;
 use std::path::PathBuf;
@@ -197,17 +197,5 @@ fn main() {
     match run::run_beacon_node(client_config, eth2_config, &logger) {
         Ok(_) => {}
         Err(e) => crit!(logger, "Beacon node failed to start"; "reason" => format!("{:}", e)),
-    }
-}
-
-fn get_data_dir(args: &ArgMatches) -> Result<PathBuf, &'static str> {
-    if let Some(data_dir) = args.value_of("data_dir") {
-        Ok(PathBuf::from(data_dir))
-    } else {
-        let path = dirs::home_dir()
-            .ok_or_else(|| "Unable to locate home directory")?
-            .join(&DEFAULT_DATA_DIR);
-        fs::create_dir_all(&path).map_err(|_| "Unable to create data_dir")?;
-        Ok(path)
     }
 }

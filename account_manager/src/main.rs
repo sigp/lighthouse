@@ -1,9 +1,13 @@
 use bls::Keypair;
 use clap::{App, Arg, SubCommand};
-use slog::{debug, info, o, Drain};
+use slog::{crit, debug, info, o, Drain};
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
+use eth2_config::{get_data_dir};
+
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse-account-manager";
+pub const CLIENT_CONFIG_FILENAME: &str = "account-manager-config.toml";
 
 fn main() {
     // Logging
@@ -20,6 +24,7 @@ fn main() {
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
+                .short("d")
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
                 .takes_value(true),
@@ -52,19 +57,43 @@ fn main() {
                         .help("If supplied along with `index`, generates keys `i..i + n`.")
                         .takes_value(true)
                         .default_value("1"),
-                ),
+                )
         )
         .get_matches();
 
-    let config = ValidatorClientConfig::parse_args(&matches, &log)
-        .expect("Unable to build a configuration for the account manager.");
+    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
+        Ok(dir) => dir,
+        Err(e) => {
+            crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
+            return
+        }
+    };
+
+    let mut client_config = ValidatorClientConfig::default();
+
+    if let Err(e) = client_config.apply_cli_args(&matches) {
+        crit!(log, "Failed to apply CLI args"; "error" => format!("{:?}", e));
+        return
+    };
+
+    // Ensure the `data_dir` in the config matches that supplied to the CLI.
+    client_config.data_dir = data_dir.clone();
+
+    // Update the client config with any CLI args.
+    match client_config.apply_cli_args(&matches) {
+        Ok(()) => (),
+        Err(s) => {
+            crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
+            return;
+        }
+    };
 
     // Log configuration
     info!(log, "";
-          "data_dir" => &config.data_dir.to_str());
+          "data_dir" => &client_config.data_dir.to_str());
 
     match matches.subcommand() {
-        ("generate", Some(_)) => generate_random(&config, &log),
+        ("generate", Some(_)) => generate_random(&client_config, &log),
         ("generate_deterministic", Some(m)) => {
             if let Some(string) = m.value_of("validator index") {
                 let i: usize = string.parse().expect("Invalid validator index");
@@ -72,9 +101,9 @@ fn main() {
                     let n: usize = string.parse().expect("Invalid end validator count");
 
                     let indices: Vec<usize> = (i..i + n).collect();
-                    generate_deterministic_multiple(&indices, &config, &log)
+                    generate_deterministic_multiple(&indices, &client_config, &log)
                 } else {
-                    generate_deterministic(i, &config, &log)
+                    generate_deterministic(i, &client_config, &log)
                 }
             }
         }
