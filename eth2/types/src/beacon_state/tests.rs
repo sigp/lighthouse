@@ -300,7 +300,7 @@ mod committees {
         );
 
         let slot = state_epoch.start_slot(T::slots_per_epoch());
-        builder.teleport_to_slot(slot, spec);
+        builder.teleport_to_slot(slot);
 
         let (mut state, _keypairs): (BeaconState<T>, _) = builder.build();
 

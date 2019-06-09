@@ -2,11 +2,10 @@ extern crate slog;
 
 mod run;
 
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
 use client::{ClientConfig, Eth2Config};
 use eth2_config::{get_data_dir, read_from_file, write_to_file};
 use slog::{crit, o, Drain};
-use std::fs;
 use std::path::PathBuf;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
@@ -119,7 +118,7 @@ fn main() {
         )
         .get_matches();
 
-    let data_dir = match get_data_dir(&matches) {
+    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
         Ok(dir) => dir,
         Err(e) => {
             crit!(logger, "Failed to initialize data dir"; "error" => format!("{:?}", e));
