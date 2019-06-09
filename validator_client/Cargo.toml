@@ -15,6 +15,7 @@ path = "src/lib.rs"
 [dependencies]
 bls = { path = "../eth2/utils/bls" }
 ssz = { path = "../eth2/utils/ssz" }
+eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = { path = "../eth2/utils/tree_hash" }
 clap = "2.32.0"
 dirs = "1.0.3"
@@ -23,11 +24,14 @@ protobuf = "2.0.2"
 protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
+serde = "1.0"
+serde_derive = "1.0"
 slog = "^2.2.3"
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
 tokio = "0.1.18"
 tokio-timer = "0.2.10"
+toml = "^0.5"
 error-chain = "0.12.0"
 bincode = "^1.1.2"
 futures = "0.1.25"

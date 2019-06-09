@@ -3,7 +3,6 @@ extern crate slog;
 mod beacon_chain_types;
 mod client_config;
 pub mod error;
-mod eth2_config;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;

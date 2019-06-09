@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 dirs = "1.0.3"
+eth2_config = { path = "../eth2/utils/eth2_config" }
 types = { path = "../eth2/types" }
 toml = "^0.5"
 store = { path = "./store" }

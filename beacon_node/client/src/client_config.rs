@@ -8,7 +8,7 @@ use std::path::PathBuf;
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
-    pub data_dir: String,
+    pub data_dir: PathBuf,
     pub db_type: String,
     db_name: String,
     pub network: network::NetworkConfig,
@@ -19,7 +19,7 @@ pub struct ClientConfig {
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
-            data_dir: ".lighthouse".to_string(),
+            data_dir: PathBuf::from(".lighthouse"),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
             // Note: there are no default bootnodes specified.
@@ -51,7 +51,7 @@ impl ClientConfig {
     /// invalid.
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
         if let Some(dir) = args.value_of("datadir") {
-            self.data_dir = dir.to_string();
+            self.data_dir = PathBuf::from(dir);
         };
 
         if let Some(dir) = args.value_of("db") {

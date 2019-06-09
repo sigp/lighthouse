@@ -14,6 +14,7 @@ fork_choice = { path = "../../eth2/fork_choice" }
 prometheus = "^0.6"
 types = { path = "../../eth2/types" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
+eth2_config = { path = "../../eth2/utils/eth2_config" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 serde = "1.0"
 serde_derive = "1.0"

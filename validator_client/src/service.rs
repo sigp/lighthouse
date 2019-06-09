@@ -16,6 +16,7 @@ use crate::error as error_chain;
 use crate::error::ErrorKind;
 use crate::signer::Signer;
 use bls::Keypair;
+use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services::Empty;
 use protos::services_grpc::{
@@ -31,7 +32,7 @@ use tokio::prelude::*;
 use tokio::runtime::Builder;
 use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
-use types::{ChainSpec, Epoch, Fork, Slot};
+use types::{ChainSpec, Epoch, EthSpec, Fork, Slot};
 
 /// A fixed amount of time after a slot to perform operations. This gives the node time to complete
 /// per-slot processes.
@@ -66,8 +67,9 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
     ///
     ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
     ///  and returns an instance of the service.
-    fn initialize_service(
-        config: ValidatorConfig,
+    fn initialize_service<T: EthSpec>(
+        client_config: ValidatorConfig,
+        eth2_config: Eth2Config,
         log: slog::Logger,
     ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair>> {
         // initialise the beacon node client to check for a connection
@@ -75,7 +77,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         let env = Arc::new(EnvBuilder::new().build());
         // Beacon node gRPC beacon node endpoints.
         let beacon_node_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
             BeaconNodeServiceClient::new(ch)
         };
 
@@ -103,12 +105,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                         return Err("Genesis time in the future".into());
                     }
                     // verify the node's chain id
-                    if config.spec.chain_id != info.chain_id as u8 {
+                    if eth2_config.spec.chain_id != info.chain_id as u8 {
                         error!(
                             log,
                             "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
                         );
-                        return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", config.spec.chain_id, info.chain_id).into());
+                        return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", eth2_config.spec.chain_id, info.chain_id).into());
                     }
                     break info;
                 }
@@ -136,7 +138,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
 
         // Beacon node gRPC beacon block endpoints.
         let beacon_block_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
             let beacon_block_service_client = Arc::new(BeaconBlockServiceClient::new(ch));
             // a wrapper around the service client to implement the beacon block node trait
             Arc::new(BeaconBlockGrpcClient::new(beacon_block_service_client))
@@ -144,32 +146,41 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
 
         // Beacon node gRPC validator endpoints.
         let validator_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
             Arc::new(ValidatorServiceClient::new(ch))
         };
 
         //Beacon node gRPC attester endpoints.
         let attestation_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
             Arc::new(AttestationServiceClient::new(ch))
         };
 
         // build the validator slot clock
-        let slot_clock =
-            SystemTimeSlotClock::new(genesis_slot, genesis_time, config.spec.seconds_per_slot);
+        let slot_clock = SystemTimeSlotClock::new(
+            genesis_slot,
+            genesis_time,
+            eth2_config.spec.seconds_per_slot,
+        );
 
         let current_slot = slot_clock
             .present_slot()
             .map_err(ErrorKind::SlotClockError)?
-            .expect("Genesis must be in the future");
+            .ok_or_else::<error_chain::Error, _>(|| {
+                "Genesis is not in the past. Exiting.".into()
+            })?;
 
         /* Generate the duties manager */
 
         // Load generated keypairs
-        let keypairs = match config.fetch_keys(&log) {
+        let keypairs = match client_config.fetch_keys(&log) {
             Some(kps) => Arc::new(kps),
-            None => panic!("No key pairs found, cannot start validator client without at least one. Try running `./account_manager generate` first.")
+            None => {
+                return Err("Unable to locate validator key pairs, nothing to do.".into());
+            }
         };
+
+        let slots_per_epoch = T::slots_per_epoch();
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
@@ -178,7 +189,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
         // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
         // where EpochDuty contains slot numbers and attestation data that each validator needs to
         // produce work on.
-        let duties_map = RwLock::new(EpochDutiesMap::new(config.slots_per_epoch));
+        let duties_map = RwLock::new(EpochDutiesMap::new(slots_per_epoch));
 
         // builds a manager which maintains the list of current duties for all known validators
         // and can check when a validator needs to perform a task.
@@ -189,13 +200,13 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             beacon_node: validator_client,
         });
 
-        let spec = Arc::new(config.spec);
+        let spec = Arc::new(eth2_config.spec);
 
         Ok(Service {
             fork,
             slot_clock,
             current_slot,
-            slots_per_epoch: config.slots_per_epoch,
+            slots_per_epoch,
             spec,
             duties_manager,
             beacon_block_client,
@@ -206,13 +217,17 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
 
     /// Initialise the service then run the core thread.
     // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
-    pub fn start(
-        config: ValidatorConfig,
+    pub fn start<T: EthSpec>(
+        client_config: ValidatorConfig,
+        eth2_config: Eth2Config,
         log: slog::Logger,
     ) -> error_chain::Result<()> {
         // connect to the node and retrieve its properties and initialize the gRPC clients
-        let mut service =
-            Service::<ValidatorServiceClient, Keypair>::initialize_service(config, log)?;
+        let mut service = Service::<ValidatorServiceClient, Keypair>::initialize_service::<T>(
+            client_config,
+            eth2_config,
+            log,
+        )?;
 
         // we have connected to a node and established its parameters. Spin up the core service
 
@@ -227,7 +242,9 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             .slot_clock
             .duration_to_next_slot()
             .map_err(|e| format!("System clock error: {:?}", e))?
-            .expect("Cannot start before genesis");
+            .ok_or_else::<error_chain::Error, _>(|| {
+                "Genesis is not in the past. Exiting.".into()
+            })?;
 
         // set up the validator work interval - start at next slot and proceed every slot
         let interval = {
@@ -276,7 +293,9 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                 error!(self.log, "SystemTimeError {:?}", e);
                 return Err("Could not read system time".into());
             }
-            Ok(slot) => slot.expect("Genesis is in the future"),
+            Ok(slot) => slot.ok_or_else::<error_chain::Error, _>(|| {
+                "Genesis is not in the past. Exiting.".into()
+            })?,
         };
 
         let current_epoch = current_slot.epoch(self.slots_per_epoch);
