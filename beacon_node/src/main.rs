@@ -10,8 +10,8 @@ use std::path::PathBuf;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 
-pub const CLIENT_CONFIG_FILENAME: &str = "client_config.toml";
-pub const ETH2_CONFIG_FILENAME: &str = "eth2_config.toml";
+pub const CLIENT_CONFIG_FILENAME: &str = "becaon-node.toml";
+pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();

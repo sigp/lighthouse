@@ -17,8 +17,8 @@ use types::{Keypair, MainnetEthSpec, MinimalEthSpec};
 
 pub const DEFAULT_SPEC: &str = "minimal";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
-pub const CLIENT_CONFIG_FILENAME: &str = "client-config.toml";
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-config.toml";
+pub const CLIENT_CONFIG_FILENAME: &str = "validator-client.toml";
+pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
     // Logging
