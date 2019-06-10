@@ -14,8 +14,8 @@ pub struct Shuffling<T> {
 }
 
 impl<T> YamlDecode for Shuffling<T> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -30,7 +30,6 @@ impl<T: EthSpec> Case for Shuffling<T> {
 
             // Test get_permuted_index
             let shuffling = (0..self.count)
-                .into_iter()
                 .map(|i| {
                     get_permutated_index(i, self.count, &seed, spec.shuffle_round_count).unwrap()
                 })

@@ -422,7 +422,7 @@ impl<T: EthSpec> BeaconState<T> {
             };
             let effective_balance = self.validator_registry[candidate_index].effective_balance;
             if (effective_balance * MAX_RANDOM_BYTE)
-                >= (spec.max_effective_balance * random_byte as u64)
+                >= (spec.max_effective_balance * u64::from(random_byte))
             {
                 break candidate_index;
             }

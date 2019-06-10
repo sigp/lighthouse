@@ -80,7 +80,7 @@ where
             )
         })?;
         file.write_all(toml_encoded.as_bytes())
-            .expect(&format!("Unable to write to {:?}", path));
+            .unwrap_or_else(|_| panic!("Unable to write to {:?}", path));
     }
 
     Ok(())

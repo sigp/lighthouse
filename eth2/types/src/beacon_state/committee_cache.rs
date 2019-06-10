@@ -162,7 +162,6 @@ impl CommitteeCache {
         let i = self.shuffled_position(validator_index)?;
 
         (0..self.committee_count)
-            .into_iter()
             .map(|nth_committee| (nth_committee, self.compute_committee_range(nth_committee)))
             .find(|(_, range)| {
                 if let Some(range) = range {

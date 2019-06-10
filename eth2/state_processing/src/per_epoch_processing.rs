@@ -156,7 +156,7 @@ pub fn process_crosslinks<T: EthSpec>(
 
     state.previous_crosslinks = state.current_crosslinks.clone();
 
-    for relative_epoch in vec![RelativeEpoch::Previous, RelativeEpoch::Current] {
+    for &relative_epoch in &[RelativeEpoch::Previous, RelativeEpoch::Current] {
         let epoch = relative_epoch.into_epoch(state.current_epoch());
         for offset in 0..state.get_epoch_committee_count(relative_epoch)? {
             let shard =

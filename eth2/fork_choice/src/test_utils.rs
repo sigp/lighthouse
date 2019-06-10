@@ -57,7 +57,7 @@ fn get_chain_of_blocks<T: EthSpec, U: Store>(
 ) -> Vec<(Hash256, BeaconBlock)> {
     let spec = T::default_spec();
     let mut blocks_and_roots: Vec<(Hash256, BeaconBlock)> = vec![];
-    let mut unique_hashes = (0..).into_iter().map(|i| Hash256::from(i));
+    let mut unique_hashes = (0..).map(Hash256::from);
     let mut random_block = BeaconBlock::random_for_test(&mut XorShiftRng::from_seed([42; 16]));
     random_block.previous_block_root = Hash256::zero();
     let beacon_state = get_state::<T>(validator_count);

@@ -216,9 +216,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .iter()
             .map(|root| match self.get_block(root)? {
                 Some(block) => Ok(block.body),
-                None => Err(Error::DBInconsistent(
-                    format!("Missing block: {}", root).into(),
-                )),
+                None => Err(Error::DBInconsistent(format!("Missing block: {}", root))),
             })
             .collect();
 

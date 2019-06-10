@@ -16,8 +16,8 @@ pub struct BlsG2Uncompressed {
 }
 
 impl YamlDecode for BlsG2Uncompressed {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -56,13 +56,13 @@ impl Case for BlsG2Uncompressed {
 }
 
 // Converts a vector to u64 (from big endian)
-fn bytes_to_u64(array: &Vec<u8>) -> u64 {
+fn bytes_to_u64(array: &[u8]) -> u64 {
     let mut result: u64 = 0;
     for (i, value) in array.iter().rev().enumerate() {
         if i == 8 {
             break;
         }
-        result += u64::pow(2, i as u32 * 8) * (*value as u64);
+        result += u64::pow(2, i as u32 * 8) * u64::from(*value);
     }
     result
 }

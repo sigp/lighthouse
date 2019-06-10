@@ -13,6 +13,7 @@ where
     u8::from_str_radix(&s.as_str()[2..], 16).map_err(D::Error::custom)
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // Serde requires the `byte` to be a ref.
 pub fn u8_to_hex_str<S>(byte: &u8, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,

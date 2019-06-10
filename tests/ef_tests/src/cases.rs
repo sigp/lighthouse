@@ -70,7 +70,7 @@ where
 
 impl<T: YamlDecode> YamlDecode for Cases<T> {
     /// Decodes a YAML list of test cases
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
         let mut p = 0;
         let mut elems: Vec<&str> = yaml
             .match_indices("\n- ")
