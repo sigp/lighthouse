@@ -57,7 +57,7 @@ impl<T: EthSpec, U: Store> Iterator for BlockRootsIterator<T, U> {
             return None;
         }
 
-        self.slot = self.slot - 1;
+        self.slot -= 1;
 
         match self.beacon_state.get_block_root(self.slot) {
             Ok(root) => Some(*root),
@@ -73,7 +73,7 @@ impl<T: EthSpec, U: Store> Iterator for BlockRootsIterator<T, U> {
 
                 self.beacon_state.get_block_root(self.slot).ok().cloned()
             }
-            _ => return None,
+            _ => None,
         }
     }
 }

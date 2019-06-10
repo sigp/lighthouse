@@ -155,7 +155,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         if self
             .network_context
             .outstanding_outgoing_request_ids
-            .remove(&(peer_id.clone(), id.clone()))
+            .remove(&(peer_id.clone(), id))
             .is_none()
         {
             warn!(
@@ -250,7 +250,7 @@ impl NetworkContext {
         let id = self.generate_request_id(&peer_id);
 
         self.outstanding_outgoing_request_ids
-            .insert((peer_id.clone(), id.clone()), Instant::now());
+            .insert((peer_id.clone(), id), Instant::now());
 
         self.send_rpc_event(
             peer_id,

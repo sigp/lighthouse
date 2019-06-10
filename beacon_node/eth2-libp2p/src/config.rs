@@ -57,12 +57,12 @@ impl Config {
 
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
         if let Some(listen_address_str) = args.value_of("listen-address") {
-            let listen_addresses = listen_address_str.split(",").map(Into::into).collect();
+            let listen_addresses = listen_address_str.split(',').map(Into::into).collect();
             self.listen_addresses = listen_addresses;
         }
 
         if let Some(boot_addresses_str) = args.value_of("boot-nodes") {
-            let boot_addresses = boot_addresses_str.split(",").map(Into::into).collect();
+            let boot_addresses = boot_addresses_str.split(',').map(Into::into).collect();
             self.boot_nodes = boot_addresses;
         }
 

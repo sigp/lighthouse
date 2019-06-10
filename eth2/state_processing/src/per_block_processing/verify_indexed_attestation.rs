@@ -49,7 +49,7 @@ fn verify_indexed_attestation_parametric<T: EthSpec>(
     );
 
     // Check that nobody signed with custody bit 1 (to be removed in phase 1)
-    if custody_bit_1_indices.len() > 0 {
+    if !custody_bit_1_indices.is_empty() {
         invalid!(Invalid::CustodyBitfieldHasSetBits);
     }
 
@@ -96,7 +96,7 @@ where
             state
                 .validator_registry
                 .get(validator_idx as usize)
-                .ok_or(Error::Invalid(Invalid::UnknownValidator(validator_idx)))
+                .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(validator_idx)))
                 .map(|validator| {
                     aggregate_pubkey.add(&validator.pubkey);
                     aggregate_pubkey

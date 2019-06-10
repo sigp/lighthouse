@@ -174,7 +174,7 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            genesis_time: u32::max_value() as u64,
+            genesis_time: u64::from(u32::max_value()),
             seconds_per_slot: 6,
             min_attestation_inclusion_delay: 4,
             min_seed_lookahead: Epoch::new(1),

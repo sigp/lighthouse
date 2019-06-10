@@ -17,7 +17,7 @@ impl TestingProposerSlashingBuilder {
     /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
-    pub fn double_vote<T, F>(proposer_index: u64, signer: F, spec: &ChainSpec) -> ProposerSlashing
+    pub fn double_vote<T, F>(proposer_index: u64, signer: F) -> ProposerSlashing
     where
         T: EthSpec,
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,

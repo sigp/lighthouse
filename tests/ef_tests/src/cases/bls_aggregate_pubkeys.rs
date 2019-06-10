@@ -10,8 +10,8 @@ pub struct BlsAggregatePubkeys {
 }
 
 impl YamlDecode for BlsAggregatePubkeys {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 

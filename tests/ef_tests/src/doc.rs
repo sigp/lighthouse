@@ -136,14 +136,14 @@ pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
     println!("Test Failure");
     println!("Title: {}", header.title);
     println!("File: {:?}", doc.path);
-    println!("");
+    println!();
     println!(
         "{} tests, {} failures, {} passes.",
         results.len(),
         failures.len(),
         results.len() - failures.len()
     );
-    println!("");
+    println!();
 
     for failure in failures {
         let error = failure.result.clone().unwrap_err();
@@ -157,5 +157,5 @@ pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
         );
         println!("{}", error.message());
     }
-    println!("");
+    println!();
 }

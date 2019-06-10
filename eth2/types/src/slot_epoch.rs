@@ -77,7 +77,7 @@ impl Epoch {
     /// Position of some slot inside an epoch, if any.
     ///
     /// E.g., the first `slot` in `epoch` is at position `0`.
-    pub fn position(&self, slot: Slot, slots_per_epoch: u64) -> Option<usize> {
+    pub fn position(self, slot: Slot, slots_per_epoch: u64) -> Option<usize> {
         let start = self.start_slot(slots_per_epoch);
         let end = self.end_slot(slots_per_epoch);
 

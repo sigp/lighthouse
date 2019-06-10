@@ -42,7 +42,7 @@ impl RequestId {
     }
 
     /// Return the previous id.
-    pub fn previous(&self) -> Self {
+    pub fn previous(self) -> Self {
         Self(self.0 - 1)
     }
 }
@@ -220,7 +220,7 @@ impl Encode for RPCEvent {
             } => SszContainer {
                 is_request: true,
                 id: (*id).into(),
-                other: (*method_id).into(),
+                other: *method_id,
                 bytes: match body {
                     RPCRequest::Hello(body) => body.as_ssz_bytes(),
                     RPCRequest::Goodbye(body) => body.as_ssz_bytes(),
@@ -237,7 +237,7 @@ impl Encode for RPCEvent {
             } => SszContainer {
                 is_request: false,
                 id: (*id).into(),
-                other: (*method_id).into(),
+                other: *method_id,
                 bytes: match result {
                     RPCResponse::Hello(response) => response.as_ssz_bytes(),
                     RPCResponse::BeaconBlockRoots(response) => response.as_ssz_bytes(),

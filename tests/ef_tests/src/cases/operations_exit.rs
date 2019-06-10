@@ -15,8 +15,8 @@ pub struct OperationsExit<E: EthSpec> {
 }
 
 impl<E: EthSpec> YamlDecode for OperationsExit<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 

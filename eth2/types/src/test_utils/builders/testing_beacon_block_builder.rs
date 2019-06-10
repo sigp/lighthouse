@@ -271,7 +271,7 @@ fn build_proposer_slashing<T: EthSpec>(
         Signature::new(message, domain, secret_key)
     };
 
-    TestingProposerSlashingBuilder::double_vote::<T, _>(validator_index, signer, spec)
+    TestingProposerSlashingBuilder::double_vote::<T, _>(validator_index, signer)
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.
