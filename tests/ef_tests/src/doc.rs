@@ -146,7 +146,14 @@ where
 
 pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
     let header: DocHeader = serde_yaml::from_str(&doc.header_yaml).unwrap();
-    let failures: Vec<&CaseResult> = results.iter().filter(|r| r.result.is_err()).collect();
+    let failures: Vec<&CaseResult> = results
+        .iter()
+        .filter(|r| r.result.as_ref().err().map_or(false, |e| !e.is_skipped()))
+        .collect();
+    let skipped: Vec<&CaseResult> = results
+        .iter()
+        .filter(|r| r.result.as_ref().err().map_or(false, |e| e.is_skipped()))
+        .collect();
 
     println!("--------------------------------------------------");
     println!("Test Failure");
@@ -154,13 +161,18 @@ pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
     println!("File: {:?}", doc.path);
     println!("");
     println!(
-        "{} tests, {} failures, {} passes.",
+        "{} tests, {} failures, {} skipped, {} passes.",
         results.len(),
         failures.len(),
-        results.len() - failures.len()
+        skipped.len(),
+        results.len() - skipped.len() - failures.len()
     );
     println!("");
 
+    for case in skipped {
+        println!("-------");
+        println!("case[{}] ({}) skipped", case.case_index, case.desc);
+    }
     for failure in failures {
         let error = failure.result.clone().unwrap_err();
 
