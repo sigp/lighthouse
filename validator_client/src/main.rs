@@ -40,13 +40,12 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("eth-config")
-                .long("eth-config")
+            Arg::with_name("eth2-spec")
+                .long("eth2-spec")
                 .short("e")
-                .value_name("DIR")
-                .help(&format!("Directory containing {}.", ETH2_CONFIG_FILENAME))
-                .takes_value(true)
-                .default_value(ETH2_CONFIG_FILENAME),
+                .value_name("TOML_FILE")
+                .help("Path to Ethereum 2.0 specifications file.")
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("server")
@@ -111,7 +110,7 @@ fn main() {
     };
 
     let eth2_config_path: PathBuf = matches
-        .value_of("eth-config")
+        .value_of("eth2-spec")
         .and_then(|s| Some(PathBuf::from(s)))
         .unwrap_or_else(|| data_dir.join(ETH2_CONFIG_FILENAME));
 
