@@ -6,6 +6,7 @@ pub use doc::Doc;
 pub use error::Error;
 pub use yaml_decode::YamlDecode;
 
+mod bls_setting;
 mod case_result;
 mod cases;
 mod doc;
