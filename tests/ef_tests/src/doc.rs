@@ -43,6 +43,8 @@ impl Doc {
             ("ssz", "static", "mainnet") => run_test::<SszStatic<MainnetEthSpec>>(self),
             ("sanity", "slots", "minimal") => run_test::<SanitySlots<MinimalEthSpec>>(self),
             ("sanity", "slots", "mainnet") => run_test::<SanitySlots<MainnetEthSpec>>(self),
+            ("sanity", "blocks", "minimal") => run_test::<SanityBlocks<MinimalEthSpec>>(self),
+            ("sanity", "blocks", "mainnet") => run_test::<SanityBlocks<MainnetEthSpec>>(self),
             ("shuffling", "core", "minimal") => run_test::<Shuffling<MinimalEthSpec>>(self),
             ("shuffling", "core", "mainnet") => run_test::<Shuffling<MainnetEthSpec>>(self),
             ("bls", "aggregate_pubkeys", "mainnet") => run_test::<BlsAggregatePubkeys>(self),
