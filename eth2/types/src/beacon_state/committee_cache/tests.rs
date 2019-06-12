@@ -125,6 +125,9 @@ fn can_start_on_any_shard() {
     let mut state = new_state::<FewValidatorsEthSpec>(num_validators, slot);
     let spec = &FewValidatorsEthSpec::spec();
 
+    let shard_delta = FewValidatorsEthSpec::get_shard_delta(num_validators);
+    let shard_count = FewValidatorsEthSpec::shard_count() as u64;
+
     for i in 0..FewValidatorsEthSpec::shard_count() as u64 {
         state.latest_start_shard = i;
 
@@ -132,10 +135,13 @@ fn can_start_on_any_shard() {
         assert_eq!(cache.shuffling_start_shard, i);
 
         let cache = CommitteeCache::initialized(&state, state.previous_epoch(), spec).unwrap();
-        assert_eq!(cache.shuffling_start_shard, i);
+        assert_eq!(
+            cache.shuffling_start_shard,
+            (i + shard_count - shard_delta) % shard_count
+        );
 
         let cache = CommitteeCache::initialized(&state, state.next_epoch(), spec).unwrap();
-        assert_eq!(cache.shuffling_start_shard, i);
+        assert_eq!(cache.shuffling_start_shard, (i + shard_delta) % shard_count);
     }
 }
 
