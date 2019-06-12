@@ -110,7 +110,9 @@ where
     pub current_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
     pub previous_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
     pub latest_block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    #[compare_fields(as_slice)]
     latest_state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    #[compare_fields(as_slice)]
     latest_active_index_roots: FixedLenVec<Hash256, T::LatestActiveIndexRootsLength>,
     latest_slashed_balances: FixedLenVec<u64, T::LatestSlashedExitLength>,
     pub latest_block_header: BeaconBlockHeader,
@@ -795,7 +797,9 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<(), Error> {
         let i = Self::cache_index(relative_epoch);
 
-        if self.committee_caches[i].is_initialized_at(self.previous_epoch()) {
+        if self.committee_caches[i]
+            .is_initialized_at(relative_epoch.into_epoch(self.current_epoch()))
+        {
             Ok(())
         } else {
             self.force_build_committee_cache(relative_epoch, spec)
