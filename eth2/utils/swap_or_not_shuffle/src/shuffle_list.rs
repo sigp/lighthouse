@@ -124,56 +124,9 @@ fn bytes_to_int64(slice: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hex;
-    use std::{fs::File, io::prelude::*, path::PathBuf};
-    use yaml_rust::yaml;
 
     #[test]
     fn returns_none_for_zero_length_list() {
         assert_eq!(None, shuffle_list(vec![], 90, &[42, 42], true));
-    }
-
-    #[test]
-    fn test_vectors() {
-        let mut file = {
-            let mut file_path_buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            file_path_buf.push("src/specs/test_vector_permutated_index.yml");
-
-            File::open(file_path_buf).unwrap()
-        };
-
-        let mut yaml_str = String::new();
-
-        file.read_to_string(&mut yaml_str).unwrap();
-
-        let docs = yaml::YamlLoader::load_from_str(&yaml_str).unwrap();
-        let doc = &docs[0];
-        let test_cases = doc["test_cases"].as_vec().unwrap();
-
-        for (i, test_case) in test_cases.iter().enumerate() {
-            let index = test_case["index"].as_i64().unwrap() as usize;
-            let list_size = test_case["list_size"].as_i64().unwrap() as usize;
-            let permutated_index = test_case["permutated_index"].as_i64().unwrap() as usize;
-            let shuffle_round_count = test_case["shuffle_round_count"].as_i64().unwrap();
-            let seed_string = test_case["seed"].clone().into_string().unwrap();
-            let seed = hex::decode(seed_string.replace("0x", "")).unwrap();
-
-            let shuffle_round_count = if shuffle_round_count < (u8::max_value() as i64) {
-                shuffle_round_count as u8
-            } else {
-                panic!("shuffle_round_count must be a u8")
-            };
-
-            let list: Vec<usize> = (0..list_size).collect();
-
-            let shuffled =
-                shuffle_list(list.clone(), shuffle_round_count, &seed[..], true).unwrap();
-
-            assert_eq!(
-                list[index], shuffled[permutated_index],
-                "Failure on case #{} index: {}, list_size: {}, round_count: {}, seed: {}",
-                i, index, list_size, shuffle_round_count, seed_string
-            );
-        }
     }
 }
