@@ -21,7 +21,6 @@ members = [
 	"eth2/utils/swap_or_not_shuffle",
 	"eth2/utils/tree_hash",
 	"eth2/utils/tree_hash_derive",
-	"eth2/utils/fisher_yates_shuffle",
     "eth2/utils/test_random_derive",
 	"beacon_node",
 	"beacon_node/store",
