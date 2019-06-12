@@ -23,6 +23,12 @@ impl YamlDecode for BlsG2Compressed {
 
 impl Case for BlsG2Compressed {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
+        // FIXME: re-enable in v0.7
+        // https://github.com/ethereum/eth2.0-spec-tests/issues/3
+        if _case_index == 4 {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         // Convert message and domain to required types
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
