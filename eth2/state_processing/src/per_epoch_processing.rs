@@ -226,7 +226,11 @@ pub fn process_final_updates<T: EthSpec>(
                 .get_active_validator_indices(next_epoch + spec.activation_exit_delay)
                 .tree_hash_root()[..],
         );
-        state.set_active_index_root(next_epoch, active_index_root, spec)?;
+        state.set_active_index_root(
+            next_epoch + spec.activation_exit_delay,
+            active_index_root,
+            spec,
+        )?;
 
         // Set total slashed balances
         state.set_slashed_balance(next_epoch, state.get_slashed_balance(current_epoch)?)?;
