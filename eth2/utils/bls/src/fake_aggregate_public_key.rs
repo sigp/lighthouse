@@ -1,5 +1,4 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use milagro_bls::AggregatePublicKey as RawAggregatePublicKey;
 
 /// A BLS aggregate public key.
 ///
