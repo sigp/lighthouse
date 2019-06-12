@@ -1,6 +1,7 @@
 use crate::case_result::CaseResult;
 use crate::cases::*;
 use crate::doc_header::DocHeader;
+use crate::error::Error;
 use crate::eth_specs::{MainnetEthSpec, MinimalEthSpec};
 use crate::yaml_decode::{yaml_split_header_and_cases, YamlDecode};
 use crate::EfTest;
@@ -122,9 +123,19 @@ impl Doc {
         let doc = Self::from_path(path);
         let results = doc.test_results();
 
-        if results.iter().any(|r| r.result.is_err()) {
-            print_failures(&doc, &results);
-            panic!("Tests failed (see above)");
+        let (failed, skipped_bls, skipped_known_failures) = categorize_results(&results);
+
+        if failed.len() + skipped_known_failures.len() > 0 {
+            print_results(
+                &doc,
+                &failed,
+                &skipped_bls,
+                &skipped_known_failures,
+                &results,
+            );
+            if !failed.is_empty() {
+                panic!("Tests failed (see above)");
+            }
         } else {
             println!("Passed {} tests in {:?}", results.len(), doc.path);
         }
@@ -135,45 +146,69 @@ pub fn run_test<T>(doc: &Doc) -> Vec<CaseResult>
 where
     Cases<T>: EfTest + YamlDecode,
 {
-    // Extract only the "test_cases" YAML as a stand-alone string.
-    //let test_cases_yaml = extract_yaml_by_key(self., "test_cases");
-
     // Pass only the "test_cases" YAML string to `yaml_decode`.
     let test_cases: Cases<T> = Cases::yaml_decode(&doc.cases_yaml).unwrap();
 
     test_cases.test_results()
 }
 
-pub fn print_failures(doc: &Doc, results: &[CaseResult]) {
-    let header: DocHeader = serde_yaml::from_str(&doc.header_yaml).unwrap();
-    let failures: Vec<&CaseResult> = results
-        .iter()
-        .filter(|r| r.result.as_ref().err().map_or(false, |e| !e.is_skipped()))
-        .collect();
-    let skipped: Vec<&CaseResult> = results
-        .iter()
-        .filter(|r| r.result.as_ref().err().map_or(false, |e| e.is_skipped()))
-        .collect();
+pub fn categorize_results(
+    results: &[CaseResult],
+) -> (Vec<&CaseResult>, Vec<&CaseResult>, Vec<&CaseResult>) {
+    let mut failed = vec![];
+    let mut skipped_bls = vec![];
+    let mut skipped_known_failures = vec![];
 
+    for case in results {
+        match case.result.as_ref().err() {
+            Some(Error::SkippedBls) => skipped_bls.push(case),
+            Some(Error::SkippedKnownFailure) => skipped_known_failures.push(case),
+            Some(_) => failed.push(case),
+            None => (),
+        }
+    }
+
+    (failed, skipped_bls, skipped_known_failures)
+}
+
+pub fn print_results(
+    doc: &Doc,
+    failed: &[&CaseResult],
+    skipped_bls: &[&CaseResult],
+    skipped_known_failures: &[&CaseResult],
+    results: &[CaseResult],
+) {
+    let header: DocHeader = serde_yaml::from_str(&doc.header_yaml).unwrap();
     println!("--------------------------------------------------");
-    println!("Test Failure");
+    println!(
+        "Test {}",
+        if failed.is_empty() {
+            "Result"
+        } else {
+            "Failure"
+        }
+    );
     println!("Title: {}", header.title);
     println!("File: {:?}", doc.path);
     println!("");
     println!(
-        "{} tests, {} failures, {} skipped, {} passes.",
+        "{} tests, {} failed, {} skipped (known failure), {} skipped (bls), {} passed.",
         results.len(),
-        failures.len(),
-        skipped.len(),
-        results.len() - skipped.len() - failures.len()
+        failed.len(),
+        skipped_known_failures.len(),
+        skipped_bls.len(),
+        results.len() - skipped_bls.len() - skipped_known_failures.len() - failed.len()
     );
     println!("");
 
-    for case in skipped {
+    for case in skipped_known_failures {
         println!("-------");
-        println!("case[{}] ({}) skipped", case.case_index, case.desc);
+        println!(
+            "case[{}] ({}) skipped because it's a known failure",
+            case.case_index, case.desc,
+        );
     }
-    for failure in failures {
+    for failure in failed {
         let error = failure.result.clone().unwrap_err();
 
         println!("-------");

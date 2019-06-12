@@ -6,8 +6,10 @@ pub enum Error {
     DidntFail(String),
     /// Failed to parse the test (internal error).
     FailedToParseTest(String),
-    /// Skipped the test.
-    Skipped,
+    /// Skipped the test because the BLS setting was mismatched.
+    SkippedBls,
+    /// Skipped the test because it's known to fail.
+    SkippedKnownFailure,
 }
 
 impl Error {
@@ -16,7 +18,8 @@ impl Error {
             Error::NotEqual(_) => "NotEqual",
             Error::DidntFail(_) => "DidntFail",
             Error::FailedToParseTest(_) => "FailedToParseTest",
-            Error::Skipped => "Skipped",
+            Error::SkippedBls => "SkippedBls",
+            Error::SkippedKnownFailure => "SkippedKnownFailure",
         }
     }
 
@@ -25,13 +28,13 @@ impl Error {
             Error::NotEqual(m) => m.as_str(),
             Error::DidntFail(m) => m.as_str(),
             Error::FailedToParseTest(m) => m.as_str(),
-            Error::Skipped => panic!(), // "Skipped",
+            _ => self.name(),
         }
     }
 
     pub fn is_skipped(&self) -> bool {
         match self {
-            Error::Skipped => true,
+            Error::SkippedBls | Error::SkippedKnownFailure => true,
             _ => false,
         }
     }

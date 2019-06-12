@@ -24,7 +24,7 @@ impl BlsSetting {
             Flexible => Ok(()),
             Required if !cfg!(feature = "fake_crypto") => Ok(()),
             Ignored if cfg!(feature = "fake_crypto") => Ok(()),
-            _ => Err(Error::Skipped),
+            _ => Err(Error::SkippedBls),
         }
     }
 }
