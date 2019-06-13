@@ -1,13 +1,13 @@
 use bls::Keypair;
 use clap::{App, Arg, SubCommand};
+use eth2_config::get_data_dir;
 use slog::{crit, debug, info, o, Drain};
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
-use eth2_config::{get_data_dir};
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-account-manager";
-pub const CLIENT_CONFIG_FILENAME: &str = "account-manager-config.toml";
+pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 
 fn main() {
     // Logging
