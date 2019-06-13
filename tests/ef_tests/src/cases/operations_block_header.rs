@@ -38,8 +38,7 @@ impl<E: EthSpec> Case for OperationsBlockHeader<E> {
         // Processing requires the epoch cache.
         state.build_all_caches(spec).unwrap();
 
-        let mut result =
-            process_block_header(&mut state, &self.block, spec, true).map(|_| state);
+        let mut result = process_block_header(&mut state, &self.block, spec, true).map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
