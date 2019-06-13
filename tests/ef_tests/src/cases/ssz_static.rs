@@ -15,6 +15,7 @@ use types::{
 };
 
 // Enum variant names are used by Serde when deserializing the test YAML
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Deserialize)]
 pub enum SszStatic<E>
 where
