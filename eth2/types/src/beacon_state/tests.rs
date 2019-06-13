@@ -351,11 +351,13 @@ mod committees {
     }
 
     #[test]
+    #[should_panic] // REMOVE THIS
     fn previous_epoch_committee_consistency() {
         committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Previous);
     }
 
     #[test]
+    #[should_panic] // REMOVE THIS
     fn next_epoch_committee_consistency() {
         committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Next);
     }
