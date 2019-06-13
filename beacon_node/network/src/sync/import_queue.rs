@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::PeerId;
 use slog::{debug, error};
@@ -166,7 +166,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         let mut required_bodies: Vec<Hash256> = vec![];
 
         for header in headers {
-            let block_root = Hash256::from_slice(&header.tree_hash_root()[..]);
+            let block_root = Hash256::from_slice(&header.canonical_root()[..]);
 
             if self.chain_has_not_seen_block(&block_root) {
                 self.insert_header(block_root, header, sender.clone());
@@ -212,7 +212,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
             // Case 2: there was no partial with a matching block root.
             //
             // A new partial is added. This case permits adding a header without already known the
-            // root -- this is not possible in the wire protocol however we support it anyway.
+            // root.
             self.partials.push(PartialBeaconBlock {
                 slot: header.slot,
                 block_root,
@@ -250,7 +250,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     ///
     /// If the partial already existed, the `inserted` time is set to `now`.
     fn insert_full_block(&mut self, block: BeaconBlock, sender: PeerId) {
-        let block_root = Hash256::from_slice(&block.tree_hash_root()[..]);
+        let block_root = Hash256::from_slice(&block.canonical_root()[..]);
 
         let partial = PartialBeaconBlock {
             slot: block.slot,

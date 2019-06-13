@@ -675,12 +675,12 @@ mod tests {
             .collect()
     }
 
-    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<FoundationEthSpec>) {
-        let spec = FoundationEthSpec::spec();
+    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<MainnetEthSpec>) {
+        let spec = MainnetEthSpec::default_spec();
 
         let mut state = BeaconState::random_for_test(rng);
 
-        state.fork = Fork::genesis(&spec);
+        state.fork = Fork::genesis(MainnetEthSpec::genesis_epoch());
 
         (spec, state)
     }
@@ -721,27 +721,27 @@ mod tests {
         fn attestation_test_state<E: EthSpec>(
             num_committees: usize,
         ) -> (BeaconState<E>, Vec<Keypair>, ChainSpec) {
-            let spec = E::spec();
+            let spec = E::default_spec();
 
             let num_validators =
-                num_committees * spec.slots_per_epoch as usize * spec.target_committee_size;
+                num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
             let mut state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
                 num_validators,
                 &spec,
             );
-            let slot_offset = 1000 * spec.slots_per_epoch + spec.slots_per_epoch / 2;
+            let slot_offset = 1000 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
             let slot = spec.genesis_slot + slot_offset;
-            state_builder.teleport_to_slot(slot, &spec);
+            state_builder.teleport_to_slot(slot);
             state_builder.build_caches(&spec).unwrap();
             let (state, keypairs) = state_builder.build();
 
-            (state, keypairs, FoundationEthSpec::spec())
+            (state, keypairs, MainnetEthSpec::default_spec())
         }
 
         #[test]
         fn test_attestation_score() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let slot = state.slot - 1;
             let committees = state
@@ -793,7 +793,7 @@ mod tests {
         #[test]
         fn attestation_aggregation_insert_get_prune() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -852,7 +852,7 @@ mod tests {
 
             // But once we advance to more than an epoch after the attestation, it should prune it
             // out of existence.
-            state.slot += 2 * spec.slots_per_epoch;
+            state.slot += 2 * MainnetEthSpec::slots_per_epoch();
             op_pool.prune_attestations(state);
             assert_eq!(op_pool.num_attestations(), 0);
         }
@@ -861,7 +861,7 @@ mod tests {
         #[test]
         fn attestation_duplicate() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -898,7 +898,7 @@ mod tests {
         #[test]
         fn attestation_pairwise_overlapping() {
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(1);
+                attestation_test_state::<MainnetEthSpec>(1);
 
             let op_pool = OperationPool::new();
 
@@ -946,7 +946,7 @@ mod tests {
             let big_step_size = 4;
 
             let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<FoundationEthSpec>(big_step_size);
+                attestation_test_state::<MainnetEthSpec>(big_step_size);
 
             let op_pool = OperationPool::new();
 

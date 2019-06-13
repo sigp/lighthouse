@@ -172,8 +172,8 @@ pub struct BeaconBlockRootsResponse {
 impl BeaconBlockRootsResponse {
     /// Returns `true` if each `self.roots.slot[i]` is higher than the preceeding `i`.
     pub fn slots_are_ascending(&self) -> bool {
-        for i in 1..self.roots.len() {
-            if self.roots[i - 1].slot >= self.roots[i].slot {
+        for window in self.roots.windows(2) {
+            if window[0].slot >= window[1].slot {
                 return false;
             }
         }

@@ -2,11 +2,11 @@ use crate::case_result::CaseResult;
 use crate::cases::*;
 use crate::doc_header::DocHeader;
 use crate::error::Error;
-use crate::eth_specs::{MainnetEthSpec, MinimalEthSpec};
 use crate::yaml_decode::{yaml_split_header_and_cases, YamlDecode};
 use crate::EfTest;
 use serde_derive::Deserialize;
 use std::{fs::File, io::prelude::*, path::PathBuf};
+use types::{MainnetEthSpec, MinimalEthSpec};
 
 #[derive(Debug, Deserialize)]
 pub struct Doc {
@@ -190,7 +190,7 @@ pub fn print_results(
     );
     println!("Title: {}", header.title);
     println!("File: {:?}", doc.path);
-    println!("");
+    println!();
     println!(
         "{} tests, {} failed, {} skipped (known failure), {} skipped (bls), {} passed.",
         results.len(),
@@ -199,7 +199,7 @@ pub fn print_results(
         skipped_bls.len(),
         results.len() - skipped_bls.len() - skipped_known_failures.len() - failed.len()
     );
-    println!("");
+    println!();
 
     for case in skipped_known_failures {
         println!("-------");
@@ -220,5 +220,5 @@ pub fn print_results(
         );
         println!("{}", error.message());
     }
-    println!("");
+    println!();
 }

@@ -68,7 +68,7 @@ fn validate_attestation_parametric<T: EthSpec>(
         }
     );
     verify!(
-        state.slot <= attestation_slot + spec.slots_per_epoch,
+        state.slot <= attestation_slot + T::slots_per_epoch(),
         Invalid::IncludedTooLate {
             state: state.slot,
             attestation: attestation_slot

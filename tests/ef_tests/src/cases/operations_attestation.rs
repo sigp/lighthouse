@@ -17,8 +17,8 @@ pub struct OperationsAttestation<E: EthSpec> {
 }
 
 impl<E: EthSpec> YamlDecode for OperationsAttestation<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(&yaml).unwrap())
     }
 }
 
@@ -28,6 +28,8 @@ impl<E: EthSpec> Case for OperationsAttestation<E> {
     }
 
     fn result(&self, _case_index: usize) -> Result<(), Error> {
+        let spec = &E::default_spec();
+
         self.bls_setting.unwrap_or_default().check()?;
 
         let mut state = self.pre.clone();
@@ -35,9 +37,9 @@ impl<E: EthSpec> Case for OperationsAttestation<E> {
         let mut expected = self.post.clone();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(spec).unwrap();
 
-        let result = process_attestations(&mut state, &[attestation], &E::spec());
+        let result = process_attestations(&mut state, &[attestation], spec);
 
         let mut result = result.and_then(|_| Ok(state));
 

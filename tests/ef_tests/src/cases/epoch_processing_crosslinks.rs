@@ -14,8 +14,8 @@ pub struct EpochProcessingCrosslinks<E: EthSpec> {
 }
 
 impl<E: EthSpec> YamlDecode for EpochProcessingCrosslinks<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -29,9 +29,9 @@ impl<E: EthSpec> Case for EpochProcessingCrosslinks<E> {
         let mut expected = self.post.clone();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(&E::default_spec()).unwrap();
 
-        let mut result = process_crosslinks(&mut state, &E::spec()).map(|_| state);
+        let mut result = process_crosslinks(&mut state, &E::default_spec()).map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

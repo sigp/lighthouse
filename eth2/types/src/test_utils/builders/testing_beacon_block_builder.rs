@@ -36,9 +36,9 @@ impl TestingBeaconBlockBuilder {
     /// Signs the block.
     ///
     /// Modifying the block after signing may invalidate the signature.
-    pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
+    pub fn sign<T: EthSpec>(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.block.signed_root();
-        let epoch = self.block.slot.epoch(spec.slots_per_epoch);
+        let epoch = self.block.slot.epoch(T::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
         self.block.signature = Signature::new(&message, domain, sk);
     }
@@ -46,8 +46,8 @@ impl TestingBeaconBlockBuilder {
     /// Sets the randao to be a signature across the blocks epoch.
     ///
     /// Modifying the block's slot after signing may invalidate the signature.
-    pub fn set_randao_reveal(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
-        let epoch = self.block.slot.epoch(spec.slots_per_epoch);
+    pub fn set_randao_reveal<T: EthSpec>(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
+        let epoch = self.block.slot.epoch(T::slots_per_epoch());
         let message = epoch.tree_hash_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
         self.block.body.randao_reveal = Signature::new(&message, domain, sk);
@@ -59,14 +59,15 @@ impl TestingBeaconBlockBuilder {
     }
 
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
-    pub fn insert_proposer_slashing(
+    pub fn insert_proposer_slashing<T: EthSpec>(
         &mut self,
         validator_index: u64,
         secret_key: &SecretKey,
         fork: &Fork,
         spec: &ChainSpec,
     ) {
-        let proposer_slashing = build_proposer_slashing(validator_index, secret_key, fork, spec);
+        let proposer_slashing =
+            build_proposer_slashing::<T>(validator_index, secret_key, fork, spec);
         self.block.body.proposer_slashings.push(proposer_slashing);
     }
 
@@ -115,7 +116,7 @@ impl TestingBeaconBlockBuilder {
         // - The slot is too old to be included in a block at this slot.
         // - The `MAX_ATTESTATIONS`.
         loop {
-            if state.slot >= slot + spec.slots_per_epoch {
+            if state.slot >= slot + T::slots_per_epoch() {
                 break;
             }
 
@@ -194,7 +195,7 @@ impl TestingBeaconBlockBuilder {
         builder.set_index(index);
         builder.sign(
             &keypair,
-            state.slot.epoch(spec.slots_per_epoch),
+            state.slot.epoch(T::slots_per_epoch()),
             &state.fork,
             spec,
         );
@@ -211,7 +212,7 @@ impl TestingBeaconBlockBuilder {
         spec: &ChainSpec,
     ) {
         let mut builder = TestingVoluntaryExitBuilder::new(
-            state.slot.epoch(spec.slots_per_epoch),
+            state.slot.epoch(T::slots_per_epoch()),
             validator_index,
         );
 
@@ -234,14 +235,19 @@ impl TestingBeaconBlockBuilder {
         spec: &ChainSpec,
     ) {
         let mut builder = TestingTransferBuilder::new(from, to, amount, state.slot);
-        builder.sign(keypair, &state.fork, spec);
+        builder.sign::<T>(keypair, &state.fork, spec);
 
         self.block.body.transfers.push(builder.build())
     }
 
     /// Signs and returns the block, consuming the builder.
-    pub fn build(mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) -> BeaconBlock {
-        self.sign(sk, fork, spec);
+    pub fn build<T: EthSpec>(
+        mut self,
+        sk: &SecretKey,
+        fork: &Fork,
+        spec: &ChainSpec,
+    ) -> BeaconBlock {
+        self.sign::<T>(sk, fork, spec);
         self.block
     }
 
@@ -254,7 +260,7 @@ impl TestingBeaconBlockBuilder {
 /// Builds an `ProposerSlashing` for some `validator_index`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_proposer_slashing(
+fn build_proposer_slashing<T: EthSpec>(
     validator_index: u64,
     secret_key: &SecretKey,
     fork: &Fork,
@@ -265,7 +271,7 @@ fn build_proposer_slashing(
         Signature::new(message, domain, secret_key)
     };
 
-    TestingProposerSlashingBuilder::double_vote(validator_index, signer, spec)
+    TestingProposerSlashingBuilder::double_vote::<T, _>(validator_index, signer)
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.

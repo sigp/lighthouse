@@ -1,15 +1,14 @@
 mod attestation;
 mod beacon_block;
-pub mod beacon_chain;
 mod beacon_node;
 pub mod config;
 mod validator;
 
 use self::attestation::AttestationServiceInstance;
 use self::beacon_block::BeaconBlockServiceInstance;
-use self::beacon_chain::{BeaconChain, BeaconChainTypes};
 use self::beacon_node::BeaconNodeServiceInstance;
 use self::validator::ValidatorServiceInstance;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 pub use config::Config as RPCConfig;
 use futures::Future;
 use grpcio::{Environment, ServerBuilder};
@@ -28,7 +27,8 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     network_chan: crossbeam_channel::Sender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
-) -> exit_future::Signal {
+) -> exit_future::Signal
+{
     let log = log.new(o!("Service"=>"RPC"));
     let env = Arc::new(Environment::new(1));
 
@@ -47,7 +47,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     let beacon_block_service = {
         let instance = BeaconBlockServiceInstance {
             chain: beacon_chain.clone(),
-            network_chan,
+            network_chan: network_chan.clone(),
             log: log.clone(),
         };
         create_beacon_block_service(instance)
@@ -62,6 +62,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     let attestation_service = {
         let instance = AttestationServiceInstance {
             chain: beacon_chain.clone(),
+            network_chan,
             log: log.clone(),
         };
         create_attestation_service(instance)

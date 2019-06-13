@@ -223,7 +223,7 @@ impl ValidatorStatuses {
             if is_from_epoch(a, state.current_epoch()) {
                 status.is_current_epoch_attester = true;
 
-                if target_matches_epoch_start_block(a, state, state.current_epoch(), spec)? {
+                if target_matches_epoch_start_block(a, state, state.current_epoch())? {
                     status.is_current_epoch_target_attester = true;
                 }
             } else if is_from_epoch(a, state.previous_epoch()) {
@@ -233,7 +233,7 @@ impl ValidatorStatuses {
                 let attestation_slot = state.get_attestation_slot(&a.data)?;
                 let inclusion_slot = attestation_slot + a.inclusion_delay;
                 let relative_epoch =
-                    RelativeEpoch::from_slot(state.slot, inclusion_slot, spec.slots_per_epoch)?;
+                    RelativeEpoch::from_slot(state.slot, inclusion_slot, T::slots_per_epoch())?;
                 status.inclusion_info = Some(InclusionInfo {
                     slot: inclusion_slot,
                     distance: a.inclusion_delay,
@@ -244,7 +244,7 @@ impl ValidatorStatuses {
                     )?,
                 });
 
-                if target_matches_epoch_start_block(a, state, state.previous_epoch(), spec)? {
+                if target_matches_epoch_start_block(a, state, state.previous_epoch())? {
                     status.is_previous_epoch_target_attester = true;
                 }
 
@@ -297,7 +297,7 @@ impl ValidatorStatuses {
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         // Loop through each slot in the previous epoch.
-        for slot in state.previous_epoch().slot_iter(spec.slots_per_epoch) {
+        for slot in state.previous_epoch().slot_iter(T::slots_per_epoch()) {
             let crosslink_committees_at_slot = state.get_crosslink_committees_at_slot(slot)?;
 
             // Loop through each committee in the slot.
@@ -336,9 +336,8 @@ fn target_matches_epoch_start_block<T: EthSpec>(
     a: &PendingAttestation,
     state: &BeaconState<T>,
     epoch: Epoch,
-    spec: &ChainSpec,
 ) -> Result<bool, BeaconStateError> {
-    let slot = epoch.start_slot(spec.slots_per_epoch);
+    let slot = epoch.start_slot(T::slots_per_epoch());
     let state_boundary_root = *state.get_block_root(slot)?;
 
     Ok(a.data.target_root == state_boundary_root)

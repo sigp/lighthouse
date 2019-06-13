@@ -102,9 +102,7 @@ impl<'a> SszDecoderBuilder<'a> {
                 .and_then(|o| Some(o.offset))
                 .unwrap_or_else(|| BYTES_PER_LENGTH_OFFSET);
 
-            if previous_offset > offset {
-                return Err(DecodeError::OutOfBoundsByte { i: offset });
-            } else if offset > self.bytes.len() {
+            if (previous_offset > offset) || (offset > self.bytes.len()) {
                 return Err(DecodeError::OutOfBoundsByte { i: offset });
             }
 
@@ -218,6 +216,12 @@ impl<'a> SszDecoder<'a> {
     pub fn decode_next<T: Decode>(&mut self) -> Result<T, DecodeError> {
         T::from_ssz_bytes(self.items.remove(0))
     }
+}
+
+/// Reads a `BYTES_PER_LENGTH_OFFSET`-byte union index from `bytes`, where `bytes.len() >=
+/// BYTES_PER_LENGTH_OFFSET`.
+pub fn read_union_index(bytes: &[u8]) -> Result<usize, DecodeError> {
+    read_offset(bytes)
 }
 
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=

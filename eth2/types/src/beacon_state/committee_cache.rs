@@ -2,6 +2,7 @@ use super::BeaconState;
 use crate::*;
 use core::num::NonZeroUsize;
 use serde_derive::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use swap_or_not_shuffle::shuffle_list;
 
@@ -9,7 +10,7 @@ mod tests;
 
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
-#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct CommitteeCache {
     initialized_epoch: Option<Epoch>,
     shuffling: Vec<usize>,
@@ -44,12 +45,16 @@ impl CommitteeCache {
             return Err(Error::InsufficientValidators);
         }
 
-        let committee_count = T::get_epoch_committee_count(active_validator_indices.len()) as usize;
+        let committee_count = T::get_epoch_committee_count(
+            active_validator_indices.len(),
+            spec.target_committee_size,
+        ) as usize;
 
         let shuffling_start_shard = match relative_epoch {
             RelativeEpoch::Current => state.latest_start_shard,
             RelativeEpoch::Previous => {
-                let shard_delta = T::get_shard_delta(active_validator_indices.len());
+                let shard_delta =
+                    T::get_shard_delta(active_validator_indices.len(), spec.target_committee_size);
 
                 (state.latest_start_shard + T::ShardCount::to_u64() - shard_delta)
                     % T::ShardCount::to_u64()
@@ -57,7 +62,8 @@ impl CommitteeCache {
             RelativeEpoch::Next => {
                 let current_active_validators =
                     get_active_validator_count(&state.validator_registry, state.current_epoch());
-                let shard_delta = T::get_shard_delta(current_active_validators);
+                let shard_delta =
+                    T::get_shard_delta(current_active_validators, spec.target_committee_size);
 
                 (state.latest_start_shard + shard_delta) % T::ShardCount::to_u64()
             }
@@ -152,7 +158,6 @@ impl CommitteeCache {
         let i = self.shuffled_position(validator_index)?;
 
         (0..self.committee_count)
-            .into_iter()
             .map(|nth_committee| (nth_committee, self.compute_committee_range(nth_committee)))
             .find(|(_, range)| {
                 if let Some(range) = range {

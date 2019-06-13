@@ -23,6 +23,7 @@ use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Slot(u64);
 
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -76,7 +77,7 @@ impl Epoch {
     /// Position of some slot inside an epoch, if any.
     ///
     /// E.g., the first `slot` in `epoch` is at position `0`.
-    pub fn position(&self, slot: Slot, slots_per_epoch: u64) -> Option<usize> {
+    pub fn position(self, slot: Slot, slots_per_epoch: u64) -> Option<usize> {
         let start = self.start_slot(slots_per_epoch);
         let end = self.end_slot(slots_per_epoch);
 

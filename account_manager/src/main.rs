@@ -1,9 +1,13 @@
 use bls::Keypair;
 use clap::{App, Arg, SubCommand};
-use slog::{debug, info, o, Drain};
+use slog::{crit, debug, info, o, Drain};
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
+use eth2_config::{get_data_dir};
+
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse-account-manager";
+pub const CLIENT_CONFIG_FILENAME: &str = "account-manager-config.toml";
 
 fn main() {
     // Logging
@@ -20,6 +24,7 @@ fn main() {
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
+                .short("d")
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
                 .takes_value(true),
@@ -43,49 +48,105 @@ fn main() {
                         .help("The index of the validator, for which the test key is generated")
                         .takes_value(true)
                         .required(true),
-                ),
+                )
+                .arg(
+                    Arg::with_name("validator count")
+                        .long("validator_count")
+                        .short("n")
+                        .value_name("validator_count")
+                        .help("If supplied along with `index`, generates keys `i..i + n`.")
+                        .takes_value(true)
+                        .default_value("1"),
+                )
         )
         .get_matches();
 
-    let config = ValidatorClientConfig::parse_args(&matches, &log)
-        .expect("Unable to build a configuration for the account manager.");
+    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
+        Ok(dir) => dir,
+        Err(e) => {
+            crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
+            return
+        }
+    };
+
+    let mut client_config = ValidatorClientConfig::default();
+
+    if let Err(e) = client_config.apply_cli_args(&matches) {
+        crit!(log, "Failed to apply CLI args"; "error" => format!("{:?}", e));
+        return
+    };
+
+    // Ensure the `data_dir` in the config matches that supplied to the CLI.
+    client_config.data_dir = data_dir.clone();
+
+    // Update the client config with any CLI args.
+    match client_config.apply_cli_args(&matches) {
+        Ok(()) => (),
+        Err(s) => {
+            crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
+            return;
+        }
+    };
 
     // Log configuration
     info!(log, "";
-          "data_dir" => &config.data_dir.to_str());
+          "data_dir" => &client_config.data_dir.to_str());
 
     match matches.subcommand() {
-        ("generate", Some(_gen_m)) => {
-            let keypair = Keypair::random();
-            let key_path: PathBuf = config
-                .save_key(&keypair)
-                .expect("Unable to save newly generated private key.");
-            debug!(
-                log,
-                "Keypair generated {:?}, saved to: {:?}",
-                keypair.identifier(),
-                key_path.to_string_lossy()
-            );
-        }
-        ("generate_deterministic", Some(gen_d_matches)) => {
-            let validator_index = gen_d_matches
-                .value_of("validator index")
-                .expect("Validator index required.")
-                .parse::<u64>()
-                .expect("Invalid validator index.") as usize;
-            let keypair = generate_deterministic_keypair(validator_index);
-            let key_path: PathBuf = config
-                .save_key(&keypair)
-                .expect("Unable to save newly generated deterministic private key.");
-            debug!(
-                log,
-                "Deterministic Keypair generated {:?}, saved to: {:?}",
-                keypair.identifier(),
-                key_path.to_string_lossy()
-            );
+        ("generate", Some(_)) => generate_random(&client_config, &log),
+        ("generate_deterministic", Some(m)) => {
+            if let Some(string) = m.value_of("validator index") {
+                let i: usize = string.parse().expect("Invalid validator index");
+                if let Some(string) = m.value_of("validator count") {
+                    let n: usize = string.parse().expect("Invalid end validator count");
+
+                    let indices: Vec<usize> = (i..i + n).collect();
+                    generate_deterministic_multiple(&indices, &client_config, &log)
+                } else {
+                    generate_deterministic(i, &client_config, &log)
+                }
+            }
         }
         _ => panic!(
             "The account manager must be run with a subcommand. See help for more information."
         ),
     }
+}
+
+fn generate_random(config: &ValidatorClientConfig, log: &slog::Logger) {
+    save_key(&Keypair::random(), config, log)
+}
+
+fn generate_deterministic_multiple(
+    validator_indices: &[usize],
+    config: &ValidatorClientConfig,
+    log: &slog::Logger,
+) {
+    for validator_index in validator_indices {
+        generate_deterministic(*validator_index, config, log)
+    }
+}
+
+fn generate_deterministic(
+    validator_index: usize,
+    config: &ValidatorClientConfig,
+    log: &slog::Logger,
+) {
+    save_key(
+        &generate_deterministic_keypair(validator_index),
+        config,
+        log,
+    )
+}
+
+fn save_key(keypair: &Keypair, config: &ValidatorClientConfig, log: &slog::Logger) {
+    let key_path: PathBuf = config
+        .save_key(&keypair)
+        .expect("Unable to save newly generated private key.");
+    debug!(
+        log,
+        "Keypair generated {:?}, saved to: {:?}",
+        keypair.identifier(),
+        key_path.to_string_lossy()
+    );
 }

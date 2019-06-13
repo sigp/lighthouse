@@ -39,7 +39,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == spec.genesis_epoch {
+    if state.current_epoch() == T::genesis_epoch() {
         return Ok(());
     }
 

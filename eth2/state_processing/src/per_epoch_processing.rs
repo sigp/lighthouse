@@ -42,7 +42,7 @@ pub fn per_epoch_processing<T: EthSpec>(
     validator_statuses.process_attestations(&state, spec)?;
 
     // Justification and finalization.
-    process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
+    process_justification_and_finalization(state, &validator_statuses.total_balances)?;
 
     // Crosslinks.
     let winning_root_for_shards = process_crosslinks(state, spec)?;
@@ -84,9 +84,8 @@ pub fn per_epoch_processing<T: EthSpec>(
 pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
     total_balances: &TotalBalances,
-    spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == spec.genesis_epoch {
+    if state.current_epoch() == T::genesis_epoch() {
         return Ok(());
     }
 
@@ -104,14 +103,14 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     if total_balances.previous_epoch_target_attesters * 3 >= total_balances.previous_epoch * 2 {
         state.current_justified_epoch = previous_epoch;
         state.current_justified_root =
-            *state.get_block_root_at_epoch(state.current_justified_epoch, spec)?;
+            *state.get_block_root_at_epoch(state.current_justified_epoch)?;
         state.justification_bitfield |= 2;
     }
     // If the current epoch gets justified, fill the last bit.
     if total_balances.current_epoch_target_attesters * 3 >= total_balances.current_epoch * 2 {
         state.current_justified_epoch = current_epoch;
         state.current_justified_root =
-            *state.get_block_root_at_epoch(state.current_justified_epoch, spec)?;
+            *state.get_block_root_at_epoch(state.current_justified_epoch)?;
         state.justification_bitfield |= 1;
     }
 
@@ -120,22 +119,22 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     // The 2nd/3rd/4th most recent epochs are all justified, the 2nd using the 4th as source.
     if (bitfield >> 1) % 8 == 0b111 && old_previous_justified_epoch == current_epoch - 3 {
         state.finalized_epoch = old_previous_justified_epoch;
-        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
     // The 2nd/3rd most recent epochs are both justified, the 2nd using the 3rd as source.
     if (bitfield >> 1) % 4 == 0b11 && state.previous_justified_epoch == current_epoch - 2 {
         state.finalized_epoch = old_previous_justified_epoch;
-        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
     // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 2nd as source.
     if bitfield % 8 == 0b111 && state.current_justified_epoch == current_epoch - 2 {
         state.finalized_epoch = old_current_justified_epoch;
-        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
     // The 1st/2nd most recent epochs are both justified, the 1st using the 2nd as source.
     if bitfield % 4 == 0b11 && state.current_justified_epoch == current_epoch - 1 {
         state.finalized_epoch = old_current_justified_epoch;
-        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch, spec)?;
+        state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
 
     Ok(())
@@ -157,7 +156,7 @@ pub fn process_crosslinks<T: EthSpec>(
 
     state.previous_crosslinks = state.current_crosslinks.clone();
 
-    for relative_epoch in vec![RelativeEpoch::Previous, RelativeEpoch::Current] {
+    for &relative_epoch in &[RelativeEpoch::Previous, RelativeEpoch::Current] {
         let epoch = relative_epoch.into_epoch(state.current_epoch());
         for offset in 0..state.get_epoch_committee_count(relative_epoch)? {
             let shard =
@@ -212,7 +211,7 @@ pub fn process_final_updates<T: EthSpec>(
     }
 
     // Update start shard.
-    state.latest_start_shard = state.next_epoch_start_shard()?;
+    state.latest_start_shard = state.next_epoch_start_shard(spec)?;
 
     // This is a hack to allow us to update index roots and slashed balances for the next epoch.
     //
@@ -241,7 +240,7 @@ pub fn process_final_updates<T: EthSpec>(
         state.slot -= 1;
     }
 
-    if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / spec.slots_per_epoch) == 0 {
+    if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / T::slots_per_epoch()) == 0 {
         let historical_batch = state.historical_batch();
         state
             .historical_roots

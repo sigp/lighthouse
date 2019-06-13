@@ -55,7 +55,7 @@ where
 }
 
 impl<E: EthSpec + serde::de::DeserializeOwned> YamlDecode for SszStatic<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
         serde_yaml::from_str(yaml).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
     }
 }

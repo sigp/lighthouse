@@ -25,8 +25,8 @@ pub fn get_genesis_beacon_state<T: EthSpec>(
     // Process genesis activations.
     for validator in &mut state.validator_registry {
         if validator.effective_balance >= spec.max_effective_balance {
-            validator.activation_eligibility_epoch = spec.genesis_epoch;
-            validator.activation_epoch = spec.genesis_epoch;
+            validator.activation_eligibility_epoch = T::genesis_epoch();
+            validator.activation_epoch = T::genesis_epoch();
         }
     }
 

@@ -14,8 +14,8 @@ pub struct Shuffling<T> {
 }
 
 impl<T> YamlDecode for Shuffling<T> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -24,13 +24,12 @@ impl<T: EthSpec> Case for Shuffling<T> {
         if self.count == 0 {
             compare_result::<_, Error>(&Ok(vec![]), &Some(self.shuffled.clone()))?;
         } else {
-            let spec = T::spec();
+            let spec = T::default_spec();
             let seed = hex::decode(&self.seed[2..])
                 .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
             // Test get_permuted_index
             let shuffling = (0..self.count)
-                .into_iter()
                 .map(|i| {
                     get_permutated_index(i, self.count, &seed, spec.shuffle_round_count).unwrap()
                 })

@@ -15,8 +15,8 @@ pub struct SszGeneric {
 }
 
 impl YamlDecode for SszGeneric {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -45,11 +45,7 @@ impl Case for SszGeneric {
 }
 
 /// Execute a `ssz_generic` test case.
-fn ssz_generic_test<T>(
-    should_be_ok: bool,
-    ssz: &String,
-    value: &Option<String>,
-) -> Result<(), Error>
+fn ssz_generic_test<T>(should_be_ok: bool, ssz: &str, value: &Option<String>) -> Result<(), Error>
 where
     T: Decode + YamlDecode + Debug + PartialEq<T>,
 {

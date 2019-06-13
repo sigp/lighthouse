@@ -12,7 +12,6 @@ mod cases;
 mod doc;
 mod doc_header;
 mod error;
-mod eth_specs;
 mod yaml_decode;
 
 /// Defined where an object can return the results of some test(s) adhering to the Ethereum

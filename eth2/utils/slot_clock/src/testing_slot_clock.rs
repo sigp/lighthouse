@@ -8,30 +8,28 @@ pub enum Error {}
 
 /// Determines the present slot based upon the present system time.
 pub struct TestingSlotClock {
-    slot: RwLock<u64>,
+    slot: RwLock<Slot>,
 }
 
 impl TestingSlotClock {
-    /// Create a new `TestingSlotClock`.
-    ///
-    /// Returns an Error if `slot_duration_seconds == 0`.
-    pub fn new(slot: u64) -> TestingSlotClock {
-        TestingSlotClock {
-            slot: RwLock::new(slot),
-        }
-    }
-
     pub fn set_slot(&self, slot: u64) {
-        *self.slot.write().expect("TestingSlotClock poisoned.") = slot;
+        *self.slot.write().expect("TestingSlotClock poisoned.") = Slot::from(slot);
     }
 }
 
 impl SlotClock for TestingSlotClock {
     type Error = Error;
 
+    /// Create a new `TestingSlotClock` at `genesis_slot`.
+    fn new(genesis_slot: Slot, _genesis_seconds: u64, _slot_duration_seconds: u64) -> Self {
+        TestingSlotClock {
+            slot: RwLock::new(genesis_slot),
+        }
+    }
+
     fn present_slot(&self) -> Result<Option<Slot>, Error> {
         let slot = *self.slot.read().expect("TestingSlotClock poisoned.");
-        Ok(Some(Slot::new(slot)))
+        Ok(Some(slot))
     }
 
     /// Always returns a duration of 1 second.
@@ -46,7 +44,9 @@ mod tests {
 
     #[test]
     fn test_slot_now() {
-        let clock = TestingSlotClock::new(10);
+        let null = 0;
+
+        let clock = TestingSlotClock::new(Slot::new(10), null, null);
         assert_eq!(clock.present_slot(), Ok(Some(Slot::new(10))));
         clock.set_slot(123);
         assert_eq!(clock.present_slot(), Ok(Some(Slot::new(123))));
