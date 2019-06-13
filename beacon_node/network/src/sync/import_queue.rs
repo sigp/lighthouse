@@ -212,7 +212,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
             // Case 2: there was no partial with a matching block root.
             //
             // A new partial is added. This case permits adding a header without already known the
-            // root -- this is not possible in the wire protocol however we support it anyway.
+            // root.
             self.partials.push(PartialBeaconBlock {
                 slot: header.slot,
                 block_root,
