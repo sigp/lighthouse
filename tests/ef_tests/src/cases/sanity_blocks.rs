@@ -17,8 +17,8 @@ pub struct SanityBlocks<E: EthSpec> {
 }
 
 impl<E: EthSpec> YamlDecode for SanityBlocks<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -42,10 +42,10 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
 
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &E::spec();
+        let spec = &E::default_spec();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(spec).unwrap();
 
         let mut result = self
             .blocks

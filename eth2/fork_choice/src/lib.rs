@@ -20,9 +20,9 @@ pub mod bitwise_lmd_ghost;
 pub mod longest_chain;
 pub mod optimized_lmd_ghost;
 pub mod slow_lmd_ghost;
+pub mod test_utils;
 
-// use store::stores::BeaconBlockAtSlotError;
-// use store::DBError;
+use std::sync::Arc;
 use store::Error as DBError;
 use types::{BeaconBlock, ChainSpec, Hash256};
 
@@ -34,7 +34,10 @@ pub use slow_lmd_ghost::SlowLMDGhost;
 /// Defines the interface for Fork Choices. Each Fork choice will define their own data structures
 /// which can be built in block processing through the `add_block` and `add_attestation` functions.
 /// The main fork choice algorithm is specified in `find_head
-pub trait ForkChoice: Send + Sync {
+pub trait ForkChoice<T>: Send + Sync {
+    /// Create a new `ForkChoice` which reads from `store`.
+    fn new(store: Arc<T>) -> Self;
+
     /// Called when a block has been added. Allows generic block-level data structures to be
     /// built for a given fork-choice.
     fn add_block(
@@ -77,22 +80,6 @@ impl From<DBError> for ForkChoiceError {
         ForkChoiceError::StorageError(format!("{:?}", e))
     }
 }
-
-/*
-impl From<BeaconBlockAtSlotError> for ForkChoiceError {
-    fn from(e: BeaconBlockAtSlotError) -> ForkChoiceError {
-        match e {
-            BeaconBlockAtSlotError::UnknownBeaconBlock(hash) => {
-                ForkChoiceError::MissingBeaconBlock(hash)
-            }
-            BeaconBlockAtSlotError::InvalidBeaconBlock(hash) => {
-                ForkChoiceError::MissingBeaconBlock(hash)
-            }
-            BeaconBlockAtSlotError::DBError(string) => ForkChoiceError::StorageError(string),
-        }
-    }
-}
-*/
 
 /// Fork choice options that are currently implemented.
 #[derive(Debug, Clone)]

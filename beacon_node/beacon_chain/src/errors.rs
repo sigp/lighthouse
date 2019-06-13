@@ -1,3 +1,4 @@
+use crate::metrics::Error as MetricsError;
 use fork_choice::ForkChoiceError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
@@ -25,9 +26,16 @@ pub enum BeaconChainError {
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
+    MetricsError(String),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
+
+impl From<MetricsError> for BeaconChainError {
+    fn from(e: MetricsError) -> BeaconChainError {
+        BeaconChainError::MetricsError(format!("{:?}", e))
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {

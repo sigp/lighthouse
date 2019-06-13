@@ -1,20 +1,17 @@
 #![cfg(not(debug_assertions))]
-// Tests the available fork-choice algorithms
-
+/// Tests the available fork-choice algorithms
 pub use beacon_chain::BeaconChain;
 use bls::Signature;
 use store::MemoryStore;
 use store::Store;
 // use env_logger::{Builder, Env};
-use fork_choice::{
-    BitwiseLMDGhost, ForkChoice, ForkChoiceAlgorithm, LongestChain, OptimizedLMDGhost, SlowLMDGhost,
-};
+use fork_choice::{BitwiseLMDGhost, ForkChoice, LongestChain, OptimizedLMDGhost, SlowLMDGhost};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fs::File, io::prelude::*, path::PathBuf};
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{
-    BeaconBlock, BeaconBlockBody, Eth1Data, EthSpec, FoundationEthSpec, Hash256, Keypair, Slot,
+    BeaconBlock, BeaconBlockBody, Eth1Data, EthSpec, Hash256, Keypair, MainnetEthSpec, Slot,
 };
 use yaml_rust::yaml;
 
@@ -25,8 +22,7 @@ fn test_optimized_lmd_ghost() {
     // set up logging
     // Builder::from_env(Env::default().default_filter_or("trace")).init();
 
-    test_yaml_vectors(
-        ForkChoiceAlgorithm::OptimizedLMDGhost,
+    test_yaml_vectors::<OptimizedLMDGhost<MemoryStore, MainnetEthSpec>>(
         "tests/lmd_ghost_test_vectors.yaml",
         100,
     );
@@ -37,8 +33,7 @@ fn test_bitwise_lmd_ghost() {
     // set up logging
     //Builder::from_env(Env::default().default_filter_or("trace")).init();
 
-    test_yaml_vectors(
-        ForkChoiceAlgorithm::BitwiseLMDGhost,
+    test_yaml_vectors::<BitwiseLMDGhost<MemoryStore, MainnetEthSpec>>(
         "tests/bitwise_lmd_ghost_test_vectors.yaml",
         100,
     );
@@ -46,8 +41,7 @@ fn test_bitwise_lmd_ghost() {
 
 #[test]
 fn test_slow_lmd_ghost() {
-    test_yaml_vectors(
-        ForkChoiceAlgorithm::SlowLMDGhost,
+    test_yaml_vectors::<SlowLMDGhost<MemoryStore, MainnetEthSpec>>(
         "tests/lmd_ghost_test_vectors.yaml",
         100,
     );
@@ -55,16 +49,11 @@ fn test_slow_lmd_ghost() {
 
 #[test]
 fn test_longest_chain() {
-    test_yaml_vectors(
-        ForkChoiceAlgorithm::LongestChain,
-        "tests/longest_chain_test_vectors.yaml",
-        100,
-    );
+    test_yaml_vectors::<LongestChain<MemoryStore>>("tests/longest_chain_test_vectors.yaml", 100);
 }
 
 // run a generic test over given YAML test vectors
-fn test_yaml_vectors(
-    fork_choice_algo: ForkChoiceAlgorithm,
+fn test_yaml_vectors<T: ForkChoice<MemoryStore>>(
     yaml_file_path: &str,
     emulated_validators: usize, // the number of validators used to give weights.
 ) {
@@ -72,7 +61,7 @@ fn test_yaml_vectors(
     let test_cases = load_test_cases_from_yaml(yaml_file_path);
 
     // default vars
-    let spec = FoundationEthSpec::spec();
+    let spec = MainnetEthSpec::default_spec();
     let zero_hash = Hash256::zero();
     let eth1_data = Eth1Data {
         deposit_count: 0,
@@ -96,8 +85,7 @@ fn test_yaml_vectors(
     // process the tests
     for test_case in test_cases {
         // setup a fresh test
-        let (mut fork_choice, store, state_root) =
-            setup_inital_state(&fork_choice_algo, emulated_validators);
+        let (mut fork_choice, store, state_root) = setup_inital_state::<T>(emulated_validators);
 
         // keep a hashmap of block_id's to block_hashes (random hashes to abstract block_id)
         //let mut block_id_map: HashMap<String, Hash256> = HashMap::new();
@@ -206,35 +194,19 @@ fn load_test_cases_from_yaml(file_path: &str) -> Vec<yaml_rust::Yaml> {
     doc["test_cases"].as_vec().unwrap().clone()
 }
 
-// initialise a single validator and state. All blocks will reference this state root.
-fn setup_inital_state(
-    fork_choice_algo: &ForkChoiceAlgorithm,
-    num_validators: usize,
-) -> (Box<ForkChoice>, Arc<MemoryStore>, Hash256) {
+fn setup_inital_state<T>(
+    // fork_choice_algo: &ForkChoiceAlgorithm,
+    num_validators: usize
+) -> (T, Arc<MemoryStore>, Hash256)
+where
+    T: ForkChoice<MemoryStore>,
+{
     let store = Arc::new(MemoryStore::open());
 
-    // the fork choice instantiation
-    let fork_choice: Box<ForkChoice> = match fork_choice_algo {
-        ForkChoiceAlgorithm::OptimizedLMDGhost => {
-            let f: OptimizedLMDGhost<MemoryStore, FoundationEthSpec> =
-                OptimizedLMDGhost::new(store.clone());
-            Box::new(f)
-        }
-        ForkChoiceAlgorithm::BitwiseLMDGhost => {
-            let f: BitwiseLMDGhost<MemoryStore, FoundationEthSpec> =
-                BitwiseLMDGhost::new(store.clone());
-            Box::new(f)
-        }
-        ForkChoiceAlgorithm::SlowLMDGhost => {
-            let f: SlowLMDGhost<MemoryStore, FoundationEthSpec> = SlowLMDGhost::new(store.clone());
-            Box::new(f)
-        }
-        ForkChoiceAlgorithm::LongestChain => Box::new(LongestChain::new(store.clone())),
-    };
+    let fork_choice = ForkChoice::new(store.clone());
+    let spec = MainnetEthSpec::default_spec();
 
-    let spec = FoundationEthSpec::spec();
-
-    let mut state_builder: TestingBeaconStateBuilder<FoundationEthSpec> =
+    let mut state_builder: TestingBeaconStateBuilder<MainnetEthSpec> =
         TestingBeaconStateBuilder::from_single_keypair(num_validators, &Keypair::random(), &spec);
     state_builder.build_caches(&spec).unwrap();
     let (state, _keypairs) = state_builder.build();

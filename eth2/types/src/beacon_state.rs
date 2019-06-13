@@ -1,4 +1,4 @@
-use self::committee_cache::{get_active_validator_indices, CommitteeCache};
+use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -15,6 +15,7 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
+pub use self::committee_cache::CommitteeCache;
 pub use beacon_state_types::*;
 
 mod beacon_state_types;
@@ -111,7 +112,7 @@ where
     pub previous_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
     pub latest_block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
-    latest_state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    pub latest_state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
     latest_active_index_roots: FixedLenVec<Hash256, T::LatestActiveIndexRootsLength>,
     latest_slashed_balances: FixedLenVec<u64, T::LatestSlashedExitLength>,
@@ -163,7 +164,7 @@ impl<T: EthSpec> BeaconState<T> {
         spec: &ChainSpec,
     ) -> BeaconState<T> {
         let initial_crosslink = Crosslink {
-            epoch: spec.genesis_epoch,
+            epoch: T::genesis_epoch(),
             previous_crosslink_root: spec.zero_hash,
             crosslink_data_root: spec.zero_hash,
         };
@@ -172,7 +173,7 @@ impl<T: EthSpec> BeaconState<T> {
             // Misc
             slot: spec.genesis_slot,
             genesis_time,
-            fork: Fork::genesis(spec),
+            fork: Fork::genesis(T::genesis_epoch()),
 
             // Validator registry
             validator_registry: vec![], // Set later in the function.
@@ -188,12 +189,12 @@ impl<T: EthSpec> BeaconState<T> {
             // Finality
             previous_epoch_attestations: vec![],
             current_epoch_attestations: vec![],
-            previous_justified_epoch: spec.genesis_epoch,
-            current_justified_epoch: spec.genesis_epoch,
+            previous_justified_epoch: T::genesis_epoch(),
+            current_justified_epoch: T::genesis_epoch(),
             previous_justified_root: spec.zero_hash,
             current_justified_root: spec.zero_hash,
             justification_bitfield: 0,
-            finalized_epoch: spec.genesis_epoch,
+            finalized_epoch: T::genesis_epoch(),
             finalized_root: spec.zero_hash,
 
             // Recent state
@@ -300,10 +301,10 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(cache.epoch_start_shard())
     }
 
-    pub fn next_epoch_start_shard(&self) -> Result<u64, Error> {
+    pub fn next_epoch_start_shard(&self, spec: &ChainSpec) -> Result<u64, Error> {
         let cache = self.cache(RelativeEpoch::Current)?;
         let active_validator_count = cache.active_validator_count();
-        let shard_delta = T::get_shard_delta(active_validator_count);
+        let shard_delta = T::get_shard_delta(active_validator_count, spec.target_committee_size);
 
         Ok((self.latest_start_shard + shard_delta) % T::ShardCount::to_u64())
     }
@@ -422,7 +423,7 @@ impl<T: EthSpec> BeaconState<T> {
             };
             let effective_balance = self.validator_registry[candidate_index].effective_balance;
             if (effective_balance * MAX_RANDOM_BYTE)
-                >= (spec.max_effective_balance * random_byte as u64)
+                >= (spec.max_effective_balance * u64::from(random_byte))
             {
                 break candidate_index;
             }
@@ -453,12 +454,8 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.6.0
     // FIXME(sproul): name swap with get_block_root
-    pub fn get_block_root_at_epoch(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<&Hash256, BeaconStateError> {
-        self.get_block_root(epoch.start_slot(spec.slots_per_epoch))
+    pub fn get_block_root_at_epoch(&self, epoch: Epoch) -> Result<&Hash256, BeaconStateError> {
+        self.get_block_root(epoch.start_slot(T::slots_per_epoch()))
     }
 
     /// Sets the block root for some given slot.

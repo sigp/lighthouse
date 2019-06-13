@@ -142,7 +142,7 @@ pub fn verify_block_signature<T: EthSpec>(
         [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
 
     let domain = spec.get_domain(
-        block.slot.epoch(spec.slots_per_epoch),
+        block.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
         &state.fork,
     );
@@ -174,7 +174,7 @@ pub fn process_randao<T: EthSpec>(
         block.body.randao_reveal.verify(
             &state.current_epoch().tree_hash_root()[..],
             spec.get_domain(
-                block.slot.epoch(spec.slots_per_epoch),
+                block.slot.epoch(T::slots_per_epoch()),
                 Domain::Randao,
                 &state.fork
             ),

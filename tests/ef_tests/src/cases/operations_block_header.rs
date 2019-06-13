@@ -17,8 +17,8 @@ pub struct OperationsBlockHeader<E: EthSpec> {
 }
 
 impl<E: EthSpec> YamlDecode for OperationsBlockHeader<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -28,16 +28,18 @@ impl<E: EthSpec> Case for OperationsBlockHeader<E> {
     }
 
     fn result(&self, _case_index: usize) -> Result<(), Error> {
+        let spec = &E::default_spec();
+
         self.bls_setting.unwrap_or_default().check()?;
 
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(spec).unwrap();
 
         let mut result =
-            process_block_header(&mut state, &self.block, &E::spec(), true).map(|_| state);
+            process_block_header(&mut state, &self.block, spec, true).map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

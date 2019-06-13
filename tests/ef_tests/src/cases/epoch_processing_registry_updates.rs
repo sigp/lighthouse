@@ -14,8 +14,8 @@ pub struct EpochProcessingRegistryUpdates<E: EthSpec> {
 }
 
 impl<E: EthSpec> YamlDecode for EpochProcessingRegistryUpdates<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -27,7 +27,7 @@ impl<E: EthSpec> Case for EpochProcessingRegistryUpdates<E> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &E::spec();
+        let spec = &E::default_spec();
 
         // Processing requires the epoch cache.
         state.build_all_caches(spec).unwrap();

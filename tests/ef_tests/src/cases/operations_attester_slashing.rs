@@ -17,8 +17,8 @@ pub struct OperationsAttesterSlashing<E: EthSpec> {
 }
 
 impl<E: EthSpec> YamlDecode for OperationsAttesterSlashing<E> {
-    fn yaml_decode(yaml: &String) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(&yaml.as_str()).unwrap())
+    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
+        Ok(serde_yaml::from_str(yaml).unwrap())
     }
 }
 
@@ -35,9 +35,10 @@ impl<E: EthSpec> Case for OperationsAttesterSlashing<E> {
         let mut expected = self.post.clone();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(&E::spec()).unwrap();
+        state.build_all_caches(&E::default_spec()).unwrap();
 
-        let result = process_attester_slashings(&mut state, &[attester_slashing], &E::spec());
+        let result =
+            process_attester_slashings(&mut state, &[attester_slashing], &E::default_spec());
 
         let mut result = result.and_then(|_| Ok(state));
 

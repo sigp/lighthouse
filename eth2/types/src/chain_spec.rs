@@ -1,7 +1,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
-use serde_derive::Deserialize;
-use test_utils::u8_from_hex_str;
+use serde_derive::{Deserialize, Serialize};
+use test_utils::{u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///
@@ -18,7 +18,7 @@ pub enum Domain {
 /// Holds all the "constants" for a BeaconChain.
 ///
 /// Spec v0.6.1
-#[derive(PartialEq, Debug, Clone, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
     /*
@@ -48,18 +48,19 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_slot: Slot,
-    pub genesis_epoch: Epoch,
+    // Skipped because serde TOML can't handle u64::max_value, the typical value for this field.
+    #[serde(skip_serializing)]
     pub far_future_epoch: Epoch,
     pub zero_hash: Hash256,
-    #[serde(deserialize_with = "u8_from_hex_str")]
+    #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
      */
+    pub genesis_time: u64,
     pub seconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
-    pub slots_per_epoch: u64,
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
     pub slots_per_eth1_voting_period: u64,
@@ -137,7 +138,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
     /// Spec v0.6.1
-    pub(crate) fn foundation() -> Self {
+    pub fn mainnet() -> Self {
         Self {
             /*
              * Misc
@@ -166,7 +167,6 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_slot: Slot::new(0),
-            genesis_epoch: Epoch::new(0),
             far_future_epoch: Epoch::new(u64::max_value()),
             zero_hash: Hash256::zero(),
             bls_withdrawal_prefix_byte: 0,
@@ -174,9 +174,9 @@ impl ChainSpec {
             /*
              * Time parameters
              */
+            genesis_time: u64::from(u32::max_value()),
             seconds_per_slot: 6,
             min_attestation_inclusion_delay: 4,
-            slots_per_epoch: 64,
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             slots_per_eth1_voting_period: 1_024,
@@ -219,47 +219,35 @@ impl ChainSpec {
              * Boot nodes
              */
             boot_nodes: vec![],
-            chain_id: 1, // foundation chain id
+            chain_id: 1, // mainnet chain id
         }
     }
 
-    /// Returns a `ChainSpec` compatible with the Lighthouse testnet specification.
-    ///
-    /// Spec v0.4.0
-    pub(crate) fn lighthouse_testnet() -> Self {
-        /*
-         * Lighthouse testnet bootnodes
-         */
+    /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
+    pub fn minimal() -> Self {
+        let genesis_slot = Slot::new(0);
+
+        // Note: these bootnodes are placeholders.
+        //
+        // Should be updated once static bootnodes exist.
         let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
             .parse()
             .expect("correct multiaddr")];
 
         Self {
             boot_nodes,
-            chain_id: 2, // lighthouse testnet chain id
-            ..ChainSpec::few_validators()
-        }
-    }
-
-    /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
-    pub(crate) fn few_validators() -> Self {
-        let genesis_slot = Slot::new(0);
-        let slots_per_epoch = 8;
-        let genesis_epoch = genesis_slot.epoch(slots_per_epoch);
-
-        Self {
             target_committee_size: 1,
+            chain_id: 2, // lighthouse testnet chain id
             genesis_slot,
-            genesis_epoch,
-            slots_per_epoch,
-            ..ChainSpec::foundation()
+            shuffle_round_count: 10,
+            ..ChainSpec::mainnet()
         }
     }
 }
 
 impl Default for ChainSpec {
     fn default() -> Self {
-        Self::foundation()
+        Self::mainnet()
     }
 }
 
@@ -269,12 +257,12 @@ mod tests {
     use int_to_bytes::int_to_bytes8;
 
     #[test]
-    fn test_foundation_spec_can_be_constructed() {
-        let _ = ChainSpec::foundation();
+    fn test_mainnet_spec_can_be_constructed() {
+        let _ = ChainSpec::mainnet();
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
-        let fork = Fork::genesis(&spec);
+        let fork = Fork::genesis(Epoch::new(0));
         let epoch = Epoch::new(0);
 
         let domain = spec.get_domain(epoch, domain_type, &fork);
@@ -287,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_get_domain() {
-        let spec = ChainSpec::foundation();
+        let spec = ChainSpec::mainnet();
 
         test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);

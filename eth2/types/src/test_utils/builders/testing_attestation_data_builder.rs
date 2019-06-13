@@ -21,7 +21,7 @@ impl TestingAttestationDataBuilder {
         let previous_epoch = state.previous_epoch();
 
         let is_previous_epoch =
-            state.slot.epoch(spec.slots_per_epoch) != slot.epoch(spec.slots_per_epoch);
+            state.slot.epoch(T::slots_per_epoch()) != slot.epoch(T::slots_per_epoch());
 
         let source_epoch = if is_previous_epoch {
             state.previous_justified_epoch
@@ -37,11 +37,11 @@ impl TestingAttestationDataBuilder {
 
         let target_root = if is_previous_epoch {
             *state
-                .get_block_root(previous_epoch.start_slot(spec.slots_per_epoch))
+                .get_block_root(previous_epoch.start_slot(T::slots_per_epoch()))
                 .unwrap()
         } else {
             *state
-                .get_block_root(current_epoch.start_slot(spec.slots_per_epoch))
+                .get_block_root(current_epoch.start_slot(T::slots_per_epoch()))
                 .unwrap()
         };
 
@@ -57,7 +57,7 @@ impl TestingAttestationDataBuilder {
         };
 
         let source_root = *state
-            .get_block_root(source_epoch.start_slot(spec.slots_per_epoch))
+            .get_block_root(source_epoch.start_slot(T::slots_per_epoch()))
             .unwrap();
 
         let data = AttestationData {

@@ -100,7 +100,7 @@ where
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        if bytes.len() == 0 {
+        if bytes.is_empty() {
             Ok(FixedLenVec::from(vec![]))
         } else if T::is_ssz_fixed_len() {
             bytes
