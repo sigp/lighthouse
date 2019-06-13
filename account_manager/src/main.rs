@@ -57,7 +57,7 @@ fn main() {
                         .help("If supplied along with `index`, generates keys `i..i + n`.")
                         .takes_value(true)
                         .default_value("1"),
-                )
+                ),
         )
         .get_matches();
 
@@ -65,7 +65,7 @@ fn main() {
         Ok(dir) => dir,
         Err(e) => {
             crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
-            return
+            return;
         }
     };
 
@@ -73,7 +73,7 @@ fn main() {
 
     if let Err(e) = client_config.apply_cli_args(&matches) {
         crit!(log, "Failed to apply CLI args"; "error" => format!("{:?}", e));
-        return
+        return;
     };
 
     // Ensure the `data_dir` in the config matches that supplied to the CLI.
