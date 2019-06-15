@@ -1,9 +1,7 @@
 pub mod reduced_tree;
 
 use std::sync::Arc;
-use store::Error as DBError;
-use store::Store;
-use types::{BeaconBlock, ChainSpec, Hash256, Slot};
+use types::{Hash256, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -12,17 +10,17 @@ pub enum Error {
     BackendError(String),
 }
 
-pub trait LmdGhostBackend<T> {
+pub trait LmdGhostBackend<T>: Send + Sync {
     fn new(store: Arc<T>) -> Self;
 
     fn process_message(
-        &mut self,
+        &self,
         validator_index: usize,
         block_hash: Hash256,
         block_slot: Slot,
     ) -> Result<()>;
 
-    fn find_head(&mut self) -> Result<Hash256>;
+    fn find_head(&self) -> Result<Hash256>;
 }
 
 pub struct ForkChoice<T> {
@@ -30,7 +28,7 @@ pub struct ForkChoice<T> {
 }
 
 impl<T: LmdGhostBackend<T>> ForkChoice<T> {
-    fn new(store: Arc<T>) -> Self {
+    pub fn new(store: Arc<T>) -> Self {
         Self {
             algorithm: T::new(store),
         }
