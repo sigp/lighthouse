@@ -18,5 +18,7 @@ pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync {
         block_slot: Slot,
     ) -> Result<()>;
 
-    fn find_head(&self) -> Result<Hash256>;
+    fn find_head<F>(&self, start_block_root: Hash256, weight: F) -> Result<Hash256>
+    where
+        F: Fn(usize) -> Option<u64>;
 }
