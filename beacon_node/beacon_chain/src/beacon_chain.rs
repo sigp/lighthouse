@@ -87,7 +87,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut genesis_state: BeaconState<T::EthSpec>,
         genesis_block: BeaconBlock,
         spec: ChainSpec,
-        fork_choice: ForkChoice<T>,
     ) -> Result<Self, Error> {
         let state_root = genesis_state.canonical_root();
         store.put(&state_root, &genesis_state)?;
@@ -110,14 +109,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(Self {
             spec,
-            store,
             slot_clock,
             op_pool: OperationPool::new(),
             state: RwLock::new(genesis_state),
             canonical_head,
             genesis_block_root,
-            fork_choice,
+            fork_choice: ForkChoice::new(store.clone(), genesis_block_root),
             metrics: Metrics::new()?,
+            store,
         })
     }
 
@@ -139,16 +138,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec.seconds_per_slot,
         );
 
-        // let fork_choice = T::ForkChoice::new(store.clone());
-        // let fork_choice: ForkChoice<T::LmdGhost, T::EthSpec> = ForkChoice::new(store.clone());
+        let last_finalized_root = p.canonical_head.beacon_state.finalized_root;
 
         Ok(Some(BeaconChain {
             spec,
             slot_clock,
+            fork_choice: ForkChoice::new(store.clone(), last_finalized_root),
             op_pool: OperationPool::default(),
             canonical_head: RwLock::new(p.canonical_head),
             state: RwLock::new(p.state),
-            fork_choice: ForkChoice::new(store.clone()),
             genesis_block_root: p.genesis_block_root,
             metrics: Metrics::new()?,
             store,
@@ -476,11 +474,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .op_pool
             .insert_attestation(attestation, &*self.state.read(), &self.spec);
 
+        timer.observe_duration();
+
         if result.is_ok() {
             self.metrics.attestation_processing_successes.inc();
         }
 
-        timer.observe_duration();
+        // TODO: process attestation. Please consider:
+        //
+        //  - Because a block was not added to the op pool does not mean it's invalid (it might
+        //  just be old).
+        //  - The attestation should be rejected if we don't know the block (ideally it should be
+        //  queued, but this may be overkill).
+        //  - The attestation _must_ be validated against it's state before being added to fork
+        //  choice.
+        //  - You can avoid verifying some attestations by first checking if they're a latest
+        //  message. This would involve expanding the `LmdGhost` API.
 
         result
     }

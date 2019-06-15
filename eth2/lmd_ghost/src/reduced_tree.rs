@@ -16,6 +16,7 @@ pub enum Error {
     NotInTree(Hash256),
     NoCommonAncestor((Hash256, Hash256)),
     StoreError(StoreError),
+    ValidatorWeightUnknown(usize),
 }
 
 impl From<StoreError> for Error {
@@ -24,43 +25,8 @@ impl From<StoreError> for Error {
     }
 }
 
-pub type Height = usize;
-
-#[derive(Default, Clone)]
-pub struct Node {
-    pub parent_hash: Option<Hash256>,
-    pub children: Vec<Hash256>,
-    pub score: u64,
-    pub height: Height,
-    pub block_hash: Hash256,
-    pub voters: Vec<usize>,
-}
-
-impl Node {
-    pub fn remove_voter(&mut self, voter: usize) -> Option<usize> {
-        let i = self.voters.iter().position(|&v| v == voter)?;
-        Some(self.voters.remove(i))
-    }
-
-    pub fn add_voter(&mut self, voter: usize) {
-        self.voters.push(voter);
-    }
-
-    pub fn has_votes(&self) -> bool {
-        !self.voters.is_empty()
-    }
-}
-
-impl Node {
-    fn does_not_have_children(&self) -> bool {
-        self.children.is_empty()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Vote {
-    hash: Hash256,
-    slot: Slot,
+pub struct ThreadSafeReducedTree<T, E> {
+    core: RwLock<ReducedTree<T, E>>,
 }
 
 impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
@@ -68,9 +34,9 @@ where
     T: Store,
     E: EthSpec,
 {
-    fn new(store: Arc<T>) -> Self {
+    fn new(store: Arc<T>, genesis_root: Hash256) -> Self {
         ThreadSafeReducedTree {
-            core: RwLock::new(ReducedTree::new(store)),
+            core: RwLock::new(ReducedTree::new(store, genesis_root)),
         }
     }
 
@@ -86,30 +52,29 @@ where
             .map_err(Into::into)
     }
 
-    fn find_head<F>(&self, _start_block_root: Hash256, _weight: F) -> SuperResult<Hash256>
+    fn find_head<F>(&self, start_block_root: Hash256, weight_fn: F) -> SuperResult<Hash256>
     where
-        F: Fn(usize) -> Option<u64>,
+        F: Fn(usize) -> Option<u64> + Copy,
     {
-        unimplemented!();
+        self.core
+            .write()
+            .update_weights_and_find_head(start_block_root, weight_fn)
+            .map_err(Into::into)
+    }
+
+    fn update_finalized_root(&self, new_root: Hash256) -> SuperResult<()> {
+        self.core.write().update_root(new_root).map_err(Into::into)
     }
 }
 
-impl From<Error> for String {
-    fn from(e: Error) -> String {
-        format!("{:?}", e)
-    }
-}
-
-pub struct ThreadSafeReducedTree<T, E> {
-    pub core: RwLock<ReducedTree<T, E>>,
-}
-
-pub struct ReducedTree<T, E> {
+struct ReducedTree<T, E> {
     store: Arc<T>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
     nodes: HashMap<Hash256, Node>,
     /// Maps validator indices to their latest votes.
     latest_votes: ElasticList<Option<Vote>>,
+    /// Stores the root of the tree, used for pruning.
+    root: Hash256,
     _phantom: PhantomData<E>,
 }
 
@@ -118,13 +83,52 @@ where
     T: Store,
     E: EthSpec,
 {
-    pub fn new(store: Arc<T>) -> Self {
+    pub fn new(store: Arc<T>, genesis_root: Hash256) -> Self {
+        let mut nodes = HashMap::new();
+
+        // Insert the genesis node.
+        nodes.insert(
+            genesis_root,
+            Node {
+                block_hash: genesis_root,
+                ..Node::default()
+            },
+        );
+
         Self {
             store,
-            nodes: HashMap::new(),
+            nodes,
             latest_votes: ElasticList::default(),
+            root: genesis_root,
             _phantom: PhantomData,
         }
+    }
+
+    pub fn update_root(&mut self, new_root: Hash256) -> Result<()> {
+        if !self.nodes.contains_key(&new_root) {
+            self.add_node(new_root, vec![])?;
+        }
+
+        self.retain_subtree(self.root, new_root)?;
+
+        self.root = new_root;
+
+        Ok(())
+    }
+
+    fn retain_subtree(&mut self, current_hash: Hash256, subtree_hash: Hash256) -> Result<()> {
+        if current_hash != subtree_hash {
+            // Clone satisifies the borrow checker.
+            let children = self.get_node(current_hash)?.children.clone();
+
+            for child_hash in children {
+                self.retain_subtree(child_hash, subtree_hash)?;
+            }
+
+            self.nodes.remove(&current_hash);
+        }
+
+        Ok(())
     }
 
     pub fn process_message(
@@ -143,7 +147,7 @@ where
             } else if previous_vote.slot == slot && previous_vote.hash != block_hash {
                 // Vote is an equivocation (double-vote), ignore it.
                 //
-                // TODO: flag this as slashable.
+                // TODO: this is slashable.
                 return Ok(());
             } else {
                 // Given vote is newer or different to current vote, replace the current vote.
@@ -154,6 +158,76 @@ where
         self.add_latest_message(validator_index, block_hash)?;
 
         Ok(())
+    }
+
+    pub fn update_weights_and_find_head<F>(
+        &mut self,
+        start_block_root: Hash256,
+        weight_fn: F,
+    ) -> Result<Hash256>
+    where
+        F: Fn(usize) -> Option<u64> + Copy,
+    {
+        let _root_weight = self.update_weight(start_block_root, weight_fn)?;
+
+        let start_node = self.get_node(start_block_root)?;
+        let head_node = self.find_head_from(start_node)?;
+
+        Ok(head_node.block_hash)
+    }
+
+    fn find_head_from<'a>(&'a self, start_node: &'a Node) -> Result<&'a Node> {
+        if start_node.does_not_have_children() {
+            Ok(start_node)
+        } else {
+            let children = start_node
+                .children
+                .iter()
+                .map(|hash| self.get_node(*hash))
+                .collect::<Result<Vec<&Node>>>()?;
+
+            // TODO: check if `max_by` is `O(n^2)`.
+            let best_child = children
+                .iter()
+                .max_by(|a, b| {
+                    if a.weight != b.weight {
+                        a.weight.cmp(&b.weight)
+                    } else {
+                        a.block_hash.cmp(&b.block_hash)
+                    }
+                })
+                // There can only be no maximum if there are no children. This code path is guarded
+                // against that condition.
+                .expect("There must be a maximally weighted node.");
+
+            self.find_head_from(best_child)
+        }
+    }
+
+    fn update_weight<F>(&mut self, start_block_root: Hash256, weight_fn: F) -> Result<u64>
+    where
+        F: Fn(usize) -> Option<u64> + Copy,
+    {
+        let weight = {
+            let node = self.get_node(start_block_root)?.clone();
+
+            let mut weight = 0;
+
+            for &child in &node.children {
+                weight += self.update_weight(child, weight_fn)?;
+            }
+
+            for &voter in &node.voters {
+                weight += weight_fn(voter).ok_or_else(|| Error::ValidatorWeightUnknown(voter))?;
+            }
+
+            weight
+        };
+
+        let node = self.get_mut_node(start_block_root)?;
+        node.weight = weight;
+
+        Ok(weight)
     }
 
     fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
@@ -390,6 +464,40 @@ where
     }
 }
 
+#[derive(Default, Clone)]
+pub struct Node {
+    pub parent_hash: Option<Hash256>,
+    pub children: Vec<Hash256>,
+    pub weight: u64,
+    pub block_hash: Hash256,
+    pub voters: Vec<usize>,
+}
+
+impl Node {
+    pub fn does_not_have_children(&self) -> bool {
+        self.children.is_empty()
+    }
+
+    pub fn remove_voter(&mut self, voter: usize) -> Option<usize> {
+        let i = self.voters.iter().position(|&v| v == voter)?;
+        Some(self.voters.remove(i))
+    }
+
+    pub fn add_voter(&mut self, voter: usize) {
+        self.voters.push(voter);
+    }
+
+    pub fn has_votes(&self) -> bool {
+        !self.voters.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Vote {
+    hash: Hash256,
+    slot: Slot,
+}
+
 /// A Vec-wrapper which will grow to match any request.
 ///
 /// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
@@ -415,5 +523,11 @@ where
     pub fn insert(&mut self, i: usize, element: T) {
         self.ensure(i);
         self.0[i] = element;
+    }
+}
+
+impl From<Error> for String {
+    fn from(e: Error) -> String {
+        format!("{:?}", e)
     }
 }
