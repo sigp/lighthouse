@@ -1,0 +1,144 @@
+title: Fork-choice Tests
+summary: A collection of abstract fork-choice tests for bitwise lmd ghost.
+test_suite: Fork-Choice
+
+test_cases:
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b1'
+    - id: 'b3'
+      parent: 'b1'
+  weights:
+    - b0: 0
+    - b1: 0
+    - b2: 5
+    - b3: 10
+  heads:
+    - id: 'b3'
+# bitwise LMD ghost example. bitwise GHOST gives b2
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b0'
+  weights:
+    - b1: 5
+    - b2: 4
+    - b3: 3
+  heads:
+    - id: 'b2'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b1'
+    - id: 'b4'
+      parent: 'b1'
+    - id: 'b5'
+      parent: 'b1'
+    - id: 'b6'
+      parent: 'b2'
+    - id: 'b7'
+      parent: 'b6'
+  weights:
+    - b0: 0
+    - b1: 3
+    - b2: 2
+    - b3: 1
+    - b4: 1
+    - b5: 1
+    - b6: 2
+    - b7: 2
+  heads:
+    - id: 'b4'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b0'
+    - id: 'b4'
+      parent: 'b1'
+    - id: 'b5'
+      parent: 'b1'
+    - id: 'b6'
+      parent: 'b2'
+    - id: 'b7'
+      parent: 'b2'
+    - id: 'b8'
+      parent: 'b3'
+    - id: 'b9'
+      parent: 'b3'
+  weights:
+    - b1: 2
+    - b2: 1
+    - b3: 1
+    - b4: 7
+    - b5: 5
+    - b6: 2
+    - b7: 4
+    - b8: 4
+    - b9: 2
+  heads:
+    - id: 'b4'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+    - id: 'b3'
+      parent: 'b0'
+    - id: 'b4'
+      parent: 'b1'
+    - id: 'b5'
+      parent: 'b1'
+    - id: 'b6'
+      parent: 'b2'
+    - id: 'b7'
+      parent: 'b2'
+    - id: 'b8'
+      parent: 'b3'
+    - id: 'b9'
+      parent: 'b3'
+  weights:
+    - b1: 1
+    - b2: 1
+    - b3: 1
+    - b4: 7
+    - b5: 5
+    - b6: 2
+    - b7: 4
+    - b8: 4
+    - b9: 2
+  heads:
+    - id: 'b7'
+- blocks:
+    - id: 'b0'
+      parent: 'b0'
+    - id: 'b1'
+      parent: 'b0'
+    - id: 'b2'
+      parent: 'b0'
+  weights:
+    - b1: 0
+    - b2: 0
+  heads:
+    - id: 'b1'
+
