@@ -1,5 +1,5 @@
+use crate::fork_choice::Error as ForkChoiceError;
 use crate::metrics::Error as MetricsError;
-use fork_choice::ForkChoiceError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use types::*;
