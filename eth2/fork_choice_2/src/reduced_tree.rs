@@ -1,4 +1,5 @@
 use super::{Error as SuperError, LmdGhostBackend};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -68,34 +69,30 @@ pub struct Vote {
     slot: Slot,
 }
 
-pub struct ReducedTree<T, E> {
-    store: Arc<T>,
-    nodes: HashMap<Hash256, Node>,
-    /// Maps validator indices to their latest votes.
-    latest_votes: ElasticList<Option<Vote>>,
-    _phantom: PhantomData<E>,
-}
-
-impl<T, E> LmdGhostBackend<T> for ReducedTree<T, E>
+impl<T, E> LmdGhostBackend<T> for ThreadSafeReducedTree<T, E>
 where
     T: Store,
     E: EthSpec,
 {
     fn new(store: Arc<T>) -> Self {
-        Self::new(store)
+        ThreadSafeReducedTree {
+            core: RwLock::new(ReducedTree::new(store)),
+        }
     }
 
     fn process_message(
-        &mut self,
+        &self,
         validator_index: usize,
         block_hash: Hash256,
         block_slot: Slot,
     ) -> std::result::Result<(), SuperError> {
-        self.process_message(validator_index, block_hash, block_slot)
+        self.core
+            .write()
+            .process_message(validator_index, block_hash, block_slot)
             .map_err(Into::into)
     }
 
-    fn find_head(&mut self) -> std::result::Result<Hash256, SuperError> {
+    fn find_head(&self) -> std::result::Result<Hash256, SuperError> {
         unimplemented!();
     }
 }
@@ -104,6 +101,19 @@ impl From<Error> for SuperError {
     fn from(e: Error) -> SuperError {
         SuperError::BackendError(format!("{:?}", e))
     }
+}
+
+pub struct ThreadSafeReducedTree<T, E> {
+    pub core: RwLock<ReducedTree<T, E>>,
+}
+
+pub struct ReducedTree<T, E> {
+    store: Arc<T>,
+    /// Stores all nodes of the tree, keyed by the block hash contained in the node.
+    nodes: HashMap<Hash256, Node>,
+    /// Maps validator indices to their latest votes.
+    latest_votes: ElasticList<Option<Vote>>,
+    _phantom: PhantomData<E>,
 }
 
 impl<T, E> ReducedTree<T, E>
@@ -144,12 +154,12 @@ where
             }
         }
 
-        // TODO: add new vote.
+        self.add_latest_message(validator_index, block_hash)?;
 
         Ok(())
     }
 
-    pub fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
+    fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
         if self.latest_votes.get(validator_index).is_some() {
             // Unwrap is safe as prior `if` statements ensures the result is `Some`.
             let vote = self.latest_votes.get(validator_index).unwrap();
@@ -234,7 +244,7 @@ where
         Ok(())
     }
 
-    pub fn add_latest_message(&mut self, validator_index: usize, hash: Hash256) -> Result<()> {
+    fn add_latest_message(&mut self, validator_index: usize, hash: Hash256) -> Result<()> {
         if let Ok(node) = self.get_mut_node(hash) {
             node.add_voter(validator_index);
         } else {
@@ -244,7 +254,7 @@ where
         Ok(())
     }
 
-    pub fn add_node(&mut self, hash: Hash256, voters: Vec<usize>) -> Result<()> {
+    fn add_node(&mut self, hash: Hash256, voters: Vec<usize>) -> Result<()> {
         // Find the highest (by slot) ancestor of the given hash/block that is in the reduced tree.
         let mut prev_in_tree = {
             let hash = self
