@@ -1,4 +1,4 @@
-use super::{Error as SuperError, LmdGhostBackend};
+use super::{LmdGhost, Result as SuperResult};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -7,8 +7,6 @@ use store::{iter::BlockRootsIterator, Error as StoreError, Store};
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
-
-pub const SKIP_LIST_LEN: usize = 16;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -51,10 +49,6 @@ impl Node {
     pub fn has_votes(&self) -> bool {
         !self.voters.is_empty()
     }
-
-    pub fn is_genesis(&self) -> bool {
-        self.parent_hash.is_some()
-    }
 }
 
 impl Node {
@@ -69,7 +63,7 @@ pub struct Vote {
     slot: Slot,
 }
 
-impl<T, E> LmdGhostBackend<T, E> for ThreadSafeReducedTree<T, E>
+impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
 where
     T: Store,
     E: EthSpec,
@@ -85,21 +79,21 @@ where
         validator_index: usize,
         block_hash: Hash256,
         block_slot: Slot,
-    ) -> std::result::Result<(), SuperError> {
+    ) -> SuperResult<()> {
         self.core
             .write()
             .process_message(validator_index, block_hash, block_slot)
             .map_err(Into::into)
     }
 
-    fn find_head(&self) -> std::result::Result<Hash256, SuperError> {
+    fn find_head(&self) -> SuperResult<Hash256> {
         unimplemented!();
     }
 }
 
-impl From<Error> for SuperError {
-    fn from(e: Error) -> SuperError {
-        SuperError::BackendError(format!("{:?}", e))
+impl From<Error> for String {
+    fn from(e: Error) -> String {
+        format!("{:?}", e)
     }
 }
 
@@ -413,11 +407,6 @@ where
     pub fn get(&mut self, i: usize) -> &T {
         self.ensure(i);
         &self.0[i]
-    }
-
-    pub fn get_mut(&mut self, i: usize) -> &mut T {
-        self.ensure(i);
-        &mut self.0[i]
     }
 
     pub fn insert(&mut self, i: usize, element: T) {

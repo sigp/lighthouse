@@ -1,9 +1,10 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::iter::{BlockIterator, BlockRootsIterator};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-use fork_choice::{ForkChoice, ForkChoiceError};
+use lmd_ghost::LmdGhost;
 use log::{debug, trace};
 use operation_pool::DepositInsertStatus;
 use operation_pool::OperationPool;
@@ -48,7 +49,7 @@ pub enum BlockProcessingOutcome {
 pub trait BeaconChainTypes {
     type Store: store::Store;
     type SlotClock: slot_clock::SlotClock;
-    type ForkChoice: fork_choice::ForkChoice<Self::Store>;
+    type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
     type EthSpec: types::EthSpec;
 }
 
@@ -73,7 +74,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     genesis_block_root: Hash256,
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
-    pub fork_choice: RwLock<T::ForkChoice>,
+    pub fork_choice: ForkChoice<T::LmdGhost, T::Store, T::EthSpec>,
     /// Stores metrics about this `BeaconChain`.
     pub metrics: Metrics,
 }
@@ -86,7 +87,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut genesis_state: BeaconState<T::EthSpec>,
         genesis_block: BeaconBlock,
         spec: ChainSpec,
-        fork_choice: T::ForkChoice,
+        fork_choice: ForkChoice<T::LmdGhost, T::Store, T::EthSpec>,
     ) -> Result<Self, Error> {
         let state_root = genesis_state.canonical_root();
         store.put(&state_root, &genesis_state)?;
@@ -115,7 +116,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state: RwLock::new(genesis_state),
             canonical_head,
             genesis_block_root,
-            fork_choice: RwLock::new(fork_choice),
+            fork_choice,
             metrics: Metrics::new()?,
         })
     }
@@ -138,18 +139,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec.seconds_per_slot,
         );
 
-        let fork_choice = T::ForkChoice::new(store.clone());
+        // let fork_choice = T::ForkChoice::new(store.clone());
+        // let fork_choice: ForkChoice<T::LmdGhost, T::EthSpec> = ForkChoice::new(store.clone());
 
         Ok(Some(BeaconChain {
             spec,
-            store,
             slot_clock,
             op_pool: OperationPool::default(),
             canonical_head: RwLock::new(p.canonical_head),
             state: RwLock::new(p.state),
-            fork_choice: RwLock::new(fork_choice),
+            fork_choice: ForkChoice::new(store.clone()),
             genesis_block_root: p.genesis_block_root,
             metrics: Metrics::new()?,
+            store,
         }))
     }
 
@@ -613,9 +615,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put(&state_root, &state)?;
 
         // Register the new block with the fork choice service.
-        self.fork_choice
-            .write()
-            .add_block(&block, &block_root, &self.spec)?;
+        self.fork_choice.process_block(&state, &block)?;
 
         // Execute the fork choice algorithm, enthroning a new head if discovered.
         //
@@ -713,20 +713,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Start fork choice metrics timer.
         let timer = self.metrics.fork_choice_times.start_timer();
 
-        let justified_root = {
-            let root = self.head().beacon_state.current_justified_root;
-            if root == self.spec.zero_hash {
-                self.genesis_block_root
-            } else {
-                root
-            }
-        };
-
         // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self
-            .fork_choice
-            .write()
-            .find_head(&justified_root, &self.spec)?;
+        let beacon_block_root = self.fork_choice.find_head()?;
 
         // End fork choice metrics timer.
         timer.observe_duration();
