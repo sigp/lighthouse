@@ -103,15 +103,29 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
         let block_hash = attestation.data.target_root;
 
-        // TODO: what happens when the target root is not the same slot as the block?
-        let block_slot = attestation
-            .data
-            .target_epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
+        // Ignore any attestations to the zero hash.
+        //
+        // This is an edge case that results from the spec aliasing the zero hash to the genesis
+        // block. Attesters may attest to the zero hash if they have never seen a block.
+        //
+        // We have two options here:
+        //
+        //  1. Apply all zero-hash attestations to the zero hash.
+        //  2. Ignore all attestations to the zero hash.
+        //
+        // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
+        // fine becuase votes to the genesis block are not usefully, all validators already
+        // implicitly attest to genesis just by being present in the chain.
+        if block_hash != Hash256::zero() {
+            let block_slot = attestation
+                .data
+                .target_epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
 
-        for validator_index in validator_indices {
-            self.backend
-                .process_message(validator_index, block_hash, block_slot)?;
+            for validator_index in validator_indices {
+                self.backend
+                    .process_message(validator_index, block_hash, block_slot)?;
+            }
         }
 
         Ok(())
