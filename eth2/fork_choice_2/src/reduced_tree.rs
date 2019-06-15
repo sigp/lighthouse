@@ -1,5 +1,5 @@
 use super::{Error as SuperError, LmdGhostBackend};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{iter::BlockRootsIterator, Error as StoreError, Store};
@@ -71,8 +71,6 @@ pub struct Vote {
 pub struct ReducedTree<T, E> {
     store: Arc<T>,
     nodes: HashMap<Hash256, Node>,
-    slots_at_height: SortedList<Slot>,
-    blocks_at_height: HashMap<Height, Vec<Hash256>>,
     /// Maps validator indices to their latest votes.
     latest_votes: ElasticList<Option<Vote>>,
     _phantom: PhantomData<E>,
@@ -117,8 +115,6 @@ where
         Self {
             store,
             nodes: HashMap::new(),
-            slots_at_height: SortedList::new(),
-            blocks_at_height: HashMap::new(),
             latest_votes: ElasticList::default(),
             _phantom: PhantomData,
         }
@@ -154,11 +150,13 @@ where
     }
 
     pub fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
-        if let Some(vote) = self.latest_votes.get(validator_index) {
-            let should_delete = {
-                let node = self.get_mut_node(vote.hash)?;
+        if self.latest_votes.get(validator_index).is_some() {
+            // Unwrap is safe as prior `if` statements ensures the result is `Some`.
+            let vote = self.latest_votes.get(validator_index).unwrap();
 
-                node.remove_voter(validator_index);
+            let should_delete = {
+                self.get_mut_node(vote.hash)?.remove_voter(validator_index);
+                let node = self.get_node(vote.hash)?.clone();
 
                 if let Some(parent_hash) = node.parent_hash {
                     if node.has_votes() {
@@ -202,6 +200,8 @@ where
             if should_delete {
                 self.nodes.remove(&vote.hash);
             }
+
+            self.latest_votes.insert(validator_index, Some(vote));
         }
 
         Ok(())
@@ -209,9 +209,9 @@ where
 
     fn maybe_delete_node(&mut self, hash: Hash256) -> Result<()> {
         let should_delete = {
-            let node = self.get_node(hash)?;
+            let node = self.get_node(hash)?.clone();
 
-            if let Some(parent_hash) = node.parent_hash {
+            if node.parent_hash.is_some() {
                 if (node.children.len() == 1) && !node.has_votes() {
                     let child_node = self.get_mut_node(node.children[0])?;
 
@@ -381,55 +381,12 @@ where
             .get::<BeaconState<E>>(&state_root)?
             .ok_or_else(|| Error::MissingState(state_root))
     }
-
-    /*
-    fn exists_above_height(&self, hash: Hash256, height: Height) -> Option<bool> {
-        let ancestor_at_height = self.find_ancestor_at_height(hash, height)?;
-        let blocks_at_height = self.blocks_at_height.get(&height)?;
-
-        Some(blocks_at_height.contains(&ancestor_at_height))
-    }
-
-    fn exists_between_heights(&self, hash: Hash256, range: Range<Height>) -> Option<bool> {
-        let low_blocks = self.blocks_at_height.get(&range.start)?;
-        let high_blocks = self.blocks_at_height.get(&range.end)?;
-
-        let low_ancestor = self.find_ancestor_at_height(hash, range.start)?;
-        let high_ancestor = self.find_ancestor_at_height(hash, range.end)?;
-
-        Some(low_blocks.contains(&low_ancestor) && !high_blocks.contains(&high_ancestor))
-    }
-
-    fn find_ancestor_at_height(&self, child: Hash256, height: Height) -> Option<Hash256> {
-        self.find_ancestor_at_slot(child, self.slot_at_height(height)?)
-    }
-
-    fn slot_at_height(&self, height: Height) -> Option<Slot> {
-        self.slots_at_height.nth(height).cloned()
-    }
-    */
 }
 
-pub struct SortedList<K>(BTreeMap<K, ()>);
-
-impl<K: Ord> SortedList<K> {
-    pub fn new() -> Self {
-        SortedList(BTreeMap::new())
-    }
-
-    pub fn insert(&mut self, key: K) {
-        self.0.insert(key, ());
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn nth(&self, n: usize) -> Option<&K> {
-        self.0.iter().nth(n).and_then(|(k, _v)| Some(k))
-    }
-}
-
+/// A Vec-wrapper which will grow to match any request.
+///
+/// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
+/// Default) to the smallest size required to fulfill the request.
 #[derive(Default, Clone)]
 pub struct ElasticList<T>(Vec<T>);
 
@@ -458,133 +415,3 @@ where
         self.0[i] = element;
     }
 }
-
-/*
-#[derive(Default, Clone, Debug)]
-pub struct Block {
-    pub slot: Slot,
-    ancestor_skip_list: [Hash256; SKIP_LIST_LEN],
-}
-
-pub type Store = HashMap<Hash256, Block>;
-
-pub struct SortedList<K>(BTreeMap<K, ()>);
-
-impl<K: Ord> SortedList<K> {
-    pub fn new() -> Self {
-        SortedList(BTreeMap::new())
-    }
-
-    pub fn insert(&mut self, key: K) {
-        self.0.insert(key, ());
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn nth(&self, n: usize) -> Option<&K> {
-        self.0.iter().nth(n).and_then(|(k, _v)| Some(k))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new() {
-        let genesis_root = Hash256::random();
-        let genesis_slot = 0;
-
-        let _t = Tree::new(genesis_root, genesis_slot);
-    }
-
-    /// Creates a new "hash" from the `u64`.
-    ///
-    /// Does not _actually_ perform a hash, just generates bytes that are some serialization of the
-    /// the `u64`.
-    fn get_hash(i: u64) -> Hash256 {
-        Hash256::from_low_u64_le(i)
-    }
-
-    fn hash_to_u64(hash: Hash256) -> u64 {
-        hash.to_low_u64_le()
-    }
-
-    fn store_chain(store: &mut Store, roots: &[Hash256], slots: &[Slot]) {
-        for i in 0..roots.len() {
-            let mut block = Block::default();
-            block.slot = slots[i];
-
-            // Build the skip list.
-            for j in 0..SKIP_LIST_LEN {
-                let skip = 2_usize.pow(j as u32);
-                block.ancestor_skip_list[j as usize] = roots[i.saturating_sub(skip)];
-            }
-
-            store.insert(roots[i as usize], block);
-        }
-    }
-
-    #[test]
-    fn common_ancestor() {
-        let common_chain_len = (2_u64 << SKIP_LIST_LEN) - 3;
-        let forked_blocks = 2_u64 << SKIP_LIST_LEN;
-
-        let common_roots: Vec<Hash256> = (0..common_chain_len).map(get_hash).collect();
-        let common_slots: Vec<Slot> = (0..common_chain_len).collect();
-
-        let mut fork_a_roots = common_roots.clone();
-        fork_a_roots.append(
-            &mut (common_chain_len..common_chain_len + forked_blocks)
-                .map(get_hash)
-                .collect(),
-        );
-        let mut fork_a_slots = common_slots.clone();
-        fork_a_slots.append(&mut (common_chain_len..common_chain_len + forked_blocks).collect());
-
-        let mut fork_b_roots = common_roots.clone();
-        fork_b_roots.append(
-            &mut (common_chain_len..common_chain_len + forked_blocks)
-                .map(|i| get_hash(i * 10))
-                .collect(),
-        );
-        let mut fork_b_slots = common_slots.clone();
-        fork_b_slots.append(&mut (common_chain_len..common_chain_len + forked_blocks).collect());
-
-        let fork_a_head = *fork_a_roots.iter().last().unwrap();
-        let fork_b_head = *fork_b_roots.iter().last().unwrap();
-
-        let mut store = Store::default();
-        store_chain(&mut store, &fork_a_roots, &fork_a_slots);
-        store_chain(&mut store, &fork_b_roots, &fork_b_slots);
-
-        assert_eq!(
-            find_least_common_ancestor(fork_a_head, fork_b_head, &store)
-                .and_then(|i| Some(hash_to_u64(i))),
-            Some(hash_to_u64(*common_roots.iter().last().unwrap()))
-        );
-    }
-
-    #[test]
-    fn get_at_slot() {
-        let n = 2_u64.pow(SKIP_LIST_LEN as u32) * 2;
-        let mut store = Store::default();
-
-        let roots: Vec<Hash256> = (0..n).map(get_hash).collect();
-        let slots: Vec<Slot> = (0..n).collect();
-
-        store_chain(&mut store, &roots, &slots);
-
-        for i in 0..n - 1 {
-            let key = roots.last().unwrap();
-
-            assert_eq!(
-                get_ancestor_hash_at_slot(i as u64, *key, &store),
-                Some(get_hash(i as u64))
-            );
-        }
-    }
-}
-*/
