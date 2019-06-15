@@ -69,7 +69,7 @@ pub struct Vote {
     slot: Slot,
 }
 
-impl<T, E> LmdGhostBackend<T> for ThreadSafeReducedTree<T, E>
+impl<T, E> LmdGhostBackend<T, E> for ThreadSafeReducedTree<T, E>
 where
     T: Store,
     E: EthSpec,
