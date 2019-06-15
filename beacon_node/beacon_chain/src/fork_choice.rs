@@ -21,9 +21,9 @@ pub struct ForkChoice<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> ForkChoice<T> {
-    pub fn new(store: Arc<T::Store>) -> Self {
+    pub fn new(store: Arc<T::Store>, genesis_block_root: Hash256) -> Self {
         Self {
-            backend: T::LmdGhost::new(store),
+            backend: T::LmdGhost::new(store, genesis_block_root),
         }
     }
 
@@ -67,7 +67,29 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .map_err(Into::into)
     }
 
-    pub fn process_attestation(
+    /// Process all attestations in the given `block`.
+    ///
+    /// Assumes the block (and therefore it's attestations) are valid. It is a logic error to
+    /// provide an invalid block.
+    pub fn process_block(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        block: &BeaconBlock,
+    ) -> Result<()> {
+        // Note: we never count the block as a latest message, only attestations.
+        //
+        // I (Paul H) do not have an explicit reference to this, but I derive it from this
+        // document:
+        //
+        // https://github.com/ethereum/eth2.0-specs/blob/v0.7.0/specs/core/0_fork-choice.md
+        for attestation in &block.body.attestations {
+            self.process_attestation_from_block(state, attestation)?;
+        }
+
+        Ok(())
+    }
+
+    fn process_attestation_from_block(
         &self,
         state: &BeaconState<T::EthSpec>,
         attestation: &Attestation,
@@ -90,28 +112,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         for validator_index in validator_indices {
             self.backend
                 .process_message(validator_index, block_hash, block_slot)?;
-        }
-
-        Ok(())
-    }
-
-    /// A helper function which runs `self.process_attestation` on all `Attestation` in the given `BeaconBlock`.
-    ///
-    /// Assumes the block (and therefore it's attestations) are valid. It is a logic error to
-    /// provide an invalid block.
-    pub fn process_block(
-        &self,
-        state: &BeaconState<T::EthSpec>,
-        block: &BeaconBlock,
-    ) -> Result<()> {
-        // Note: we never count the block as a latest message, only attestations.
-        //
-        // I (Paul H) do not have an explicit reference to this, however I derive it from this
-        // document:
-        //
-        // https://github.com/ethereum/eth2.0-specs/blob/v0.7.0/specs/core/0_fork-choice.md
-        for attestation in &block.body.attestations {
-            self.process_attestation(state, attestation)?;
         }
 
         Ok(())
