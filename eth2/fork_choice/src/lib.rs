@@ -19,7 +19,6 @@
 pub mod bitwise_lmd_ghost;
 pub mod longest_chain;
 pub mod optimized_lmd_ghost;
-pub mod reduced_tree;
 pub mod slow_lmd_ghost;
 pub mod test_utils;
 
