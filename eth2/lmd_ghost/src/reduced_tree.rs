@@ -86,7 +86,10 @@ where
             .map_err(Into::into)
     }
 
-    fn find_head(&self) -> SuperResult<Hash256> {
+    fn find_head<F>(&self, _start_block_root: Hash256, _weight: F) -> SuperResult<Hash256>
+    where
+        F: Fn(usize) -> Option<u64>,
+    {
         unimplemented!();
     }
 }

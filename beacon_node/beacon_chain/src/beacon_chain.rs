@@ -74,7 +74,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     genesis_block_root: Hash256,
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
-    pub fork_choice: ForkChoice<T::LmdGhost, T::Store, T::EthSpec>,
+    pub fork_choice: ForkChoice<T>,
     /// Stores metrics about this `BeaconChain`.
     pub metrics: Metrics,
 }
@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut genesis_state: BeaconState<T::EthSpec>,
         genesis_block: BeaconBlock,
         spec: ChainSpec,
-        fork_choice: ForkChoice<T::LmdGhost, T::Store, T::EthSpec>,
+        fork_choice: ForkChoice<T>,
     ) -> Result<Self, Error> {
         let state_root = genesis_state.canonical_root();
         store.put(&state_root, &genesis_state)?;
@@ -714,7 +714,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let timer = self.metrics.fork_choice_times.start_timer();
 
         // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self.fork_choice.find_head()?;
+        let beacon_block_root = self.fork_choice.find_head(&self)?;
 
         // End fork choice metrics timer.
         timer.observe_duration();
