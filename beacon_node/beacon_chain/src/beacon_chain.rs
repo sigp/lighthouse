@@ -624,7 +624,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put(&state_root, &state)?;
 
         // Register the new block with the fork choice service.
-        self.fork_choice.process_block(&state, &block)?;
+        self.fork_choice.process_block(&state, &block, block_root)?;
 
         // Execute the fork choice algorithm, enthroning a new head if discovered.
         //
