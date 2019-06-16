@@ -89,6 +89,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         &self,
         state: &BeaconState<T::EthSpec>,
         block: &BeaconBlock,
+        block_root: Hash256,
     ) -> Result<()> {
         // Note: we never count the block as a latest message, only attestations.
         //
@@ -99,6 +100,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         for attestation in &block.body.attestations {
             self.process_attestation_from_block(state, attestation)?;
         }
+
+        self.backend.process_block(block_root, block.slot)?;
 
         Ok(())
     }
@@ -138,7 +141,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
             for validator_index in validator_indices {
                 self.backend
-                    .process_message(validator_index, block_hash, block_slot)?;
+                    .process_attestation(validator_index, block_hash, block_slot)?;
             }
         }
 

@@ -40,7 +40,7 @@ where
         }
     }
 
-    fn process_message(
+    fn process_attestation(
         &self,
         validator_index: usize,
         block_hash: Hash256,
@@ -50,6 +50,11 @@ where
             .write()
             .process_message(validator_index, block_hash, block_slot)
             .map_err(Into::into)
+    }
+
+    /// Process a block that was seen on the network.
+    fn process_block(&self, block_hash: Hash256, block_slot: Slot) -> SuperResult<()> {
+        unimplemented!();
     }
 
     fn find_head<F>(&self, start_block_root: Hash256, weight_fn: F) -> SuperResult<Hash256>
