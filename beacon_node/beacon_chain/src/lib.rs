@@ -5,6 +5,7 @@ mod fork_choice;
 pub mod iter;
 mod metrics;
 mod persisted_beacon_chain;
+mod test_utils;
 
 pub use self::beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 pub use self::checkpoint::CheckPoint;
