@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use lmd_ghost::{LmdGhost, ThreadSafeReducedTree};
+use lmd_ghost::LmdGhost;
 use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;
 use std::marker::PhantomData;
@@ -7,8 +7,9 @@ use std::sync::Arc;
 use store::MemoryStore;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    test_utils::TestingBeaconStateBuilder, BeaconBlock, ChainSpec, Domain, EthSpec, Hash256,
-    Keypair, MinimalEthSpec, Signature,
+    test_utils::TestingBeaconStateBuilder, AggregateSignature, Attestation,
+    AttestationDataAndCustodyBit, BeaconBlock, Bitfield, ChainSpec, Domain, EthSpec, Hash256,
+    Keypair, SecretKey, Signature,
 };
 
 pub struct CommonTypes<L, E>
@@ -91,6 +92,8 @@ where
             .process_block(block)
             .expect("should process block");
         assert_eq!(outcome, BlockProcessingOutcome::Processed);
+
+        self.add_attestations_to_op_pool();
     }
 
     fn build_block(&self) -> BeaconBlock {
@@ -127,16 +130,81 @@ where
 
         block
     }
+
+    fn add_attestations_to_op_pool(&self) {
+        let state = &self.chain.current_state();
+        let spec = &self.spec;
+        let fork = &state.fork;
+
+        state
+            .get_crosslink_committees_at_slot(state.slot)
+            .expect("should get committees")
+            .iter()
+            .for_each(|cc| {
+                let committee_size = cc.committee.len();
+
+                for (i, validator_index) in cc.committee.iter().enumerate() {
+                    let data = self
+                        .chain
+                        .produce_attestation_data(cc.shard)
+                        .expect("should produce attestation data");
+
+                    let mut aggregation_bitfield = Bitfield::new();
+                    aggregation_bitfield.set(i, true);
+                    aggregation_bitfield.set(committee_size, false);
+
+                    let mut custody_bitfield = Bitfield::new();
+                    custody_bitfield.set(committee_size, false);
+
+                    let signature = {
+                        let message = AttestationDataAndCustodyBit {
+                            data: data.clone(),
+                            custody_bit: false,
+                        }
+                        .tree_hash_root();
+
+                        let domain = spec.get_domain(data.target_epoch, Domain::Attestation, fork);
+
+                        let mut agg_sig = AggregateSignature::new();
+                        agg_sig.add(&Signature::new(
+                            &message,
+                            domain,
+                            self.get_sk(*validator_index),
+                        ));
+
+                        agg_sig
+                    };
+
+                    let attestation = Attestation {
+                        aggregation_bitfield,
+                        data,
+                        custody_bitfield,
+                        signature,
+                    };
+
+                    self.chain
+                        .process_attestation(attestation)
+                        .expect("should process attestation");
+                }
+            });
+    }
+
+    fn get_sk(&self, validator_index: usize) -> &SecretKey {
+        &self.keypairs[validator_index].sk
+    }
 }
 
 #[cfg(test)]
+#[cfg(not(debug_assertions))]
 mod test {
     use super::*;
+    use lmd_ghost::ThreadSafeReducedTree;
+    use types::MinimalEthSpec;
 
     pub const VALIDATOR_COUNT: usize = 16;
 
     #[test]
-    fn build_on_genesis() {
+    fn build_two_epochs_on_genesis() {
         let harness: BeaconChainHarness<
             ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>,
             MinimalEthSpec,
