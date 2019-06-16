@@ -8,7 +8,6 @@ stages:
 
 variables:
     CARGO_HOME: /cache/cargocache
-    GIT_SUBMODULE_STRATEGY: normal
 
 check-fmt:
   stage: test
@@ -18,11 +17,15 @@ check-fmt:
 
 test-dev:
   stage: test
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
   script:
     - cargo test --verbose --all
 
 test-release:
   stage: test
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
   script:
     - cargo test --verbose --all --release
 
