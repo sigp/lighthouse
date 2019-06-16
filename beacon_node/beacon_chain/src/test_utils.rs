@@ -142,6 +142,8 @@ mod test {
             MinimalEthSpec,
         > = BeaconChainHarness::new(VALIDATOR_COUNT);
 
-        harness.extend_canonical_chain();
+        for _ in 0..MinimalEthSpec::slots_per_epoch() * 2 {
+            harness.extend_canonical_chain();
+        }
     }
 }

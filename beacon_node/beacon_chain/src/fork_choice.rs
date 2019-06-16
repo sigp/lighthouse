@@ -18,12 +18,18 @@ pub enum Error {
 
 pub struct ForkChoice<T: BeaconChainTypes> {
     backend: T::LmdGhost,
+    /// Used for resolving the `0x00..00` alias back to genesis.
+    ///
+    /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
+    /// whenever the struct was instantiated.
+    genesis_block_root: Hash256,
 }
 
 impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn new(store: Arc<T::Store>, genesis_block_root: Hash256) -> Self {
         Self {
             backend: T::LmdGhost::new(store, genesis_block_root),
+            genesis_block_root,
         }
     }
 
@@ -41,10 +47,18 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             } else {
                 state.finalized_root
             };
+
             let block = chain
                 .store
                 .get::<BeaconBlock>(&block_root)?
                 .ok_or_else(|| Error::MissingBlock(block_root))?;
+
+            // Resolve the `0x00.. 00` alias back to genesis
+            let block_root = if block_root == Hash256::zero() {
+                self.genesis_block_root
+            } else {
+                block_root
+            };
 
             let state = chain
                 .store
