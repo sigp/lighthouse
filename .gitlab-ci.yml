@@ -8,6 +8,7 @@ stages:
 
 variables:
     CARGO_HOME: /cache/cargocache
+    GIT_SUBMODULE_STRATEGY: normal
 
 check-fmt:
   stage: test
