@@ -88,6 +88,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         genesis_block: BeaconBlock,
         spec: ChainSpec,
     ) -> Result<Self, Error> {
+        genesis_state.build_all_caches(&spec)?;
+
         let state_root = genesis_state.canonical_root();
         store.put(&state_root, &genesis_state)?;
 
@@ -104,8 +106,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_state.clone(),
             state_root,
         ));
-
-        genesis_state.build_all_caches(&spec)?;
 
         Ok(Self {
             spec,
