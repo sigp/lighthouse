@@ -15,8 +15,8 @@ pub fn process_slashings<T: EthSpec>(
     let total_penalities = total_at_end - total_at_start;
 
     for (index, validator) in state.validator_registry.iter().enumerate() {
-        let should_penalize = current_epoch.as_usize()
-            == validator.withdrawable_epoch.as_usize() - T::LatestSlashedExitLength::to_usize() / 2;
+        let should_penalize = current_epoch.as_usize() + T::LatestSlashedExitLength::to_usize() / 2
+            == validator.withdrawable_epoch.as_usize();
 
         if validator.slashed && should_penalize {
             let effective_balance = state.get_effective_balance(index, spec)?;
