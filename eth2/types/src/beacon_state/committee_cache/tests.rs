@@ -170,7 +170,7 @@ impl EthSpec for ExcessShardsEthSpec {
 fn starts_on_the_correct_shard() {
     let spec = &ExcessShardsEthSpec::default_spec();
 
-    let num_validators = ExcessShardsEthSpec::shard_count();
+    let num_validators = spec.target_committee_size * ExcessShardsEthSpec::shard_count();
 
     let epoch = Epoch::new(100_000_000);
     let slot = epoch.start_slot(ExcessShardsEthSpec::slots_per_epoch());

@@ -98,7 +98,6 @@ fn operations_exit() {
 }
 
 #[test]
-#[should_panic]
 fn operations_proposer_slashing() {
     yaml_files_in_test_dir(&Path::new("operations").join("proposer_slashing"))
         .into_par_iter()
@@ -108,7 +107,6 @@ fn operations_proposer_slashing() {
 }
 
 #[test]
-#[should_panic]
 fn operations_attester_slashing() {
     yaml_files_in_test_dir(&Path::new("operations").join("attester_slashing"))
         .into_par_iter()
@@ -118,7 +116,6 @@ fn operations_attester_slashing() {
 }
 
 #[test]
-#[should_panic]
 fn operations_attestation() {
     yaml_files_in_test_dir(&Path::new("operations").join("attestation"))
         .into_par_iter()
@@ -137,7 +134,6 @@ fn operations_block_header() {
 }
 
 #[test]
-#[should_panic]
 fn sanity_blocks() {
     yaml_files_in_test_dir(&Path::new("sanity").join("blocks"))
         .into_par_iter()

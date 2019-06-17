@@ -214,8 +214,9 @@ mod committees {
     ) {
         let active_indices: Vec<usize> = (0..validator_count).collect();
         let seed = state.generate_seed(epoch, spec).unwrap();
-        let start_shard = 0;
         let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).unwrap();
+        let start_shard =
+            CommitteeCache::compute_start_shard(&state, relative_epoch, active_indices.len(), spec);
 
         let mut ordered_indices = state
             .get_cached_active_validator_indices(relative_epoch)
@@ -231,8 +232,9 @@ mod committees {
             shuffle_list(active_indices, spec.shuffle_round_count, &seed[..], false).unwrap();
 
         let mut expected_indices_iter = shuffling.iter();
-        let mut expected_shards_iter =
-            (start_shard..start_shard + T::shard_count() as u64).into_iter();
+        let mut expected_shards_iter = (0..T::ShardCount::to_u64())
+            .into_iter()
+            .map(|i| (start_shard + i) % T::ShardCount::to_u64());
 
         // Loop through all slots in the epoch being tested.
         for slot in epoch.slot_iter(T::slots_per_epoch()) {
