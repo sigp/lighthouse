@@ -50,24 +50,8 @@ impl CommitteeCache {
             spec.target_committee_size,
         ) as usize;
 
-        let shuffling_start_shard = match relative_epoch {
-            RelativeEpoch::Current => state.latest_start_shard,
-            RelativeEpoch::Previous => {
-                let shard_delta =
-                    T::get_shard_delta(active_validator_indices.len(), spec.target_committee_size);
-
-                (state.latest_start_shard + T::ShardCount::to_u64() - shard_delta)
-                    % T::ShardCount::to_u64()
-            }
-            RelativeEpoch::Next => {
-                let current_active_validators =
-                    get_active_validator_count(&state.validator_registry, state.current_epoch());
-                let shard_delta =
-                    T::get_shard_delta(current_active_validators, spec.target_committee_size);
-
-                (state.latest_start_shard + shard_delta) % T::ShardCount::to_u64()
-            }
-        };
+        let shuffling_start_shard =
+            Self::compute_start_shard(state, relative_epoch, active_validator_indices.len(), spec);
 
         let seed = state.generate_seed(epoch, spec)?;
 
@@ -98,6 +82,37 @@ impl CommitteeCache {
             slots_per_epoch: T::slots_per_epoch(),
             shuffling_positions,
         })
+    }
+
+    /// Compute the shard which must be attested to first in a given relative epoch.
+    ///
+    /// The `active_validator_count` must be the number of validators active at `relative_epoch`.
+    ///
+    /// Spec v0.6.3
+    pub fn compute_start_shard<T: EthSpec>(
+        state: &BeaconState<T>,
+        relative_epoch: RelativeEpoch,
+        active_validator_count: usize,
+        spec: &ChainSpec,
+    ) -> u64 {
+        match relative_epoch {
+            RelativeEpoch::Current => state.latest_start_shard,
+            RelativeEpoch::Previous => {
+                let shard_delta =
+                    T::get_shard_delta(active_validator_count, spec.target_committee_size);
+
+                (state.latest_start_shard + T::ShardCount::to_u64() - shard_delta)
+                    % T::ShardCount::to_u64()
+            }
+            RelativeEpoch::Next => {
+                let current_active_validators =
+                    get_active_validator_count(&state.validator_registry, state.current_epoch());
+                let shard_delta =
+                    T::get_shard_delta(current_active_validators, spec.target_committee_size);
+
+                (state.latest_start_shard + shard_delta) % T::ShardCount::to_u64()
+            }
+        }
     }
 
     /// Returns `true` if the cache has been initialized at the supplied `epoch`.

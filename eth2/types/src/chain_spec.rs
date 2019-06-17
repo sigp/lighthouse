@@ -223,7 +223,11 @@ impl ChainSpec {
         }
     }
 
-    /// Returns a `ChainSpec` compatible with the specification suitable for 8 validators.
+    /// Ethereum Foundation minimal spec, as defined here:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.6.3/configs/constant_presets/minimal.yaml
+    ///
+    /// Spec v0.6.3
     pub fn minimal() -> Self {
         let genesis_slot = Slot::new(0);
 
@@ -235,11 +239,13 @@ impl ChainSpec {
             .expect("correct multiaddr")];
 
         Self {
-            boot_nodes,
-            target_committee_size: 1,
-            chain_id: 2, // lighthouse testnet chain id
-            genesis_slot,
+            target_committee_size: 4,
             shuffle_round_count: 10,
+            min_attestation_inclusion_delay: 2,
+            slots_per_eth1_voting_period: 16,
+            genesis_slot,
+            chain_id: 2, // lighthouse testnet chain id
+            boot_nodes,
             ..ChainSpec::mainnet()
         }
     }

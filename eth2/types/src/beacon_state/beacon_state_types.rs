@@ -123,16 +123,20 @@ impl EthSpec for MainnetEthSpec {
 
 pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 
-/// Ethereum Foundation specifications, modified to be suitable for < 1000 validators.
+/// Ethereum Foundation minimal spec, as defined here:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.6.3/configs/constant_presets/minimal.yaml
+///
+/// Spec v0.6.3
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
     type ShardCount = U8;
-    type SlotsPerHistoricalRoot = U8192;
-    type LatestRandaoMixesLength = U8192;
-    type LatestActiveIndexRootsLength = U8192;
-    type LatestSlashedExitLength = U8192;
+    type SlotsPerHistoricalRoot = U64;
+    type LatestRandaoMixesLength = U64;
+    type LatestActiveIndexRootsLength = U64;
+    type LatestSlashedExitLength = U64;
     type SlotsPerEpoch = U8;
     type GenesisEpoch = U0;
 
