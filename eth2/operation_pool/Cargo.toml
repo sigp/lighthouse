@@ -5,6 +5,7 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
+boolean-bitfield = { path = "../utils/boolean-bitfield" }
 int_to_bytes = { path = "../utils/int_to_bytes" }
 itertools = "0.8"
 parking_lot = "0.7"

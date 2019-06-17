@@ -1,7 +1,12 @@
-use int_to_bytes::int_to_bytes8;
+mod attestation;
+mod attestation_id;
+mod max_cover;
+
+use attestation::{earliest_attestation_validators, AttMaxCover};
+use attestation_id::AttestationId;
 use itertools::Itertools;
+use max_cover::maximum_cover;
 use parking_lot::RwLock;
-use ssz::ssz_encode;
 use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
@@ -16,10 +21,9 @@ use state_processing::per_block_processing::{
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
-use types::chain_spec::Domain;
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconState, ChainSpec, Deposit, Epoch,
-    EthSpec, ProposerSlashing, Transfer, Validator, VoluntaryExit,
+    Attestation, AttesterSlashing, BeaconState, ChainSpec, Deposit, EthSpec, ProposerSlashing,
+    Transfer, Validator, VoluntaryExit,
 };
 
 #[derive(Default)]
@@ -41,71 +45,6 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Set of transfers.
     transfers: RwLock<HashSet<Transfer>>,
     _phantom: PhantomData<T>,
-}
-
-/// Serialized `AttestationData` augmented with a domain to encode the fork info.
-#[derive(PartialEq, Eq, Clone, Hash, Debug)]
-struct AttestationId(Vec<u8>);
-
-/// Number of domain bytes that the end of an attestation ID is padded with.
-const DOMAIN_BYTES_LEN: usize = 8;
-
-impl AttestationId {
-    fn from_data<T: EthSpec>(
-        attestation: &AttestationData,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Self {
-        let mut bytes = ssz_encode(attestation);
-        let epoch = attestation.target_epoch;
-        bytes.extend_from_slice(&AttestationId::compute_domain_bytes(epoch, state, spec));
-        AttestationId(bytes)
-    }
-
-    fn compute_domain_bytes<T: EthSpec>(
-        epoch: Epoch,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Vec<u8> {
-        int_to_bytes8(spec.get_domain(epoch, Domain::Attestation, &state.fork))
-    }
-
-    fn domain_bytes_match(&self, domain_bytes: &[u8]) -> bool {
-        &self.0[self.0.len() - DOMAIN_BYTES_LEN..] == domain_bytes
-    }
-}
-
-/// Compute a fitness score for an attestation.
-///
-/// The score is calculated by determining the number of *new* attestations that
-/// the aggregate attestation introduces, and is proportional to the size of the reward we will
-/// receive for including it in a block.
-// TODO: this could be optimised with a map from validator index to whether that validator has
-// attested in each of the current and previous epochs. Currently quadractic in number of validators.
-fn attestation_score<T: EthSpec>(attestation: &Attestation, state: &BeaconState<T>) -> usize {
-    // Bitfield of validators whose attestations are new/fresh.
-    let mut new_validators = attestation.aggregation_bitfield.clone();
-
-    let state_attestations = if attestation.data.target_epoch == state.current_epoch() {
-        &state.current_epoch_attestations
-    } else if attestation.data.target_epoch == state.previous_epoch() {
-        &state.previous_epoch_attestations
-    } else {
-        return 0;
-    };
-
-    state_attestations
-        .iter()
-        // In a single epoch, an attester should only be attesting for one shard.
-        // TODO: we avoid including slashable attestations in the state here,
-        // but maybe we should do something else with them (like construct slashings).
-        .filter(|current_attestation| current_attestation.data.shard == attestation.data.shard)
-        .for_each(|current_attestation| {
-            // Remove the validators who have signed the existing attestation (they are not new)
-            new_validators.difference_inplace(&current_attestation.aggregation_bitfield);
-        });
-
-    new_validators.num_set_bits()
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -176,29 +115,19 @@ impl<T: EthSpec> OperationPool<T> {
         let current_epoch = state.current_epoch();
         let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
         let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
-        self.attestations
-            .read()
+        let reader = self.attestations.read();
+        let valid_attestations = reader
             .iter()
             .filter(|(key, _)| {
                 key.domain_bytes_match(&prev_domain_bytes)
                     || key.domain_bytes_match(&curr_domain_bytes)
             })
             .flat_map(|(_, attestations)| attestations)
-            // That are not superseded by an attestation included in the state...
-            .filter(|attestation| !superior_attestation_exists_in_state(state, attestation))
             // That are valid...
             .filter(|attestation| validate_attestation(state, attestation, spec).is_ok())
-            // Scored by the number of new attestations they introduce (descending)
-            // TODO: need to consider attestations introduced in THIS block
-            .map(|att| (att, attestation_score(att, state)))
-            // Don't include any useless attestations (score 0)
-            .filter(|&(_, score)| score != 0)
-            .sorted_by_key(|&(_, score)| std::cmp::Reverse(score))
-            // Limited to the maximum number of attestations per block
-            .take(spec.max_attestations as usize)
-            .map(|(att, _)| att)
-            .cloned()
-            .collect()
+            .map(|att| AttMaxCover::new(att, earliest_attestation_validators(att, state)));
+
+        maximum_cover(valid_attestations, spec.max_attestations as usize)
     }
 
     /// Remove attestations which are too old to be included in a block.
@@ -484,34 +413,6 @@ impl<T: EthSpec> OperationPool<T> {
     }
 }
 
-/// Returns `true` if the state already contains a `PendingAttestation` that is superior to the
-/// given `attestation`.
-///
-/// A validator has nothing to gain from re-including an attestation and it adds load to the
-/// network.
-///
-/// An existing `PendingAttestation` is superior to an existing `attestation` if:
-///
-/// - Their `AttestationData` is equal.
-/// - `attestation` does not contain any signatures that `PendingAttestation` does not have.
-fn superior_attestation_exists_in_state<T: EthSpec>(
-    state: &BeaconState<T>,
-    attestation: &Attestation,
-) -> bool {
-    state
-        .current_epoch_attestations
-        .iter()
-        .chain(state.previous_epoch_attestations.iter())
-        .any(|existing_attestation| {
-            let bitfield = &attestation.aggregation_bitfield;
-            let existing_bitfield = &existing_attestation.aggregation_bitfield;
-
-            existing_attestation.data == attestation.data
-                && bitfield.intersection(existing_bitfield).num_set_bits()
-                    == bitfield.num_set_bits()
-        })
-}
-
 /// Filter up to a maximum number of operations out of an iterator.
 fn filter_limit_operations<'a, T: 'a, I, F>(operations: I, filter: F, limit: u64) -> Vec<T>
 where
@@ -734,15 +635,13 @@ mod tests {
             state_builder.teleport_to_slot(slot);
             state_builder.build_caches(&spec).unwrap();
             let (state, keypairs) = state_builder.build();
-
             (state, keypairs, MainnetEthSpec::default_spec())
         }
 
         #[test]
-        fn test_attestation_score() {
+        fn test_earliest_attestation() {
             let (ref mut state, ref keypairs, ref spec) =
                 attestation_test_state::<MainnetEthSpec>(1);
-
             let slot = state.slot - 1;
             let committees = state
                 .get_crosslink_committees_at_slot(slot)
@@ -775,9 +674,8 @@ mod tests {
 
                 assert_eq!(
                     att1.aggregation_bitfield.num_set_bits(),
-                    attestation_score(&att1, state)
+                    earliest_attestation_validators(&att1, state).num_set_bits()
                 );
-
                 state.current_epoch_attestations.push(PendingAttestation {
                     aggregation_bitfield: att1.aggregation_bitfield.clone(),
                     data: att1.data.clone(),
@@ -785,7 +683,10 @@ mod tests {
                     proposer_index: 0,
                 });
 
-                assert_eq!(cc.committee.len() - 2, attestation_score(&att2, state));
+                assert_eq!(
+                    cc.committee.len() - 2,
+                    earliest_attestation_validators(&att2, state).num_set_bits()
+                );
             }
         }
 
