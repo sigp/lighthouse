@@ -13,6 +13,7 @@ pub enum Error {
     MissingNode(Hash256),
     MissingBlock(Hash256),
     MissingState(Hash256),
+    MissingChild(Hash256),
     NotInTree(Hash256),
     NoCommonAncestor((Hash256, Hash256)),
     StoreError(StoreError),
@@ -49,12 +50,15 @@ where
         self.core
             .write()
             .process_message(validator_index, block_hash, block_slot)
-            .map_err(Into::into)
+            .map_err(|e| format!("process_attestation failed: {:?}", e))
     }
 
     /// Process a block that was seen on the network.
-    fn process_block(&self, block_hash: Hash256, block_slot: Slot) -> SuperResult<()> {
-        unimplemented!();
+    fn process_block(&self, block_hash: Hash256, _block_slot: Slot) -> SuperResult<()> {
+        self.core
+            .write()
+            .add_weightless_node(block_hash)
+            .map_err(|e| format!("process_block failed: {:?}", e))
     }
 
     fn find_head<F>(&self, start_block_root: Hash256, weight_fn: F) -> SuperResult<Hash256>
@@ -64,11 +68,14 @@ where
         self.core
             .write()
             .update_weights_and_find_head(start_block_root, weight_fn)
-            .map_err(Into::into)
+            .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
     fn update_finalized_root(&self, new_root: Hash256) -> SuperResult<()> {
-        self.core.write().update_root(new_root).map_err(Into::into)
+        self.core
+            .write()
+            .update_root(new_root)
+            .map_err(|e| format!("update_finalized_root failed: {:?}", e))
     }
 }
 
@@ -111,7 +118,13 @@ where
 
     pub fn update_root(&mut self, new_root: Hash256) -> Result<()> {
         if !self.nodes.contains_key(&new_root) {
-            self.add_node(new_root, vec![])?;
+            let node = Node {
+                block_hash: new_root,
+                voters: vec![],
+                ..Node::default()
+            };
+
+            self.add_node(node)?;
         }
 
         self.retain_subtree(self.root, new_root)?;
@@ -297,11 +310,19 @@ where
         let should_delete = {
             let node = self.get_node(hash)?.clone();
 
-            if node.parent_hash.is_some() {
+            if let Some(parent_hash) = node.parent_hash {
                 if (node.children.len() == 1) && !node.has_votes() {
-                    let child_node = self.get_mut_node(node.children[0])?;
+                    // Graft the child to it's grandparent.
+                    let child_hash = {
+                        let child_node = self.get_mut_node(node.children[0])?;
+                        child_node.parent_hash = node.parent_hash;
 
-                    child_node.parent_hash = node.parent_hash;
+                        child_node.block_hash
+                    };
+
+                    // Graft the grandparent to it's grandchild.
+                    let parent_node = self.get_mut_node(parent_hash)?;
+                    parent_node.replace_child(node.block_hash, child_hash)?;
 
                     true
                 } else {
@@ -324,48 +345,76 @@ where
         if let Ok(node) = self.get_mut_node(hash) {
             node.add_voter(validator_index);
         } else {
-            self.add_node(hash, vec![validator_index])?;
+            let node = Node {
+                block_hash: hash,
+                voters: vec![validator_index],
+                ..Node::default()
+            };
+
+            self.add_node(node)?;
         }
 
         Ok(())
     }
 
-    fn add_node(&mut self, hash: Hash256, voters: Vec<usize>) -> Result<()> {
+    fn add_weightless_node(&mut self, hash: Hash256) -> Result<()> {
+        if !self.nodes.contains_key(&hash) {
+            let node = Node {
+                block_hash: hash,
+                ..Node::default()
+            };
+
+            self.add_node(node)?;
+
+            if let Some(parent_hash) = self.get_node(hash)?.parent_hash {
+                self.maybe_delete_node(parent_hash)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn add_node(&mut self, mut node: Node) -> Result<()> {
         // Find the highest (by slot) ancestor of the given hash/block that is in the reduced tree.
         let mut prev_in_tree = {
             let hash = self
-                .find_prev_in_tree(hash)
-                .ok_or_else(|| Error::NotInTree(hash))?;
+                .find_prev_in_tree(node.block_hash)
+                .ok_or_else(|| Error::NotInTree(node.block_hash))?;
             self.get_mut_node(hash)?.clone()
         };
 
-        let mut node = Node {
-            block_hash: hash,
-            parent_hash: Some(prev_in_tree.block_hash),
-            voters,
-            ..Node::default()
-        };
+        let mut added_new_ancestor = false;
 
-        if prev_in_tree.does_not_have_children() {
-            node.parent_hash = Some(prev_in_tree.block_hash);
-            prev_in_tree.children.push(hash);
-        } else {
+        if !prev_in_tree.children.is_empty() {
             for &child_hash in &prev_in_tree.children {
-                let ancestor_hash = self.find_least_common_ancestor(hash, child_hash)?;
+                let ancestor_hash = self.find_least_common_ancestor(node.block_hash, child_hash)?;
+
                 if ancestor_hash != prev_in_tree.block_hash {
                     let child = self.get_mut_node(child_hash)?;
                     let common_ancestor = Node {
                         block_hash: ancestor_hash,
                         parent_hash: Some(prev_in_tree.block_hash),
+                        children: vec![node.block_hash, child_hash],
                         ..Node::default()
                     };
                     child.parent_hash = Some(common_ancestor.block_hash);
                     node.parent_hash = Some(common_ancestor.block_hash);
 
+                    prev_in_tree.replace_child(child_hash, ancestor_hash)?;
+
                     self.nodes
                         .insert(common_ancestor.block_hash, common_ancestor);
+
+                    added_new_ancestor = true;
+
+                    break;
                 }
             }
+        }
+
+        if !added_new_ancestor {
+            node.parent_hash = Some(prev_in_tree.block_hash);
+            prev_in_tree.children.push(node.block_hash);
         }
 
         // Update `prev_in_tree`. A mutable reference was not maintained to satisfy the borrow
@@ -374,7 +423,7 @@ where
         // This is not an ideal solution and results in unnecessary memory copies -- a better
         // solution is certainly possible.
         self.nodes.insert(prev_in_tree.block_hash, prev_in_tree);
-        self.nodes.insert(hash, node);
+        self.nodes.insert(node.block_hash, node);
 
         Ok(())
     }
@@ -384,7 +433,7 @@ where
     fn find_prev_in_tree(&mut self, hash: Hash256) -> Option<Hash256> {
         self.iter_ancestors(hash)
             .ok()?
-            .find(|(root, _slit)| self.get_node(*root).is_ok())
+            .find(|(root, _slot)| self.nodes.contains_key(root))
             .and_then(|(root, _slot)| Some(root))
     }
 
@@ -469,7 +518,7 @@ where
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Node {
     pub parent_hash: Option<Hash256>,
     pub children: Vec<Hash256>,
@@ -481,6 +530,17 @@ pub struct Node {
 impl Node {
     pub fn does_not_have_children(&self) -> bool {
         self.children.is_empty()
+    }
+
+    pub fn replace_child(&mut self, old: Hash256, new: Hash256) -> Result<()> {
+        let i = self
+            .children
+            .iter()
+            .position(|&c| c == old)
+            .ok_or_else(|| Error::MissingChild(old))?;
+        self.children[i] = new;
+
+        Ok(())
     }
 
     pub fn remove_voter(&mut self, voter: usize) -> Option<usize> {
