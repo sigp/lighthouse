@@ -130,10 +130,6 @@ struct SszContainer {
     bytes: Vec<u8>,
 }
 
-// NOTE!
-//
-// This code has not been tested, it is a placeholder until we can update to the new libp2p
-// spec.
 fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
     let msg = SszContainer::from_ssz_bytes(&packet)?;
 

@@ -105,7 +105,7 @@ fn verify_transfer_parametric<T: EthSpec>(
 
     // Ensure one of the following is met:
     //
-    // - Time independent checks are being ignored.
+    // - Time dependent checks are being ignored.
     // - The sender has not been activated.
     // - The sender is withdrawable at the state's epoch.
     // - The transfer will not reduce the sender below the max effective balance.
