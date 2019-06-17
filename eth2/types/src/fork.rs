@@ -10,7 +10,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     Clone,
@@ -35,7 +35,7 @@ pub struct Fork {
 impl Fork {
     /// Initialize the `Fork` from the genesis parameters in the `spec`.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     pub fn genesis(genesis_epoch: Epoch) -> Self {
         Self {
             previous_version: [0; 4],
@@ -46,7 +46,7 @@ impl Fork {
 
     /// Return the fork version of the given ``epoch``.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     pub fn get_fork_version(&self, epoch: Epoch) -> [u8; 4] {
         if epoch < self.epoch {
             return self.previous_version;

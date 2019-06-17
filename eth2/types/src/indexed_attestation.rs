@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     PartialEq,
@@ -35,14 +35,14 @@ pub struct IndexedAttestation {
 impl IndexedAttestation {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     pub fn is_double_vote(&self, other: &IndexedAttestation) -> bool {
         self.data.target_epoch == other.data.target_epoch && self.data != other.data
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     pub fn is_surround_vote(&self, other: &IndexedAttestation) -> bool {
         self.data.source_epoch < other.data.source_epoch
             && other.data.target_epoch < self.data.target_epoch

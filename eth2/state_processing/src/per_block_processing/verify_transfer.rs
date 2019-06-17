@@ -8,7 +8,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Transfer` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_transfer<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
@@ -19,7 +19,7 @@ pub fn verify_transfer<T: EthSpec>(
 
 /// Like `verify_transfer` but doesn't run checks which may become true in future states.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_transfer_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
@@ -37,7 +37,7 @@ pub fn verify_transfer_time_independent_only<T: EthSpec>(
 ///     present or future.
 /// - Validator transfer eligibility (e.g., is withdrawable)
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn verify_transfer_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
@@ -154,7 +154,7 @@ fn verify_transfer_parametric<T: EthSpec>(
 ///
 /// Does not check that the transfer is valid, however checks for overflow in all actions.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn execute_transfer<T: EthSpec>(
     state: &mut BeaconState<T>,
     transfer: &Transfer,

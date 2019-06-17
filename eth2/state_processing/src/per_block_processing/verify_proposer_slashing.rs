@@ -7,7 +7,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
@@ -65,7 +65,7 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 ///
 /// Returns `true` if the signature is valid.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn verify_header_signature<T: EthSpec>(
     header: &BeaconBlockHeader,
     pubkey: &PublicKey,

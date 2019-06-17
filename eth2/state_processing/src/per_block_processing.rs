@@ -40,7 +40,7 @@ mod verify_transfer;
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn per_block_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -55,7 +55,7 @@ pub fn per_block_processing<T: EthSpec>(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -70,7 +70,7 @@ pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn per_block_processing_signature_optional<T: EthSpec>(
     mut state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -97,7 +97,7 @@ fn per_block_processing_signature_optional<T: EthSpec>(
 
 /// Processes the block header.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -132,7 +132,7 @@ pub fn process_block_header<T: EthSpec>(
 
 /// Verifies the signature of a block.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
     block: &BeaconBlock,
@@ -160,7 +160,7 @@ pub fn verify_block_signature<T: EthSpec>(
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock,
@@ -191,7 +191,7 @@ pub fn process_randao<T: EthSpec>(
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
@@ -217,7 +217,7 @@ pub fn process_eth1_data<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
@@ -250,7 +250,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing],
@@ -308,7 +308,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_attestations<T: EthSpec>(
     state: &mut BeaconState<T>,
     attestations: &[Attestation],
@@ -357,7 +357,7 @@ pub fn process_attestations<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_deposits<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposits: &[Deposit],
@@ -434,7 +434,7 @@ pub fn process_deposits<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_exits<T: EthSpec>(
     state: &mut BeaconState<T>,
     voluntary_exits: &[VoluntaryExit],
@@ -466,7 +466,7 @@ pub fn process_exits<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_transfers<T: EthSpec>(
     state: &mut BeaconState<T>,
     transfers: &[Transfer],

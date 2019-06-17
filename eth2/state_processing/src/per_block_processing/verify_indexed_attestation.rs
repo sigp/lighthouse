@@ -8,7 +8,7 @@ use types::*;
 
 /// Verify an `IndexedAttestation`.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
@@ -19,7 +19,7 @@ pub fn verify_indexed_attestation<T: EthSpec>(
 
 /// Verify but don't check the signature.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_indexed_attestation_without_signature<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
@@ -30,7 +30,7 @@ pub fn verify_indexed_attestation_without_signature<T: EthSpec>(
 
 /// Optionally check the signature.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn verify_indexed_attestation_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
@@ -107,7 +107,7 @@ where
 
 /// Verify the signature of an IndexedAttestation.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn verify_indexed_attestation_signature<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,

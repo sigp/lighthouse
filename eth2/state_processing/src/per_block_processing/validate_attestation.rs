@@ -11,7 +11,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn validate_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
@@ -34,7 +34,7 @@ pub fn validate_attestation_time_independent_only<T: EthSpec>(
 ///
 /// Returns `Ok(())` if the `Attestation` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn validate_attestation_without_signature<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
@@ -47,7 +47,7 @@ pub fn validate_attestation_without_signature<T: EthSpec>(
 /// given state, optionally validating the aggregate signature.
 ///
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn validate_attestation_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
@@ -99,7 +99,7 @@ fn validate_attestation_parametric<T: EthSpec>(
 
 /// Check target epoch, source epoch, source root, and source crosslink.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn verify_casper_ffg_vote<T: EthSpec>(
     attestation: &Attestation,
     state: &BeaconState<T>,

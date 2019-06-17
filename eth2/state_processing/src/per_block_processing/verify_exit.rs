@@ -7,7 +7,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_exit<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &VoluntaryExit,
@@ -18,7 +18,7 @@ pub fn verify_exit<T: EthSpec>(
 
 /// Like `verify_exit` but doesn't run checks which may become true in future states.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_exit_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &VoluntaryExit,
@@ -29,7 +29,7 @@ pub fn verify_exit_time_independent_only<T: EthSpec>(
 
 /// Parametric version of `verify_exit` that skips some checks if `time_independent_only` is true.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 fn verify_exit_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &VoluntaryExit,

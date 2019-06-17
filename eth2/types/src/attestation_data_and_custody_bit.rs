@@ -7,7 +7,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Used for pairing an attestation with a proof-of-custody.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     Clone,

@@ -9,7 +9,7 @@ pub enum Error {
 
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,

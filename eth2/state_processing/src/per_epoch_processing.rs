@@ -26,7 +26,7 @@ pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -80,7 +80,7 @@ pub fn per_epoch_processing<T: EthSpec>(
 /// - `finalized_epoch`
 /// - `finalized_root`
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
     total_balances: &TotalBalances,
@@ -147,7 +147,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
 ///
 /// Also returns a `WinningRootHashSet` for later use during epoch processing.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_crosslinks<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -183,7 +183,7 @@ pub fn process_crosslinks<T: EthSpec>(
 
 /// Finish up an epoch update.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn process_final_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
