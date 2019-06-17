@@ -29,6 +29,13 @@ test-release:
   script:
     - cargo test --verbose --all --release
 
+test-fake-crypto:
+  stage: test
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
+  script:
+    - cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features fake_crypto
+
 documentation:
   stage: document
   script:
