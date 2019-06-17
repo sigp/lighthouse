@@ -23,12 +23,18 @@ impl TestingPendingAttestationBuilder {
     ) -> Self {
         let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
 
+        let relative_epoch =
+            RelativeEpoch::from_epoch(state.current_epoch(), slot.epoch(T::slots_per_epoch()))
+                .expect("epoch out of bounds");
+        let proposer_index = state
+            .get_beacon_proposer_index(slot, relative_epoch, spec)
+            .unwrap() as u64;
+
         let pending_attestation = PendingAttestation {
             aggregation_bitfield: Bitfield::new(),
             data: data_builder.build(),
             inclusion_delay: spec.min_attestation_inclusion_delay,
-            // FIXME(sproul)
-            proposer_index: 0,
+            proposer_index,
         };
 
         Self {

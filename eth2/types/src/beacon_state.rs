@@ -450,10 +450,10 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(&self.latest_block_roots[i])
     }
 
-    /// Return the block root at a recent `slot`.
+    /// Return the block root at a recent `epoch`.
     ///
     /// Spec v0.6.0
-    // FIXME(sproul): name swap with get_block_root
+    // NOTE: the spec calls this get_block_root
     pub fn get_block_root_at_epoch(&self, epoch: Epoch) -> Result<&Hash256, BeaconStateError> {
         self.get_block_root(epoch.start_slot(T::slots_per_epoch()))
     }
@@ -853,8 +853,6 @@ impl<T: EthSpec> BeaconState<T> {
     fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) {
         self.committee_caches[Self::cache_index(relative_epoch)] = CommitteeCache::default();
     }
-
-    // FIXME(sproul): drop_previous/current_committee_cache
 
     /// Updates the pubkey cache, if required.
     ///

@@ -175,7 +175,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
         state.slot = slot;
 
-        // FIXME(sproul): update latest_start_shard?
+        // NOTE: we could update the latest start shard here
 
         state.previous_justified_epoch = epoch - 3;
         state.current_justified_epoch = epoch - 2;
