@@ -5,7 +5,7 @@ use test_utils::{u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub enum Domain {
     BeaconProposer,
     Randao,
@@ -17,7 +17,7 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -115,7 +115,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
@@ -137,7 +137,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     pub fn mainnet() -> Self {
         Self {
             /*

@@ -16,7 +16,7 @@ impl WinningRoot {
     /// A winning root is "better" than another if it has a higher `total_attesting_balance`. Ties
     /// are broken by favouring the higher `crosslink_data_root` value.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     pub fn is_better_than(&self, other: &Self) -> bool {
         (
             self.total_attesting_balance,
@@ -34,7 +34,7 @@ impl WinningRoot {
 /// The `WinningRoot` object also contains additional fields that are useful in later stages of
 /// per-epoch processing.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn winning_root<T: EthSpec>(
     state: &BeaconState<T>,
     shard: u64,

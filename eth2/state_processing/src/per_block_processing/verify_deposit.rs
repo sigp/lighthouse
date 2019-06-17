@@ -5,7 +5,7 @@ use types::*;
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_deposit_signature<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
@@ -25,7 +25,7 @@ pub fn verify_deposit_signature<T: EthSpec>(
 
 /// Verify that the `Deposit` index is correct.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_deposit_index<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
@@ -57,7 +57,7 @@ pub fn get_existing_validator_index<T: EthSpec>(
 
 /// Verify that a deposit is included in the state's eth1 deposit root.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,

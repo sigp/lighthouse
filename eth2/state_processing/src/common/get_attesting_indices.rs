@@ -3,7 +3,7 @@ use types::*;
 
 /// Returns validator indices which participated in the attestation, sorted by increasing index.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn get_attesting_indices<T: EthSpec>(
     state: &BeaconState<T>,
     attestation_data: &AttestationData,
@@ -18,7 +18,7 @@ pub fn get_attesting_indices<T: EthSpec>(
 
 /// Returns validator indices which participated in the attestation, unsorted.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn get_attesting_indices_unsorted<T: EthSpec>(
     state: &BeaconState<T>,
     attestation_data: &AttestationData,

@@ -4,7 +4,7 @@ use types::*;
 ///
 /// Is title `verify_bitfield` in spec.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 pub fn verify_bitfield_length(bitfield: &Bitfield, committee_size: usize) -> bool {
     if bitfield.num_bytes() != ((committee_size + 7) / 8) {
         return false;

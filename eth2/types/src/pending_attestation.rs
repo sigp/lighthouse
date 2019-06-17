@@ -8,7 +8,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     Clone,

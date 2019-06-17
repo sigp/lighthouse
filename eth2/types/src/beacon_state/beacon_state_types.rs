@@ -22,7 +22,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     /// Return the number of committees in one epoch.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     fn get_epoch_committee_count(
         active_validator_count: usize,
         target_committee_size: usize,
@@ -60,42 +60,42 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     fn slots_per_epoch() -> u64 {
         Self::SlotsPerEpoch::to_u64()
     }
 
     /// Returns the `SHARD_COUNT` constant for this specification.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     fn shard_count() -> usize {
         Self::ShardCount::to_usize()
     }
 
     /// Returns the `SLOTS_PER_HISTORICAL_ROOT` constant for this specification.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     fn slots_per_historical_root() -> usize {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
 
     /// Returns the `LATEST_RANDAO_MIXES_LENGTH` constant for this specification.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     fn latest_randao_mixes_length() -> usize {
         Self::LatestRandaoMixesLength::to_usize()
     }
 
     /// Returns the `LATEST_ACTIVE_INDEX_ROOTS` constant for this specification.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     fn latest_active_index_roots() -> usize {
         Self::LatestActiveIndexRootsLength::to_usize()
     }
 
     /// Returns the `LATEST_SLASHED_EXIT_LENGTH` constant for this specification.
     ///
-    /// Spec v0.6.1
+    /// Spec v0.6.3
     fn latest_slashed_exit_length() -> usize {
         Self::LatestSlashedExitLength::to_usize()
     }
@@ -103,7 +103,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
 /// Ethereum Foundation specifications.
 ///
-/// Spec v0.6.1
+/// Spec v0.6.3
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
