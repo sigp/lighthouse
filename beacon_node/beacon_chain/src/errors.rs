@@ -40,9 +40,12 @@ impl From<MetricsError> for BeaconChainError {
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
+    UnableToReadSlot,
+    SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
     BeaconStateError(BeaconStateError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
+easy_from_to!(SlotProcessingError, BlockProductionError);
