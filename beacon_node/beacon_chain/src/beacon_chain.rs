@@ -23,6 +23,12 @@ use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
 use types::*;
 
+// Text included in blocks.
+// Must be 32-bytes or panic.
+//
+//                          |-------must be this long------|
+pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
+
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
@@ -657,15 +663,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         randao_reveal: Signature,
     ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
-        debug!("Producing block at slot {}...", self.state.read().slot);
+        let state = self.state.read().clone();
+        let slot = self
+            .read_slot_clock()
+            .ok_or_else(|| BlockProductionError::UnableToReadSlot)?;
+
+        self.produce_block_on_state(state, slot, randao_reveal)
+    }
+
+    /// Produce a block for some `slot` upon the given `state`.
+    ///
+    /// Typically the `self.produce_block()` function should be used, instead of calling this
+    /// function directly. This function is useful for purposefully creating forks or blocks at
+    /// non-current slots.
+    ///
+    /// The given state will be advanced to the given `produce_at_slot`, then a block will be
+    /// produced at that slot height.
+    pub fn produce_block_on_state(
+        &self,
+        mut state: BeaconState<T::EthSpec>,
+        produce_at_slot: Slot,
+        randao_reveal: Signature,
+    ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
         self.metrics.block_production_requests.inc();
         let timer = self.metrics.block_production_times.start_timer();
 
-        let mut state = self.state.read().clone();
+        // If required, transition the new state to the present slot.
+        for _ in state.slot.as_u64()..produce_at_slot.as_u64() {
+            // Ensure the next epoch state caches are built in case of an epoch transition.
+            state.build_committee_cache(RelativeEpoch::Next, &self.spec)?;
+
+            per_slot_processing(&mut state, &self.spec)?;
+        }
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-        trace!("Finding attestations for new block...");
 
         let previous_block_root = if state.slot > 0 {
             *state
@@ -675,8 +706,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
+        let mut graffiti: [u8; 32] = [0; 32];
+        graffiti.copy_from_slice(GRAFFITI.as_bytes());
+
         let (proposer_slashings, attester_slashings) =
-            self.op_pool.get_slashings(&*self.state.read(), &self.spec);
+            self.op_pool.get_slashings(&state, &self.spec);
 
         let mut block = BeaconBlock {
             slot: state.slot,
@@ -691,8 +725,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
                 },
-                // TODO: badass Lighthouse graffiti
-                graffiti: [0; 32],
+                graffiti,
                 proposer_slashings,
                 attester_slashings,
                 attestations: self
