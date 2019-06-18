@@ -6,9 +6,12 @@ edition = "2018"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
+clap = "2.32.0"
 # SigP repository until PR is merged
 libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "b3c32d9a821ae6cc89079499cc6e8a6bab0bffc3" }
 types = { path =  "../../eth2/types" }
+serde = "1.0"
+serde_derive = "1.0"
 ssz = { path = "../../eth2/utils/ssz" }
 ssz_derive = { path = "../../eth2/utils/ssz_derive" }
 slog = "2.4.1"

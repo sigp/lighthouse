@@ -276,7 +276,7 @@ mod round_trip {
     fn offsets_decreasing() {
         let bytes = vec![
             //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
-            //      | offset        | ofset         | offset        | variable
+            //      | offset        | offset        | offset        | variable
             01, 00, 14, 00, 00, 00, 15, 00, 00, 00, 14, 00, 00, 00, 00, 00,
         ];
 
@@ -284,5 +284,66 @@ mod round_trip {
             ThreeVariableLen::from_ssz_bytes(&bytes),
             Err(DecodeError::OutOfBoundsByte { i: 14 })
         );
+    }
+
+    #[derive(Debug, PartialEq, Encode, Decode)]
+    struct TwoVariableLenOptions {
+        a: u16,
+        b: Option<u16>,
+        c: Option<Vec<u16>>,
+        d: Option<Vec<u16>>,
+    }
+
+    #[test]
+    fn two_variable_len_options_encoding() {
+        let s = TwoVariableLenOptions {
+            a: 42,
+            b: None,
+            c: Some(vec![0]),
+            d: None,
+        };
+
+        let bytes = vec![
+            //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16  17  18  19  20  21
+            //      | option<u16>   | offset        | offset        | option<u16    | 1st list
+            42, 00, 14, 00, 00, 00, 18, 00, 00, 00, 24, 00, 00, 00, 00, 00, 00, 00, 01, 00, 00, 00,
+            //  23  24  25  26  27
+            //      | 2nd list
+            00, 00, 00, 00, 00, 00,
+        ];
+
+        assert_eq!(s.as_ssz_bytes(), bytes);
+    }
+
+    #[test]
+    fn two_variable_len_options_round_trip() {
+        let vec: Vec<TwoVariableLenOptions> = vec![
+            TwoVariableLenOptions {
+                a: 42,
+                b: Some(12),
+                c: Some(vec![0]),
+                d: Some(vec![1]),
+            },
+            TwoVariableLenOptions {
+                a: 42,
+                b: Some(12),
+                c: Some(vec![0]),
+                d: None,
+            },
+            TwoVariableLenOptions {
+                a: 42,
+                b: None,
+                c: Some(vec![0]),
+                d: None,
+            },
+            TwoVariableLenOptions {
+                a: 42,
+                b: None,
+                c: None,
+                d: None,
+            },
+        ];
+
+        round_trip(vec);
     }
 }

@@ -10,16 +10,14 @@ pub struct LongestChain<T> {
     store: Arc<T>,
 }
 
-impl<T: Store> LongestChain<T> {
-    pub fn new(store: Arc<T>) -> Self {
+impl<T: Store> ForkChoice<T> for LongestChain<T> {
+    fn new(store: Arc<T>) -> Self {
         LongestChain {
             head_block_hashes: Vec::new(),
             store,
         }
     }
-}
 
-impl<T: Store> ForkChoice for LongestChain<T> {
     fn add_block(
         &mut self,
         block: &BeaconBlock,

@@ -24,7 +24,7 @@ pub enum ValidatorEvent {
     /// A block was not produced as it would have been slashable.
     SlashableBlockNotProduced(Slot),
     /// An attestation was not produced as it would have been slashable.
-    SlashableAttestationNotProduced(Slot),
+    IndexedAttestationNotProduced(Slot),
     /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(Slot),
     /// The signer failed to sign the message.
@@ -48,6 +48,8 @@ pub struct BlockProducer<'a, B: BeaconNodeBlock, S: Signer> {
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
     pub signer: &'a S,
+    /// Used for caclulating epoch.
+    pub slots_per_epoch: u64,
 }
 
 impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
@@ -84,7 +86,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
     pub fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
-        let epoch = self.slot.epoch(self.spec.slots_per_epoch);
+        let epoch = self.slot.epoch(self.slots_per_epoch);
 
         let message = epoch.tree_hash_root();
         let randao_reveal = match self.signer.sign_message(
@@ -100,7 +102,9 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
             .produce_beacon_block(self.slot, &randao_reveal)?
         {
             if self.safe_to_produce(&block) {
-                let domain = self.spec.get_domain(epoch, Domain::BeaconBlock, &self.fork);
+                let domain = self
+                    .spec
+                    .get_domain(epoch, Domain::BeaconProposer, &self.fork);
                 if let Some(block) = self.sign_block(block, domain) {
                     self.beacon_node.publish_beacon_block(block)?;
                     Ok(ValidatorEvent::BlockProduced(self.slot))
@@ -179,14 +183,14 @@ mod tests {
     pub fn polling() {
         let mut rng = XorShiftRng::from_seed([42; 16]);
 
-        let spec = Arc::new(ChainSpec::foundation());
+        let spec = Arc::new(ChainSpec::mainnet());
         let slot_clock = Arc::new(TestingSlotClock::new(0));
         let beacon_node = Arc::new(SimulatedBeaconNode::default());
         let signer = Arc::new(LocalSigner::new(Keypair::random()));
 
-        let mut epoch_map = EpochMap::new(spec.slots_per_epoch);
+        let mut epoch_map = EpochMap::new(T::slots_per_epoch());
         let produce_slot = Slot::new(100);
-        let produce_epoch = produce_slot.epoch(spec.slots_per_epoch);
+        let produce_epoch = produce_slot.epoch(T::slots_per_epoch());
         epoch_map.map.insert(produce_epoch, produce_slot);
         let epoch_map = Arc::new(epoch_map);
 
@@ -231,7 +235,7 @@ mod tests {
         );
 
         // In an epoch without known duties...
-        let slot = (produce_epoch.as_u64() + 1) * spec.slots_per_epoch;
+        let slot = (produce_epoch.as_u64() + 1) * T::slots_per_epoch();
         slot_clock.set_slot(slot);
         assert_eq!(
             block_proposer.poll(),

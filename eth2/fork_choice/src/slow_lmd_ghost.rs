@@ -20,15 +20,6 @@ pub struct SlowLMDGhost<T, E> {
 }
 
 impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
-    pub fn new(store: Arc<T>) -> Self {
-        SlowLMDGhost {
-            latest_attestation_targets: HashMap::new(),
-            children: HashMap::new(),
-            store,
-            _phantom: PhantomData,
-        }
-    }
-
     /// Finds the latest votes weighted by validator balance. Returns a hashmap of block_hash to
     /// weighted votes.
     pub fn get_latest_votes(
@@ -49,13 +40,11 @@ impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices =
-            current_state.get_active_validator_indices(block_slot.epoch(spec.slots_per_epoch));
+            current_state.get_active_validator_indices(block_slot.epoch(E::slots_per_epoch()));
 
         for index in active_validator_indices {
-            let balance = std::cmp::min(
-                current_state.validator_balances[index],
-                spec.max_deposit_amount,
-            ) / spec.fork_choice_balance_increment;
+            let balance = std::cmp::min(current_state.balances[index], spec.max_effective_balance)
+                / spec.effective_balance_increment;
             if balance > 0 {
                 if let Some(target) = self.latest_attestation_targets.get(&(index as u64)) {
                     *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
@@ -94,7 +83,16 @@ impl<T: Store, E: EthSpec> SlowLMDGhost<T, E> {
     }
 }
 
-impl<T: Store, E: EthSpec> ForkChoice for SlowLMDGhost<T, E> {
+impl<T: Store, E: EthSpec> ForkChoice<T> for SlowLMDGhost<T, E> {
+    fn new(store: Arc<T>) -> Self {
+        SlowLMDGhost {
+            latest_attestation_targets: HashMap::new(),
+            children: HashMap::new(),
+            store,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Process when a block is added
     fn add_block(
         &mut self,

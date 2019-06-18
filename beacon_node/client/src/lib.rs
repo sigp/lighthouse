@@ -6,10 +6,10 @@ pub mod error;
 pub mod notifier;
 
 use beacon_chain::BeaconChain;
-use beacon_chain_types::InitialiseBeaconChain;
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
+use prometheus::Registry;
 use slog::{error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -19,16 +19,18 @@ use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 
 pub use beacon_chain::BeaconChainTypes;
-pub use beacon_chain_types::{TestnetDiskBeaconChainTypes, TestnetMemoryBeaconChainTypes};
-pub use client_config::{ClientConfig, DBType};
+pub use beacon_chain_types::ClientType;
+pub use beacon_chain_types::InitialiseBeaconChain;
+pub use client_config::ClientConfig;
+pub use eth2_config::Eth2Config;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
 pub struct Client<T: BeaconChainTypes> {
     /// Configuration for the lighthouse client.
-    _config: ClientConfig,
+    _client_config: ClientConfig,
     /// The beacon chain for the running client.
-    _beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: Arc<BeaconChain<T>>,
     /// Reference to the network service.
     pub network: Arc<NetworkService<T>>,
     /// Signal to terminate the RPC server.
@@ -49,12 +51,27 @@ where
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
-        config: ClientConfig,
+        client_config: ClientConfig,
+        eth2_config: Eth2Config,
+        store: T::Store,
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
-        // generate a beacon chain
-        let beacon_chain = Arc::new(T::initialise_beacon_chain(&config));
+        let metrics_registry = Registry::new();
+        let store = Arc::new(store);
+        let seconds_per_slot = eth2_config.spec.seconds_per_slot;
+
+        // Load a `BeaconChain` from the store, or create a new one if it does not exist.
+        let beacon_chain = Arc::new(T::initialise_beacon_chain(
+            store,
+            eth2_config.spec.clone(),
+            log.clone(),
+        ));
+        // Registry all beacon chain metrics with the global registry.
+        beacon_chain
+            .metrics
+            .register(&metrics_registry)
+            .expect("Failed to registry metrics");
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
@@ -65,7 +82,7 @@ where
         // If we don't block here we create an initial scenario where we're unable to process any
         // blocks and we're basically useless.
         {
-            let state_slot = beacon_chain.state.read().slot;
+            let state_slot = beacon_chain.head().beacon_state.slot;
             let wall_clock_slot = beacon_chain.read_slot_clock().unwrap();
             let slots_since_genesis = beacon_chain.slots_since_genesis().unwrap();
             info!(
@@ -81,13 +98,13 @@ where
         info!(
             log,
             "State initialized";
-            "state_slot" => beacon_chain.state.read().slot,
+            "state_slot" => beacon_chain.head().beacon_state.slot,
             "wall_clock_slot" => beacon_chain.read_slot_clock().unwrap(),
         );
 
         // Start the network service, libp2p and syncing threads
         // TODO: Add beacon_chain reference to network parameters
-        let network_config = &config.net_conf;
+        let network_config = &client_config.network;
         let network_logger = log.new(o!("Service" => "Network"));
         let (network, network_send) = NetworkService::new(
             beacon_chain.clone(),
@@ -97,9 +114,9 @@ where
         )?;
 
         // spawn the RPC server
-        let rpc_exit_signal = if config.rpc_conf.enabled {
+        let rpc_exit_signal = if client_config.rpc.enabled {
             Some(rpc::start_server(
-                &config.rpc_conf,
+                &client_config.rpc,
                 executor,
                 network_send.clone(),
                 beacon_chain.clone(),
@@ -112,20 +129,26 @@ where
         // Start the `http_server` service.
         //
         // Note: presently we are ignoring the config and _always_ starting a HTTP server.
-        let http_exit_signal = Some(http_server::start_service(
-            &config.http_conf,
-            executor,
-            network_send,
-            beacon_chain.clone(),
-            &log,
-        ));
+        let http_exit_signal = if client_config.http.enabled {
+            Some(http_server::start_service(
+                &client_config.http,
+                executor,
+                network_send,
+                beacon_chain.clone(),
+                client_config.db_path().expect("unable to read datadir"),
+                metrics_registry,
+                &log,
+            ))
+        } else {
+            None
+        };
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
             // set up the validator work interval - start at next slot and proceed every slot
             let interval = {
                 // Set the interval to start at the next slot, and every slot after
-                let slot_duration = Duration::from_secs(config.spec.seconds_per_slot);
+                let slot_duration = Duration::from_secs(seconds_per_slot);
                 //TODO: Handle checked add correctly
                 Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
             };
@@ -147,8 +170,8 @@ where
         }
 
         Ok(Client {
-            _config: config,
-            _beacon_chain: beacon_chain,
+            _client_config: client_config,
+            beacon_chain,
             http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
@@ -156,6 +179,14 @@ where
             network,
             phantom: PhantomData,
         })
+    }
+}
+
+impl<T: BeaconChainTypes> Drop for Client<T> {
+    fn drop(&mut self) {
+        // Save the beacon chain to it's store before dropping.
+        let _result = self.beacon_chain.persist();
+        dbg!("Saved BeaconChain to store");
     }
 }
 
@@ -167,7 +198,7 @@ fn do_state_catchup<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog
             "best_slot" => chain.head().beacon_block.slot,
             "latest_block_root" => format!("{}", chain.head().beacon_block_root),
             "wall_clock_slot" => chain.read_slot_clock().unwrap(),
-            "state_slot" => chain.state.read().slot,
+            "state_slot" => chain.head().beacon_state.slot,
             "slots_since_genesis" => genesis_height,
         );
 

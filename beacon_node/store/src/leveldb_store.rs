@@ -5,10 +5,14 @@ use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use std::path::Path;
+use std::sync::Arc;
 
 /// A wrapped leveldb database.
+#[derive(Clone)]
 pub struct LevelDB {
-    db: Database<BytesKey>,
+    // Note: this `Arc` is only included because of an artificial constraint by gRPC. Hopefully we
+    // can remove this one day.
+    db: Arc<Database<BytesKey>>,
 }
 
 impl LevelDB {
@@ -18,7 +22,7 @@ impl LevelDB {
 
         options.create_if_missing = true;
 
-        let db = Database::open(path, options)?;
+        let db = Arc::new(Database::open(path, options)?);
 
         Ok(Self { db })
     }

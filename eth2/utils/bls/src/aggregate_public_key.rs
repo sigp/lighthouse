@@ -21,4 +21,10 @@ impl AggregatePublicKey {
     pub fn as_raw(&self) -> &RawAggregatePublicKey {
         &self.0
     }
+
+    /// Return a hex string representation of this key's bytes.
+    #[cfg(test)]
+    pub fn as_hex_string(&self) -> String {
+        serde_hex::encode(self.as_raw().as_bytes())
+    }
 }

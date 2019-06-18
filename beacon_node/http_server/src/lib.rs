@@ -3,39 +3,65 @@ mod key;
 mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use clap::ArgMatches;
 use futures::Future;
 use iron::prelude::*;
 use network::NetworkMessage;
+use prometheus::Registry;
 use router::Router;
+use serde_derive::{Deserialize, Serialize};
 use slog::{info, o, warn};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct HttpServerConfig {
     pub enabled: bool,
     pub listen_address: String,
+    pub listen_port: String,
 }
 
 impl Default for HttpServerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_address: "127.0.0.1:5051".to_string(),
+            listen_address: "127.0.0.1".to_string(),
+            listen_port: "5052".to_string(),
         }
+    }
+}
+
+impl HttpServerConfig {
+    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
+        if args.is_present("http") {
+            self.enabled = true;
+        }
+
+        if let Some(listen_address) = args.value_of("http-address") {
+            self.listen_address = listen_address.to_string();
+        }
+
+        if let Some(listen_port) = args.value_of("http-port") {
+            self.listen_port = listen_port.to_string();
+        }
+
+        Ok(())
     }
 }
 
 /// Build the `iron` HTTP server, defining the core routes.
 pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
+    db_path: PathBuf,
+    metrics_registry: Registry,
 ) -> Iron<Router> {
     let mut router = Router::new();
 
     // A `GET` request to `/metrics` is handled by the `metrics` module.
     router.get(
         "/metrics",
-        metrics::build_handler(beacon_chain.clone()),
+        metrics::build_handler(beacon_chain.clone(), db_path, metrics_registry),
         "metrics",
     );
 
@@ -51,6 +77,8 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
     executor: &TaskExecutor,
     _network_chan: crossbeam_channel::Sender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
+    db_path: PathBuf,
+    metrics_registry: Registry,
     log: &slog::Logger,
 ) -> exit_future::Signal {
     let log = log.new(o!("Service"=>"HTTP"));
@@ -61,7 +89,7 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
     let (shutdown_trigger, wait_for_shutdown) = exit_future::signal();
 
     // Create an `iron` http, without starting it yet.
-    let iron = create_iron_http_server(beacon_chain);
+    let iron = create_iron_http_server(beacon_chain, db_path, metrics_registry);
 
     // Create a HTTP server future.
     //
@@ -69,16 +97,14 @@ pub fn start_service<T: BeaconChainTypes + 'static>(
     // 2. Build an exit future that will shutdown the server when requested.
     // 3. Return the exit future, so the caller may shutdown the service when desired.
     let http_service = {
+        let listen_address = format!("{}:{}", config.listen_address, config.listen_port);
         // Start the HTTP server
-        let server_start_result = iron.http(config.listen_address.clone());
+        let server_start_result = iron.http(listen_address.clone());
 
         if server_start_result.is_ok() {
-            info!(log, "HTTP server running on {}", config.listen_address);
+            info!(log, "HTTP server running on {}", listen_address);
         } else {
-            warn!(
-                log,
-                "HTTP server failed to start on {}", config.listen_address
-            );
+            warn!(log, "HTTP server failed to start on {}", listen_address);
         }
 
         // Build a future that will shutdown the HTTP server when the `shutdown_trigger` is

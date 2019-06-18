@@ -48,18 +48,6 @@ pub struct BitwiseLMDGhost<T, E> {
 }
 
 impl<T: Store, E: EthSpec> BitwiseLMDGhost<T, E> {
-    pub fn new(store: Arc<T>) -> Self {
-        BitwiseLMDGhost {
-            cache: HashMap::new(),
-            ancestors: vec![HashMap::new(); 16],
-            latest_attestation_targets: HashMap::new(),
-            children: HashMap::new(),
-            max_known_height: SlotHeight::new(0),
-            store,
-            _phantom: PhantomData,
-        }
-    }
-
     /// Finds the latest votes weighted by validator balance. Returns a hashmap of block_hash to
     /// weighted votes.
     pub fn get_latest_votes(
@@ -80,13 +68,11 @@ impl<T: Store, E: EthSpec> BitwiseLMDGhost<T, E> {
             .ok_or_else(|| ForkChoiceError::MissingBeaconState(*state_root))?;
 
         let active_validator_indices =
-            current_state.get_active_validator_indices(block_slot.epoch(spec.slots_per_epoch));
+            current_state.get_active_validator_indices(block_slot.epoch(E::slots_per_epoch()));
 
         for index in active_validator_indices {
-            let balance = std::cmp::min(
-                current_state.validator_balances[index],
-                spec.max_deposit_amount,
-            ) / spec.fork_choice_balance_increment;
+            let balance = std::cmp::min(current_state.balances[index], spec.max_effective_balance)
+                / spec.effective_balance_increment;
             if balance > 0 {
                 if let Some(target) = self.latest_attestation_targets.get(&(index as u64)) {
                     *latest_votes.entry(*target).or_insert_with(|| 0) += balance;
@@ -132,12 +118,12 @@ impl<T: Store, E: EthSpec> BitwiseLMDGhost<T, E> {
 
         // not in the cache recursively search for ancestors using a log-lookup
         if let Some(ancestor) = {
-            let ancestor_lookup = self.ancestors
+            let ancestor_lookup = *self.ancestors
                 [log2_int((block_height - target_height - 1u64).as_u64()) as usize]
                 .get(&block_hash)
                 //TODO: Panic if we can't lookup and fork choice fails
                 .expect("All blocks should be added to the ancestor log lookup table");
-            self.get_ancestor(*ancestor_lookup, target_height, &spec)
+            self.get_ancestor(ancestor_lookup, target_height, &spec)
         } {
             // add the result to the cache
             self.cache.insert(cache_key, ancestor);
@@ -163,7 +149,7 @@ impl<T: Store, E: EthSpec> BitwiseLMDGhost<T, E> {
         // these have already been weighted by balance
         for (hash, votes) in latest_votes.iter() {
             if let Some(ancestor) = self.get_ancestor(*hash, block_height, spec) {
-                let current_vote_value = current_votes.get(&ancestor).unwrap_or_else(|| &0);
+                let current_vote_value = *current_votes.get(&ancestor).unwrap_or_else(|| &0);
                 current_votes.insert(ancestor, current_vote_value + *votes);
                 total_vote_count += votes;
             }
@@ -229,7 +215,19 @@ impl<T: Store, E: EthSpec> BitwiseLMDGhost<T, E> {
     }
 }
 
-impl<T: Store, E: EthSpec> ForkChoice for BitwiseLMDGhost<T, E> {
+impl<T: Store, E: EthSpec> ForkChoice<T> for BitwiseLMDGhost<T, E> {
+    fn new(store: Arc<T>) -> Self {
+        BitwiseLMDGhost {
+            cache: HashMap::new(),
+            ancestors: vec![HashMap::new(); 16],
+            latest_attestation_targets: HashMap::new(),
+            children: HashMap::new(),
+            max_known_height: SlotHeight::new(0),
+            store,
+            _phantom: PhantomData,
+        }
+    }
+
     fn add_block(
         &mut self,
         block: &BeaconBlock,
