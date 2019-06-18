@@ -1,7 +1,7 @@
 spec_constants = "minimal"
 
 [spec]
-target_committee_size = 1
+target_committee_size = 4
 max_indices_per_attestation = 4096
 min_per_epoch_churn_limit = 4
 churn_limit_quotient = 65536
@@ -17,10 +17,10 @@ zero_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 bls_withdrawal_prefix_byte = "0x00"
 genesis_time = 4294967295
 seconds_per_slot = 6
-min_attestation_inclusion_delay = 4
+min_attestation_inclusion_delay = 2
 min_seed_lookahead = 1
 activation_exit_delay = 4
-slots_per_eth1_voting_period = 1024
+slots_per_eth1_voting_period = 16
 slots_per_historical_root = 8192
 min_validator_withdrawability_delay = 256
 persistent_committee_period = 2048
