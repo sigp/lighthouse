@@ -122,17 +122,17 @@ pub fn process_justification_and_finalization<T: EthSpec>(
         state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
     // The 2nd/3rd most recent epochs are both justified, the 2nd using the 3rd as source.
-    if (bitfield >> 1) % 4 == 0b11 && state.previous_justified_epoch == current_epoch - 2 {
+    if (bitfield >> 1) % 4 == 0b11 && old_previous_justified_epoch == current_epoch - 2 {
         state.finalized_epoch = old_previous_justified_epoch;
         state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
     // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 2nd as source.
-    if bitfield % 8 == 0b111 && state.current_justified_epoch == current_epoch - 2 {
+    if bitfield % 8 == 0b111 && old_current_justified_epoch == current_epoch - 2 {
         state.finalized_epoch = old_current_justified_epoch;
         state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
     // The 1st/2nd most recent epochs are both justified, the 1st using the 2nd as source.
-    if bitfield % 4 == 0b11 && state.current_justified_epoch == current_epoch - 1 {
+    if bitfield % 4 == 0b11 && old_current_justified_epoch == current_epoch - 1 {
         state.finalized_epoch = old_current_justified_epoch;
         state.finalized_root = *state.get_block_root_at_epoch(state.finalized_epoch)?;
     }
