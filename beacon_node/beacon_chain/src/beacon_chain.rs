@@ -6,7 +6,7 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
 use log::trace;
 use operation_pool::DepositInsertStatus;
-use operation_pool::OperationPool;
+use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{RwLock, RwLockReadGuard};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::errors::{
@@ -147,11 +147,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let last_finalized_root = p.canonical_head.beacon_state.finalized_root;
         let last_finalized_block = &p.canonical_head.beacon_block;
 
+        let op_pool = p.op_pool.into_operation_pool(&p.state, &spec);
+
         Ok(Some(BeaconChain {
             spec,
             slot_clock,
             fork_choice: ForkChoice::new(store.clone(), last_finalized_block, last_finalized_root),
-            op_pool: OperationPool::default(),
+            op_pool,
             canonical_head: RwLock::new(p.canonical_head),
             state: RwLock::new(p.state),
             genesis_block_root: p.genesis_block_root,
@@ -164,6 +166,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist(&self) -> Result<(), Error> {
         let p: PersistedBeaconChain<T> = PersistedBeaconChain {
             canonical_head: self.canonical_head.read().clone(),
+            op_pool: PersistedOperationPool::from_operation_pool(&self.op_pool),
             genesis_block_root: self.genesis_block_root,
             state: self.state.read().clone(),
         };

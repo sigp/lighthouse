@@ -1,6 +1,9 @@
 mod attestation;
 mod attestation_id;
 mod max_cover;
+mod persistence;
+
+pub use persistence::PersistedOperationPool;
 
 use attestation::{earliest_attestation_validators, AttMaxCover};
 use attestation_id::AttestationId;
