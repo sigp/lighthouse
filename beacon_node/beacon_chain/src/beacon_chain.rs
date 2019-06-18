@@ -1,7 +1,6 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
-use crate::iter::{BlockIterator, BlockRootsIterator};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
@@ -19,6 +18,7 @@ use state_processing::{
     per_slot_processing, BlockProcessingError,
 };
 use std::sync::Arc;
+use store::iter::{BlockIterator, BlockRootsIterator, StateRootsIterator};
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
 use types::*;
@@ -203,7 +203,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Contains duplicate headers when skip slots are encountered.
     pub fn rev_iter_blocks(&self, slot: Slot) -> BlockIterator<T::EthSpec, T::Store> {
-        BlockIterator::new(self.store.clone(), self.state.read().clone(), slot)
+        BlockIterator::owned(self.store.clone(), self.state.read().clone(), slot)
     }
 
     /// Iterates in reverse (highest to lowest slot) through all block roots from `slot` through to
@@ -213,7 +213,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Contains duplicate roots when skip slots are encountered.
     pub fn rev_iter_block_roots(&self, slot: Slot) -> BlockRootsIterator<T::EthSpec, T::Store> {
-        BlockRootsIterator::new(self.store.clone(), self.state.read().clone(), slot)
+        BlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), slot)
+    }
+
+    /// Iterates in reverse (highest to lowest slot) through all state roots from `slot` through to
+    /// genesis.
+    ///
+    /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
+    pub fn rev_iter_state_roots(&self, slot: Slot) -> StateRootsIterator<T::EthSpec, T::Store> {
+        StateRootsIterator::owned(self.store.clone(), self.state.read().clone(), slot)
     }
 
     /// Returns the block at the given root, if any.
