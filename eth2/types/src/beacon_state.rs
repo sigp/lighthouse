@@ -569,7 +569,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.6.3
     fn get_latest_state_roots_index(&self, slot: Slot) -> Result<usize, Error> {
-        if (slot < self.slot) && (self.slot <= slot + self.latest_state_roots.len() as u64) {
+        if (slot < self.slot) && (self.slot <= slot + Slot::from(self.latest_state_roots.len())) {
             Ok(slot.as_usize() % self.latest_state_roots.len())
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
@@ -579,8 +579,20 @@ impl<T: EthSpec> BeaconState<T> {
     /// Gets the state root for some slot.
     ///
     /// Spec v0.6.3
-    pub fn get_state_root(&mut self, slot: Slot) -> Result<&Hash256, Error> {
+    pub fn get_state_root(&self, slot: Slot) -> Result<&Hash256, Error> {
         let i = self.get_latest_state_roots_index(slot)?;
+        Ok(&self.latest_state_roots[i])
+    }
+
+    /// Gets the oldest (earliest slot) state root.
+    ///
+    /// Spec v0.5.1
+    pub fn get_oldest_state_root(&self) -> Result<&Hash256, Error> {
+        let lookback = std::cmp::min(
+            self.slot - Slot::from(self.latest_state_roots.len()),
+            self.slot,
+        );
+        let i = self.get_latest_state_roots_index(self.slot - lookback)?;
         Ok(&self.latest_state_roots[i])
     }
 
