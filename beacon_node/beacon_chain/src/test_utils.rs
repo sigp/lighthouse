@@ -205,13 +205,37 @@ mod test {
 
     #[test]
     fn build_two_epochs_on_genesis() {
+        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+
         let harness: BeaconChainHarness<
             ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>,
             MinimalEthSpec,
         > = BeaconChainHarness::new(VALIDATOR_COUNT);
 
-        for _ in 0..MinimalEthSpec::slots_per_epoch() * 2 {
+        for _ in 0..num_blocks_produced {
             harness.extend_canonical_chain();
         }
+
+        let state = &harness.chain.head().beacon_state;
+
+        assert_eq!(
+            state.slot, num_blocks_produced,
+            "head should be at the current slot"
+        );
+        assert_eq!(
+            state.current_epoch(),
+            num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+            "head should be at the expected epoch"
+        );
+        assert_eq!(
+            state.current_justified_epoch,
+            state.current_epoch() - 1,
+            "the head should be justified one behind the current epoch"
+        );
+        assert_eq!(
+            state.finalized_epoch,
+            state.current_epoch() - 1,
+            "the head should be finalized one behind the current epoch"
+        );
     }
 }
