@@ -186,6 +186,13 @@ where
     where
         F: Fn(usize) -> Option<u64> + Copy,
     {
+        // It is possible that the given `start_block_root` is not in the reduced tree.
+        //
+        // In this case, we add a weightless node at `start_block_root`.
+        if !self.nodes.contains_key(&start_block_root) {
+            self.add_weightless_node(start_block_root)?;
+        };
+
         let _root_weight = self.update_weight(start_block_root, weight_fn)?;
 
         let start_node = self.get_node(start_block_root)?;
@@ -388,6 +395,9 @@ where
         if !prev_in_tree.children.is_empty() {
             for &child_hash in &prev_in_tree.children {
                 let ancestor_hash = self.find_least_common_ancestor(node.block_hash, child_hash)?;
+
+                // TODO: handle the case where the new block is a child of an existing node and a
+                // parent of an existing node.
 
                 if ancestor_hash != prev_in_tree.block_hash {
                     let child = self.get_mut_node(child_hash)?;
