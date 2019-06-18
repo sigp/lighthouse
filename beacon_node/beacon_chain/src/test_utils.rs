@@ -240,7 +240,7 @@ mod test {
     pub const VALIDATOR_COUNT: usize = 16;
 
     #[test]
-    fn build_two_epochs_on_genesis() {
+    fn can_finalize() {
         let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
         let harness: BeaconChainHarness<
@@ -270,8 +270,8 @@ mod test {
         );
         assert_eq!(
             state.finalized_epoch,
-            state.current_epoch() - 1,
-            "the head should be finalized one behind the current epoch"
+            state.current_epoch() - 2,
+            "the head should be finalized two behind the current epoch"
         );
     }
 }
