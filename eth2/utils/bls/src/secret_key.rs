@@ -1,3 +1,5 @@
+extern crate rand;
+
 use super::BLS_SECRET_KEY_BYTE_SIZE;
 use hex::encode as hex_encode;
 use milagro_bls::SecretKey as RawSecretKey;

@@ -1,5 +1,6 @@
 use super::*;
-use ethereum_types::H256;
+use core::num::NonZeroUsize;
+use ethereum_types::{H256, U128, U256};
 
 macro_rules! impl_encodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -24,6 +25,23 @@ impl_encodable_for_uint!(u16, 16);
 impl_encodable_for_uint!(u32, 32);
 impl_encodable_for_uint!(u64, 64);
 impl_encodable_for_uint!(usize, 64);
+
+/// The SSZ "union" type.
+impl<T: Encode> Encode for Option<T> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        match self {
+            None => buf.append(&mut encode_union_index(0)),
+            Some(t) => {
+                buf.append(&mut encode_union_index(1));
+                t.ssz_append(buf);
+            }
+        }
+    }
+}
 
 impl<T: Encode> Encode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {
@@ -63,6 +81,20 @@ impl Encode for bool {
     }
 }
 
+impl Encode for NonZeroUsize {
+    fn is_ssz_fixed_len() -> bool {
+        <usize as Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <usize as Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.get().ssz_append(buf)
+    }
+}
+
 impl Encode for H256 {
     fn is_ssz_fixed_len() -> bool {
         true
@@ -74,6 +106,42 @@ impl Encode for H256 {
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(self.as_bytes());
+    }
+}
+
+impl Encode for U256 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        32
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let n = <Self as Encode>::ssz_fixed_len();
+        let s = buf.len();
+
+        buf.resize(s + n, 0);
+        self.to_little_endian(&mut buf[s..]);
+    }
+}
+
+impl Encode for U128 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        16
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let n = <Self as Encode>::ssz_fixed_len();
+        let s = buf.len();
+
+        buf.resize(s + n, 0);
+        self.to_little_endian(&mut buf[s..]);
     }
 }
 
@@ -96,6 +164,7 @@ macro_rules! impl_encodable_for_u8_array {
 }
 
 impl_encodable_for_u8_array!(4);
+impl_encodable_for_u8_array!(32);
 
 #[cfg(test)]
 mod tests {
@@ -129,6 +198,25 @@ mod tests {
             vec.as_ssz_bytes(),
             vec![8, 0, 0, 0, 11, 0, 0, 0, 0, 1, 2, 11, 22, 33]
         );
+    }
+
+    #[test]
+    fn ssz_encode_option_u16() {
+        assert_eq!(Some(65535_u16).as_ssz_bytes(), vec![1, 0, 0, 0, 255, 255]);
+
+        let none: Option<u16> = None;
+        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn ssz_encode_option_vec_u16() {
+        assert_eq!(
+            Some(vec![0_u16, 1]).as_ssz_bytes(),
+            vec![1, 0, 0, 0, 0, 0, 1, 0]
+        );
+
+        let none: Option<Vec<u16>> = None;
+        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
     }
 
     #[test]

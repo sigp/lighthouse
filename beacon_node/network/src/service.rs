@@ -1,7 +1,7 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::NetworkConfig;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{Libp2pEvent, PeerId};

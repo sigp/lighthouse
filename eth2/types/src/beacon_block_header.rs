@@ -10,7 +10,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// A header of a `BeaconBlock`.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     PartialEq,
@@ -36,14 +36,14 @@ pub struct BeaconBlockHeader {
 impl BeaconBlockHeader {
     /// Returns the `tree_hash_root` of the header.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.3
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.signed_root()[..])
     }
 
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.3
     pub fn into_block(self, body: BeaconBlockBody) -> BeaconBlock {
         BeaconBlock {
             slot: self.slot,

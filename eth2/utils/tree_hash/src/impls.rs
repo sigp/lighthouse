@@ -51,23 +51,30 @@ impl TreeHash for bool {
     }
 }
 
-impl TreeHash for [u8; 4] {
-    fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Vector
-    }
+macro_rules! impl_for_u8_array {
+    ($len: expr) => {
+        impl TreeHash for [u8; $len] {
+            fn tree_hash_type() -> TreeHashType {
+                TreeHashType::Vector
+            }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("bytesN should never be packed.")
-    }
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("bytesN should never be packed.")
+            }
 
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("bytesN should never be packed.")
-    }
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("bytesN should never be packed.")
+            }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&self[..])
-    }
+            fn tree_hash_root(&self) -> Vec<u8> {
+                merkle_root(&self[..])
+            }
+        }
+    };
 }
+
+impl_for_u8_array!(4);
+impl_for_u8_array!(32);
 
 impl TreeHash for H256 {
     fn tree_hash_type() -> TreeHashType {

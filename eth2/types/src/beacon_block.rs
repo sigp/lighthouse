@@ -10,7 +10,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// A block of the `BeaconChain`.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     PartialEq,
@@ -36,18 +36,20 @@ pub struct BeaconBlock {
 impl BeaconBlock {
     /// Returns an empty block to be used during genesis.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.3
     pub fn empty(spec: &ChainSpec) -> BeaconBlock {
         BeaconBlock {
             slot: spec.genesis_slot,
             previous_block_root: spec.zero_hash,
             state_root: spec.zero_hash,
             body: BeaconBlockBody {
-                randao_reveal: spec.empty_signature.clone(),
+                randao_reveal: Signature::empty_signature(),
                 eth1_data: Eth1Data {
                     deposit_root: spec.zero_hash,
                     block_hash: spec.zero_hash,
+                    deposit_count: 0,
                 },
+                graffiti: [0; 32],
                 proposer_slashings: vec![],
                 attester_slashings: vec![],
                 attestations: vec![],
@@ -55,13 +57,13 @@ impl BeaconBlock {
                 voluntary_exits: vec![],
                 transfers: vec![],
             },
-            signature: spec.empty_signature.clone(),
+            signature: Signature::empty_signature(),
         }
     }
 
     /// Returns the `tree_hash_root | update` of the block.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.3
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
@@ -73,7 +75,7 @@ impl BeaconBlock {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.3
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
@@ -86,11 +88,11 @@ impl BeaconBlock {
 
     /// Returns a "temporary" header, where the `state_root` is `spec.zero_hash`.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.3
     pub fn temporary_block_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: spec.zero_hash,
-            signature: spec.empty_signature.clone(),
+            signature: Signature::empty_signature(),
             ..self.block_header()
         }
     }

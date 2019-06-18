@@ -59,9 +59,10 @@ impl FakeSignature {
                 expected: BLS_SIG_BYTE_SIZE,
             })
         } else {
+            let is_empty = bytes.iter().all(|x| *x == 0);
             Ok(Self {
                 bytes: bytes.to_vec(),
-                is_empty: false,
+                is_empty,
             })
         }
     }

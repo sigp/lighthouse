@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use crossbeam_channel;
 use eth2_libp2p::PubsubMessage;
 use futures::Future;
@@ -95,14 +95,12 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
             Ok(block) => {
                 match self.chain.process_block(block.clone()) {
                     Ok(outcome) => {
-                        if outcome.sucessfully_processed() {
+                        if outcome == BlockProcessingOutcome::Processed {
                             // Block was successfully processed.
                             info!(
                                 self.log,
-                                "PublishBeaconBlock";
-                                "type" => "valid_block",
+                                "Valid block from RPC";
                                 "block_slot" => block.slot,
-                                "outcome" => format!("{:?}", outcome)
                             );
 
                             // TODO: Obtain topics from the network service properly.
@@ -126,12 +124,11 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                                 });
 
                             resp.set_success(true);
-                        } else if outcome.is_invalid() {
-                            // Block was invalid.
+                        } else {
+                            // Block was not successfully processed.
                             warn!(
                                 self.log,
-                                "PublishBeaconBlock";
-                                "type" => "invalid_block",
+                                "Invalid block from RPC";
                                 "outcome" => format!("{:?}", outcome)
                             );
 
@@ -139,17 +136,6 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                             resp.set_msg(
                                 format!("InvalidBlock: {:?}", outcome).as_bytes().to_vec(),
                             );
-                        } else {
-                            // Some failure during processing.
-                            warn!(
-                                self.log,
-                                "PublishBeaconBlock";
-                                "type" => "unable_to_import",
-                                "outcome" => format!("{:?}", outcome)
-                            );
-
-                            resp.set_success(false);
-                            resp.set_msg(format!("other: {:?}", outcome).as_bytes().to_vec());
                         }
                     }
                     Err(e) => {

@@ -1,10 +1,11 @@
 mod beacon_chain;
 mod checkpoint;
 mod errors;
+pub mod iter;
+mod metrics;
+mod persisted_beacon_chain;
 
-pub use self::beacon_chain::{
-    BeaconChain, BeaconChainTypes, BlockProcessingOutcome, InvalidBlock, ValidBlock,
-};
+pub use self::beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use fork_choice;

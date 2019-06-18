@@ -1,4 +1,4 @@
-use crate::test_utils::TestRandom;
+use crate::test_utils::{graffiti_from_hex_str, TestRandom};
 use crate::*;
 
 use serde_derive::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     PartialEq,
@@ -24,6 +24,8 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 pub struct BeaconBlockBody {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
+    #[serde(deserialize_with = "graffiti_from_hex_str")]
+    pub graffiti: [u8; 32],
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub attester_slashings: Vec<AttesterSlashing>,
     pub attestations: Vec<Attestation>,
