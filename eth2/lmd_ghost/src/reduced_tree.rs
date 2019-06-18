@@ -496,7 +496,7 @@ where
         let block = self.get_block(child)?;
         let state = self.get_state(block.state_root)?;
 
-        Ok(BlockRootsIterator::new(
+        Ok(BlockRootsIterator::owned(
             self.store.clone(),
             state,
             block.slot,
