@@ -122,13 +122,14 @@ A few basic steps are needed to get set up:
 	  - `protobuf`: required for protobuf serialization (gRPC).
 	  - `cmake`: required for building protobuf
    6. Navigate to the working directory.
-   7. Run the test by using command `cargo test --all`. By running, it will pass all the required test cases.
+   7. Install [Large File Support](https://git-lfs.github.com/) (required for EF tests submodule), then run `git submodule init`
+   8. Run the test by using command `cargo test --all`. By running, it will pass all the required test cases.
         If you are doing it for the first time, then you can grab a coffee in the meantime. Usually, it takes time
         to build, compile and pass all test cases. If there is no error then it means everything is working properly
         and it's time to get your hands dirty.
         In case, if there is an error, then please raise the [issue](https://github.com/sigp/lighthouse/issues).
         We will help you.
-   8. As an alternative to, or instead of the above step, you may also run benchmarks by using
+   9. As an alternative to, or instead of the above step, you may also run benchmarks by using
         the command `cargo bench --all`
 
 ##### Note:
