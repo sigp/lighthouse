@@ -107,6 +107,7 @@ pub struct ChainSpec {
     /*
      * Network specific parameters
      */
+    pub boot_nodes: Vec<Multiaddr>,
     pub chain_id: u8,
 }
 
@@ -216,7 +217,8 @@ impl ChainSpec {
             /*
              * Network specific
              */
-            chain_id: 1, // foundation chain id
+            boot_nodes: vec![],
+            chain_id: 1, // mainnet chain id
         }
     }
 

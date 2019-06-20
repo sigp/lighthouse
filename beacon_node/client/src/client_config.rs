@@ -23,19 +23,6 @@ pub struct ClientConfig {
 
 impl Default for ClientConfig {
     fn default() -> Self {
-        let data_dir = {
-            let home = dirs::home_dir().expect("Unable to determine home dir.");
-            home.join(".lighthouse/")
-        };
-        fs::create_dir_all(&data_dir)
-            .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
-
-        // currently lighthouse spec
-        let default_spec = ChainSpec::lighthouse_testnet();
-        let chain_type = ChainType::from(default_spec.chain_id);
-        // builds a chain-specific network config
-        let net_conf = NetworkConfig::from(chain_type);
-
         Self {
             data_dir: PathBuf::from(".lighthouse"),
             db_type: "disk".to_string(),
@@ -50,11 +37,17 @@ impl Default for ClientConfig {
 }
 
 impl ClientConfig {
-<<<<<<< HEAD
     /// Returns the path to which the client may initialize an on-disk database.
     pub fn db_path(&self) -> Option<PathBuf> {
         self.data_dir()
             .and_then(|path| Some(path.join(&self.db_name)))
+    }
+
+    /// Returns the core path for the client.
+    pub fn data_dir(&self) -> Option<PathBuf> {
+        let path = dirs::home_dir()?.join(&self.data_dir);
+        fs::create_dir_all(&path).ok()?;
+        Some(path)
     }
 
     /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
@@ -74,6 +67,6 @@ impl ClientConfig {
         self.rpc.apply_cli_args(args)?;
         self.http.apply_cli_args(args)?;
 
-        Ok(log)
+        Ok(())
     }
 }
