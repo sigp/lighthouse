@@ -147,11 +147,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn new(local_public_key: PublicKey, net_conf: &NetworkConfig, log: &slog::Logger) -> Self {
         let local_peer_id = local_public_key.clone().into_peer_id();
         let behaviour_log = log.new(o!());
-
-        // identify configuration
         let identify_config = net_conf.identify_config.clone();
-
-        // ping configuration
         let ping_config = PingConfig::new()
             .with_timeout(Duration::from_secs(30))
             .with_interval(Duration::from_secs(20))
