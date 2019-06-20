@@ -32,7 +32,7 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
-    Processed,
+    Processed { block_root: Hash256 },
     /// The blocks parent_root is unknown.
     ParentUnknown { parent: Hash256 },
     /// The block slot is greater than the present slot.
@@ -426,6 +426,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
+        let state = self.state.read();
+        let head_block_root = self.head().beacon_block_root;
+        let head_block_slot = self.head().beacon_block.slot;
+
+        self.produce_attestation_data_for_block(shard, head_block_root, head_block_slot, &*state)
+        /*
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
 
         self.metrics.attestation_production_requests.inc();
@@ -466,6 +472,65 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(AttestationData {
             beacon_block_root: self.head().beacon_block_root,
+            source_epoch: state.current_justified_epoch,
+            source_root: state.current_justified_root,
+            target_epoch: state.current_epoch(),
+            target_root,
+            shard,
+            previous_crosslink_root,
+            crosslink_data_root: Hash256::zero(),
+        })
+        */
+    }
+
+    /// Produce an `AttestationData` that attests to the chain denoted by `block_root` and `state`.
+    pub fn produce_attestation_data_for_block(
+        &self,
+        shard: u64,
+        head_block_root: Hash256,
+        head_block_slot: Slot,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<AttestationData, Error> {
+        // Collect some metrics.
+        self.metrics.attestation_production_requests.inc();
+        let timer = self.metrics.attestation_production_times.start_timer();
+
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let current_epoch_start_slot = state.current_epoch().start_slot(slots_per_epoch);
+
+        // The `target_root` is the root of the first block of the current epoch.
+        //
+        // The `state` does not know the root of the block for it's current slot (it only knows
+        // about blocks from prior slots). This creates an edge-case when the state is on the first
+        // slot of the epoch -- we're unable to obtain the `target_root` because it is not a prior
+        // root.
+        //
+        // This edge case is handled in two ways:
+        //
+        // - If the head block is on the same slot as the state, we use it's root.
+        // - Otherwise, assume the current slot has been skipped and use the block root from the
+        // prior slot.
+        //
+        // For all other cases, we simply read the `target_root` from `state.latest_block_roots`.
+        let target_root = if state.slot == current_epoch_start_slot {
+            if head_block_slot == current_epoch_start_slot {
+                head_block_root
+            } else {
+                *state.get_block_root(current_epoch_start_slot - 1)?
+            }
+        } else {
+            *state.get_block_root(current_epoch_start_slot)?
+        };
+
+        let previous_crosslink_root =
+            Hash256::from_slice(&state.get_current_crosslink(shard)?.tree_hash_root());
+
+        // Collect some metrics.
+        self.metrics.attestation_production_successes.inc();
+        timer.observe_duration();
+
+        Ok(AttestationData {
+            beacon_block_root: head_block_root,
             source_epoch: state.current_justified_epoch,
             source_root: state.current_justified_root,
             target_epoch: state.current_epoch(),
@@ -612,9 +677,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get(&parent_state_root)?
             .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
 
-        // TODO: check the block proposer signature BEFORE doing a state transition. This will
-        // significantly lower exposure surface to DoS attacks.
-
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
         for _ in state.slot.as_u64()..block.slot.as_u64() {
@@ -658,7 +720,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .observe(block.body.attestations.len() as f64);
         timer.observe_duration();
 
-        Ok(BlockProcessingOutcome::Processed)
+        Ok(BlockProcessingOutcome::Processed { block_root })
     }
 
     /// Produce a new block at the present slot.
@@ -695,10 +757,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let timer = self.metrics.block_production_times.start_timer();
 
         // If required, transition the new state to the present slot.
-        for _ in state.slot.as_u64()..produce_at_slot.as_u64() {
-            // Ensure the next epoch state caches are built in case of an epoch transition.
-            state.build_committee_cache(RelativeEpoch::Next, &self.spec)?;
-
+        while state.slot < produce_at_slot {
             per_slot_processing(&mut state, &self.spec)?;
         }
 
@@ -711,6 +770,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             state.latest_block_header.canonical_root()
         };
+        dbg!(previous_block_root);
 
         let mut graffiti: [u8; 32] = [0; 32];
         graffiti.copy_from_slice(GRAFFITI.as_bytes());
@@ -754,6 +814,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.block_production_successes.inc();
         timer.observe_duration();
 
+        dbg!(block.canonical_root());
+
         Ok((block, state))
     }
 
@@ -787,6 +849,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // If we switched to a new chain (instead of building atop the present chain).
             if self.head().beacon_block_root != beacon_block.previous_block_root {
+                dbg!("switched head");
+                dbg!(self.head().beacon_block.slot);
+                dbg!(beacon_block.slot);
                 self.metrics.fork_choice_reorg_count.inc();
             };
 
