@@ -173,6 +173,14 @@ where
             }
         }
 
+        self.latest_votes.insert(
+            validator_index,
+            Some(Vote {
+                slot,
+                hash: block_hash,
+            }),
+        );
+
         self.add_latest_message(validator_index, block_hash)?;
 
         Ok(())
