@@ -2,6 +2,7 @@ use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use lmd_ghost::LmdGhost;
 use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;
+use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::MemoryStore;
@@ -13,7 +14,7 @@ use types::{
     Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum BuildStrategy {
     OnCanonicalHead,
     ForkCanonicalChainAt(Slot),
@@ -89,22 +90,14 @@ where
         }
     }
 
-    pub fn extend_chain(&self, build_strategy: BuildStrategy) {
+    pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
         self.chain.catchup_state().expect("should catchup state");
-
-        let block = self.build_block(build_strategy);
-        let outcome = self
-            .chain
-            .process_block(block)
-            .expect("should process block");
-        assert_eq!(outcome, BlockProcessingOutcome::Processed);
-
-        self.add_attestations_to_op_pool();
     }
 
-    fn get_state(&self, build_strategy: BuildStrategy) -> BeaconState<E> {
-        match build_strategy {
+    pub fn extend_chain(&self, build_strategy: BuildStrategy, blocks: usize) {
+        // Get an initial state to build the block upon, based on the build strategy.
+        let mut state = match build_strategy {
             BuildStrategy::OnCanonicalHead => self.chain.current_state().clone(),
             BuildStrategy::ForkCanonicalChainAt(fork_slot) => {
                 let state_root = self
@@ -120,17 +113,79 @@ where
                     .expect("should read db")
                     .expect("should find state root")
             }
-        }
-    }
+        };
 
-    fn build_block(&self, build_strategy: BuildStrategy) -> BeaconBlock {
-        let mut state = self.get_state(build_strategy);
-        state.build_all_caches(&self.spec).unwrap();
-
-        let slot = match build_strategy {
+        // Get an initial slot to build upon, based on the build strategy.
+        let mut slot = match build_strategy {
             BuildStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap(),
             BuildStrategy::ForkCanonicalChainAt(slot) => slot,
         };
+
+        for _ in 0..blocks {
+            while self.chain.read_slot_clock().expect("should have a slot") < slot {
+                self.advance_slot();
+            }
+
+            let (block, new_state) = self.build_block(state.clone(), slot, build_strategy);
+
+            let outcome = self
+                .chain
+                .process_block(block)
+                .expect("should process block");
+
+            assert_eq!(outcome, BlockProcessingOutcome::Processed);
+
+            state = new_state;
+            slot += 1;
+        }
+
+        self.add_attestations_to_op_pool();
+    }
+
+    fn build_block(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+        build_strategy: BuildStrategy,
+    ) -> (BeaconBlock, BeaconState<E>) {
+        if slot < state.slot {
+            panic!("produce slot cannot be prior to the state slot");
+        }
+
+        for _ in 0..slot.as_u64() - state.slot.as_u64() {
+            // Ensure the next epoch state caches are built in case of an epoch transition.
+            state
+                .build_committee_cache(RelativeEpoch::Next, &self.spec)
+                .expect("should be able to build caches");
+
+            per_slot_processing(&mut state, &self.spec)
+                .expect("should be able to advance state to slot");
+        }
+
+        state.drop_all_caches();
+        state.build_all_caches(&self.spec).unwrap();
+
+        // dbg!(slot);
+        // dbg!(state.generate_seed(state.current_epoch(), &self.spec));
+        dbg!(state.generate_seed(state.next_epoch(), &self.spec));
+        /*
+        dbg!(self
+            .chain
+            .current_state()
+            .generate_seed(state.current_epoch(), &self.spec));
+        // dbg!(state.generate_seed(state.next_epoch(), &self.spec));
+        dbg!(state.canonical_root());
+        dbg!(&state.committee_caches[0]);
+        dbg!(self.chain.current_state().canonical_root());
+        dbg!(&self.chain.current_state().committee_caches[0]);
+
+        dbg!(state.get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.spec));
+        dbg!(self.chain.current_state().get_beacon_proposer_index(
+            slot,
+            RelativeEpoch::Current,
+            &self.spec
+        ));
+        */
 
         let proposer_index = match build_strategy {
             BuildStrategy::OnCanonicalHead => self
@@ -152,7 +207,7 @@ where
             Signature::new(&message, domain, sk)
         };
 
-        let (mut block, _state) = self
+        let (mut block, state) = self
             .chain
             .produce_block_on_state(state, slot, randao_reveal)
             .expect("should produce block");
@@ -164,7 +219,7 @@ where
             Signature::new(&message, domain, sk)
         };
 
-        block
+        (block, state)
     }
 
     fn add_attestations_to_op_pool(&self) {
@@ -239,18 +294,30 @@ mod test {
 
     pub const VALIDATOR_COUNT: usize = 16;
 
+    fn get_harness(
+        validator_count: usize,
+    ) -> BeaconChainHarness<ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>, MinimalEthSpec>
+    {
+        let harness = BeaconChainHarness::new(validator_count);
+
+        // Move past the zero slot.
+        harness.advance_slot();
+
+        harness
+    }
+
     #[test]
     fn can_finalize() {
         let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
-        let harness: BeaconChainHarness<
-            ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>,
-            MinimalEthSpec,
-        > = BeaconChainHarness::new(VALIDATOR_COUNT);
+        let harness = get_harness(VALIDATOR_COUNT);
 
+        harness.extend_chain(BuildStrategy::OnCanonicalHead, num_blocks_produced as usize);
+        /*
         for _ in 0..num_blocks_produced {
             harness.extend_chain(BuildStrategy::OnCanonicalHead);
         }
+        */
 
         let state = &harness.chain.head().beacon_state;
 

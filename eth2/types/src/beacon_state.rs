@@ -703,6 +703,9 @@ impl<T: EthSpec> BeaconState<T> {
         let active_index_root = self.get_active_index_root(epoch, spec)?;
         let epoch_bytes = int_to_bytes32(epoch.as_u64());
 
+        dbg!(randao);
+        dbg!(active_index_root);
+
         let mut preimage = [0; 32 * 3];
         preimage[0..32].copy_from_slice(&randao[..]);
         preimage[32..64].copy_from_slice(&active_index_root[..]);

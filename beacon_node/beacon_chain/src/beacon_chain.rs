@@ -4,7 +4,7 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
-use log::{debug, trace};
+use log::trace;
 use operation_pool::DepositInsertStatus;
 use operation_pool::OperationPool;
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -300,17 +300,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             _ => return Err(Error::UnableToReadSlot),
         };
 
-        let mut state = self.state.write();
+        if self.state.read().slot < present_slot {
+            let mut state = self.state.write();
 
-        // If required, transition the new state to the present slot.
-        for _ in state.slot.as_u64()..present_slot.as_u64() {
-            // Ensure the next epoch state caches are built in case of an epoch transition.
-            state.build_committee_cache(RelativeEpoch::Next, spec)?;
+            // If required, transition the new state to the present slot.
+            for _ in state.slot.as_u64()..present_slot.as_u64() {
+                // Ensure the next epoch state caches are built in case of an epoch transition.
+                state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-            per_slot_processing(&mut *state, spec)?;
+                per_slot_processing(&mut *state, spec)?;
+            }
+
+            state.build_all_caches(spec)?;
         }
-
-        state.build_all_caches(spec)?;
 
         Ok(())
     }
@@ -382,13 +384,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block proposer for a given slot.
     ///
-    /// Information is read from the present `beacon_state` shuffling, so only information from the
-    /// present and prior epoch is available.
-    pub fn block_proposer(&self, slot: Slot) -> Result<usize, BeaconStateError> {
-        self.state
-            .write()
-            .build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+    /// Information is read from the present `beacon_state` shuffling, only information from the
+    /// present epoch is available.
+    pub fn block_proposer(&self, slot: Slot) -> Result<usize, Error> {
+        // Ensures that the present state has been advanced to the present slot, skipping slots if
+        // blocks are not present.
+        self.catchup_state()?;
 
+        // TODO: permit lookups of the proposer at any slot.
         let index = self.state.read().get_beacon_proposer_index(
             slot,
             RelativeEpoch::Current,
@@ -559,6 +562,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .read()
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
+
         if block.slot <= finalized_slot {
             return Ok(BlockProcessingOutcome::FinalizedSlot);
         }
@@ -573,7 +577,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::GenesisBlock);
         }
 
-        let present_slot = self.present_slot();
+        let present_slot = self
+            .read_slot_clock()
+            .ok_or_else(|| Error::UnableToReadSlot)?;
 
         if block.slot > present_slot {
             return Ok(BlockProcessingOutcome::FutureSlot {
@@ -719,8 +725,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signature: Signature::empty_signature(), // To be completed by a validator.
             body: BeaconBlockBody {
                 randao_reveal,
+                // TODO: replace with real data.
                 eth1_data: Eth1Data {
-                    // TODO: replace with real data
                     deposit_count: 0,
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
@@ -738,11 +744,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 transfers: self.op_pool.get_transfers(&*self.state.read(), &self.spec),
             },
         };
-
-        debug!(
-            "Produced block with {} attestations, updating state.",
-            block.body.attestations.len()
-        );
 
         per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
 
