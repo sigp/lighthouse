@@ -131,15 +131,19 @@ where
             let outcome = self
                 .chain
                 .process_block(block)
-                .expect("should process block");
+                .expect("should not error during block processing");
 
-            assert_eq!(outcome, BlockProcessingOutcome::Processed);
+            if let BlockProcessingOutcome::Processed { block_root } = outcome {
+                //
+            } else {
+                panic!("block should be successfully processed");
+            }
+
+            self.add_attestations_to_op_pool();
 
             state = new_state;
             slot += 1;
         }
-
-        self.add_attestations_to_op_pool();
     }
 
     fn build_block(
@@ -152,40 +156,12 @@ where
             panic!("produce slot cannot be prior to the state slot");
         }
 
-        for _ in 0..slot.as_u64() - state.slot.as_u64() {
-            // Ensure the next epoch state caches are built in case of an epoch transition.
-            state
-                .build_committee_cache(RelativeEpoch::Next, &self.spec)
-                .expect("should be able to build caches");
-
+        while state.slot < slot {
             per_slot_processing(&mut state, &self.spec)
                 .expect("should be able to advance state to slot");
         }
 
-        state.drop_all_caches();
         state.build_all_caches(&self.spec).unwrap();
-
-        // dbg!(slot);
-        // dbg!(state.generate_seed(state.current_epoch(), &self.spec));
-        dbg!(state.generate_seed(state.next_epoch(), &self.spec));
-        /*
-        dbg!(self
-            .chain
-            .current_state()
-            .generate_seed(state.current_epoch(), &self.spec));
-        // dbg!(state.generate_seed(state.next_epoch(), &self.spec));
-        dbg!(state.canonical_root());
-        dbg!(&state.committee_caches[0]);
-        dbg!(self.chain.current_state().canonical_root());
-        dbg!(&self.chain.current_state().committee_caches[0]);
-
-        dbg!(state.get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.spec));
-        dbg!(self.chain.current_state().get_beacon_proposer_index(
-            slot,
-            RelativeEpoch::Current,
-            &self.spec
-        ));
-        */
 
         let proposer_index = match build_strategy {
             BuildStrategy::OnCanonicalHead => self
@@ -308,7 +284,7 @@ mod test {
 
     #[test]
     fn can_finalize() {
-        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 1 + 2;
 
         let harness = get_harness(VALIDATOR_COUNT);
 
@@ -340,5 +316,7 @@ mod test {
             state.current_epoch() - 2,
             "the head should be finalized two behind the current epoch"
         );
+
+        panic!();
     }
 }

@@ -210,6 +210,8 @@ where
     }
 
     fn find_head_from<'a>(&'a self, start_node: &'a Node) -> Result<&'a Node> {
+        dbg!(&self.nodes);
+
         if start_node.does_not_have_children() {
             Ok(start_node)
         } else {
@@ -585,7 +587,7 @@ pub struct Vote {
 ///
 /// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
 /// Default) to the smallest size required to fulfill the request.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct ElasticList<T>(Vec<T>);
 
 impl<T> ElasticList<T>

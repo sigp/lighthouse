@@ -703,9 +703,6 @@ impl<T: EthSpec> BeaconState<T> {
         let active_index_root = self.get_active_index_root(epoch, spec)?;
         let epoch_bytes = int_to_bytes32(epoch.as_u64());
 
-        dbg!(randao);
-        dbg!(active_index_root);
-
         let mut preimage = [0; 32 * 3];
         preimage[0..32].copy_from_slice(&randao[..]);
         preimage[32..64].copy_from_slice(&active_index_root[..]);
@@ -838,10 +835,12 @@ impl<T: EthSpec> BeaconState<T> {
     /// Note: whilst this function will preserve already-built caches, it will not build any.
     pub fn advance_caches(&mut self) {
         let next = Self::cache_index(RelativeEpoch::Previous);
+        let current = Self::cache_index(RelativeEpoch::Current);
 
         let caches = &mut self.committee_caches[..];
         caches.rotate_left(1);
         caches[next] = CommitteeCache::default();
+        caches[current] = CommitteeCache::default();
     }
 
     fn cache_index(relative_epoch: RelativeEpoch) -> usize {
