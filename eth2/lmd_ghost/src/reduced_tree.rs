@@ -1,3 +1,8 @@
+/// An implementation of "reduced tree" LMD GHOST fork choice.
+///
+/// This algorithm was concieved at IC3 Cornell, 2019.
+///
+/// This implementation is incomplete and has known bugs.
 use super::{LmdGhost, Result as SuperResult};
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -210,8 +215,6 @@ where
     }
 
     fn find_head_from<'a>(&'a self, start_node: &'a Node) -> Result<&'a Node> {
-        dbg!(&self.nodes);
-
         if start_node.does_not_have_children() {
             Ok(start_node)
         } else {
@@ -404,10 +407,24 @@ where
 
         if !prev_in_tree.children.is_empty() {
             for &child_hash in &prev_in_tree.children {
-                let ancestor_hash = self.find_least_common_ancestor(node.block_hash, child_hash)?;
+                if self
+                    .iter_ancestors(child_hash)?
+                    .any(|(ancestor, _slot)| ancestor == node.block_hash)
+                {
+                    let child = self.get_mut_node(child_hash)?;
 
-                // TODO: handle the case where the new block is a child of an existing node and a
-                // parent of an existing node.
+                    child.parent_hash = Some(node.block_hash);
+                    node.children.push(child_hash);
+                    prev_in_tree.replace_child(child_hash, node.block_hash)?;
+
+                    added_new_ancestor = true;
+
+                    break;
+                }
+            }
+
+            for &child_hash in &prev_in_tree.children {
+                let ancestor_hash = self.find_least_common_ancestor(node.block_hash, child_hash)?;
 
                 if ancestor_hash != prev_in_tree.block_hash {
                     let child = self.get_mut_node(child_hash)?;

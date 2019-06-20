@@ -186,7 +186,6 @@ impl<T: BeaconChainTypes> Drop for Client<T> {
     fn drop(&mut self) {
         // Save the beacon chain to it's store before dropping.
         let _result = self.beacon_chain.persist();
-        dbg!("Saved BeaconChain to store");
     }
 }
 

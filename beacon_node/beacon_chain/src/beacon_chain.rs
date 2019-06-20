@@ -770,7 +770,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             state.latest_block_header.canonical_root()
         };
-        dbg!(previous_block_root);
 
         let mut graffiti: [u8; 32] = [0; 32];
         graffiti.copy_from_slice(GRAFFITI.as_bytes());
@@ -814,8 +813,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.block_production_successes.inc();
         timer.observe_duration();
 
-        dbg!(block.canonical_root());
-
         Ok((block, state))
     }
 
@@ -849,9 +846,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // If we switched to a new chain (instead of building atop the present chain).
             if self.head().beacon_block_root != beacon_block.previous_block_root {
-                dbg!("switched head");
-                dbg!(self.head().beacon_block.slot);
-                dbg!(beacon_block.slot);
                 self.metrics.fork_choice_reorg_count.inc();
             };
 
