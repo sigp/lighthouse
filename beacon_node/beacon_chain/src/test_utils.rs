@@ -134,12 +134,10 @@ where
                 .expect("should not error during block processing");
 
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
-                //
+                self.add_attestations_to_op_pool(&new_state, block_root, slot);
             } else {
                 panic!("block should be successfully processed");
             }
-
-            self.add_attestations_to_op_pool();
 
             state = new_state;
             slot += 1;
@@ -198,8 +196,12 @@ where
         (block, state)
     }
 
-    fn add_attestations_to_op_pool(&self) {
-        let state = &self.chain.current_state();
+    fn add_attestations_to_op_pool(
+        &self,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        head_block_slot: Slot,
+    ) {
         let spec = &self.spec;
         let fork = &state.fork;
 
@@ -213,7 +215,12 @@ where
                 for (i, validator_index) in cc.committee.iter().enumerate() {
                     let data = self
                         .chain
-                        .produce_attestation_data(cc.shard)
+                        .produce_attestation_data_for_block(
+                            cc.shard,
+                            head_block_root,
+                            head_block_slot,
+                            state,
+                        )
                         .expect("should produce attestation data");
 
                     let mut aggregation_bitfield = Bitfield::new();
