@@ -425,65 +425,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Produce an `AttestationData` that is valid for the present `slot` and given `shard`.
+    ///
+    /// Attests to the canonical chain.
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         let state = self.state.read();
         let head_block_root = self.head().beacon_block_root;
         let head_block_slot = self.head().beacon_block.slot;
 
         self.produce_attestation_data_for_block(shard, head_block_root, head_block_slot, &*state)
-        /*
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-
-        self.metrics.attestation_production_requests.inc();
-        let timer = self.metrics.attestation_production_times.start_timer();
-
-        let state = self.state.read();
-
-        let current_epoch_start_slot = self
-            .state
-            .read()
-            .slot
-            .epoch(slots_per_epoch)
-            .start_slot(slots_per_epoch);
-
-        let target_root = if state.slot == current_epoch_start_slot {
-            // If we're on the first slot of the state's epoch.
-            if self.head().beacon_block.slot == state.slot {
-                // If the current head block is from the current slot, use its block root.
-                self.head().beacon_block_root
-            } else {
-                // If the current head block is not from this slot, use the slot from the previous
-                // epoch.
-                *self
-                    .state
-                    .read()
-                    .get_block_root(current_epoch_start_slot - slots_per_epoch)?
-            }
-        } else {
-            // If we're not on the first slot of the epoch.
-            *self.state.read().get_block_root(current_epoch_start_slot)?
-        };
-
-        let previous_crosslink_root =
-            Hash256::from_slice(&state.get_current_crosslink(shard)?.tree_hash_root());
-
-        self.metrics.attestation_production_successes.inc();
-        timer.observe_duration();
-
-        Ok(AttestationData {
-            beacon_block_root: self.head().beacon_block_root,
-            source_epoch: state.current_justified_epoch,
-            source_root: state.current_justified_root,
-            target_epoch: state.current_epoch(),
-            target_root,
-            shard,
-            previous_crosslink_root,
-            crosslink_data_root: Hash256::zero(),
-        })
-        */
     }
 
     /// Produce an `AttestationData` that attests to the chain denoted by `block_root` and `state`.
+    ///
+    /// Permits attesting to any arbitrary chain. Generally, the `produce_attestation_data`
+    /// function should be used as it attests to the canonical chain.
     pub fn produce_attestation_data_for_block(
         &self,
         shard: u64,
