@@ -14,17 +14,25 @@ use types::{
     Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot,
 };
 
+/// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
-pub enum BuildStrategy {
+pub enum BlockStrategy {
+    /// Produce blocks upon the canonical head (normal case).
     OnCanonicalHead,
+    /// Ignore the canonical head and produce blocks upon the block at the given slot.
+    ///
+    /// Useful for simulating forks.
     ForkCanonicalChainAt(Slot),
 }
 
+/// Indicates how the `BeaconChainHarness` should produce attestations.
 #[derive(Clone, Copy, Debug)]
 pub enum AttestationStrategy {
+    /// All validators attest to whichever block the `BeaconChainHarness` has produced.
     AllValidators,
 }
 
+/// Used to make the `BeaconChainHarness` generic over some types.
 pub struct CommonTypes<L, E>
 where
     L: LmdGhost<MemoryStore, E>,
@@ -45,6 +53,8 @@ where
     type EthSpec = E;
 }
 
+/// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
+/// attestations.
 pub struct BeaconChainHarness<L, E>
 where
     L: LmdGhost<MemoryStore, E>,
@@ -60,6 +70,7 @@ where
     L: LmdGhost<MemoryStore, E>,
     E: EthSpec,
 {
+    /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(validator_count: usize) -> Self {
         let spec = E::default_spec();
 
@@ -95,21 +106,32 @@ where
         }
     }
 
+    /// Advance the slot of the `BeaconChain`.
+    ///
+    /// Does not produce blocks or attestations.
     pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
         self.chain.catchup_state().expect("should catchup state");
     }
 
+    /// Extend the `BeaconChain` with some blocks and attestations.
+    ///
+    /// Chain will be extended by `num_blocks` blocks.
+    ///
+    /// The `block_strategy` dictates where the new blocks will be placed.
+    ///
+    /// The `attestation_strategy` dictates which validators will attest to the newly created
+    /// blocks.
     pub fn extend_chain(
         &self,
-        build_strategy: BuildStrategy,
-        blocks: usize,
+        num_blocks: usize,
+        block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) {
         // Get an initial state to build the block upon, based on the build strategy.
-        let mut state = match build_strategy {
-            BuildStrategy::OnCanonicalHead => self.chain.current_state().clone(),
-            BuildStrategy::ForkCanonicalChainAt(fork_slot) => {
+        let mut state = match block_strategy {
+            BlockStrategy::OnCanonicalHead => self.chain.current_state().clone(),
+            BlockStrategy::ForkCanonicalChainAt(fork_slot) => {
                 let state_root = self
                     .chain
                     .rev_iter_state_roots(self.chain.head().beacon_state.slot - 1)
@@ -126,17 +148,17 @@ where
         };
 
         // Get an initial slot to build upon, based on the build strategy.
-        let mut slot = match build_strategy {
-            BuildStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap(),
-            BuildStrategy::ForkCanonicalChainAt(slot) => slot,
+        let mut slot = match block_strategy {
+            BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap(),
+            BlockStrategy::ForkCanonicalChainAt(slot) => slot,
         };
 
-        for _ in 0..blocks {
+        for _ in 0..num_blocks {
             while self.chain.read_slot_clock().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
-            let (block, new_state) = self.build_block(state.clone(), slot, build_strategy);
+            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
             let outcome = self
                 .chain
@@ -159,11 +181,12 @@ where
         }
     }
 
+    /// Returns a newly created block, signed by the proposer for the given slot.
     fn build_block(
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-        build_strategy: BuildStrategy,
+        block_strategy: BlockStrategy,
     ) -> (BeaconBlock, BeaconState<E>) {
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
@@ -176,8 +199,8 @@ where
 
         state.build_all_caches(&self.spec).unwrap();
 
-        let proposer_index = match build_strategy {
-            BuildStrategy::OnCanonicalHead => self
+        let proposer_index = match block_strategy {
+            BlockStrategy::OnCanonicalHead => self
                 .chain
                 .block_proposer(slot)
                 .expect("should get block proposer from chain"),
@@ -211,6 +234,9 @@ where
         (block, state)
     }
 
+    /// Adds attestations to the `BeaconChain` operations pool to be included in future blocks.
+    ///
+    /// The `attestation_strategy` dictates which validators should attest.
     fn add_attestations_to_op_pool(
         &self,
         attestation_strategy: AttestationStrategy,
@@ -288,6 +314,7 @@ where
             });
     }
 
+    /// Returns the secret key for the given validator index.
     fn get_sk(&self, validator_index: usize) -> &SecretKey {
         &self.keypairs[validator_index].sk
     }
@@ -321,8 +348,8 @@ mod test {
         let harness = get_harness(VALIDATOR_COUNT);
 
         harness.extend_chain(
-            BuildStrategy::OnCanonicalHead,
             num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         );
 
