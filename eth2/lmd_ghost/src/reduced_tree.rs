@@ -1,8 +1,8 @@
-/// An implementation of "reduced tree" LMD GHOST fork choice.
-///
-/// This algorithm was concieved at IC3 Cornell, 2019.
-///
-/// This implementation is incomplete and has known bugs.
+//! An implementation of "reduced tree" LMD GHOST fork choice.
+//!
+//! This algorithm was concieved at IC3 Cornell, 2019.
+//!
+//! This implementation is incomplete and has known bugs. Do not use in production.
 use super::{LmdGhost, Result as SuperResult};
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -406,6 +406,8 @@ where
         let mut added_new_ancestor = false;
 
         if !prev_in_tree.children.is_empty() {
+            let mut added = false;
+
             for &child_hash in &prev_in_tree.children {
                 if self
                     .iter_ancestors(child_hash)?
@@ -417,34 +419,37 @@ where
                     node.children.push(child_hash);
                     prev_in_tree.replace_child(child_hash, node.block_hash)?;
 
-                    added_new_ancestor = true;
+                    added = true;
 
                     break;
                 }
             }
 
-            for &child_hash in &prev_in_tree.children {
-                let ancestor_hash = self.find_least_common_ancestor(node.block_hash, child_hash)?;
+            if !added {
+                for &child_hash in &prev_in_tree.children {
+                    let ancestor_hash =
+                        self.find_least_common_ancestor(node.block_hash, child_hash)?;
 
-                if ancestor_hash != prev_in_tree.block_hash {
-                    let child = self.get_mut_node(child_hash)?;
-                    let common_ancestor = Node {
-                        block_hash: ancestor_hash,
-                        parent_hash: Some(prev_in_tree.block_hash),
-                        children: vec![node.block_hash, child_hash],
-                        ..Node::default()
-                    };
-                    child.parent_hash = Some(common_ancestor.block_hash);
-                    node.parent_hash = Some(common_ancestor.block_hash);
+                    if ancestor_hash != prev_in_tree.block_hash {
+                        let child = self.get_mut_node(child_hash)?;
+                        let common_ancestor = Node {
+                            block_hash: ancestor_hash,
+                            parent_hash: Some(prev_in_tree.block_hash),
+                            children: vec![node.block_hash, child_hash],
+                            ..Node::default()
+                        };
+                        child.parent_hash = Some(common_ancestor.block_hash);
+                        node.parent_hash = Some(common_ancestor.block_hash);
 
-                    prev_in_tree.replace_child(child_hash, ancestor_hash)?;
+                        prev_in_tree.replace_child(child_hash, ancestor_hash)?;
 
-                    self.nodes
-                        .insert(common_ancestor.block_hash, common_ancestor);
+                        self.nodes
+                            .insert(common_ancestor.block_hash, common_ancestor);
 
-                    added_new_ancestor = true;
+                        added_new_ancestor = true;
 
-                    break;
+                        break;
+                    }
                 }
             }
         }

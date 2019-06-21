@@ -284,16 +284,11 @@ mod test {
 
     #[test]
     fn can_finalize() {
-        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 1 + 2;
+        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
         let harness = get_harness(VALIDATOR_COUNT);
 
         harness.extend_chain(BuildStrategy::OnCanonicalHead, num_blocks_produced as usize);
-        /*
-        for _ in 0..num_blocks_produced {
-            harness.extend_chain(BuildStrategy::OnCanonicalHead);
-        }
-        */
 
         let state = &harness.chain.head().beacon_state;
 
@@ -316,7 +311,5 @@ mod test {
             state.current_epoch() - 2,
             "the head should be finalized two behind the current epoch"
         );
-
-        panic!();
     }
 }
