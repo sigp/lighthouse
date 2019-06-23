@@ -22,7 +22,12 @@ pub enum BlockStrategy {
     /// Ignore the canonical head and produce blocks upon the block at the given slot.
     ///
     /// Useful for simulating forks.
-    ForkCanonicalChainAt(Slot),
+    ForkCanonicalChainAt {
+        /// The slot of the parent of the first block produced.
+        previous_slot: Slot,
+        /// The slot of the first block produced (must be higher than `previous_slot`.
+        first_slot: Slot,
+    },
 }
 
 /// Indicates how the `BeaconChainHarness` should produce attestations.
@@ -62,7 +67,7 @@ where
     L: LmdGhost<MemoryStore, E>,
     E: EthSpec,
 {
-    chain: BeaconChain<CommonTypes<L, E>>,
+    pub chain: BeaconChain<CommonTypes<L, E>>,
     keypairs: Vec<Keypair>,
     spec: ChainSpec,
 }
@@ -130,29 +135,20 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) {
-        // Get an initial state to build the block upon, based on the build strategy.
-        let mut state = match block_strategy {
-            BlockStrategy::OnCanonicalHead => self.chain.current_state().clone(),
-            BlockStrategy::ForkCanonicalChainAt(fork_slot) => {
-                let state_root = self
-                    .chain
-                    .rev_iter_state_roots(self.chain.head().beacon_state.slot - 1)
-                    .find(|(_hash, slot)| *slot == fork_slot)
-                    .map(|(hash, _slot)| hash)
-                    .expect("could not find state root for fork");
+        let mut state = {
+            // Determine the slot for the first block (or skipped block).
+            let state_slot = match block_strategy {
+                BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap() - 1,
+                BlockStrategy::ForkCanonicalChainAt { previous_slot, .. } => previous_slot,
+            };
 
-                self.chain
-                    .store
-                    .get(&state_root)
-                    .expect("should read db")
-                    .expect("should find state root")
-            }
+            self.get_state_at_slot(state_slot)
         };
 
-        // Get an initial slot to build upon, based on the build strategy.
+        // Determine the first slot where a block should be built.
         let mut slot = match block_strategy {
             BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap(),
-            BlockStrategy::ForkCanonicalChainAt(slot) => slot,
+            BlockStrategy::ForkCanonicalChainAt { first_slot, .. } => first_slot,
         };
 
         for _ in 0..num_blocks {
@@ -175,12 +171,27 @@ where
                     slot,
                 );
             } else {
-                panic!("block should be successfully processed");
+                panic!("block should be successfully processed: {:?}", outcome);
             }
 
             state = new_state;
             slot += 1;
         }
+    }
+
+    fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
+        let state_root = self
+            .chain
+            .rev_iter_state_roots(self.chain.current_state().slot)
+            .find(|(_hash, slot)| *slot == state_slot)
+            .map(|(hash, _slot)| hash)
+            .expect("could not find state root");
+
+        self.chain
+            .store
+            .get(&state_root)
+            .expect("should read db")
+            .expect("should find state root")
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -320,176 +331,5 @@ where
     /// Returns the secret key for the given validator index.
     fn get_sk(&self, validator_index: usize) -> &SecretKey {
         &self.keypairs[validator_index].sk
-    }
-}
-
-#[cfg(test)]
-// #[cfg(not(debug_assertions))]
-mod test {
-    use super::*;
-    use lmd_ghost::ThreadSafeReducedTree;
-    use types::MinimalEthSpec;
-
-    // Should ideally be divisible by 3.
-    pub const VALIDATOR_COUNT: usize = 24;
-
-    fn get_harness(
-        validator_count: usize,
-    ) -> BeaconChainHarness<ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>, MinimalEthSpec>
-    {
-        let harness = BeaconChainHarness::new(validator_count);
-
-        // Move past the zero slot.
-        harness.advance_slot();
-
-        harness
-    }
-
-    #[test]
-    fn finalizes_with_full_participation() {
-        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
-
-        let harness = get_harness(VALIDATOR_COUNT);
-
-        harness.extend_chain(
-            num_blocks_produced as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
-
-        let state = &harness.chain.head().beacon_state;
-
-        assert_eq!(
-            state.slot, num_blocks_produced,
-            "head should be at the current slot"
-        );
-        assert_eq!(
-            state.current_epoch(),
-            num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
-            "head should be at the expected epoch"
-        );
-        assert_eq!(
-            state.current_justified_epoch,
-            state.current_epoch() - 1,
-            "the head should be justified one behind the current epoch"
-        );
-        assert_eq!(
-            state.finalized_epoch,
-            state.current_epoch() - 2,
-            "the head should be finalized two behind the current epoch"
-        );
-    }
-
-    #[test]
-    fn finalizes_with_two_thirds_participation() {
-        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
-
-        let harness = get_harness(VALIDATOR_COUNT);
-
-        let two_thirds = (VALIDATOR_COUNT / 3) * 2;
-        let attesters = (0..two_thirds).collect();
-
-        harness.extend_chain(
-            num_blocks_produced as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(attesters),
-        );
-
-        let state = &harness.chain.head().beacon_state;
-
-        assert_eq!(
-            state.slot, num_blocks_produced,
-            "head should be at the current slot"
-        );
-        assert_eq!(
-            state.current_epoch(),
-            num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
-            "head should be at the expected epoch"
-        );
-
-        // Note: the 2/3rds tests are not justifying the immediately prior epochs because the
-        // `MIN_ATTESTATION_INCLUSION_DELAY` is preventing an adequate number of attestations being
-        // included in blocks during that epoch.
-
-        assert_eq!(
-            state.current_justified_epoch,
-            state.current_epoch() - 2,
-            "the head should be justified two behind the current epoch"
-        );
-        assert_eq!(
-            state.finalized_epoch,
-            state.current_epoch() - 4,
-            "the head should be finalized three behind the current epoch"
-        );
-    }
-
-    #[test]
-    fn does_not_finalize_with_less_than_two_thirds_participation() {
-        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
-
-        let harness = get_harness(VALIDATOR_COUNT);
-
-        let two_thirds = (VALIDATOR_COUNT / 3) * 2;
-        let less_than_two_thirds = two_thirds - 1;
-        let attesters = (0..less_than_two_thirds).collect();
-
-        harness.extend_chain(
-            num_blocks_produced as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(attesters),
-        );
-
-        let state = &harness.chain.head().beacon_state;
-
-        assert_eq!(
-            state.slot, num_blocks_produced,
-            "head should be at the current slot"
-        );
-        assert_eq!(
-            state.current_epoch(),
-            num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
-            "head should be at the expected epoch"
-        );
-        assert_eq!(
-            state.current_justified_epoch, 0,
-            "no epoch should have been justified"
-        );
-        assert_eq!(
-            state.finalized_epoch, 0,
-            "no epoch should have been finalized"
-        );
-    }
-
-    #[test]
-    fn does_not_finalize_without_attestation() {
-        let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
-
-        let harness = get_harness(VALIDATOR_COUNT);
-
-        harness.extend_chain(
-            num_blocks_produced as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(vec![]),
-        );
-
-        let state = &harness.chain.head().beacon_state;
-
-        assert_eq!(
-            state.slot, num_blocks_produced,
-            "head should be at the current slot"
-        );
-        assert_eq!(
-            state.current_epoch(),
-            num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
-            "head should be at the expected epoch"
-        );
-        assert_eq!(
-            state.current_justified_epoch, 0,
-            "no epoch should have been justified"
-        );
-        assert_eq!(
-            state.finalized_epoch, 0,
-            "no epoch should have been finalized"
-        );
     }
 }
