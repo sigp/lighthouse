@@ -517,7 +517,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             self.process_block(peer_id.clone(), block.clone(), network, &"gossip")
         {
             match outcome {
-                BlockProcessingOutcome::Processed => SHOULD_FORWARD_GOSSIP_BLOCK,
+                BlockProcessingOutcome::Processed { .. } => SHOULD_FORWARD_GOSSIP_BLOCK,
                 BlockProcessingOutcome::ParentUnknown { .. } => {
                     self.import_queue
                         .enqueue_full_blocks(vec![block], peer_id.clone());
@@ -582,7 +582,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 _ => true,
             };
 
-            if processing_result == Some(BlockProcessingOutcome::Processed) {
+            if processing_result == Some(BlockProcessingOutcome::Processed { block_root }) {
                 successful += 1;
             }
 
@@ -695,11 +695,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         if let Ok(outcome) = processing_result {
             match outcome {
-                BlockProcessingOutcome::Processed => {
+                BlockProcessingOutcome::Processed { block_root } => {
                     info!(
                         self.log, "Imported block from network";
                         "source" => source,
                         "slot" => block.slot,
+                        "block_root" => format!("{}", block_root),
                         "peer" => format!("{:?}", peer_id),
                     );
                 }

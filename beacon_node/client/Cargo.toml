@@ -10,7 +10,6 @@ network = { path = "../network" }
 store = { path = "../store" }
 http_server = { path = "../http_server" }
 rpc = { path = "../rpc" }
-fork_choice = { path = "../../eth2/fork_choice" }
 prometheus = "^0.6"
 types = { path = "../../eth2/types" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
