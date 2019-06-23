@@ -111,14 +111,16 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     );
                     info.listen_addrs.truncate(20);
                 }
-                self.events
-                    .push(BehaviourEvent::Identified(peer_id, Box::new(info)));
                 trace!(self.log, "Found addresses"; "Peer Id" => format!("{:?}", peer_id), "Addresses" => format!("{:?}", info.listen_addrs));
                 // inject the found addresses into our discovery behaviour
+
                 for address in &info.listen_addrs {
                     self.discovery
                         .add_connected_address(&peer_id, address.clone());
                 }
+
+                self.events
+                    .push(BehaviourEvent::Identified(peer_id, Box::new(info)));
             }
             IdentifyEvent::Error { .. } => {}
             IdentifyEvent::SendBack { .. } => {}
