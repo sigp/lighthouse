@@ -120,7 +120,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state: RwLock::new(genesis_state),
             canonical_head,
             genesis_block_root,
-            fork_choice: ForkChoice::new(store.clone(), genesis_block_root),
+            fork_choice: ForkChoice::new(store.clone(), &genesis_block, genesis_block_root),
             metrics: Metrics::new()?,
             store,
         })
@@ -145,11 +145,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         let last_finalized_root = p.canonical_head.beacon_state.finalized_root;
+        let last_finalized_block = &p.canonical_head.beacon_block;
 
         Ok(Some(BeaconChain {
             spec,
             slot_clock,
-            fork_choice: ForkChoice::new(store.clone(), last_finalized_root),
+            fork_choice: ForkChoice::new(store.clone(), last_finalized_block, last_finalized_root),
             op_pool: OperationPool::default(),
             canonical_head: RwLock::new(p.canonical_head),
             state: RwLock::new(p.state),
@@ -237,37 +238,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// May return a database error.
     pub fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, Error> {
         Ok(self.store.get(block_root)?)
-    }
-
-    /// Update the canonical head to `new_head`.
-    fn update_canonical_head(&self, new_head: CheckPoint<T::EthSpec>) -> Result<(), Error> {
-        // Update the checkpoint that stores the head of the chain at the time it received the
-        // block.
-        *self.canonical_head.write() = new_head;
-
-        // Update the always-at-the-present-slot state we keep around for performance gains.
-        *self.state.write() = {
-            let mut state = self.canonical_head.read().beacon_state.clone();
-
-            let present_slot = match self.slot_clock.present_slot() {
-                Ok(Some(slot)) => slot,
-                _ => return Err(Error::UnableToReadSlot),
-            };
-
-            // If required, transition the new state to the present slot.
-            for _ in state.slot.as_u64()..present_slot.as_u64() {
-                per_slot_processing(&mut state, &self.spec)?;
-            }
-
-            state.build_all_caches(&self.spec)?;
-
-            state
-        };
-
-        // Save `self` to `self.store`.
-        self.persist()?;
-
-        Ok(())
     }
 
     /// Returns a read-lock guarded `BeaconState` which is the `canonical_head` that has been
@@ -800,15 +770,92 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.metrics.fork_choice_reorg_count.inc();
             };
 
-            self.update_canonical_head(CheckPoint {
-                beacon_block,
-                beacon_block_root,
-                beacon_state,
-                beacon_state_root,
-            })?;
+            let old_finalized_epoch = self.head().beacon_state.finalized_epoch;
+            let new_finalized_epoch = beacon_state.finalized_epoch;
+            let finalized_root = beacon_state.finalized_root;
+
+            // Never revert back past a finalized epoch.
+            if new_finalized_epoch < old_finalized_epoch {
+                Err(Error::RevertedFinalizedEpoch {
+                    previous_epoch: old_finalized_epoch,
+                    new_epoch: new_finalized_epoch,
+                })
+            } else {
+                self.update_canonical_head(CheckPoint {
+                    beacon_block: beacon_block,
+                    beacon_block_root,
+                    beacon_state,
+                    beacon_state_root,
+                })?;
+
+                if new_finalized_epoch != old_finalized_epoch {
+                    self.after_finalization(old_finalized_epoch, finalized_root)?;
+                }
+
+                Ok(())
+            }
+        } else {
+            Ok(())
         }
+    }
+
+    /// Update the canonical head to `new_head`.
+    fn update_canonical_head(&self, new_head: CheckPoint<T::EthSpec>) -> Result<(), Error> {
+        // Update the checkpoint that stores the head of the chain at the time it received the
+        // block.
+        *self.canonical_head.write() = new_head;
+
+        // Update the always-at-the-present-slot state we keep around for performance gains.
+        *self.state.write() = {
+            let mut state = self.canonical_head.read().beacon_state.clone();
+
+            let present_slot = match self.slot_clock.present_slot() {
+                Ok(Some(slot)) => slot,
+                _ => return Err(Error::UnableToReadSlot),
+            };
+
+            // If required, transition the new state to the present slot.
+            for _ in state.slot.as_u64()..present_slot.as_u64() {
+                per_slot_processing(&mut state, &self.spec)?;
+            }
+
+            state.build_all_caches(&self.spec)?;
+
+            state
+        };
+
+        // Save `self` to `self.store`.
+        self.persist()?;
 
         Ok(())
+    }
+
+    /// Called after `self` has had a new block finalized.
+    ///
+    /// Performs pruning and finality-based optimizations.
+    fn after_finalization(
+        &self,
+        old_finalized_epoch: Epoch,
+        finalized_block_root: Hash256,
+    ) -> Result<(), Error> {
+        let finalized_block = self
+            .store
+            .get::<BeaconBlock>(&finalized_block_root)?
+            .ok_or_else(|| Error::MissingBeaconBlock(finalized_block_root))?;
+
+        let new_finalized_epoch = finalized_block.slot.epoch(T::EthSpec::slots_per_epoch());
+
+        if new_finalized_epoch < old_finalized_epoch {
+            Err(Error::RevertedFinalizedEpoch {
+                previous_epoch: old_finalized_epoch,
+                new_epoch: new_finalized_epoch,
+            })
+        } else {
+            self.fork_choice
+                .process_finalization(&finalized_block, finalized_block_root)?;
+
+            Ok(())
+        }
     }
 
     /// Returns `true` if the given block root has not been processed.

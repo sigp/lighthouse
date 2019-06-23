@@ -19,6 +19,10 @@ pub enum BeaconChainError {
     InsufficientValidators,
     BadRecentBlockRoots,
     UnableToReadSlot,
+    RevertedFinalizedEpoch {
+        previous_epoch: Epoch,
+        new_epoch: Epoch,
+    },
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(store::Error),
