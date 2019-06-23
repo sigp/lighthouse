@@ -121,7 +121,8 @@ where
         self.chain.catchup_state().expect("should catchup state");
     }
 
-    /// Extend the `BeaconChain` with some blocks and attestations.
+    /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
+    /// last-produced block (the head of the chain).
     ///
     /// Chain will be extended by `num_blocks` blocks.
     ///
@@ -134,7 +135,7 @@ where
         num_blocks: usize,
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
-    ) {
+    ) -> Hash256 {
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
@@ -151,6 +152,8 @@ where
             BlockStrategy::ForkCanonicalChainAt { first_slot, .. } => first_slot,
         };
 
+        let mut head_block_root = None;
+
         for _ in 0..num_blocks {
             while self.chain.read_slot_clock().expect("should have a slot") < slot {
                 self.advance_slot();
@@ -164,6 +167,8 @@ where
                 .expect("should not error during block processing");
 
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
+                head_block_root = Some(block_root);
+
                 self.add_attestations_to_op_pool(
                     &attestation_strategy,
                     &new_state,
@@ -177,6 +182,8 @@ where
             state = new_state;
             slot += 1;
         }
+
+        head_block_root.expect("did not produce any blocks")
     }
 
     fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
