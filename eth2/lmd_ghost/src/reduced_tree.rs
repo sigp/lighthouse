@@ -173,20 +173,14 @@ where
     ) -> Result<()> {
         if slot >= self.root_slot() {
             if let Some(previous_vote) = self.latest_votes.get(validator_index) {
-                if previous_vote.slot > slot {
-                    // Given vote is earier than known vote, nothing to do.
-                    return Ok(());
-                } else if previous_vote.slot == slot && previous_vote.hash == block_hash {
-                    // Given vote is identical to known vote, nothing to do.
-                    return Ok(());
-                } else if previous_vote.slot == slot && previous_vote.hash != block_hash {
-                    // Vote is an equivocation (double-vote), ignore it.
-                    //
-                    // TODO: this is slashable.
-                    return Ok(());
-                } else {
-                    // Given vote is newer or different to current vote, replace the current vote.
+                // Note: it is possible to do a cheap equivocation check here:
+                //
+                // slashable = (previous_vote.slot == slot) && (previous_vote.hash != block_hash)
+
+                if previous_vote.slot < slot {
                     self.remove_latest_message(validator_index)?;
+                } else {
+                    return Ok(());
                 }
             }
 
@@ -292,11 +286,8 @@ where
                 let node = self.get_node(vote.hash)?.clone();
 
                 if let Some(parent_hash) = node.parent_hash {
-                    if node.has_votes() {
-                        // A node with votes is never removed.
-                        false
-                    } else if node.children.len() > 1 {
-                        // A node with more than one child is never removed.
+                    if node.has_votes() || node.children.len() > 1 {
+                        // A node with votes or more than one child is never removed.
                         false
                     } else if node.children.len() == 1 {
                         // A node which has only one child may be removed.
@@ -313,7 +304,7 @@ where
                         }
 
                         true
-                    } else if node.children.len() == 0 {
+                    } else if node.children.is_empty() {
                         // A node which has no children may be deleted and potentially it's parent
                         // too.
                         self.maybe_delete_node(parent_hash)?;
@@ -394,18 +385,16 @@ where
     }
 
     fn add_weightless_node(&mut self, slot: Slot, hash: Hash256) -> Result<()> {
-        if slot >= self.root_slot() {
-            if !self.nodes.contains_key(&hash) {
-                let node = Node {
-                    block_hash: hash,
-                    ..Node::default()
-                };
+        if slot >= self.root_slot() && !self.nodes.contains_key(&hash) {
+            let node = Node {
+                block_hash: hash,
+                ..Node::default()
+            };
 
-                self.add_node(node)?;
+            self.add_node(node)?;
 
-                if let Some(parent_hash) = self.get_node(hash)?.parent_hash {
-                    self.maybe_delete_node(parent_hash)?;
-                }
+            if let Some(parent_hash) = self.get_node(hash)?.parent_hash {
+                self.maybe_delete_node(parent_hash)?;
             }
         }
 
