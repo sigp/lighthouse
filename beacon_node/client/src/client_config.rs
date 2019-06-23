@@ -3,7 +3,6 @@ use eth2_libp2p::multiaddr::Protocol;
 use eth2_libp2p::Multiaddr;
 use fork_choice::ForkChoiceAlgorithm;
 use http_server::HttpServerConfig;
-use network::NetworkConfig;
 use network::{ChainType, NetworkConfig};
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, o, Drain, Level};
@@ -29,7 +28,7 @@ impl Default for ClientConfig {
             db_name: "chain_db".to_string(),
             // Note: there are no default bootnodes specified.
             // Once bootnodes are established, add them here.
-            network: NetworkConfig::new(vec![]),
+            network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
         }
