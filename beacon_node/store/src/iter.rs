@@ -240,17 +240,6 @@ mod test {
                 .expect(&format!("should set state_b slot {}", slot));
         }
 
-        /*
-        for root in &mut state_a.latest_state_roots[..] {
-            state_a.set_state_root(slots.next().unwrap(), hashes.next().unwrap());
-            // *root = hashes.next().unwrap()
-        }
-        for root in &mut state_b.latest_state_roots[..] {
-            state_b.set_state_root(slots.next().unwrap(), hashes.next().unwrap());
-            *root = hashes.next().unwrap()
-        }
-        */
-
         let state_a_root = Hash256::from(slots_per_historical_root as u64);
         let state_b_root = Hash256::from(slots_per_historical_root as u64 * 2);
 
