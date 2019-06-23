@@ -4,7 +4,7 @@ use clap::{App, Arg};
 use client::{ClientConfig, Eth2Config};
 use env_logger::{Builder, Env};
 use eth2_config::{get_data_dir, read_from_file, write_to_file};
-use slog::{crit, o, Drain};
+use slog::{crit, o, Drain, Level};
 use std::path::PathBuf;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";

@@ -8,7 +8,7 @@ edition = "2018"
 beacon_chain =  { path = "../beacon_chain" }
 clap = "2.32.0"
 # SigP repository 
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "8d5e5bbbe32d07ad271d6a2e15fde0347894061a" }
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "71744d4090ebd93a993d1b390787919add4098fd" }
 types = { path =  "../../eth2/types" }
 serde = "1.0"
 serde_derive = "1.0"
