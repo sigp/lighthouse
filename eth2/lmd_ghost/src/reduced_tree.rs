@@ -40,9 +40,9 @@ where
     T: Store,
     E: EthSpec,
 {
-    fn new(store: Arc<T>, genesis_root: Hash256) -> Self {
+    fn new(store: Arc<T>, genesis_block: &BeaconBlock, genesis_root: Hash256) -> Self {
         ThreadSafeReducedTree {
-            core: RwLock::new(ReducedTree::new(store, genesis_root)),
+            core: RwLock::new(ReducedTree::new(store, genesis_block, genesis_root)),
         }
     }
 
@@ -59,27 +59,32 @@ where
     }
 
     /// Process a block that was seen on the network.
-    fn process_block(&self, block_hash: Hash256, _block_slot: Slot) -> SuperResult<()> {
+    fn process_block(&self, block: &BeaconBlock, block_hash: Hash256) -> SuperResult<()> {
         self.core
             .write()
-            .add_weightless_node(block_hash)
+            .add_weightless_node(block.slot, block_hash)
             .map_err(|e| format!("process_block failed: {:?}", e))
     }
 
-    fn find_head<F>(&self, start_block_root: Hash256, weight_fn: F) -> SuperResult<Hash256>
+    fn find_head<F>(
+        &self,
+        start_block_slot: Slot,
+        start_block_root: Hash256,
+        weight_fn: F,
+    ) -> SuperResult<Hash256>
     where
         F: Fn(usize) -> Option<u64> + Copy,
     {
         self.core
             .write()
-            .update_weights_and_find_head(start_block_root, weight_fn)
+            .update_weights_and_find_head(start_block_slot, start_block_root, weight_fn)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
-    fn update_finalized_root(&self, new_root: Hash256) -> SuperResult<()> {
+    fn update_finalized_root(&self, new_block: &BeaconBlock, new_root: Hash256) -> SuperResult<()> {
         self.core
             .write()
-            .update_root(new_root)
+            .update_root(new_block.slot, new_root)
             .map_err(|e| format!("update_finalized_root failed: {:?}", e))
     }
 }
@@ -91,7 +96,7 @@ struct ReducedTree<T, E> {
     /// Maps validator indices to their latest votes.
     latest_votes: ElasticList<Option<Vote>>,
     /// Stores the root of the tree, used for pruning.
-    root: Hash256,
+    root: (Hash256, Slot),
     _phantom: PhantomData<E>,
 }
 
@@ -100,7 +105,7 @@ where
     T: Store,
     E: EthSpec,
 {
-    pub fn new(store: Arc<T>, genesis_root: Hash256) -> Self {
+    pub fn new(store: Arc<T>, genesis_block: &BeaconBlock, genesis_root: Hash256) -> Self {
         let mut nodes = HashMap::new();
 
         // Insert the genesis node.
@@ -116,12 +121,12 @@ where
             store,
             nodes,
             latest_votes: ElasticList::default(),
-            root: genesis_root,
+            root: (genesis_root, genesis_block.slot),
             _phantom: PhantomData,
         }
     }
 
-    pub fn update_root(&mut self, new_root: Hash256) -> Result<()> {
+    pub fn update_root(&mut self, new_slot: Slot, new_root: Hash256) -> Result<()> {
         if !self.nodes.contains_key(&new_root) {
             let node = Node {
                 block_hash: new_root,
@@ -132,16 +137,22 @@ where
             self.add_node(node)?;
         }
 
-        self.retain_subtree(self.root, new_root)?;
+        self.retain_subtree(self.root.0, new_root)?;
 
-        self.root = new_root;
+        self.root = (new_root, new_slot);
+
+        let root_node = self.get_mut_node(new_root)?;
+        root_node.parent_hash = None;
 
         Ok(())
     }
 
+    /// Removes `current_hash` and all decendants, except `subtree_hash` and all nodes
+    /// which have `subtree_hash` as an ancestor.
+    ///
+    /// In effect, prunes the tree so that only decendants of `subtree_hash` exist.
     fn retain_subtree(&mut self, current_hash: Hash256, subtree_hash: Hash256) -> Result<()> {
         if current_hash != subtree_hash {
-            // Clone satisifies the borrow checker.
             let children = self.get_node(current_hash)?.children.clone();
 
             for child_hash in children {
@@ -160,39 +171,42 @@ where
         block_hash: Hash256,
         slot: Slot,
     ) -> Result<()> {
-        if let Some(previous_vote) = self.latest_votes.get(validator_index) {
-            if previous_vote.slot > slot {
-                // Given vote is earier than known vote, nothing to do.
-                return Ok(());
-            } else if previous_vote.slot == slot && previous_vote.hash == block_hash {
-                // Given vote is identical to known vote, nothing to do.
-                return Ok(());
-            } else if previous_vote.slot == slot && previous_vote.hash != block_hash {
-                // Vote is an equivocation (double-vote), ignore it.
-                //
-                // TODO: this is slashable.
-                return Ok(());
-            } else {
-                // Given vote is newer or different to current vote, replace the current vote.
-                self.remove_latest_message(validator_index)?;
+        if slot >= self.root_slot() {
+            if let Some(previous_vote) = self.latest_votes.get(validator_index) {
+                if previous_vote.slot > slot {
+                    // Given vote is earier than known vote, nothing to do.
+                    return Ok(());
+                } else if previous_vote.slot == slot && previous_vote.hash == block_hash {
+                    // Given vote is identical to known vote, nothing to do.
+                    return Ok(());
+                } else if previous_vote.slot == slot && previous_vote.hash != block_hash {
+                    // Vote is an equivocation (double-vote), ignore it.
+                    //
+                    // TODO: this is slashable.
+                    return Ok(());
+                } else {
+                    // Given vote is newer or different to current vote, replace the current vote.
+                    self.remove_latest_message(validator_index)?;
+                }
             }
+
+            self.latest_votes.insert(
+                validator_index,
+                Some(Vote {
+                    slot,
+                    hash: block_hash,
+                }),
+            );
+
+            self.add_latest_message(validator_index, block_hash)?;
         }
-
-        self.latest_votes.insert(
-            validator_index,
-            Some(Vote {
-                slot,
-                hash: block_hash,
-            }),
-        );
-
-        self.add_latest_message(validator_index, block_hash)?;
 
         Ok(())
     }
 
     pub fn update_weights_and_find_head<F>(
         &mut self,
+        start_block_slot: Slot,
         start_block_root: Hash256,
         weight_fn: F,
     ) -> Result<Hash256>
@@ -203,7 +217,7 @@ where
         //
         // In this case, we add a weightless node at `start_block_root`.
         if !self.nodes.contains_key(&start_block_root) {
-            self.add_weightless_node(start_block_root)?;
+            self.add_weightless_node(start_block_slot, start_block_root)?;
         };
 
         let _root_weight = self.update_weight(start_block_root, weight_fn)?;
@@ -289,12 +303,14 @@ where
                         //
                         // Load the child of the node and set it's parent to be the parent of this
                         // node (viz., graft the node's child to the node's parent)
-                        let child = self
-                            .nodes
-                            .get_mut(&node.children[0])
-                            .ok_or_else(|| Error::MissingNode(node.children[0]))?;
-
+                        let child = self.get_mut_node(node.children[0])?;
                         child.parent_hash = node.parent_hash;
+
+                        // Graft the parent of this node to it's child.
+                        if let Some(parent_hash) = node.parent_hash {
+                            let parent = self.get_mut_node(parent_hash)?;
+                            parent.replace_child(node.block_hash, node.children[0])?;
+                        }
 
                         true
                     } else if node.children.len() == 0 {
@@ -377,17 +393,19 @@ where
         Ok(())
     }
 
-    fn add_weightless_node(&mut self, hash: Hash256) -> Result<()> {
-        if !self.nodes.contains_key(&hash) {
-            let node = Node {
-                block_hash: hash,
-                ..Node::default()
-            };
+    fn add_weightless_node(&mut self, slot: Slot, hash: Hash256) -> Result<()> {
+        if slot >= self.root_slot() {
+            if !self.nodes.contains_key(&hash) {
+                let node = Node {
+                    block_hash: hash,
+                    ..Node::default()
+                };
 
-            self.add_node(node)?;
+                self.add_node(node)?;
 
-            if let Some(parent_hash) = self.get_node(hash)?.parent_hash {
-                self.maybe_delete_node(parent_hash)?;
+                if let Some(parent_hash) = self.get_node(hash)?.parent_hash {
+                    self.maybe_delete_node(parent_hash)?;
+                }
             }
         }
 
@@ -403,11 +421,9 @@ where
             self.get_mut_node(hash)?.clone()
         };
 
-        let mut added_new_ancestor = false;
+        let mut added = false;
 
         if !prev_in_tree.children.is_empty() {
-            let mut added = false;
-
             for &child_hash in &prev_in_tree.children {
                 if self
                     .iter_ancestors(child_hash)?
@@ -418,6 +434,7 @@ where
                     child.parent_hash = Some(node.block_hash);
                     node.children.push(child_hash);
                     prev_in_tree.replace_child(child_hash, node.block_hash)?;
+                    node.parent_hash = Some(prev_in_tree.block_hash);
 
                     added = true;
 
@@ -446,7 +463,7 @@ where
                         self.nodes
                             .insert(common_ancestor.block_hash, common_ancestor);
 
-                        added_new_ancestor = true;
+                        added = true;
 
                         break;
                     }
@@ -454,7 +471,7 @@ where
             }
         }
 
-        if !added_new_ancestor {
+        if !added {
             node.parent_hash = Some(prev_in_tree.block_hash);
             prev_in_tree.children.push(node.block_hash);
         }
@@ -557,6 +574,10 @@ where
         self.store
             .get::<BeaconState<E>>(&state_root)?
             .ok_or_else(|| Error::MissingState(state_root))
+    }
+
+    fn root_slot(&self) -> Slot {
+        self.root.1
     }
 }
 

@@ -3,7 +3,7 @@ use lmd_ghost::LmdGhost;
 use state_processing::common::get_attesting_indices_unsorted;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
-use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256};
+use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -26,27 +26,41 @@ pub struct ForkChoice<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> ForkChoice<T> {
-    pub fn new(store: Arc<T::Store>, genesis_block_root: Hash256) -> Self {
+    /// Instantiate a new fork chooser.
+    ///
+    /// "Genesis" does not necessarily need to be the absolute genesis, it can be some finalized
+    /// block.
+    pub fn new(
+        store: Arc<T::Store>,
+        genesis_block: &BeaconBlock,
+        genesis_block_root: Hash256,
+    ) -> Self {
         Self {
-            backend: T::LmdGhost::new(store, genesis_block_root),
+            backend: T::LmdGhost::new(store, genesis_block, genesis_block_root),
             genesis_block_root,
         }
     }
 
     pub fn find_head(&self, chain: &BeaconChain<T>) -> Result<Hash256> {
+        let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
+
         // From the specification:
         //
         // Let justified_head be the descendant of finalized_head with the highest epoch that has
         // been justified for at least 1 epoch ... If no such descendant exists,
         // set justified_head to finalized_head.
-        let (start_state, start_block_root) = {
+        let (start_state, start_block_root, start_block_slot) = {
             let state = chain.current_state();
 
-            let block_root = if state.current_epoch() + 1 > state.current_justified_epoch {
-                state.current_justified_root
-            } else {
-                state.finalized_root
-            };
+            let (block_root, block_slot) =
+                if state.current_epoch() + 1 > state.current_justified_epoch {
+                    (
+                        state.current_justified_root,
+                        start_slot(state.current_justified_epoch),
+                    )
+                } else {
+                    (state.finalized_root, start_slot(state.finalized_epoch))
+                };
 
             let block = chain
                 .store
@@ -65,7 +79,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                 .get::<BeaconState<T::EthSpec>>(&block.state_root)?
                 .ok_or_else(|| Error::MissingState(block.state_root))?;
 
-            (state, block_root)
+            (state, block_root, block_slot)
         };
 
         // A function that returns the weight for some validator index.
@@ -77,7 +91,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         };
 
         self.backend
-            .find_head(start_block_root, weight)
+            .find_head(start_block_slot, start_block_root, weight)
             .map_err(Into::into)
     }
 
@@ -101,7 +115,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             self.process_attestation_from_block(state, attestation)?;
         }
 
-        self.backend.process_block(block_root, block.slot)?;
+        self.backend.process_block(block, block_root)?;
 
         Ok(())
     }
@@ -131,8 +145,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //  2. Ignore all attestations to the zero hash.
         //
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
-        // fine becuase votes to the genesis block are not usefully, all validators already
-        // implicitly attest to genesis just by being present in the chain.
+        // fine becuase votes to the genesis block are not useful; all validators implicitly attest
+        // to genesis just by being present in the chain.
         if block_hash != Hash256::zero() {
             let block_slot = attestation
                 .data
@@ -146,6 +160,20 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         }
 
         Ok(())
+    }
+
+    /// Inform the fork choice that the given block (and corresponding root) have been finalized so
+    /// it may prune it's storage.
+    ///
+    /// `finalized_block_root` must be the root of `finalized_block`.
+    pub fn process_finalization(
+        &self,
+        finalized_block: &BeaconBlock,
+        finalized_block_root: Hash256,
+    ) -> Result<()> {
+        self.backend
+            .update_finalized_root(finalized_block, finalized_block_root)
+            .map_err(Into::into)
     }
 }
 
