@@ -62,7 +62,6 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
         let instance = AttestationServiceInstance {
             network_chan,
             chain: beacon_chain.clone(),
-            network_chan,
             log: log.clone(),
         };
         create_attestation_service(instance)

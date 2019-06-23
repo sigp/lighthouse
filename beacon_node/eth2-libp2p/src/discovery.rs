@@ -55,7 +55,7 @@ impl<TSubstream> Discovery<TSubstream> {
     /// We have discovered an address for a peer, add it to known peers.
     pub fn add_connected_address(&mut self, peer_id: &PeerId, address: Multiaddr) {
         // pass the address on to kademlia
-        self.discovery.add_connected_address(peer_id, address);
+        self.discovery.add_address(peer_id, address);
     }
 }
 

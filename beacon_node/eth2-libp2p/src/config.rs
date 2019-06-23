@@ -1,8 +1,8 @@
 use clap::ArgMatches;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
+use libp2p::multiaddr::{Error as MultiaddrError, Multiaddr};
 use serde_derive::{Deserialize, Serialize};
 use std::time::Duration;
-use types::multiaddr::{Error as MultiaddrError, Multiaddr};
 
 /// The beacon node topic string to subscribe to.
 pub const BEACON_PUBSUB_TOPIC: &str = "beacon_node";
