@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))]
+
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use lmd_ghost::ThreadSafeReducedTree;
 use store::MemoryStore;
