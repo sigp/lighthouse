@@ -748,14 +748,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 graffiti,
                 proposer_slashings,
                 attester_slashings,
-                attestations: self
-                    .op_pool
-                    .get_attestations(&*self.state.read(), &self.spec),
-                deposits: self.op_pool.get_deposits(&*self.state.read(), &self.spec),
-                voluntary_exits: self
-                    .op_pool
-                    .get_voluntary_exits(&*self.state.read(), &self.spec),
-                transfers: self.op_pool.get_transfers(&*self.state.read(), &self.spec),
+                attestations: self.op_pool.get_attestations(&state, &self.spec),
+                deposits: self.op_pool.get_deposits(&state, &self.spec),
+                voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec),
+                transfers: self.op_pool.get_transfers(&state, &self.spec),
             },
         };
 
