@@ -1,6 +1,5 @@
 [workspace]
 members = [
-	"eth2/fork_choice",
 	"eth2/lmd_ghost",
 	"eth2/operation_pool",
 	"eth2/state_processing",
