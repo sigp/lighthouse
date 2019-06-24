@@ -28,6 +28,7 @@ members = [
 	"beacon_node/store",
 	"beacon_node/client",
 	"beacon_node/http_server",
+	"beacon_node/rest_api",
 	"beacon_node/network",
 	"beacon_node/eth2-libp2p",
     "beacon_node/rpc",

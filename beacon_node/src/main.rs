@@ -120,6 +120,29 @@ fn main() {
                 .help("Listen port for the HTTP server.")
                 .takes_value(true),
         )
+        // REST API related arguments
+        .arg(
+            Arg::with_name("rest-api")
+                .long("rest-api")
+                .value_name("RESTAPI")
+                .help("Enable the REST API HTTP server.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("rest-api-address")
+                .long("rest-api-address")
+                .value_name("RESTAPIADDRESS")
+                .help("Listen address for the REST API HTTP server.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("rest-api-port")
+                .long("rest-api-port")
+                .value_name("RESTAPIPORT")
+                .help("Listen port for the REST API HTTP server.")
+                .takes_value(true),
+        )
+        // General arguments
         .arg(
             Arg::with_name("db")
                 .long("db")
