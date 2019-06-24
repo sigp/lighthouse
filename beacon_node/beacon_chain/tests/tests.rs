@@ -33,7 +33,7 @@ fn fork() {
     let honest_fork_blocks = delay + 1;
     let faulty_fork_blocks = delay + 2;
 
-    // Build an initial chain were all validators agree.
+    // Build an initial chain where all validators agree.
     harness.extend_chain(
         initial_blocks,
         BlockStrategy::OnCanonicalHead,

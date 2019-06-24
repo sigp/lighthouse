@@ -586,13 +586,10 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Gets the oldest (earliest slot) state root.
     ///
-    /// Spec v0.5.1
+    /// Spec v0.6.3
     pub fn get_oldest_state_root(&self) -> Result<&Hash256, Error> {
-        let lookback = std::cmp::min(
-            self.slot - Slot::from(self.latest_state_roots.len()),
-            self.slot,
-        );
-        let i = self.get_latest_state_roots_index(self.slot - lookback)?;
+        let i = self
+            .get_latest_state_roots_index(self.slot - Slot::from(self.latest_state_roots.len()))?;
         Ok(&self.latest_state_roots[i])
     }
 
