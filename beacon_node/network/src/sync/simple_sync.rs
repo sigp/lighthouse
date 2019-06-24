@@ -182,7 +182,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             && (!self
                 .chain
                 .rev_iter_block_roots(local.best_slot)
-                .any(|root| root == remote.latest_finalized_root))
+                .any(|(root, _slot)| root == remote.latest_finalized_root))
             && (local.latest_finalized_root != spec.zero_hash)
             && (remote.latest_finalized_root != spec.zero_hash)
         {
@@ -266,11 +266,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "start_slot" => req.start_slot,
         );
 
-        let mut roots: Vec<Hash256> = self
+        let mut roots: Vec<BlockRootSlot> = self
             .chain
             .rev_iter_block_roots(req.start_slot + req.count)
             .skip(1)
             .take(req.count as usize)
+            .map(|(block_root, slot)| BlockRootSlot { slot, block_root })
             .collect();
 
         if roots.len() as u64 != req.count {
@@ -285,16 +286,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         }
 
         roots.reverse();
-
-        let mut roots: Vec<BlockRootSlot> = roots
-            .iter()
-            .enumerate()
-            .map(|(i, block_root)| BlockRootSlot {
-                slot: req.start_slot + Slot::from(i),
-                block_root: *block_root,
-            })
-            .collect();
-
         roots.dedup_by_key(|brs| brs.block_root);
 
         network.send_rpc_response(
@@ -392,6 +383,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .chain
             .rev_iter_block_roots(req.start_slot + (count - 1))
             .take(count as usize)
+            .map(|(root, _slot)| root)
             .collect();
 
         roots.reverse();
@@ -525,7 +517,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             self.process_block(peer_id.clone(), block.clone(), network, &"gossip")
         {
             match outcome {
-                BlockProcessingOutcome::Processed => SHOULD_FORWARD_GOSSIP_BLOCK,
+                BlockProcessingOutcome::Processed { .. } => SHOULD_FORWARD_GOSSIP_BLOCK,
                 BlockProcessingOutcome::ParentUnknown { .. } => {
                     self.import_queue
                         .enqueue_full_blocks(vec![block], peer_id.clone());
@@ -590,7 +582,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 _ => true,
             };
 
-            if processing_result == Some(BlockProcessingOutcome::Processed) {
+            if processing_result == Some(BlockProcessingOutcome::Processed { block_root }) {
                 successful += 1;
             }
 
@@ -703,11 +695,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         if let Ok(outcome) = processing_result {
             match outcome {
-                BlockProcessingOutcome::Processed => {
+                BlockProcessingOutcome::Processed { block_root } => {
                     info!(
                         self.log, "Imported block from network";
                         "source" => source,
                         "slot" => block.slot,
+                        "block_root" => format!("{}", block_root),
                         "peer" => format!("{:?}", peer_id),
                     );
                 }

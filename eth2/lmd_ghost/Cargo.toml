@@ -1,16 +1,14 @@
 [package]
-name = "fork_choice"
+name = "lmd_ghost"
 version = "0.1.0"
-authors = ["Age Manning <Age@AgeManning.com>"]
+authors = ["Age Manning <Age@AgeManning.com>", "Paul Hauner <paul@sigmaprime.io>"]
 edition = "2018"
 
-[[bench]]
-name = "benches"
-harness = false
-
 [dependencies]
+parking_lot = "0.7"
 store = { path = "../../beacon_node/store" }
 ssz = { path = "../utils/ssz" }
+state_processing = { path = "../state_processing" }
 types = { path = "../types" }
 log = "0.4.6"
 bit-vec = "0.5.0"

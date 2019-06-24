@@ -1,5 +1,5 @@
+use crate::fork_choice::Error as ForkChoiceError;
 use crate::metrics::Error as MetricsError;
-use fork_choice::ForkChoiceError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use types::*;
@@ -19,6 +19,10 @@ pub enum BeaconChainError {
     InsufficientValidators,
     BadRecentBlockRoots,
     UnableToReadSlot,
+    RevertedFinalizedEpoch {
+        previous_epoch: Epoch,
+        new_epoch: Epoch,
+    },
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(store::Error),
@@ -40,9 +44,12 @@ impl From<MetricsError> for BeaconChainError {
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
+    UnableToReadSlot,
+    SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
     BeaconStateError(BeaconStateError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
+easy_from_to!(SlotProcessingError, BlockProductionError);

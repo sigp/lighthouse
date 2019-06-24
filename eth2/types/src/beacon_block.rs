@@ -5,7 +5,7 @@ use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
+use tree_hash::{SignedRoot, TreeHash};
 use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// A block of the `BeaconChain`.
@@ -61,11 +61,11 @@ impl BeaconBlock {
         }
     }
 
-    /// Returns the `tree_hash_root | update` of the block.
+    /// Returns the `signed_root` of the block.
     ///
     /// Spec v0.6.3
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.tree_hash_root()[..])
+        Hash256::from_slice(&self.signed_root()[..])
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.

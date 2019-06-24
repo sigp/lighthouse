@@ -11,7 +11,6 @@ store = { path = "../store" }
 failure = "0.1"
 failure_derive = "0.1"
 hashing = { path = "../../eth2/utils/hashing" }
-fork_choice = { path = "../../eth2/fork_choice" }
 parking_lot = "0.7"
 prometheus = "^0.6"
 log = "0.4"
@@ -26,3 +25,4 @@ ssz_derive = { path = "../../eth2/utils/ssz_derive" }
 state_processing = { path = "../../eth2/state_processing" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path = "../../eth2/types" }
+lmd_ghost = { path = "../../eth2/lmd_ghost" }
