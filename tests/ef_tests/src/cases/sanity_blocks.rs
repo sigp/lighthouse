@@ -3,7 +3,7 @@ use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
 use state_processing::{per_block_processing, per_slot_processing};
-use types::{BeaconBlock, BeaconState, EthSpec};
+use types::{BeaconBlock, BeaconState, EthSpec, RelativeEpoch};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SanityBlocks<E: EthSpec> {
@@ -54,6 +54,11 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                 while state.slot < block.slot {
                     per_slot_processing(&mut state, spec).unwrap();
                 }
+
+                state
+                    .build_committee_cache(RelativeEpoch::Current, spec)
+                    .unwrap();
+
                 per_block_processing(&mut state, block, spec)
             })
             .map(|_| state);

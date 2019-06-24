@@ -125,7 +125,7 @@ impl ValidatorStatus {
 
 /// The total effective balances for different sets of validators during the previous and current
 /// epochs.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct TotalBalances {
     /// The total effective balance of all active validators during the _current_ epoch.
     pub current_epoch: u64,

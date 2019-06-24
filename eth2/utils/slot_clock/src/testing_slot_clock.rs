@@ -15,6 +15,10 @@ impl TestingSlotClock {
     pub fn set_slot(&self, slot: u64) {
         *self.slot.write().expect("TestingSlotClock poisoned.") = Slot::from(slot);
     }
+
+    pub fn advance_slot(&self) {
+        self.set_slot(self.present_slot().unwrap().unwrap().as_u64() + 1)
+    }
 }
 
 impl SlotClock for TestingSlotClock {

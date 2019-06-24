@@ -95,12 +95,13 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
             Ok(block) => {
                 match self.chain.process_block(block.clone()) {
                     Ok(outcome) => {
-                        if outcome == BlockProcessingOutcome::Processed {
+                        if let BlockProcessingOutcome::Processed { block_root } = outcome {
                             // Block was successfully processed.
                             info!(
                                 self.log,
                                 "Valid block from RPC";
                                 "block_slot" => block.slot,
+                                "block_root" => format!("{}", block_root),
                             );
 
                             // TODO: Obtain topics from the network service properly.
