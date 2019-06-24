@@ -1,6 +1,7 @@
 use clap::ArgMatches;
 use http_server::HttpServerConfig;
 use network::NetworkConfig;
+use rest_api::APIConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ pub struct ClientConfig {
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub http: HttpServerConfig,
+    pub rest_api: rest_api::APIConfig,
 }
 
 impl Default for ClientConfig {
@@ -27,6 +29,7 @@ impl Default for ClientConfig {
             network: NetworkConfig::new(vec![]),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
+            rest_api: rest_api::APIConfig::default(),
         }
     }
 }
@@ -61,6 +64,7 @@ impl ClientConfig {
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
         self.http.apply_cli_args(args)?;
+        self.rest_api.apply_cli_args(args)?;
 
         Ok(())
     }
