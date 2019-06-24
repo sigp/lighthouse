@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             start_state
                 .validator_registry
                 .get(validator_index)
-                .and_then(|v| Some(v.effective_balance))
+                .map(|v| v.effective_balance)
         };
 
         self.backend
