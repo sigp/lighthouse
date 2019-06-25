@@ -16,7 +16,7 @@ types = { path = "../../eth2/types" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 eth2_config = { path = "../../eth2/utils/eth2_config" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
-serde = "1.0"
+serde = "1.0.93"
 serde_derive = "1.0"
 error-chain = "0.12.0"
 slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_trace"] }

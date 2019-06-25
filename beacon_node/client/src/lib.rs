@@ -1,7 +1,7 @@
 extern crate slog;
 
 mod beacon_chain_types;
-mod client_config;
+mod config;
 pub mod error;
 pub mod notifier;
 
@@ -21,7 +21,7 @@ use tokio::timer::Interval;
 pub use beacon_chain::BeaconChainTypes;
 pub use beacon_chain_types::ClientType;
 pub use beacon_chain_types::InitialiseBeaconChain;
-pub use client_config::ClientConfig;
+pub use config::Config as ClientConfig;
 pub use eth2_config::Eth2Config;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
