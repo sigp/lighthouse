@@ -84,7 +84,7 @@ pub fn run_beacon_node(
         info!(
             log,
             "Started beacon node";
-            "p2p_listen_addresses" => format!("{:?}", &other_client_config.network.listen_addresses()),
+            "p2p_listen_addresses" => format!("{:?}", &other_client_config.network.listen_addresses),
             "data_dir" => format!("{:?}", other_client_config.data_dir()),
             "spec_constants" => &spec_constants,
             "db_type" => &other_client_config.db_type,
