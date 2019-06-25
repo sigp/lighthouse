@@ -4,7 +4,7 @@ use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
 use crate::{TopicBuilder, TopicHash};
-use crate::{BEACON_PUBSUB_TOPIC, SHARD_TOPIC_PREFIX};
+use crate::{BEACON_ATTESTATION_TOPIC, BEACON_PUBSUB_TOPIC};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -36,32 +36,24 @@ pub struct Service {
 
 impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
-        debug!(log, "Libp2p Service starting");
+        debug!(log, "Network-libp2p Service starting");
 
-        // TODO: Currently using secp256k1 key pairs. Wire protocol specifies RSA. Waiting for this
-        // PR to be merged to generate RSA keys: https://github.com/briansmith/ring/pull/733
         // TODO: Save and recover node key from disk
+        // TODO: Currently using secp256k1 keypairs - currently required for discv5
         let local_private_key = identity::Keypair::generate_secp256k1();
-
-        let local_public_key = local_private_key.public();
         let local_peer_id = PeerId::from(local_private_key.public());
         info!(log, "Local peer id: {:?}", local_peer_id);
 
         let mut swarm = {
-            // Set up the transport
-            let transport = build_transport(local_private_key);
-            // Set up gossipsub routing
-            let behaviour = Behaviour::new(local_public_key.clone(), &config, &log);
-            // Set up Topology
-            let topology = local_peer_id.clone();
-            Swarm::new(transport, behaviour, topology)
+            // Set up the transport - tcp/ws with secio and mplex/yamux
+            let transport = build_transport(local_private_key.clone());
+            // Lighthouse network behaviour
+            let behaviour = Behaviour::new(&local_private_key, &config, &log)?;
+            Swarm::new(transport, behaviour, local_peer_id.clone())
         };
 
         // listen on all addresses
-        for address in config
-            .listen_addresses()
-            .map_err(|e| format!("Invalid listen multiaddr: {}", e))?
-        {
+        for address in config.listen_addresses {
             match Swarm::listen_on(&mut swarm, address.clone()) {
                 Ok(_) => {
                     let mut log_address = address.clone();
@@ -71,28 +63,13 @@ impl Service {
                 Err(err) => warn!(log, "Cannot listen on: {} because: {:?}", address, err),
             };
         }
-        // connect to boot nodes - these are currently stored as multiaddrs
-        // Once we have discovery, can set to peerId
-        for bootnode in config
-            .boot_nodes()
-            .map_err(|e| format!("Invalid boot node multiaddr: {:?}", e))?
-        {
-            match Swarm::dial_addr(&mut swarm, bootnode.clone()) {
-                Ok(()) => debug!(log, "Dialing bootnode: {}", bootnode),
-                Err(err) => debug!(
-                    log,
-                    "Could not connect to bootnode: {} error: {:?}", bootnode, err
-                ),
-            };
-        }
 
         // subscribe to default gossipsub topics
         let mut topics = vec![];
         //TODO: Handle multiple shard attestations. For now we simply use a separate topic for
         //attestations
-        topics.push(SHARD_TOPIC_PREFIX.to_string());
+        topics.push(BEACON_ATTESTATION_TOPIC.to_string());
         topics.push(BEACON_PUBSUB_TOPIC.to_string());
-
         topics.append(&mut config.topics.clone());
 
         let mut subscribed_topics = vec![];
@@ -144,9 +121,6 @@ impl Stream for Service {
                     }
                     BehaviourEvent::PeerDialed(peer_id) => {
                         return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
-                    }
-                    BehaviourEvent::Identified(peer_id, info) => {
-                        return Ok(Async::Ready(Some(Libp2pEvent::Identified(peer_id, info))));
                     }
                 },
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),

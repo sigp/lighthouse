@@ -38,10 +38,32 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("maxpeers")
+                .long("maxpeers")
+                .value_name("Max Peers")
+                .help("The maximum number of peers (default 10)")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("boot-nodes")
                 .long("boot-nodes")
+                .allow_hyphen_values(true)
                 .value_name("BOOTNODES")
-                .help("One or more comma-delimited multi-addresses to bootstrap the p2p network.")
+                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("disc-listen-address")
+                .long("disc-listen_address")
+                .value_name("DISCPORT")
+                .help("The IP address that the discovery protocol will listen on. Defaults to 0.0.0.0")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("discovery-port")
+                .long("disc-port")
+                .value_name("DISCPORT")
+                .help("Listen UDP port for the discovery process")
                 .takes_value(true),
         )
         // rpc related arguments
