@@ -9,6 +9,7 @@ use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
     identity,
+    multiaddr::Multiaddr,
     muxing::StreamMuxerBox,
     nodes::Substream,
     transport::boxed::Boxed,
@@ -52,17 +53,24 @@ impl Service {
             Swarm::new(transport, behaviour, local_peer_id.clone())
         };
 
-        // listen on all addresses
-        for address in config.listen_addresses {
-            match Swarm::listen_on(&mut swarm, address.clone()) {
-                Ok(_) => {
-                    let mut log_address = address.clone();
-                    log_address.push(Protocol::P2p(local_peer_id.clone().into()));
-                    info!(log, "Listening on: {}", log_address);
-                }
-                Err(err) => warn!(log, "Cannot listen on: {} because: {:?}", address, err),
-            };
-        }
+        // listen on the specified address
+        let listen_multiaddr = {
+            let mut m = Multiaddr::from(config.listen_address);
+            m.push(Protocol::Tcp(config.libp2p_port));
+            m
+        };
+
+        match Swarm::listen_on(&mut swarm, listen_multiaddr.clone()) {
+            Ok(_) => {
+                let mut log_address = listen_multiaddr;
+                log_address.push(Protocol::P2p(local_peer_id.clone().into()));
+                info!(log, "Listening on: {}", log_address);
+            }
+            Err(err) => warn!(
+                log,
+                "Cannot listen on: {} because: {:?}", listen_multiaddr, err
+            ),
+        };
 
         // subscribe to default gossipsub topics
         let mut topics = vec![];

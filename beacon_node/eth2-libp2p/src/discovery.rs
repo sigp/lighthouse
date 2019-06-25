@@ -11,7 +11,7 @@ use libp2p::core::{identity::Keypair, Multiaddr, PeerId, ProtocolsHandler};
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::enr::{Enr, EnrBuilder, NodeId};
 use libp2p::multiaddr::Protocol;
-use slog::{debug, error, info, o, warn};
+use slog::{debug, info, o, warn};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -19,6 +19,8 @@ use tokio_timer::Delay;
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 60;
+/// Initial delay between peer searches.
+const INITIAL_SEARCH_DELAY: u64 = 5;
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
@@ -57,50 +59,27 @@ impl<TSubstream> Discovery<TSubstream> {
         let log = log.new(o!("Service" => "Libp2p-Discovery"));
 
         // Build the local ENR.
-        // The first TCP listening address is used for the ENR record. This will inform our peers to
-        // connect to this TCP port and establish libp2p streams.
         // Note: Discovery should update the ENR record's IP to the external IP as seen by the
         // majority of our peers.
-        let tcp_multiaddr = net_conf
-            .listen_addresses
-            .iter()
-            .filter(|a| {
-                if let Some(Protocol::Tcp(_)) = a.iter().last() {
-                    true
-                } else {
-                    false
-                }
-            })
-            .next()
-            .ok_or_else(|| "No valid TCP addresses")?;
-
-        let ip: std::net::IpAddr = match tcp_multiaddr.iter().next() {
-            Some(Protocol::Ip4(ip)) => ip.into(),
-            Some(Protocol::Ip6(ip)) => ip.into(),
-            _ => {
-                error!(log, "Multiaddr has an invalid IP address");
-                return Err(format!("Invalid IP Address: {}", tcp_multiaddr).into());
-            }
-        };
-
-        let tcp_port = match tcp_multiaddr.iter().last() {
-            Some(Protocol::Tcp(tcp)) => tcp,
-            _ => unreachable!(),
-        };
 
         let local_enr = EnrBuilder::new()
-            .ip(ip.into())
-            .tcp(tcp_port)
+            .ip(net_conf.discovery_address.into())
+            .tcp(net_conf.libp2p_port)
             .udp(net_conf.discovery_port)
             .build(&local_key)
             .map_err(|e| format!("Could not build Local ENR: {:?}", e))?;
         info!(log, "Local ENR: {}", local_enr.to_base64());
 
-        let mut discovery = Discv5::new(local_enr, local_key.clone(), net_conf.discovery_address)
+        let mut discovery = Discv5::new(local_enr, local_key.clone(), net_conf.listen_address)
             .map_err(|e| format!("Discv5 service failed: {:?}", e))?;
 
         // Add bootnodes to routing table
         for bootnode_enr in net_conf.boot_nodes.clone() {
+            debug!(
+                log,
+                "Adding node to routing table: {}",
+                bootnode_enr.node_id()
+            );
             discovery.add_enr(bootnode_enr);
         }
 
@@ -108,8 +87,8 @@ impl<TSubstream> Discovery<TSubstream> {
             connected_peers: HashSet::new(),
             max_peers: net_conf.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
-            past_discovery_delay: 1,
-            tcp_port,
+            past_discovery_delay: INITIAL_SEARCH_DELAY,
+            tcp_port: net_conf.libp2p_port,
             discovery,
             log,
         })
@@ -118,7 +97,7 @@ impl<TSubstream> Discovery<TSubstream> {
     /// Manually search for peers. This restarts the discovery round, sparking multiple rapid
     /// queries.
     pub fn discover_peers(&mut self) {
-        self.past_discovery_delay = 1;
+        self.past_discovery_delay = INITIAL_SEARCH_DELAY;
         self.find_peers();
     }
 
@@ -203,7 +182,9 @@ where
         loop {
             match self.peer_discovery_delay.poll() {
                 Ok(Async::Ready(_)) => {
-                    self.find_peers();
+                    if self.connected_peers.len() < self.max_peers {
+                        self.find_peers();
+                    }
                 }
                 Ok(Async::NotReady) => break,
                 Err(e) => {
@@ -217,16 +198,9 @@ where
             match self.discovery.poll(params) {
                 Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
                     match event {
-                        Discv5Event::Discovered(enr) => {
-                            debug!(self.log, "Discv5: Peer discovered"; "Peer"=> format!("{:?}", enr.peer_id()), "Addresses" => format!("{:?}", enr.multiaddr()));
-
-                            let peer_id = enr.peer_id();
-                            // if we need more peers, attempt a connection
-                            if self.connected_peers.len() < self.max_peers
-                                && self.connected_peers.get(&peer_id).is_none()
-                            {
-                                return Async::Ready(NetworkBehaviourAction::DialPeer { peer_id });
-                            }
+                        Discv5Event::Discovered(_enr) => {
+                            // not concerned about FINDNODE results, rather the result of an entire
+                            // query.
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "IP" => format!("{}",socket.ip()));
@@ -240,6 +214,17 @@ where
                             debug!(self.log, "Discv5 query found {} peers", closer_peers.len());
                             if closer_peers.is_empty() {
                                 debug!(self.log, "Discv5 random query yielded empty results");
+                            }
+                            for peer_id in closer_peers {
+                                // if we need more peers, attempt a connection
+                                if self.connected_peers.len() < self.max_peers
+                                    && self.connected_peers.get(&peer_id).is_none()
+                                {
+                                    debug!(self.log, "Discv5: Peer discovered"; "Peer"=> format!("{:?}", peer_id));
+                                    return Async::Ready(NetworkBehaviourAction::DialPeer {
+                                        peer_id,
+                                    });
+                                }
                             }
                         }
                         _ => {}
