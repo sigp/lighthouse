@@ -1,26 +1,23 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, Rpc};
-use crate::NetworkConfig;
+use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use libp2p::{
     core::{
+        identity::Keypair,
         swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
-        PublicKey,
     },
+    discv5::Discv5Event,
     gossipsub::{Gossipsub, GossipsubEvent},
-    identify::{protocol::IdentifyInfo, Identify, IdentifyEvent},
-    kad::KademliaOut,
     ping::{Ping, PingConfig, PingEvent},
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
-use slog::{debug, o, trace, warn};
+use slog::{o, trace, warn};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
-use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::time::{Duration, Instant};
-use tokio_timer::Delay;
+use std::time::Duration;
 use types::{Attestation, BeaconBlock};
 
 /// Builds the network behaviour that manages the core protocols of eth2.
@@ -33,8 +30,6 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     gossipsub: Gossipsub<TSubstream>,
     /// The serenity RPC specified in the wire-0 protocol.
     serenity_rpc: Rpc<TSubstream>,
-    /// Allows discovery of IP addresses for peers on the network.
-    identify: Identify<TSubstream>,
     /// Keep regular connection to peers and disconnect if absent.
     ping: Ping<TSubstream>,
     /// Kademlia for peer discovery.
@@ -45,6 +40,31 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     /// Logger for behaviour actions.
     #[behaviour(ignore)]
     log: slog::Logger,
+}
+
+impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
+    pub fn new(
+        local_key: &Keypair,
+        net_conf: &NetworkConfig,
+        log: &slog::Logger,
+    ) -> error::Result<Self> {
+        let local_peer_id = local_key.public().clone().into_peer_id();
+        let behaviour_log = log.new(o!());
+        let ping_config = PingConfig::new()
+            .with_timeout(Duration::from_secs(30))
+            .with_interval(Duration::from_secs(20))
+            .with_max_failures(NonZeroU32::new(2).expect("2 != 0"))
+            .with_keep_alive(false);
+
+        Ok(Behaviour {
+            serenity_rpc: Rpc::new(log),
+            gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
+            discovery: Discovery::new(local_key, net_conf, log)?,
+            ping: Ping::new(ping_config),
+            events: Vec::new(),
+            log: behaviour_log,
+        })
+    }
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
@@ -96,38 +116,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RPCMessage
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEvent>
-    for Behaviour<TSubstream>
-{
-    fn inject_event(&mut self, event: IdentifyEvent) {
-        match event {
-            IdentifyEvent::Identified {
-                peer_id, mut info, ..
-            } => {
-                if info.listen_addrs.len() > 20 {
-                    debug!(
-                        self.log,
-                        "More than 20 peers have been identified, truncating"
-                    );
-                    info.listen_addrs.truncate(20);
-                }
-                trace!(self.log, "Found addresses"; "Peer Id" => format!("{:?}", peer_id), "Addresses" => format!("{:?}", info.listen_addrs));
-                // inject the found addresses into our discovery behaviour
-
-                for address in &info.listen_addrs {
-                    self.discovery
-                        .add_connected_address(&peer_id, address.clone());
-                }
-
-                self.events
-                    .push(BehaviourEvent::Identified(peer_id, Box::new(info)));
-            }
-            IdentifyEvent::Error { .. } => {}
-            IdentifyEvent::SendBack { .. } => {}
-        }
-    }
-}
-
 impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<PingEvent>
     for Behaviour<TSubstream>
 {
@@ -136,41 +124,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<PingEvent>
     }
 }
 
-// implement the discovery behaviour (currently kademlia)
-impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<KademliaOut>
-    for Behaviour<TSubstream>
-{
-    fn inject_event(&mut self, _out: KademliaOut) {
-        // not interested in kademlia results at the moment
-    }
-}
-
 impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
-    pub fn new(local_public_key: PublicKey, net_conf: &NetworkConfig, log: &slog::Logger) -> Self {
-        let local_peer_id = local_public_key.clone().into_peer_id();
-        let behaviour_log = log.new(o!());
-        let identify_config = net_conf.identify_config.clone();
-        let ping_config = PingConfig::new()
-            .with_timeout(Duration::from_secs(30))
-            .with_interval(Duration::from_secs(20))
-            .with_max_failures(NonZeroU32::new(2).expect("2 != 0"))
-            .with_keep_alive(false);
-
-        Behaviour {
-            serenity_rpc: Rpc::new(log),
-            gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
-            discovery: Discovery::new(local_peer_id, log),
-            identify: Identify::new(
-                identify_config.version,
-                identify_config.user_agent,
-                local_public_key,
-            ),
-            ping: Ping::new(ping_config),
-            events: Vec::new(),
-            log: behaviour_log,
-        }
-    }
-
     /// Consumes the events list when polled.
     fn poll<TBehaviourIn>(
         &mut self,
@@ -180,6 +134,14 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         }
 
         Async::NotReady
+    }
+}
+
+impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<Discv5Event>
+    for Behaviour<TSubstream>
+{
+    fn inject_event(&mut self, _event: Discv5Event) {
+        // discv5 has no events to inject
     }
 }
 
@@ -212,8 +174,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 pub enum BehaviourEvent {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
-    Identified(PeerId, Box<IdentifyInfo>),
-    // TODO: This is a stub at the moment
     GossipMessage {
         source: PeerId,
         topics: Vec<TopicHash>,

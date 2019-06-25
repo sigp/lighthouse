@@ -4,6 +4,6 @@ pub mod message_handler;
 pub mod service;
 pub mod sync;
 
-pub use eth2_libp2p::{ChainType, NetworkConfig};
+pub use eth2_libp2p::NetworkConfig;
 pub use service::NetworkMessage;
 pub use service::Service;
