@@ -1,9 +1,6 @@
 use clap::ArgMatches;
 use enr::Enr;
-use libp2p::{
-    gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
-    multiaddr::Multiaddr,
-};
+use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use serde_derive::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -18,9 +15,12 @@ pub const SHARD_TOPIC_PREFIX: &str = "shard";
 /// Network configuration for lighthouse.
 pub struct Config {
     /// IP address to listen on.
-    pub listen_addresses: Vec<Multiaddr>,
+    pub listen_address: std::net::IpAddr,
 
-    /// Specifies the IP address that the discovery protocol will listen on.
+    /// The TCP port that libp2p listens on.
+    pub libp2p_port: u16,
+
+    /// The address to broadcast to peers about which address we are listening on.
     pub discovery_address: std::net::IpAddr,
 
     /// UDP port that discovery listens on.
@@ -47,8 +47,9 @@ impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
         Config {
-            listen_addresses: vec!["/ip4/127.0.0.1/tcp/9000".parse().expect("vaild multiaddr")],
-            discovery_address: "0.0.0.0".parse().expect("valid ip address"),
+            listen_address: "127.0.0.1".parse().expect("vaild ip address"),
+            libp2p_port: 9000,
+            discovery_address: "127.0.0.1".parse().expect("valid ip address"),
             discovery_port: 9000,
             max_peers: 10,
             //TODO: Set realistic values for production
@@ -72,13 +73,11 @@ impl Config {
 
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), String> {
         if let Some(listen_address_str) = args.value_of("listen-address") {
-            self.listen_addresses = listen_address_str
-                .split(',')
-                .map(|a| {
-                    a.parse::<Multiaddr>()
-                        .map_err(|_| format!("Invalid Listen address: {:?}", a))
-                })
-                .collect::<Result<Vec<Multiaddr>, _>>()?;
+            let listen_address = listen_address_str
+                .parse()
+                .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
+            self.listen_address = listen_address;
+            self.discovery_address = listen_address;
         }
 
         if let Some(max_peers_str) = args.value_of("maxpeers") {
@@ -87,10 +86,12 @@ impl Config {
                 .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
         }
 
-        if let Some(discovery_address_str) = args.value_of("disc-listen-address") {
-            self.discovery_address = discovery_address_str
-                .parse::<std::net::IpAddr>()
-                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?;
+        if let Some(port_str) = args.value_of("port") {
+            let port = port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid port: {}", port_str))?;
+            self.libp2p_port = port;
+            self.discovery_port = port;
         }
 
         if let Some(boot_enr_str) = args.value_of("boot-nodes") {
@@ -98,6 +99,12 @@ impl Config {
                 .split(',')
                 .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
                 .collect::<Result<Vec<Enr>, _>>()?;
+        }
+
+        if let Some(discovery_address_str) = args.value_of("discovery-address") {
+            self.discovery_address = discovery_address_str
+                .parse()
+                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?
         }
 
         if let Some(disc_port_str) = args.value_of("disc-port") {
