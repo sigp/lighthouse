@@ -165,6 +165,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
 
+        let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
+
         // Disconnect nodes who are on a different network.
         if local.network_id != remote.network_id {
             info!(
@@ -173,16 +175,14 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "reason" => "network_id"
             );
             network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
-        // Disconnect nodes if our finalized epoch is greater than thieirs, and their finalized
+        // Disconnect nodes if our finalized epoch is greater than theirs, and their finalized
         // epoch is not in our chain. Viz., they are on another chain.
         //
         // If the local or remote have a `latest_finalized_root == ZERO_HASH`, skips checks about
-        // the finalized_root. The logic is akward and I think we're better without it.
+        // the finalized_root. The logic is awkward and I think we're better without it.
         } else if (local.latest_finalized_epoch >= remote.latest_finalized_epoch)
-            && (!self
-                .chain
-                .rev_iter_block_roots(local.best_slot)
-                .any(|(root, _slot)| root == remote.latest_finalized_root))
+            && self.root_at_slot(start_slot(remote.latest_finalized_epoch))
+                != Some(remote.latest_finalized_root)
             && (local.latest_finalized_root != spec.zero_hash)
             && (remote.latest_finalized_root != spec.zero_hash)
         {
@@ -197,14 +197,22 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             info!(self.log, "HandshakeSuccess"; "peer" => format!("{:?}", peer_id));
             self.known_peers.insert(peer_id.clone(), remote);
 
-            // If we have equal or better finalized epochs and best slots, we require nothing else from
-            // this peer.
+            let remote_best_root_is_in_chain =
+                self.root_at_slot(remote.best_slot) == Some(local.best_root);
+
+            // We require nothing from this peer if:
             //
-            // We make an exception when our best slot is 0. Best slot does not indicate wether or
+            // - Their finalized epoch is less than ours
+            // - Their finalized root is in our chain (established earlier)
+            // - Their best slot is less than ours
+            // - Their best root is in our chain.
+            //
+            // We make an exception when our best slot is 0. Best slot does not indicate Wether or
             // not there is a block at slot zero.
             if (remote.latest_finalized_epoch <= local.latest_finalized_epoch)
                 && (remote.best_slot <= local.best_slot)
                 && (local.best_slot > 0)
+                && remote_best_root_is_in_chain
             {
                 debug!(self.log, "Peer is naive"; "peer" => format!("{:?}", peer_id));
                 return;
@@ -244,10 +252,36 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     },
                     network,
                 );
+            // The remote has a lower best slot, but the root for that slot is not in our chain.
+            //
+            // This means the remote is on another chain.
+            } else if remote.best_slot <= local.best_slot && !remote_best_root_is_in_chain {
+                debug!(self.log, "Peer has a best slot on a different chain"; "peer" => format!("{:?}", peer_id));
+                let start_slot = local
+                    .latest_finalized_epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                let required_slots = remote.best_slot - start_slot;
+
+                self.request_block_roots(
+                    peer_id,
+                    BeaconBlockRootsRequest {
+                        start_slot,
+                        count: required_slots.into(),
+                    },
+                    network,
+                );
             } else {
-                debug!(self.log, "Nothing to request from peer"; "peer" => format!("{:?}", peer_id));
+                warn!(self.log, "Unexpected condition in syncing"; "peer" => format!("{:?}", peer_id));
             }
         }
+    }
+
+    fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
+        self.chain
+            .rev_iter_block_roots(target_slot)
+            .take(1)
+            .find(|(_root, slot)| *slot == target_slot)
+            .map(|(root, _slot)| root)
     }
 
     /// Handle a `BeaconBlockRoots` request from the peer.
