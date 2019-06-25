@@ -33,15 +33,14 @@ fn main() {
         .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
-                .value_name("Listen Address")
-                .help("One or more comma-delimited multi-addresses to listen for p2p connections.")
+                .value_name("Address")
+                .help("The address lighthouse will listen for UDP and TCP connections. (default 127.0.0.1).")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("maxpeers")
                 .long("maxpeers")
-                .value_name("Max Peers")
-                .help("The maximum number of peers (default 10)")
+                .help("The maximum number of peers (default 10).")
                 .takes_value(true),
         )
         .arg(
@@ -53,17 +52,24 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("disc-listen-address")
-                .long("disc-listen_address")
-                .value_name("DISCPORT")
-                .help("The IP address that the discovery protocol will listen on. Defaults to 0.0.0.0")
+            Arg::with_name("port")
+                .long("port")
+                .value_name("Lighthouse Port")
+                .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("discovery-port")
                 .long("disc-port")
-                .value_name("DISCPORT")
-                .help("Listen UDP port for the discovery process")
+                .value_name("DiscoveryPort")
+                .help("The discovery UDP port.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("discovery-address")
+                .long("discovery-address")
+                .value_name("Address")
+                .help("The address to broadcast to other peers on how to reach this node.")
                 .takes_value(true),
         )
         // rpc related arguments
@@ -77,14 +83,13 @@ fn main() {
         .arg(
             Arg::with_name("rpc-address")
                 .long("rpc-address")
-                .value_name("RPCADDRESS")
+                .value_name("Address")
                 .help("Listen address for RPC endpoint.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("rpc-port")
                 .long("rpc-port")
-                .value_name("RPCPORT")
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
@@ -92,21 +97,19 @@ fn main() {
         .arg(
             Arg::with_name("http")
                 .long("http")
-                .value_name("HTTP")
                 .help("Enable the HTTP server.")
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("http-address")
                 .long("http-address")
-                .value_name("HTTPADDRESS")
+                .value_name("Address")
                 .help("Listen address for the HTTP server.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
-                .value_name("HTTPPORT")
                 .help("Listen port for the HTTP server.")
                 .takes_value(true),
         )
