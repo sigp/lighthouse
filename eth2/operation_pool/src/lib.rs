@@ -14,8 +14,6 @@ use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
-#[cfg(not(test))]
-use state_processing::per_block_processing::verify_deposit_merkle_proof;
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, validate_attestation,
     validate_attestation_time_independent_only, verify_attester_slashing, verify_exit,
@@ -151,20 +149,14 @@ impl<T: EthSpec> OperationPool<T> {
     /// Add a deposit to the pool.
     ///
     /// No two distinct deposits should be added with the same index.
-    #[cfg_attr(test, allow(unused_variables))]
     pub fn insert_deposit(
         &self,
         deposit: Deposit,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
         use DepositInsertStatus::*;
 
         match self.deposits.write().entry(deposit.index) {
             Entry::Vacant(entry) => {
-                // TODO: fix tests to generate valid merkle proofs
-                #[cfg(not(test))]
-                verify_deposit_merkle_proof(state, &deposit, spec)?;
                 entry.insert(deposit);
                 Ok(Fresh)
             }
@@ -172,9 +164,6 @@ impl<T: EthSpec> OperationPool<T> {
                 if entry.get() == &deposit {
                     Ok(Duplicate)
                 } else {
-                    // TODO: fix tests to generate valid merkle proofs
-                    #[cfg(not(test))]
-                    verify_deposit_merkle_proof(state, &deposit, spec)?;
                     Ok(Replaced(Box::new(entry.insert(deposit))))
                 }
             }
@@ -185,7 +174,9 @@ impl<T: EthSpec> OperationPool<T> {
     ///
     /// Take at most the maximum number of deposits, beginning from the current deposit index.
     pub fn get_deposits(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Deposit> {
-        // TODO: might want to re-check the Merkle proof to account for Eth1 forking
+        // TODO: We need to update the Merkle proofs for existing deposits as more deposits
+        // are added. It probably makes sense to construct the proofs from scratch when forming
+        // a block, using fresh info from the ETH1 chain for the current deposit root.
         let start_idx = state.deposit_index;
         (start_idx..start_idx + spec.max_deposits)
             .map(|idx| self.deposits.read().get(&idx).cloned())
@@ -461,22 +452,15 @@ mod tests {
     #[test]
     fn insert_deposit() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let (ref spec, ref state) = test_state(rng);
-        let op_pool = OperationPool::new();
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
         let deposit1 = make_deposit(rng);
         let mut deposit2 = make_deposit(rng);
         deposit2.index = deposit1.index;
 
+        assert_eq!(op_pool.insert_deposit(deposit1.clone()), Ok(Fresh));
+        assert_eq!(op_pool.insert_deposit(deposit1.clone()), Ok(Duplicate));
         assert_eq!(
-            op_pool.insert_deposit(deposit1.clone(), state, spec),
-            Ok(Fresh)
-        );
-        assert_eq!(
-            op_pool.insert_deposit(deposit1.clone(), state, spec),
-            Ok(Duplicate)
-        );
-        assert_eq!(
-            op_pool.insert_deposit(deposit2, state, spec),
+            op_pool.insert_deposit(deposit2),
             Ok(Replaced(Box::new(deposit1)))
         );
     }
@@ -495,10 +479,7 @@ mod tests {
         let deposits = dummy_deposits(rng, start, max_deposits + extra);
 
         for deposit in &deposits {
-            assert_eq!(
-                op_pool.insert_deposit(deposit.clone(), &state, &spec),
-                Ok(Fresh)
-            );
+            assert_eq!(op_pool.insert_deposit(deposit.clone()), Ok(Fresh));
         }
 
         state.deposit_index = start + offset;
@@ -514,8 +495,7 @@ mod tests {
     #[test]
     fn prune_deposits() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let (spec, state) = test_state(rng);
-        let op_pool = OperationPool::new();
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
 
         let start1 = 100;
         // test is super slow in debug mode if this parameter is too high
@@ -527,7 +507,7 @@ mod tests {
         let deposits2 = dummy_deposits(rng, start2, count);
 
         for d in deposits1.into_iter().chain(deposits2) {
-            assert!(op_pool.insert_deposit(d, &state, &spec).is_ok());
+            assert!(op_pool.insert_deposit(d).is_ok());
         }
 
         assert_eq!(op_pool.num_deposits(), 2 * count as usize);
