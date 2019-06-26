@@ -1,16 +1,21 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
+    BEACON_CHAIN_DB_KEY,
+};
 use lmd_ghost::ThreadSafeReducedTree;
-use store::MemoryStore;
-use types::{EthSpec, MinimalEthSpec, Slot};
+use rand::Rng;
+use store::{MemoryStore, Store};
+use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+use types::{Deposit, EthSpec, Hash256, MinimalEthSpec, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;
 
-fn get_harness(
-    validator_count: usize,
-) -> BeaconChainHarness<ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>, MinimalEthSpec> {
+type TestForkChoice = ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>;
+
+fn get_harness(validator_count: usize) -> BeaconChainHarness<TestForkChoice, MinimalEthSpec> {
     let harness = BeaconChainHarness::new(validator_count);
 
     // Move past the zero slot.
@@ -224,4 +229,39 @@ fn does_not_finalize_without_attestation() {
         state.finalized_epoch, 0,
         "no epoch should have been finalized"
     );
+}
+
+#[test]
+fn roundtrip_operation_pool() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Add some attestations
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+    assert!(harness.chain.op_pool.num_attestations() > 0);
+
+    // Add some deposits
+    let rng = &mut XorShiftRng::from_seed([66; 16]);
+    for _ in 0..rng.gen_range(1, VALIDATOR_COUNT) {
+        harness
+            .chain
+            .process_deposit(Deposit::random_for_test(rng))
+            .unwrap();
+    }
+
+    // TODO: could add some other operations
+    harness.chain.persist().unwrap();
+
+    let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
+    let p: PersistedBeaconChain<CommonTypes<TestForkChoice, MinimalEthSpec>> =
+        harness.chain.store.get(&key).unwrap().unwrap();
+
+    let restored_op_pool = p.op_pool.into_operation_pool(&p.state, &harness.spec);
+
+    assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
