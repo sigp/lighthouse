@@ -509,8 +509,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         deposit: Deposit,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
-        self.op_pool
-            .insert_deposit(deposit, &*self.state.read(), &self.spec)
+        self.op_pool.insert_deposit(deposit)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
