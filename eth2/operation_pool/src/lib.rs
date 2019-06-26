@@ -27,7 +27,7 @@ use types::{
     Transfer, Validator, VoluntaryExit,
 };
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation>>>,
@@ -440,6 +440,18 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
             .get(validator_index as usize)
             .map_or(true, |validator| !prune_if(validator))
     });
+}
+
+/// Compare two operation pools.
+impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
+    fn eq(&self, other: &Self) -> bool {
+        *self.attestations.read() == *other.attestations.read()
+            && *self.deposits.read() == *other.deposits.read()
+            && *self.attester_slashings.read() == *other.attester_slashings.read()
+            && *self.proposer_slashings.read() == *other.proposer_slashings.read()
+            && *self.voluntary_exits.read() == *other.voluntary_exits.read()
+            && *self.transfers.read() == *other.transfers.read()
+    }
 }
 
 #[cfg(test)]

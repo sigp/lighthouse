@@ -26,3 +26,6 @@ state_processing = { path = "../../eth2/state_processing" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path = "../../eth2/types" }
 lmd_ghost = { path = "../../eth2/lmd_ghost" }
+
+[dev-dependencies]
+rand = "0.5.5"
