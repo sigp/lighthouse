@@ -1,7 +1,8 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::PeerId;
-use slog::{debug, error};
+use slog::error;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tree_hash::TreeHash;
@@ -22,7 +23,7 @@ use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256, Slot};
 pub struct ImportQueue<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
-    pub partials: Vec<PartialBeaconBlock>,
+    partials: HashMap<Hash256, PartialBeaconBlock>,
     /// Time before a queue entry is considered state.
     pub stale_time: Duration,
     /// Logging
@@ -34,7 +35,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     pub fn new(chain: Arc<BeaconChain<T>>, stale_time: Duration, log: slog::Logger) -> Self {
         Self {
             chain,
-            partials: vec![],
+            partials: HashMap::new(),
             stale_time,
             log,
         }
@@ -52,7 +53,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         let mut complete: Vec<(Hash256, BeaconBlock, PeerId)> = self
             .partials
             .iter()
-            .filter_map(|partial| partial.clone().complete())
+            .filter_map(|(_, partial)| partial.clone().complete())
             .collect();
 
         // Sort the completable partials to be in ascending slot order.
@@ -61,14 +62,14 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         complete
     }
 
+    pub fn contains_block_root(&self, block_root: Hash256) -> bool {
+        self.partials.contains_key(&block_root)
+    }
+
     /// Removes the first `PartialBeaconBlock` with a matching `block_root`, returning the partial
     /// if it exists.
     pub fn remove(&mut self, block_root: Hash256) -> Option<PartialBeaconBlock> {
-        let position = self
-            .partials
-            .iter()
-            .position(|p| p.block_root == block_root)?;
-        Some(self.partials.remove(position))
+        self.partials.remove(&block_root)
     }
 
     /// Flushes all stale entries from the queue.
@@ -76,31 +77,10 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     /// An entry is stale if it has as a `inserted` time that is more than `self.stale_time` in the
     /// past.
     pub fn remove_stale(&mut self) {
-        let stale_indices: Vec<usize> = self
-            .partials
-            .iter()
-            .enumerate()
-            .filter_map(|(i, partial)| {
-                if partial.inserted + self.stale_time <= Instant::now() {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let stale_time = self.stale_time;
 
-        if !stale_indices.is_empty() {
-            debug!(
-                self.log,
-                "ImportQueue removing stale entries";
-                "stale_items" => stale_indices.len(),
-                "stale_time_seconds" => self.stale_time.as_secs()
-            );
-        }
-
-        stale_indices.iter().for_each(|&i| {
-            self.partials.remove(i);
-        });
+        self.partials
+            .retain(|_, partial| partial.inserted + stale_time > Instant::now())
     }
 
     /// Returns `true` if `self.chain` has not yet processed this block.
@@ -122,27 +102,30 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         block_roots: &[BlockRootSlot],
         sender: PeerId,
     ) -> Vec<BlockRootSlot> {
-        let new_roots: Vec<BlockRootSlot> = block_roots
+        let new_block_root_slots: Vec<BlockRootSlot> = block_roots
             .iter()
+            // Ignore any roots already stored in the queue.
+            .filter(|brs| !self.contains_block_root(brs.block_root))
             // Ignore any roots already processed by the chain.
             .filter(|brs| self.chain_has_not_seen_block(&brs.block_root))
-            // Ignore any roots already stored in the queue.
-            .filter(|brs| !self.partials.iter().any(|p| p.block_root == brs.block_root))
             .cloned()
             .collect();
 
-        new_roots.iter().for_each(|brs| {
-            self.partials.push(PartialBeaconBlock {
-                slot: brs.slot,
-                block_root: brs.block_root,
-                sender: sender.clone(),
-                header: None,
-                body: None,
-                inserted: Instant::now(),
-            })
-        });
+        self.partials.extend(
+            new_block_root_slots
+                .iter()
+                .map(|brs| PartialBeaconBlock {
+                    slot: brs.slot,
+                    block_root: brs.block_root,
+                    sender: sender.clone(),
+                    header: None,
+                    body: None,
+                    inserted: Instant::now(),
+                })
+                .map(|partial| (partial.block_root, partial)),
+        );
 
-        new_roots
+        new_block_root_slots
     }
 
     /// Adds the `headers` to the `partials` queue. Returns a list of `Hash256` block roots for
@@ -170,7 +153,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
 
             if self.chain_has_not_seen_block(&block_root) {
                 self.insert_header(block_root, header, sender.clone());
-                required_bodies.push(block_root)
+                required_bodies.push(block_root);
             }
         }
 
@@ -197,31 +180,20 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     /// If the header already exists, the `inserted` time is set to `now` and not other
     /// modifications are made.
     fn insert_header(&mut self, block_root: Hash256, header: BeaconBlockHeader, sender: PeerId) {
-        if let Some(i) = self
-            .partials
-            .iter()
-            .position(|p| p.block_root == block_root)
-        {
-            // Case 1: there already exists a partial with a matching block root.
-            //
-            // The `inserted` time is set to now and the header is replaced, regardless of whether
-            // it existed or not.
-            self.partials[i].header = Some(header);
-            self.partials[i].inserted = Instant::now();
-        } else {
-            // Case 2: there was no partial with a matching block root.
-            //
-            // A new partial is added. This case permits adding a header without already known the
-            // root.
-            self.partials.push(PartialBeaconBlock {
+        self.partials
+            .entry(block_root)
+            .and_modify(|partial| {
+                partial.header = Some(header.clone());
+                partial.inserted = Instant::now();
+            })
+            .or_insert_with(|| PartialBeaconBlock {
                 slot: header.slot,
                 block_root,
                 header: Some(header),
                 body: None,
                 inserted: Instant::now(),
                 sender,
-            })
-        }
+            });
     }
 
     /// Updates an existing partial with the `body`.
@@ -232,7 +204,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     fn insert_body(&mut self, body: BeaconBlockBody, sender: PeerId) {
         let body_root = Hash256::from_slice(&body.tree_hash_root()[..]);
 
-        self.partials.iter_mut().for_each(|mut p| {
+        self.partials.iter_mut().for_each(|(_, mut p)| {
             if let Some(header) = &mut p.header {
                 if body_root == header.block_body_root {
                     p.inserted = Instant::now();
@@ -261,15 +233,10 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
             sender,
         };
 
-        if let Some(i) = self
-            .partials
-            .iter()
-            .position(|p| p.block_root == block_root)
-        {
-            self.partials[i] = partial;
-        } else {
-            self.partials.push(partial)
-        }
+        self.partials
+            .entry(block_root)
+            .and_modify(|existing_partial| *existing_partial = partial.clone())
+            .or_insert(partial);
     }
 }
 
