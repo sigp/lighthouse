@@ -17,7 +17,7 @@ use types::{
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
 /// The amount of seconds a block (or partial block) may exist in the import queue.
-const QUEUE_STALE_SECS: u64 = 600;
+const QUEUE_STALE_SECS: u64 = 6;
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
@@ -72,7 +72,6 @@ pub struct SimpleSync<T: BeaconChainTypes> {
     import_queue: ImportQueue<T>,
     /// The current state of the syncing protocol.
     state: SyncState,
-    /// Sync logger.
     log: slog::Logger,
 }
 
@@ -160,119 +159,89 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         hello: HelloMessage,
         network: &mut NetworkContext,
     ) {
-        let spec = &self.chain.spec;
-
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
 
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        // Disconnect nodes who are on a different network.
         if local.network_id != remote.network_id {
+            // The node is on a different network, disconnect them.
             info!(
                 self.log, "HandshakeFailure";
                 "peer" => format!("{:?}", peer_id),
                 "reason" => "network_id"
             );
+
             network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
-        // Disconnect nodes if our finalized epoch is greater than theirs, and their finalized
-        // epoch is not in our chain. Viz., they are on another chain.
-        //
-        // If the local or remote have a `latest_finalized_root == ZERO_HASH`, skips checks about
-        // the finalized_root. The logic is awkward and I think we're better without it.
-        } else if (local.latest_finalized_epoch >= remote.latest_finalized_epoch)
-            && self.root_at_slot(start_slot(remote.latest_finalized_epoch))
-                != Some(remote.latest_finalized_root)
-            && (local.latest_finalized_root != spec.zero_hash)
-            && (remote.latest_finalized_root != spec.zero_hash)
+        } else if remote.latest_finalized_epoch <= local.latest_finalized_epoch
+            && remote.latest_finalized_root != self.chain.spec.zero_hash
+            && local.latest_finalized_root != self.chain.spec.zero_hash
+            && (self.root_at_slot(start_slot(remote.latest_finalized_epoch))
+                != Some(remote.latest_finalized_root))
         {
+            // The remotes finalized epoch is less than or greater than ours, but the block root is
+            // different to the one in our chain.
+            //
+            // Therefore, the node is on a different chain and we should not communicate with them.
             info!(
                 self.log, "HandshakeFailure";
                 "peer" => format!("{:?}", peer_id),
-                "reason" => "wrong_finalized_chain"
+                "reason" => "different finalized chain"
             );
             network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
-        // Process handshakes from peers that seem to be on our chain.
+        } else if remote.latest_finalized_epoch < local.latest_finalized_epoch {
+            // The node has a lower finalized epoch, their chain is not useful to us. There are two
+            // cases where a node can have a lower finalized epoch:
+            //
+            // ## The node is on the same chain
+            //
+            // If a node is on the same chain but has a lower finalized epoch, their head must be
+            // lower than ours. Therefore, we have nothing to request from them.
+            //
+            // ## The node is on a fork
+            //
+            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
+            // cause us to revert a finalized block. This is not permitted, therefore we have no
+            // interest in their blocks.
+            debug!(
+                self.log,
+                "NaivePeer";
+                "peer" => format!("{:?}", peer_id),
+                "reason" => "lower finalized epoch"
+            );
+        } else if self
+            .chain
+            .store
+            .exists::<BeaconBlock>(&remote.best_root)
+            .unwrap_or_else(|_| false)
+        {
+            // If the node's best-block is already known to us, we have nothing to request.
+            debug!(
+                self.log,
+                "NaivePeer";
+                "peer" => format!("{:?}", peer_id),
+                "reason" => "best block is known"
+            );
         } else {
-            info!(self.log, "HandshakeSuccess"; "peer" => format!("{:?}", peer_id));
-            self.known_peers.insert(peer_id.clone(), remote);
-
-            let remote_best_root_is_in_chain =
-                self.root_at_slot(remote.best_slot) == Some(local.best_root);
-
-            // We require nothing from this peer if:
+            // The remote node has an equal or great finalized epoch and we don't know it's head.
             //
-            // - Their finalized epoch is less than ours
-            // - Their finalized root is in our chain (established earlier)
-            // - Their best slot is less than ours
-            // - Their best root is in our chain.
-            //
-            // We make an exception when our best slot is 0. Best slot does not indicate Wether or
-            // not there is a block at slot zero.
-            if (remote.latest_finalized_epoch <= local.latest_finalized_epoch)
-                && (remote.best_slot <= local.best_slot)
-                && (local.best_slot > 0)
-                && remote_best_root_is_in_chain
-            {
-                debug!(self.log, "Peer is naive"; "peer" => format!("{:?}", peer_id));
-                return;
-            }
+            // Therefore, there are some blocks between the local finalized epoch and the remote
+            // head that are worth downloading.
+            debug!(self.log, "UsefulPeer"; "peer" => format!("{:?}", peer_id));
 
-            // If the remote has a higher finalized epoch, request all block roots from our finalized
-            // epoch through to its best slot.
-            if remote.latest_finalized_epoch > local.latest_finalized_epoch {
-                debug!(self.log, "Peer has high finalized epoch"; "peer" => format!("{:?}", peer_id));
-                let start_slot = local
-                    .latest_finalized_epoch
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                let required_slots = remote.best_slot - start_slot;
+            let start_slot = local
+                .latest_finalized_epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
+            let required_slots = remote.best_slot - start_slot;
 
-                self.request_block_roots(
-                    peer_id,
-                    BeaconBlockRootsRequest {
-                        start_slot,
-                        count: required_slots.into(),
-                    },
-                    network,
-                );
-            // If the remote has a greater best slot, request the roots between our best slot and their
-            // best slot.
-            } else if remote.best_slot > local.best_slot {
-                debug!(self.log, "Peer has higher best slot"; "peer" => format!("{:?}", peer_id));
-                let start_slot = local
-                    .latest_finalized_epoch
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                let required_slots = remote.best_slot - start_slot;
-
-                self.request_block_roots(
-                    peer_id,
-                    BeaconBlockRootsRequest {
-                        start_slot,
-                        count: required_slots.into(),
-                    },
-                    network,
-                );
-            // The remote has a lower best slot, but the root for that slot is not in our chain.
-            //
-            // This means the remote is on another chain.
-            } else if remote.best_slot <= local.best_slot && !remote_best_root_is_in_chain {
-                debug!(self.log, "Peer has a best slot on a different chain"; "peer" => format!("{:?}", peer_id));
-                let start_slot = local
-                    .latest_finalized_epoch
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                let required_slots = remote.best_slot - start_slot;
-
-                self.request_block_roots(
-                    peer_id,
-                    BeaconBlockRootsRequest {
-                        start_slot,
-                        count: required_slots.into(),
-                    },
-                    network,
-                );
-            } else {
-                warn!(self.log, "Unexpected condition in syncing"; "peer" => format!("{:?}", peer_id));
-            }
+            self.request_block_roots(
+                peer_id,
+                BeaconBlockRootsRequest {
+                    start_slot,
+                    count: required_slots.into(),
+                },
+                network,
+            );
         }
     }
 
@@ -309,11 +278,13 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .collect();
 
         if roots.len() as u64 != req.count {
-            debug!(
+            warn!(
                 self.log,
                 "BlockRootsRequest";
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested hashes",
+                "start_slot" => req.start_slot,
+                "current_slot" => self.chain.current_state().slot,
                 "requested" => req.count,
                 "returned" => roots.len(),
             );
@@ -385,7 +356,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             BeaconBlockHeadersRequest {
                 start_root: first.block_root,
                 start_slot: first.slot,
-                max_headers: (last.slot - first.slot + 1).as_u64(),
+                max_headers: (last.slot - first.slot).as_u64(),
                 skip_slots: 0,
             },
             network,
@@ -467,7 +438,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .import_queue
             .enqueue_headers(res.headers, peer_id.clone());
 
-        self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
+        if !block_roots.is_empty() {
+            self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
+        }
     }
 
     /// Handle a `BeaconBlockBodies` request from the peer.
@@ -552,9 +525,27 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         {
             match outcome {
                 BlockProcessingOutcome::Processed { .. } => SHOULD_FORWARD_GOSSIP_BLOCK,
-                BlockProcessingOutcome::ParentUnknown { .. } => {
+                BlockProcessingOutcome::ParentUnknown { parent } => {
+                    // Clean the stale entries from the queue.
+                    self.import_queue.remove_stale();
+
+                    // Add this block to the queue
                     self.import_queue
                         .enqueue_full_blocks(vec![block], peer_id.clone());
+
+                    // Unless the parent is in the queue, request the parent block from the peer.
+                    //
+                    // It is likely that this is duplicate work, given we already send a hello
+                    // request. However, I believe there are some edge-cases where the hello
+                    // message doesn't suffice, so we perform this request as well.
+                    if !self.import_queue.contains_block_root(parent) {
+                        // Send a hello to learn of the clients best slot so we can then sync the required
+                        // parent(s).
+                        network.send_rpc_request(
+                            peer_id.clone(),
+                            RPCRequest::Hello(hello_message(&self.chain)),
+                        );
+                    }
 
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
@@ -730,7 +721,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         if let Ok(outcome) = processing_result {
             match outcome {
                 BlockProcessingOutcome::Processed { block_root } => {
-                    info!(
+                    debug!(
                         self.log, "Imported block from network";
                         "source" => source,
                         "slot" => block.slot,
@@ -747,28 +738,19 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         "peer" => format!("{:?}", peer_id),
                     );
 
-                    // Send a hello to learn of the clients best slot so we can then sync the require
-                    // parent(s).
-                    network.send_rpc_request(
-                        peer_id.clone(),
-                        RPCRequest::Hello(hello_message(&self.chain)),
-                    );
-
-                    // Explicitly request the parent block from the peer.
+                    // Unless the parent is in the queue, request the parent block from the peer.
                     //
                     // It is likely that this is duplicate work, given we already send a hello
                     // request. However, I believe there are some edge-cases where the hello
                     // message doesn't suffice, so we perform this request as well.
-                    self.request_block_headers(
-                        peer_id,
-                        BeaconBlockHeadersRequest {
-                            start_root: parent,
-                            start_slot: block.slot - 1,
-                            max_headers: 1,
-                            skip_slots: 0,
-                        },
-                        network,
-                    )
+                    if !self.import_queue.contains_block_root(parent) {
+                        // Send a hello to learn of the clients best slot so we can then sync the require
+                        // parent(s).
+                        network.send_rpc_request(
+                            peer_id.clone(),
+                            RPCRequest::Hello(hello_message(&self.chain)),
+                        );
+                    }
                 }
                 BlockProcessingOutcome::FutureSlot {
                     present_slot,
