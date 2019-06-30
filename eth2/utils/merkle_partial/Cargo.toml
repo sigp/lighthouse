@@ -1,0 +1,10 @@
+[package]
+name = "ssz_merkle_partial"
+version = "0.0.0"
+authors = ["Matt Garnett <14004106+c-o-l-o-r@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+hashing = { path = "../hashing" }
+tree_hash = { path = "../tree_hash" }
+ssz = { path = "../ssz" }
