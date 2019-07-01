@@ -177,7 +177,7 @@ where
             Self::OutEvent,
         >,
     > {
-        // search of peers if it is time
+        // search for peers if it is time
         loop {
             match self.peer_discovery_delay.poll() {
                 Ok(Async::Ready(_)) => {
@@ -241,7 +241,7 @@ where
 /// Loads an ENR from file if it exists and matches the current NodeId and sequence number. If none
 /// exists, generates a new one.
 ///
-/// If an ENR exists, with the same NodeId and IP addresses, we use the disk-generated one as it's
+/// If an ENR exists, with the same NodeId and IP address, we use the disk-generated one as its
 /// ENR sequence will be equal or higher than a newly generated one.
 fn load_enr(
     local_key: &Keypair,
