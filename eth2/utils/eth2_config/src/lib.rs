@@ -1,6 +1,5 @@
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
-use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
@@ -103,17 +102,5 @@ where
         Ok(Some(config))
     } else {
         Ok(None)
-    }
-}
-
-pub fn get_data_dir(args: &ArgMatches, default_data_dir: PathBuf) -> Result<PathBuf, &'static str> {
-    if let Some(data_dir) = args.value_of("data_dir") {
-        Ok(PathBuf::from(data_dir))
-    } else {
-        let path = dirs::home_dir()
-            .ok_or_else(|| "Unable to locate home directory")?
-            .join(&default_data_dir);
-        fs::create_dir_all(&path).map_err(|_| "Unable to create data_dir")?;
-        Ok(path)
     }
 }
