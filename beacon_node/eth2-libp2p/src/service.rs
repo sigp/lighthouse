@@ -8,21 +8,24 @@ use crate::{BEACON_ATTESTATION_TOPIC, BEACON_PUBSUB_TOPIC};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
-    identity,
+    identity::Keypair,
     multiaddr::Multiaddr,
     muxing::StreamMuxerBox,
     nodes::Substream,
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
-use libp2p::identify::protocol::IdentifyInfo;
 use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
+use std::fs::File;
+use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
+
+const NETWORK_KEY_FILENAME: &str = "key";
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
@@ -39,9 +42,9 @@ impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         debug!(log, "Network-libp2p Service starting");
 
-        // TODO: Save and recover node key from disk
-        // TODO: Currently using secp256k1 keypairs - currently required for discv5
-        let local_private_key = identity::Keypair::generate_secp256k1();
+        // load the private key from CLI flag, disk or generate a new one
+        let local_private_key = load_private_key(&config, &log);
+
         let local_peer_id = PeerId::from(local_private_key.public());
         info!(log, "Local peer id: {:?}", local_peer_id);
 
@@ -142,7 +145,7 @@ impl Stream for Service {
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, secio as the encryption layer, and
 /// mplex or yamux as the multiplexing layer.
-fn build_transport(local_private_key: identity::Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
+fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
     let transport = libp2p::tcp::TcpConfig::new();
@@ -179,12 +182,58 @@ pub enum Libp2pEvent {
     RPC(PeerId, RPCEvent),
     /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
-    /// Received information about a peer on the network.
-    Identified(PeerId, Box<IdentifyInfo>),
     /// Received pubsub message.
     PubsubMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
         message: Box<PubsubMessage>,
     },
+}
+
+/// Loads a private key from disk. If this fails, a new key is
+/// generated and is then saved to disk.
+///
+/// Currently only secp256k1 keys are allowed, as these are the only keys supported by discv5.
+fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
+    // TODO: Currently using secp256k1 keypairs - currently required for discv5
+    // check for key from disk
+    let network_key_f = config.network_dir.join(NETWORK_KEY_FILENAME);
+    if let Ok(mut network_key_file) = File::open(network_key_f.clone()) {
+        let mut key_bytes: Vec<u8> = Vec::with_capacity(36);
+        match network_key_file.read_to_end(&mut key_bytes) {
+            Err(_) => debug!(log, "Could not read network key file"),
+            Ok(_) => {
+                // only accept secp256k1 keys for now
+                if let Ok(secret_key) =
+                    libp2p::core::identity::secp256k1::SecretKey::from_bytes(&mut key_bytes)
+                {
+                    let kp: libp2p::core::identity::secp256k1::Keypair = secret_key.into();
+                    debug!(log, "Loaded network key from disk.");
+                    return Keypair::Secp256k1(kp);
+                } else {
+                    debug!(log, "Network key file is not a valid secp256k1 key");
+                }
+            }
+        }
+    }
+
+    // if a key could not be loaded from disk, generate a new one and save it
+    let local_private_key = Keypair::generate_secp256k1();
+    if let Keypair::Secp256k1(key) = local_private_key.clone() {
+        let _ = std::fs::create_dir_all(&config.network_dir);
+        match File::create(network_key_f.clone())
+            .and_then(|mut f| f.write_all(&key.secret().to_bytes()))
+        {
+            Ok(_) => {
+                debug!(log, "New network key generated and written to disk");
+            }
+            Err(e) => {
+                warn!(
+                    log,
+                    "Could not write node key to file: {:?}. Error: {}", network_key_f, e
+                );
+            }
+        }
+    }
+    local_private_key
 }

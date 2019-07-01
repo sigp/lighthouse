@@ -1,7 +1,7 @@
 use crate::{error, NetworkConfig};
 /// This manages the discovery and management of peers.
 ///
-/// Currently using Kademlia for peer discovery.
+/// Currently using discv5 for peer discovery.
 ///
 use futures::prelude::*;
 use libp2p::core::swarm::{
@@ -13,6 +13,9 @@ use libp2p::enr::{Enr, EnrBuilder, NodeId};
 use libp2p::multiaddr::Protocol;
 use slog::{debug, info, o, warn};
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::prelude::*;
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_timer::Delay;
@@ -21,6 +24,8 @@ use tokio_timer::Delay;
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 60;
 /// Initial delay between peer searches.
 const INITIAL_SEARCH_DELAY: u64 = 5;
+/// Local ENR storage filename.
+const ENR_FILENAME: &str = "enr.dat";
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
@@ -53,28 +58,22 @@ pub struct Discovery<TSubstream> {
 impl<TSubstream> Discovery<TSubstream> {
     pub fn new(
         local_key: &Keypair,
-        net_conf: &NetworkConfig,
+        config: &NetworkConfig,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.new(o!("Service" => "Libp2p-Discovery"));
 
-        // Build the local ENR.
-        // Note: Discovery should update the ENR record's IP to the external IP as seen by the
-        // majority of our peers.
+        // checks if current ENR matches that found on disk
+        let local_enr = load_enr(local_key, config, &log)?;
 
-        let local_enr = EnrBuilder::new()
-            .ip(net_conf.discovery_address.into())
-            .tcp(net_conf.libp2p_port)
-            .udp(net_conf.discovery_port)
-            .build(&local_key)
-            .map_err(|e| format!("Could not build Local ENR: {:?}", e))?;
         info!(log, "Local ENR: {}", local_enr.to_base64());
+        debug!(log, "Local Node Id: {}", local_enr.node_id());
 
-        let mut discovery = Discv5::new(local_enr, local_key.clone(), net_conf.listen_address)
+        let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address)
             .map_err(|e| format!("Discv5 service failed: {:?}", e))?;
 
         // Add bootnodes to routing table
-        for bootnode_enr in net_conf.boot_nodes.clone() {
+        for bootnode_enr in config.boot_nodes.clone() {
             debug!(
                 log,
                 "Adding node to routing table: {}",
@@ -85,10 +84,10 @@ impl<TSubstream> Discovery<TSubstream> {
 
         Ok(Self {
             connected_peers: HashSet::new(),
-            max_peers: net_conf.max_peers,
+            max_peers: config.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
-            tcp_port: net_conf.libp2p_port,
+            tcp_port: config.libp2p_port,
             discovery,
             log,
         })
@@ -237,4 +236,78 @@ where
         }
         Async::NotReady
     }
+}
+
+/// Loads an ENR from file if it exists and matches the current NodeId and sequence number. If none
+/// exists, generates a new one.
+///
+/// If an ENR exists, with the same NodeId and IP addresses, we use the disk-generated one as it's
+/// ENR sequence will be equal or higher than a newly generated one.
+fn load_enr(
+    local_key: &Keypair,
+    config: &NetworkConfig,
+    log: &slog::Logger,
+) -> Result<Enr, String> {
+    // Build the local ENR.
+    // Note: Discovery should update the ENR record's IP to the external IP as seen by the
+    // majority of our peers.
+    let mut local_enr = EnrBuilder::new()
+        .ip(config.discovery_address.into())
+        .tcp(config.libp2p_port)
+        .udp(config.discovery_port)
+        .build(&local_key)
+        .map_err(|e| format!("Could not build Local ENR: {:?}", e))?;
+
+    let enr_f = config.network_dir.join(ENR_FILENAME);
+    if let Ok(mut enr_file) = File::open(enr_f.clone()) {
+        let mut enr_string = String::new();
+        match enr_file.read_to_string(&mut enr_string) {
+            Err(_) => debug!(log, "Could not read ENR from file"),
+            Ok(_) => {
+                match Enr::from_str(&enr_string) {
+                    Ok(enr) => {
+                        debug!(log, "ENR found in file: {:?}", enr_f);
+
+                        if enr.node_id() == local_enr.node_id() {
+                            if enr.ip() == config.discovery_address.into()
+                                && enr.tcp() == Some(config.libp2p_port)
+                                && enr.udp() == Some(config.discovery_port)
+                            {
+                                debug!(log, "ENR loaded from file");
+                                // the stored ENR has the same configuration, use it
+                                return Ok(enr);
+                            }
+
+                            // same node id, different configuration - update the sequence number
+                            let new_seq_no = enr.seq().checked_add(1).ok_or_else(|| "ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
+                            local_enr.set_seq(new_seq_no, local_key).map_err(|e| {
+                                format!("Could not update ENR sequence number: {:?}", e)
+                            })?;
+                            debug!(log, "ENR sequence number increased to: {}", new_seq_no);
+                        }
+                    }
+                    Err(e) => {
+                        warn!(log, "ENR from file could not be decoded: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    // write ENR to disk
+    let _ = std::fs::create_dir_all(&config.network_dir);
+    match File::create(enr_f.clone())
+        .and_then(|mut f| f.write_all(&local_enr.to_base64().as_bytes()))
+    {
+        Ok(_) => {
+            debug!(log, "ENR written to disk");
+        }
+        Err(e) => {
+            warn!(
+                log,
+                "Could not write ENR to file: {:?}. Error: {}", enr_f, e
+            );
+        }
+    }
+    Ok(local_enr)
 }

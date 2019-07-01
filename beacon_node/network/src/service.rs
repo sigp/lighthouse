@@ -126,12 +126,6 @@ fn network_service(
                             .send(HandlerMessage::PeerDialed(peer_id))
                             .map_err(|_| "failed to send rpc to handler")?;
                     }
-                    Libp2pEvent::Identified(peer_id, info) => {
-                        debug!(
-                            log,
-                            "We have identified peer: {:?} with {:?}", peer_id, info
-                        );
-                    }
                     Libp2pEvent::PubsubMessage {
                         source, message, ..
                     } => {

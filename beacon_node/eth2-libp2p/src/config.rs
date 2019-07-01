@@ -2,6 +2,7 @@ use clap::ArgMatches;
 use enr::Enr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use serde_derive::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// The beacon node topic string to subscribe to.
@@ -14,6 +15,9 @@ pub const SHARD_TOPIC_PREFIX: &str = "shard";
 #[serde(default)]
 /// Network configuration for lighthouse.
 pub struct Config {
+    /// Data directory where node's keyfile is stored
+    pub network_dir: PathBuf,
+
     /// IP address to listen on.
     pub listen_address: std::net::IpAddr,
 
@@ -46,7 +50,11 @@ pub struct Config {
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
+        let mut network_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        network_dir.push(".lighthouse");
+        network_dir.push("network");
         Config {
+            network_dir,
             listen_address: "127.0.0.1".parse().expect("vaild ip address"),
             libp2p_port: 9000,
             discovery_address: "127.0.0.1".parse().expect("valid ip address"),
@@ -72,6 +80,12 @@ impl Config {
     }
 
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), String> {
+        dbg!(self.network_dir.clone());
+        if let Some(dir) = args.value_of("datadir") {
+            self.network_dir = PathBuf::from(dir).join("network");
+        };
+        dbg!(self.network_dir.clone());
+
         if let Some(listen_address_str) = args.value_of("listen-address") {
             let listen_address = listen_address_str
                 .parse()
