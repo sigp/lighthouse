@@ -1,7 +1,6 @@
 use crate::attestation_id::AttestationId;
 use crate::OperationPool;
 use parking_lot::RwLock;
-use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::*;
 
@@ -14,7 +13,7 @@ pub struct PersistedOperationPool {
     /// Mapping from attestation ID to attestation mappings.
     // We could save space by not storing the attestation ID, but it might
     // be difficult to make that roundtrip due to eager aggregation.
-    attestations: Vec<SszPair<AttestationId, Vec<Attestation>>>,
+    attestations: Vec<(AttestationId, Vec<Attestation>)>,
     deposits: Vec<Deposit>,
     /// Attester slashings.
     attester_slashings: Vec<AttesterSlashing>,
@@ -33,7 +32,7 @@ impl PersistedOperationPool {
             .attestations
             .read()
             .iter()
-            .map(|(att_id, att)| SszPair::new(att_id.clone(), att.clone()))
+            .map(|(att_id, att)| (att_id.clone(), att.clone()))
             .collect();
 
         let deposits = operation_pool
@@ -82,7 +81,7 @@ impl PersistedOperationPool {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> OperationPool<T> {
-        let attestations = RwLock::new(self.attestations.into_iter().map(SszPair::into).collect());
+        let attestations = RwLock::new(self.attestations.into_iter().collect());
         let deposits = RwLock::new(self.deposits.into_iter().map(|d| (d.index, d)).collect());
         let attester_slashings = RwLock::new(
             self.attester_slashings
@@ -118,38 +117,5 @@ impl PersistedOperationPool {
             transfers,
             _phantom: Default::default(),
         }
-    }
-}
-
-/// Tuples for SSZ.
-#[derive(Encode, Decode)]
-struct SszPair<X: Encode + Decode, Y: Encode + Decode> {
-    x: X,
-    y: Y,
-}
-
-impl<X: Encode + Decode, Y: Encode + Decode> SszPair<X, Y> {
-    fn new(x: X, y: Y) -> Self {
-        Self { x, y }
-    }
-}
-
-impl<X, Y> From<(X, Y)> for SszPair<X, Y>
-where
-    X: Encode + Decode,
-    Y: Encode + Decode,
-{
-    fn from((x, y): (X, Y)) -> Self {
-        Self { x, y }
-    }
-}
-
-impl<X, Y> Into<(X, Y)> for SszPair<X, Y>
-where
-    X: Encode + Decode,
-    Y: Encode + Decode,
-{
-    fn into(self) -> (X, Y) {
-        (self.x, self.y)
     }
 }
