@@ -80,11 +80,9 @@ impl Config {
     }
 
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), String> {
-        dbg!(self.network_dir.clone());
         if let Some(dir) = args.value_of("datadir") {
             self.network_dir = PathBuf::from(dir).join("network");
         };
-        dbg!(self.network_dir.clone());
 
         if let Some(listen_address_str) = args.value_of("listen-address") {
             let listen_address = listen_address_str
