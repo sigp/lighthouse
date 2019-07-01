@@ -7,9 +7,9 @@ edition = "2018"
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
 clap = "2.32.0"
-# SigP repository 
- libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "8ff9f2001de0aea1175c1442f22bfbf382dc0e8b" }
-enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "8ff9f2001de0aea1175c1442f22bfbf382dc0e8b", features = ["serde"] }
+#SigP repository 
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "be5710bbde69d8c5be732c13ba64239e2f370a7b" }
+enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "be5710bbde69d8c5be732c13ba64239e2f370a7b", features = ["serde"] }
 types = { path =  "../../eth2/types" }
 serde = "1.0"
 serde_derive = "1.0"
@@ -21,3 +21,4 @@ tokio = "0.1.16"
 futures = "0.1.25"
 error-chain = "0.12.0"
 tokio-timer = "0.2.10"
+dirs = "2.0.1"
