@@ -1,7 +1,7 @@
 use bls::Keypair;
 use clap::{App, Arg, SubCommand};
-use eth2_config::get_data_dir;
 use slog::{crit, debug, info, o, Drain};
+use std::fs;
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
@@ -61,13 +61,22 @@ fn main() {
         )
         .get_matches();
 
-    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
-        Ok(dir) => dir,
+    let mut default_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    default_dir.push(DEFAULT_DATA_DIR);
+
+    let data_dir = &matches
+        .value_of("datadir")
+        .and_then(|v| Some(PathBuf::from(v)))
+        .unwrap_or_else(|| PathBuf::from(default_dir));
+
+    // create the directory if needed
+    match fs::create_dir_all(&data_dir) {
+        Ok(_) => {}
         Err(e) => {
-            crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
+            crit!(log, "Failed to initialize data dir"; "error" => format!("{}", e));
             return;
         }
-    };
+    }
 
     let mut client_config = ValidatorClientConfig::default();
 

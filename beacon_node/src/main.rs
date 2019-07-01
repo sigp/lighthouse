@@ -3,8 +3,9 @@ mod run;
 use clap::{App, Arg};
 use client::{ClientConfig, Eth2Config};
 use env_logger::{Builder, Env};
-use eth2_config::{get_data_dir, read_from_file, write_to_file};
+use eth2_config::{read_from_file, write_to_file};
 use slog::{crit, o, Drain, Level};
+use std::fs;
 use std::path::PathBuf;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
@@ -27,7 +28,6 @@ fn main() {
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
                 .takes_value(true)
-                .default_value(DEFAULT_DATA_DIR),
         )
         // network related arguments
         .arg(
@@ -69,7 +69,7 @@ fn main() {
             Arg::with_name("discovery-address")
                 .long("discovery-address")
                 .value_name("Address")
-                .help("The address to broadcast to other peers on how to reach this node.")
+                .help("The IP address to broadcast to other peers on how to reach this node.")
                 .takes_value(true),
         )
         // rpc related arguments
@@ -159,15 +159,24 @@ fn main() {
         _ => drain.filter_level(Level::Info),
     };
 
-    let logger = slog::Logger::root(drain.fuse(), o!());
+    let log = slog::Logger::root(drain.fuse(), o!());
 
-    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
-        Ok(dir) => dir,
+    let mut default_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    default_dir.push(DEFAULT_DATA_DIR);
+
+    let data_dir = &matches
+        .value_of("datadir")
+        .and_then(|v| Some(PathBuf::from(v)))
+        .unwrap_or_else(|| PathBuf::from(default_dir));
+
+    // create the directory if needed
+    match fs::create_dir_all(&data_dir) {
+        Ok(_) => {}
         Err(e) => {
-            crit!(logger, "Failed to initialize data dir"; "error" => format!("{:?}", e));
+            crit!(log, "Failed to initialize data dir"; "error" => format!("{}", e));
             return;
         }
-    };
+    }
 
     let client_config_path = data_dir.join(CLIENT_CONFIG_FILENAME);
 
@@ -179,13 +188,13 @@ fn main() {
         Ok(None) => {
             let default = ClientConfig::default();
             if let Err(e) = write_to_file(client_config_path, &default) {
-                crit!(logger, "Failed to write default ClientConfig to file"; "error" => format!("{:?}", e));
+                crit!(log, "Failed to write default ClientConfig to file"; "error" => format!("{:?}", e));
                 return;
             }
             default
         }
         Err(e) => {
-            crit!(logger, "Failed to load a ChainConfig file"; "error" => format!("{:?}", e));
+            crit!(log, "Failed to load a ChainConfig file"; "error" => format!("{:?}", e));
             return;
         }
     };
@@ -197,7 +206,7 @@ fn main() {
     match client_config.apply_cli_args(&matches) {
         Ok(()) => (),
         Err(s) => {
-            crit!(logger, "Failed to parse ClientConfig CLI arguments"; "error" => s);
+            crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
             return;
         }
     };
@@ -216,13 +225,13 @@ fn main() {
                 _ => unreachable!(), // Guarded by slog.
             };
             if let Err(e) = write_to_file(eth2_config_path, &default) {
-                crit!(logger, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
+                crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
                 return;
             }
             default
         }
         Err(e) => {
-            crit!(logger, "Failed to load/generate an Eth2Config"; "error" => format!("{:?}", e));
+            crit!(log, "Failed to load/generate an Eth2Config"; "error" => format!("{:?}", e));
             return;
         }
     };
@@ -231,13 +240,13 @@ fn main() {
     match eth2_config.apply_cli_args(&matches) {
         Ok(()) => (),
         Err(s) => {
-            crit!(logger, "Failed to parse Eth2Config CLI arguments"; "error" => s);
+            crit!(log, "Failed to parse Eth2Config CLI arguments"; "error" => s);
             return;
         }
     };
 
-    match run::run_beacon_node(client_config, eth2_config, &logger) {
+    match run::run_beacon_node(client_config, eth2_config, &log) {
         Ok(_) => {}
-        Err(e) => crit!(logger, "Beacon node failed to start"; "reason" => format!("{:}", e)),
+        Err(e) => crit!(log, "Beacon node failed to start"; "reason" => format!("{:}", e)),
     }
 }
