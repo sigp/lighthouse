@@ -11,7 +11,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 const MAX_READ_SIZE: usize = 4_194_304; // 4M
 
 /// Implementation of the `ConnectionUpgrade` for the rpc protocol.
-
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
 

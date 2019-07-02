@@ -161,13 +161,24 @@ fn main() {
 
     let log = slog::Logger::root(drain.fuse(), o!());
 
-    let mut default_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    default_dir.push(DEFAULT_DATA_DIR);
-
-    let data_dir = &matches
+    let data_dir = match matches
         .value_of("datadir")
         .and_then(|v| Some(PathBuf::from(v)))
-        .unwrap_or_else(|| PathBuf::from(default_dir));
+    {
+        Some(v) => v,
+        None => {
+            // use the default
+            let mut default_dir = match dirs::home_dir() {
+                Some(v) => v,
+                None => {
+                    crit!(log, "Failed to find a home directory");
+                    return;
+                }
+            };
+            default_dir.push(DEFAULT_DATA_DIR);
+            PathBuf::from(default_dir)
+        }
+    };
 
     // create the directory if needed
     match fs::create_dir_all(&data_dir) {
