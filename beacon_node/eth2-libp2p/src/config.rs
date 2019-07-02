@@ -8,7 +8,6 @@ use std::time::Duration;
 /// The beacon node topic string to subscribe to.
 pub const BEACON_PUBSUB_TOPIC: &str = "beacon_block";
 pub const BEACON_ATTESTATION_TOPIC: &str = "beacon_attestation";
-//TODO: Implement shard subnets
 pub const SHARD_TOPIC_PREFIX: &str = "shard";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
