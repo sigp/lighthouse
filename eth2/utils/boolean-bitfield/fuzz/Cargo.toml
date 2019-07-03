@@ -9,7 +9,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-ssz = { path = "../../ssz" }
+eth2_ssz = { path = "../../ssz" }
 
 [dependencies.boolean-bitfield]
 path = ".."
