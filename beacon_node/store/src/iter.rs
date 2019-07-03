@@ -139,8 +139,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
             Err(BeaconStateError::SlotOutOfBounds) => {
                 // Read a `BeaconState` from the store that has access to prior historical root.
                 let beacon_state: BeaconState<T> = {
-                    // Load the earlier state from disk. Skip forward one slot, because a state
-                    // doesn't return it's own state root.
+                    // Load the earliest state from disk.
                     let new_state_root = self.beacon_state.get_oldest_state_root().ok()?;
 
                     self.store.get(&new_state_root).ok()?
