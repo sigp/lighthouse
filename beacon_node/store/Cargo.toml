@@ -14,7 +14,7 @@ bytes = "0.4.10"
 db-key = "0.0.5"
 leveldb = "0.8.4"
 parking_lot = "0.7"
-ssz = { path = "../../eth2/utils/ssz" }
-ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+eth2_ssz = { path = "../../eth2/utils/ssz" }
+eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 types = { path =  "../../eth2/types" }

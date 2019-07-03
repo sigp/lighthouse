@@ -2,7 +2,7 @@
 //! format designed for use in Ethereum 2.0.
 //!
 //! Conforms to
-//! [v0.6.1](https://github.com/ethereum/eth2.0-specs/blob/v0.6.1/specs/simple-serialize.md) of the
+//! [v0.7.1](https://github.com/ethereum/eth2.0-specs/blob/v0.7.1/specs/simple-serialize.md) of the
 //! Ethereum 2.0 specification.
 //!
 //! ## Example
