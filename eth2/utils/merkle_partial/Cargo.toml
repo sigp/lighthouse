@@ -7,5 +7,4 @@ edition = "2018"
 [dependencies]
 hashing = { path = "../hashing" }
 tree_hash = { path = "../tree_hash" }
-ssz = { path = "../ssz" }
 ethereum-types = "0.6.0"
