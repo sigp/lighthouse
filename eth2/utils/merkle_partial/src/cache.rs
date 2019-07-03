@@ -2,6 +2,7 @@ use super::NodeIndex;
 use std::collections::HashMap;
 
 /// Stores the mapping of nodes to their chunks.
+#[derive(Debug, Default)]
 pub struct Cache {
     cache: HashMap<NodeIndex, Vec<u8>>,
 }
