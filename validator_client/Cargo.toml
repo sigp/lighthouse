@@ -14,7 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 bls = { path = "../eth2/utils/bls" }
-ssz = { path = "../eth2/utils/ssz" }
+eth2_ssz = { path = "../eth2/utils/ssz" }
 eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = { path = "../eth2/utils/tree_hash" }
 clap = "2.32.0"

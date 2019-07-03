@@ -11,7 +11,7 @@ network = { path = "../network" }
 eth2-libp2p = { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
-ssz = { path = "../../eth2/utils/ssz" }
+eth2_ssz = { path = "../../eth2/utils/ssz" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 protos = { path = "../../protos" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
