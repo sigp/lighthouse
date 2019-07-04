@@ -1,5 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PubsubMessage;
+use eth2_libp2p::TopicBuilder;
+use eth2_libp2p::SHARD_TOPIC_PREFIX;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
@@ -136,11 +138,10 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                     "type" => "valid_attestation",
                 );
 
-                // TODO: Obtain topics from the network service properly.
-                let topic = types::TopicBuilder::new("beacon_chain".to_string()).build();
+                // valid attestation, propagate to the network
+                let topic = TopicBuilder::new(SHARD_TOPIC_PREFIX).build();
                 let message = PubsubMessage::Attestation(attestation);
 
-                // Publish the attestation to the p2p network via gossipsub.
                 self.network_chan
                     .send(NetworkMessage::Publish {
                         topics: vec![topic],
@@ -150,7 +151,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                         error!(
                             self.log,
                             "PublishAttestation";
-                            "type" => "failed to publish to gossipsub",
+                            "type" => "failed to publish attestation to gossipsub",
                             "error" => format!("{:?}", e)
                         );
                     });

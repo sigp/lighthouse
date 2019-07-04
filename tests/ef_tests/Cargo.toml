@@ -17,7 +17,7 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_repr = "0.1"
 serde_yaml = "0.8"
-ssz = { path = "../../eth2/utils/ssz" }
+eth2_ssz = { path = "../../eth2/utils/ssz" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 cached_tree_hash = { path = "../../eth2/utils/cached_tree_hash" }
 state_processing = { path = "../../eth2/state_processing" }

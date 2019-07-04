@@ -13,7 +13,7 @@ rand = "^0.5"
 serde = "1.0"
 serde_derive = "1.0"
 serde_hex = { path = "../serde_hex" }
-ssz = { path = "../ssz" }
+eth2_ssz = { path = "../ssz" }
 tree_hash = { path = "../tree_hash" }
 
 [features]

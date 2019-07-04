@@ -104,11 +104,7 @@ pub struct ChainSpec {
     domain_voluntary_exit: u32,
     domain_transfer: u32,
 
-    /*
-     * Network specific parameters
-     *
-     */
-    pub boot_nodes: Vec<Multiaddr>,
+    pub boot_nodes: Vec<String>,
     pub chain_id: u8,
 }
 
@@ -216,7 +212,7 @@ impl ChainSpec {
             domain_transfer: 5,
 
             /*
-             * Boot nodes
+             * Network specific
              */
             boot_nodes: vec![],
             chain_id: 1, // mainnet chain id
@@ -231,12 +227,8 @@ impl ChainSpec {
     pub fn minimal() -> Self {
         let genesis_slot = Slot::new(0);
 
-        // Note: these bootnodes are placeholders.
-        //
-        // Should be updated once static bootnodes exist.
-        let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
-            .parse()
-            .expect("correct multiaddr")];
+        // Note: bootnodes to be updated when static nodes exist.
+        let boot_nodes = vec![];
 
         Self {
             target_committee_size: 4,

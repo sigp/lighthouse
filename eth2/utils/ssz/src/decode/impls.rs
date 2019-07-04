@@ -34,7 +34,159 @@ impl_decodable_for_uint!(u8, 8);
 impl_decodable_for_uint!(u16, 16);
 impl_decodable_for_uint!(u32, 32);
 impl_decodable_for_uint!(u64, 64);
+
+#[cfg(target_pointer_width = "32")]
+impl_decodable_for_uint!(usize, 32);
+
+#[cfg(target_pointer_width = "64")]
 impl_decodable_for_uint!(usize, 64);
+
+macro_rules! impl_decode_for_tuples {
+    ($(
+        $Tuple:ident {
+            $(($idx:tt) -> $T:ident)+
+        }
+    )+) => {
+        $(
+            impl<$($T: Decode),+> Decode for ($($T,)+) {
+                fn is_ssz_fixed_len() -> bool {
+                    $(
+                        <$T as Decode>::is_ssz_fixed_len() &&
+                    )*
+                        true
+                }
+
+                fn ssz_fixed_len() -> usize {
+                    if <Self as Decode>::is_ssz_fixed_len() {
+                        $(
+                            <$T as Decode>::ssz_fixed_len() +
+                        )*
+                            0
+                    } else {
+                        BYTES_PER_LENGTH_OFFSET
+                    }
+                }
+
+                fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+                    let mut builder = SszDecoderBuilder::new(bytes);
+
+                    $(
+                        builder.register_type::<$T>()?;
+                    )*
+
+                    let mut decoder = builder.build()?;
+
+                    Ok(($(
+                            decoder.decode_next::<$T>()?,
+                        )*
+                    ))
+                }
+            }
+        )+
+    }
+}
+
+impl_decode_for_tuples! {
+    Tuple2 {
+        (0) -> A
+        (1) -> B
+    }
+    Tuple3 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+    }
+    Tuple4 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+    }
+    Tuple5 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+    }
+    Tuple6 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+    }
+    Tuple7 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+    }
+    Tuple8 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+    }
+    Tuple9 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+    }
+    Tuple10 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+    }
+    Tuple11 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+    }
+    Tuple12 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+        (11) -> L
+    }
+}
 
 impl Decode for bool {
     fn is_ssz_fixed_len() -> bool {
@@ -513,6 +665,17 @@ mod tests {
                 len: 3,
                 expected: 2
             })
+        );
+    }
+
+    #[test]
+    fn tuple() {
+        assert_eq!(<(u16, u16)>::from_ssz_bytes(&[0, 0, 0, 0]), Ok((0, 0)));
+        assert_eq!(<(u16, u16)>::from_ssz_bytes(&[16, 0, 17, 0]), Ok((16, 17)));
+        assert_eq!(<(u16, u16)>::from_ssz_bytes(&[0, 1, 2, 0]), Ok((256, 2)));
+        assert_eq!(
+            <(u16, u16)>::from_ssz_bytes(&[255, 255, 0, 0]),
+            Ok((65535, 0))
         );
     }
 }
