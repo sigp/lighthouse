@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse-account-manager";
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 
 fn main() {
