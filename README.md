@@ -154,7 +154,6 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 - [`validator_client/`](validator_client/): the "Validator Client" binary and crates exclusively
 	associated with it.
 
-
 ## Contributing
 
 **Lighthouse welcomes contributors.**

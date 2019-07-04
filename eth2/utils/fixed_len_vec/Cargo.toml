@@ -9,5 +9,5 @@ cached_tree_hash = { path = "../cached_tree_hash" }
 tree_hash = { path = "../tree_hash" }
 serde = "1.0"
 serde_derive = "1.0"
-ssz = { path = "../ssz" }
+eth2_ssz = { path = "../ssz" }
 typenum = "1.10"

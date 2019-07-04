@@ -9,9 +9,10 @@ mod signer;
 use crate::config::Config as ValidatorClientConfig;
 use crate::service::Service as ValidatorService;
 use clap::{App, Arg};
-use eth2_config::{get_data_dir, read_from_file, write_to_file, Eth2Config};
+use eth2_config::{read_from_file, write_to_file, Eth2Config};
 use protos::services_grpc::ValidatorServiceClient;
 use slog::{crit, error, info, o, Drain};
+use std::fs;
 use std::path::PathBuf;
 use types::{Keypair, MainnetEthSpec, MinimalEthSpec};
 
@@ -35,6 +36,7 @@ fn main() {
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
+                .short("d")
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
                 .takes_value(true),
@@ -66,13 +68,33 @@ fn main() {
         )
         .get_matches();
 
-    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
-        Ok(dir) => dir,
-        Err(e) => {
-            crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
-            return;
+    let data_dir = match matches
+        .value_of("datadir")
+        .and_then(|v| Some(PathBuf::from(v)))
+    {
+        Some(v) => v,
+        None => {
+            // use the default
+            let mut default_dir = match dirs::home_dir() {
+                Some(v) => v,
+                None => {
+                    crit!(log, "Failed to find a home directory");
+                    return;
+                }
+            };
+            default_dir.push(DEFAULT_DATA_DIR);
+            PathBuf::from(default_dir)
         }
     };
+
+    // create the directory if needed
+    match fs::create_dir_all(&data_dir) {
+        Ok(_) => {}
+        Err(e) => {
+            crit!(log, "Failed to initialize data dir"; "error" => format!("{}", e));
+            return;
+        }
+    }
 
     let client_config_path = data_dir.join(CLIENT_CONFIG_FILENAME);
 

@@ -26,13 +26,12 @@ serde_derive = "1.0"
 serde_json = "1.0"
 serde_yaml = "0.8"
 slog = "^2.2.3"
-ssz = { path = "../utils/ssz" }
-ssz_derive = { path = "../utils/ssz_derive" }
+eth2_ssz = { path = "../utils/ssz" }
+eth2_ssz_derive = { path = "../utils/ssz_derive" }
 swap_or_not_shuffle = { path = "../utils/swap_or_not_shuffle" }
 test_random_derive = { path = "../utils/test_random_derive" }
 tree_hash = { path = "../utils/tree_hash" }
 tree_hash_derive = { path = "../utils/tree_hash_derive" }
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "b3c32d9a821ae6cc89079499cc6e8a6bab0bffc3" }
 
 [dev-dependencies]
 env_logger = "0.6.0"

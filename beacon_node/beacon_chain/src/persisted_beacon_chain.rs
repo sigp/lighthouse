@@ -1,4 +1,5 @@
 use crate::{BeaconChainTypes, CheckPoint};
+use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, StoreItem};
@@ -10,7 +11,7 @@ pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
 #[derive(Encode, Decode)]
 pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub canonical_head: CheckPoint<T::EthSpec>,
-    // TODO: operations pool.
+    pub op_pool: PersistedOperationPool,
     pub genesis_block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
 }

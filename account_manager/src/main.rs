@@ -1,12 +1,12 @@
 use bls::Keypair;
 use clap::{App, Arg, SubCommand};
-use eth2_config::get_data_dir;
 use slog::{crit, debug, info, o, Drain};
+use std::fs;
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse-account-manager";
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 
 fn main() {
@@ -61,13 +61,33 @@ fn main() {
         )
         .get_matches();
 
-    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
-        Ok(dir) => dir,
-        Err(e) => {
-            crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
-            return;
+    let data_dir = match matches
+        .value_of("datadir")
+        .and_then(|v| Some(PathBuf::from(v)))
+    {
+        Some(v) => v,
+        None => {
+            // use the default
+            let mut default_dir = match dirs::home_dir() {
+                Some(v) => v,
+                None => {
+                    crit!(log, "Failed to find a home directory");
+                    return;
+                }
+            };
+            default_dir.push(DEFAULT_DATA_DIR);
+            PathBuf::from(default_dir)
         }
     };
+
+    // create the directory if needed
+    match fs::create_dir_all(&data_dir) {
+        Ok(_) => {}
+        Err(e) => {
+            crit!(log, "Failed to initialize data dir"; "error" => format!("{}", e));
+            return;
+        }
+    }
 
     let mut client_config = ValidatorClientConfig::default();
 
