@@ -73,7 +73,7 @@ First, clone this repository, [setup a development
 environment](docs/installation.md) and navigate to the root directory of this repository.
 
 Then, run `$ cargo build --all --release` and navigate to the `target/release`
-directory.
+directory and follow the steps:
 
 #### 1. Generate Validator Keys
 
@@ -108,9 +108,13 @@ running node.
 
 The running node will display it's ENR as a base64 string. This ENR, by default, has a target address of `127.0.0.1` meaning that any new node will connect to this node via `127.0.0.1`. If a boot node should be connected to on a different address, it should be run with the `--discovery-address` CLI flag to specify how other nodes may connect to it.
 ```
-$ ./beacon_node -r --boot-nodes <boot-node-ENR> --listen-address 127.0.0.1 --port 9001
+$ ./beacon_node -r --boot-nodes <boot-node-ENR> --listen-address 127.0.0.1 --port 9001 --datadir /tmp/.lighthouse
 ```
 Here <boot-node-ENR> is the ENR string displayed in the terminal from the first node. The ENR can also be obtained from it's default directory `.lighthouse/network/enr.dat`.
+
+The `--datadir` flag tells this Beacon Node to store it's files in a different
+directory. If you're on a system that doesn't have a `/tmp` dir (e.g., Mac,
+Windows), substitute this with any directory that has write access.
 
 Note that all future created nodes can use the same boot-node ENR. Once connected to the boot node, all nodes should discover and connect with each other.
 #### 4. Start a Validator Client
