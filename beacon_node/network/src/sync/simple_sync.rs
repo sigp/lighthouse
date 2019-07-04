@@ -4,7 +4,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, error, info, o, warn};
+use slog::{debug, error, info, o, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -532,6 +532,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     // Add this block to the queue
                     self.import_queue
                         .enqueue_full_blocks(vec![block], peer_id.clone());
+                    trace!(
+                        self.log,
+                        "NewGossipBlock";
+                        "peer" => format!("{:?}", peer_id),
+                    );
 
                     // Unless the parent is in the queue, request the parent block from the peer.
                     //

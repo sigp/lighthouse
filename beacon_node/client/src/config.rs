@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClientConfig {
+pub struct Config {
     pub data_dir: PathBuf,
     pub db_type: String,
     db_name: String,
@@ -16,7 +16,7 @@ pub struct ClientConfig {
     pub http: HttpServerConfig,
 }
 
-impl Default for ClientConfig {
+impl Default for Config {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from(".lighthouse"),
@@ -24,14 +24,14 @@ impl Default for ClientConfig {
             db_name: "chain_db".to_string(),
             // Note: there are no default bootnodes specified.
             // Once bootnodes are established, add them here.
-            network: NetworkConfig::new(vec![]),
+            network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
         }
     }
 }
 
-impl ClientConfig {
+impl Config {
     /// Returns the path to which the client may initialize an on-disk database.
     pub fn db_path(&self) -> Option<PathBuf> {
         self.data_dir()
@@ -49,7 +49,7 @@ impl ClientConfig {
     ///
     /// Returns an error if arguments are obviously invalid. May succeed even if some values are
     /// invalid.
-    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
+    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), String> {
         if let Some(dir) = args.value_of("datadir") {
             self.data_dir = PathBuf::from(dir);
         };
