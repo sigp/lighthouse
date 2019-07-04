@@ -1,7 +1,9 @@
-/// RPC Protocol over libp2p.
+/// The Ethereum 2.0 Wire Protocol
 ///
-/// This is purpose built for Ethereum 2.0 serenity and the protocol listens on
-/// `/eth/serenity/rpc/1.0.0`
+/// This protocol is a purpose built ethereum 2.0 libp2p protocol. It's role is to facilitate
+/// direct peer-to-peer communication primarily for sending/receiving chain information for
+/// syncing.
+///
 pub mod methods;
 mod protocol;
 
@@ -17,9 +19,8 @@ use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// The network behaviour handles RPC requests/responses as specified in the Eth 2.0 phase 0
-/// specification.
-
+/// This struct implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
+/// logic.
 pub struct Rpc<TSubstream> {
     /// Queue of events to processed.
     events: Vec<NetworkBehaviourAction<RPCEvent, RPCMessage>>,
@@ -39,7 +40,9 @@ impl<TSubstream> Rpc<TSubstream> {
         }
     }
 
-    /// Submits and RPC request.
+    /// Submits an RPC request.
+    ///
+    /// The peer must be connected for this to succeed.
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.events.push(NetworkBehaviourAction::SendEvent {
             peer_id,
@@ -52,13 +55,14 @@ impl<TSubstream> NetworkBehaviour for Rpc<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
-    type ProtocolsHandler = OneShotHandler<TSubstream, RPCProtocol, RPCEvent, OneShotEvent>;
+    type ProtocolsHandler = OneShotHandler<TSubstream, RPCProtocol, RPCEvent, HandlerEvent>;
     type OutEvent = RPCMessage;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         Default::default()
     }
 
+    // handled by discovery
     fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
         Vec::new()
     }
@@ -81,8 +85,8 @@ where
     ) {
         // ignore successful send events
         let event = match event {
-            OneShotEvent::Rx(event) => event,
-            OneShotEvent::Sent => return,
+            HandlerEvent::Rx(event) => event,
+            HandlerEvent::Sent => return,
         };
 
         // send the event to the user
@@ -114,25 +118,25 @@ pub enum RPCMessage {
     PeerDialed(PeerId),
 }
 
-/// Transmission between the `OneShotHandler` and the `RPCEvent`.
+/// The output type received from the `OneShotHandler`.
 #[derive(Debug)]
-pub enum OneShotEvent {
-    /// We received an RPC from a remote.
+pub enum HandlerEvent {
+    /// An RPC was received from a remote.
     Rx(RPCEvent),
-    /// We successfully sent an RPC request.
+    /// An RPC was sent.
     Sent,
 }
 
-impl From<RPCEvent> for OneShotEvent {
+impl From<RPCEvent> for HandlerEvent {
     #[inline]
-    fn from(rpc: RPCEvent) -> OneShotEvent {
-        OneShotEvent::Rx(rpc)
+    fn from(rpc: RPCEvent) -> HandlerEvent {
+        HandlerEvent::Rx(rpc)
     }
 }
 
-impl From<()> for OneShotEvent {
+impl From<()> for HandlerEvent {
     #[inline]
-    fn from(_: ()) -> OneShotEvent {
-        OneShotEvent::Sent
+    fn from(_: ()) -> HandlerEvent {
+        HandlerEvent::Sent
     }
 }

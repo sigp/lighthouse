@@ -23,34 +23,8 @@ pub enum RPCMethod {
     Unknown,
 }
 
-impl From<u16> for RPCMethod {
-    fn from(method_id: u16) -> Self {
-        match method_id {
-            0 => RPCMethod::Hello,
-            1 => RPCMethod::Goodbye,
-            10 => RPCMethod::BeaconBlockRoots,
-            11 => RPCMethod::BeaconBlockHeaders,
-            12 => RPCMethod::BeaconBlockBodies,
-            13 => RPCMethod::BeaconChainState,
+pub enum RawRPCRequest
 
-            _ => RPCMethod::Unknown,
-        }
-    }
-}
-
-impl Into<u16> for RPCMethod {
-    fn into(self) -> u16 {
-        match self {
-            RPCMethod::Hello => 0,
-            RPCMethod::Goodbye => 1,
-            RPCMethod::BeaconBlockRoots => 10,
-            RPCMethod::BeaconBlockHeaders => 11,
-            RPCMethod::BeaconBlockBodies => 12,
-            RPCMethod::BeaconChainState => 13,
-            _ => 0,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum RPCRequest {
@@ -62,20 +36,6 @@ pub enum RPCRequest {
     BeaconChainState(BeaconChainStateRequest),
 }
 
-impl RPCRequest {
-    pub fn method_id(&self) -> u16 {
-        let method = match self {
-            RPCRequest::Hello(_) => RPCMethod::Hello,
-            RPCRequest::Goodbye(_) => RPCMethod::Goodbye,
-            RPCRequest::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
-            RPCRequest::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
-            RPCRequest::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
-            RPCRequest::BeaconChainState(_) => RPCMethod::BeaconChainState,
-        };
-        method.into()
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum RPCResponse {
     Hello(HelloMessage),
@@ -83,19 +43,6 @@ pub enum RPCResponse {
     BeaconBlockHeaders(BeaconBlockHeadersResponse),
     BeaconBlockBodies(BeaconBlockBodiesResponse),
     BeaconChainState(BeaconChainStateResponse),
-}
-
-impl RPCResponse {
-    pub fn method_id(&self) -> u16 {
-        let method = match self {
-            RPCResponse::Hello(_) => RPCMethod::Hello,
-            RPCResponse::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
-            RPCResponse::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
-            RPCResponse::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
-            RPCResponse::BeaconChainState(_) => RPCMethod::BeaconChainState,
-        };
-        method.into()
-    }
 }
 
 /* Request/Response data structures for RPC methods */
@@ -170,7 +117,7 @@ pub struct BeaconBlockRootsResponse {
 }
 
 impl BeaconBlockRootsResponse {
-    /// Returns `true` if each `self.roots.slot[i]` is higher than the preceeding `i`.
+    /// Returns `true` if each `self.roots.slot[i]` is higher than the preceding `i`.
     pub fn slots_are_ascending(&self) -> bool {
         for window in self.roots.windows(2) {
             if window[0].slot >= window[1].slot {
