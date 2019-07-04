@@ -103,13 +103,16 @@ connect if they were started in separate 30-minute windows._
 
 #### 3. Start Another Beacon Node
 
-In another terminal window, start another boot node that will connect to the
+In another terminal window, start another boot that will connect to the
 running node.
 
+The running node will display it's ENR as a base64 string. This ENR, by default, has a target address of `127.0.0.1` meaning that any new node will connect to this node via `127.0.0.1`. If a boot node should be connected to on a different address, it should be run with the `--discovery-address` CLI flag to specify how other nodes may connect to it.
 ```
-$ ./beacon_node -r --boot-nodes /ip4/127.0.0.1/tcp/9000 --listen-address /ip4/127.0.0.1/tcp/9001
+$ ./beacon_node -r --boot-nodes <boot-node-ENR> --listen-address 127.0.0.1 --port 9001
 ```
+Here <boot-node-ENR> is the ENR string displayed in the terminal from the first node. The ENR can also be obtained from it's default directory `.lighthouse/network/enr.dat`.
 
+Note that all future created nodes can use the same boot-node ENR. Once connected to the boot node, all nodes should discover and connect with each other.
 #### 4. Start a Validator Client
 
 In a third terminal window, start a validator client:
