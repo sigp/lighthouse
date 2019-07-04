@@ -1,4 +1,7 @@
 #![recursion_limit = "128"]
+//! Provides procedural derive macros for the `Encode` and `Decode` traits of the `eth2_ssz` crate.
+//!
+//! Supports field attributes, see each derive macro for more information.
 
 extern crate proc_macro;
 
@@ -61,6 +64,10 @@ fn should_skip_serializing(field: &syn::Field) -> bool {
 /// Implements `ssz::Encode` for some `struct`.
 ///
 /// Fields are encoded in the order they are defined.
+///
+/// ## Field attributes
+///
+/// - `#[ssz(skip_serializing)]`: the field will not be serialized.
 #[proc_macro_derive(Encode, attributes(ssz))]
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
@@ -132,6 +139,12 @@ fn should_skip_deserializing(field: &syn::Field) -> bool {
 /// Implements `ssz::Decode` for some `struct`.
 ///
 /// Fields are decoded in the order they are defined.
+///
+/// ## Field attributes
+///
+/// - `#[ssz(skip_deserializing)]`: during de-serialization the field will be instantiated from a
+/// `Default` implementation. The decoder will assume that the field was not serialized at all
+/// (e.g., if it has been serialized, an error will be raised instead of `Default` overriding it).
 #[proc_macro_derive(Decode)]
 pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
