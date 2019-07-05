@@ -37,7 +37,7 @@ pub fn bench_epoch_processing_n_validators(c: &mut Criterion, validator_count: u
 
     // Assert that the state has an attestations for each committee that is able to include an
     // attestation in the state.
-    let committees_per_epoch = spec.get_epoch_committee_count(validator_count);
+    let committees_per_epoch = spec.get_committee_count(validator_count);
     let committees_per_slot = committees_per_epoch / T::slots_per_epoch();
     let previous_epoch_attestations = committees_per_epoch;
     let current_epoch_attestations =

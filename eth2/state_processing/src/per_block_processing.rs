@@ -120,7 +120,7 @@ pub fn process_block_header<T: EthSpec>(
 
     // Verify proposer is not slashed
     let proposer_idx = state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?;
-    let proposer = &state.validator_registry[proposer_idx];
+    let proposer = &state.validators[proposer_idx];
     verify!(!proposer.slashed, Invalid::ProposerSlashed(proposer_idx));
 
     if should_verify_block_signature {
@@ -138,7 +138,7 @@ pub fn verify_block_signature<T: EthSpec>(
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let block_proposer = &state.validator_registry
+    let block_proposer = &state.validators
         [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
 
     let domain = spec.get_domain(
@@ -166,7 +166,7 @@ pub fn process_randao<T: EthSpec>(
     block: &BeaconBlock,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let block_proposer = &state.validator_registry
+    let block_proposer = &state.validators
         [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
 
     // Verify the RANDAO is a valid signature of the proposer.
@@ -336,7 +336,7 @@ pub fn process_attestations<T: EthSpec>(
     for attestation in attestations {
         let attestation_slot = state.get_attestation_slot(&attestation.data)?;
         let pending_attestation = PendingAttestation {
-            aggregation_bitfield: attestation.aggregation_bitfield.clone(),
+            aggregation_bits: attestation.aggregation_bits.clone(),
             data: attestation.data.clone(),
             inclusion_delay: (state.slot - attestation_slot).as_u64(),
             proposer_index,
@@ -421,7 +421,7 @@ pub fn process_deposits<T: EthSpec>(
                 ),
                 slashed: false,
             };
-            state.validator_registry.push(validator);
+            state.validators.push(validator);
             state.balances.push(deposit.data.amount);
         }
     }

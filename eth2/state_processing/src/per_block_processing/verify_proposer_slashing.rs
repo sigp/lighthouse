@@ -14,7 +14,7 @@ pub fn verify_proposer_slashing<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let proposer = state
-        .validator_registry
+        .validators
         .get(proposer_slashing.proposer_index as usize)
         .ok_or_else(|| {
             Error::Invalid(Invalid::ProposerUnknown(proposer_slashing.proposer_index))

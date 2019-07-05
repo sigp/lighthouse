@@ -41,7 +41,7 @@ pub fn verify_deposit_index<T: EthSpec>(
     Ok(())
 }
 
-/// Returns a `Some(validator index)` if a pubkey already exists in the `validator_registry`,
+/// Returns a `Some(validator index)` if a pubkey already exists in the `validators`,
 /// otherwise returns `None`.
 ///
 /// ## Errors

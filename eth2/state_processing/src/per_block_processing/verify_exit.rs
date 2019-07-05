@@ -37,7 +37,7 @@ fn verify_exit_parametric<T: EthSpec>(
     time_independent_only: bool,
 ) -> Result<(), Error> {
     let validator = state
-        .validator_registry
+        .validators
         .get(exit.validator_index as usize)
         .ok_or_else(|| Error::Invalid(Invalid::ValidatorUnknown(exit.validator_index)))?;
 

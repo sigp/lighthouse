@@ -79,7 +79,7 @@ where
 
     for index in &attesting_indices_1 & &attesting_indices_2 {
         let validator = state
-            .validator_registry
+            .validators
             .get(index as usize)
             .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(index)))?;
 

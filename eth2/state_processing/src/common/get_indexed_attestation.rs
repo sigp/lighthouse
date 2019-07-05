@@ -4,13 +4,13 @@ use types::*;
 
 /// Convert `attestation` to (almost) indexed-verifiable form.
 ///
-/// Spec v0.6.3
-pub fn convert_to_indexed<T: EthSpec>(
+/// Spec v0.8.0
+pub fn get_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation,
 ) -> Result<IndexedAttestation, BeaconStateError> {
     let attesting_indices =
-        get_attesting_indices(state, &attestation.data, &attestation.aggregation_bitfield)?;
+        get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
     // We verify the custody bitfield by calling `get_attesting_indices_unsorted` and throwing
     // away the result. This avoids double-sorting - the partition below takes care of the ordering.
