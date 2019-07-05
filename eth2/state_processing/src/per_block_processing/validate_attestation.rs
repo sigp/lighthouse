@@ -1,5 +1,5 @@
 use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
-use crate::common::convert_to_indexed;
+use crate::common::get_indexed_attestation;
 use crate::per_block_processing::{
     verify_indexed_attestation, verify_indexed_attestation_without_signature,
 };
@@ -82,12 +82,12 @@ fn validate_attestation_parametric<T: EthSpec>(
 
     // Crosslink data root is zero (to be removed in phase 1).
     verify!(
-        attestation.data.crosslink_data_root == spec.zero_hash,
+        attestation.data.crosslink_data_root == Hash256::zero(),
         Invalid::ShardBlockRootNotZero
     );
 
     // Check signature and bitfields
-    let indexed_attestation = convert_to_indexed(state, attestation)?;
+    let indexed_attestation = get_indexed_attestation(state, attestation)?;
     if verify_signature {
         verify_indexed_attestation(state, &indexed_attestation, spec)?;
     } else {

@@ -94,7 +94,7 @@ where
         AggregatePublicKey::new(),
         |mut aggregate_pubkey, &validator_idx| {
             state
-                .validator_registry
+                .validators
                 .get(validator_idx as usize)
                 .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(validator_idx)))
                 .map(|validator| {

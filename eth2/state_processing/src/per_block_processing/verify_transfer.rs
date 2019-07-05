@@ -97,7 +97,7 @@ fn verify_transfer_parametric<T: EthSpec>(
 
     // Load the sender `Validator` record from the state.
     let sender_validator = state
-        .validator_registry
+        .validators
         .get(transfer.sender as usize)
         .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.sender)))?;
 

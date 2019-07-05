@@ -7,6 +7,28 @@ pub enum GenesisError {
     BeaconStateError(BeaconStateError),
 }
 
+/// New genesis state
+pub fn initialize_beacon_state_from_eth1(
+    eth1_block_hash: Hash256,
+    eth1_timestamp: u64,
+    deposits: Vec<Deposit>,
+    spec: &ChainSpec,
+) -> Self {
+    let genesis_time =
+        eth1_timestamp - eth_timestamp % spec.seconds_per_day + 2 * spec.seconds_per_day;
+    let eth1_data = Eth1Data {
+        // Temporary deposit root
+        deposit_root: Hash256::zero(),
+        deposit_count: deposits.len() as u64,
+        block_hash: eth1_block_hash,
+    };
+    let mut state = BeaconState::new(genesis_time, eth1_data, spec);
+
+    // Process deposits
+    // TODO: merkle tree construction (needs tree hash impl for Lists)
+    for (i, deposit) in deposits.iter().enumerate() {}
+}
+
 /// Returns the genesis `BeaconState`
 ///
 /// Spec v0.6.3
@@ -23,7 +45,7 @@ pub fn get_genesis_beacon_state<T: EthSpec>(
     process_deposits(&mut state, genesis_validator_deposits, spec)?;
 
     // Process genesis activations.
-    for validator in &mut state.validator_registry {
+    for validator in &mut state.validators {
         if validator.effective_balance >= spec.max_effective_balance {
             validator.activation_eligibility_epoch = T::genesis_epoch();
             validator.activation_epoch = T::genesis_epoch();
