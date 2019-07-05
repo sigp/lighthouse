@@ -19,7 +19,7 @@ use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// This struct implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
+/// Rpc implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct Rpc<TSubstream> {
     /// Queue of events to processed.
