@@ -8,7 +8,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     Clone,
@@ -22,7 +22,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct PendingAttestation {
-    pub aggregation_bitfield: Bitfield,
+    pub aggregation_bits: Bitfield,
     pub data: AttestationData,
     pub inclusion_delay: u64,
     pub proposer_index: u64,

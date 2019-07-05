@@ -44,7 +44,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // Test with two validators per slot, first validator has zero balance.
     let mut state = build_state(T::slots_per_epoch() as usize * 2);
     let shuffling = state.get_shuffling(relative_epoch).unwrap().to_vec();
-    state.validator_registry[shuffling[0]].effective_balance = 0;
+    state.validators[shuffling[0]].effective_balance = 0;
     test(&state, Slot::new(0), 1);
     for i in 1..T::slots_per_epoch() {
         test(&state, Slot::from(i), i as usize * 2);
@@ -244,7 +244,7 @@ mod committees {
             // of committees in an epoch.
             assert_eq!(
                 crosslink_committees.len() as u64,
-                state.get_epoch_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
+                state.get_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
             );
 
             for cc in crosslink_committees {

@@ -21,16 +21,16 @@ impl TestingAttestationBuilder {
     ) -> Self {
         let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
 
-        let mut aggregation_bitfield = Bitfield::new();
+        let mut aggregation_bits = Bitfield::new();
         let mut custody_bitfield = Bitfield::new();
 
         for (i, _) in committee.iter().enumerate() {
             custody_bitfield.set(i, false);
-            aggregation_bitfield.set(i, false);
+            aggregation_bits.set(i, false);
         }
 
         let attestation = Attestation {
-            aggregation_bitfield,
+            aggregation_bits,
             data: data_builder.build(),
             custody_bitfield,
             signature: AggregateSignature::new(),
@@ -67,7 +67,7 @@ impl TestingAttestationBuilder {
                 .expect("Signing validator not in attestation committee");
 
             self.attestation
-                .aggregation_bitfield
+                .aggregation_bits
                 .set(committee_index, true);
 
             let message = AttestationDataAndCustodyBit {

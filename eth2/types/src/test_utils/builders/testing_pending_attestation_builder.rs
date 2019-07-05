@@ -31,7 +31,7 @@ impl TestingPendingAttestationBuilder {
             .unwrap() as u64;
 
         let pending_attestation = PendingAttestation {
-            aggregation_bitfield: Bitfield::new(),
+            aggregation_bits: Bitfield::new(),
             data: data_builder.build(),
             inclusion_delay: spec.min_attestation_inclusion_delay,
             proposer_index,
@@ -47,13 +47,13 @@ impl TestingPendingAttestationBuilder {
     /// The `PendingAttestation` will appear to be signed by each committee member who's value in
     /// `signers` is true.
     pub fn add_committee_participation(&mut self, signers: Vec<bool>) {
-        let mut aggregation_bitfield = Bitfield::new();
+        let mut aggregation_bits = Bitfield::new();
 
         for (i, signed) in signers.iter().enumerate() {
-            aggregation_bitfield.set(i, *signed);
+            aggregation_bits.set(i, *signed);
         }
 
-        self.pending_attestation.aggregation_bitfield = aggregation_bitfield;
+        self.pending_attestation.aggregation_bits = aggregation_bits;
     }
 
     /// Returns the `PendingAttestation`, consuming the builder.

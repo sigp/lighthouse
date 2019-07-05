@@ -26,7 +26,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 )]
 pub struct BeaconBlockHeader {
     pub slot: Slot,
-    pub previous_block_root: Hash256,
+    pub parent_root: Hash256,
     pub state_root: Hash256,
     pub block_body_root: Hash256,
     #[signed_root(skip_hashing)]
@@ -47,7 +47,7 @@ impl BeaconBlockHeader {
     pub fn into_block(self, body: BeaconBlockBody) -> BeaconBlock {
         BeaconBlock {
             slot: self.slot,
-            previous_block_root: self.previous_block_root,
+            parent_root: self.parent_root,
             state_root: self.state_root,
             body,
             signature: self.signature,

@@ -22,19 +22,24 @@ pub enum Domain {
 #[serde(default)]
 pub struct ChainSpec {
     /*
+     * Constants
+     */
+    #[serde(skip_serializing)] // skipped because Serde TOML has trouble with u64::max
+    pub far_future_epoch: Epoch,
+    pub base_rewards_per_epoch: u64,
+    pub deposit_contract_tree_depth: u64,
+    pub seconds_per_day: u64,
+
+    /*
      * Misc
      */
     pub target_committee_size: usize,
-    pub max_indices_per_attestation: u64,
+    pub max_validators_per_committee: u64,
     pub min_per_epoch_churn_limit: u64,
     pub churn_limit_quotient: u64,
-    pub base_rewards_per_epoch: u64,
     pub shuffle_round_count: u8,
-
-    /*
-     *  Deposit contract
-     */
-    pub deposit_contract_tree_depth: u64,
+    pub min_genesis_active_validator_count: u64,
+    pub min_genesis_time: u64,
 
     /*
      *  Gwei values
@@ -48,17 +53,12 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_slot: Slot,
-    // Skipped because serde TOML can't handle u64::max_value, the typical value for this field.
-    #[serde(skip_serializing)]
-    pub far_future_epoch: Epoch,
-    pub zero_hash: Hash256,
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
      */
-    pub genesis_time: u64,
     pub seconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
@@ -67,14 +67,14 @@ pub struct ChainSpec {
     pub slots_per_historical_root: usize,
     pub min_validator_withdrawability_delay: Epoch,
     pub persistent_committee_period: u64,
-    pub max_crosslink_epochs: u64,
+    pub max_epochs_per_crosslink: u64,
     pub min_epochs_to_inactivity_penalty: u64,
 
     /*
      * Reward and penalty quotients
      */
-    pub base_reward_quotient: u64,
-    pub whistleblowing_reward_quotient: u64,
+    pub base_reward_factor: u64,
+    pub whistleblower_reward_quotient: u64,
     pub proposer_reward_quotient: u64,
     pub inactivity_penalty_quotient: u64,
     pub min_slashing_penalty_quotient: u64,
@@ -137,19 +137,23 @@ impl ChainSpec {
     pub fn mainnet() -> Self {
         Self {
             /*
+             * Constants
+             */
+            far_future_epoch: Epoch::new(u64::max_value()),
+            base_rewards_per_epoch: 5,
+            deposit_contract_tree_depth: 32,
+            seconds_per_day: 86400,
+
+            /*
              * Misc
              */
             target_committee_size: 128,
-            max_indices_per_attestation: 4096,
+            max_validators_per_committee: 4096,
             min_per_epoch_churn_limit: 4,
             churn_limit_quotient: 65_536,
-            base_rewards_per_epoch: 5,
             shuffle_round_count: 90,
-
-            /*
-             *  Deposit contract
-             */
-            deposit_contract_tree_depth: 32,
+            min_genesis_active_validator_count: 65_536,
+            min_genesis_time: 1578009600, // Jan 3, 2020
 
             /*
              *  Gwei values
@@ -163,30 +167,27 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_slot: Slot::new(0),
-            far_future_epoch: Epoch::new(u64::max_value()),
-            zero_hash: Hash256::zero(),
             bls_withdrawal_prefix_byte: 0,
 
             /*
              * Time parameters
              */
-            genesis_time: u64::from(u32::max_value()),
             seconds_per_slot: 6,
-            min_attestation_inclusion_delay: 4,
+            min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
             slots_per_eth1_voting_period: 1_024,
             slots_per_historical_root: 8_192,
             min_validator_withdrawability_delay: Epoch::new(256),
             persistent_committee_period: 2_048,
-            max_crosslink_epochs: 64,
+            max_epochs_per_crosslink: 64,
             min_epochs_to_inactivity_penalty: 4,
 
             /*
              * Reward and penalty quotients
              */
-            base_reward_quotient: 32,
-            whistleblowing_reward_quotient: 512,
+            base_reward_factor: 64,
+            whistleblower_reward_quotient: 512,
             proposer_reward_quotient: 8,
             inactivity_penalty_quotient: 33_554_432,
             min_slashing_penalty_quotient: 32,

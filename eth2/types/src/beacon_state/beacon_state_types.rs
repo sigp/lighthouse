@@ -1,14 +1,18 @@
 use crate::*;
-use fixed_len_vec::typenum::{Unsigned, U0, U1024, U64, U8, U8192};
+use fixed_len_vec::typenum::{
+    Unsigned, U0, U1024, U1099511627776, U16777216, U4, U64, U65536, U8, U8192,
+};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
+    type JustificationBitsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
     type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type LatestRandaoMixesLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type LatestActiveIndexRootsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type LatestSlashedExitLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type EpochsPerHistoricalVector: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type EpochsPerSlashingsVector: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type HistoricalRootsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type ValidatorRegistryLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /// Note: `SlotsPerEpoch` is not necessarily required to be a compile-time constant. We include
     /// it here just for the convenience of not passing `slots_per_epoch` around all the time.
     type SlotsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -23,10 +27,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /// Return the number of committees in one epoch.
     ///
     /// Spec v0.6.3
-    fn get_epoch_committee_count(
-        active_validator_count: usize,
-        target_committee_size: usize,
-    ) -> usize {
+    fn get_committee_count(active_validator_count: usize, target_committee_size: usize) -> usize {
         let shard_count = Self::shard_count();
         let slots_per_epoch = Self::slots_per_epoch() as usize;
 
@@ -39,12 +40,12 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
         ) * slots_per_epoch
     }
 
-    /// Return the number of shards to increment `state.latest_start_shard` by in a given epoch.
+    /// Return the number of shards to increment `state.start_shard` by in a given epoch.
     ///
     /// Spec v0.6.3
     fn get_shard_delta(active_validator_count: usize, target_committee_size: usize) -> u64 {
         std::cmp::min(
-            Self::get_epoch_committee_count(active_validator_count, target_committee_size) as u64,
+            Self::get_committee_count(active_validator_count, target_committee_size) as u64,
             Self::ShardCount::to_u64() - Self::ShardCount::to_u64() / Self::slots_per_epoch(),
         )
     }
@@ -79,26 +80,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
 
-    /// Returns the `LATEST_RANDAO_MIXES_LENGTH` constant for this specification.
+    /* FIXME(freeze): delete?
+    /// Returns the `EPOCHS_PER_HISTORICAL_VECTOR` constant for this specification.
     ///
-    /// Spec v0.6.3
-    fn latest_randao_mixes_length() -> usize {
-        Self::LatestRandaoMixesLength::to_usize()
+    /// Spec v0.8.0
+    fn epochs_per_historical_vector() -> usize {
+        Self::EpochsPerHistoricalVector::to_usize()
     }
-
-    /// Returns the `LATEST_ACTIVE_INDEX_ROOTS` constant for this specification.
-    ///
-    /// Spec v0.6.3
-    fn latest_active_index_roots() -> usize {
-        Self::LatestActiveIndexRootsLength::to_usize()
-    }
-
-    /// Returns the `LATEST_SLASHED_EXIT_LENGTH` constant for this specification.
-    ///
-    /// Spec v0.6.3
-    fn latest_slashed_exit_length() -> usize {
-        Self::LatestSlashedExitLength::to_usize()
-    }
+    */
 }
 
 /// Ethereum Foundation specifications.
@@ -108,11 +97,13 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
+    type JustificationBitsLength = U4;
     type ShardCount = U1024;
     type SlotsPerHistoricalRoot = U8192;
-    type LatestRandaoMixesLength = U8192;
-    type LatestActiveIndexRootsLength = U8192;
-    type LatestSlashedExitLength = U8192;
+    type EpochsPerHistoricalVector = U65536;
+    type EpochsPerSlashingsVector = U8192;
+    type HistoricalRootsLimit = U16777216;
+    type ValidatorRegistryLimit = U1099511627776;
     type SlotsPerEpoch = U64;
     type GenesisEpoch = U0;
 
@@ -125,18 +116,20 @@ pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 
 /// Ethereum Foundation minimal spec, as defined here:
 ///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.6.3/configs/constant_presets/minimal.yaml
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.8.0/configs/constant_presets/minimal.yaml
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
+    type JustificationBitsLength = U4;
     type ShardCount = U8;
     type SlotsPerHistoricalRoot = U64;
-    type LatestRandaoMixesLength = U64;
-    type LatestActiveIndexRootsLength = U64;
-    type LatestSlashedExitLength = U64;
+    type EpochsPerHistoricalVector = U64;
+    type EpochsPerSlashingsVector = U64;
+    type HistoricalRootsLimit = U16777216;
+    type ValidatorRegistryLimit = U1099511627776;
     type SlotsPerEpoch = U8;
     type GenesisEpoch = U0;
 

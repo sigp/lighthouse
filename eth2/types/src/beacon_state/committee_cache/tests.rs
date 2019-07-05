@@ -131,7 +131,7 @@ fn can_start_on_any_shard() {
     let shard_count = MinimalEthSpec::shard_count() as u64;
 
     for i in 0..MinimalEthSpec::shard_count() as u64 {
-        state.latest_start_shard = i;
+        state.start_shard = i;
 
         let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard, i);
@@ -177,13 +177,13 @@ fn starts_on_the_correct_shard() {
 
     let mut state = new_state::<ExcessShardsEthSpec>(num_validators, slot);
 
-    let validator_count = state.validator_registry.len();
+    let validator_count = state.validators.len();
 
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch();
 
-    for (i, mut v) in state.validator_registry.iter_mut().enumerate() {
+    for (i, mut v) in state.validators.iter_mut().enumerate() {
         let epoch = if i < validator_count / 4 {
             previous_epoch
         } else if i < validator_count / 2 {
@@ -196,28 +196,28 @@ fn starts_on_the_correct_shard() {
     }
 
     assert_eq!(
-        get_active_validator_count(&state.validator_registry, previous_epoch),
+        get_active_validator_count(&state.validators, previous_epoch),
         validator_count / 4
     );
     assert_eq!(
-        get_active_validator_count(&state.validator_registry, current_epoch),
+        get_active_validator_count(&state.validators, current_epoch),
         validator_count / 2
     );
     assert_eq!(
-        get_active_validator_count(&state.validator_registry, next_epoch),
+        get_active_validator_count(&state.validators, next_epoch),
         validator_count
     );
 
-    let previous_shards = ExcessShardsEthSpec::get_epoch_committee_count(
-        get_active_validator_count(&state.validator_registry, previous_epoch),
+    let previous_shards = ExcessShardsEthSpec::get_committee_count(
+        get_active_validator_count(&state.validators, previous_epoch),
         spec.target_committee_size,
     );
-    let current_shards = ExcessShardsEthSpec::get_epoch_committee_count(
-        get_active_validator_count(&state.validator_registry, current_epoch),
+    let current_shards = ExcessShardsEthSpec::get_committee_count(
+        get_active_validator_count(&state.validators, current_epoch),
         spec.target_committee_size,
     );
-    let next_shards = ExcessShardsEthSpec::get_epoch_committee_count(
-        get_active_validator_count(&state.validator_registry, next_epoch),
+    let next_shards = ExcessShardsEthSpec::get_committee_count(
+        get_active_validator_count(&state.validators, next_epoch),
         spec.target_committee_size,
     );
 
@@ -233,7 +233,7 @@ fn starts_on_the_correct_shard() {
 
     let shard_count = ExcessShardsEthSpec::shard_count();
     for i in 0..ExcessShardsEthSpec::shard_count() {
-        state.latest_start_shard = i as u64;
+        state.start_shard = i as u64;
 
         let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard as usize, i);

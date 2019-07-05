@@ -1,5 +1,8 @@
 //! Ethereum 2.0 types
 
+// Required for big type-level numbers
+#![recursion_limit = "128"]
+
 #[macro_use]
 pub mod test_utils;
 
@@ -13,6 +16,7 @@ pub mod beacon_block_body;
 pub mod beacon_block_header;
 pub mod beacon_state;
 pub mod chain_spec;
+pub mod checkpoint;
 pub mod crosslink;
 pub mod crosslink_committee;
 pub mod deposit;
@@ -46,6 +50,7 @@ pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_state::{Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Domain};
+pub use crate::checkpoint::Checkpoint;
 pub use crate::crosslink::Crosslink;
 pub use crate::crosslink_committee::{CrosslinkCommittee, OwnedCrosslinkCommittee};
 pub use crate::deposit::Deposit;

@@ -1,19 +1,21 @@
-use crate::{test_utils::TestRandom, Epoch};
-use bls::Signature;
-
+use crate::test_utils::TestRandom;
+use crate::{Epoch, Hash256};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
-/// An exit voluntarily submitted a validator who wishes to withdraw.
+/// Casper FFG checkpoint, used in attestations.
 ///
 /// Spec v0.8.0
 #[derive(
     Debug,
-    PartialEq,
     Clone,
+    PartialEq,
+    Eq,
+    Default,
+    Hash,
     Serialize,
     Deserialize,
     Encode,
@@ -23,18 +25,15 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
-pub struct VoluntaryExit {
-    /// Earliest epoch when voluntary exit can be processed.
+pub struct Checkpoint {
     pub epoch: Epoch,
-    pub validator_index: u64,
-    #[signed_root(skip_hashing)]
-    pub signature: Signature,
+    pub root: Hash256,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    ssz_tests!(VoluntaryExit);
-    cached_tree_hash_tests!(VoluntaryExit);
+    ssz_tests!(Checkpoint);
+    cached_tree_hash_tests!(Checkpoint);
 }

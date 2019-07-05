@@ -38,22 +38,20 @@ impl CommitteeCache {
             return Err(Error::ZeroSlotsPerEpoch);
         }
 
-        let active_validator_indices =
-            get_active_validator_indices(&state.validator_registry, epoch);
+        let active_validator_indices = get_active_validator_indices(&state.validators, epoch);
 
         if active_validator_indices.is_empty() {
             return Err(Error::InsufficientValidators);
         }
 
-        let committee_count = T::get_epoch_committee_count(
-            active_validator_indices.len(),
-            spec.target_committee_size,
-        ) as usize;
+        let committee_count =
+            T::get_committee_count(active_validator_indices.len(), spec.target_committee_size)
+                as usize;
 
         let shuffling_start_shard =
             Self::compute_start_shard(state, relative_epoch, active_validator_indices.len(), spec);
 
-        let seed = state.generate_seed(epoch, spec)?;
+        let seed = state.get_seed(epoch, spec)?;
 
         let shuffling = shuffle_list(
             active_validator_indices,
@@ -64,11 +62,11 @@ impl CommitteeCache {
         .ok_or_else(|| Error::UnableToShuffle)?;
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validator_registry.len() > usize::max_value() - 1 {
+        if state.validators.len() > usize::max_value() - 1 {
             return Err(Error::TooManyValidators);
         }
 
-        let mut shuffling_positions = vec![None; state.validator_registry.len()];
+        let mut shuffling_positions = vec![None; state.validators.len()];
         for (i, v) in shuffling.iter().enumerate() {
             shuffling_positions[*v] = NonZeroUsize::new(i + 1);
         }
@@ -96,21 +94,21 @@ impl CommitteeCache {
         spec: &ChainSpec,
     ) -> u64 {
         match relative_epoch {
-            RelativeEpoch::Current => state.latest_start_shard,
+            RelativeEpoch::Current => state.start_shard,
             RelativeEpoch::Previous => {
                 let shard_delta =
                     T::get_shard_delta(active_validator_count, spec.target_committee_size);
 
-                (state.latest_start_shard + T::ShardCount::to_u64() - shard_delta)
+                (state.start_shard + T::ShardCount::to_u64() - shard_delta)
                     % T::ShardCount::to_u64()
             }
             RelativeEpoch::Next => {
                 let current_active_validators =
-                    get_active_validator_count(&state.validator_registry, state.current_epoch());
+                    get_active_validator_count(&state.validators, state.current_epoch());
                 let shard_delta =
                     T::get_shard_delta(current_active_validators, spec.target_committee_size);
 
-                (state.latest_start_shard + shard_delta) % T::ShardCount::to_u64()
+                (state.start_shard + shard_delta) % T::ShardCount::to_u64()
             }
         }
     }
@@ -314,7 +312,7 @@ impl CommitteeCache {
     }
 }
 
-/// Returns a list of all `validator_registry` indices where the validator is active at the given
+/// Returns a list of all `validators` indices where the validator is active at the given
 /// `epoch`.
 ///
 /// Spec v0.6.3
@@ -332,7 +330,7 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
     active
 }
 
-/// Returns the count of all `validator_registry` indices where the validator is active at the given
+/// Returns the count of all `validators` indices where the validator is active at the given
 /// `epoch`.
 ///
 /// Spec v0.6.3
