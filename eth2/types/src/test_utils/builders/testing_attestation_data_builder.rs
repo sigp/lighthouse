@@ -73,7 +73,7 @@ impl TestingAttestationDataBuilder {
             // Crosslink vote
             shard,
             previous_crosslink_root,
-            crosslink_data_root: spec.zero_hash,
+            crosslink_data_root: Hash256::zero(),
         };
 
         Self { data }

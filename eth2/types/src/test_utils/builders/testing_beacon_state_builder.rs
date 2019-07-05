@@ -135,7 +135,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
         let balances = vec![starting_balance; validator_count];
 
         debug!("Importing {} existing validators...", validator_count);
-        state.validator_registry = validators;
+        state.validators = validators;
         state.balances = balances;
 
         debug!("BeaconState initialized.");

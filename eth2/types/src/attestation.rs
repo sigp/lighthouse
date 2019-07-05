@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     Clone,
@@ -24,7 +24,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     SignedRoot,
 )]
 pub struct Attestation {
-    pub aggregation_bitfield: Bitfield,
+    pub aggregation_bits: Bitfield,
     pub data: AttestationData,
     pub custody_bitfield: Bitfield,
     #[signed_root(skip_hashing)]
@@ -34,8 +34,8 @@ pub struct Attestation {
 impl Attestation {
     /// Are the aggregation bitfields of these attestations disjoint?
     pub fn signers_disjoint_from(&self, other: &Attestation) -> bool {
-        self.aggregation_bitfield
-            .intersection(&other.aggregation_bitfield)
+        self.aggregation_bits
+            .intersection(&other.aggregation_bits)
             .is_zero()
     }
 
@@ -46,8 +46,8 @@ impl Attestation {
         debug_assert_eq!(self.data, other.data);
         debug_assert!(self.signers_disjoint_from(other));
 
-        self.aggregation_bitfield
-            .union_inplace(&other.aggregation_bitfield);
+        self.aggregation_bits
+            .union_inplace(&other.aggregation_bits);
         self.custody_bitfield.union_inplace(&other.custody_bitfield);
         self.signature.add_aggregate(&other.signature);
     }
