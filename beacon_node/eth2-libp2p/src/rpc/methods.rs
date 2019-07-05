@@ -2,39 +2,7 @@
 
 use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
-
-#[derive(Debug)]
-/// Available Serenity Libp2p RPC methods
-pub enum RPCMethod {
-    /// Initialise handshake between connecting peers.
-    Hello,
-    /// Terminate a connection providing a reason.
-    Goodbye,
-    /// Requests a number of beacon block roots.
-    BeaconBlockRoots,
-    /// Requests a number of beacon block headers.
-    BeaconBlockHeaders,
-    /// Requests a number of beacon block bodies.
-    BeaconBlockBodies,
-    /// Requests values for a merkle proof for the current blocks state root.
-    BeaconChainState, // Note: experimental, not complete.
-    /// Unknown method received.
-    Unknown,
-}
-
-pub enum RawRPCRequest
-
-
-#[derive(Debug, Clone)]
-pub enum RPCRequest {
-    Hello(HelloMessage),
-    Goodbye(GoodbyeReason),
-    BeaconBlockRoots(BeaconBlockRootsRequest),
-    BeaconBlockHeaders(BeaconBlockHeadersRequest),
-    BeaconBlockBodies(BeaconBlockBodiesRequest),
-    BeaconChainState(BeaconChainStateRequest),
-}
+use types::{Epoch, Hash256, Slot};
 
 #[derive(Debug, Clone)]
 pub enum RPCResponse {
@@ -45,19 +13,35 @@ pub enum RPCResponse {
     BeaconChainState(BeaconChainStateResponse),
 }
 
+pub enum ResponseCode {
+    Success = 0,
+    EncodingError = 1,
+    InvalidRequest = 2,
+    ServerError = 3,
+}
+
 /* Request/Response data structures for RPC methods */
+
+/* Requests */
 
 /// The HELLO request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug)]
 pub struct HelloMessage {
     /// The network ID of the peer.
     pub network_id: u8,
+
+    /// The chain id for the HELLO request.
+    pub chain_id: u64,
+
     /// The peers last finalized root.
     pub latest_finalized_root: Hash256,
+
     /// The peers last finalized epoch.
     pub latest_finalized_epoch: Epoch,
+
     /// The peers last block root.
     pub best_root: Hash256,
+
     /// The peers last slot.
     pub best_slot: Slot,
 }
@@ -68,43 +52,40 @@ pub struct HelloMessage {
 /// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
 /// re-serializing may not return the same bytes.
 #[derive(Debug, Clone)]
-pub enum GoodbyeReason {
-    ClientShutdown,
-    IrreleventNetwork,
-    Fault,
-    Unknown,
+pub enum Goodbye {
+    /// This node has shutdown.
+    ClientShutdown = 1,
+
+    /// Incompatible networks.
+    IrreleventNetwork = 2,
+
+    /// Error/fault in the RPC.
+    Fault = 3,
+
+    /// Unknown reason.
+    Unknown = 0,
 }
 
-impl From<u64> for GoodbyeReason {
-    fn from(id: u64) -> GoodbyeReason {
+impl From<u64> for Goodbye {
+    fn from(id: u64) -> Goodbye {
         match id {
-            1 => GoodbyeReason::ClientShutdown,
-            2 => GoodbyeReason::IrreleventNetwork,
-            3 => GoodbyeReason::Fault,
-            _ => GoodbyeReason::Unknown,
+            1 => Goodbye::ClientShutdown,
+            2 => Goodbye::IrreleventNetwork,
+            3 => Goodbye::Fault,
+            _ => Goodbye::Unknown,
         }
     }
 }
 
-impl Into<u64> for GoodbyeReason {
-    fn into(self) -> u64 {
-        match self {
-            GoodbyeReason::Unknown => 0,
-            GoodbyeReason::ClientShutdown => 1,
-            GoodbyeReason::IrreleventNetwork => 2,
-            GoodbyeReason::Fault => 3,
-        }
-    }
-}
-
-impl_encode_via_from!(GoodbyeReason, u64);
-impl_decode_via_from!(GoodbyeReason, u64);
+impl_encode_via_from!(Goodbye, u64);
+impl_decode_via_from!(Goodbye, u64);
 
 /// Request a number of beacon block roots from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockRootsRequest {
     /// The starting slot of the requested blocks.
     pub start_slot: Slot,
+
     /// The number of blocks from the start slot.
     pub count: u64, // this must be less than 32768. //TODO: Enforce this in the lower layers
 }
@@ -116,6 +97,17 @@ pub struct BeaconBlockRootsResponse {
     pub roots: Vec<BlockRootSlot>,
 }
 
+/// Contains a block root and associated slot.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlockRootSlot {
+    /// The block root.
+    pub block_root: Hash256,
+
+    /// The block slot.
+    pub slot: Slot,
+}
+
+/// The response of a beacl block roots request.
 impl BeaconBlockRootsResponse {
     /// Returns `true` if each `self.roots.slot[i]` is higher than the preceding `i`.
     pub fn slots_are_ascending(&self) -> bool {
@@ -129,33 +121,27 @@ impl BeaconBlockRootsResponse {
     }
 }
 
-/// Contains a block root and associated slot.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BlockRootSlot {
-    /// The block root.
-    pub block_root: Hash256,
-    /// The block slot.
-    pub slot: Slot,
-}
-
 /// Request a number of beacon block headers from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockHeadersRequest {
     /// The starting header hash of the requested headers.
     pub start_root: Hash256,
+
     /// The starting slot of the requested headers.
     pub start_slot: Slot,
+
     /// The maximum number of headers than can be returned.
     pub max_headers: u64,
+
     /// The maximum number of slots to skip between blocks.
     pub skip_slots: u64,
 }
 
 /// Response containing requested block headers.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BeaconBlockHeadersResponse {
-    /// The list of requested beacon block headers.
-    pub headers: Vec<BeaconBlockHeader>,
+    /// The list of ssz-encoded requested beacon block headers.
+    pub headers: Vec<u8>,
 }
 
 /// Request a number of beacon block bodies from a peer.
@@ -166,10 +152,10 @@ pub struct BeaconBlockBodiesRequest {
 }
 
 /// Response containing the list of requested beacon block bodies.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BeaconBlockBodiesResponse {
-    /// The list of beacon block bodies being requested.
-    pub block_bodies: Vec<BeaconBlockBody>,
+    /// The list of ssz-encoded beacon block bodies being requested.
+    pub block_bodies: Vec<u8>,
 }
 
 /// Request values for tree hashes which yield a blocks `state_root`.
@@ -184,5 +170,5 @@ pub struct BeaconChainStateRequest {
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconChainStateResponse {
     /// The values corresponding the to the requested tree hashes.
-    pub values: bool, //TBD - stubbed with encodeable bool
+    pub values: bool, //TBD - stubbed with encodable bool
 }
