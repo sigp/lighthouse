@@ -1,4 +1,4 @@
-use crate::FixedSizedError as Error;
+use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, IndexMut};
