@@ -31,13 +31,6 @@ impl UpgradeInfo for RPCProtocol {
     }
 }
 
-/// The outbound RPC type as well as the return type used in the behaviour.
-#[derive(Debug, Clone)]
-pub enum RPCEvent {
-    Request(RPCRequest),
-    Response(RPCResponse),
-}
-
 /* Inbound upgrade */
 
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
@@ -209,9 +202,9 @@ impl<TSocket> OutboundUpgrade<TSocket> for RPCRequest
 where
     TSocket: AsyncWrite,
 {
-    type Output = ();
-    type Error = io::Error;
-    type Future = upgrade::WriteOne<upgrade::Negotiated<TSocket>>;
+    type Output = RPCResponse;
+    type Error = RPCResponse;
+    type Future = upgrade::RequestResponse<upgrade::Negotiated<TSocket>>;
 
     fn upgrade_outbound(
         self,
@@ -219,6 +212,12 @@ where
         protocol: Self::Info,
     ) -> Self::Future {
         let bytes = self.encode(protocol);
+        wait_for_response = if let RPCRequest::Goodbye(_) = self {
+            false
+        } else {
+            true
+        };
+        // TODO: Reimplement request_response
         upgrade::request_response(socket, bytes, MAX_RPC_SIZE, protocol, |packet, protocol| {
             Ok(decode_response(packet, protocol)?)
         })

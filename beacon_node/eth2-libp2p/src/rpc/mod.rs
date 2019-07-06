@@ -13,11 +13,23 @@ use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
-pub use protocol::{RPCEvent, RPCProtocol, RequestId};
+pub use methods::{HelloMessage, RPCResponse};
+pub use protocol::{RPCProtocol, RPCRequest};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
+
+/// The return type used in the behaviour and the resultant event from the protocols handler.
+#[derive(Debug, Clone)]
+pub enum RPCEvent {
+    /// A request that was received from the RPC protocol. The first parameter is a sequential
+    /// id which tracks an awaiting substream for the response.
+    Request(u64, RPCRequest),
+
+    /// A response that has been received from the RPC protocol. The first parameter returns
+    /// that which was sent with the corresponding request.
+    Response(u64, RPCResponse),
+}
 
 /// Rpc implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
