@@ -1,4 +1,4 @@
-use crate::FixedSizedError;
+use crate::Error;
 use bit_reverse::LookupReverse;
 use bit_vec::BitVec as Bitfield;
 use serde::de::{Deserialize, Deserializer};
@@ -12,10 +12,10 @@ use typenum::Unsigned;
 
 /// Provides a common `impl` for structs that wrap a `$name`.
 macro_rules! common_impl {
-    ($name: ident, $error: ident) => {
+    ($name: ident) => {
         impl<N: Unsigned> $name<N> {
             /// Create a new BitList list with `initial_len` bits all set to `false`.
-            pub fn with_capacity(initial_len: usize) -> Result<Self, $error> {
+            pub fn with_capacity(initial_len: usize) -> Result<Self, Error> {
                 Self::from_elem(initial_len, false)
             }
 
@@ -23,7 +23,7 @@ macro_rules! common_impl {
             ///
             /// Note: if `initial_len` is not a multiple of 8, the remaining bits will be set to `false`
             /// regardless of `bit`.
-            pub fn from_elem(initial_len: usize, bit: bool) -> Result<Self, $error> {
+            pub fn from_elem(initial_len: usize, bit: bool) -> Result<Self, Error> {
                 // BitVec can panic if we don't set the len to be a multiple of 8.
                 let full_len = ((initial_len + 7) / 8) * 8;
 
@@ -44,7 +44,7 @@ macro_rules! common_impl {
             }
 
             /// Create a new bitfield using the supplied `bytes` as input
-            pub fn from_bytes(bytes: &[u8]) -> Result<Self, $error> {
+            pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
                 Self::validate_length(bytes.len().saturating_mul(8))?;
 
                 Ok(Self {
@@ -62,17 +62,17 @@ macro_rules! common_impl {
             /// If the index is in bounds, then result is Ok(value) where value is `true` if the
             /// bit is 1 and `false` if the bit is 0.  If the index is out of bounds, we return an
             /// error to that extent.
-            pub fn get(&self, i: usize) -> Result<bool, $error> {
+            pub fn get(&self, i: usize) -> Result<bool, Error> {
                 if i < N::to_usize() {
                     match self.bitfield.get(i) {
                         Some(value) => Ok(value),
-                        None => Err($error::OutOfBounds {
+                        None => Err(Error::OutOfBounds {
                             i,
                             len: self.bitfield.len(),
                         }),
                     }
                 } else {
-                    Err($error::InvalidLength {
+                    Err(Error::InvalidLength {
                         i,
                         len: N::to_usize(),
                     })
@@ -83,10 +83,10 @@ macro_rules! common_impl {
             ///
             /// If the index is out of bounds, we expand the size of the underlying set to include
             /// the new index.  Returns the previous value if there was one.
-            pub fn set(&mut self, i: usize, value: bool) -> Result<(), $error> {
+            pub fn set(&mut self, i: usize, value: bool) -> Result<(), Error> {
                 match self.get(i) {
                     Ok(previous) => Some(previous),
-                    Err($error::OutOfBounds { len, .. }) => {
+                    Err(Error::OutOfBounds { len, .. }) => {
                         let new_len = i - len + 1;
                         self.bitfield.grow(new_len, false);
                         None
@@ -266,7 +266,7 @@ pub struct BitVector<N> {
     _phantom: PhantomData<N>,
 }
 
-common_impl!(BitVector, FixedSizedError);
+common_impl!(BitVector);
 
 impl<N: Unsigned> BitVector<N> {
     /// Create a new bitfield.
@@ -278,11 +278,11 @@ impl<N: Unsigned> BitVector<N> {
         N::to_usize()
     }
 
-    fn validate_length(len: usize) -> Result<(), FixedSizedError> {
+    fn validate_length(len: usize) -> Result<(), Error> {
         let fixed_len = N::to_usize();
 
         if len > fixed_len {
-            Err(FixedSizedError::InvalidLength {
+            Err(Error::InvalidLength {
                 i: len,
                 len: fixed_len,
             })
@@ -329,7 +329,7 @@ pub struct BitList<N> {
     _phantom: PhantomData<N>,
 }
 
-common_impl!(BitList, FixedSizedError);
+common_impl!(BitList);
 
 impl<N: Unsigned> BitList<N> {
     /// Create a new, empty BitList.
@@ -340,11 +340,11 @@ impl<N: Unsigned> BitList<N> {
         }
     }
 
-    fn validate_length(len: usize) -> Result<(), FixedSizedError> {
+    fn validate_length(len: usize) -> Result<(), Error> {
         let max_len = Self::max_len();
 
         if len > max_len {
-            Err(FixedSizedError::InvalidLength {
+            Err(Error::InvalidLength {
                 i: len,
                 len: max_len,
             })

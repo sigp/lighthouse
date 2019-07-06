@@ -1,4 +1,4 @@
-use crate::VariableSizedError as Error;
+use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, IndexMut};
@@ -61,9 +61,9 @@ impl<T, N: Unsigned> VariableList<T, N> {
                 _phantom: PhantomData,
             })
         } else {
-            Err(Error::ExceedsMaxLength {
-                len: vec.len(),
-                max_len: Self::max_len(),
+            Err(Error::InvalidLength {
+                i: vec.len(),
+                len: Self::max_len(),
             })
         }
     }
@@ -90,9 +90,9 @@ impl<T, N: Unsigned> VariableList<T, N> {
         if self.vec.len() < Self::max_len() {
             Ok(self.vec.push(value))
         } else {
-            Err(Error::ExceedsMaxLength {
-                len: self.vec.len() + 1,
-                max_len: Self::max_len(),
+            Err(Error::InvalidLength {
+                i: self.vec.len() + 1,
+                len: Self::max_len(),
             })
         }
     }
