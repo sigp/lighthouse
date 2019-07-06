@@ -10,6 +10,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 const MAX_RPC_SIZE: usize = 4_194_304; // 4M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth/serenity/rpc/";
+/// The number of seconds to wait for a response before the stream is terminated.
+const RESPONSE_TIMEOUT: u64 = 10;
 
 /// Implementation of the `ConnectionUpgrade` for the rpc protocol.
 #[derive(Debug, Clone)]
@@ -58,6 +60,7 @@ where
         upgrade::read_respond(socket, MAX_RPC_SIZE, (), |socket, packet, ()| {
             Ok((socket, decode_request(packet, protocol)?))
         })
+        .timeout(Duration::from_secs(RESPONSE_TIMEOUT))
     }
 }
 
@@ -132,17 +135,6 @@ impl UpgradeInfo for RPCRequest {
     // add further protocols as we support more encodings/versions
     fn protocol_info(&self) -> Self::InfoIter {
         self.supported_protocols()
-    }
-}
-
-//  GOODBYE RPC has it's own upgrade as it doesn't expect a response
-impl UpgradeInfo for Goodbye {
-    type Info = RawProtocolId;
-    type InfoIter = iter::Once<Self::Info>;
-
-    // add further protocols as we support more encodings/versions
-    fn protocol_info(&self) -> Self::InfoIter {
-        iter::once(ProtocolId::new("goodbye", 1, "ssz").into())
     }
 }
 
@@ -221,24 +213,7 @@ where
         upgrade::request_response(socket, bytes, MAX_RPC_SIZE, protocol, |packet, protocol| {
             Ok(decode_response(packet, protocol)?)
         })
-    }
-}
-
-impl<TSocket> OutboundUpgrade<TSocket> for Goodbye
-where
-    TSocket: AsyncWrite,
-{
-    type Output = ();
-    type Error = io::Error;
-    type Future = upgrade::WriteOne<upgrade::Negotiated<TSocket>>;
-
-    fn upgrade_outbound(
-        self,
-        socket: upgrade::Negotiated<TSocket>,
-        protocol: Self::Info,
-    ) -> Self::Future {
-        let bytes = self.as_ssz_bytes();
-        upgrade::write_one(socket, bytes)
+        .timeout(Duration::from_secs(RESPONSE_TIMEOUT))
     }
 }
 

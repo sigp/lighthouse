@@ -1,6 +1,6 @@
 /// The Ethereum 2.0 Wire Protocol
 ///
-/// This protocol is a purpose built ethereum 2.0 libp2p protocol. It's role is to facilitate
+/// This protocol is a purpose built Ethereum 2.0 libp2p protocol. It's role is to facilitate
 /// direct peer-to-peer communication primarily for sending/receiving chain information for
 /// syncing.
 ///
@@ -67,7 +67,7 @@ impl<TSubstream> NetworkBehaviour for Rpc<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
-    type ProtocolsHandler = OneShotHandler<TSubstream, RPCProtocol, RPCEvent, HandlerEvent>;
+    type ProtocolsHandler = RPCHandler<TSubstream>;
     type OutEvent = RPCMessage;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {

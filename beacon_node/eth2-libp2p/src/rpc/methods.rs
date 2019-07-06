@@ -7,6 +7,7 @@ use types::{Epoch, Hash256, Slot};
 #[derive(Debug, Clone)]
 pub enum RPCResponse {
     Hello(HelloMessage),
+    Goodbye, // empty value - required for protocol handler
     BeaconBlockRoots(BeaconBlockRootsResponse),
     BeaconBlockHeaders(BeaconBlockHeadersResponse),
     BeaconBlockBodies(BeaconBlockBodiesResponse),
