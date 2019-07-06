@@ -60,8 +60,8 @@ impl<T, N: Unsigned> FixedVector<T, N> {
             })
         } else {
             Err(Error::InvalidLength {
-                len: vec.len(),
-                fixed_len: Self::capacity(),
+                i: vec.len(),
+                len: Self::capacity(),
             })
         }
     }

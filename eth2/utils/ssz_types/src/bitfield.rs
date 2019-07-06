@@ -1,209 +1,227 @@
+use crate::FixedSizedError;
 use bit_reverse::LookupReverse;
-use bit_vec::BitVec;
-use cached_tree_hash::cached_tree_hash_bytes_as_list;
+use bit_vec::BitVec as Bitfield;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
 use std::cmp;
 use std::default;
+use std::marker::PhantomData;
+use typenum::Unsigned;
 
-/// A Bitfield represents a set of booleans compactly stored as a vector of bits.
-/// The Bitfield is given a fixed size during construction. Reads outside of the current size return an out-of-bounds error. Writes outside of the current size expand the size of the set.
-#[derive(Debug, Clone)]
-pub struct Bitfield(BitVec);
+/// Provides a common `impl` for structs that wrap a `$name`.
+macro_rules! common_impl {
+    ($name: ident, $error: ident) => {
+        impl<N: Unsigned> $name<N> {
+            /// Create a new BitList list with `initial_len` bits all set to `false`.
+            pub fn with_capacity(initial_len: usize) -> Result<Self, $error> {
+                Self::from_elem(initial_len, false)
+            }
 
-/// Error represents some reason a request against a bitfield was not satisfied
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    /// OutOfBounds refers to indexing into a bitfield where no bits exist; returns the illegal index and the current size of the bitfield, respectively
-    OutOfBounds(usize, usize),
-}
+            /// Create a new bitfield with the given length `initial_len` and all values set to `bit`.
+            ///
+            /// Note: if `initial_len` is not a multiple of 8, the remaining bits will be set to `false`
+            /// regardless of `bit`.
+            pub fn from_elem(initial_len: usize, bit: bool) -> Result<Self, $error> {
+                // BitVec can panic if we don't set the len to be a multiple of 8.
+                let full_len = ((initial_len + 7) / 8) * 8;
 
-impl Bitfield {
-    pub fn with_capacity(initial_len: usize) -> Self {
-        Self::from_elem(initial_len, false)
-    }
+                Self::validate_length(full_len)?;
 
-    /// Create a new bitfield with the given length `initial_len` and all values set to `bit`.
-    ///
-    /// Note: if `initial_len` is not a multiple of 8, the remaining bits will be set to `false`
-    /// regardless of `bit`.
-    pub fn from_elem(initial_len: usize, bit: bool) -> Self {
-        // BitVec can panic if we don't set the len to be a multiple of 8.
-        let full_len = ((initial_len + 7) / 8) * 8;
-        let mut bitfield = BitVec::from_elem(full_len, false);
+                let mut bitfield = Bitfield::from_elem(full_len, false);
 
-        if bit {
-            for i in 0..initial_len {
-                bitfield.set(i, true);
+                if bit {
+                    for i in 0..initial_len {
+                        bitfield.set(i, true);
+                    }
+                }
+
+                Ok(Self {
+                    bitfield,
+                    _phantom: PhantomData,
+                })
+            }
+
+            /// Create a new bitfield using the supplied `bytes` as input
+            pub fn from_bytes(bytes: &[u8]) -> Result<Self, $error> {
+                Self::validate_length(bytes.len().saturating_mul(8))?;
+
+                Ok(Self {
+                    bitfield: Bitfield::from_bytes(&reverse_bit_order(bytes.to_vec())),
+                    _phantom: PhantomData,
+                })
+            }
+            /// Returns a vector of bytes representing the bitfield
+            pub fn to_bytes(&self) -> Vec<u8> {
+                reverse_bit_order(self.bitfield.to_bytes().to_vec())
+            }
+
+            /// Read the value of a bit.
+            ///
+            /// If the index is in bounds, then result is Ok(value) where value is `true` if the
+            /// bit is 1 and `false` if the bit is 0.  If the index is out of bounds, we return an
+            /// error to that extent.
+            pub fn get(&self, i: usize) -> Result<bool, $error> {
+                if i < N::to_usize() {
+                    match self.bitfield.get(i) {
+                        Some(value) => Ok(value),
+                        None => Err($error::OutOfBounds {
+                            i,
+                            len: self.bitfield.len(),
+                        }),
+                    }
+                } else {
+                    Err($error::InvalidLength {
+                        i,
+                        len: N::to_usize(),
+                    })
+                }
+            }
+
+            /// Set the value of a bit.
+            ///
+            /// If the index is out of bounds, we expand the size of the underlying set to include
+            /// the new index.  Returns the previous value if there was one.
+            pub fn set(&mut self, i: usize, value: bool) -> Result<(), $error> {
+                match self.get(i) {
+                    Ok(previous) => Some(previous),
+                    Err($error::OutOfBounds { len, .. }) => {
+                        let new_len = i - len + 1;
+                        self.bitfield.grow(new_len, false);
+                        None
+                    }
+                    Err(e) => return Err(e),
+                };
+
+                self.bitfield.set(i, value);
+
+                Ok(())
+            }
+
+            /// Returns the number of bits in this bitfield.
+            pub fn len(&self) -> usize {
+                self.bitfield.len()
+            }
+
+            /// Returns true if `self.len() == 0`
+            pub fn is_empty(&self) -> bool {
+                self.len() == 0
+            }
+
+            /// Returns true if all bits are set to 0.
+            pub fn is_zero(&self) -> bool {
+                self.bitfield.none()
+            }
+
+            /// Returns the number of bytes required to represent this bitfield.
+            pub fn num_bytes(&self) -> usize {
+                self.to_bytes().len()
+            }
+
+            /// Returns the number of `1` bits in the bitfield
+            pub fn num_set_bits(&self) -> usize {
+                self.bitfield.iter().filter(|&bit| bit).count()
             }
         }
 
-        Self { 0: bitfield }
-    }
-
-    /// Create a new bitfield using the supplied `bytes` as input
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self {
-            0: BitVec::from_bytes(&reverse_bit_order(bytes.to_vec())),
-        }
-    }
-
-    /// Returns a vector of bytes representing the bitfield
-    pub fn to_bytes(&self) -> Vec<u8> {
-        reverse_bit_order(self.0.to_bytes().to_vec())
-    }
-
-    /// Read the value of a bit.
-    ///
-    /// If the index is in bounds, then result is Ok(value) where value is `true` if the bit is 1 and `false` if the bit is 0.
-    /// If the index is out of bounds, we return an error to that extent.
-    pub fn get(&self, i: usize) -> Result<bool, Error> {
-        match self.0.get(i) {
-            Some(value) => Ok(value),
-            None => Err(Error::OutOfBounds(i, self.0.len())),
-        }
-    }
-
-    /// Set the value of a bit.
-    ///
-    /// If the index is out of bounds, we expand the size of the underlying set to include the new index.
-    /// Returns the previous value if there was one.
-    pub fn set(&mut self, i: usize, value: bool) -> Option<bool> {
-        let previous = match self.get(i) {
-            Ok(previous) => Some(previous),
-            Err(Error::OutOfBounds(_, len)) => {
-                let new_len = i - len + 1;
-                self.0.grow(new_len, false);
-                None
-            }
-        };
-        self.0.set(i, value);
-        previous
-    }
-
-    /// Returns the number of bits in this bitfield.
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Returns true if `self.len() == 0`
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns true if all bits are set to 0.
-    pub fn is_zero(&self) -> bool {
-        self.0.none()
-    }
-
-    /// Returns the number of bytes required to represent this bitfield.
-    pub fn num_bytes(&self) -> usize {
-        self.to_bytes().len()
-    }
-
-    /// Returns the number of `1` bits in the bitfield
-    pub fn num_set_bits(&self) -> usize {
-        self.0.iter().filter(|&bit| bit).count()
-    }
-
-    /// Compute the intersection (binary-and) of this bitfield with another. Lengths must match.
-    pub fn intersection(&self, other: &Self) -> Self {
-        let mut res = self.clone();
-        res.intersection_inplace(other);
-        res
-    }
-
-    /// Like `intersection` but in-place (updates `self`).
-    pub fn intersection_inplace(&mut self, other: &Self) {
-        self.0.intersect(&other.0);
-    }
-
-    /// Compute the union (binary-or) of this bitfield with another. Lengths must match.
-    pub fn union(&self, other: &Self) -> Self {
-        let mut res = self.clone();
-        res.union_inplace(other);
-        res
-    }
-
-    /// Like `union` but in-place (updates `self`).
-    pub fn union_inplace(&mut self, other: &Self) {
-        self.0.union(&other.0);
-    }
-
-    /// Compute the difference (binary-minus) of this bitfield with another. Lengths must match.
-    ///
-    /// Computes `self - other`.
-    pub fn difference(&self, other: &Self) -> Self {
-        let mut res = self.clone();
-        res.difference_inplace(other);
-        res
-    }
-
-    /// Like `difference` but in-place (updates `self`).
-    pub fn difference_inplace(&mut self, other: &Self) {
-        self.0.difference(&other.0);
-    }
-}
-
-impl default::Default for Bitfield {
-    /// default provides the "empty" bitfield
-    /// Note: the empty bitfield is set to the `0` byte.
-    fn default() -> Self {
-        Self::from_elem(8, false)
-    }
-}
-
-impl cmp::PartialEq for Bitfield {
-    /// Determines equality by comparing the `ssz` encoding of the two candidates.
-    /// This method ensures that the presence of high-order (empty) bits in the highest byte do not exclude equality when they are in fact representing the same information.
-    fn eq(&self, other: &Self) -> bool {
-        ssz::ssz_encode(self) == ssz::ssz_encode(other)
-    }
-}
-
-/// Create a new bitfield that is a union of two other bitfields.
-///
-/// For example `union(0101, 1000) == 1101`
-// TODO: length-independent intersection for BitAnd
-impl std::ops::BitOr for Bitfield {
-    type Output = Self;
-
-    fn bitor(self, other: Self) -> Self {
-        let (biggest, smallest) = if self.len() > other.len() {
-            (&self, &other)
-        } else {
-            (&other, &self)
-        };
-        let mut new = biggest.clone();
-        for i in 0..smallest.len() {
-            if let Ok(true) = smallest.get(i) {
-                new.set(i, true);
+        impl<N: Unsigned> cmp::PartialEq for $name<N> {
+            /// Determines equality by comparing the `ssz` encoding of the two candidates.  This
+            /// method ensures that the presence of high-order (empty) bits in the highest byte do
+            /// not exclude equality when they are in fact representing the same information.
+            fn eq(&self, other: &Self) -> bool {
+                ssz::ssz_encode(self) == ssz::ssz_encode(other)
             }
         }
-        new
-    }
-}
 
-impl Encode for Bitfield {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
+        /// Create a new bitfield that is a union of two other bitfields.
+        ///
+        /// For example `union(0101, 1000) == 1101`
+        // TODO: length-independent intersection for BitAnd
+        impl<N: Unsigned + Clone> std::ops::BitOr for $name<N> {
+            type Output = Self;
 
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        buf.append(&mut self.to_bytes())
-    }
-}
+            fn bitor(self, other: Self) -> Self {
+                let (biggest, smallest) = if self.len() > other.len() {
+                    (&self, &other)
+                } else {
+                    (&other, &self)
+                };
+                let mut new = (*biggest).clone();
+                for i in 0..smallest.len() {
+                    if let Ok(true) = smallest.get(i) {
+                        new.set(i, true)
+                            .expect("Cannot produce bitfield larger than smallest of two given");
+                    }
+                }
+                new
+            }
+        }
 
-impl Decode for Bitfield {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
+        impl<N: Unsigned> Encode for $name<N> {
+            fn is_ssz_fixed_len() -> bool {
+                false
+            }
 
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        Ok(Bitfield::from_bytes(bytes))
-    }
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                buf.append(&mut self.to_bytes())
+            }
+        }
+
+        impl<N: Unsigned> Decode for $name<N> {
+            fn is_ssz_fixed_len() -> bool {
+                false
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+                $name::from_bytes(bytes)
+                    .map_err(|e| ssz::DecodeError::BytesInvalid(format!("Bitlist {:?}", e)))
+            }
+        }
+
+        impl<N: Unsigned> Serialize for $name<N> {
+            /// Serde serialization is compliant with the Ethereum YAML test format.
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                serializer.serialize_str(&encode(self.to_bytes()))
+            }
+        }
+
+        impl<'de, N: Unsigned> Deserialize<'de> for $name<N> {
+            /// Serde serialization is compliant with the Ethereum YAML test format.
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                // We reverse the bit-order so that the BitVec library can read its 0th
+                // bit from the end of the hex string, e.g.
+                // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
+                let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+                $name::from_bytes(&bytes)
+                    .map_err(|e| serde::de::Error::custom(format!("Bitlist {:?}", e)))
+            }
+        }
+
+        impl<N: Unsigned> tree_hash::TreeHash for $name<N> {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::List
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("List should never be packed.")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("List should never be packed.")
+            }
+
+            fn tree_hash_root(&self) -> Vec<u8> {
+                self.to_bytes().tree_hash_root()
+            }
+        }
+    };
 }
 
 // Reverse the bit order of a whole byte vec, so that the ith bit
@@ -215,50 +233,208 @@ fn reverse_bit_order(mut bytes: Vec<u8>) -> Vec<u8> {
     bytes.into_iter().map(LookupReverse::swap_bits).collect()
 }
 
-impl Serialize for Bitfield {
-    /// Serde serialization is compliant with the Ethereum YAML test format.
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&encode(self.to_bytes()))
+/// Emulates a SSZ `Bitvector`.
+///
+/// An ordered, heap-allocated, fixed-length, collection of `bool` values, with `N` values.
+///
+/// ## Notes
+///
+/// Considering this struct is backed by bytes, errors may be raised when attempting to decode
+/// bytes into a `BitVector<N>` where `N` is not a multiple of 8. It is advised to always set `N` to
+/// a multiple of 8.
+///
+/// ## Example
+/// ```
+/// use ssz_types::{BitVector, typenum};
+///
+/// let mut bitvec: BitVector<typenum::U8> = BitVector::new();
+///
+/// assert_eq!(bitvec.len(), 8);
+///
+/// for i in 0..8 {
+///     assert_eq!(bitvec.get(i).unwrap(), false);  // Defaults to false.
+/// }
+///
+/// assert!(bitvec.get(8).is_err());  // Cannot get out-of-bounds.
+///
+/// assert!(bitvec.set(7, true).is_ok());
+/// assert!(bitvec.set(8, true).is_err());  // Cannot set out-of-bounds.
+/// ```
+#[derive(Debug, Clone)]
+pub struct BitVector<N> {
+    bitfield: Bitfield,
+    _phantom: PhantomData<N>,
+}
+
+common_impl!(BitVector, FixedSizedError);
+
+impl<N: Unsigned> BitVector<N> {
+    /// Create a new bitfield.
+    pub fn new() -> Self {
+        Self::with_capacity(Self::capacity()).expect("Capacity must be correct")
+    }
+
+    fn capacity() -> usize {
+        N::to_usize()
+    }
+
+    fn validate_length(len: usize) -> Result<(), FixedSizedError> {
+        let fixed_len = N::to_usize();
+
+        if len > fixed_len {
+            Err(FixedSizedError::InvalidLength {
+                i: len,
+                len: fixed_len,
+            })
+        } else {
+            Ok(())
+        }
     }
 }
 
-impl<'de> Deserialize<'de> for Bitfield {
-    /// Serde serialization is compliant with the Ethereum YAML test format.
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // We reverse the bit-order so that the BitVec library can read its 0th
-        // bit from the end of the hex string, e.g.
-        // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
-        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        Ok(Bitfield::from_bytes(&bytes))
+/// Emulates a SSZ `Bitlist`.
+///
+/// An ordered, heap-allocated, variable-length, collection of `bool` values, limited to `N`
+/// values.
+///
+/// ## Notes
+///
+/// Considering this struct is backed by bytes, errors may be raised when attempting to decode
+/// bytes into a `BitList<N>` where `N` is not a multiple of 8. It is advised to always set `N` to
+/// a multiple of 8.
+///
+/// ## Example
+/// ```
+/// use ssz_types::{BitList, typenum};
+///
+/// let mut bitlist: BitList<typenum::U8> = BitList::new();
+///
+/// assert_eq!(bitlist.len(), 0);
+///
+/// assert!(bitlist.get(0).is_err());  // Cannot get at or below the length.
+///
+/// for i in 0..8 {
+///     assert!(bitlist.set(i, true).is_ok());
+/// }
+///
+/// assert!(bitlist.set(8, true).is_err());  // Cannot set out-of-bounds.
+///
+/// // Cannot create with an excessive capacity.
+/// let result: Result<BitList<typenum::U8>, _> = BitList::with_capacity(9);
+/// assert!(result.is_err());
+/// ```
+#[derive(Debug, Clone)]
+pub struct BitList<N> {
+    bitfield: Bitfield,
+    _phantom: PhantomData<N>,
+}
+
+common_impl!(BitList, FixedSizedError);
+
+impl<N: Unsigned> BitList<N> {
+    /// Create a new, empty BitList.
+    pub fn new() -> Self {
+        Self {
+            bitfield: Bitfield::default(),
+            _phantom: PhantomData,
+        }
+    }
+
+    fn validate_length(len: usize) -> Result<(), FixedSizedError> {
+        let max_len = Self::max_len();
+
+        if len > max_len {
+            Err(FixedSizedError::InvalidLength {
+                i: len,
+                len: max_len,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The maximum possible number of bits.
+    pub fn max_len() -> usize {
+        N::to_usize()
     }
 }
 
-impl tree_hash::TreeHash for Bitfield {
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::List
+impl<N: Unsigned + Clone> BitList<N> {
+    /// Compute the intersection (binary-and) of this bitfield with another
+    ///
+    /// ## Panics
+    ///
+    /// If `self` and `other` have different lengths.
+    pub fn intersection(&self, other: &Self) -> Self {
+        assert_eq!(self.len(), other.len());
+        let mut res: Self = self.to_owned();
+        res.intersection_inplace(other);
+        res
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("List should never be packed.")
+    /// Like `intersection` but in-place (updates `self`).
+    ///
+    /// ## Panics
+    ///
+    /// If `self` and `other` have different lengths.
+    pub fn intersection_inplace(&mut self, other: &Self) {
+        self.bitfield.intersect(&other.bitfield);
     }
 
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("List should never be packed.")
+    /// Compute the union (binary-or) of this bitfield with another. Lengths must match.
+    ///
+    /// ## Panics
+    ///
+    /// If `self` and `other` have different lengths.
+    pub fn union(&self, other: &Self) -> Self {
+        assert_eq!(self.len(), other.len());
+        let mut res = self.clone();
+        res.union_inplace(other);
+        res
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
-        self.to_bytes().tree_hash_root()
+    /// Like `union` but in-place (updates `self`).
+    ///
+    /// ## Panics
+    ///
+    /// If `self` and `other` have different lengths.
+    pub fn union_inplace(&mut self, other: &Self) {
+        self.bitfield.union(&other.bitfield);
+    }
+
+    /// Compute the difference (binary-minus) of this bitfield with another. Lengths must match.
+    ///
+    /// Computes `self - other`.
+    ///
+    /// ## Panics
+    ///
+    /// If `self` and `other` have different lengths.
+    pub fn difference(&self, other: &Self) -> Self {
+        assert_eq!(self.len(), other.len());
+        let mut res = self.clone();
+        res.difference_inplace(other);
+        res
+    }
+
+    /// Like `difference` but in-place (updates `self`).
+    ///
+    /// ## Panics
+    ///
+    /// If `self` and `other` have different lengths.
+    pub fn difference_inplace(&mut self, other: &Self) {
+        self.bitfield.difference(&other.bitfield);
     }
 }
 
-cached_tree_hash_bytes_as_list!(Bitfield);
+impl<N: Unsigned> default::Default for BitList<N> {
+    /// Default provides the "empty" bitfield
+    /// Note: the empty bitfield is set to the `0` byte.
+    fn default() -> Self {
+        Self::from_elem(0, false).expect("Zero cannot be larger than the maximum length")
+    }
+}
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,3 +744,4 @@ mod tests {
         assert!(a.difference(&a).is_zero());
     }
 }
+*/

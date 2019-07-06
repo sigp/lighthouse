@@ -12,7 +12,7 @@ tree_hash = { path = "../tree_hash" }
 serde = "1.0"
 serde_derive = "1.0"
 serde_hex = { path = "../serde_hex" }
-ssz = { path = "../ssz" }
+eth2_ssz = { path = "../ssz" }
 typenum = "1.10"
 
 [dev-dependencies]
