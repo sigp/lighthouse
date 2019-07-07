@@ -1,8 +1,14 @@
-mod bitfield;
+#[macro_use]
+mod impl_bitfield_fns;
+mod bit_list;
+mod bit_vector;
 mod fixed_vector;
 mod variable_list;
 
-pub use bitfield::{BitList, BitVector};
+use impl_bitfield_fns::reverse_bit_order;
+
+pub use bit_list::BitList;
+pub use bit_vector::BitVector;
 pub use fixed_vector::FixedVector;
 pub use typenum;
 pub use variable_list::VariableList;
