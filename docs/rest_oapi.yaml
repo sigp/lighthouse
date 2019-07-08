@@ -108,6 +108,31 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
+  /node/stats:
+    get:
+      tags:
+        - Future
+      summary: "Get operational information about the node."
+      description: "Fetches some operational information about the node's process, such as memory usage, database size, etc."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memory_usage:
+                    type: integer
+                    format: uint64
+                    description: "The amount of memory used by the currently running beacon node process, expressed in bytes."
+                  uptime:
+                    type: integer
+                    format: uint64
+                    description: "The number of seconds that have elapsed since beacon node process was started."
+                  #TODO: what other useful process information could be expressed here?
+
+
   /node/network/peer_count:
     get:
       tags:
@@ -229,6 +254,7 @@ paths:
 
 
 
+  #TODO: Add the endpoints that enable a validator to join, exit, withdraw, etc.
   /validator/duties:
     get:
       tags:
@@ -1270,6 +1296,7 @@ components:
   responses:
     Success:
       description: "Request successful."
+      #TODO: Make response descriptions consistent
     InvalidRequest:
       description: "Invalid request syntax."
     InternalError:
