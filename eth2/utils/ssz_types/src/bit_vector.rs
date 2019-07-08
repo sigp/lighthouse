@@ -1,6 +1,5 @@
 use super::*;
-use crate::{impl_bitfield_fns, reverse_bit_order, Error};
-use bit_vec::BitVec as Bitfield;
+use crate::{bitfield::Bitfield, impl_bitfield_fns, Error};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
@@ -54,18 +53,6 @@ impl<N: Unsigned> BitVector<N> {
         N::to_usize()
     }
 
-    /// Create a new bitfield using the supplied `bytes` as input
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if Self::capacity() >= 8 && bytes.len() != 1 {
-            Self::validate_length(bytes.len().saturating_mul(8))?;
-        }
-
-        Ok(Self {
-            bitfield: Bitfield::from_bytes(&reverse_bit_order(bytes.to_vec())),
-            _phantom: PhantomData,
-        })
-    }
-
     fn validate_length(len: usize) -> Result<(), Error> {
         let fixed_len = N::to_usize();
 
@@ -113,6 +100,7 @@ mod test {
     }
     */
 
+    /*
     #[test]
     fn new_bitfield() {
         let mut field = BitVector1024::new();
@@ -145,7 +133,6 @@ mod test {
         assert!(bitvec.get(4).is_err());
     }
 
-    /*
     #[test]
     fn from_bytes_bytes_too_long() {
         let bytes = &[0, 0];
