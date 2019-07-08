@@ -29,6 +29,22 @@ impl<N: Unsigned + Clone> BitfieldBehaviour for BitVector<N> {}
 /// use with a `BitList` sets a type-level (i.e., compile-time) maximum length and `BitVector`
 /// provides a type-level fixed length.
 ///
+/// ## Example
+/// ```
+/// use ssz_types::{Bitfield, BitVector, BitList, typenum};
+///
+/// type BitList8 = Bitfield<BitList<typenum::U8>>;
+///
+/// // The `N` type parameter specifies a maximum length. Creating a `BitList` with a larger
+/// // capacity returns `None`.
+/// assert!(BitList8::with_capacity(9).is_none());
+///
+/// let mut bitlist = BitList8::with_capacity(4);  // `BitList` permits a capacity of less than the maximum.
+/// assert!(bitlist.set(3, true).is_some());  // Setting inside the instantiation capacity is permitted.
+/// assert!(bitlist.set(4, true).is_none());  // Setting outside that capacity is not.
+///
+/// ```
+///
 /// ## Note
 ///
 /// The internal representation of the bitfield is the same as that required by SSZ - the highest
