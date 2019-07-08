@@ -4,7 +4,7 @@
 ///
 /// The internal representation of the bitfield is the same as that required by SSZ - the highest
 /// byte (by `Vec` index) stores the lowest bit-indices and the right-most bit stores the lowest
-/// bit-index. E.g., `vec![0b0000_0010, 0b0000_0001]` has bits `1, 9` set.
+/// bit-index. E.g., `vec![0b0000_0010, 0b0000_0001]` has bits `0, 9` set.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Bitfield {
     bytes: Vec<u8>,
@@ -67,21 +67,6 @@ impl Bitfield {
 
     fn bytes_for_bit_len(bit_len: usize) -> usize {
         (bit_len + 7) / 8
-    }
-
-    /// Verify that the given `bytes` faithfully represent a bitfield of length `bit_len`.
-    ///
-    /// The only valid `bytes` for `bit_len == 0` is `&[0]`.
-    fn verify_bitfield_bytes(bytes: &[u8], bit_len: usize) -> bool {
-        if bytes.len() == 1 && bit_len == 0 && bytes == &[0] {
-            true // A bitfield with `bit_len` 0 can only be represented by a single zero byte.
-        } else if bytes.len() != Bitfield::bytes_for_bit_len(bit_len) || bytes.is_empty() {
-            false // The number of bytes must be the minimum required to represent `bit_len`.
-        } else {
-            // Ensure there are no bits higher than `bit_len` that are set to true.
-            let (mask, _) = u8::max_value().overflowing_shr(bit_len as u32 % 8);
-            (bytes.last().expect("Bytes cannot be empty") & !mask) == 0
-        }
     }
 
     pub fn to_bytes(self) -> Vec<u8> {
@@ -213,12 +198,6 @@ impl<'a> Iterator for BitIter<'a> {
 macro_rules! impl_bitfield_fns {
     ($name: ident) => {
         impl<N: Unsigned> $name<N> {
-            pub fn with_capacity(initial_len: usize) -> Result<Self, Error> {
-                Self::validate_length(initial_len)?;
-
-                Self::with_capacity(initial_len)
-            }
-
             pub fn get(&self, i: usize) -> Result<bool, Error> {
                 if i < N::to_usize() {
                     match self.bitfield.get(i) {
