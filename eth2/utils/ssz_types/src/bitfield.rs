@@ -33,21 +33,32 @@ impl<N: Unsigned + Clone> BitfieldBehaviour for BitVector<N> {}
 /// ```
 /// use ssz_types::{Bitfield, BitVector, BitList, typenum};
 ///
+/// // `BitList` has a type-level maximum length. The length of the list is specified at runtime
+/// // and it must be less than or equal to `N`. After instantiation, `BitList` cannot grow or
+/// // shrink.
 /// type BitList8 = Bitfield<BitList<typenum::U8>>;
 ///
-/// // The `N` type parameter specifies a maximum length. Creating a `BitList` with a larger
-/// // capacity returns `None`.
+/// // Creating a `BitList` with a larger-than-`N` capacity returns `None`.
 /// assert!(BitList8::with_capacity(9).is_none());
 ///
-/// let mut bitlist = BitList8::with_capacity(4);  // `BitList` permits a capacity of less than the maximum.
+/// let mut bitlist = BitList8::with_capacity(4).unwrap();  // `BitList` permits a capacity of less than the maximum.
 /// assert!(bitlist.set(3, true).is_some());  // Setting inside the instantiation capacity is permitted.
-/// assert!(bitlist.set(4, true).is_none());  // Setting outside that capacity is not.
+/// assert!(bitlist.set(5, true).is_none());  // Setting outside that capacity is not.
+///
+/// // `BitVector` has a type-level fixed length. Unlike `BitList`, it cannot be instantiated with a custom length
+/// // or grow/shrink.
+/// type BitVector8 = Bitfield<BitVector<typenum::U8>>;
+///
+/// let mut bitvector = BitVector8::new();
+/// assert_eq!(bitvector.len(), 8); // `BitVector` length is fixed at the type-level.
+/// assert!(bitvector.set(7, true).is_some());  // Setting inside the capacity is permitted.
+/// assert!(bitvector.set(9, true).is_none());  // Setting outside the capacity is not.
 ///
 /// ```
 ///
 /// ## Note
 ///
-/// The internal representation of the bitfield is the same as that required by SSZ - the highest
+/// The internal representation of the bitfield is the same as that required by SSZ. The highest
 /// byte (by `Vec` index) stores the lowest bit-indices and the right-most bit stores the lowest
 /// bit-index. E.g., `vec![0b0000_0010, 0b0000_0001]` has bits `0, 9` set.
 #[derive(Clone, Debug, PartialEq)]
@@ -520,7 +531,6 @@ mod test {
         let mut bitfield = Bitfield::with_capacity(num_bits).unwrap();
 
         for i in 0..num_bits + 1 {
-            dbg!(i);
             if i < num_bits {
                 // Starts as false
                 assert_eq!(bitfield.get(i), Some(false));
@@ -539,14 +549,11 @@ mod test {
     }
 
     fn test_bytes_round_trip(num_bits: usize) {
-        dbg!(num_bits);
         for i in 0..num_bits {
-            dbg!(i);
             let mut bitfield = Bitfield::with_capacity(num_bits).unwrap();
             bitfield.set(i, true).unwrap();
 
             let bytes = bitfield.clone().to_raw_bytes();
-            dbg!(&bytes);
             assert_eq!(bitfield, Bitfield::from_raw_bytes(bytes, num_bits).unwrap());
         }
     }
