@@ -34,15 +34,6 @@ macro_rules! impl_bitfield_fns {
                 })
             }
 
-            /// Create a new bitfield using the supplied `bytes` as input
-            pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-                Self::validate_length(bytes.len().saturating_mul(8))?;
-
-                Ok(Self {
-                    bitfield: Bitfield::from_bytes(&reverse_bit_order(bytes.to_vec())),
-                    _phantom: PhantomData,
-                })
-            }
             /// Returns a vector of bytes representing the bitfield
             pub fn to_bytes(&self) -> Vec<u8> {
                 if self.bitfield.is_empty() {
@@ -227,3 +218,74 @@ pub fn reverse_bit_order(mut bytes: Vec<u8>) -> Vec<u8> {
     bytes.reverse();
     bytes.into_iter().map(LookupReverse::swap_bits).collect()
 }
+
+/*
+/// Verify that the given `bytes` faithfully represent a bitfield of length `bit_len`.
+///
+/// The only valid `bytes` for `bit_len == 0` is `&[0]`.
+pub fn verify_bitfield_bytes(bytes: &[u8], bit_len: usize) -> bool {
+    if bytes.len() == 1 && bit_len == 0 && bytes == &[0] {
+        true // A bitfield with `bit_len` 0 can only be represented by a single zero byte.
+    } else if bytes.len() != ((bit_len + 7) / 8) || bytes.is_empty() {
+        false // The number of bytes must be the minimum required to represent `bit_len`.
+    } else {
+        // Ensure there are no bits higher than `bit_len` that are set to true.
+        let (mask, _) = u8::max_value().overflowing_shl(8 - (bit_len as u32 % 8));
+        (bytes.last().expect("Bytes cannot be empty") & !mask) == 0
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn bitfield_bytes_length() {
+        assert!(verify_bitfield_bytes(&[0b0000_0000], 0));
+        assert!(verify_bitfield_bytes(&[0b1000_0000], 1));
+        assert!(verify_bitfield_bytes(&[0b1100_0000], 2));
+        assert!(verify_bitfield_bytes(&[0b1110_0000], 3));
+        assert!(verify_bitfield_bytes(&[0b1111_0000], 4));
+        assert!(verify_bitfield_bytes(&[0b1111_1000], 5));
+        assert!(verify_bitfield_bytes(&[0b1111_1100], 6));
+        assert!(verify_bitfield_bytes(&[0b1111_1110], 7));
+        assert!(verify_bitfield_bytes(&[0b1111_1111], 8));
+
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b0000_0000], 9));
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b1000_0000], 9));
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b1100_0000], 10));
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b1110_0000], 11));
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b1111_0000], 12));
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b1111_1000], 13));
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b1111_1100], 14));
+        assert!(verify_bitfield_bytes(&[0b1111_1111, 0b1111_1110], 15));
+
+        for i in 0..8 {
+            assert!(!verify_bitfield_bytes(&[], i));
+            assert!(!verify_bitfield_bytes(&[0b1111_1111], i));
+            assert!(!verify_bitfield_bytes(&[0b1111_1110, 0b0000_0000], i));
+        }
+
+        assert!(!verify_bitfield_bytes(&[0b1000_0000], 0));
+
+        assert!(!verify_bitfield_bytes(&[0b1000_0000], 0));
+        assert!(!verify_bitfield_bytes(&[0b1100_0000], 1));
+        assert!(!verify_bitfield_bytes(&[0b1110_0000], 2));
+        assert!(!verify_bitfield_bytes(&[0b1111_0000], 3));
+        assert!(!verify_bitfield_bytes(&[0b1111_1000], 4));
+        assert!(!verify_bitfield_bytes(&[0b1111_1100], 5));
+        assert!(!verify_bitfield_bytes(&[0b1111_1110], 6));
+        assert!(!verify_bitfield_bytes(&[0b1111_1111], 7));
+
+        assert!(!verify_bitfield_bytes(&[0b1111_1111, 0b1000_0000], 8));
+        assert!(!verify_bitfield_bytes(&[0b1111_1111, 0b1100_0000], 9));
+        assert!(!verify_bitfield_bytes(&[0b1111_1111, 0b1110_0000], 10));
+        assert!(!verify_bitfield_bytes(&[0b1111_1111, 0b1111_0000], 11));
+        assert!(!verify_bitfield_bytes(&[0b1111_1111, 0b1111_1000], 12));
+        assert!(!verify_bitfield_bytes(&[0b1111_1111, 0b1111_1100], 13));
+        assert!(!verify_bitfield_bytes(&[0b1111_1111, 0b1111_1110], 14));
+
+        assert!(!verify_bitfield_bytes(&[0b1111_1110], 6));
+    }
+}
+*/
