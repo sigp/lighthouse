@@ -1,6 +1,5 @@
 use super::*;
-use crate::{impl_bitfield_fns, reverse_bit_order, Error};
-use bit_vec::BitVec as Bitfield;
+use crate::{bitfield::Bitfield, impl_bitfield_fns, Error};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode, PrefixedHexVisitor};
@@ -53,7 +52,7 @@ impl<N: Unsigned> BitList<N> {
     /// Create a new, empty BitList.
     pub fn new() -> Self {
         Self {
-            bitfield: Bitfield::default(),
+            bitfield: Bitfield::with_capacity(Self::max_len()),
             _phantom: PhantomData,
         }
     }
@@ -75,17 +74,19 @@ impl<N: Unsigned> BitList<N> {
     pub fn max_len() -> usize {
         N::to_usize()
     }
-
-    /// Create a new bitfield using the supplied `bytes` as input
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Self::validate_length(bytes.len().saturating_mul(8))?;
-
-        Ok(Self {
-            bitfield: Bitfield::from_bytes(&reverse_bit_order(bytes.to_vec())),
-            _phantom: PhantomData,
-        })
-    }
 }
+
+/*
+fn encode_bitfield(bitfield: Bitfield) -> Vec<u8> {
+    // Set the next bit of the bitfield to true.
+    //
+    // SSZ spec:
+    //
+    // An additional leading 1 bit is added so that the length in bits will also be known.
+    bitfield.set(bitfield.len(), true);
+    let bytes = bitfield.to_bytes();
+}
+*/
 
 impl<N: Unsigned + Clone> BitList<N> {
     /// Compute the intersection (binary-and) of this bitfield with another
@@ -106,7 +107,7 @@ impl<N: Unsigned + Clone> BitList<N> {
     ///
     /// If `self` and `other` have different lengths.
     pub fn intersection_inplace(&mut self, other: &Self) {
-        self.bitfield.intersect(&other.bitfield);
+        self.bitfield.intersection(&other.bitfield);
     }
 
     /// Compute the union (binary-or) of this bitfield with another. Lengths must match.
@@ -154,14 +155,7 @@ impl<N: Unsigned + Clone> BitList<N> {
     }
 }
 
-impl<N: Unsigned> default::Default for BitList<N> {
-    /// Default provides the "empty" bitfield
-    /// Note: the empty bitfield is set to the `0` byte.
-    fn default() -> Self {
-        Self::from_elem(0, false).expect("Zero cannot be larger than the maximum length")
-    }
-}
-
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -451,3 +445,4 @@ mod test {
         assert!(a.difference(&a).is_zero());
     }
 }
+*/
