@@ -190,6 +190,44 @@ paths:
                     description: "The total number of unique peers (by multiaddr) that have been discovered since the beacon node instance was started."
                     #TODO: This might be too difficult to collect
 
+  /node/network/block_discovery:
+    get:
+      tags:
+        - Future
+      summary: "Identify the time at which particular blocks were first seen."
+      description: "Request the node to provide the time at which particular blocks were first seen on the network."
+      parameters:
+        - name: block_roots
+          description: "Provide an array of block roots for which the discovered time is to be returned."
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              format: bytes
+              pattern: "^0x[a-fA-F0-9]{64}$"
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    root:
+                      type: string
+                      format: bytes
+                      description: "The merkle root of the block."
+                      pattern: "^0x[a-fA-F0-9]{64}$"
+                    discovered_time:
+                      type: integer
+                      format: uint64
+                      description: "UNIX time in milliseconds that the block was first discovered, either from a network peer or the validator client."
+
+
 
   /validator/duties:
     get:
