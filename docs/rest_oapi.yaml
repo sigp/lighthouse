@@ -179,15 +179,15 @@ paths:
                   bytes_sent:
                     type: integer
                     format: uint64
-                    descrption: "The total number of bytes sent by the beacon node since it was started."
+                    description: "The total number of bytes sent by the beacon node since it was started."
                   bytes_received:
                     type: integer
                     format: uint64
-                    descrption: "The total number of bytes sent by the beacon node since it was started."
+                    description: "The total number of bytes sent by the beacon node since it was started."
                   peers_seen:
                     type: integer
                     format: uint64
-                    descrption: "The total number of unique peers (by multiaddr) that have been discovered since the beacon node instance was started."
+                    description: "The total number of unique peers (by multiaddr) that have been discovered since the beacon node instance was started."
                     #TODO: This might be too difficult to collect
 
 
@@ -361,9 +361,9 @@ paths:
           $ref: '#/components/responses/CurrentlySyncing'
 
   /chain/beacon/blocks:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: 'Retrieve blocks by root, slot, or epoch.'
       description: "Request that the node return beacon chain blocks that match the provided criteria (a block root, beacon chain slot, or epoch). Only one of the parameters should be provided as a criteria."
       parameters:
@@ -371,23 +371,26 @@ paths:
           description: "Filter by block root, returning a single block."
           in: query
           required: false
-          type: string
-          format: bytes
-          pattern: "^0x[a-fA-F0-9]{64}$"
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
         - name: slot
           description: "Filter blocks by slot number. It is possible that multiple blocks will be returned if the slot has not yet been finalized, or if the node has seen blocks from multiple forks."
           #TODO: Is this description accurate?
           in: query
           required: false
-          type: integer
-          format: uint64
+          schema:
+            type: integer
+            format: uint64
         - name: epoch
           description: "Filter blocks by epoch, returning all blocks found for the provided epoch. It is possible that multiple blocks will be returned with the same slot number if the slot has not yet been finalized, or if the node has seen blocks from multiple forks."
           #TODO: Should this actually return no more than one block per slot, if it has been finalized? i.e. not blocks on multiple forks?
           in: query
           required: false
-          type: integer
-          format: uint64
+          schema:
+            type: integer
+            format: uint64
       responses:
         200:
           description: Success response.
@@ -402,9 +405,9 @@ paths:
           #TODO: Make this request error more specific if one of the parameters is not provided correctly.
 
   /chain/beacon/chainhead:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Detail the current perspective of the beacon node."
       description: "Request the beacon node to identify the most up-to-date information about the beacon chain from its perspective. This includes the latest block, which slots have been finalized, etc."
       responses:
@@ -454,9 +457,9 @@ paths:
                     description: "The block root of the second most recent justified block."
 
   /chain/beacon/validators:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "List the set of active validators for an epoch."
       description: "Request the beacon node to list the active validators for the specified epoch, or the current epoch if none is specified."
       parameters:
@@ -464,8 +467,9 @@ paths:
           description: "The epoch for which the list of validators should be returned."
           in: query
           required: false
-          type: integer
-          format: uint64
+          schema:
+            type: integer
+            format: uint64
       responses:
         200:
           description: Success response
@@ -484,9 +488,9 @@ paths:
                       $ref: '#/components/schemas/ValidatorInfo'
 
   /chain/beacon/validators/activesetchanges:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Retrieve the changes in active validator set."
       description: "Request that the beacon node describe the changes that occurred at the specified epoch, as compared with the prior epoch."
       parameters:
@@ -494,8 +498,9 @@ paths:
           description: "The epoch for which the validator change comparison should be made. The current epoch is used if this value is omitted."
           in: query
           required: false
-          type: integer
-          format: uint64
+          schema:
+            type: integer
+            format: uint64
       responses:
         200:
           description: Success response
@@ -525,9 +530,9 @@ paths:
                       $ref: '#/components/schemas/pubkey'
 
   /chain/beacon/validators/assignments:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Retrieve the assigned responsibilities for validators in a particular epoch."
       description: "Request that the beacon node list the duties which have been assigned to the active validator set in a particular epoch."
       parameters:
@@ -535,8 +540,9 @@ paths:
           description: "The epoch for which the validator assignments should be made. The current epoch is used if this value is omitted."
           in: query
           required: false
-          type: integer
-          format: uint64
+          schema:
+            type: integer
+            format: uint64
       responses:
         200:
           description: Success response
@@ -556,9 +562,9 @@ paths:
                     #TODO: This does not include the crosslink committee value, which must be included for Phase1?
 
   /chain/beacon/validators/indices:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Resolve a set of validator public keys to their validator indices."
       description: "Attempt to resolve the public key of a set of validators to their corresponding ValidatorIndex values. Generally the mapping from validator public key to index should never change, however it is possible in some scenarios."
       parameters:
@@ -573,6 +579,7 @@ paths:
             minItems: 1
       responses:
         200:
+          description: Success response
           content:
             application/json:
               schema:
@@ -581,9 +588,9 @@ paths:
                   $ref: '#/components/schemas/ValidatorIndexMapping'
 
   /chain/beacon/validators/pubkeys:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Resolve a set of validator indicies to their public keys."
       description: "Attempt to resolve the ValidatorIndex of a set of validators to their corresponding public keys. Generally the mapping from ValidatorIndex to public key should never change, however it is possible in some scenarios."
       parameters:
@@ -600,6 +607,7 @@ paths:
             minItems: 1
       responses:
         200:
+          description: Success response
           content:
             application/json:
               schema:
@@ -608,9 +616,9 @@ paths:
                   $ref: '#/components/schemas/ValidatorIndexMapping'
 
   /chain/beacon/validators/balances:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Retrieve the balances of validators at a specified epoch."
       description: "Retrieve the balances of validators at a specified epoch (or the current epoch if none specified). The list of balances can be filtered by providing a list of validator public keys or indices."
       parameters:
@@ -641,7 +649,8 @@ paths:
             minItems: 1
       responses:
         200:
-          conent:
+          description: Success response
+          content:
             application/json:
               schema:
                 type: object
@@ -668,9 +677,9 @@ paths:
                           description: "The balance of the validator at the specified epoch, expressed in Gwei"
 
   /chain/beacon/validators/participation:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Retrieve aggregate information about validator participation in an epoch."
       description: "Retrieve some aggregate information about the participation of validators in a specified epoch (or the current epoch if none specified)."
       parameters:
@@ -683,38 +692,39 @@ paths:
             format: uint64
       responses:
         200:
-          conent:
+          description: Success response
+          content:
             application/json:
               schema:
                 type: object
-                  properties:
-                    epoch:
-                      type: string
-                      format: uint64
-                      description: "The epoch for which the participation information is provided."
-                    finalized:
-                      type: boolean
-                      format: boolean
-                      description: "Whether the epoch has been finalized or not."
-                    global_participation_rate:
-                      type: number
-                      format: float
-                      description: "The percentage of validator participation in the given epoch."
-                      minimum: 0.0
-                      maximum: 1.0
-                    voted_ether:
-                      type: integer
-                      format: uint64
-                      description: "The total amount of ether, expressed in Gwei, that has been used in voting for the specified epoch."
-                    eligible_ether:
-                      type: integer
-                      format: uint64
-                      description: "The total amount of ether, expressed in Gwei, that is eligible for voting in the specified epoch."
+                properties:
+                  epoch:
+                    type: string
+                    format: uint64
+                    description: "The epoch for which the participation information is provided."
+                  finalized:
+                    type: boolean
+                    format: boolean
+                    description: "Whether the epoch has been finalized or not."
+                  global_participation_rate:
+                    type: number
+                    format: float
+                    description: "The percentage of validator participation in the given epoch."
+                    minimum: 0.0
+                    maximum: 1.0
+                  voted_ether:
+                    type: integer
+                    format: uint64
+                    description: "The total amount of ether, expressed in Gwei, that has been used in voting for the specified epoch."
+                  eligible_ether:
+                    type: integer
+                    format: uint64
+                    description: "The total amount of ether, expressed in Gwei, that is eligible for voting in the specified epoch."
 
   /chain/beacon/validators/queue:
-    tags:
-      - Phase0
     get:
+      tags:
+        - Phase0
       summary: "Retrieve information about the validator queue at the specified epoch."
       description: "Retrieve information about the queue of validators for the specified epoch (or the current epoch if none specified)."
       parameters:
@@ -727,29 +737,30 @@ paths:
             format: uint64
       responses:
         200:
-          conent:
+          description: Success response
+          content:
             application/json:
               schema:
                 type: object
-                  properties:
-                    epoch:
-                      type: string
-                      format: uint64
-                      description: "The epoch for which the validator queue information is provided."
-                    churn_limit:
-                      type: integer
-                      format: uint64
-                      description: "The validator churn limit for the specified epoch."
-                    activation_public_keys:
-                      type: array
-                      description: "The public keys of validators which are queued for activation."
-                      items:
-                        $ref: "#/components/schemas/pubkey"
-                    exit_public_keys:
-                      type: array
-                      description: "The public keys of validators which are queued for exiting."
-                      items:
-                        $ref: '#/components/schemas/pubkey'
+                properties:
+                  epoch:
+                    type: string
+                    format: uint64
+                    description: "The epoch for which the validator queue information is provided."
+                  churn_limit:
+                    type: integer
+                    format: uint64
+                    description: "The validator churn limit for the specified epoch."
+                  activation_public_keys:
+                    type: array
+                    description: "The public keys of validators which are queued for activation."
+                    items:
+                      $ref: "#/components/schemas/pubkey"
+                  exit_public_keys:
+                    type: array
+                    description: "The public keys of validators which are queued for exiting."
+                    items:
+                      $ref: '#/components/schemas/pubkey'
 
 components:
   schemas:
@@ -780,7 +791,7 @@ components:
 
     multiaddr:
       type: string
-      descrption: "The multiaddr address of a network peer."
+      description: "The multiaddr address of a network peer."
       nullable: true
       #TODO Define an example and pattern for a multiaddr string.
 
@@ -806,7 +817,7 @@ components:
           #TODO: Do we have the RTT information?
 
     ConnectionStatus:
-      type: enum
+      type: string
       #TODO: Define the ENUM and possible connection states
 
     ValidatorIndexMapping:
