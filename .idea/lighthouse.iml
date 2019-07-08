@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/store/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/store/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/store/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/store/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/http_server/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/http_server/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/http_server/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/http_server/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/hashing/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/hashing/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/hashing/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/hashing/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/serde_hex/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/serde_hex/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/serde_hex/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/serde_hex/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash_derive/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash_derive/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash_derive/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/version/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/version/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/version/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/version/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/boolean-bitfield/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/boolean-bitfield/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/boolean-bitfield/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/boolean-bitfield/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/cached_tree_hash/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/cached_tree_hash/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/cached_tree_hash/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/cached_tree_hash/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/test_random_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/test_random_derive/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/test_random_derive/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/test_random_derive/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/eth2_config/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/eth2_config/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/eth2_config/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/eth2_config/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/eth2-libp2p/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/eth2-libp2p/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/eth2-libp2p/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/eth2-libp2p/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/beacon_chain/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/beacon_chain/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/beacon_chain/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/beacon_chain/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/validator_client/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/validator_client/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/validator_client/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/validator_client/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/types/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/types/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/types/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/types/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/bls/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/bls/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/bls/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/bls/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/lmd_ghost/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/lmd_ghost/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/lmd_ghost/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/lmd_ghost/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/client/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/client/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/client/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/client/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields_derive/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields_derive/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields_derive/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/int_to_bytes/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/int_to_bytes/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/int_to_bytes/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/int_to_bytes/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/honey-badger-split/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/honey-badger-split/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/honey-badger-split/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/honey-badger-split/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/slot_clock/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/slot_clock/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/slot_clock/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/slot_clock/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/swap_or_not_shuffle/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/swap_or_not_shuffle/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/swap_or_not_shuffle/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/swap_or_not_shuffle/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/protos/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/protos/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/protos/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/protos/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/operation_pool/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/operation_pool/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/operation_pool/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/operation_pool/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tests/ef_tests/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests/ef_tests/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests/ef_tests/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tests/ef_tests/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/network/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/network/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/network/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/network/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz_derive/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz_derive/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/ssz_derive/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/merkle_proof/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/merkle_proof/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/merkle_proof/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/merkle_proof/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/state_processing/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/state_processing/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/state_processing/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/state_processing/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/rpc/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/rpc/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/rpc/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/beacon_node/rpc/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/fixed_len_vec/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/fixed_len_vec/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/fixed_len_vec/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/fixed_len_vec/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/account_manager/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/account_manager/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/account_manager/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/account_manager/benches" isTestSource="true" />
+      <excludeFolder url="file://$MODULE_DIR$/account_manager/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/beacon_chain/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/client/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/eth2-libp2p/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/http_server/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/network/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/rpc/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/store/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/target" />
+      <excludeFolder url="file://$MODULE_DIR$/beacon_node/version/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/lmd_ghost/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/operation_pool/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/state_processing/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/types/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/bls/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/boolean-bitfield/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/cached_tree_hash/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/compare_fields_derive/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/eth2_config/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/fixed_len_vec/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/hashing/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/honey-badger-split/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/int_to_bytes/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/merkle_proof/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/serde_hex/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/slot_clock/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/ssz/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/ssz_derive/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/swap_or_not_shuffle/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/test_random_derive/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash/target" />
+      <excludeFolder url="file://$MODULE_DIR$/eth2/utils/tree_hash_derive/target" />
+      <excludeFolder url="file://$MODULE_DIR$/protos/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/tests/ef_tests/target" />
+      <excludeFolder url="file://$MODULE_DIR$/validator_client/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>
