@@ -46,24 +46,14 @@ impl_bitfield_fns!(BitVector);
 impl<N: Unsigned> BitVector<N> {
     /// Create a new bitfield.
     pub fn new() -> Self {
-        Self::with_capacity(Self::capacity()).expect("Capacity must be correct")
+        Self {
+            bitfield: Bitfield::with_capacity(Self::capacity()),
+            _phantom: PhantomData,
+        }
     }
 
     fn capacity() -> usize {
         N::to_usize()
-    }
-
-    fn validate_length(len: usize) -> Result<(), Error> {
-        let fixed_len = N::to_usize();
-
-        if len > fixed_len {
-            Err(Error::InvalidLength {
-                i: len,
-                len: fixed_len,
-            })
-        } else {
-            Ok(())
-        }
     }
 }
 
