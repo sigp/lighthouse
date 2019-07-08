@@ -75,6 +75,16 @@ impl<N: Unsigned> BitList<N> {
     pub fn max_len() -> usize {
         N::to_usize()
     }
+
+    /// Create a new bitfield using the supplied `bytes` as input
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Self::validate_length(bytes.len().saturating_mul(8))?;
+
+        Ok(Self {
+            bitfield: Bitfield::from_bytes(&reverse_bit_order(bytes.to_vec())),
+            _phantom: PhantomData,
+        })
+    }
 }
 
 impl<N: Unsigned + Clone> BitList<N> {
@@ -153,7 +163,7 @@ impl<N: Unsigned> default::Default for BitList<N> {
 }
 
 #[cfg(test)]
-mod test_bitlist {
+mod test {
     use super::*;
     use serde_yaml;
     use ssz::ssz_encode;
