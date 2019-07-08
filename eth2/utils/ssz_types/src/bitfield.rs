@@ -1,24 +1,127 @@
-/// A heap-allocated, ordered, fixed-length, collection of `bool` values.
+use core::marker::PhantomData;
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
+use ssz::{Decode, Encode};
+use typenum::Unsigned;
+
+pub trait BitfieldBehaviour: Clone {}
+
+/// A marker struct used to define SSZ `BitList` functionality on a `Bitfield`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct BitList<N> {
+    _phantom: PhantomData<N>,
+}
+
+/// A marker struct used to define SSZ `BitVector` functionality on a `Bitfield`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct BitVector<N> {
+    _phantom: PhantomData<N>,
+}
+
+impl<N: Unsigned + Clone> BitfieldBehaviour for BitList<N> {}
+impl<N: Unsigned + Clone> BitfieldBehaviour for BitVector<N> {}
+
+/// A heap-allocated, ordered, fixed-length, collection of `bool` values. Must be used with the `BitList` or
+/// `BitVector` marker structs.
 ///
-/// The length of the Bitfield is set at instantiation (i.e., runtime, not compile time).
+/// The length of the Bitfield is set at instantiation (i.e., runtime, not compile time). However,
+/// use with a `BitList` sets a type-level (i.e., compile-time) maximum length and `BitVector`
+/// provides a type-level fixed length.
+///
+/// ## Note
 ///
 /// The internal representation of the bitfield is the same as that required by SSZ - the highest
 /// byte (by `Vec` index) stores the lowest bit-indices and the right-most bit stores the lowest
 /// bit-index. E.g., `vec![0b0000_0010, 0b0000_0001]` has bits `0, 9` set.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Bitfield {
+pub struct Bitfield<T> {
     bytes: Vec<u8>,
     len: usize,
+    _phantom: PhantomData<T>,
 }
 
-impl Bitfield {
-    pub fn with_capacity(num_bits: usize) -> Self {
-        Self {
-            bytes: vec![0; Self::bytes_for_bit_len(num_bits)],
-            len: num_bits,
+impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
+    pub fn with_capacity(num_bits: usize) -> Option<Self> {
+        if num_bits <= N::to_usize() {
+            Some(Self {
+                bytes: vec![0; bytes_for_bit_len(num_bits)],
+                len: num_bits,
+                _phantom: PhantomData,
+            })
+        } else {
+            None
         }
     }
 
+    pub fn capacity() -> usize {
+        N::to_usize()
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let len = self.len();
+        let mut bytes = self.as_slice().to_vec();
+
+        if bytes_for_bit_len(len + 1) == bytes.len() + 1 {
+            bytes.insert(0, 0);
+        }
+
+        let mut bitfield: Bitfield<BitList<N>> = Bitfield::from_raw_bytes(bytes, len + 1)
+            .expect("Bitfield capacity has been confirmed earlier.");
+        bitfield
+            .set(len, true)
+            .expect("Bitfield capacity has been confirmed earlier.");
+
+        bitfield.bytes
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
+        let mut initial_bitfield: Bitfield<BitList<N>> = {
+            let num_bits = bytes.len() * 8;
+            Bitfield::from_raw_bytes(bytes, num_bits)
+                .expect("Must have adequate bytes for bit count.")
+        };
+
+        let len = initial_bitfield.highest_set_bit()?;
+        initial_bitfield
+            .set(len, false)
+            .expect("Bit has been confirmed to exist");
+
+        let mut bytes = initial_bitfield.to_raw_bytes();
+
+        if bytes_for_bit_len(len) < bytes.len() {
+            bytes.remove(0);
+        }
+
+        Self::from_raw_bytes(bytes, len)
+    }
+}
+
+impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
+    pub fn new() -> Self {
+        let num_bits = N::to_usize();
+
+        Self {
+            bytes: vec![0; num_bits],
+            len: num_bits,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn capacity() -> usize {
+        N::to_usize()
+    }
+
+    pub fn to_bytes(self) -> Vec<u8> {
+        self.to_raw_bytes()
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
+        Self::from_raw_bytes(bytes, Self::capacity())
+    }
+}
+
+impl<T: BitfieldBehaviour> Bitfield<T> {
     pub fn set(&mut self, i: usize, value: bool) -> Option<()> {
         if i < self.len {
             let byte = {
@@ -65,11 +168,7 @@ impl Bitfield {
         self.len == 0
     }
 
-    fn bytes_for_bit_len(bit_len: usize) -> usize {
-        (bit_len + 7) / 8
-    }
-
-    pub fn to_bytes(self) -> Vec<u8> {
+    pub fn to_raw_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
@@ -77,11 +176,15 @@ impl Bitfield {
         &self.bytes
     }
 
-    pub fn from_bytes(bytes: Vec<u8>, bit_len: usize) -> Option<Self> {
+    pub fn from_raw_bytes(bytes: Vec<u8>, bit_len: usize) -> Option<Self> {
         if bytes.len() == 1 && bit_len == 0 && bytes == &[0] {
             // A bitfield with `bit_len` 0 can only be represented by a single zero byte.
-            Some(Self { bytes, len: 0 })
-        } else if bytes.len() != Bitfield::bytes_for_bit_len(bit_len) || bytes.is_empty() {
+            Some(Self {
+                bytes,
+                len: 0,
+                _phantom: PhantomData,
+            })
+        } else if bytes.len() != bytes_for_bit_len(bit_len) || bytes.is_empty() {
             // The number of bytes must be the minimum required to represent `bit_len`.
             None
         } else {
@@ -92,6 +195,7 @@ impl Bitfield {
                 Some(Self {
                     bytes,
                     len: bit_len,
+                    _phantom: PhantomData,
                 })
             } else {
                 None
@@ -99,7 +203,14 @@ impl Bitfield {
         }
     }
 
-    pub fn iter(&self) -> BitIter<'_> {
+    pub fn highest_set_bit(&self) -> Option<usize> {
+        let byte_i = self.bytes.iter().position(|byte| *byte > 0)?;
+        let bit_i = 7 - self.bytes[byte_i].leading_zeros() as usize;
+
+        Some((self.bytes.len().saturating_sub(1) - byte_i) * 8 + bit_i)
+    }
+
+    pub fn iter(&self) -> BitIter<'_, T> {
         BitIter {
             bitfield: self,
             i: 0,
@@ -178,12 +289,16 @@ impl Bitfield {
     }
 }
 
-pub struct BitIter<'a> {
-    bitfield: &'a Bitfield,
+fn bytes_for_bit_len(bit_len: usize) -> usize {
+    (bit_len + 7) / 8
+}
+
+pub struct BitIter<'a, T> {
+    bitfield: &'a Bitfield<T>,
     i: usize,
 }
 
-impl<'a> Iterator for BitIter<'a> {
+impl<'a, T: BitfieldBehaviour> Iterator for BitIter<'a, T> {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -193,188 +308,200 @@ impl<'a> Iterator for BitIter<'a> {
     }
 }
 
-/// Provides a common `impl` for structs that wrap a `$name`.
-#[macro_export]
-macro_rules! impl_bitfield_fns {
-    ($name: ident) => {
-        impl<N: Unsigned> $name<N> {
-            pub fn get(&self, i: usize) -> Result<bool, Error> {
-                if i < N::to_usize() {
-                    match self.bitfield.get(i) {
-                        Some(value) => Ok(value),
-                        None => Err(Error::OutOfBounds {
-                            i,
-                            len: self.bitfield.len(),
-                        }),
-                    }
-                } else {
-                    Err(Error::InvalidLength {
-                        i,
-                        len: N::to_usize(),
-                    })
-                }
-            }
+impl<N: Unsigned + Clone> Encode for Bitfield<BitList<N>> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
 
-            pub fn set(&mut self, i: usize, value: bool) -> Option<()> {
-                self.bitfield.set(i, value)
-            }
-
-            /// Returns the number of bits in this bitfield.
-            pub fn len(&self) -> usize {
-                self.bitfield.len()
-            }
-
-            /// Returns true if `self.len() == 0`
-            pub fn is_empty(&self) -> bool {
-                self.bitfield.is_empty()
-            }
-
-            /// Returns true if all bits are set to 0.
-            pub fn is_zero(&self) -> bool {
-                self.bitfield.is_zero()
-            }
-
-            /// Returns the number of bytes presently used to store the bitfield.
-            pub fn num_bytes(&self) -> usize {
-                self.bitfield.as_slice().len()
-            }
-
-            /// Returns the number of `1` bits in the bitfield
-            pub fn num_set_bits(&self) -> usize {
-                self.bitfield.iter().filter(|&bit| bit).count()
-            }
-        }
-
-        /*
-        impl<N: Unsigned> Encode for $name<N> {
-            fn is_ssz_fixed_len() -> bool {
-                false
-            }
-
-            fn ssz_append(&self, buf: &mut Vec<u8>) {
-                buf.append(&mut self.bitfield.to_bytes())
-            }
-        }
-
-        impl<N: Unsigned> Decode for $name<N> {
-            fn is_ssz_fixed_len() -> bool {
-                false
-            }
-
-            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-                let bitfield =
-                    Bitfield::from_bytes(bytes.to_vec(), bytes.len() * 8).expect("Cannot fail");
-                Ok(Self {
-                    bitfield,
-                    _phantom: PhantomData,
-                })
-                /*
-                $name::from_bytes(bytes)
-                    .map_err(|e| ssz::DecodeError::BytesInvalid(format!("Bitfield {:?}", e)))
-                */
-            }
-        }
-
-        impl<N: Unsigned> Serialize for $name<N> {
-            /// Serde serialization is compliant with the Ethereum YAML test format.
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: Serializer,
-            {
-                serializer.serialize_str(&encode(self.bitfield.to_bytes()))
-            }
-        }
-
-        impl<'de, N: Unsigned> Deserialize<'de> for $name<N> {
-            /// Serde serialization is compliant with the Ethereum YAML test format.
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                // We reverse the bit-order so that the BitVec library can read its 0th
-                // bit from the end of the hex string, e.g.
-                // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
-                let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-                $name::from_bytes(&bytes)
-                    .map_err(|e| serde::de::Error::custom(format!("Bitfield {:?}", e)))
-            }
-        }
-
-        impl<N: Unsigned> tree_hash::TreeHash for $name<N> {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::List
-            }
-
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("List should never be packed.")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unreachable!("List should never be packed.")
-            }
-
-            fn tree_hash_root(&self) -> Vec<u8> {
-                self.to_bytes().tree_hash_root()
-            }
-        }
-        */
-    };
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        buf.append(&mut self.clone().to_bytes())
+    }
 }
+
+impl<N: Unsigned + Clone> Decode for Bitfield<BitList<N>> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        Self::from_bytes(bytes.to_vec())
+            .ok_or_else(|| ssz::DecodeError::BytesInvalid("BitList failed to decode".to_string()))
+    }
+}
+
+impl<N: Unsigned + Clone> Encode for Bitfield<BitVector<N>> {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        bytes_for_bit_len(N::to_usize())
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        buf.append(&mut self.clone().to_bytes())
+    }
+}
+
+impl<N: Unsigned + Clone> Decode for Bitfield<BitVector<N>> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        Self::from_bytes(bytes.to_vec())
+            .ok_or_else(|| ssz::DecodeError::BytesInvalid("BitVector failed to decode".to_string()))
+    }
+}
+
+impl<N: Unsigned + Clone> Serialize for Bitfield<BitList<N>> {
+    /// Serde serialization is compliant with the Ethereum YAML test format.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&hex_encode(self.as_ssz_bytes()))
+    }
+}
+
+impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<BitList<N>> {
+    /// Serde serialization is compliant with the Ethereum YAML test format.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // We reverse the bit-order so that the BitVec library can read its 0th
+        // bit from the end of the hex string, e.g.
+        // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+        Self::from_ssz_bytes(&bytes)
+            .map_err(|e| serde::de::Error::custom(format!("Bitfield {:?}", e)))
+    }
+}
+
+impl<N: Unsigned + Clone> Serialize for Bitfield<BitVector<N>> {
+    /// Serde serialization is compliant with the Ethereum YAML test format.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&hex_encode(self.as_ssz_bytes()))
+    }
+}
+
+impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<BitVector<N>> {
+    /// Serde serialization is compliant with the Ethereum YAML test format.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // We reverse the bit-order so that the BitVec library can read its 0th
+        // bit from the end of the hex string, e.g.
+        // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+        Self::from_ssz_bytes(&bytes)
+            .map_err(|e| serde::de::Error::custom(format!("Bitfield {:?}", e)))
+    }
+}
+
+impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<BitList<N>> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        // TODO: pad this out to max length.
+        self.as_ssz_bytes().tree_hash_root()
+    }
+}
+
+impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<BitVector<N>> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        // TODO: move this to be a vector.
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        // TODO: move this to be a vector.
+        unreachable!("Vector should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        // TODO: move this to be a vector.
+        unreachable!("Vector should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        self.as_ssz_bytes().tree_hash_root()
+    }
+}
+
+// TODO: test ssz decode a zero-length bitlist.
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    #[test]
-    fn from_bytes() {
-        assert!(Bitfield::from_bytes(vec![0b0000_0000], 0).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0000_0001], 1).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0000_0011], 2).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0000_0111], 3).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0000_1111], 4).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0001_1111], 5).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0011_1111], 6).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0111_1111], 7).is_some());
-        assert!(Bitfield::from_bytes(vec![0b1111_1111], 8).is_some());
+    type Bitfield = super::Bitfield<BitList<typenum::U1024>>;
 
-        assert!(Bitfield::from_bytes(vec![0b0000_0001, 0b1111_1111], 9).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0000_0011, 0b1111_1111], 10).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0000_0111, 0b1111_1111], 11).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0000_1111, 0b1111_1111], 12).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0001_1111, 0b1111_1111], 13).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0011_1111, 0b1111_1111], 14).is_some());
-        assert!(Bitfield::from_bytes(vec![0b0111_1111, 0b1111_1111], 15).is_some());
-        assert!(Bitfield::from_bytes(vec![0b1111_1111, 0b1111_1111], 16).is_some());
+    #[test]
+    fn from_raw_bytes() {
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0000], 0).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001], 1).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011], 2).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111], 3).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111], 4).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111], 5).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111], 6).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111], 7).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111], 8).is_some());
+
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001, 0b1111_1111], 9).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011, 0b1111_1111], 10).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111, 0b1111_1111], 11).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111, 0b1111_1111], 12).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111, 0b1111_1111], 13).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111, 0b1111_1111], 14).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111, 0b1111_1111], 15).is_some());
+        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111, 0b1111_1111], 16).is_some());
 
         for i in 0..8 {
-            assert!(Bitfield::from_bytes(vec![], i).is_none());
-            assert!(Bitfield::from_bytes(vec![0b1111_1111], i).is_none());
-            assert!(Bitfield::from_bytes(vec![0b1111_1110, 0b0000_0000], i).is_none());
+            assert!(Bitfield::from_raw_bytes(vec![], i).is_none());
+            assert!(Bitfield::from_raw_bytes(vec![0b1111_1111], i).is_none());
+            assert!(Bitfield::from_raw_bytes(vec![0b1111_1110, 0b0000_0000], i).is_none());
         }
 
-        assert!(Bitfield::from_bytes(vec![0b0000_0001], 0).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001], 0).is_none());
 
-        assert!(Bitfield::from_bytes(vec![0b0000_0001], 0).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0000_0011], 1).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0000_0111], 2).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0000_1111], 3).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0001_1111], 4).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0011_1111], 5).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0111_1111], 6).is_none());
-        assert!(Bitfield::from_bytes(vec![0b1111_1111], 7).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001], 0).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011], 1).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111], 2).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111], 3).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111], 4).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111], 5).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111], 6).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111], 7).is_none());
 
-        assert!(Bitfield::from_bytes(vec![0b0000_0001, 0b1111_1111], 8).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0000_0011, 0b1111_1111], 9).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0000_0111, 0b1111_1111], 10).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0000_1111, 0b1111_1111], 11).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0001_1111, 0b1111_1111], 12).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0011_1111, 0b1111_1111], 13).is_none());
-        assert!(Bitfield::from_bytes(vec![0b0111_1111, 0b1111_1111], 14).is_none());
-        assert!(Bitfield::from_bytes(vec![0b1111_1111, 0b1111_1111], 15).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001, 0b1111_1111], 8).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011, 0b1111_1111], 9).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111, 0b1111_1111], 10).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111, 0b1111_1111], 11).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111, 0b1111_1111], 12).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111, 0b1111_1111], 13).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111, 0b1111_1111], 14).is_none());
+        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111, 0b1111_1111], 15).is_none());
     }
 
     fn test_set_unset(num_bits: usize) {
-        let mut bitfield = Bitfield::with_capacity(num_bits);
+        let mut bitfield = Bitfield::with_capacity(num_bits).unwrap();
 
         for i in 0..num_bits + 1 {
             dbg!(i);
@@ -399,12 +526,12 @@ mod test {
         dbg!(num_bits);
         for i in 0..num_bits {
             dbg!(i);
-            let mut bitfield = Bitfield::with_capacity(num_bits);
+            let mut bitfield = Bitfield::with_capacity(num_bits).unwrap();
             bitfield.set(i, true).unwrap();
 
-            let bytes = bitfield.clone().to_bytes();
+            let bytes = bitfield.clone().to_raw_bytes();
             dbg!(&bytes);
-            assert_eq!(bitfield, Bitfield::from_bytes(bytes, num_bits).unwrap());
+            assert_eq!(bitfield, Bitfield::from_raw_bytes(bytes, num_bits).unwrap());
         }
     }
 
@@ -423,33 +550,93 @@ mod test {
     }
 
     #[test]
-    fn to_bytes() {
-        let mut bitfield = Bitfield::with_capacity(9);
+    fn to_raw_bytes() {
+        let mut bitfield = Bitfield::with_capacity(9).unwrap();
         bitfield.set(0, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b0000_0001]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b0000_0001]
+        );
         bitfield.set(1, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b0000_0011]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b0000_0011]
+        );
         bitfield.set(2, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b0000_0111]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b0000_0111]
+        );
         bitfield.set(3, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b0000_1111]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b0000_1111]
+        );
         bitfield.set(4, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b0001_1111]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b0001_1111]
+        );
         bitfield.set(5, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b0011_1111]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b0011_1111]
+        );
         bitfield.set(6, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b0111_1111]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b0111_1111]
+        );
         bitfield.set(7, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0000, 0b1111_1111]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0000, 0b1111_1111]
+        );
         bitfield.set(8, true);
-        assert_eq!(bitfield.clone().to_bytes(), vec![0b0000_0001, 0b1111_1111]);
+        assert_eq!(
+            bitfield.clone().to_raw_bytes(),
+            vec![0b0000_0001, 0b1111_1111]
+        );
+    }
+
+    #[test]
+    fn highest_set_bit() {
+        assert_eq!(Bitfield::with_capacity(16).unwrap().highest_set_bit(), None);
+
+        assert_eq!(
+            Bitfield::from_raw_bytes(vec![0b0000_000, 0b0000_0001], 16)
+                .unwrap()
+                .highest_set_bit(),
+            Some(0)
+        );
+
+        assert_eq!(
+            Bitfield::from_raw_bytes(vec![0b0000_000, 0b0000_0010], 16)
+                .unwrap()
+                .highest_set_bit(),
+            Some(1)
+        );
+
+        assert_eq!(
+            Bitfield::from_raw_bytes(vec![0b0000_1000], 8)
+                .unwrap()
+                .highest_set_bit(),
+            Some(3)
+        );
+
+        assert_eq!(
+            Bitfield::from_raw_bytes(vec![0b1000_0000, 0b0000_0000], 16)
+                .unwrap()
+                .highest_set_bit(),
+            Some(15)
+        );
     }
 
     #[test]
     fn intersection() {
-        let a = Bitfield::from_bytes(vec![0b1100, 0b0001], 16).unwrap();
-        let b = Bitfield::from_bytes(vec![0b1011, 0b1001], 16).unwrap();
-        let c = Bitfield::from_bytes(vec![0b1000, 0b0001], 16).unwrap();
+        let a = Bitfield::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = Bitfield::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let c = Bitfield::from_raw_bytes(vec![0b1000, 0b0001], 16).unwrap();
 
         assert_eq!(a.intersection(&b).unwrap(), c);
         assert_eq!(b.intersection(&a).unwrap(), c);
@@ -462,9 +649,9 @@ mod test {
 
     #[test]
     fn union() {
-        let a = Bitfield::from_bytes(vec![0b1100, 0b0001], 16).unwrap();
-        let b = Bitfield::from_bytes(vec![0b1011, 0b1001], 16).unwrap();
-        let c = Bitfield::from_bytes(vec![0b1111, 0b1001], 16).unwrap();
+        let a = Bitfield::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = Bitfield::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let c = Bitfield::from_raw_bytes(vec![0b1111, 0b1001], 16).unwrap();
 
         assert_eq!(a.union(&b).unwrap(), c);
         assert_eq!(b.union(&a).unwrap(), c);
@@ -475,10 +662,10 @@ mod test {
 
     #[test]
     fn difference() {
-        let a = Bitfield::from_bytes(vec![0b1100, 0b0001], 16).unwrap();
-        let b = Bitfield::from_bytes(vec![0b1011, 0b1001], 16).unwrap();
-        let a_b = Bitfield::from_bytes(vec![0b0100, 0b0000], 16).unwrap();
-        let b_a = Bitfield::from_bytes(vec![0b0011, 0b1000], 16).unwrap();
+        let a = Bitfield::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = Bitfield::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let a_b = Bitfield::from_raw_bytes(vec![0b0100, 0b0000], 16).unwrap();
+        let b_a = Bitfield::from_raw_bytes(vec![0b0011, 0b1000], 16).unwrap();
 
         assert_eq!(a.difference(&b).unwrap(), a_b);
         assert_eq!(b.difference(&a).unwrap(), b_a);
@@ -487,7 +674,7 @@ mod test {
 
     #[test]
     fn iter() {
-        let mut bitfield = Bitfield::with_capacity(9);
+        let mut bitfield = Bitfield::with_capacity(9).unwrap();
         bitfield.set(2, true);
         bitfield.set(8, true);
 
