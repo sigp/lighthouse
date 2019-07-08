@@ -1,7 +1,10 @@
 pub mod cache;
 pub mod error;
 pub mod field;
+pub mod merkle_tree_overlay;
 pub mod partial;
+pub mod path;
+pub mod tree_arithmetic;
 
 use tree_hash::BYTES_PER_CHUNK;
 
