@@ -112,7 +112,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //
         // https://github.com/ethereum/eth2.0-specs/blob/v0.7.0/specs/core/0_fork-choice.md
         for attestation in &block.body.attestations {
-            self.process_attestation_from_block(state, attestation)?;
+            self.process_attestation(state, attestation)?;
         }
 
         self.backend.process_block(block, block_root)?;
@@ -120,7 +120,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Ok(())
     }
 
-    fn process_attestation_from_block(
+    pub fn process_attestation(
         &self,
         state: &BeaconState<T::EthSpec>,
         attestation: &Attestation,
