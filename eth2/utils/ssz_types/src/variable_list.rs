@@ -210,7 +210,6 @@ mod test {
     }
 }
 
-/*
 impl<T, N: Unsigned> tree_hash::TreeHash for VariableList<T, N>
 where
     T: tree_hash::TreeHash,
@@ -258,7 +257,6 @@ where
         Ok(())
     }
 }
-*/
 
 impl<T, N: Unsigned> ssz::Encode for VariableList<T, N>
 where
