@@ -524,7 +524,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         {
             match outcome {
                 BlockProcessingOutcome::Processed { .. } => SHOULD_FORWARD_GOSSIP_BLOCK,
-                BlockProcessingOutcome::ParentUnknown { parent } => {
+                BlockProcessingOutcome::ParentUnknown { .. } => {
                     // Clean the stale entries from the queue.
                     self.import_queue.remove_stale();
 
@@ -536,20 +536,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         "NewGossipBlock";
                         "peer" => format!("{:?}", peer_id),
                     );
-
-                    // Unless the parent is in the queue, request the parent block from the peer.
-                    //
-                    // It is likely that this is duplicate work, given we already send a hello
-                    // request. However, I believe there are some edge-cases where the hello
-                    // message doesn't suffice, so we perform this request as well.
-                    if !self.import_queue.contains_block_root(parent) {
-                        // Send a hello to learn of the clients best slot so we can then sync the required
-                        // parent(s).
-                        network.send_rpc_request(
-                            peer_id.clone(),
-                            RPCRequest::Hello(hello_message(&self.chain)),
-                        );
-                    }
 
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
@@ -827,7 +813,10 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                                     // Remove `parent` from queue.`
                                     self.import_queue.remove(parent);
                                     // Attempt to process `block` again
-                                    return self.process_block(peer_id, block, network, source);
+                                    match self.chain.process_block(block) {
+                                        Ok(outcome) => return Some(outcome),
+                                        Err(_) => return None,
+                                    }
                                 }
                                 // All other cases leave `parent` in `import_queue` and return original outcome.
                                 _ => {}
