@@ -480,6 +480,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
+        match self.store.exists::<BeaconBlock>(&attestation.data.target_root) {
+            Ok(true) => {
+                per_block_processing::validate_attestation_time_independent_only(&*self.state.read(), &attestation, &self.spec)?;
+                self.fork_choice.process_attestation(&*self.state.read(), &attestation);
+            },
+            _ => {}
+        };
+
         let result = self
             .op_pool
             .insert_attestation(attestation, &*self.state.read(), &self.spec);
