@@ -8,7 +8,7 @@ use typenum::Unsigned;
 /// A marker trait applied to `BitList` and `BitVector` that defines the behaviour of a `Bitfield`.
 pub trait BitfieldBehaviour: Clone {}
 
-/// A marker struct used to define SSZ `BitList` functionality on a `Bitfield`.
+/// A marker struct used to declare SSZ `BitList` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
 #[derive(Clone, PartialEq, Debug)]
@@ -16,7 +16,7 @@ pub struct BitList<N> {
     _phantom: PhantomData<N>,
 }
 
-/// A marker struct used to define SSZ `BitVector` functionality on a `Bitfield`.
+/// A marker struct used to declare SSZ `BitVector` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
 #[derive(Clone, PartialEq, Debug)]
@@ -415,10 +415,14 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     }
 }
 
+/// Returns the minimum required bytes to represent a given number of bits.
+///
+/// `bit_len == 0` requires a single byte.
 fn bytes_for_bit_len(bit_len: usize) -> usize {
     (bit_len + 7) / 8
 }
 
+/// An iterator over the bits in a `Bitfield`.
 pub struct BitIter<'a, T> {
     bitfield: &'a Bitfield<T>,
     i: usize,
