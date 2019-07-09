@@ -537,7 +537,7 @@ where
         Ok(BlockRootsIterator::owned(
             self.store.clone(),
             state,
-            block.slot,
+            block.slot - 1,
         ))
     }
 

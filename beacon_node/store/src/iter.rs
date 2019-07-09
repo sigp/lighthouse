@@ -32,13 +32,11 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if (self.slot == 0) || (self.slot > self.beacon_state.slot) {
+        if self.slot >= self.beacon_state.slot {
             return None;
         }
 
-        self.slot -= 1;
-
-        match self.beacon_state.get_state_root(self.slot) {
+        let result = match self.beacon_state.get_state_root(self.slot) {
             Ok(root) => Some((*root, self.slot)),
             Err(BeaconStateError::SlotOutOfBounds) => {
                 // Read a `BeaconState` from the store that has access to prior historical root.
@@ -55,7 +53,10 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
                 Some((*root, self.slot))
             }
             _ => None,
-        }
+        };
+
+        self.slot -= 1;
+        result
     }
 }
 
@@ -128,13 +129,11 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if (self.slot == 0) || (self.slot > self.beacon_state.slot) {
+        if self.slot >= self.beacon_state.slot {
             return None;
         }
 
-        self.slot -= 1;
-
-        match self.beacon_state.get_block_root(self.slot) {
+        let result = match self.beacon_state.get_block_root(self.slot) {
             Ok(root) => Some((*root, self.slot)),
             Err(BeaconStateError::SlotOutOfBounds) => {
                 // Read a `BeaconState` from the store that has access to prior historical root.
@@ -152,7 +151,10 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
                 Some((*root, self.slot))
             }
             _ => None,
-        }
+        };
+
+        self.slot -= 1;
+        result
     }
 }
 

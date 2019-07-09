@@ -62,8 +62,21 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         complete
     }
 
+    /// Returns true of the if the `BlockRoot` is found in the `import_queue`.
     pub fn contains_block_root(&self, block_root: Hash256) -> bool {
         self.partials.contains_key(&block_root)
+    }
+
+    /// Attempts to complete the `BlockRoot` if it is found in the `import_queue`.
+    ///
+    /// Returns an Enum with a `PartialBeaconBlockCompletion`.
+    /// Does not remove the `block_root` from the `import_queue`.
+    pub fn attempt_complete_block(&self, block_root: Hash256) -> PartialBeaconBlockCompletion {
+        if let Some(partial) = self.partials.get(&block_root) {
+            partial.attempt_complete()
+        } else {
+            PartialBeaconBlockCompletion::MissingRoot
+        }
     }
 
     /// Removes the first `PartialBeaconBlock` with a matching `block_root`, returning the partial
@@ -257,6 +270,24 @@ pub struct PartialBeaconBlock {
 }
 
 impl PartialBeaconBlock {
+    /// Attempts to build a block.
+    ///
+    /// Does not comsume the `PartialBeaconBlock`.
+    pub fn attempt_complete(&self) -> PartialBeaconBlockCompletion {
+        if self.header.is_none() {
+            PartialBeaconBlockCompletion::MissingHeader(self.slot)
+        } else if self.body.is_none() {
+            PartialBeaconBlockCompletion::MissingBody
+        } else {
+            PartialBeaconBlockCompletion::Complete(
+                self.header
+                    .clone()
+                    .unwrap()
+                    .into_block(self.body.clone().unwrap()),
+            )
+        }
+    }
+
     /// Consumes `self` and returns a full built `BeaconBlock`, it's root and the `sender`
     /// `PeerId`, if enough information exists to complete the block. Otherwise, returns `None`.
     pub fn complete(self) -> Option<(Hash256, BeaconBlock, PeerId)> {
@@ -266,4 +297,17 @@ impl PartialBeaconBlock {
             self.sender,
         ))
     }
+}
+
+/// Enum for attempting to complete a Partial.
+///
+/// Complete - Contains a valid BeaconBlock.
+/// MissingRoot - If the partial does not exist.
+/// MissingHeader - If there is a `BeaconBlockRoot` but no `BeaconBlockHeader`.
+/// MissingBody - If there is a `BeaconBlockRoot` and `BeaconBlockHeader` but no `BeaconBlockBody`.
+pub enum PartialBeaconBlockCompletion {
+    Complete(BeaconBlock),
+    MissingRoot,
+    MissingHeader(Slot),
+    MissingBody,
 }
