@@ -5,15 +5,20 @@ use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
 use typenum::Unsigned;
 
+/// A marker trait applied to `BitList` and `BitVector` that defines the behaviour of a `Bitfield`.
 pub trait BitfieldBehaviour: Clone {}
 
 /// A marker struct used to define SSZ `BitList` functionality on a `Bitfield`.
+///
+/// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
 #[derive(Clone, PartialEq, Debug)]
 pub struct BitList<N> {
     _phantom: PhantomData<N>,
 }
 
 /// A marker struct used to define SSZ `BitVector` functionality on a `Bitfield`.
+///
+/// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
 #[derive(Clone, PartialEq, Debug)]
 pub struct BitVector<N> {
     _phantom: PhantomData<N>,
@@ -69,6 +74,12 @@ pub struct Bitfield<T> {
 }
 
 impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
+    /// Instantiate with capacity for `num_bits` boolean values. The length cannot be grown or
+    /// shrunk after instantiation.
+    ///
+    /// All bits are initialized to `false`.
+    ///
+    /// Returns `None` if `num_bits > N`.
     pub fn with_capacity(num_bits: usize) -> Option<Self> {
         if num_bits <= N::to_usize() {
             let num_bytes = std::cmp::max(bytes_for_bit_len(num_bits), 1);
@@ -83,10 +94,26 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
         }
     }
 
+    /// Equal to `N` regardless of the value supplied to `with_capacity`.
     pub fn max_len() -> usize {
         N::to_usize()
     }
 
+    /// Consumes `self`, returning a serialized representation.
+    ///
+    /// The output is faithful to the SSZ encoding of `self`, such that a leading `true` bit is
+    /// used to indicate the length of the bitfield.
+    ///
+    /// ## Example
+    /// ```
+    /// use ssz_types::{Bitfield, typenum};
+    ///
+    /// type BitList = Bitfield<ssz_types::BitList<typenum::U8>>;
+    ///
+    /// let b = BitList::with_capacity(4).unwrap();
+    ///
+    /// assert_eq!(b.into_bytes(), vec![0b0001_0000]);
+    /// ```
     pub fn into_bytes(self) -> Vec<u8> {
         let len = self.len();
         let mut bytes = self.as_slice().to_vec();
@@ -102,6 +129,10 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
         bitfield.bytes
     }
 
+    /// Instantiates a new instance from `bytes`. Consumes the same format that `self.into_bytes()`
+    /// produces (SSZ).
+    ///
+    /// Returns `None` if `bytes` are not a valid encoding.
     pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
         let mut initial_bitfield: Bitfield<BitList<N>> = {
             let num_bits = bytes.len() * 8;
@@ -130,6 +161,9 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
 }
 
 impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
+    /// Instantiate a new `Bitfield` with a fixed-length of `N` bits.
+    ///
+    /// All bits are initialized to `false`.
     pub fn new() -> Self {
         let num_bits = N::to_usize();
         let num_bytes = std::cmp::max(bytes_for_bit_len(num_bits), 1);
@@ -141,14 +175,31 @@ impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
         }
     }
 
+    /// Returns `N`, the number of bits in `Self`.
     pub fn capacity() -> usize {
         N::to_usize()
     }
 
+    /// Consumes `self`, returning a serialized representation.
+    ///
+    /// The output is faithful to the SSZ encoding of `self`.
+    ///
+    /// ## Example
+    /// ```
+    /// use ssz_types::{Bitfield, typenum};
+    ///
+    /// type BitVector = Bitfield<ssz_types::BitVector<typenum::U4>>;
+    ///
+    /// assert_eq!(BitVector::new().into_bytes(), vec![0b0000_0000]);
+    /// ```
     pub fn into_bytes(self) -> Vec<u8> {
         self.into_raw_bytes()
     }
 
+    /// Instantiates a new instance from `bytes`. Consumes the same format that `self.into_bytes()`
+    /// produces (SSZ).
+    ///
+    /// Returns `None` if `bytes` are not a valid encoding.
     pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
         Self::from_raw_bytes(bytes, Self::capacity())
     }
@@ -161,6 +212,9 @@ impl<N: Unsigned + Clone> Default for Bitfield<BitVector<N>> {
 }
 
 impl<T: BitfieldBehaviour> Bitfield<T> {
+    /// Sets the `i`'th bit to `value`.
+    ///
+    /// Returns `None` if `i` is out-of-bounds of `self`.
     pub fn set(&mut self, i: usize, value: bool) -> Option<()> {
         if i < self.len {
             let byte = {
@@ -183,6 +237,9 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Returns the value of the `i`'th bit.
+    ///
+    /// Returns `None` if `i` is out-of-bounds of `self`.
     pub fn get(&self, i: usize) -> Option<bool> {
         if i < self.len {
             let byte = {
@@ -199,22 +256,34 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Returns the number of bits stored in `self`.
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Returns `true` if `self.len() == 0`.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    /// Returns the underlying bytes representation of the bitfield.
     pub fn into_raw_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns a view into the underlying bytes representation of the bitfield.
     pub fn as_slice(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Instantiates from the given `bytes`, which are the same format as output from
+    /// `self.into_raw_bytes()`.
+    ///
+    /// Returns `None` if:
+    ///
+    /// - `bytes` is not the minimal required bytes to represent a bitfield of `bit_len` bits.
+    /// - `bit_len` is not a multiple of 8 and `bytes` contains set bits that are higher than, or
+    /// equal to `bit_len`.
     fn from_raw_bytes(bytes: Vec<u8>, bit_len: usize) -> Option<Self> {
         if bytes.len() == 1 && bit_len == 0 && bytes == [0] {
             // A bitfield with `bit_len` 0 can only be represented by a single zero byte.
@@ -242,6 +311,8 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Returns the `Some(i)` where `i` is the highest index with a set bit. Returns `None` if
+    /// there are no set bits.
     pub fn highest_set_bit(&self) -> Option<usize> {
         let byte_i = self.bytes.iter().position(|byte| *byte > 0)?;
         let bit_i = 7 - self.bytes[byte_i].leading_zeros() as usize;
@@ -249,6 +320,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         Some((self.bytes.len().saturating_sub(1) - byte_i) * 8 + bit_i)
     }
 
+    /// Returns an iterator across bitfield `bool` values, starting at the lowest index.
     pub fn iter(&self) -> BitIter<'_, T> {
         BitIter {
             bitfield: self,
@@ -256,10 +328,14 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Returns true if no bits are set.
     pub fn is_zero(&self) -> bool {
         !self.bytes.iter().any(|byte| (*byte & u8::max_value()) > 0)
     }
 
+    /// Compute the intersection (binary-and) of this bitfield with another.
+    ///
+    /// Returns `None` if `self.is_comparable(other) == false`.
     pub fn intersection(&self, other: &Self) -> Option<Self> {
         if self.is_comparable(other) {
             let mut res = self.clone();
@@ -270,6 +346,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Like `intersection` but in-place (updates `self`).
     pub fn intersection_inplace(&mut self, other: &Self) -> Option<()> {
         if self.is_comparable(other) {
             for i in 0..self.bytes.len() {
@@ -281,6 +358,9 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Compute the union (binary-or) of this bitfield with another.
+    ///
+    /// Returns `None` if `self.is_comparable(other) == false`.
     pub fn union(&self, other: &Self) -> Option<Self> {
         if self.is_comparable(other) {
             let mut res = self.clone();
@@ -291,6 +371,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Like `union` but in-place (updates `self`).
     pub fn union_inplace(&mut self, other: &Self) -> Option<()> {
         if self.is_comparable(other) {
             for i in 0..self.bytes.len() {
@@ -302,6 +383,9 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Compute the difference (binary-minus) of this bitfield with another. Lengths must match.
+    ///
+    /// Returns `None` if `self.is_comparable(other) == false`.
     pub fn difference(&self, other: &Self) -> Option<Self> {
         if self.is_comparable(other) {
             let mut res = self.clone();
@@ -312,6 +396,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Like `difference` but in-place (updates `self`).
     pub fn difference_inplace(&mut self, other: &Self) -> Option<()> {
         if self.is_comparable(other) {
             for i in 0..self.bytes.len() {
@@ -323,6 +408,8 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         }
     }
 
+    /// Returns true if `self` and `other` have the same lengths and can be used in binary
+    /// comparison operations.
     pub fn is_comparable(&self, other: &Self) -> bool {
         (self.len() == other.len()) && (self.bytes.len() == other.bytes.len())
     }
