@@ -82,10 +82,8 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
     /// Returns `None` if `num_bits > N`.
     pub fn with_capacity(num_bits: usize) -> Option<Self> {
         if num_bits <= N::to_usize() {
-            let num_bytes = std::cmp::max(bytes_for_bit_len(num_bits), 1);
-
             Some(Self {
-                bytes: vec![0; num_bytes],
+                bytes: vec![0; bytes_for_bit_len(num_bits)],
                 len: num_bits,
                 _phantom: PhantomData,
             })
@@ -165,12 +163,9 @@ impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
     ///
     /// All bits are initialized to `false`.
     pub fn new() -> Self {
-        let num_bits = N::to_usize();
-        let num_bytes = std::cmp::max(bytes_for_bit_len(num_bits), 1);
-
         Self {
-            bytes: vec![0; num_bytes],
-            len: num_bits,
+            bytes: vec![0; bytes_for_bit_len(Self::capacity())],
+            len: Self::capacity(),
             _phantom: PhantomData,
         }
     }
@@ -285,13 +280,17 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     /// - `bit_len` is not a multiple of 8 and `bytes` contains set bits that are higher than, or
     /// equal to `bit_len`.
     fn from_raw_bytes(bytes: Vec<u8>, bit_len: usize) -> Option<Self> {
-        if bytes.len() == 1 && bit_len == 0 && bytes == [0] {
-            // A bitfield with `bit_len` 0 can only be represented by a single zero byte.
-            Some(Self {
-                bytes,
-                len: 0,
-                _phantom: PhantomData,
-            })
+        if bit_len == 0 {
+            if bytes.len() == 1 && bytes == [0] {
+                // A bitfield with `bit_len` 0 can only be represented by a single zero byte.
+                Some(Self {
+                    bytes,
+                    len: 0,
+                    _phantom: PhantomData,
+                })
+            } else {
+                None
+            }
         } else if bytes.len() != bytes_for_bit_len(bit_len) || bytes.is_empty() {
             // The number of bytes must be the minimum required to represent `bit_len`.
             None
@@ -299,7 +298,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
             // Ensure there are no bits higher than `bit_len` that are set to true.
             let (mask, _) = u8::max_value().overflowing_shr(8 - (bit_len as u32 % 8));
 
-            if (bytes.first().expect("Bytes cannot be empty") & !mask) == 0 {
+            if (bytes.first().expect("Guarded against empty bytes") & !mask) == 0 {
                 Some(Self {
                     bytes,
                     len: bit_len,
@@ -419,7 +418,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
 ///
 /// `bit_len == 0` requires a single byte.
 fn bytes_for_bit_len(bit_len: usize) -> usize {
-    (bit_len + 7) / 8
+    std::cmp::max(1, (bit_len + 7) / 8)
 }
 
 /// An iterator over the bits in a `Bitfield`.
