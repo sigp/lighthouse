@@ -504,8 +504,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         // Clear out old entries
         self.import_queue.remove_stale();
 
-        // Import blocks, if possible.
-        self.process_import_queue(network);
+        // Import blocks, if possible. (This conflicts with the recursion in `process_block`)
+        //self.process_import_queue(network);
     }
 
     /// Process a gossip message declaring a new block.
@@ -530,11 +530,23 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
                     // Add this block to the queue
                     self.import_queue
-                        .enqueue_full_blocks(vec![block], peer_id.clone());
+                        .enqueue_full_blocks(vec![block.clone()], peer_id.clone());
                     trace!(
                         self.log,
                         "NewGossipBlock";
                         "peer" => format!("{:?}", peer_id),
+                    );
+
+                    // Request roots between parent and start of finality from peer.
+                    let start_slot = self.chain.head().beacon_state.finalized_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                    self.request_block_roots(
+                        peer_id,
+                        BeaconBlockRootsRequest {
+                            // Request blocks between `latest_finalized_slot` and the `block`
+                            start_slot,
+                            count: block.slot.as_u64() - start_slot.as_u64(),
+                        },
+                        network,
                     );
 
                     SHOULD_FORWARD_GOSSIP_BLOCK
@@ -774,23 +786,14 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                             );
                         }
                         PartialBeaconBlockCompletion::MissingRoot => {
-                            // Missing `parent` `BlockRoot`, request from peer
+                            // Missing `parent` `BlockRoot`.
+                            // Defer requesting parent root to calling function.
                             debug!(
                                 self.log, "RequestParentRoot";
                                 "source" => source,
                                 "parent_root" => format!("{}", parent),
                                 "baby_block_slot" => block.slot,
                                 "peer" => format!("{:?}", peer_id),
-                            );
-
-                            // No knowledge of `parent` attempt to retrieve it.
-                            self.request_block_roots(
-                                peer_id,
-                                BeaconBlockRootsRequest {
-                                    start_slot: block.slot - 1,
-                                    count: 1,
-                                },
-                                network,
                             );
                         }
                         PartialBeaconBlockCompletion::Complete(parent_block) => {

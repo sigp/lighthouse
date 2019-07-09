@@ -165,8 +165,10 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
             let block_root = Hash256::from_slice(&header.canonical_root()[..]);
 
             if self.chain_has_not_seen_block(&block_root) {
-                self.insert_header(block_root, header, sender.clone());
-                required_bodies.push(block_root);
+                if !self.insert_header(block_root, header, sender.clone()) {
+                    // If a body is empty
+                    required_bodies.push(block_root);
+                }
             }
         }
 
@@ -192,12 +194,17 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     ///
     /// If the header already exists, the `inserted` time is set to `now` and not other
     /// modifications are made.
-    fn insert_header(&mut self, block_root: Hash256, header: BeaconBlockHeader, sender: PeerId) {
+    /// Returns true is `body` exists.
+    fn insert_header(&mut self, block_root: Hash256, header: BeaconBlockHeader, sender: PeerId) -> bool {
+        let mut exists = false;
         self.partials
             .entry(block_root)
             .and_modify(|partial| {
                 partial.header = Some(header.clone());
                 partial.inserted = Instant::now();
+                if partial.body.is_some() {
+                    exists = true;
+                }
             })
             .or_insert_with(|| PartialBeaconBlock {
                 slot: header.slot,
@@ -207,6 +214,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
                 inserted: Instant::now(),
                 sender,
             });
+        exists
     }
 
     /// Updates an existing partial with the `body`.
