@@ -109,8 +109,41 @@ fn network_service(
     log: slog::Logger,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
     futures::future::poll_fn(move || -> Result<_, eth2_libp2p::error::Error> {
-        // poll the swarm
         loop {
+            // poll the network channel
+            match network_recv.poll() {
+                Ok(Async::Ready(Some(message))) => {
+                    match message {
+                        // TODO: Testing message - remove
+                        NetworkMessage::Send(peer_id, outgoing_message) => {
+                            match outgoing_message {
+                                OutgoingMessage::RPC(rpc_event) => {
+                                    trace!(log, "Sending RPC Event: {:?}", rpc_event);
+                                    //TODO: Make swarm private
+                                    //TODO: Implement correct peer id topic message handling
+                                    libp2p_service.swarm.send_rpc(peer_id, rpc_event);
+                                }
+                                OutgoingMessage::NotifierTest => {
+                                    // debug!(log, "Received message from notifier");
+                                }
+                            };
+                        }
+                        NetworkMessage::Publish { topics, message } => {
+                            debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
+                            libp2p_service.swarm.publish(topics, *message);
+                        }
+                    }
+                }
+                Ok(Async::NotReady) => {}
+                Ok(Async::Ready(None)) => {
+                    return Err(eth2_libp2p::error::Error::from("Network channel closed"));
+                }
+                Err(_) => {
+                    return Err(eth2_libp2p::error::Error::from("Network channel error"));
+                }
+            }
+
+            // poll the swarm
             match libp2p_service.poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
@@ -138,41 +171,6 @@ fn network_service(
                 Ok(Async::Ready(None)) => unreachable!("Stream never ends"),
                 Ok(Async::NotReady) => break,
                 Err(_) => break,
-            }
-        }
-        // poll the network channel
-        // TODO: refactor - combine poll_fn's?
-        loop {
-            match network_recv.poll() {
-                Ok(Async::Ready(Some(message))) => {
-                    match message {
-                        // TODO: Testing message - remove
-                        NetworkMessage::Send(peer_id, outgoing_message) => {
-                            match outgoing_message {
-                                OutgoingMessage::RPC(rpc_event) => {
-                                    trace!(log, "Sending RPC Event: {:?}", rpc_event);
-                                    //TODO: Make swarm private
-                                    //TODO: Implement correct peer id topic message handling
-                                    libp2p_service.swarm.send_rpc(peer_id, rpc_event);
-                                }
-                                OutgoingMessage::NotifierTest => {
-                                    // debug!(log, "Received message from notifier");
-                                }
-                            };
-                        }
-                        NetworkMessage::Publish { topics, message } => {
-                            debug!(log, "Sending pubsub message on topics {:?}", topics);
-                            libp2p_service.swarm.publish(topics, *message);
-                        }
-                    }
-                }
-                Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) => {
-                    return Err(eth2_libp2p::error::Error::from("Network channel closed"));
-                }
-                Err(_) => {
-                    return Err(eth2_libp2p::error::Error::from("Network channel error"));
-                }
             }
         }
         Ok(Async::NotReady)

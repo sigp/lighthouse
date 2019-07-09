@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PubsubMessage;
 use eth2_libp2p::TopicBuilder;
-use eth2_libp2p::SHARD_TOPIC_PREFIX;
+use eth2_libp2p::BEACON_ATTESTATION_TOPIC;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
@@ -140,7 +140,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 );
 
                 // valid attestation, propagate to the network
-                let topic = TopicBuilder::new(SHARD_TOPIC_PREFIX).build();
+                let topic = TopicBuilder::new(BEACON_ATTESTATION_TOPIC).build();
                 let message = PubsubMessage::Attestation(attestation);
 
                 self.network_chan

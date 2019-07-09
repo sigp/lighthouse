@@ -109,8 +109,6 @@ impl Stream for Service {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
-            // TODO: Currently only gossipsub events passed here.
-            // Build a type for more generic events
             match self.swarm.poll() {
                 //Behaviour events
                 Ok(Async::Ready(Some(event))) => match event {
