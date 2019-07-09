@@ -132,9 +132,10 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
 impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
     pub fn new() -> Self {
         let num_bits = N::to_usize();
+        let num_bytes = std::cmp::max(bytes_for_bit_len(num_bits), 1);
 
         Self {
-            bytes: vec![0; num_bits],
+            bytes: vec![0; num_bytes],
             len: num_bits,
             _phantom: PhantomData,
         }
@@ -554,191 +555,286 @@ impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitVecto
 }
 
 #[cfg(test)]
-mod test {
+mod bitvector {
     use super::*;
 
-    mod bitlist {
-        use super::*;
+    pub type BitVector<N> = crate::Bitfield<crate::BitVector<N>>;
+    pub type BitVector0 = BitVector<typenum::U0>;
+    pub type BitVector1 = BitVector<typenum::U1>;
+    pub type BitVector4 = BitVector<typenum::U4>;
+    pub type BitVector8 = BitVector<typenum::U8>;
+    pub type BitVector16 = BitVector<typenum::U16>;
 
-        pub type BitList<N> = crate::Bitfield<crate::BitList<N>>;
-        pub type BitList0 = BitList<typenum::U0>;
-        pub type BitList1 = BitList<typenum::U1>;
-        pub type BitList8 = BitList<typenum::U8>;
-        pub type BitList16 = BitList<typenum::U16>;
+    #[test]
+    fn ssz_encode() {
+        assert_eq!(BitVector0::new().as_ssz_bytes(), vec![0b0000_0000]);
+        assert_eq!(BitVector1::new().as_ssz_bytes(), vec![0b0000_0000]);
+        assert_eq!(BitVector4::new().as_ssz_bytes(), vec![0b0000_0000]);
+        assert_eq!(BitVector8::new().as_ssz_bytes(), vec![0b0000_0000]);
+        assert_eq!(
+            BitVector16::new().as_ssz_bytes(),
+            vec![0b0000_0000, 0b0000_0000]
+        );
 
-        #[test]
-        fn ssz_encode() {
-            assert_eq!(
-                BitList0::with_capacity(0).unwrap().as_ssz_bytes(),
-                vec![0b0000_00001],
-            );
+        let mut b = BitVector8::new();
+        for i in 0..8 {
+            b.set(i, true).unwrap();
+        }
+        assert_eq!(b.as_ssz_bytes(), vec![255]);
 
-            assert_eq!(
-                BitList1::with_capacity(0).unwrap().as_ssz_bytes(),
-                vec![0b0000_00001],
-            );
+        let mut b = BitVector4::new();
+        for i in 0..4 {
+            b.set(i, true).unwrap();
+        }
+        assert_eq!(b.as_ssz_bytes(), vec![0b0000_1111]);
+    }
 
-            assert_eq!(
-                BitList1::with_capacity(1).unwrap().as_ssz_bytes(),
-                vec![0b0000_00010],
-            );
+    #[test]
+    fn ssz_decode() {
+        assert!(BitVector0::from_ssz_bytes(&[0b0000_0000]).is_ok());
+        assert!(BitVector0::from_ssz_bytes(&[0b0000_0001]).is_err());
+        assert!(BitVector0::from_ssz_bytes(&[0b0000_0010]).is_err());
 
-            assert_eq!(
-                BitList8::with_capacity(8).unwrap().as_ssz_bytes(),
-                vec![0b0000_0001, 0b0000_0000],
-            );
+        assert!(BitVector1::from_ssz_bytes(&[0b0000_0001]).is_ok());
+        assert!(BitVector1::from_ssz_bytes(&[0b0000_0010]).is_err());
+        assert!(BitVector1::from_ssz_bytes(&[0b0000_0100]).is_err());
+        assert!(BitVector1::from_ssz_bytes(&[0b0000_0000, 0b0000_0000]).is_err());
 
-            assert_eq!(
-                BitList8::with_capacity(7).unwrap().as_ssz_bytes(),
-                vec![0b1000_0000]
-            );
+        assert!(BitVector8::from_ssz_bytes(&[0b0000_0000]).is_ok());
+        assert!(BitVector8::from_ssz_bytes(&[1, 0b0000_0000]).is_err());
+        assert!(BitVector8::from_ssz_bytes(&[0b0000_0001]).is_ok());
+        assert!(BitVector8::from_ssz_bytes(&[0b0000_0010]).is_ok());
+        assert!(BitVector8::from_ssz_bytes(&[0b0000_0001, 0b0000_0100]).is_err());
+        assert!(BitVector8::from_ssz_bytes(&[0b0000_0010, 0b0000_0100]).is_err());
 
-            let mut b = BitList8::with_capacity(8).unwrap();
-            for i in 0..8 {
-                b.set(i, true).unwrap();
+        assert!(BitVector16::from_ssz_bytes(&[0b0000_0000]).is_err());
+        assert!(BitVector16::from_ssz_bytes(&[0b0000_0000, 0b0000_0000]).is_ok());
+        assert!(BitVector16::from_ssz_bytes(&[1, 0b0000_0000, 0b0000_0000]).is_err());
+    }
+
+    #[test]
+    fn ssz_round_trip() {
+        assert_round_trip(BitVector0::new());
+
+        let mut b = BitVector1::new();
+        b.set(0, true);
+        assert_round_trip(b);
+
+        let mut b = BitVector8::new();
+        for j in 0..8 {
+            if j % 2 == 0 {
+                b.set(j, true);
             }
-            assert_eq!(b.as_ssz_bytes(), vec![0b0000_0001, 255]);
+        }
+        assert_round_trip(b);
 
-            let mut b = BitList8::with_capacity(8).unwrap();
-            for i in 0..4 {
-                b.set(i, true).unwrap();
+        let mut b = BitVector8::new();
+        for j in 0..8 {
+            b.set(j, true);
+        }
+        assert_round_trip(b);
+
+        let mut b = BitVector16::new();
+        for j in 0..16 {
+            if j % 2 == 0 {
+                b.set(j, true);
             }
-            assert_eq!(b.as_ssz_bytes(), vec![0b0000_0001, 0b0000_1111]);
+        }
+        assert_round_trip(b);
 
-            assert_eq!(
-                BitList16::with_capacity(16).unwrap().as_ssz_bytes(),
-                vec![0b0000_0001, 0b0000_0000, 0b0000_0000]
-            );
+        let mut b = BitVector16::new();
+        for j in 0..16 {
+            b.set(j, true);
+        }
+        assert_round_trip(b);
+    }
+
+    fn assert_round_trip<T: Encode + Decode + PartialEq + std::fmt::Debug>(t: T) {
+        assert_eq!(T::from_ssz_bytes(&t.as_ssz_bytes()).unwrap(), t);
+    }
+}
+
+#[cfg(test)]
+mod bitlist {
+    use super::*;
+
+    pub type BitList<N> = super::Bitfield<crate::BitList<N>>;
+    pub type BitList0 = BitList<typenum::U0>;
+    pub type BitList1 = BitList<typenum::U1>;
+    pub type BitList8 = BitList<typenum::U8>;
+    pub type BitList16 = BitList<typenum::U16>;
+    pub type BitList1024 = BitList<typenum::U1024>;
+
+    #[test]
+    fn ssz_encode() {
+        assert_eq!(
+            BitList0::with_capacity(0).unwrap().as_ssz_bytes(),
+            vec![0b0000_00001],
+        );
+
+        assert_eq!(
+            BitList1::with_capacity(0).unwrap().as_ssz_bytes(),
+            vec![0b0000_00001],
+        );
+
+        assert_eq!(
+            BitList1::with_capacity(1).unwrap().as_ssz_bytes(),
+            vec![0b0000_00010],
+        );
+
+        assert_eq!(
+            BitList8::with_capacity(8).unwrap().as_ssz_bytes(),
+            vec![0b0000_0001, 0b0000_0000],
+        );
+
+        assert_eq!(
+            BitList8::with_capacity(7).unwrap().as_ssz_bytes(),
+            vec![0b1000_0000]
+        );
+
+        let mut b = BitList8::with_capacity(8).unwrap();
+        for i in 0..8 {
+            b.set(i, true).unwrap();
+        }
+        assert_eq!(b.as_ssz_bytes(), vec![0b0000_0001, 255]);
+
+        let mut b = BitList8::with_capacity(8).unwrap();
+        for i in 0..4 {
+            b.set(i, true).unwrap();
+        }
+        assert_eq!(b.as_ssz_bytes(), vec![0b0000_0001, 0b0000_1111]);
+
+        assert_eq!(
+            BitList16::with_capacity(16).unwrap().as_ssz_bytes(),
+            vec![0b0000_0001, 0b0000_0000, 0b0000_0000]
+        );
+    }
+
+    #[test]
+    fn ssz_decode() {
+        assert!(BitList0::from_ssz_bytes(&[0b0000_0000]).is_err());
+        assert!(BitList1::from_ssz_bytes(&[0b0000_0000, 0b0000_0000]).is_err());
+        assert!(BitList8::from_ssz_bytes(&[0b0000_0000]).is_err());
+        assert!(BitList16::from_ssz_bytes(&[0b0000_0000]).is_err());
+
+        assert!(BitList0::from_ssz_bytes(&[0b0000_0001]).is_ok());
+        assert!(BitList0::from_ssz_bytes(&[0b0000_0010]).is_err());
+
+        assert!(BitList1::from_ssz_bytes(&[0b0000_0001]).is_ok());
+        assert!(BitList1::from_ssz_bytes(&[0b0000_0010]).is_ok());
+        assert!(BitList1::from_ssz_bytes(&[0b0000_0100]).is_err());
+
+        assert!(BitList8::from_ssz_bytes(&[0b0000_0001]).is_ok());
+        assert!(BitList8::from_ssz_bytes(&[0b0000_0010]).is_ok());
+        assert!(BitList8::from_ssz_bytes(&[0b0000_0001, 0b0000_0100]).is_ok());
+        assert!(BitList8::from_ssz_bytes(&[0b0000_0010, 0b0000_0100]).is_err());
+    }
+
+    #[test]
+    fn ssz_round_trip() {
+        assert_round_trip(BitList0::with_capacity(0).unwrap());
+
+        for i in 0..2 {
+            assert_round_trip(BitList1::with_capacity(i).unwrap());
+        }
+        for i in 0..9 {
+            assert_round_trip(BitList8::with_capacity(i).unwrap());
+        }
+        for i in 0..17 {
+            assert_round_trip(BitList16::with_capacity(i).unwrap());
         }
 
-        #[test]
-        fn ssz_decode() {
-            assert!(BitList0::from_ssz_bytes(&[0b0000_0000]).is_err());
-            assert!(BitList1::from_ssz_bytes(&[0b0000_0000, 0b0000_0000]).is_err());
-            assert!(BitList8::from_ssz_bytes(&[0b0000_0000]).is_err());
-            assert!(BitList16::from_ssz_bytes(&[0b0000_0000]).is_err());
+        let mut b = BitList1::with_capacity(1).unwrap();
+        b.set(0, true);
+        assert_round_trip(b);
 
-            assert!(BitList0::from_ssz_bytes(&[0b0000_0001]).is_ok());
-            assert!(BitList0::from_ssz_bytes(&[0b0000_0010]).is_err());
-
-            assert!(BitList1::from_ssz_bytes(&[0b0000_0001]).is_ok());
-            assert!(BitList1::from_ssz_bytes(&[0b0000_0010]).is_ok());
-            assert!(BitList1::from_ssz_bytes(&[0b0000_0100]).is_err());
-
-            assert!(BitList8::from_ssz_bytes(&[0b0000_0001]).is_ok());
-            assert!(BitList8::from_ssz_bytes(&[0b0000_0010]).is_ok());
-            assert!(BitList8::from_ssz_bytes(&[0b0000_0001, 0b0000_0100]).is_ok());
-            assert!(BitList8::from_ssz_bytes(&[0b0000_0010, 0b0000_0100]).is_err());
-        }
-
-        #[test]
-        fn ssz_round_trip() {
-            assert_round_trip(BitList0::with_capacity(0).unwrap());
-
-            for i in 0..2 {
-                assert_round_trip(BitList1::with_capacity(i).unwrap());
+        for i in 0..8 {
+            let mut b = BitList8::with_capacity(i).unwrap();
+            for j in 0..i {
+                if j % 2 == 0 {
+                    b.set(j, true);
+                }
             }
-            for i in 0..9 {
-                assert_round_trip(BitList8::with_capacity(i).unwrap());
-            }
-            for i in 0..17 {
-                assert_round_trip(BitList16::with_capacity(i).unwrap());
-            }
-
-            let mut b = BitList1::with_capacity(1).unwrap();
-            b.set(0, true);
             assert_round_trip(b);
 
-            for i in 0..8 {
-                let mut b = BitList8::with_capacity(i).unwrap();
-                for j in 0..i {
-                    if j % 2 == 0 {
-                        b.set(j, true);
-                    }
-                }
-                assert_round_trip(b);
-
-                let mut b = BitList8::with_capacity(i).unwrap();
-                for j in 0..i {
-                    b.set(j, true);
-                }
-                assert_round_trip(b);
+            let mut b = BitList8::with_capacity(i).unwrap();
+            for j in 0..i {
+                b.set(j, true);
             }
-
-            for i in 0..16 {
-                let mut b = BitList16::with_capacity(i).unwrap();
-                for j in 0..i {
-                    if j % 2 == 0 {
-                        b.set(j, true);
-                    }
-                }
-                assert_round_trip(b);
-
-                let mut b = BitList16::with_capacity(i).unwrap();
-                for j in 0..i {
-                    b.set(j, true);
-                }
-                assert_round_trip(b);
-            }
+            assert_round_trip(b);
         }
 
-        fn assert_round_trip<T: Encode + Decode + PartialEq + std::fmt::Debug>(t: T) {
-            assert_eq!(T::from_ssz_bytes(&t.as_ssz_bytes()).unwrap(), t);
+        for i in 0..16 {
+            let mut b = BitList16::with_capacity(i).unwrap();
+            for j in 0..i {
+                if j % 2 == 0 {
+                    b.set(j, true);
+                }
+            }
+            assert_round_trip(b);
+
+            let mut b = BitList16::with_capacity(i).unwrap();
+            for j in 0..i {
+                b.set(j, true);
+            }
+            assert_round_trip(b);
         }
     }
 
-    type Bitfield = crate::Bitfield<BitList<typenum::U1024>>;
+    fn assert_round_trip<T: Encode + Decode + PartialEq + std::fmt::Debug>(t: T) {
+        assert_eq!(T::from_ssz_bytes(&t.as_ssz_bytes()).unwrap(), t);
+    }
 
     #[test]
     fn from_raw_bytes() {
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0000], 0).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001], 1).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011], 2).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111], 3).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111], 4).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111], 5).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111], 6).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111], 7).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111], 8).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0000], 0).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0001], 1).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0011], 2).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0111], 3).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_1111], 4).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0001_1111], 5).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0011_1111], 6).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0111_1111], 7).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b1111_1111], 8).is_some());
 
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001, 0b1111_1111], 9).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011, 0b1111_1111], 10).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111, 0b1111_1111], 11).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111, 0b1111_1111], 12).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111, 0b1111_1111], 13).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111, 0b1111_1111], 14).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111, 0b1111_1111], 15).is_some());
-        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111, 0b1111_1111], 16).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0001, 0b1111_1111], 9).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0011, 0b1111_1111], 10).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0111, 0b1111_1111], 11).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_1111, 0b1111_1111], 12).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0001_1111, 0b1111_1111], 13).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0011_1111, 0b1111_1111], 14).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b0111_1111, 0b1111_1111], 15).is_some());
+        assert!(BitList1024::from_raw_bytes(vec![0b1111_1111, 0b1111_1111], 16).is_some());
 
         for i in 0..8 {
-            assert!(Bitfield::from_raw_bytes(vec![], i).is_none());
-            assert!(Bitfield::from_raw_bytes(vec![0b1111_1111], i).is_none());
-            assert!(Bitfield::from_raw_bytes(vec![0b1111_1110, 0b0000_0000], i).is_none());
+            assert!(BitList1024::from_raw_bytes(vec![], i).is_none());
+            assert!(BitList1024::from_raw_bytes(vec![0b1111_1111], i).is_none());
+            assert!(BitList1024::from_raw_bytes(vec![0b1111_1110, 0b0000_0000], i).is_none());
         }
 
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001], 0).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0001], 0).is_none());
 
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001], 0).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011], 1).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111], 2).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111], 3).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111], 4).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111], 5).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111], 6).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111], 7).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0001], 0).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0011], 1).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0111], 2).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_1111], 3).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0001_1111], 4).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0011_1111], 5).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0111_1111], 6).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b1111_1111], 7).is_none());
 
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0001, 0b1111_1111], 8).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0011, 0b1111_1111], 9).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_0111, 0b1111_1111], 10).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0000_1111, 0b1111_1111], 11).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0001_1111, 0b1111_1111], 12).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0011_1111, 0b1111_1111], 13).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b0111_1111, 0b1111_1111], 14).is_none());
-        assert!(Bitfield::from_raw_bytes(vec![0b1111_1111, 0b1111_1111], 15).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0001, 0b1111_1111], 8).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0011, 0b1111_1111], 9).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_0111, 0b1111_1111], 10).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0000_1111, 0b1111_1111], 11).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0001_1111, 0b1111_1111], 12).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0011_1111, 0b1111_1111], 13).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b0111_1111, 0b1111_1111], 14).is_none());
+        assert!(BitList1024::from_raw_bytes(vec![0b1111_1111, 0b1111_1111], 15).is_none());
     }
 
     fn test_set_unset(num_bits: usize) {
-        let mut bitfield = Bitfield::with_capacity(num_bits).unwrap();
+        let mut bitfield = BitList1024::with_capacity(num_bits).unwrap();
 
         for i in 0..num_bits + 1 {
             if i < num_bits {
@@ -760,7 +856,7 @@ mod test {
 
     fn test_bytes_round_trip(num_bits: usize) {
         for i in 0..num_bits {
-            let mut bitfield = Bitfield::with_capacity(num_bits).unwrap();
+            let mut bitfield = BitList1024::with_capacity(num_bits).unwrap();
             bitfield.set(i, true).unwrap();
 
             let bytes = bitfield.clone().to_raw_bytes();
@@ -784,7 +880,7 @@ mod test {
 
     #[test]
     fn to_raw_bytes() {
-        let mut bitfield = Bitfield::with_capacity(9).unwrap();
+        let mut bitfield = BitList1024::with_capacity(9).unwrap();
         bitfield.set(0, true);
         assert_eq!(
             bitfield.clone().to_raw_bytes(),
@@ -834,31 +930,34 @@ mod test {
 
     #[test]
     fn highest_set_bit() {
-        assert_eq!(Bitfield::with_capacity(16).unwrap().highest_set_bit(), None);
+        assert_eq!(
+            BitList1024::with_capacity(16).unwrap().highest_set_bit(),
+            None
+        );
 
         assert_eq!(
-            Bitfield::from_raw_bytes(vec![0b0000_000, 0b0000_0001], 16)
+            BitList1024::from_raw_bytes(vec![0b0000_000, 0b0000_0001], 16)
                 .unwrap()
                 .highest_set_bit(),
             Some(0)
         );
 
         assert_eq!(
-            Bitfield::from_raw_bytes(vec![0b0000_000, 0b0000_0010], 16)
+            BitList1024::from_raw_bytes(vec![0b0000_000, 0b0000_0010], 16)
                 .unwrap()
                 .highest_set_bit(),
             Some(1)
         );
 
         assert_eq!(
-            Bitfield::from_raw_bytes(vec![0b0000_1000], 8)
+            BitList1024::from_raw_bytes(vec![0b0000_1000], 8)
                 .unwrap()
                 .highest_set_bit(),
             Some(3)
         );
 
         assert_eq!(
-            Bitfield::from_raw_bytes(vec![0b1000_0000, 0b0000_0000], 16)
+            BitList1024::from_raw_bytes(vec![0b1000_0000, 0b0000_0000], 16)
                 .unwrap()
                 .highest_set_bit(),
             Some(15)
@@ -867,9 +966,9 @@ mod test {
 
     #[test]
     fn intersection() {
-        let a = Bitfield::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
-        let b = Bitfield::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
-        let c = Bitfield::from_raw_bytes(vec![0b1000, 0b0001], 16).unwrap();
+        let a = BitList1024::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let c = BitList1024::from_raw_bytes(vec![0b1000, 0b0001], 16).unwrap();
 
         assert_eq!(a.intersection(&b).unwrap(), c);
         assert_eq!(b.intersection(&a).unwrap(), c);
@@ -882,9 +981,9 @@ mod test {
 
     #[test]
     fn union() {
-        let a = Bitfield::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
-        let b = Bitfield::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
-        let c = Bitfield::from_raw_bytes(vec![0b1111, 0b1001], 16).unwrap();
+        let a = BitList1024::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let c = BitList1024::from_raw_bytes(vec![0b1111, 0b1001], 16).unwrap();
 
         assert_eq!(a.union(&b).unwrap(), c);
         assert_eq!(b.union(&a).unwrap(), c);
@@ -895,10 +994,10 @@ mod test {
 
     #[test]
     fn difference() {
-        let a = Bitfield::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
-        let b = Bitfield::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
-        let a_b = Bitfield::from_raw_bytes(vec![0b0100, 0b0000], 16).unwrap();
-        let b_a = Bitfield::from_raw_bytes(vec![0b0011, 0b1000], 16).unwrap();
+        let a = BitList1024::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let a_b = BitList1024::from_raw_bytes(vec![0b0100, 0b0000], 16).unwrap();
+        let b_a = BitList1024::from_raw_bytes(vec![0b0011, 0b1000], 16).unwrap();
 
         assert_eq!(a.difference(&b).unwrap(), a_b);
         assert_eq!(b.difference(&a).unwrap(), b_a);
@@ -907,7 +1006,7 @@ mod test {
 
     #[test]
     fn iter() {
-        let mut bitfield = Bitfield::with_capacity(9).unwrap();
+        let mut bitfield = BitList1024::with_capacity(9).unwrap();
         bitfield.set(2, true);
         bitfield.set(8, true);
 
