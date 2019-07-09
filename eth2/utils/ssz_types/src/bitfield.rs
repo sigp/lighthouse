@@ -87,7 +87,7 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
         N::to_usize()
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn into_bytes(self) -> Vec<u8> {
         let len = self.len();
         let mut bytes = self.as_slice().to_vec();
 
@@ -116,9 +116,9 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
                 .set(len, false)
                 .expect("Bit has been confirmed to exist");
 
-            let mut bytes = initial_bitfield.to_raw_bytes();
+            let mut bytes = initial_bitfield.into_raw_bytes();
 
-            if bytes_for_bit_len(len) < bytes.len() && bytes != &[0] {
+            if bytes_for_bit_len(len) < bytes.len() && bytes != [0] {
                 bytes.remove(0);
             }
 
@@ -145,12 +145,18 @@ impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
         N::to_usize()
     }
 
-    pub fn to_bytes(self) -> Vec<u8> {
-        self.to_raw_bytes()
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.into_raw_bytes()
     }
 
     pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
         Self::from_raw_bytes(bytes, Self::capacity())
+    }
+}
+
+impl<N: Unsigned + Clone> Default for Bitfield<BitVector<N>> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -201,7 +207,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         self.len == 0
     }
 
-    pub fn to_raw_bytes(self) -> Vec<u8> {
+    pub fn into_raw_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
@@ -210,7 +216,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     }
 
     fn from_raw_bytes(bytes: Vec<u8>, bit_len: usize) -> Option<Self> {
-        if bytes.len() == 1 && bit_len == 0 && bytes == &[0] {
+        if bytes.len() == 1 && bit_len == 0 && bytes == [0] {
             // A bitfield with `bit_len` 0 can only be represented by a single zero byte.
             Some(Self {
                 bytes,
@@ -267,7 +273,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     pub fn intersection_inplace(&mut self, other: &Self) -> Option<()> {
         if self.is_comparable(other) {
             for i in 0..self.bytes.len() {
-                self.bytes[i] = self.bytes[i] & other.bytes[i];
+                self.bytes[i] &= other.bytes[i];
             }
             Some(())
         } else {
@@ -288,7 +294,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     pub fn union_inplace(&mut self, other: &Self) -> Option<()> {
         if self.is_comparable(other) {
             for i in 0..self.bytes.len() {
-                self.bytes[i] = self.bytes[i] | other.bytes[i];
+                self.bytes[i] |= other.bytes[i];
             }
             Some(())
         } else {
@@ -309,7 +315,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     pub fn difference_inplace(&mut self, other: &Self) -> Option<()> {
         if self.is_comparable(other) {
             for i in 0..self.bytes.len() {
-                self.bytes[i] = self.bytes[i] & !other.bytes[i];
+                self.bytes[i] &= !other.bytes[i];
             }
             Some(())
         } else {
@@ -347,7 +353,7 @@ impl<N: Unsigned + Clone> Encode for Bitfield<BitList<N>> {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        buf.append(&mut self.clone().to_bytes())
+        buf.append(&mut self.clone().into_bytes())
     }
 }
 
@@ -372,7 +378,7 @@ impl<N: Unsigned + Clone> Encode for Bitfield<BitVector<N>> {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        buf.append(&mut self.clone().to_bytes())
+        buf.append(&mut self.clone().into_bytes())
     }
 }
 
@@ -482,7 +488,7 @@ impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitList<
         &self,
         depth: usize,
     ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        let bytes = self.to_bytes();
+        let bytes = self.clone().into_bytes();
 
         let (mut cache, schema) = cached_tree_hash::vec::new_tree_hash_cache(&bytes, depth)?;
 
@@ -497,7 +503,7 @@ impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitList<
     }
 
     fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-        let bytes = self.to_bytes();
+        let bytes = self.clone().into_bytes();
         cached_tree_hash::vec::produce_schema(&bytes, depth)
     }
 
@@ -505,7 +511,7 @@ impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitList<
         &self,
         cache: &mut cached_tree_hash::TreeHashCache,
     ) -> Result<(), cached_tree_hash::Error> {
-        let bytes = self.to_bytes();
+        let bytes = self.clone().into_bytes();
 
         // Skip the length-mixed-in root node.
         cache.chunk_index += 1;
@@ -859,7 +865,7 @@ mod bitlist {
             let mut bitfield = BitList1024::with_capacity(num_bits).unwrap();
             bitfield.set(i, true).unwrap();
 
-            let bytes = bitfield.clone().to_raw_bytes();
+            let bytes = bitfield.clone().into_raw_bytes();
             assert_eq!(bitfield, Bitfield::from_raw_bytes(bytes, num_bits).unwrap());
         }
     }
@@ -879,51 +885,51 @@ mod bitlist {
     }
 
     #[test]
-    fn to_raw_bytes() {
+    fn into_raw_bytes() {
         let mut bitfield = BitList1024::with_capacity(9).unwrap();
         bitfield.set(0, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b0000_0001]
         );
         bitfield.set(1, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b0000_0011]
         );
         bitfield.set(2, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b0000_0111]
         );
         bitfield.set(3, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b0000_1111]
         );
         bitfield.set(4, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b0001_1111]
         );
         bitfield.set(5, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b0011_1111]
         );
         bitfield.set(6, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b0111_1111]
         );
         bitfield.set(7, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0000, 0b1111_1111]
         );
         bitfield.set(8, true);
         assert_eq!(
-            bitfield.clone().to_raw_bytes(),
+            bitfield.clone().into_raw_bytes(),
             vec![0b0000_0001, 0b1111_1111]
         );
     }

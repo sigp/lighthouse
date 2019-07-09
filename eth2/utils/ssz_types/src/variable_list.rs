@@ -88,7 +88,8 @@ impl<T, N: Unsigned> VariableList<T, N> {
     /// Returns `Err(())` when appending `value` would exceed the maximum length.
     pub fn push(&mut self, value: T) -> Result<(), Error> {
         if self.vec.len() < Self::max_len() {
-            Ok(self.vec.push(value))
+            self.vec.push(value);
+            Ok(())
         } else {
             Err(Error::InvalidLength {
                 i: self.vec.len() + 1,
