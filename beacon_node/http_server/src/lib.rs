@@ -14,6 +14,7 @@ use slog::{info, o, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
+use tokio::sync::mpsc;
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct HttpServerConfig {
@@ -75,7 +76,7 @@ pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
 pub fn start_service<T: BeaconChainTypes + 'static>(
     config: &HttpServerConfig,
     executor: &TaskExecutor,
-    _network_chan: crossbeam_channel::Sender<NetworkMessage>,
+    _network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     db_path: PathBuf,
     metrics_registry: Registry,
