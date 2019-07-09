@@ -1,39 +1,41 @@
-/// The Ethereum 2.0 Wire Protocol
-///
-/// This protocol is a purpose built Ethereum 2.0 libp2p protocol. It's role is to facilitate
-/// direct peer-to-peer communication primarily for sending/receiving chain information for
-/// syncing.
-///
-pub mod methods;
-mod protocol;
-
+///! The Ethereum 2.0 Wire Protocol
+///!
+///! This protocol is a purpose built Ethereum 2.0 libp2p protocol. It's role is to facilitate
+///! direct peer-to-peer communication primarily for sending/receiving chain information for
+///! syncing.
 use futures::prelude::*;
-use libp2p::core::protocols_handler::{OneShotHandler, ProtocolsHandler};
+use handler::RPCHandler;
+use libp2p::core::protocols_handler::ProtocolsHandler;
 use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{HelloMessage, RPCResponse};
-pub use protocol::{RPCProtocol, RPCRequest};
+pub use methods::HelloMessage;
+pub use protocol::{RPCProtocol, RPCRequest, RPCResponse};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
+
+mod handler;
+pub mod methods;
+mod protocol;
+mod request_response;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.
 #[derive(Debug, Clone)]
 pub enum RPCEvent {
     /// A request that was received from the RPC protocol. The first parameter is a sequential
     /// id which tracks an awaiting substream for the response.
-    Request(u64, RPCRequest),
+    Request(usize, RPCRequest),
 
     /// A response that has been received from the RPC protocol. The first parameter returns
     /// that which was sent with the corresponding request.
-    Response(u64, RPCResponse),
+    Response(usize, RPCResponse),
 }
 
-/// Rpc implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
+/// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-pub struct Rpc<TSubstream> {
+pub struct RPC<TSubstream> {
     /// Queue of events to processed.
     events: Vec<NetworkBehaviourAction<RPCEvent, RPCMessage>>,
     /// Pins the generic substream.
@@ -42,10 +44,10 @@ pub struct Rpc<TSubstream> {
     _log: slog::Logger,
 }
 
-impl<TSubstream> Rpc<TSubstream> {
+impl<TSubstream> RPC<TSubstream> {
     pub fn new(log: &slog::Logger) -> Self {
         let log = log.new(o!("Service" => "Libp2p-RPC"));
-        Rpc {
+        RPC {
             events: Vec::new(),
             marker: PhantomData,
             _log: log,
@@ -63,7 +65,7 @@ impl<TSubstream> Rpc<TSubstream> {
     }
 }
 
-impl<TSubstream> NetworkBehaviour for Rpc<TSubstream>
+impl<TSubstream> NetworkBehaviour for RPC<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
@@ -95,12 +97,6 @@ where
         source: PeerId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // ignore successful send events
-        let event = match event {
-            HandlerEvent::Rx(event) => event,
-            HandlerEvent::Sent => return,
-        };
-
         // send the event to the user
         self.events
             .push(NetworkBehaviourAction::GenerateEvent(RPCMessage::RPC(
@@ -128,27 +124,4 @@ where
 pub enum RPCMessage {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
-}
-
-/// The output type received from the `OneShotHandler`.
-#[derive(Debug)]
-pub enum HandlerEvent {
-    /// An RPC was received from a remote.
-    Rx(RPCEvent),
-    /// An RPC was sent.
-    Sent,
-}
-
-impl From<RPCEvent> for HandlerEvent {
-    #[inline]
-    fn from(rpc: RPCEvent) -> HandlerEvent {
-        HandlerEvent::Rx(rpc)
-    }
-}
-
-impl From<()> for HandlerEvent {
-    #[inline]
-    fn from(_: ()) -> HandlerEvent {
-        HandlerEvent::Sent
-    }
 }

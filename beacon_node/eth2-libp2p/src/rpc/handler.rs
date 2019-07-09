@@ -1,37 +1,37 @@
-use libp2p::core::protocols_handler::{
-    KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr,
-    SubstreamProtocol
-};
-use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
+use super::protocol::{ProtocolId, RPCError, RPCProtocol, RPCRequest};
+use super::RPCEvent;
+use fnv::FnvHashMap;
 use futures::prelude::*;
+use libp2p::core::protocols_handler::{
+    KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
+};
+use libp2p::core::upgrade::{self, InboundUpgrade, OutboundUpgrade, WriteOne};
 use smallvec::SmallVec;
-use std::{error, marker::PhantomData, time::Duration};
+use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
-use wasm_timer::Instant;
 
 /// The time (in seconds) before a substream that is awaiting a response times out.
 pub const RESPONSE_TIMEOUT: u64 = 9;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
 pub struct RPCHandler<TSubstream> {
-
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol>,
 
     /// If `Some`, something bad happened and we should shut down the handler with an error.
-    pending_error: Option<ProtocolsHandlerUpgrErr<RPCRequest::Error>>,
+    pending_error: Option<ProtocolsHandlerUpgrErr<RPCError>>,
 
     /// Queue of events to produce in `poll()`.
-    events_out: SmallVec<[TOutEvent; 4]>,
+    events_out: SmallVec<[RPCEvent; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(usize,TOutProto); 4]>,
+    dial_queue: SmallVec<[(usize, RPCRequest); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
 
     /// Map of current substreams awaiting a response to an RPC request.
-    waiting_substreams: FnvHashMap<u64, SubstreamState<TSubstream>
+    waiting_substreams: FnvHashMap<usize, SubstreamState<TSubstream>>,
 
     /// Sequential Id for waiting substreams.
     current_substream_id: usize,
@@ -50,19 +50,21 @@ pub struct RPCHandler<TSubstream> {
 pub enum SubstreamState<TSubstream> {
     /// An outbound substream is waiting a response from the user.
     WaitingResponse {
-        stream: <TSubstream>,
-        timeout: Duration,
-    }
+        /// The negotiated substream.
+        substream: upgrade::Negotiated<TSubstream>,
+        /// The protocol that was negotiated.
+        negotiated_protocol: ProtocolId,
+        /// The time until we close the substream.
+        timeout: Instant,
+    },
     /// A response has been sent and we are waiting for the stream to close.
-    ResponseSent(WriteOne<TSubstream, Vec<u8>)
+    PendingWrite(WriteOne<upgrade::Negotiated<TSubstream>, Vec<u8>>),
 }
 
-impl<TSubstream>
-    RPCHandler<TSubstream>
-{
+impl<TSubstream> RPCHandler<TSubstream> {
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol>,
-        inactive_timeout: Duration
+        inactive_timeout: Duration,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -71,7 +73,7 @@ impl<TSubstream>
             dial_queue: SmallVec::new(),
             dial_negotiated: 0,
             waiting_substreams: FnvHashMap::default(),
-            curent_substream_id: 0,
+            current_substream_id: 0,
             max_dial_negotiated: 8,
             keep_alive: KeepAlive::Yes,
             inactive_timeout,
@@ -87,7 +89,7 @@ impl<TSubstream>
     ///
     /// > **Note**: If you modify the protocol, modifications will only applies to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<TInProto> {
+    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol> {
         &self.listen_protocol
     }
 
@@ -95,36 +97,35 @@ impl<TSubstream>
     ///
     /// > **Note**: If you modify the protocol, modifications will only applies to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<TInProto> {
+    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol> {
         &mut self.listen_protocol
     }
 
     /// Opens an outbound substream with `upgrade`.
     #[inline]
-    pub fn send_request(&mut self, request_id, u64, upgrade: RPCRequest) {
+    pub fn send_request(&mut self, request_id: usize, upgrade: RPCRequest) {
         self.keep_alive = KeepAlive::Yes;
         self.dial_queue.push((request_id, upgrade));
     }
 }
 
-impl<TSubstream> Default
-    for RPCHandler<TSubstream>
-{
+impl<TSubstream> Default for RPCHandler<TSubstream> {
     fn default() -> Self {
         RPCHandler::new(SubstreamProtocol::new(RPCProtocol), Duration::from_secs(30))
     }
 }
 
-impl<TSubstream> ProtocolsHandler
-    for RPCHandler<TSubstream>
+impl<TSubstream> ProtocolsHandler for RPCHandler<TSubstream>
+where
+    TSubstream: AsyncRead + AsyncWrite,
 {
     type InEvent = RPCEvent;
     type OutEvent = RPCEvent;
-    type Error = ProtocolsHandlerUpgrErr<RPCRequest::Error>;
+    type Error = ProtocolsHandlerUpgrErr<RPCError>;
     type Substream = TSubstream;
     type InboundProtocol = RPCProtocol;
     type OutboundProtocol = RPCRequest;
-    type OutboundOpenInfo = u64; // request_id
+    type OutboundOpenInfo = usize; // request_id
 
     #[inline]
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
@@ -134,35 +135,43 @@ impl<TSubstream> ProtocolsHandler
     #[inline]
     fn inject_fully_negotiated_inbound(
         &mut self,
-        out: RPCProtocol::Output,
+        out: <RPCProtocol as InboundUpgrade<TSubstream>>::Output,
     ) {
-       let (stream, req) = out; 
-       // drop the stream and return a 0 id for goodbye "requests"
-       if let req @ RPCRequest::Goodbye(_) = req {
-           self.events_out.push(RPCEvent::Request(0, req));
-           return;
-       }
+        let (substream, req, negotiated_protocol) = out;
+        // drop the stream and return a 0 id for goodbye "requests"
+        if let r @ RPCRequest::Goodbye(_) = req {
+            self.events_out.push(RPCEvent::Request(0, r));
+            return;
+        }
 
         // New inbound request. Store the stream and tag the output.
-        let awaiting_stream = SubstreamState::WaitingResponse { stream, timeout: Instant::now() + Duration::from_secs(RESPONSE_TIMEOUT) };
-        self.waiting_substreams.insert(self.current_substream_id, awaiting_stream);
+        let awaiting_stream = SubstreamState::WaitingResponse {
+            substream,
+            negotiated_protocol,
+            timeout: Instant::now() + Duration::from_secs(RESPONSE_TIMEOUT),
+        };
+        self.waiting_substreams
+            .insert(self.current_substream_id, awaiting_stream);
 
-        self.events_out.push(RPCEvent::Request(self.current_substream_id, req));
+        self.events_out
+            .push(RPCEvent::Request(self.current_substream_id, req));
         self.current_substream_id += 1;
     }
 
     #[inline]
     fn inject_fully_negotiated_outbound(
         &mut self,
-        out: RPCResponse,
-        request_id : Self::OutboundOpenInfo,
+        out: <RPCRequest as OutboundUpgrade<TSubstream>>::Output,
+        request_id: Self::OutboundOpenInfo,
     ) {
         self.dial_negotiated -= 1;
 
-        if self.dial_negotiated == 0 && self.dial_queue.is_empty() && self.waiting_substreams.is_empty() {
+        if self.dial_negotiated == 0
+            && self.dial_queue.is_empty()
+            && self.waiting_substreams.is_empty()
+        {
             self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
-        }
-        else  {
+        } else {
             self.keep_alive = KeepAlive::Yes;
         }
 
@@ -177,10 +186,19 @@ impl<TSubstream> ProtocolsHandler
             RPCEvent::Request(rpc_id, req) => self.send_request(rpc_id, req),
             RPCEvent::Response(rpc_id, res) => {
                 // check if the stream matching the response still exists
-                if let Some(mut waiting_stream) = self.waiting_substreams.get_mut(&rpc_id) {
-                        // only send one response per stream. This must be in the waiting state.
-                    if let SubstreamState::WaitingResponse {substream, .. } = waiting_stream {
-                    waiting_stream = SubstreamState::PendingWrite(upgrade::write_one(substream, res));
+                if let Some(waiting_stream) = self.waiting_substreams.get_mut(&rpc_id) {
+                    // only send one response per stream. This must be in the waiting state.
+                    if let SubstreamState::WaitingResponse {
+                        substream,
+                        negotiated_protocol,
+                        ..
+                    } = *waiting_stream
+                    {
+                        *waiting_stream = SubstreamState::PendingWrite(upgrade::write_one(
+                            substream,
+                            res.encode(negotiated_protocol)
+                                .expect("Response should always be encodeable"),
+                        ));
                     }
                 }
             }
@@ -195,6 +213,7 @@ impl<TSubstream> ProtocolsHandler
             <Self::OutboundProtocol as OutboundUpgrade<Self::Substream>>::Error,
         >,
     ) {
+        dbg!(error);
         if self.pending_error.is_none() {
             self.pending_error = Some(error);
         }
@@ -217,20 +236,24 @@ impl<TSubstream> ProtocolsHandler
 
         // prioritise sending responses for waiting substreams
         self.waiting_substreams.retain(|_k, mut waiting_stream| {
-            match waiting_stream  => {
+            match waiting_stream {
                 SubstreamState::PendingWrite(write_one) => {
-                    match write_one.poll() => {
+                    match write_one.poll() {
                         Ok(Async::Ready(_socket)) => false,
-                        Ok(Async::NotReady()) => true,
-                        Err(_e) => { 
+                        Ok(Async::NotReady) => true,
+                        Err(_e) => {
                             //TODO: Add logging
                             // throw away streams that error
-                            false 
-                         }
+                            false
+                        }
                     }
-                },
-                SubstreamState::WaitingResponse { timeout, .. } => { 
-                    if Instant::now() > timeout { false} else { true }
+                }
+                SubstreamState::WaitingResponse { timeout, .. } => {
+                    if Instant::now() > *timeout {
+                        false
+                    } else {
+                        true
+                    }
                 }
             }
         });

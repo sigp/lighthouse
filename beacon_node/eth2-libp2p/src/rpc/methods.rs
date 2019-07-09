@@ -4,23 +4,6 @@ use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
 use types::{Epoch, Hash256, Slot};
 
-#[derive(Debug, Clone)]
-pub enum RPCResponse {
-    Hello(HelloMessage),
-    Goodbye, // empty value - required for protocol handler
-    BeaconBlockRoots(BeaconBlockRootsResponse),
-    BeaconBlockHeaders(BeaconBlockHeadersResponse),
-    BeaconBlockBodies(BeaconBlockBodiesResponse),
-    BeaconChainState(BeaconChainStateResponse),
-}
-
-pub enum ResponseCode {
-    Success = 0,
-    EncodingError = 1,
-    InvalidRequest = 2,
-    ServerError = 3,
-}
-
 /* Request/Response data structures for RPC methods */
 
 /* Requests */
@@ -78,7 +61,6 @@ impl From<u64> for Goodbye {
     }
 }
 
-impl_encode_via_from!(Goodbye, u64);
 impl_decode_via_from!(Goodbye, u64);
 
 /// Request a number of beacon block roots from a peer.
@@ -108,7 +90,7 @@ pub struct BlockRootSlot {
     pub slot: Slot,
 }
 
-/// The response of a beacl block roots request.
+/// The response of a beacon block roots request.
 impl BeaconBlockRootsResponse {
     /// Returns `true` if each `self.roots.slot[i]` is higher than the preceding `i`.
     pub fn slots_are_ascending(&self) -> bool {
