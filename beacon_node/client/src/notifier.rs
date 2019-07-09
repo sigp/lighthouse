@@ -22,7 +22,7 @@ pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
 
     // TODO: Debugging only
     let counter = Arc::new(Mutex::new(0));
-    let network = client.network.clone();
+    //let network = client.network.clone();
 
     // build heartbeat logic here
     let heartbeat = move |_| {
@@ -33,7 +33,7 @@ pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
 
         if *count % 5 == 0 {
             //            debug!(log, "Sending Message");
-            network.send_message();
+            //network.send_message();
         }
 
         Ok(())
