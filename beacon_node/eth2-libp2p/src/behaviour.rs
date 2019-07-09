@@ -1,5 +1,5 @@
 use crate::discovery::Discovery;
-use crate::rpc::{RPCEvent, RPCMessage, Rpc};
+use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
 use futures::prelude::*;
@@ -29,7 +29,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     /// The routing pub-sub mechanism for eth2.
     gossipsub: Gossipsub<TSubstream>,
     /// The serenity RPC specified in the wire-0 protocol.
-    serenity_rpc: Rpc<TSubstream>,
+    serenity_rpc: RPC<TSubstream>,
     /// Keep regular connection to peers and disconnect if absent.
     ping: Ping<TSubstream>,
     /// Kademlia for peer discovery.
@@ -57,7 +57,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             .with_keep_alive(false);
 
         Ok(Behaviour {
-            serenity_rpc: Rpc::new(log),
+            serenity_rpc: RPC::new(log),
             gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
             discovery: Discovery::new(local_key, net_conf, log)?,
             ping: Ping::new(ping_config),
