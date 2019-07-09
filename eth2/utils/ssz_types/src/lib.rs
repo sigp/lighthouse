@@ -38,7 +38,7 @@ mod bitfield;
 mod fixed_vector;
 mod variable_list;
 
-pub use bitfield::{BitList, BitVector, Bitfield, BitfieldBehaviour};
+pub use bitfield::{BitList, BitVector, Bitfield};
 pub use fixed_vector::FixedVector;
 pub use typenum;
 pub use variable_list::VariableList;
