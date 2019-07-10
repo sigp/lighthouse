@@ -29,6 +29,13 @@ fn main() {
                 .help("Data directory for keys and databases.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("logfile")
+                .long("logfile")
+                .value_name("logfile")
+                .help("File path where output will be written.")
+                .takes_value(true),
+        )
         // network related arguments
         .arg(
             Arg::with_name("listen-address")
@@ -159,7 +166,7 @@ fn main() {
         _ => drain.filter_level(Level::Info),
     };
 
-    let log = slog::Logger::root(drain.fuse(), o!());
+    let mut log = slog::Logger::root(drain.fuse(), o!());
 
     let data_dir = match matches
         .value_of("datadir")
@@ -214,7 +221,7 @@ fn main() {
     client_config.data_dir = data_dir.clone();
 
     // Update the client config with any CLI args.
-    match client_config.apply_cli_args(&matches) {
+    match client_config.apply_cli_args(&matches, &mut log) {
         Ok(()) => (),
         Err(s) => {
             crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
