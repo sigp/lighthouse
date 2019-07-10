@@ -2,26 +2,27 @@ use super::{NodeIndex, SerializedPartial};
 use crate::cache::Cache;
 use crate::error::{Error, Result};
 use crate::field::{Leaf, Node};
-use crate::merkle_tree_overlay::MerkleTreeOverlay;
+use crate::merkle_tree_overlay::{match_path_element, MerkleTreeOverlay};
 use crate::path::Path;
-use crate::tree_arithmetic::{expand_tree_index, sibling_index};
+use crate::tree_arithmetic::zeroed::{expand_tree_index, sibling_index, subtree_index_to_general};
 use hashing::hash;
 use tree_hash::BYTES_PER_CHUNK;
 
 /// The `Partial` trait allows for `SerializedPartial`s to be generated and verified for a struct.
-pub trait Partial: MerkleTreeOverlay {
+pub trait Partial: MerkleTreeOverlay + Sized {
     /// Gets a reference to the struct's `Cache` which stores known nodes.
     fn get_cache(&self) -> &Cache;
 
     /// Gets a mutable reference to the struct's `Cache` which stores known nodes.
     fn get_cache_mut(&mut self) -> &mut Cache;
 
-    /// Assigns the data in a chunk to their respective fields in the struct
-    fn chunk_to_fields(&mut self, node: Node, chunk: Vec<u8>) -> Result<()>;
+    // /// Assigns the data in a chunk to their respective fields in the struct
+    // fn chunk_to_fields(&mut self, node: Node, chunk: Vec<u8>) -> Result<()>;
 
     /// Generates a `SerializedPartial` proving that `path` is a part of the current merkle tree.
-    fn get_partial(&self, path: Vec<Path>) -> Result<SerializedPartial> {
-        let (indices, chunks) = self.get_partial_helper(
+    fn extract_partial(&self, path: Vec<Path>) -> Result<SerializedPartial> {
+        let (indices, chunks) = get_partial_helper(
+            self,
             self.get_cache(),
             0,
             self.height(),
@@ -33,21 +34,39 @@ pub trait Partial: MerkleTreeOverlay {
         Ok(SerializedPartial { indices, chunks })
     }
 
-    /// Populates the struct's values and cache with a `SerializedPartial`.
+    /// Populates the struct's cache with a `SerializedPartial`.
     fn load_partial(&mut self, partial: SerializedPartial) -> Result<()> {
         for (i, index) in partial.indices.iter().enumerate() {
             let chunk = partial.chunks[i * BYTES_PER_CHUNK..(i + 1) * BYTES_PER_CHUNK].to_vec();
-            let node = self.get_node(0, *index);
-
             self.get_cache_mut().insert(*index, chunk.clone());
-
-            // TODO: should this even be a part of `load_partial`?
-            if let Node::Leaf(Leaf::Basic(_)) = node {
-                self.chunk_to_fields(node, chunk)?;
-            }
         }
 
         Ok(())
+    }
+
+    fn bytes_at_path(&self, path: Vec<Path>, root: NodeIndex) -> Result<Vec<u8>> {
+        if path.len() == 0 {
+            return Err(Error::EmptyPath());
+        }
+
+        if let Ok((index, offset, size)) =
+            match_path_element(self, self.get_cache(), path[0].clone(), root)
+        {
+            if path.len() == 1 {
+                let begin: usize = offset as usize;
+                let end: usize = begin + size as usize;
+
+                return Ok(self
+                    .get_cache()
+                    .get(index)
+                    .ok_or(Error::MissingNode(index))?[begin..end]
+                    .to_vec());
+            } else {
+                return self.bytes_at_path(path[1..].to_vec(), index);
+            }
+        }
+
+        Err(Error::InvalidPath(path[0].clone()))
     }
 
     /// Return whether a path has been loade into the partial.
@@ -56,7 +75,7 @@ pub trait Partial: MerkleTreeOverlay {
 
         let mut leaves: Vec<Node> = vec![];
         for i in 2_u64.pow(height as u32)..(2_u64.pow(height as u32 + 1) - 1) {
-            leaves.push(self.get_node(0, i as NodeIndex - 1));
+            leaves.push(self.get_node(i as NodeIndex - 1));
         }
 
         for leaf in leaves {
@@ -125,72 +144,44 @@ pub trait Partial: MerkleTreeOverlay {
 
         Ok(())
     }
+}
 
-    /// Recursively traverse the tree structure, matching the appropriate `path` element with its index,
-    /// eventually returning the `indicies` and `chunks` needed to generate the partial for the path.
-    fn get_partial_helper(
-        &self,
-        cache: &Cache,
-        root: NodeIndex,
-        height: usize,
-        path: Vec<Path>,
-        indices: &mut Vec<NodeIndex>,
-        chunks: &mut Vec<u8>,
-    ) -> Result<(Vec<NodeIndex>, Vec<u8>)> {
-        if path.len() == 0 {
-            return Ok((indices.clone(), chunks.clone()));
+/// Recursively traverse the tree structure, matching the appropriate `path` element with its index,
+/// eventually returning the `indicies` and `chunks` needed to generate the partial for the path.
+fn get_partial_helper(
+    item: &dyn MerkleTreeOverlay,
+    cache: &Cache,
+    root: NodeIndex,
+    height: u8,
+    path: Vec<Path>,
+    indices: &mut Vec<NodeIndex>,
+    chunks: &mut Vec<u8>,
+) -> Result<(Vec<NodeIndex>, Vec<u8>)> {
+    if path.len() == 0 {
+        return Ok((indices.clone(), chunks.clone()));
+    }
+
+    let path_element = &path[0];
+
+    let leaves = match path_element.clone() {
+        Path::Ident(_) => {
+            let mut ret: Vec<Node> = vec![];
+            for i in 2_u64.pow(height as u32)..(2_u64.pow(height as u32 + 1) - 1) {
+                ret.push(item.get_node(subtree_index_to_general(root, i - 1)));
+            }
+
+            ret
         }
+        Path::Index(i) => {
+            let first_leaf = subtree_index_to_general(root, 2_u64.pow(height as u32));
+            vec![item.get_node(first_leaf + i)]
+        }
+    };
 
-        let path_element = &path[0];
-
-        let leaves = match path_element.clone() {
-            Path::Ident(_) => {
-                let mut ret: Vec<Node> = vec![];
-                for i in 2_u64.pow(height as u32)..(2_u64.pow(height as u32 + 1) - 1) {
-                    ret.push(self.get_node(0, i as NodeIndex - 1));
-                }
-
-                ret
-            }
-            Path::Index(i) => {
-                let first_leaf = 2_u64.pow(height as u32) - 1;
-                vec![self.get_node(0, first_leaf + i)]
-            }
-        };
-
-        for leaf in leaves {
-            match leaf {
-                Node::Leaf(Leaf::Basic(chunk_fields)) => {
-                    for field in chunk_fields {
-                        if path_element.to_string() == field.ident {
-                            let index = field.index;
-
-                            indices.push(index);
-                            chunks.extend(cache.get(index).ok_or(Error::MissingNode(index))?);
-
-                            let mut visitor = index;
-
-                            while visitor > root {
-                                let sibling = sibling_index(visitor);
-                                let left = 2 * sibling + 1;
-                                let right = 2 * sibling + 2;
-
-                                if !(indices.contains(&left) && indices.contains(&right)) {
-                                    indices.push(sibling);
-                                    chunks.extend(
-                                        cache.get(sibling).ok_or(Error::MissingNode(sibling))?,
-                                    );
-                                }
-
-                                visitor /= 2;
-                            }
-
-                            // should recurse here for container types
-                            return Ok((indices.clone(), chunks.clone()));
-                        }
-                    }
-                }
-                Node::Composite(field) => {
+    for leaf in leaves {
+        match leaf {
+            Node::Leaf(Leaf::Basic(chunk_fields)) => {
+                for field in chunk_fields {
                     if path_element.to_string() == field.ident {
                         let index = field.index;
 
@@ -201,29 +192,55 @@ pub trait Partial: MerkleTreeOverlay {
 
                         while visitor > root {
                             let sibling = sibling_index(visitor);
-                            indices.push(sibling);
-                            chunks.extend(cache.get(sibling).ok_or(Error::MissingNode(sibling))?);
+                            let left = 2 * sibling + 1;
+                            let right = 2 * sibling + 2;
+
+                            if !(indices.contains(&left) && indices.contains(&right)) {
+                                indices.push(sibling);
+                                chunks
+                                    .extend(cache.get(sibling).ok_or(Error::MissingNode(sibling))?);
+                            }
 
                             visitor /= 2;
                         }
 
-                        println!("oh shit");
-                        return self.get_partial_helper(
-                            cache,
-                            index,
-                            field.height,
-                            path[1..].to_vec(),
-                            indices,
-                            chunks,
-                        );
+                        return Ok((indices.clone(), chunks.clone()));
                     }
                 }
-                _ => (),
             }
-        }
+            Node::Composite(field) => {
+                if path_element.to_string() == field.ident {
+                    let index = field.index;
 
-        Err(Error::InvalidPath(path_element.to_string()))
+                    indices.push(index);
+                    chunks.extend(cache.get(index).ok_or(Error::MissingNode(index))?);
+
+                    let mut visitor = index;
+
+                    while visitor > root {
+                        let sibling = sibling_index(visitor);
+                        indices.push(sibling);
+                        chunks.extend(cache.get(sibling).ok_or(Error::MissingNode(sibling))?);
+
+                        visitor /= 2;
+                    }
+
+                    return get_partial_helper(
+                        item,
+                        cache,
+                        index,
+                        field.height,
+                        path[1..].to_vec(),
+                        indices,
+                        chunks,
+                    );
+                }
+            }
+            _ => (),
+        }
     }
+
+    Err(Error::InvalidPath(path_element.clone()))
 }
 
 /// Helper function that appends `right` to `left` and hashes the result.
@@ -234,11 +251,9 @@ fn hash_children(left: &[u8], right: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::vec_to_array;
     use super::*;
     use crate::field::{Basic, Composite, Leaf, Node};
     use ethereum_types::U256;
-    use std::mem::transmute;
 
     #[derive(Debug, Default)]
     struct A {
@@ -263,41 +278,41 @@ mod tests {
 
     // Should be implemented by derive macro
     impl MerkleTreeOverlay for A {
-        fn height(&self) -> usize {
+        fn height(&self) -> u8 {
             2
         }
 
-        fn get_node(&self, _root: NodeIndex, index: NodeIndex) -> Node {
+        fn get_node(&self, index: NodeIndex) -> Node {
             match index {
                 0 => Node::Composite(Composite {
                     ident: "",
                     index: 1,
-                    height: self.height(),
+                    height: self.height().into(),
                 }),
                 1 => Node::Intermediate(2),
                 2 => Node::Intermediate(3),
                 3 => Node::Leaf(Leaf::Basic(vec![Basic {
                     ident: "a".to_string(),
-                    index: 4,
+                    index: index,
                     size: 32,
                     offset: 0,
                 }])),
                 4 => Node::Leaf(Leaf::Basic(vec![Basic {
                     ident: "b".to_string(),
-                    index: 5,
+                    index: index,
                     size: 32,
                     offset: 0,
                 }])),
                 5 => Node::Leaf(Leaf::Basic(vec![
                     Basic {
                         ident: "c".to_string(),
-                        index: 6,
+                        index: index,
                         size: 16,
                         offset: 0,
                     },
                     Basic {
                         ident: "d".to_string(),
-                        index: 6,
+                        index: index,
                         size: 16,
                         offset: 16,
                     },
@@ -315,25 +330,6 @@ mod tests {
 
         fn get_cache_mut(&mut self) -> &mut Cache {
             &mut self.cache
-        }
-
-        fn chunk_to_fields(&mut self, node: Node, chunk: Vec<u8>) -> Result<()> {
-            unsafe {
-                match node {
-                    Node::Leaf(Leaf::Basic(n)) => match n[0].index {
-                        4 => self.a = transmute::<[u8; 32], U256>(vec_to_array!(chunk, 32)),
-                        5 => self.b = transmute::<[u8; 32], U256>(vec_to_array!(chunk, 32)),
-                        6 => {
-                            self.c = transmute::<[u8; 16], u128>(vec_to_array!(chunk[0..16], 16));
-                            self.d = transmute::<[u8; 16], u128>(vec_to_array!(chunk[16..32], 16));
-                        }
-                        7 => (),
-                        n => unimplemented!("chunk_to_field: {:?}", n),
-                    },
-                    _ => (),
-                }
-            }
-            Ok(())
         }
     }
 
@@ -355,12 +351,12 @@ mod tests {
 
     // Should be implemented by derive macro
     impl MerkleTreeOverlay for B {
-        fn height(&self) -> usize {
+        fn height(&self) -> u8 {
             0
         }
 
-        fn get_node(&self, root: NodeIndex, index: NodeIndex) -> Node {
-            self.a.get_node(root, index)
+        fn get_node(&self, index: NodeIndex) -> Node {
+            self.a.get_node(index)
         }
     }
 
@@ -371,36 +367,6 @@ mod tests {
 
         fn get_cache_mut(&mut self) -> &mut Cache {
             &mut self.cache
-        }
-
-        fn chunk_to_fields(&mut self, node: Node, chunk: Vec<u8>) -> Result<()> {
-            const CAPPED_DEPTH: NodeIndex = 32;
-            const LAST_INTERNAL: NodeIndex = (1_u64 << (CAPPED_DEPTH - 1)) - 2;
-            const FIRST_LEAF: NodeIndex = (1_u64 << (CAPPED_DEPTH - 1)) - 1;
-            const LAST_LEAF: NodeIndex = (1_u64 << CAPPED_DEPTH) - 1;
-
-            unsafe {
-                match node {
-                    Node::Leaf(Leaf::Basic(leaves)) => match leaves[0].index {
-                        0...LAST_INTERNAL => (),
-                        FIRST_LEAF...LAST_LEAF => {
-                            for leaf in leaves {
-                                let ident: usize = leaf.ident.parse().unwrap();
-                                let begin: usize = leaf.offset as usize;
-                                let end: usize = leaf.offset as usize + leaf.size;
-
-                                self.a[ident] = transmute::<[u8; 16], u128>(vec_to_array!(
-                                    chunk[begin..end],
-                                    16
-                                ));
-                            }
-                        }
-                        n => unimplemented!("chunk_to_field: {:?}", n),
-                    },
-                    _ => (),
-                }
-            }
-            Ok(())
         }
     }
 
@@ -471,18 +437,34 @@ mod tests {
         assert_eq!(a.load_partial(partial.clone()), Ok(()));
 
         assert_eq!(a.is_path_loaded(vec!["a"]), true);
-        assert_eq!(a.a, one);
+        assert_eq!(
+            a.bytes_at_path(vec![Path::Ident("a".to_string())], 0),
+            Ok(arr[0..32].to_vec())
+        );
 
         assert_eq!(a.is_path_loaded(vec!["b"]), true);
-        assert_eq!(a.b, two);
+        assert_eq!(
+            a.bytes_at_path(vec![Path::Ident("b".to_string())], 0),
+            Ok(arr[32..64].to_vec())
+        );
 
         assert_eq!(a.is_path_loaded(vec!["c"]), true);
-        assert_eq!(a.c, 3);
+        assert_eq!(
+            a.bytes_at_path(vec![Path::Ident("c".to_string())], 0),
+            Ok(arr[64..80].to_vec())
+        );
 
         assert_eq!(a.is_path_loaded(vec!["d"]), true);
-        assert_eq!(a.d, 4);
+        assert_eq!(
+            a.bytes_at_path(vec![Path::Ident("d".to_string())], 0),
+            Ok(arr[80..96].to_vec())
+        );
 
         assert_eq!(a.is_path_loaded(vec!["e"]), false);
+        assert_eq!(
+            a.bytes_at_path(vec![Path::Ident("e".to_string())], 0),
+            Err(Error::InvalidPath(Path::Ident("e".to_string())))
+        );
     }
 
     #[test]
@@ -510,12 +492,11 @@ mod tests {
         assert_eq!(a.fill(), Ok(()));
         assert_eq!(
             Ok(partial),
-            a.get_partial(vec![Path::Ident("a".to_string())])
+            a.extract_partial(vec![Path::Ident("a".to_string())])
         );
     }
 
     #[test]
-    #[ignore]
     fn get_partial_list() {
         let mut chunk = [0_u8; 64];
         chunk[15] = 1;
@@ -532,7 +513,7 @@ mod tests {
 
         println!(
             "{:?}",
-            b.get_partial(vec![Path::Ident("a".to_string()), Path::Index(0)])
+            b.extract_partial(vec![Path::Ident("a".to_string()), Path::Index(0)])
         );
 
         // assert_eq!(a.load_partial(partial.clone()), Ok(()));

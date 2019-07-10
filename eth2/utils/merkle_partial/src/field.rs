@@ -20,7 +20,7 @@ pub enum Leaf {
 pub struct Basic {
     pub ident: String,
     pub index: NodeIndex,
-    pub size: usize,
+    pub size: u8,
     pub offset: u8,
 }
 
@@ -28,5 +28,5 @@ pub struct Basic {
 pub struct Composite {
     pub ident: &'static str,
     pub index: NodeIndex,
-    pub height: usize,
+    pub height: u8,
 }

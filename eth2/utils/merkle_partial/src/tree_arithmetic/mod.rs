@@ -1,15 +1,17 @@
+pub mod zeroed;
+
 /// Returns a node's family. `index` is zero indexed.
-pub const fn expand_tree_index(index: u64) -> (u64, u64, u64) {
-    let left = index - (index & 1 ^ 1) * (index != 0) as u64;
-    let right = index + (index & 1);
-    let parent = left / 2;
+pub fn expand_tree_index(index: u64) -> (u64, u64, u64) {
+    let left = index - (index & 1) + (index == 1) as u64;
+    let right = index + (index & 1 ^ 1) + (index == 1) as u64;
+    let parent = left / 2 + (index == 1) as u64;
 
     (left, right, parent)
 }
 
 /// Returns the index of a node's sibling. `index` is zero indexed.
 pub const fn sibling_index(index: u64) -> u64 {
-    index + (index & 1) - (index & 1 ^ 1) * (index != 0) as u64
+    index - (index & 1) + (index & 1 ^ 1) + (index == 1) as u64
 }
 
 pub const fn left_most_leaf(root: u64, depth: u64) -> u64 {
@@ -74,20 +76,20 @@ mod tests {
 
     #[test]
     fn compute_expanded_tree_indexes() {
-        assert_eq!(expand_tree_index(1), (1, 2, 0));
-        assert_eq!(expand_tree_index(2), (1, 2, 0));
-        assert_eq!(expand_tree_index(13), (13, 14, 6));
-        assert_eq!(expand_tree_index(14), (13, 14, 6));
+        assert_eq!(expand_tree_index(2), (2, 3, 1));
+        assert_eq!(expand_tree_index(3), (2, 3, 1));
+        assert_eq!(expand_tree_index(14), (14, 15, 7));
+        assert_eq!(expand_tree_index(15), (14, 15, 7));
     }
 
     #[test]
     fn compute_sibling_index() {
-        assert_eq!(sibling_index(1), 2);
-        assert_eq!(sibling_index(2), 1);
-        assert_eq!(sibling_index(5), 6);
-        assert_eq!(sibling_index(6), 5);
-        assert_eq!(sibling_index(100), 99);
-        assert_eq!(sibling_index(99), 100);
+        assert_eq!(sibling_index(2), 3);
+        assert_eq!(sibling_index(3), 2);
+        assert_eq!(sibling_index(6), 7);
+        assert_eq!(sibling_index(7), 6);
+        assert_eq!(sibling_index(100), 101);
+        assert_eq!(sibling_index(101), 100);
     }
 
     #[test]
@@ -117,6 +119,7 @@ mod tests {
         assert_eq!(subtree_index_to_general(26, 1), 26);
         assert_eq!(subtree_index_to_general(26, 2), 52);
         assert_eq!(subtree_index_to_general(26, 3), 53);
+
         assert_eq!(subtree_index_to_general(26, 7), 107);
         assert_eq!(subtree_index_to_general(26, 12), 212);
     }

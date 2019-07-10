@@ -1,6 +1,6 @@
 use crate::NodeIndex;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Path {
     Ident(String),
     Index(NodeIndex),
