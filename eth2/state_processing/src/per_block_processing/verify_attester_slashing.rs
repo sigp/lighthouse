@@ -1,5 +1,5 @@
 use super::errors::{AttesterSlashingInvalid as Invalid, AttesterSlashingValidationError as Error};
-use super::verify_indexed_attestation::verify_indexed_attestation;
+use super::is_valid_indexed_attestation::is_valid_indexed_attestation;
 use std::collections::BTreeSet;
 use types::*;
 
@@ -26,9 +26,9 @@ pub fn verify_attester_slashing<T: EthSpec>(
     );
 
     if should_verify_indexed_attestations {
-        verify_indexed_attestation(state, &attestation_1, spec)
+        is_valid_indexed_attestation(state, &attestation_1, spec)
             .map_err(|e| Error::Invalid(Invalid::IndexedAttestation1Invalid(e.into())))?;
-        verify_indexed_attestation(state, &attestation_2, spec)
+        is_valid_indexed_attestation(state, &attestation_2, spec)
             .map_err(|e| Error::Invalid(Invalid::IndexedAttestation2Invalid(e.into())))?;
     }
 

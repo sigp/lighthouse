@@ -8,56 +8,54 @@ use types::*;
 
 /// Verify an `IndexedAttestation`.
 ///
-/// Spec v0.6.3
-pub fn verify_indexed_attestation<T: EthSpec>(
+/// Spec v0.8.0
+pub fn is_valid_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    verify_indexed_attestation_parametric(state, indexed_attestation, spec, true)
+    is_valid_indexed_attestation_parametric(state, indexed_attestation, spec, true)
 }
 
 /// Verify but don't check the signature.
 ///
-/// Spec v0.6.3
-pub fn verify_indexed_attestation_without_signature<T: EthSpec>(
+/// Spec v0.8.0
+pub fn is_valid_indexed_attestation_without_signature<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    verify_indexed_attestation_parametric(state, indexed_attestation, spec, false)
+    is_valid_indexed_attestation_parametric(state, indexed_attestation, spec, false)
 }
 
 /// Optionally check the signature.
 ///
-/// Spec v0.6.3
-fn verify_indexed_attestation_parametric<T: EthSpec>(
+/// Spec v0.8.0
+fn is_valid_indexed_attestation_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
     spec: &ChainSpec,
     verify_signature: bool,
 ) -> Result<(), Error> {
-    let custody_bit_0_indices = &indexed_attestation.custody_bit_0_indices;
-    let custody_bit_1_indices = &indexed_attestation.custody_bit_1_indices;
+    let bit_0_indices = &indexed_attestation.custody_bit_0_indices;
+    let bit_1_indices = &indexed_attestation.custody_bit_1_indices;
 
-    // Ensure no duplicate indices across custody bits
+    // Verify no index has custody bit equal to 1 [to be removed in phase 1]
+    verify!(bit_1_indices.is_empty(), Invalid::CustodyBitfieldHasSetBits);
+
+    // Verify max number of indices
+    let total_indices = bit_0_indices.len() + bit_1_indices.len();
+    verify!(
+        total_indices as u64 <= spec.max_validators_per_committee,
+        Invalid::MaxIndicesExceed(spec.max_validators_per_committee, total_indices)
+    );
+
+    // Verify index sets are disjoint
     let custody_bit_intersection: HashSet<&u64> =
-        &HashSet::from_iter(custody_bit_0_indices) & &HashSet::from_iter(custody_bit_1_indices);
+        &HashSet::from_iter(bit_0_indices) & &HashSet::from_iter(bit_1_indices);
     verify!(
         custody_bit_intersection.is_empty(),
         Invalid::CustodyBitValidatorsIntersect
-    );
-
-    // Check that nobody signed with custody bit 1 (to be removed in phase 1)
-    if !custody_bit_1_indices.is_empty() {
-        invalid!(Invalid::CustodyBitfieldHasSetBits);
-    }
-
-    let total_indices = custody_bit_0_indices.len() + custody_bit_1_indices.len();
-    verify!(1 <= total_indices, Invalid::NoValidatorIndices);
-    verify!(
-        total_indices as u64 <= spec.max_indices_per_attestation,
-        Invalid::MaxIndicesExceed(spec.max_indices_per_attestation, total_indices)
     );
 
     // Check that both vectors of indices are sorted
@@ -71,11 +69,11 @@ fn verify_indexed_attestation_parametric<T: EthSpec>(
         })?;
         Ok(())
     };
-    check_sorted(custody_bit_0_indices)?;
-    check_sorted(custody_bit_1_indices)?;
+    check_sorted(bit_0_indices)?;
+    check_sorted(bit_1_indices)?;
 
     if verify_signature {
-        verify_indexed_attestation_signature(state, indexed_attestation, spec)?;
+        is_valid_indexed_attestation_signature(state, indexed_attestation, spec)?;
     }
 
     Ok(())
@@ -107,8 +105,8 @@ where
 
 /// Verify the signature of an IndexedAttestation.
 ///
-/// Spec v0.6.3
-fn verify_indexed_attestation_signature<T: EthSpec>(
+/// Spec v0.8.0
+fn is_valid_indexed_attestation_signature<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation,
     spec: &ChainSpec,
@@ -140,7 +138,7 @@ fn verify_indexed_attestation_signature<T: EthSpec>(
     }
 
     let domain = spec.get_domain(
-        indexed_attestation.data.target_epoch,
+        indexed_attestation.data.target.epoch,
         Domain::Attestation,
         &state.fork,
     );
