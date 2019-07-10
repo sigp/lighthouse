@@ -534,6 +534,7 @@ where
         let block = self.get_block(child)?;
         let state = self.get_state(block.state_root)?;
 
+        // TODO: Cpmsoder using a `BestBlockRootsIterator` here.
         Ok(BlockRootsIterator::owned(
             self.store.clone(),
             state,
