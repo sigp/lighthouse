@@ -21,14 +21,14 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
-pub struct BeaconBlockBody {
+pub struct BeaconBlockBody<T: EthSpec> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
     #[serde(deserialize_with = "graffiti_from_hex_str")]
     pub graffiti: [u8; 32],
     pub proposer_slashings: Vec<ProposerSlashing>,
     pub attester_slashings: Vec<AttesterSlashing>,
-    pub attestations: Vec<Attestation>,
+    pub attestations: Vec<Attestation<T>>,
     pub deposits: Vec<Deposit>,
     pub voluntary_exits: Vec<VoluntaryExit>,
     pub transfers: Vec<Transfer>,

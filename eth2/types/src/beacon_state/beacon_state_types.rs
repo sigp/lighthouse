@@ -1,13 +1,14 @@
 use crate::*;
-use fixed_len_vec::typenum::{
-    Unsigned, U0, U1024, U1099511627776, U16777216, U4, U64, U65536, U8, U8192,
-};
 use serde_derive::{Deserialize, Serialize};
+use ssz_types::typenum::{
+    Unsigned, U0, U1024, U1099511627776, U16777216, U4, U4096, U64, U65536, U8, U8192,
+};
 use std::fmt::Debug;
 
 pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     type JustificationBitsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
     type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type EpochsPerHistoricalVector: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type EpochsPerSlashingsVector: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -99,6 +100,7 @@ pub struct MainnetEthSpec;
 impl EthSpec for MainnetEthSpec {
     type JustificationBitsLength = U4;
     type ShardCount = U1024;
+    type MaxValidatorsPerCommittee = U4096;
     type SlotsPerHistoricalRoot = U8192;
     type EpochsPerHistoricalVector = U65536;
     type EpochsPerSlashingsVector = U8192;
@@ -125,6 +127,7 @@ pub struct MinimalEthSpec;
 impl EthSpec for MinimalEthSpec {
     type JustificationBitsLength = U4;
     type ShardCount = U8;
+    type MaxValidatorsPerCommittee = U4096;
     type SlotsPerHistoricalRoot = U64;
     type EpochsPerHistoricalVector = U64;
     type EpochsPerSlashingsVector = U64;

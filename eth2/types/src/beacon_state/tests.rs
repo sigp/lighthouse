@@ -310,7 +310,7 @@ mod committees {
             .into_iter()
             .map(|i| Hash256::from(i as u64))
             .collect();
-        state.latest_randao_mixes = FixedLenVec::from(distinct_hashes);
+        state.latest_randao_mixes = FixedVector::from(distinct_hashes);
 
         state
             .build_committee_cache(RelativeEpoch::Previous, spec)
