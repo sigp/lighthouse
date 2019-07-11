@@ -50,8 +50,8 @@ pub struct FixedVector<T, N> {
 }
 
 impl<T, N: Unsigned> FixedVector<T, N> {
-    /// Returns `Some` if the given `vec` equals the fixed length of `Self`. Otherwise returns
-    /// `None`.
+    /// Returns `Ok` if the given `vec` equals the fixed length of `Self`. Otherwise returns
+    /// `Err`.
     pub fn new(vec: Vec<T>) -> Result<Self, Error> {
         if vec.len() == Self::capacity() {
             Ok(Self {

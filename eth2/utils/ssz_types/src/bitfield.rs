@@ -347,7 +347,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
 
     /// Returns true if no bits are set.
     pub fn is_zero(&self) -> bool {
-        !self.bytes.iter().any(|byte| (*byte & u8::max_value()) > 0)
+        self.bytes.iter().all(|byte| *byte == 0)
     }
 
     /// Compute the intersection (binary-and) of this bitfield with another.
@@ -517,9 +517,6 @@ impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<Variable<N>> {
     where
         D: Deserializer<'de>,
     {
-        // We reverse the bit-order so that the BitVec library can read its 0th
-        // bit from the end of the hex string, e.g.
-        // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
         Self::from_ssz_bytes(&bytes)
             .map_err(|e| serde::de::Error::custom(format!("Bitfield {:?}", e)))
@@ -542,9 +539,6 @@ impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<Fixed<N>> {
     where
         D: Deserializer<'de>,
     {
-        // We reverse the bit-order so that the BitVec library can read its 0th
-        // bit from the end of the hex string, e.g.
-        // "0xef01" => [0xef, 0x01] => [0b1000_0000, 0b1111_1110]
         let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
         Self::from_ssz_bytes(&bytes)
             .map_err(|e| serde::de::Error::custom(format!("Bitfield {:?}", e)))
