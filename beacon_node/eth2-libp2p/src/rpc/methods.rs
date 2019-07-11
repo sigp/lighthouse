@@ -32,8 +32,8 @@ pub struct HelloMessage {
 
 /// The reason given for a `Goodbye` message.
 ///
-/// Note: any unknown `u64::into(n)` will resolve to `GoodbyeReason::Unknown` for any unknown `n`,
-/// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
+/// Note: any unknown `u64::into(n)` will resolve to `Goodbye::Unknown` for any unknown `n`,
+/// however `Goodbye::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
 /// re-serializing may not return the same bytes.
 #[derive(Debug, Clone)]
 pub enum Goodbye {
@@ -61,6 +61,13 @@ impl From<u64> for Goodbye {
     }
 }
 
+impl Into<u64> for Goodbye {
+    fn into(self) -> u64 {
+        self as u64
+    }
+}
+
+impl_encode_via_from!(Goodbye, u64);
 impl_decode_via_from!(Goodbye, u64);
 
 /// Request a number of beacon block roots from a peer.
