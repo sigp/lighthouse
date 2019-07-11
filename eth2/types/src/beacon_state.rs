@@ -64,7 +64,6 @@ pub enum Error {
 /// The state of the `BeaconChain` at some slot.
 ///
 /// Spec v0.6.3
-// FIXME(freeze): re-enable CachedTreeHash
 #[derive(
     Debug,
     PartialEq,
@@ -76,6 +75,7 @@ pub enum Error {
     Decode,
     TreeHash,
     CompareFields,
+    CachedTreeHash,
 )]
 pub struct BeaconState<T>
 where
@@ -874,7 +874,6 @@ impl<T: EthSpec> BeaconState<T> {
     /// Returns the `tree_hash_root` resulting from the update. This root can be considered the
     /// canonical root of `self`.
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        /* FIXME(freeze): re-enable this
         if self.tree_hash_cache.is_empty() {
             self.tree_hash_cache = TreeHashCache::new(self)?;
         } else {
@@ -888,8 +887,6 @@ impl<T: EthSpec> BeaconState<T> {
         }
 
         self.cached_tree_hash_root()
-        */
-        Ok(Hash256::zero())
     }
 
     /// Returns the tree hash root determined by the last execution of `self.update_tree_hash_cache(..)`.
