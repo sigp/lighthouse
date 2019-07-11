@@ -160,20 +160,20 @@ fn get_partial_helper<T: MerkleTreeOverlay>(
     }
 
     let path_element = &path[0];
+    let first_leaf = (1_u64 << height) - 1;
+    let last_leaf = (1_u64 << (height + 1)) - 2;
 
     let leaves = match path_element.clone() {
         Path::Ident(_) => {
             let mut ret: Vec<Node> = vec![];
-            for i in 2_u64.pow(height as u32)..(2_u64.pow(height as u32 + 1) - 1) {
-                ret.push(T::get_node(subtree_index_to_general(root, i - 1)));
+
+            for i in first_leaf..=last_leaf {
+                ret.push(T::get_node(subtree_index_to_general(root, i)));
             }
 
             ret
         }
-        Path::Index(i) => {
-            let first_leaf = subtree_index_to_general(root, 2_u64.pow(height as u32));
-            vec![T::get_node(first_leaf + i)]
-        }
+        Path::Index(i) => vec![T::get_node(first_leaf + i)],
     };
 
     for leaf in leaves {
@@ -209,10 +209,6 @@ fn get_partial_helper<T: MerkleTreeOverlay>(
             Node::Composite(field) => {
                 if path_element.to_string() == field.ident {
                     let index = field.index;
-
-                    indices.push(index);
-                    chunks.extend(cache.get(index).ok_or(Error::MissingNode(index))?);
-
                     let mut visitor = index;
 
                     while visitor > root {
@@ -251,6 +247,8 @@ mod tests {
     use super::*;
     use crate::field::{Basic, Composite, Leaf, Node};
     use ethereum_types::U256;
+    use ssz_types::VariableList;
+    use typenum::U4;
 
     #[derive(Debug, Default)]
     struct A {
@@ -277,6 +275,14 @@ mod tests {
     impl MerkleTreeOverlay for A {
         fn height() -> u8 {
             2
+        }
+
+        fn first_leaf() -> NodeIndex {
+            3
+        }
+
+        fn last_leaf() -> NodeIndex {
+            4
         }
 
         fn get_node(index: NodeIndex) -> Node {
@@ -332,8 +338,7 @@ mod tests {
 
     #[derive(Debug, Default)]
     struct B {
-        a: Vec<u128>,
-        // Should be added by proc macro
+        a: VariableList<u128, U4>,
         cache: Cache,
     }
 
@@ -352,8 +357,24 @@ mod tests {
             0
         }
 
+        fn first_leaf() -> NodeIndex {
+            0
+        }
+
+        fn last_leaf() -> NodeIndex {
+            0
+        }
+
         fn get_node(index: NodeIndex) -> Node {
-            Vec::<u128>::get_node(index)
+            if index == 0 {
+                Node::Composite(Composite {
+                    ident: "a",
+                    index: 0,
+                    height: VariableList::<u128, U4>::height().into(),
+                })
+            } else {
+                VariableList::<u128, U4>::get_node(index)
+            }
         }
     }
 
@@ -495,26 +516,26 @@ mod tests {
 
     #[test]
     fn get_partial_list() {
-        let mut chunk = [0_u8; 64];
+        let mut chunk = [0_u8; 128];
         chunk[15] = 1;
         chunk[31] = 2;
+        chunk[32..64].copy_from_slice(&hash(&[0; 64]));
+        chunk[127] = 2;
 
         let partial = SerializedPartial {
-            indices: vec![2_u64.pow(31) - 1, 2_u64.pow(31) - 1],
+            indices: vec![7, 8, 4, 2],
             chunks: chunk.to_vec(),
         };
 
         let mut b = B::default();
 
         assert_eq!(b.load_partial(partial.clone()), Ok(()));
+        assert_eq!(b.fill(), Ok(()));
 
-        println!(
-            "{:?}",
+        assert_eq!(
+            Ok(partial),
             b.extract_partial(vec![Path::Ident("a".to_string()), Path::Index(0)])
         );
-
-        // assert_eq!(a.load_partial(partial.clone()), Ok(()));
-        // assert_eq!(Ok(partial), a.get_partial(vec!["a"]));
     }
 
 }

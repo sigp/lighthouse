@@ -3,9 +3,12 @@ use crate::error::{Error, Result};
 use crate::field::{Basic, Composite, Leaf, Node};
 use crate::path::Path;
 use crate::tree_arithmetic::zeroed::{relative_depth, root_from_depth, subtree_index_to_general};
+use crate::tree_arithmetic::{log_base_two, next_power_of_two};
 use crate::vec_to_array;
 use crate::{NodeIndex, BYTES_PER_CHUNK};
 use ethereum_types::U256;
+use ssz_types::VariableList;
+use typenum::Unsigned;
 
 pub trait MerkleTreeOverlay {
     /// Returns the height of the struct (e.g. log(next_power_of_two(pack(self).len())))
@@ -13,6 +16,9 @@ pub trait MerkleTreeOverlay {
 
     /// Gets the `Node` coresponding to the general index.
     fn get_node(index: NodeIndex) -> Node;
+
+    fn first_leaf() -> NodeIndex;
+    fn last_leaf() -> NodeIndex;
 }
 
 pub fn match_path_element<T: MerkleTreeOverlay>(
@@ -93,69 +99,73 @@ fn leaf_indices(height: u8) -> Vec<NodeIndex> {
 //    /   \
 //  . . . . .
 //
-impl<T: MerkleTreeOverlay> MerkleTreeOverlay for Vec<T> {
+impl<T: MerkleTreeOverlay, N: Unsigned> MerkleTreeOverlay for VariableList<T, N> {
     /// Default vectors to the maximum capped length of 2**32
     fn height() -> u8 {
-        32_u8
+        1 + log_base_two(next_power_of_two(N::to_u64())) as u8
+    }
+
+    fn first_leaf() -> NodeIndex {
+        (1_u64 << Self::height()) - 1
+    }
+
+    fn last_leaf() -> NodeIndex {
+        (1_u64 << Self::height()) + (1_u64 << Self::height()) / 2 - 2
     }
 
     /// Gets the `Node` coresponding to the general index.
     fn get_node(index: NodeIndex) -> Node {
-        const CAPPED_DEPTH: NodeIndex = 32;
+        let first_internal = 3;
+        let last_internal = (1_u64 << Self::height()) - 2;
 
-        const FIRST_INTERNAL: NodeIndex = 3;
-        const LAST_INTERNAL: NodeIndex = (1_u64 << (CAPPED_DEPTH - 1)) - 2;
+        let first_leaf = Self::first_leaf();
+        let last_leaf = Self::last_leaf();
 
-        const FIRST_LEAF: NodeIndex = (1_u64 << (CAPPED_DEPTH - 1)) - 1;
-        const LAST_LEAF: NodeIndex = (1_u64 << CAPPED_DEPTH) - 1;
-
-        const FIRST_CHILD: NodeIndex = LAST_LEAF + 1;
-        const LAST_CHILD: NodeIndex = std::u64::MAX;
-
-        match index {
-            0 => Node::Composite(Composite {
+        if index == 0 {
+            Node::Composite(Composite {
                 ident: "",
                 index: 0,
                 height: Self::height().into(),
-            }),
-            1 => Node::Intermediate(index),
-            2 => Node::Leaf(Leaf::Length(Basic {
+            })
+        } else if index == 1 {
+            Node::Intermediate(index)
+        } else if index == 2 {
+            Node::Leaf(Leaf::Length(Basic {
                 ident: "len".to_string(),
                 index: index,
                 size: 32,
                 offset: 0,
-            })),
-            FIRST_INTERNAL...LAST_INTERNAL => Node::Intermediate(index),
-            FIRST_LEAF...LAST_LEAF => {
-                let mut items: Vec<Basic> = vec![];
+            }))
+        } else if (first_internal..=last_internal).contains(&index) {
+            Node::Intermediate(index)
+        } else if (first_leaf..=last_leaf).contains(&index) {
+            let mut items: Vec<Basic> = vec![];
 
-                let item_size = std::mem::size_of::<T>() as u8;
-                let items_per_chunk = BYTES_PER_CHUNK as u8 / item_size;
+            let item_size = std::mem::size_of::<T>() as u8;
+            let items_per_chunk = BYTES_PER_CHUNK as u8 / item_size;
 
-                for i in 0..items_per_chunk {
-                    let offset = i * item_size;
+            for i in 0..items_per_chunk {
+                let offset = i * item_size;
 
-                    items.push(Basic {
-                        ident: (((index + 1) % 2_u64.pow(CAPPED_DEPTH as u32 - 1))
-                            * items_per_chunk as u64
-                            + i as u64)
-                            .to_string(),
-                        index,
-                        size: item_size as u8,
-                        offset,
-                    })
-                }
-
-                Node::Leaf(Leaf::Basic(items))
+                items.push(Basic {
+                    ident: (((index + 1) % 2_u64.pow(Self::height() as u32 - 1))
+                        * items_per_chunk as u64
+                        + i as u64)
+                        .to_string(),
+                    index,
+                    size: item_size as u8,
+                    offset,
+                })
             }
-            FIRST_CHILD...LAST_CHILD => {
-                let subtree_root = root_from_depth(index, relative_depth(FIRST_LEAF, index));
 
-                if (FIRST_LEAF..=LAST_LEAF).contains(&subtree_root) {
-                    T::get_node(index)
-                } else {
-                    Node::Unattached(index)
-                }
+            Node::Leaf(Leaf::Basic(items))
+        } else {
+            let subtree_root = root_from_depth(index, relative_depth(first_leaf, index));
+
+            if (first_leaf..=last_leaf).contains(&subtree_root) {
+                T::get_node(index)
+            } else {
+                Node::Unattached(index)
             }
         }
     }
@@ -165,6 +175,14 @@ macro_rules! impl_merkle_overlay_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl MerkleTreeOverlay for $type {
             fn height() -> u8 {
+                0
+            }
+
+            fn first_leaf() -> NodeIndex {
+                0
+            }
+
+            fn last_leaf() -> NodeIndex {
                 0
             }
 
@@ -195,23 +213,25 @@ impl_merkle_overlay_for_uint!(usize, std::mem::size_of::<usize>());
 #[cfg(test)]
 mod tests {
     use super::*;
+    use typenum::U8;
 
     #[test]
     fn vec_overlay() {
+        type T = VariableList<U256, U8>;
         assert_eq!(
-            Vec::<U256>::get_node(0),
+            T::get_node(0),
             Node::Composite(Composite {
                 ident: "",
                 index: 0,
-                height: 32
+                height: T::height(),
             })
         );
 
-        assert_eq!(Vec::<U256>::get_node(1), Node::Intermediate(1));
-        assert_eq!(Vec::<U256>::get_node(100), Node::Intermediate(100));
+        assert_eq!(T::get_node(1), Node::Intermediate(1));
+        assert_eq!(T::get_node(10), Node::Intermediate(10));
 
         assert_eq!(
-            Vec::<U256>::get_node(2),
+            T::get_node(2),
             Node::Leaf(Leaf::Length(Basic {
                 ident: "len".to_string(),
                 index: 2,
@@ -221,38 +241,36 @@ mod tests {
         );
 
         assert_eq!(
-            Vec::<U256>::get_node(2_u64.pow(31) - 1),
+            T::get_node(15),
             Node::Leaf(Leaf::Basic(vec![Basic {
                 ident: 0.to_string(),
-                index: 2_u64.pow(31) - 1,
+                index: 15,
                 size: 32,
                 offset: 0
             }]))
         );
 
         assert_eq!(
-            Vec::<U256>::get_node(2_u64.pow(31) + 1000 - 1),
+            T::get_node(18),
             Node::Leaf(Leaf::Basic(vec![Basic {
-                ident: 1000.to_string(),
-                index: 2_u64.pow(31) + 1000 - 1,
+                ident: 3.to_string(),
+                index: 18,
                 size: 32,
                 offset: 0
             }]))
         );
 
         assert_eq!(
-            Vec::<U256>::get_node(2 * (2_u64.pow(31) - 1)),
+            T::get_node(22),
             Node::Leaf(Leaf::Basic(vec![Basic {
-                ident: (2_u64.pow(31) - 1).to_string(),
-                index: 2 * (2_u64.pow(31) - 1),
+                ident: 7.to_string(),
+                index: 22,
                 size: 32,
                 offset: 0
             }]))
         );
 
-        assert_eq!(
-            Vec::<U256>::get_node(2_u64.pow(32)),
-            Node::Unattached(2_u64.pow(32))
-        );
+        assert_eq!(T::get_node(23), Node::Unattached(23));
+        assert_eq!(T::get_node(2_u64.pow(32)), Node::Unattached(2_u64.pow(32)));
     }
 }

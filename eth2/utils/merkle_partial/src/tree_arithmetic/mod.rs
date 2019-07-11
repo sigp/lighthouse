@@ -40,6 +40,19 @@ pub const fn relative_depth(a: u64, b: u64) -> u64 {
 }
 
 // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+pub const fn next_power_of_two(n: u64) -> u64 {
+    let mut ret: u128 = (n - 1) as u128;
+
+    ret = ret | ret >> 1;
+    ret = ret | ret >> 2;
+    ret = ret | ret >> 4;
+    ret = ret | ret >> 8;
+    ret = ret | ret >> 16;
+    ret = ret | ret >> 32;
+
+    (ret + 1) as u64
+}
+
 pub const fn last_power_of_two(n: u64) -> u64 {
     let mut ret: u128 = n as u128;
 
@@ -148,12 +161,18 @@ mod tests {
     }
 
     #[test]
-    fn get_last_power_of_two() {
+    fn next_and_last_power_of_two() {
         assert_eq!(last_power_of_two(1), 1);
         assert_eq!(last_power_of_two(2), 2);
         assert_eq!(last_power_of_two(9), 8);
         assert_eq!(last_power_of_two(1023), 512);
         assert_eq!(last_power_of_two(2_u64.pow(63) + 1000), 2_u64.pow(63));
+
+        assert_eq!(next_power_of_two(1), 1);
+        assert_eq!(next_power_of_two(2), 2);
+        assert_eq!(next_power_of_two(9), 16);
+        assert_eq!(next_power_of_two(1023), 1024);
+        assert_eq!(next_power_of_two(2_u64.pow(62) + 1000), 2_u64.pow(63));
     }
 
     #[test]

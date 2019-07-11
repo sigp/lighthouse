@@ -8,3 +8,5 @@ edition = "2018"
 hashing = { path = "../hashing" }
 tree_hash = { path = "../tree_hash" }
 ethereum-types = "0.6.0"
+ssz_types = { path = "../ssz_types" }
+typenum = "1.10.0"
