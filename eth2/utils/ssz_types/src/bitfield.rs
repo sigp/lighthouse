@@ -5,43 +5,61 @@ use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
 use typenum::Unsigned;
 
-/// A marker trait applied to `BitList` and `BitVector` that defines the behaviour of a `Bitfield`.
+/// A marker trait applied to `Variable` and `Fixed` that defines the behaviour of a `Bitfield`.
 pub trait BitfieldBehaviour: Clone {}
 
-/// A marker struct used to declare SSZ `BitList` behaviour on a `Bitfield`.
+/// A marker struct used to declare SSZ `Variable` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
 #[derive(Clone, PartialEq, Debug)]
-pub struct BitList<N> {
+pub struct Variable<N> {
     _phantom: PhantomData<N>,
 }
 
-/// A marker struct used to declare SSZ `BitVector` behaviour on a `Bitfield`.
+/// A marker struct used to declare SSZ `Fixed` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
 #[derive(Clone, PartialEq, Debug)]
-pub struct BitVector<N> {
+pub struct Fixed<N> {
     _phantom: PhantomData<N>,
 }
 
-impl<N: Unsigned + Clone> BitfieldBehaviour for BitList<N> {}
-impl<N: Unsigned + Clone> BitfieldBehaviour for BitVector<N> {}
+impl<N: Unsigned + Clone> BitfieldBehaviour for Variable<N> {}
+impl<N: Unsigned + Clone> BitfieldBehaviour for Fixed<N> {}
 
-/// A heap-allocated, ordered, fixed-length, collection of `bool` values. Must be used with the `BitList` or
-/// `BitVector` marker structs.
+/// A heap-allocated, ordered, variable-length collection of `bool` values, limited to `N` bits.
+pub type BitList<N> = Bitfield<Variable<N>>;
+
+/// A heap-allocated, ordered, fixed-length collection of `bool` values, with `N` bits.
+///
+/// See [Bitfield](struct.Bitfield.html) documentation.
+pub type BitVector<N> = Bitfield<Fixed<N>>;
+
+/// A heap-allocated, ordered, fixed-length, collection of `bool` values. Use of
+/// [`BitList`](type.BitList.html) or [`BitVector`](type.BitVector.html) type aliases is preferred
+/// over direct use of this struct.
+///
+/// The `T` type parameter is used to define length behaviour with the `Variable` or `Fixed` marker
+/// structs.
 ///
 /// The length of the Bitfield is set at instantiation (i.e., runtime, not compile time). However,
-/// use with a `BitList` sets a type-level (i.e., compile-time) maximum length and `BitVector`
+/// use with a `Variable` sets a type-level (i.e., compile-time) maximum length and `Fixed`
 /// provides a type-level fixed length.
 ///
 /// ## Example
+///
+/// The example uses the following crate-level type aliases:
+///
+/// - `BitList<N>` is an alias for `Bitfield<Variable<N>>`
+/// - `BitVector<N>` is an alias for `Bitfield<Fixed<N>>`
+///
 /// ```
-/// use ssz_types::{Bitfield, BitVector, BitList, typenum};
+/// use ssz_types::{BitVector, BitList, typenum};
 ///
 /// // `BitList` has a type-level maximum length. The length of the list is specified at runtime
 /// // and it must be less than or equal to `N`. After instantiation, `BitList` cannot grow or
 /// // shrink.
-/// type BitList8 = Bitfield<BitList<typenum::U8>>;
+/// type BitList8 = BitList<typenum::U8>;
 ///
 /// // Creating a `BitList` with a larger-than-`N` capacity returns `None`.
 /// assert!(BitList8::with_capacity(9).is_none());
@@ -52,7 +70,7 @@ impl<N: Unsigned + Clone> BitfieldBehaviour for BitVector<N> {}
 ///
 /// // `BitVector` has a type-level fixed length. Unlike `BitList`, it cannot be instantiated with a custom length
 /// // or grow/shrink.
-/// type BitVector8 = Bitfield<BitVector<typenum::U8>>;
+/// type BitVector8 = BitVector<typenum::U8>;
 ///
 /// let mut bitvector = BitVector8::new();
 /// assert_eq!(bitvector.len(), 8); // `BitVector` length is fixed at the type-level.
@@ -73,7 +91,7 @@ pub struct Bitfield<T> {
     _phantom: PhantomData<T>,
 }
 
-impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
+impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
     /// Instantiate with capacity for `num_bits` boolean values. The length cannot be grown or
     /// shrunk after instantiation.
     ///
@@ -104,11 +122,11 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
     ///
     /// ## Example
     /// ```
-    /// use ssz_types::{Bitfield, typenum};
+    /// use ssz_types::{BitList, typenum};
     ///
-    /// type BitList = Bitfield<ssz_types::BitList<typenum::U8>>;
+    /// type BitList8 = BitList<typenum::U8>;
     ///
-    /// let b = BitList::with_capacity(4).unwrap();
+    /// let b = BitList8::with_capacity(4).unwrap();
     ///
     /// assert_eq!(b.into_bytes(), vec![0b0001_0000]);
     /// ```
@@ -120,7 +138,7 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
             bytes.insert(0, 0);
         }
 
-        let mut bitfield: Bitfield<BitList<N>> = Bitfield::from_raw_bytes(bytes, len + 1)
+        let mut bitfield: Bitfield<Variable<N>> = Bitfield::from_raw_bytes(bytes, len + 1)
             .expect("Bitfield capacity has been confirmed earlier.");
         bitfield.set(len, true).expect("Bitfield index must exist.");
 
@@ -132,7 +150,7 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
     ///
     /// Returns `None` if `bytes` are not a valid encoding.
     pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
-        let mut initial_bitfield: Bitfield<BitList<N>> = {
+        let mut initial_bitfield: Bitfield<Variable<N>> = {
             let num_bits = bytes.len() * 8;
             Bitfield::from_raw_bytes(bytes, num_bits)
                 .expect("Must have adequate bytes for bit count.")
@@ -158,7 +176,7 @@ impl<N: Unsigned + Clone> Bitfield<BitList<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
+impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
     /// Instantiate a new `Bitfield` with a fixed-length of `N` bits.
     ///
     /// All bits are initialized to `false`.
@@ -181,11 +199,11 @@ impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
     ///
     /// ## Example
     /// ```
-    /// use ssz_types::{Bitfield, typenum};
+    /// use ssz_types::{BitVector, typenum};
     ///
-    /// type BitVector = Bitfield<ssz_types::BitVector<typenum::U4>>;
+    /// type BitVector4 = BitVector<typenum::U4>;
     ///
-    /// assert_eq!(BitVector::new().into_bytes(), vec![0b0000_0000]);
+    /// assert_eq!(BitVector4::new().into_bytes(), vec![0b0000_0000]);
     /// ```
     pub fn into_bytes(self) -> Vec<u8> {
         self.into_raw_bytes()
@@ -200,7 +218,7 @@ impl<N: Unsigned + Clone> Bitfield<BitVector<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> Default for Bitfield<BitVector<N>> {
+impl<N: Unsigned + Clone> Default for Bitfield<Fixed<N>> {
     fn default() -> Self {
         Self::new()
     }
@@ -437,7 +455,7 @@ impl<'a, T: BitfieldBehaviour> Iterator for BitIter<'a, T> {
     }
 }
 
-impl<N: Unsigned + Clone> Encode for Bitfield<BitList<N>> {
+impl<N: Unsigned + Clone> Encode for Bitfield<Variable<N>> {
     fn is_ssz_fixed_len() -> bool {
         false
     }
@@ -447,18 +465,18 @@ impl<N: Unsigned + Clone> Encode for Bitfield<BitList<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> Decode for Bitfield<BitList<N>> {
+impl<N: Unsigned + Clone> Decode for Bitfield<Variable<N>> {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         Self::from_bytes(bytes.to_vec())
-            .ok_or_else(|| ssz::DecodeError::BytesInvalid("BitList failed to decode".to_string()))
+            .ok_or_else(|| ssz::DecodeError::BytesInvalid("Variable failed to decode".to_string()))
     }
 }
 
-impl<N: Unsigned + Clone> Encode for Bitfield<BitVector<N>> {
+impl<N: Unsigned + Clone> Encode for Bitfield<Fixed<N>> {
     fn is_ssz_fixed_len() -> bool {
         true
     }
@@ -472,18 +490,18 @@ impl<N: Unsigned + Clone> Encode for Bitfield<BitVector<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> Decode for Bitfield<BitVector<N>> {
+impl<N: Unsigned + Clone> Decode for Bitfield<Fixed<N>> {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         Self::from_bytes(bytes.to_vec())
-            .ok_or_else(|| ssz::DecodeError::BytesInvalid("BitVector failed to decode".to_string()))
+            .ok_or_else(|| ssz::DecodeError::BytesInvalid("Fixed failed to decode".to_string()))
     }
 }
 
-impl<N: Unsigned + Clone> Serialize for Bitfield<BitList<N>> {
+impl<N: Unsigned + Clone> Serialize for Bitfield<Variable<N>> {
     /// Serde serialization is compliant with the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -493,7 +511,7 @@ impl<N: Unsigned + Clone> Serialize for Bitfield<BitList<N>> {
     }
 }
 
-impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<BitList<N>> {
+impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<Variable<N>> {
     /// Serde serialization is compliant with the Ethereum YAML test format.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -508,7 +526,7 @@ impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<BitList<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> Serialize for Bitfield<BitVector<N>> {
+impl<N: Unsigned + Clone> Serialize for Bitfield<Fixed<N>> {
     /// Serde serialization is compliant with the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -518,7 +536,7 @@ impl<N: Unsigned + Clone> Serialize for Bitfield<BitVector<N>> {
     }
 }
 
-impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<BitVector<N>> {
+impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<Fixed<N>> {
     /// Serde serialization is compliant with the Ethereum YAML test format.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -533,7 +551,7 @@ impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<BitVector<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<BitList<N>> {
+impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Variable<N>> {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         tree_hash::TreeHashType::List
     }
@@ -552,7 +570,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<BitList<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<BitVector<N>> {
+impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         // TODO: move this to be a vector.
         tree_hash::TreeHashType::List
@@ -573,7 +591,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<BitVector<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitList<N>> {
+impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<Variable<N>> {
     fn new_tree_hash_cache(
         &self,
         depth: usize,
@@ -619,7 +637,7 @@ impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitList<
     }
 }
 
-impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitVector<N>> {
+impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<Fixed<N>> {
     fn new_tree_hash_cache(
         &self,
         depth: usize,
@@ -653,8 +671,8 @@ impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<BitVecto
 #[cfg(test)]
 mod bitvector {
     use super::*;
+    use crate::BitVector;
 
-    pub type BitVector<N> = crate::Bitfield<crate::BitVector<N>>;
     pub type BitVector0 = BitVector<typenum::U0>;
     pub type BitVector1 = BitVector<typenum::U1>;
     pub type BitVector4 = BitVector<typenum::U4>;
@@ -753,8 +771,8 @@ mod bitvector {
 #[cfg(test)]
 mod bitlist {
     use super::*;
+    use crate::BitList;
 
-    pub type BitList<N> = super::Bitfield<crate::BitList<N>>;
     pub type BitList0 = BitList<typenum::U0>;
     pub type BitList1 = BitList<typenum::U1>;
     pub type BitList8 = BitList<typenum::U8>;
