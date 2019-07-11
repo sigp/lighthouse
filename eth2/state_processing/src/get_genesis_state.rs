@@ -8,14 +8,14 @@ pub enum GenesisError {
 }
 
 /// New genesis state
-pub fn initialize_beacon_state_from_eth1(
+pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
     eth1_timestamp: u64,
     deposits: Vec<Deposit>,
     spec: &ChainSpec,
-) -> Self {
+) -> Result<BeaconState<T>, BlockProcessingError> {
     let genesis_time =
-        eth1_timestamp - eth_timestamp % spec.seconds_per_day + 2 * spec.seconds_per_day;
+        eth1_timestamp - eth1_timestamp % spec.seconds_per_day + 2 * spec.seconds_per_day;
     let eth1_data = Eth1Data {
         // Temporary deposit root
         deposit_root: Hash256::zero(),
@@ -27,8 +27,11 @@ pub fn initialize_beacon_state_from_eth1(
     // Process deposits
     // TODO: merkle tree construction (needs tree hash impl for Lists)
     for (i, deposit) in deposits.iter().enumerate() {}
+
+    Ok(state)
 }
 
+/* FIXME(freeze): fix this
 /// Returns the genesis `BeaconState`
 ///
 /// Spec v0.6.3
@@ -64,6 +67,7 @@ pub fn get_genesis_beacon_state<T: EthSpec>(
 
     Ok(state)
 }
+*/
 
 impl From<BlockProcessingError> for GenesisError {
     fn from(e: BlockProcessingError) -> GenesisError {
