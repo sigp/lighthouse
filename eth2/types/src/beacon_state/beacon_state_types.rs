@@ -80,15 +80,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     fn slots_per_historical_root() -> usize {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
-
-    /* FIXME(freeze): delete?
-    /// Returns the `EPOCHS_PER_HISTORICAL_VECTOR` constant for this specification.
-    ///
-    /// Spec v0.8.0
-    fn epochs_per_historical_vector() -> usize {
-        Self::EpochsPerHistoricalVector::to_usize()
-    }
-    */
 }
 
 /// Ethereum Foundation specifications.
