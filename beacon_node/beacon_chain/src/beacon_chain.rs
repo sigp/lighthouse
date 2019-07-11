@@ -15,7 +15,7 @@ use state_processing::per_block_processing::errors::{
 };
 use state_processing::{
     per_block_processing, per_block_processing_without_verifying_block_signature,
-    per_slot_processing, BlockProcessingError,
+    per_slot_processing, BlockProcessingError, common
 };
 use std::sync::Arc;
 use store::iter::{BlockIterator, BlockRootsIterator, StateRootsIterator};
@@ -480,13 +480,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
-        match self.store.exists::<BeaconBlock>(&attestation.data.target_root) {
-            Ok(true) => {
-                per_block_processing::validate_attestation_time_independent_only(&*self.state.read(), &attestation, &self.spec)?;
-                self.fork_choice.process_attestation(&*self.state.read(), &attestation);
-            },
-            _ => {}
+        // Retrieve the attestation's state from `store` if necessary.
+        let attestation_state = match attestation.data.beacon_block_root == self.canonical_head.read().beacon_block_root {
+            true => Some(self.state.read().clone()),
+            false => match self.store.get::<BeaconBlock>(&attestation.data.beacon_block_root) {
+                Ok(Some(block)) => match self.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
+                    Ok(state) => state,
+                    _ => None
+                },
+                _ => None
+            }
         };
+
+        if let Some(state) = attestation_state {
+            let indexed_attestation = common::convert_to_indexed(&state, &attestation)?;
+            per_block_processing::verify_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
+            self.fork_choice.process_attestation(&state, &attestation);
+        }
 
         let result = self
             .op_pool
