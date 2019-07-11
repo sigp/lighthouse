@@ -66,6 +66,17 @@ impl<T, N: Unsigned> FixedVector<T, N> {
         }
     }
 
+    /// Create a new vector filled with clones of `elem`.
+    pub fn from_elem(elem: T) -> Self
+    where
+        T: Clone,
+    {
+        Self {
+            vec: vec![elem; N::to_usize()],
+            _phantom: PhantomData,
+        }
+    }
+
     /// Identical to `self.capacity`, returns the type-level constant length.
     ///
     /// Exists for compatibility with `Vec`.
