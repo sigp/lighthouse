@@ -434,6 +434,28 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     pub fn is_comparable(&self, other: &Self) -> bool {
         (self.len() == other.len()) && (self.bytes.len() == other.bytes.len())
     }
+
+    /// Shift the bits to higher indices, filling the lower indices with zeroes.
+    ///
+    /// The amount to shift by, `n`, must be less than or equal to `self.len()`.
+    pub fn shift_up(&mut self, n: usize) -> Result<(), Error> {
+        if n <= self.len() {
+            // Shift the bits up (starting from the high indices to avoid overwriting)
+            for i in (n..self.len()).rev() {
+                self.set(i, self.get(i - n)?)?;
+            }
+            // Zero the low bits
+            for i in 0..n {
+                self.set(i, false).unwrap();
+            }
+            Ok(())
+        } else {
+            Err(Error::OutOfBounds {
+                i: n,
+                len: self.len(),
+            })
+        }
+    }
 }
 
 /// Returns the minimum required bytes to represent a given number of bits.
@@ -1146,6 +1168,21 @@ mod bitlist {
         assert_eq!(a.difference(&b).unwrap(), a_b);
         assert_eq!(b.difference(&a).unwrap(), b_a);
         assert!(a.difference(&a).unwrap().is_zero());
+    }
+
+    #[test]
+    fn shift_up() {
+        let mut a = BitList1024::from_raw_bytes(vec![0b1101_0110, 0b1100_1111], 16).unwrap();
+        let mut b = BitList1024::from_raw_bytes(vec![0b1010_1101, 0b1001_1110], 16).unwrap();
+
+        a.shift_up(1).unwrap();
+        assert_eq!(a, b);
+        a.shift_up(15).unwrap();
+        assert!(a.is_zero());
+
+        b.shift_up(16).unwrap();
+        assert!(b.is_zero());
+        assert!(b.shift_up(17).is_err());
     }
 
     #[test]
