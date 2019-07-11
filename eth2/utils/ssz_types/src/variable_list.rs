@@ -61,7 +61,7 @@ impl<T, N: Unsigned> VariableList<T, N> {
                 _phantom: PhantomData,
             })
         } else {
-            Err(Error::InvalidLength {
+            Err(Error::OutOfBounds {
                 i: vec.len(),
                 len: Self::max_len(),
             })
@@ -91,7 +91,7 @@ impl<T, N: Unsigned> VariableList<T, N> {
             self.vec.push(value);
             Ok(())
         } else {
-            Err(Error::InvalidLength {
+            Err(Error::OutOfBounds {
                 i: self.vec.len() + 1,
                 len: Self::max_len(),
             })
