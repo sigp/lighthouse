@@ -45,7 +45,7 @@ mod verify_transfer;
 /// Spec v0.8.0
 pub fn per_block_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: &BeaconBlock,
+    block: &BeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     per_block_processing_signature_optional(state, block, true, spec)
@@ -60,7 +60,7 @@ pub fn per_block_processing<T: EthSpec>(
 /// Spec v0.8.0
 pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: &BeaconBlock,
+    block: &BeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     per_block_processing_signature_optional(state, block, false, spec)
@@ -75,7 +75,7 @@ pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
 /// Spec v0.8.0
 fn per_block_processing_signature_optional<T: EthSpec>(
     mut state: &mut BeaconState<T>,
-    block: &BeaconBlock,
+    block: &BeaconBlock<T>,
     should_verify_block_signature: bool,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -102,7 +102,7 @@ fn per_block_processing_signature_optional<T: EthSpec>(
 /// Spec v0.8.0
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: &BeaconBlock,
+    block: &BeaconBlock<T>,
     spec: &ChainSpec,
     should_verify_block_signature: bool,
 ) -> Result<(), Error> {
@@ -137,7 +137,7 @@ pub fn process_block_header<T: EthSpec>(
 /// Spec v0.8.0
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
-    block: &BeaconBlock,
+    block: &BeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let block_proposer = &state.validators
@@ -165,7 +165,7 @@ pub fn verify_block_signature<T: EthSpec>(
 /// Spec v0.8.0
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: &BeaconBlock,
+    block: &BeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let block_proposer = &state.validators
@@ -314,7 +314,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 /// Spec v0.8.0
 pub fn process_attestations<T: EthSpec>(
     state: &mut BeaconState<T>,
-    attestations: &[Attestation],
+    attestations: &[Attestation<T>],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(

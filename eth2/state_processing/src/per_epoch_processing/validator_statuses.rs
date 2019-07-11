@@ -220,13 +220,13 @@ impl ValidatorStatuses {
 
             // Profile this attestation, updating the total balances and generating an
             // `ValidatorStatus` object that applies to all participants in the attestation.
-            if is_from_epoch(a, state.current_epoch()) {
+            if a.data.target.epoch == state.current_epoch() {
                 status.is_current_epoch_attester = true;
 
                 if target_matches_epoch_start_block(a, state, state.current_epoch())? {
                     status.is_current_epoch_target_attester = true;
                 }
-            } else if is_from_epoch(a, state.previous_epoch()) {
+            } else if a.data.target.epoch == state.previous_epoch() {
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
@@ -321,19 +321,12 @@ impl ValidatorStatuses {
     }
 }
 
-/// Returns `true` if some `PendingAttestation` is from the supplied `epoch`.
-///
-/// Spec v0.6.3
-fn is_from_epoch(a: &PendingAttestation, epoch: Epoch) -> bool {
-    a.data.target.epoch == epoch
-}
-
 /// Returns `true` if the attestation's FFG target is equal to the hash of the `state`'s first
 /// beacon block in the given `epoch`.
 ///
 /// Spec v0.6.3
 fn target_matches_epoch_start_block<T: EthSpec>(
-    a: &PendingAttestation,
+    a: &PendingAttestation<T>,
     state: &BeaconState<T>,
     epoch: Epoch,
 ) -> Result<bool, BeaconStateError> {
@@ -348,7 +341,7 @@ fn target_matches_epoch_start_block<T: EthSpec>(
 ///
 /// Spec v0.6.3
 fn has_common_beacon_block_root<T: EthSpec>(
-    a: &PendingAttestation,
+    a: &PendingAttestation<T>,
     state: &BeaconState<T>,
 ) -> Result<bool, BeaconStateError> {
     let attestation_slot = state.get_attestation_data_slot(&a.data)?;

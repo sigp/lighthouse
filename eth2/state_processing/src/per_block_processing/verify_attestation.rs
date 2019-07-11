@@ -14,7 +14,7 @@ use types::*;
 /// Spec v0.8.0
 pub fn verify_attestation<T: EthSpec>(
     state: &BeaconState<T>,
-    attestation: &Attestation,
+    attestation: &Attestation<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify_attestation_parametric(state, attestation, spec, true, false)
@@ -23,7 +23,7 @@ pub fn verify_attestation<T: EthSpec>(
 /// Like `verify_attestation` but doesn't run checks which may become true in future states.
 pub fn verify_attestation_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
-    attestation: &Attestation,
+    attestation: &Attestation<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify_attestation_parametric(state, attestation, spec, true, true)
@@ -37,7 +37,7 @@ pub fn verify_attestation_time_independent_only<T: EthSpec>(
 /// Spec v0.8.0
 pub fn verify_attestation_without_signature<T: EthSpec>(
     state: &BeaconState<T>,
-    attestation: &Attestation,
+    attestation: &Attestation<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify_attestation_parametric(state, attestation, spec, false, false)
@@ -50,7 +50,7 @@ pub fn verify_attestation_without_signature<T: EthSpec>(
 /// Spec v0.8.0
 fn verify_attestation_parametric<T: EthSpec>(
     state: &BeaconState<T>,
-    attestation: &Attestation,
+    attestation: &Attestation<T>,
     spec: &ChainSpec,
     verify_signature: bool,
     time_independent_only: bool,
@@ -126,7 +126,7 @@ fn verify_attestation_parametric<T: EthSpec>(
 ///
 /// Spec v0.8.0
 fn verify_casper_ffg_vote<'a, T: EthSpec>(
-    attestation: &Attestation,
+    attestation: &Attestation<T>,
     state: &'a BeaconState<T>,
 ) -> Result<&'a Crosslink, Error> {
     let data = &attestation.data;
