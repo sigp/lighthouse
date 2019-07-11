@@ -2,8 +2,8 @@
 //!
 //! - `FixedVector`: A heap-allocated list with a size that is fixed at compile time.
 //! - `VariableList`: A heap-allocated list that cannot grow past a type-level maximum length.
-//! - `Bitfield<BitList>`: A heap-allocated bitfield that with a type-level _maximum_ length.
-//! - `Bitfield<VariableList>`: A heap-allocated bitfield that with a type-level _fixed__ length.
+//! - `BitList`: A heap-allocated bitfield that with a type-level _maximum_ length.
+//! - `BitVector`: A heap-allocated bitfield that with a type-level _fixed__ length.
 //!
 //! These structs are required as SSZ serialization and Merklization rely upon type-level lengths
 //! for padding and verification.
@@ -13,8 +13,8 @@
 //! use ssz_types::*;
 //!
 //! pub struct Example {
-//!     bit_vector: Bitfield<BitVector<typenum::U8>>,
-//!     bit_list: Bitfield<BitList<typenum::U8>>,
+//!     bit_vector: BitVector<typenum::U8>,
+//!     bit_list: BitList<typenum::U8>,
 //!     variable_list: VariableList<u64, typenum::U8>,
 //!     fixed_vector: FixedVector<u64, typenum::U8>,
 //! }
@@ -42,6 +42,10 @@ pub use bitfield::{BitList, BitVector, Bitfield};
 pub use fixed_vector::FixedVector;
 pub use typenum;
 pub use variable_list::VariableList;
+
+pub mod length {
+    pub use crate::bitfield::{Fixed, Variable};
+}
 
 /// Returned when an item encounters an error.
 #[derive(PartialEq, Debug)]
