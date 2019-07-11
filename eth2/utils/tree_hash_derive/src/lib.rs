@@ -162,6 +162,7 @@ pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
     let name = &item.ident;
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
 
     let struct_data = match &item.data {
         syn::Data::Struct(s) => s,
@@ -172,7 +173,7 @@ pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
     let num_elems = idents.len();
 
     let output = quote! {
-        impl tree_hash::SignedRoot for #name {
+        impl #impl_generics tree_hash::SignedRoot for #name #ty_generics #where_clause {
             fn signed_root(&self) -> Vec<u8> {
                 let mut leaves = Vec::with_capacity(#num_elems * tree_hash::HASHSIZE);
 
