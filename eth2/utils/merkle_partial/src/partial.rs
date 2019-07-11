@@ -21,11 +21,10 @@ pub trait Partial: MerkleTreeOverlay + Sized {
 
     /// Generates a `SerializedPartial` proving that `path` is a part of the current merkle tree.
     fn extract_partial(&self, path: Vec<Path>) -> Result<SerializedPartial> {
-        let (indices, chunks) = get_partial_helper(
-            self,
+        let (indices, chunks) = get_partial_helper::<Self>(
             self.get_cache(),
             0,
-            self.height(),
+            Self::height(),
             path,
             &mut vec![],
             &mut vec![],
@@ -50,7 +49,7 @@ pub trait Partial: MerkleTreeOverlay + Sized {
         }
 
         if let Ok((index, offset, size)) =
-            match_path_element(self, self.get_cache(), path[0].clone(), root)
+            match_path_element::<Self>(self.get_cache(), path[0].clone(), root)
         {
             if path.len() == 1 {
                 let begin: usize = offset as usize;
@@ -71,11 +70,11 @@ pub trait Partial: MerkleTreeOverlay + Sized {
 
     /// Return whether a path has been loade into the partial.
     fn is_path_loaded(&self, path: Vec<&str>) -> bool {
-        let height = self.height();
+        let height = Self::height();
 
         let mut leaves: Vec<Node> = vec![];
         for i in 2_u64.pow(height as u32)..(2_u64.pow(height as u32 + 1) - 1) {
-            leaves.push(self.get_node(i as NodeIndex - 1));
+            leaves.push(Self::get_node(i as NodeIndex - 1));
         }
 
         for leaf in leaves {
@@ -148,8 +147,7 @@ pub trait Partial: MerkleTreeOverlay + Sized {
 
 /// Recursively traverse the tree structure, matching the appropriate `path` element with its index,
 /// eventually returning the `indicies` and `chunks` needed to generate the partial for the path.
-fn get_partial_helper(
-    item: &dyn MerkleTreeOverlay,
+fn get_partial_helper<T: MerkleTreeOverlay>(
     cache: &Cache,
     root: NodeIndex,
     height: u8,
@@ -167,14 +165,14 @@ fn get_partial_helper(
         Path::Ident(_) => {
             let mut ret: Vec<Node> = vec![];
             for i in 2_u64.pow(height as u32)..(2_u64.pow(height as u32 + 1) - 1) {
-                ret.push(item.get_node(subtree_index_to_general(root, i - 1)));
+                ret.push(T::get_node(subtree_index_to_general(root, i - 1)));
             }
 
             ret
         }
         Path::Index(i) => {
             let first_leaf = subtree_index_to_general(root, 2_u64.pow(height as u32));
-            vec![item.get_node(first_leaf + i)]
+            vec![T::get_node(first_leaf + i)]
         }
     };
 
@@ -225,8 +223,7 @@ fn get_partial_helper(
                         visitor /= 2;
                     }
 
-                    return get_partial_helper(
-                        item,
+                    return get_partial_helper::<T>(
                         cache,
                         index,
                         field.height,
@@ -278,16 +275,16 @@ mod tests {
 
     // Should be implemented by derive macro
     impl MerkleTreeOverlay for A {
-        fn height(&self) -> u8 {
+        fn height() -> u8 {
             2
         }
 
-        fn get_node(&self, index: NodeIndex) -> Node {
+        fn get_node(index: NodeIndex) -> Node {
             match index {
                 0 => Node::Composite(Composite {
                     ident: "",
                     index: 1,
-                    height: self.height().into(),
+                    height: Self::height().into(),
                 }),
                 1 => Node::Intermediate(2),
                 2 => Node::Intermediate(3),
@@ -351,12 +348,12 @@ mod tests {
 
     // Should be implemented by derive macro
     impl MerkleTreeOverlay for B {
-        fn height(&self) -> u8 {
+        fn height() -> u8 {
             0
         }
 
-        fn get_node(&self, index: NodeIndex) -> Node {
-            self.a.get_node(index)
+        fn get_node(index: NodeIndex) -> Node {
+            Vec::<u128>::get_node(index)
         }
     }
 

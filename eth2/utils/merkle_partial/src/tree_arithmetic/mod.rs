@@ -25,18 +25,23 @@ pub const fn right_most_leaf(root: u64, depth: u64) -> u64 {
 }
 
 pub const fn is_in_subtree(root: u64, index: u64) -> bool {
-    let index_depth = log_base_two(last_power_of_two(index));
-    let root_depth = log_base_two(last_power_of_two(root));
-    let depth_diff = index_depth - root_depth;
-    let left_most = left_most_leaf(root, depth_diff);
-    let right_most = right_most_leaf(root, depth_diff);
+    let diff = relative_depth(root, index);
+    let left_most = left_most_leaf(root, diff);
+    let right_most = right_most_leaf(root, diff);
 
     (left_most <= index) & (index <= right_most)
 }
 
+pub const fn relative_depth(a: u64, b: u64) -> u64 {
+    let a = log_base_two(last_power_of_two(a));
+    let b = log_base_two(last_power_of_two(b));
+
+    b - a
+}
+
 // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
 pub const fn last_power_of_two(n: u64) -> u64 {
-    let mut ret = n;
+    let mut ret: u128 = n as u128;
 
     ret = ret | ret >> 1;
     ret = ret | ret >> 2;
@@ -45,7 +50,11 @@ pub const fn last_power_of_two(n: u64) -> u64 {
     ret = ret | ret >> 16;
     ret = ret | ret >> 32;
 
-    (ret + 1) >> 1
+    ((ret + 1) >> 1) as u64
+}
+
+pub const fn root_from_depth(index: u64, depth: u64) -> u64 {
+    index / (1 << depth)
 }
 
 pub const fn log_base_two(n: u64) -> u64 {
@@ -75,6 +84,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn compute_depth_difference() {
+        assert_eq!(relative_depth(1, 1), 0);
+        assert_eq!(relative_depth(1, 2), 1);
+        assert_eq!(relative_depth(1, 5), 2);
+        assert_eq!(relative_depth(1, 13), 3);
+        assert_eq!(relative_depth(1, 30), 4);
+
+        assert_eq!(relative_depth(2, 30), 3);
+        assert_eq!(relative_depth(7, 30), 2);
+        assert_eq!(relative_depth(11, 30), 1);
+        assert_eq!(relative_depth(28, 30), 0);
+
+        assert_eq!(relative_depth(1, 2_u64.pow(63)), 63);
+    }
+
+    #[test]
+    fn compute_root_from_depth() {
+        assert_eq!(root_from_depth(2, 1), 1);
+        assert_eq!(root_from_depth(3, 1), 1);
+
+        assert_eq!(root_from_depth(16, 4), 1);
+        assert_eq!(root_from_depth(16, 3), 2);
+        assert_eq!(root_from_depth(16, 2), 4);
+        assert_eq!(root_from_depth(16, 1), 8);
+        assert_eq!(root_from_depth(16, 0), 16);
+
+        assert_eq!(root_from_depth(31, 4), 1);
+        assert_eq!(root_from_depth(31, 3), 3);
+        assert_eq!(root_from_depth(31, 2), 7);
+        assert_eq!(root_from_depth(31, 1), 15);
+        assert_eq!(root_from_depth(31, 0), 31);
+
+        assert_eq!(root_from_depth(22, 4), 1);
+        assert_eq!(root_from_depth(22, 3), 2);
+        assert_eq!(root_from_depth(22, 2), 5);
+        assert_eq!(root_from_depth(22, 1), 11);
+        assert_eq!(root_from_depth(22, 0), 22);
+
+        assert_eq!(root_from_depth(25, 4), 1);
+        assert_eq!(root_from_depth(25, 3), 3);
+        assert_eq!(root_from_depth(25, 2), 6);
+        assert_eq!(root_from_depth(25, 1), 12);
+        assert_eq!(root_from_depth(25, 0), 25);
+    }
+
+    #[test]
     fn compute_expanded_tree_indexes() {
         assert_eq!(expand_tree_index(2), (2, 3, 1));
         assert_eq!(expand_tree_index(3), (2, 3, 1));
@@ -98,6 +153,7 @@ mod tests {
         assert_eq!(last_power_of_two(2), 2);
         assert_eq!(last_power_of_two(9), 8);
         assert_eq!(last_power_of_two(1023), 512);
+        assert_eq!(last_power_of_two(2_u64.pow(63) + 1000), 2_u64.pow(63));
     }
 
     #[test]

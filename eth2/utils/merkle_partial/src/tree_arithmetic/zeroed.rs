@@ -28,3 +28,11 @@ pub const fn right_most_leaf(root: u64, depth: u64) -> u64 {
 pub const fn is_in_subtree(root: u64, index: u64) -> bool {
     tree_arithmetic::is_in_subtree(root + 1, index + 1)
 }
+
+pub const fn root_from_depth(index: u64, depth: u64) -> u64 {
+    tree_arithmetic::root_from_depth(index + 1, depth) - 1
+}
+
+pub const fn relative_depth(a: u64, b: u64) -> u64 {
+    tree_arithmetic::relative_depth(a + 1, b + 1)
+}

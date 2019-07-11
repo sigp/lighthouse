@@ -7,6 +7,7 @@ pub enum Node {
     Intermediate(NodeIndex),
     Composite(Composite),
     Leaf(Leaf),
+    Unattached(NodeIndex),
 }
 
 #[derive(Debug, PartialEq)]
