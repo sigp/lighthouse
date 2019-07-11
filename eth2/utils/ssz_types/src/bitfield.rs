@@ -183,6 +183,48 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
             })
         }
     }
+
+    /// Compute the intersection of two BitLists of potentially different lengths.
+    ///
+    /// Return a new BitList with length equal to the shorter of the two inputs.
+    pub fn intersection(&self, other: &Self) -> Self {
+        let min_len = std::cmp::min(self.len(), other.len());
+        let mut result = Self::with_capacity(min_len).expect("min len always less than N");
+        // Bitwise-and the bytes together, starting from the ends of each vector. This takes care of
+        // masking out any entries beyond `min_len` as well, assuming the bitfield doesn't contain
+        // any set bits beyond its length.
+        let res_bytes_len = result.bytes.len();
+        for i in 0..res_bytes_len {
+            result.bytes[res_bytes_len - 1 - i] =
+                self.bytes[self.bytes.len() - 1 - i] & other.bytes[other.bytes.len() - 1 - i];
+        }
+        result
+    }
+
+    /// Compute the union of two BitLists of potentially different lengths.
+    ///
+    /// Return a new BitList with length equal to the longer of the two inputs.
+    pub fn union(&self, other: &Self) -> Self {
+        let max_len = std::cmp::max(self.len(), other.len());
+        let mut result = Self::with_capacity(max_len).expect("max len always less than N");
+        let res_bytes_len = result.bytes.len();
+        for i in 0..res_bytes_len {
+            let self_byte = self
+                .bytes
+                .len()
+                .checked_sub(i + 1)
+                .map(|j| self.bytes[j])
+                .unwrap_or(0);
+            let other_byte = other
+                .bytes
+                .len()
+                .checked_sub(i + 1)
+                .map(|j| other.bytes[j])
+                .unwrap_or(0);
+            result.bytes[res_bytes_len - 1 - i] = self_byte | other_byte;
+        }
+        result
+    }
 }
 
 impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
@@ -360,56 +402,6 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     /// Returns true if no bits are set.
     pub fn is_zero(&self) -> bool {
         self.bytes.iter().all(|byte| *byte == 0)
-    }
-
-    /// Compute the intersection (binary-and) of this bitfield with another.
-    ///
-    /// Returns `None` if `self.is_comparable(other) == false`.
-    pub fn intersection(&self, other: &Self) -> Option<Self> {
-        if self.is_comparable(other) {
-            let mut res = self.clone();
-            res.intersection_inplace(other);
-            Some(res)
-        } else {
-            None
-        }
-    }
-
-    /// Like `intersection` but in-place (updates `self`).
-    pub fn intersection_inplace(&mut self, other: &Self) -> Option<()> {
-        if self.is_comparable(other) {
-            for i in 0..self.bytes.len() {
-                self.bytes[i] &= other.bytes[i];
-            }
-            Some(())
-        } else {
-            None
-        }
-    }
-
-    /// Compute the union (binary-or) of this bitfield with another.
-    ///
-    /// Returns `None` if `self.is_comparable(other) == false`.
-    pub fn union(&self, other: &Self) -> Option<Self> {
-        if self.is_comparable(other) {
-            let mut res = self.clone();
-            res.union_inplace(other);
-            Some(res)
-        } else {
-            None
-        }
-    }
-
-    /// Like `union` but in-place (updates `self`).
-    pub fn union_inplace(&mut self, other: &Self) -> Option<()> {
-        if self.is_comparable(other) {
-            for i in 0..self.bytes.len() {
-                self.bytes[i] |= other.bytes[i];
-            }
-            Some(())
-        } else {
-            None
-        }
     }
 
     /// Compute the difference (binary-minus) of this bitfield with another. Lengths must match.
@@ -1092,13 +1084,29 @@ mod bitlist {
         let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
         let c = BitList1024::from_raw_bytes(vec![0b1000, 0b0001], 16).unwrap();
 
-        assert_eq!(a.intersection(&b).unwrap(), c);
-        assert_eq!(b.intersection(&a).unwrap(), c);
-        assert_eq!(a.intersection(&c).unwrap(), c);
-        assert_eq!(b.intersection(&c).unwrap(), c);
-        assert_eq!(a.intersection(&a).unwrap(), a);
-        assert_eq!(b.intersection(&b).unwrap(), b);
-        assert_eq!(c.intersection(&c).unwrap(), c);
+        assert_eq!(a.intersection(&b), c);
+        assert_eq!(b.intersection(&a), c);
+        assert_eq!(a.intersection(&c), c);
+        assert_eq!(b.intersection(&c), c);
+        assert_eq!(a.intersection(&a), a);
+        assert_eq!(b.intersection(&b), b);
+        assert_eq!(c.intersection(&c), c);
+    }
+
+    #[test]
+    fn intersection_diff_length() {
+        let a = BitList1024::from_bytes(vec![0b0010_1011, 0b0010_1110]).unwrap();
+        let b = BitList1024::from_bytes(vec![0b0000_0001, 0b0010_1101]).unwrap();
+        let c = BitList1024::from_bytes(vec![0b0000_0001, 0b0010_1100]).unwrap();
+        let d = BitList1024::from_bytes(vec![0b1111_1111, 0b1111_1111, 0b0010_1110]).unwrap();
+        assert_eq!(a.len(), 13);
+        assert_eq!(b.len(), 8);
+        assert_eq!(c.len(), 8);
+        assert_eq!(d.len(), 23);
+        assert_eq!(a.intersection(&b), c);
+        assert_eq!(b.intersection(&a), c);
+        assert_eq!(a.intersection(&d), a);
+        assert_eq!(d.intersection(&a), a);
     }
 
     #[test]
@@ -1107,11 +1115,25 @@ mod bitlist {
         let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
         let c = BitList1024::from_raw_bytes(vec![0b1111, 0b1001], 16).unwrap();
 
-        assert_eq!(a.union(&b).unwrap(), c);
-        assert_eq!(b.union(&a).unwrap(), c);
-        assert_eq!(a.union(&a).unwrap(), a);
-        assert_eq!(b.union(&b).unwrap(), b);
-        assert_eq!(c.union(&c).unwrap(), c);
+        assert_eq!(a.union(&b), c);
+        assert_eq!(b.union(&a), c);
+        assert_eq!(a.union(&a), a);
+        assert_eq!(b.union(&b), b);
+        assert_eq!(c.union(&c), c);
+    }
+
+    #[test]
+    fn union_diff_length() {
+        let a = BitList1024::from_bytes(vec![0b0010_1011, 0b0010_1110]).unwrap();
+        let b = BitList1024::from_bytes(vec![0b0000_0001, 0b0010_1101]).unwrap();
+        let c = BitList1024::from_bytes(vec![0b0010_1011, 0b0010_1111]).unwrap();
+        let d = BitList1024::from_bytes(vec![0b1111_1111, 0b1111_1111, 0b0010_1110]).unwrap();
+
+        assert_eq!(a.len(), c.len());
+        assert_eq!(a.union(&b), c);
+        assert_eq!(b.union(&a), c);
+        assert_eq!(a.union(&d), d);
+        assert_eq!(d.union(&a), d);
     }
 
     #[test]
