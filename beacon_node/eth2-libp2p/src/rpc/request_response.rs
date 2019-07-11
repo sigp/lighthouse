@@ -91,8 +91,11 @@ where
                 RPCRequestResponseInner::ReadResponseCode(mut inner, max_size) => {
                     match inner.poll()? {
                         Async::Ready((socket, data)) => {
+                            let resp_code_byte = [0; 1];
+                            // data must be only 1-byte - this cannot panic
+                            resp_code_byte.copy_from_slice(&data.into_inner());
                             let response_code =
-                                ResponseCode::from(u64::from_be_bytes(data.into_inner()));
+                                ResponseCode::from(u8::from_be_bytes(resp_code_byte));
                             // known response codes
                             match response_code {
                                 ResponseCode::Success
@@ -113,7 +116,7 @@ where
                                     // unknown response code
                                     let response = RPCResponse::Error(format!(
                                         "Unknown response code: {}",
-                                        response_code
+                                        (response_code as u8)
                                     ));
                                     return Ok(Async::Ready(response));
                                 }

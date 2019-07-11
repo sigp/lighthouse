@@ -3,6 +3,7 @@ use super::request_response::{rpc_request_response, RPCRequestResponse};
 use futures::future::Future;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::io;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -26,12 +27,12 @@ impl UpgradeInfo for RPCProtocol {
 
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            b"/eth/serenity/rpc/hello/1/ssz",
-            b"/eth/serenity/rpc/goodbye/1/ssz",
-            b"/eth/serenity/rpc/beacon_block_roots/1/ssz",
-            b"/eth/serenity/rpc/beacon_block_headers/1/ssz",
-            b"/eth/serenity/rpc/beacon_block_bodies/1/ssz",
-            b"/eth/serenity/rpc/beacon_chain_state/1/ssz",
+            b"/eth/serenity/rpc/hello/1.0.0/ssz",
+            b"/eth/serenity/rpc/goodbye/1.0.0/ssz",
+            b"/eth/serenity/rpc/beacon_block_roots/1.0.0/ssz",
+            b"/eth/serenity/rpc/beacon_block_headers/1.0.0/ssz",
+            b"/eth/serenity/rpc/beacon_block_bodies/1.0.0/ssz",
+            b"/eth/serenity/rpc/beacon_chain_state/1.0.0/ssz",
         ]
     }
 }
@@ -45,7 +46,7 @@ pub struct ProtocolId {
     pub message_name: String,
 
     /// The version of the RPC.
-    pub version: usize,
+    pub version: String,
 
     /// The encoding of the RPC.
     pub encoding: String,
@@ -53,10 +54,10 @@ pub struct ProtocolId {
 
 /// An RPC protocol ID.
 impl ProtocolId {
-    pub fn new(message_name: &str, version: usize, encoding: &str) -> Self {
+    pub fn new(message_name: &str, version: &str, encoding: &str) -> Self {
         ProtocolId {
             message_name: message_name.into(),
-            version,
+            version: version.into(),
             encoding: encoding.into(),
         }
     }
@@ -73,9 +74,7 @@ impl ProtocolId {
 
         Ok(ProtocolId {
             message_name: protocol_list[3].into(),
-            version: protocol_list[4]
-                .parse()
-                .map_err(|_| RPCError::InvalidProtocol("Invalid version"))?,
+            version: protocol_list[4].into(),
             encoding: protocol_list[5].into(),
         })
     }
@@ -172,19 +171,19 @@ impl RPCRequest {
     pub fn supported_protocols(&self) -> Vec<RawProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Hello(_) => vec![ProtocolId::new("hello", 1, "ssz").into()],
-            RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", 1, "ssz").into()],
+            RPCRequest::Hello(_) => vec![ProtocolId::new("hello", "1.0.0", "ssz").into()],
+            RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1.0.0", "ssz").into()],
             RPCRequest::BeaconBlockRoots(_) => {
-                vec![ProtocolId::new("beacon_block_roots", 1, "ssz").into()]
+                vec![ProtocolId::new("beacon_block_roots", "1.0.0", "ssz").into()]
             }
             RPCRequest::BeaconBlockHeaders(_) => {
-                vec![ProtocolId::new("beacon_block_headers", 1, "ssz").into()]
+                vec![ProtocolId::new("beacon_block_headers", "1.0.0", "ssz").into()]
             }
             RPCRequest::BeaconBlockBodies(_) => {
-                vec![ProtocolId::new("beacon_block_bodies", 1, "ssz").into()]
+                vec![ProtocolId::new("beacon_block_bodies", "1.0.0", "ssz").into()]
             }
             RPCRequest::BeaconChainState(_) => {
-                vec![ProtocolId::new("beacon_block_state", 1, "ssz").into()]
+                vec![ProtocolId::new("beacon_block_state", "1.0.0", "ssz").into()]
             }
         }
     }
@@ -216,30 +215,26 @@ impl RPCRequest {
 
     // This function can be extended to provide further logic for supporting various protocol versions/encoding
     /// Decodes a request received from our peer.
-    pub fn decode(packet: Vec<u8>, protocol: ProtocolId, response_code: ResponseCode) -> Result<Self, RPCError> {
-
-        match response_code {
-            ResponseCode::
-
-
-
+    pub fn decode(packet: Vec<u8>, protocol: ProtocolId) -> Result<Self, RPCError> {
         match protocol.message_name.as_str() {
-            "hello" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
+            "hello" => match protocol.version.as_str() {
+                "1.0.0" => match protocol.encoding.as_str() {
                     "ssz" => Ok(RPCRequest::Hello(HelloMessage::from_ssz_bytes(&packet)?)),
                     _ => Err(RPCError::InvalidProtocol("Unknown HELLO encoding")),
                 },
                 _ => Err(RPCError::InvalidProtocol("Unknown HELLO version")),
             },
-            "goodbye" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
+            "goodbye" => match protocol.version.as_str() {
+                "1.0.0" => match protocol.encoding.as_str() {
                     "ssz" => Ok(RPCRequest::Goodbye(Goodbye::from_ssz_bytes(&packet)?)),
                     _ => Err(RPCError::InvalidProtocol("Unknown GOODBYE encoding")),
                 },
-                _ => Err(RPCError::InvalidProtocol("Unknown GOODBYE version")),
+                _ => Err(RPCError::InvalidProtocol(
+                    "Unknown GOODBYE version.as_str()",
+                )),
             },
-            "beacon_block_roots" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
+            "beacon_block_roots" => match protocol.version.as_str() {
+                "1.0.0" => match protocol.encoding.as_str() {
                     "ssz" => Ok(RPCRequest::BeaconBlockRoots(
                         BeaconBlockRootsRequest::from_ssz_bytes(&packet)?,
                     )),
@@ -248,11 +243,11 @@ impl RPCRequest {
                     )),
                 },
                 _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_BLOCK_ROOTS version",
+                    "Unknown BEACON_BLOCK_ROOTS version.",
                 )),
             },
-            "beacon_block_headers" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
+            "beacon_block_headers" => match protocol.version.as_str() {
+                "1.0.0" => match protocol.encoding.as_str() {
                     "ssz" => Ok(RPCRequest::BeaconBlockHeaders(
                         BeaconBlockHeadersRequest::from_ssz_bytes(&packet)?,
                     )),
@@ -261,11 +256,11 @@ impl RPCRequest {
                     )),
                 },
                 _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_BLOCK_HEADERS version",
+                    "Unknown BEACON_BLOCK_HEADERS version.",
                 )),
             },
-            "beacon_block_bodies" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
+            "beacon_block_bodies" => match protocol.version.as_str() {
+                "1.0.0" => match protocol.encoding.as_str() {
                     "ssz" => Ok(RPCRequest::BeaconBlockBodies(
                         BeaconBlockBodiesRequest::from_ssz_bytes(&packet)?,
                     )),
@@ -274,11 +269,11 @@ impl RPCRequest {
                     )),
                 },
                 _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_BLOCK_BODIES version",
+                    "Unknown BEACON_BLOCK_BODIES version.",
                 )),
             },
-            "beacon_chain_state" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
+            "beacon_chain_state" => match protocol.version.as_str() {
+                "1.0.0" => match protocol.encoding.as_str() {
                     "ssz" => Ok(RPCRequest::BeaconChainState(
                         BeaconChainStateRequest::from_ssz_bytes(&packet)?,
                     )),
@@ -287,7 +282,7 @@ impl RPCRequest {
                     )),
                 },
                 _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_CHAIN_STATE version",
+                    "Unknown BEACON_CHAIN_STATE version.",
                 )),
             },
         }
@@ -319,12 +314,11 @@ pub enum ResponseCode {
     EncodingError = 1,
     InvalidRequest = 2,
     ServerError = 3,
-    Unknown,
+    Unknown = 255,
 }
 
-
-impl From<u64> for ResponseCode {
-    fn from(val: u64) -> ResponseCode {
+impl From<u8> for ResponseCode {
+    fn from(val: u8) -> ResponseCode {
         match val {
             0 => ResponseCode::Success,
             1 => ResponseCode::EncodingError,
@@ -335,72 +329,110 @@ impl From<u64> for ResponseCode {
     }
 }
 
+impl Into<u8> for ResponseCode {
+    fn into(self) -> u8 {
+        self as u8
+    }
+}
+
+#[derive(Encode, Decode)]
+struct ErrorResponse {
+    error_message: String,
+}
+
 impl RPCResponse {
     /// Decodes a response that was received on the same stream as a request. The response type should
     /// therefore match the request protocol type.
-    fn decode(packet: Vec<u8>, protocol: ProtocolId) -> Result<Self, RPCError> {
-        match protocol.message_name.as_str() {
-            "hello" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
-                    "ssz" => Ok(RPCResponse::Hello(HelloMessage::from_ssz_bytes(&packet)?)),
-                    _ => Err(RPCError::InvalidProtocol("Unknown HELLO encoding")),
+    pub fn decode(
+        packet: Vec<u8>,
+        protocol: ProtocolId,
+        response_code: ResponseCode,
+    ) -> Result<Self, RPCError> {
+        match response_code {
+            ResponseCode::EncodingError => Ok(RPCResponse::Error("Encoding error".into())),
+            ResponseCode::InvalidRequest => {
+                let response = match protocol.encoding.as_str() {
+                    "ssz" => ErrorResponse::from_ssz_bytes(&packet)?,
+                    _ => return Err(RPCError::InvalidProtocol("Unknown Encoding")),
+                };
+                Ok(RPCResponse::Error(format!(
+                    "Invalid Request: {}",
+                    response.error_message
+                )))
+            }
+            ResponseCode::ServerError => {
+                let response = match protocol.encoding.as_str() {
+                    "ssz" => ErrorResponse::from_ssz_bytes(&packet)?,
+                    _ => return Err(RPCError::InvalidProtocol("Unknown Encoding")),
+                };
+                Ok(RPCResponse::Error(format!(
+                    "Remote Server Error: {}",
+                    response.error_message
+                )))
+            }
+            ResponseCode::Success => match protocol.message_name.as_str() {
+                "hello" => match protocol.version.as_str() {
+                    "1.0.0" => match protocol.encoding.as_str() {
+                        "ssz" => Ok(RPCResponse::Hello(HelloMessage::from_ssz_bytes(&packet)?)),
+                        _ => Err(RPCError::InvalidProtocol("Unknown HELLO encoding")),
+                    },
+                    _ => Err(RPCError::InvalidProtocol("Unknown HELLO version.")),
                 },
-                _ => Err(RPCError::InvalidProtocol("Unknown HELLO version")),
-            },
-            "goodbye" => Err(RPCError::Custom(
-                "GOODBYE should not have a response".into(),
-            )),
-            "beacon_block_roots" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
-                    "ssz" => Ok(RPCResponse::BeaconBlockRoots(
-                        BeaconBlockRootsResponse::from_ssz_bytes(&packet)?,
-                    )),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_ROOTS encoding",
-                    )),
-                },
-                _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_BLOCK_ROOTS version",
+                "goodbye" => Err(RPCError::Custom(
+                    "GOODBYE should not have a response".into(),
                 )),
-            },
-            "beacon_block_headers" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
-                    "ssz" => Ok(RPCResponse::BeaconBlockHeaders(
-                        BeaconBlockHeadersResponse { headers: packet },
-                    )),
+                "beacon_block_roots" => match protocol.version.as_str() {
+                    "1.0.0" => match protocol.encoding.as_str() {
+                        "ssz" => Ok(RPCResponse::BeaconBlockRoots(
+                            BeaconBlockRootsResponse::from_ssz_bytes(&packet)?,
+                        )),
+                        _ => Err(RPCError::InvalidProtocol(
+                            "Unknown BEACON_BLOCK_ROOTS encoding",
+                        )),
+                    },
                     _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_HEADERS encoding",
+                        "Unknown BEACON_BLOCK_ROOTS version.",
                     )),
                 },
-                _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_BLOCK_HEADERS version",
-                )),
-            },
-            "beacon_block_bodies" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
-                    "ssz" => Ok(RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse {
-                        block_bodies: packet,
-                    })),
+                "beacon_block_headers" => match protocol.version.as_str() {
+                    "1.0.0" => match protocol.encoding.as_str() {
+                        "ssz" => Ok(RPCResponse::BeaconBlockHeaders(
+                            BeaconBlockHeadersResponse { headers: packet },
+                        )),
+                        _ => Err(RPCError::InvalidProtocol(
+                            "Unknown BEACON_BLOCK_HEADERS encoding",
+                        )),
+                    },
                     _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_BODIES encoding",
+                        "Unknown BEACON_BLOCK_HEADERS version.",
                     )),
                 },
-                _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_BLOCK_BODIES version",
-                )),
-            },
-            "beacon_chain_state" => match protocol.version {
-                1 => match protocol.encoding.as_str() {
-                    "ssz" => Ok(RPCResponse::BeaconChainState(
-                        BeaconChainStateResponse::from_ssz_bytes(&packet)?,
-                    )),
+                "beacon_block_bodies" => match protocol.version.as_str() {
+                    "1.0.0" => match protocol.encoding.as_str() {
+                        "ssz" => Ok(RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse {
+                            block_bodies: packet,
+                        })),
+                        _ => Err(RPCError::InvalidProtocol(
+                            "Unknown BEACON_BLOCK_BODIES encoding",
+                        )),
+                    },
                     _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_CHAIN_STATE encoding",
+                        "Unknown BEACON_BLOCK_BODIES version.",
                     )),
                 },
-                _ => Err(RPCError::InvalidProtocol(
-                    "Unknown BEACON_CHAIN_STATE version",
-                )),
+                "beacon_chain_state" => match protocol.version.as_str() {
+                    "1.0.0" => match protocol.encoding.as_str() {
+                        "ssz" => Ok(RPCResponse::BeaconChainState(
+                            BeaconChainStateResponse::from_ssz_bytes(&packet)?,
+                        )),
+                        _ => Err(RPCError::InvalidProtocol(
+                            "Unknown BEACON_CHAIN_STATE encoding",
+                        )),
+                    },
+                    _ => Err(RPCError::InvalidProtocol(
+                        "Unknown BEACON_CHAIN_STATE version.",
+                    )),
+                },
             },
         }
     }
@@ -503,7 +535,6 @@ impl From<ssz::DecodeError> for RPCError {
         RPCError::SSZDecodeError(err)
     }
 }
-
 impl<T> From<tokio::timer::timeout::Error<T>> for RPCError {
     fn from(err: tokio::timer::timeout::Error<T>) -> Self {
         if err.is_elapsed() {
