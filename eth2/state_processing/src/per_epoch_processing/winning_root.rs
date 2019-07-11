@@ -36,14 +36,14 @@ pub fn winning_root<T: EthSpec>(
     epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<Option<WinningRoot>, BeaconStateError> {
-    let attestations: Vec<&PendingAttestation> = state
+    let attestations: Vec<&_> = state
         .get_matching_source_attestations(epoch)?
         .iter()
         .filter(|a| a.data.crosslink.shard == shard)
         .collect();
 
     // Build a map from crosslinks to attestations that support that crosslink.
-    let mut candidate_crosslink_map: HashMap<&Crosslink, Vec<&PendingAttestation>> = HashMap::new();
+    let mut candidate_crosslink_map = HashMap::new();
     let current_shard_crosslink_root = state.get_current_crosslink(shard)?.tree_hash_root();
 
     for a in attestations {
@@ -85,7 +85,7 @@ pub fn winning_root<T: EthSpec>(
 
 pub fn get_unslashed_attesting_indices_unsorted<T: EthSpec>(
     state: &BeaconState<T>,
-    attestations: &[&PendingAttestation],
+    attestations: &[&PendingAttestation<T>],
 ) -> Result<Vec<usize>, BeaconStateError> {
     let mut output = HashSet::new();
     for a in attestations {

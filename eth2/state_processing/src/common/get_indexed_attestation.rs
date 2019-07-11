@@ -7,18 +7,18 @@ use types::*;
 /// Spec v0.8.0
 pub fn get_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
-    attestation: &Attestation,
+    attestation: &Attestation<T>,
 ) -> Result<IndexedAttestation, BeaconStateError> {
     let attesting_indices =
         get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
     // We verify the custody bitfield by calling `get_attesting_indices_unsorted` and throwing
     // away the result. This avoids double-sorting - the partition below takes care of the ordering.
-    get_attesting_indices_unsorted(state, &attestation.data, &attestation.custody_bitfield)?;
+    get_attesting_indices_unsorted(state, &attestation.data, &attestation.custody_bits)?;
 
     let (custody_bit_0_indices, custody_bit_1_indices) =
         attesting_indices.into_iter().enumerate().partition_map(
-            |(committee_idx, validator_idx)| match attestation.custody_bitfield.get(committee_idx) {
+            |(committee_idx, validator_idx)| match attestation.custody_bits.get(committee_idx) {
                 Ok(true) => Either::Right(validator_idx as u64),
                 _ => Either::Left(validator_idx as u64),
             },
