@@ -59,7 +59,7 @@ impl<T, N: Unsigned> FixedVector<T, N> {
                 _phantom: PhantomData,
             })
         } else {
-            Err(Error::InvalidLength {
+            Err(Error::OutOfBounds {
                 i: vec.len(),
                 len: Self::capacity(),
             })
