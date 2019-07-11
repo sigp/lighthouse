@@ -1,5 +1,9 @@
+#[macro_use]
+extern crate lazy_static;
+
 pub mod impls;
 pub mod merkleize;
+pub mod merkleize_padded;
 
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;

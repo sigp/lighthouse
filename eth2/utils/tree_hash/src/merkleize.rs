@@ -2,11 +2,10 @@ use super::*;
 use hashing::hash;
 
 pub fn merkle_root(bytes: &[u8]) -> Vec<u8> {
-    // TODO: replace this with a more memory efficient method.
-    efficient_merkleize(&bytes)[0..32].to_vec()
+    standard_merkleize(&bytes)[0..32].to_vec()
 }
 
-pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
+pub fn standard_merkleize(bytes: &[u8]) -> Vec<u8> {
     // If the bytes are just one chunk (or less than one chunk) just return them.
     if bytes.len() <= HASHSIZE {
         let mut o = bytes.to_vec();
