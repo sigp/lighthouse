@@ -4,7 +4,6 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use compare_fields_derive::CompareFields;
-use fixed_len_vec::{typenum::Unsigned, FixedLenVec};
 use hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
@@ -12,6 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
+use ssz_types::{typenum::Unsigned, FixedVector};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
@@ -89,9 +89,9 @@ where
     // History
     pub latest_block_header: BeaconBlockHeader,
     #[compare_fields(as_slice)]
-    pub block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
-    pub state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     pub historical_roots: Vec<Hash256>,
 
     // Ethereum 1.0 chain data
@@ -107,21 +107,21 @@ where
 
     // Shuffling
     pub start_shard: u64,
-    pub randao_mixes: FixedLenVec<Hash256, T::EpochsPerHistoricalVector>,
+    pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
     #[compare_fields(as_slice)]
-    active_index_roots: FixedLenVec<Hash256, T::EpochsPerHistoricalVector>,
-    compact_committee_roots: FixedLenVec<Hash256, T::EpochsPerHistoricalVector>,
+    active_index_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
+    compact_committee_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
-    slashings: FixedLenVec<u64, T::EpochsPerSlashingsVector>,
+    slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations
-    pub previous_epoch_attestations: Vec<PendingAttestation>,
-    pub current_epoch_attestations: Vec<PendingAttestation>,
+    pub previous_epoch_attestations: Vec<PendingAttestation<T>>,
+    pub current_epoch_attestations: Vec<PendingAttestation<T>>,
 
     // Crosslinks
-    pub previous_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
-    pub current_crosslinks: FixedLenVec<Crosslink, T::ShardCount>,
+    pub previous_crosslinks: FixedVector<Crosslink, T::ShardCount>,
+    pub current_crosslinks: FixedVector<Crosslink, T::ShardCount>,
 
     // Finality
     #[test_random(default)]
@@ -171,9 +171,9 @@ impl<T: EthSpec> BeaconState<T> {
             fork: Fork::genesis(T::genesis_epoch()),
 
             // History
-            latest_block_header: BeaconBlock::empty(spec).temporary_block_header(),
-            block_roots: FixedLenVec::from_elem(Hash256::zero()),
-            state_roots: FixedLenVec::from_elem(Hash256::zero()),
+            latest_block_header: BeaconBlock::<T>::empty(spec).temporary_block_header(),
+            block_roots: FixedVector::from_elem(Hash256::zero()),
+            state_roots: FixedVector::from_elem(Hash256::zero()),
             historical_roots: vec![],
 
             // Eth1
@@ -187,20 +187,20 @@ impl<T: EthSpec> BeaconState<T> {
 
             // Shuffling
             start_shard: 0,
-            randao_mixes: FixedLenVec::from_elem(Hash256::zero()),
-            active_index_roots: FixedLenVec::from_elem(Hash256::zero()),
-            compact_committee_roots: FixedLenVec::from_elem(Hash256::zero()),
+            randao_mixes: FixedVector::from_elem(Hash256::zero()),
+            active_index_roots: FixedVector::from_elem(Hash256::zero()),
+            compact_committee_roots: FixedVector::from_elem(Hash256::zero()),
 
             // Slashings
-            slashings: FixedLenVec::from_elem(0),
+            slashings: FixedVector::from_elem(0),
 
             // Attestations
             previous_epoch_attestations: vec![],
             current_epoch_attestations: vec![],
 
             // Crosslinks
-            previous_crosslinks: FixedLenVec::from_elem(Crosslink::default()),
-            current_crosslinks: FixedLenVec::from_elem(Crosslink::default()),
+            previous_crosslinks: FixedVector::from_elem(Crosslink::default()),
+            current_crosslinks: FixedVector::from_elem(Crosslink::default()),
 
             // Finality
             justification_bits: BitVector::new(),
@@ -639,7 +639,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_matching_source_attestations(
         &self,
         epoch: Epoch,
-    ) -> Result<&[PendingAttestation], Error> {
+    ) -> Result<&[PendingAttestation<T>], Error> {
         if epoch == self.current_epoch() {
             Ok(&self.current_epoch_attestations)
         } else if epoch == self.previous_epoch() {

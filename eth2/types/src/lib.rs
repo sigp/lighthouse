@@ -76,8 +76,6 @@ pub type CrosslinkCommittees = Vec<(Committee, u64)>;
 pub type Hash256 = H256;
 pub type Address = H160;
 pub type EthBalance = U256;
-pub type Bitfield = boolean_bitfield::BooleanBitfield;
-pub type BitfieldError = boolean_bitfield::Error;
 
 /// Maps a (slot, shard_id) to attestation_indices.
 pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
@@ -86,4 +84,4 @@ pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
 pub type ProposerMap = HashMap<u64, usize>;
 
 pub use bls::{AggregatePublicKey, AggregateSignature, Keypair, PublicKey, SecretKey, Signature};
-pub use fixed_len_vec::{typenum, typenum::Unsigned, FixedLenVec};
+pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector};

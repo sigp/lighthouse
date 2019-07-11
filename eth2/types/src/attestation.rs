@@ -1,4 +1,4 @@
-use super::{AggregateSignature, AttestationData, Bitfield};
+use super::{AggregateSignature, AttestationData, BitList, EthSpec};
 use crate::test_utils::TestRandom;
 
 use serde_derive::{Deserialize, Serialize};
@@ -23,17 +23,17 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
-pub struct Attestation {
-    pub aggregation_bits: Bitfield,
+pub struct Attestation<T: EthSpec> {
+    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
-    pub custody_bitfield: Bitfield,
+    pub custody_bits: BitList<T::MaxValidatorsPerCommittee>,
     #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,
 }
 
-impl Attestation {
+impl<T: EthSpec> Attestation<T> {
     /// Are the aggregation bitfields of these attestations disjoint?
-    pub fn signers_disjoint_from(&self, other: &Attestation) -> bool {
+    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
         self.aggregation_bits
             .intersection(&other.aggregation_bits)
             .is_zero()
@@ -42,13 +42,12 @@ impl Attestation {
     /// Aggregate another Attestation into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.
-    pub fn aggregate(&mut self, other: &Attestation) {
+    pub fn aggregate(&mut self, other: &Self) {
         debug_assert_eq!(self.data, other.data);
         debug_assert!(self.signers_disjoint_from(other));
 
-        self.aggregation_bits
-            .union_inplace(&other.aggregation_bits);
-        self.custody_bitfield.union_inplace(&other.custody_bitfield);
+        self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
+        self.custody_bits = self.custody_bits.union(&other.custody_bits);
         self.signature.add_aggregate(&other.signature);
     }
 }

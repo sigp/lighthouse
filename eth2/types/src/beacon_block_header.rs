@@ -43,8 +43,8 @@ impl BeaconBlockHeader {
 
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
     ///
-    /// Spec v0.6.3
-    pub fn into_block(self, body: BeaconBlockBody) -> BeaconBlock {
+    /// Spec v0.8.0
+    pub fn into_block<T: EthSpec>(self, body: BeaconBlockBody<T>) -> BeaconBlock<T> {
         BeaconBlock {
             slot: self.slot,
             parent_root: self.parent_root,

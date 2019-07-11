@@ -1,9 +1,9 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 
-use fixed_len_vec::FixedLenVec;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::FixedVector;
 use test_random_derive::TestRandom;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
@@ -23,8 +23,8 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct HistoricalBatch<T: EthSpec> {
-    pub block_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
-    pub state_roots: FixedLenVec<Hash256, T::SlotsPerHistoricalRoot>,
+    pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
 }
 
 #[cfg(test)]

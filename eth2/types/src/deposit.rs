@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
-use fixed_len_vec::typenum::U33;
+use ssz_types::typenum::U33;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -23,7 +23,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct Deposit {
-    pub proof: FixedLenVec<Hash256, U33>,
+    pub proof: FixedVector<Hash256, U33>,
     pub data: DepositData,
 }
 

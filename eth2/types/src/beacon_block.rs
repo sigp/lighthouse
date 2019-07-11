@@ -24,20 +24,20 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
-pub struct BeaconBlock {
+pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,
     pub parent_root: Hash256,
     pub state_root: Hash256,
-    pub body: BeaconBlockBody,
+    pub body: BeaconBlockBody<T>,
     #[signed_root(skip_hashing)]
     pub signature: Signature,
 }
 
-impl BeaconBlock {
+impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     ///
     /// Spec v0.6.3
-    pub fn empty(spec: &ChainSpec) -> BeaconBlock {
+    pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlock {
             slot: spec.genesis_slot,
             parent_root: Hash256::zero(),

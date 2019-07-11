@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{AttestationData, Bitfield};
+use crate::{AttestationData, BitList, EthSpec};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -21,8 +21,8 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
-pub struct PendingAttestation {
-    pub aggregation_bits: Bitfield,
+pub struct PendingAttestation<T: EthSpec> {
+    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     pub inclusion_delay: u64,
     pub proposer_index: u64,

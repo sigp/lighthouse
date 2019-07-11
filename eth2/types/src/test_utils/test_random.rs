@@ -1,5 +1,5 @@
 use crate::*;
-use fixed_len_vec::typenum::Unsigned;
+use ssz_types::typenum::Unsigned;
 use rand::RngCore;
 
 mod address;
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl<T, N: Unsigned> TestRandom for FixedLenVec<T, N>
+impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
 where
     T: TestRandom + Default,
 {

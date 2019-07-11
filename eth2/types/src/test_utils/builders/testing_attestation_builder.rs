@@ -22,17 +22,17 @@ impl TestingAttestationBuilder {
         let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
 
         let mut aggregation_bits = Bitfield::new();
-        let mut custody_bitfield = Bitfield::new();
+        let mut custody_bits = Bitfield::new();
 
         for (i, _) in committee.iter().enumerate() {
-            custody_bitfield.set(i, false);
+            custody_bits.set(i, false);
             aggregation_bits.set(i, false);
         }
 
         let attestation = Attestation {
             aggregation_bits,
             data: data_builder.build(),
-            custody_bitfield,
+            custody_bits,
             signature: AggregateSignature::new(),
         };
 

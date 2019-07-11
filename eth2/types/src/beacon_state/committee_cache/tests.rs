@@ -1,7 +1,7 @@
 #![cfg(test)]
 use super::*;
 use crate::{test_utils::*, *};
-use fixed_len_vec::typenum::*;
+use ssz_types::typenum::*;
 use serde_derive::{Deserialize, Serialize};
 
 #[test]
@@ -75,7 +75,7 @@ fn shuffles_for_the_right_epoch() {
         .map(|i| Hash256::from(i as u64))
         .collect();
 
-    state.latest_randao_mixes = FixedLenVec::from(distinct_hashes);
+    state.latest_randao_mixes = FixedVector::from(distinct_hashes);
 
     let previous_seed = state.generate_seed(state.previous_epoch(), spec).unwrap();
     let current_seed = state.generate_seed(state.current_epoch(), spec).unwrap();
