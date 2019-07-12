@@ -520,6 +520,69 @@ paths:
                     pattern: "^0x[a-fA-F0-9]{64}$"
                     description: "The block root of the second most recent justified block."
 
+  /chain/beacon/attestations:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve attestations by root, slot, or epoch.'
+      description: "Request that the node return all attestations which it has seen, that match the provided criteria (a block root, beacon chain slot, or epoch). Only one of the parameters should be provided as a criteria."
+      parameters:
+        - name: root
+          description: "Filter by block root, returning attestations associated with that block."
+          in: query
+          required: false
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
+        - name: slot
+          description: "Filter attestations by slot number."
+          #TODO: Is this description accurate?
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+        - name: epoch
+          description: "Filter attestations by epoch number."
+          #TODO: Should this actually return no more than one block per slot, if it has been finalized? i.e. not blocks on multiple forks?
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attestation'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+          #TODO: Make this request error more specific if one of the parameters is not provided correctly.
+
+  /chain/beacon/attestations/pending:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve all pending attestations.'
+      description: "Request that the node return all attestations which is currently holding in a pending state; i.e. is not associated with a finalized slot."
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attestation'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+          #TODO: Make this request error more specific if one of the parameters is not provided correctly.
+
   /chain/beacon/validators:
     get:
       tags:
@@ -1073,27 +1136,7 @@ components:
         attestations:
           type: array
           items:
-            title: Attestation
-            type: object
-            description: "The [`Attestation`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#attestation) object from the Eth2.0 spec."
-            properties:
-              aggregation_bitfield:
-                type: string
-                format: byte
-                pattern: "^0x[a-fA-F0-9]+$"
-                description: "Attester aggregation bitfield."
-              custody_bitfield:
-                type: string
-                format: byte
-                pattern: "^0x[a-fA-F0-9]+$"
-                description: "Custody bitfield."
-              signature:
-                type: string
-                format: byte
-                pattern: "^0x[a-fA-F0-9]{192}$"
-                description: "BLS aggregate signature."
-              data:
-                $ref: '#/components/schemas/AttestationData'
+            $ref: '#/components/schemas/Attestation'
         deposits:
           type: array
           items:
@@ -1211,6 +1254,28 @@ components:
           type: integer
           format: uint64
           description: "Fork epoch number."
+
+    Attestation:
+      type: object
+      description: "The [`Attestation`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#attestation) object from the Eth2.0 spec."
+      properties:
+        aggregation_bitfield:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]+$"
+          description: "Attester aggregation bitfield."
+        custody_bitfield:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]+$"
+          description: "Custody bitfield."
+        signature:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{192}$"
+          description: "BLS aggregate signature."
+        data:
+          $ref: '#/components/schemas/AttestationData'
 
     IndexedAttestation:
       type: object
