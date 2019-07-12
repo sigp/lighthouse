@@ -1,7 +1,7 @@
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use std::ops::{Deref, Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::SliceIndex;
 use typenum::Unsigned;
 
@@ -68,6 +68,14 @@ impl<T, N: Unsigned> VariableList<T, N> {
         }
     }
 
+    /// Create an empty list.
+    pub fn empty() -> Self {
+        Self {
+            vec: vec![],
+            _phantom: PhantomData,
+        }
+    }
+
     /// Returns the number of values presently in `self`.
     pub fn len(&self) -> usize {
         self.vec.len()
@@ -99,7 +107,7 @@ impl<T, N: Unsigned> VariableList<T, N> {
     }
 }
 
-impl<T: Default, N: Unsigned> From<Vec<T>> for VariableList<T, N> {
+impl<T, N: Unsigned> From<Vec<T>> for VariableList<T, N> {
     fn from(mut vec: Vec<T>) -> Self {
         vec.truncate(N::to_usize());
 
@@ -146,6 +154,21 @@ impl<T, N: Unsigned> Deref for VariableList<T, N> {
 
     fn deref(&self) -> &[T] {
         &self.vec[..]
+    }
+}
+
+impl<T, N: Unsigned> DerefMut for VariableList<T, N> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        &mut self.vec[..]
+    }
+}
+
+impl<'a, T, N: Unsigned> IntoIterator for &'a VariableList<T, N> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -277,7 +300,7 @@ where
 
 impl<T, N: Unsigned> ssz::Decode for VariableList<T, N>
 where
-    T: ssz::Decode + Default,
+    T: ssz::Decode,
 {
     fn is_ssz_fixed_len() -> bool {
         <Vec<T>>::is_ssz_fixed_len()
