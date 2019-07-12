@@ -32,8 +32,8 @@ lazy_static! {
 /// ## CPU Peformance
 ///
 /// A cache of `MAX_TREE_DEPTH` hashes are stored to avoid re-computing the hashes of padding nodes
-/// (or thier parents). In effect, adding padding nodes only incurs one more hash per added height
-/// of the tree.
+/// (or thier parents). Therefore, adding padding nodes only incurs one more hash per additional
+/// height of the tree.
 ///
 /// ## Memory Peformance
 ///
@@ -48,7 +48,7 @@ lazy_static! {
 /// _Note: there are some minor memory overheads, including a handful of usizes and a list of
 /// `MAX_TREE_DEPTH` hashes as `lazy_static` constants._
 pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
-    // If the bytes are just one chunk (or less than one chunk) just return them padded to a chunk.
+    // If the bytes are just one chunk or less, pad to one chunk and return without hashing.
     if bytes.len() <= BYTES_PER_CHUNK && min_leaves <= 1 {
         let mut o = bytes.to_vec();
         o.resize(BYTES_PER_CHUNK, 0);
@@ -63,20 +63,14 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
     // The number of leaves that can be made directly from `bytes`.
     let leaves_with_values = (bytes.len() + (BYTES_PER_CHUNK - 1)) / BYTES_PER_CHUNK;
 
-    // The number of parents that will at least one leaf that is not padding.
+    // The number of parents that have at least one non-padding leaf.
     //
-    // Since there is more than one node in this tree, there should always be one or more initial
-    // parent nodes.
-    //
-    // I.e., the number of nodes one height above the leaves where one it's children has a value
-    // from `bytes`.
+    // Since there is more than one node in this tree (see prior assertion), there should always be
+    // one or more initial parent nodes.
     let initial_parents_with_values = std::cmp::max(1, next_even_number(leaves_with_values) / 2);
 
     // The number of leaves in the full tree (including padding nodes).
-    let num_leaves = std::cmp::max(
-        leaves_with_values.next_power_of_two(),
-        min_leaves.next_power_of_two(),
-    );
+    let num_leaves = std::cmp::max(leaves_with_values, min_leaves).next_power_of_two();
 
     // The number of levels in the tree.
     //
@@ -85,23 +79,23 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
     assert!(height >= 2, "The tree should have two or more heights");
 
-    // A buffer/scratch-space used for storing each round of hashing at each height.
+    // A buffer/scratch-space used for storing each round of hashes at each height.
     //
     // This buffer is kept as small as possible; it will shrink so it never stores a padding node.
     let mut chunks = ChunkStore::with_capacity(initial_parents_with_values);
 
-    // Create a parent in the `chunks` buffer for every two chunks in the given `bytes`.
+    // Create a parent in the `chunks` buffer for every two chunks in `bytes`.
     //
     // I.e., do the first round of hashing, hashing from the `bytes` slice and filling the `chunks`
     // struct.
     for i in 0..initial_parents_with_values {
         let start = i * BYTES_PER_CHUNK * 2;
 
-        // Attempt to get two chunks from bytes, padding out if not all bytes are available.
+        // Hash two chunks, creating a parent chunk.
         let hash = match bytes.get(start..start + BYTES_PER_CHUNK * 2) {
             // All bytes are available, hash as ususal.
             Some(slice) => hash(slice),
-            // Unable to get all the bytes.
+            // Unable to get all the bytes, get a small slice and padd it out.
             None => {
                 let mut preimage = bytes
                     .get(start..)
@@ -124,11 +118,11 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
             .expect("Buffer should always have capacity for parent nodes")
     }
 
-    // Iterate through all heights above the leaf nodes and either hash two children or hash a
-    // left child and a right padding node.
+    // Iterate through all heights above the leaf nodes and either (a) hash two children or, (b)
+    // hash a left child and a right padding node.
     //
     // Skip the 0'th height because the leaves have already been processed. Skip the highest-height
-    // in the tree as it is the root not and does not require hashing.
+    // in the tree as it is the root does not require hashing.
     //
     // The padding nodes for each height are cached via `lazy static` to simulate non-adjacent
     // padding nodes (i.e., avoid doing unnessary hashing).
@@ -136,14 +130,19 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
         let child_nodes = chunks.len();
         let parent_nodes = next_even_number(child_nodes) / 2;
 
-        // For each of the nodes created in the previous round, either:
-        // - Hash two nodes
-        // - Hash a node and cached padding node.
+        // For each pair of nodes stored in `chunks`:
+        //
+        // - If two nodes are available, hash them to form a parent.
+        // - If one node is available, hash it and a cached padding node to form a parent.
         for i in 0..parent_nodes {
             let (left, right) = match (chunks.get(i * 2), chunks.get(i * 2 + 1)) {
                 (Ok(left), Ok(right)) => (left, right),
                 (Ok(left), Err(_)) => (left, get_zero_hash(height)),
+                // Deriving `parent_nodes` from `chunks.len()` has ensured that we never encounter the
+                // scenario where we expect two nodes but there are none.
                 (Err(_), Err(_)) => unreachable!("Parent must have one child"),
+                // `chunks` is a contiguous array so it is impossible for an index to be missing
+                // when a higher index is present.
                 (Err(_), Ok(_)) => unreachable!("Parent must have a left child"),
             };
 
@@ -154,6 +153,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
             let hash = hash_concat(&left.to_vec(), &right.to_vec());
 
+            // Store a parent node.
             chunks
                 .set(i, &hash)
                 .expect("Buf is adequate size for parent");
@@ -173,7 +173,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
     root
 }
 
-/// A helper struct for storing `BYTES_PER_CHUNK`-byte words in a flat byte array.
+/// A helper struct for storing words of `BYTES_PER_CHUNK` size in a flat byte array.
 #[derive(Debug)]
 struct ChunkStore(Vec<u8>);
 
