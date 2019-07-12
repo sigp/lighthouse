@@ -22,42 +22,55 @@ lazy_static! {
 /// Merklizes bytes and returns the root, optionally padding the tree out to `min_leaves` number of
 /// leaves.
 ///
+/// First all nodes are extracted from `bytes` and then a padding node is added until the number of
+/// leaf chunks is greater than or equal to `min_leaves`.Set `min_leaves == 0` if no adding padding
+/// should be added to the given `bytes`.
+///
 /// If `bytes.len() <= BYTES_PER_CHUNK`, no hashing is done and bytes is returned, potentially
 /// padded out to `BYTES_PER_CHUNK` length with `0`.
 ///
-/// ## CPU Peformance Properties
+/// ## CPU Peformance
 ///
 /// A cache of `MAX_TREE_DEPTH` hashes are stored to avoid re-computing the hashes of padding nodes
 /// (or thier parents). In effect, adding padding nodes only incurs one more hash per added height
 /// of the tree.
 ///
-/// ## Memory Peformance Properties
+/// ## Memory Peformance
 ///
 /// This algorithm has two interesting memory usage properties:
 ///
-/// 1. It allocates `O(V / 2)` memory, where `V` is the number of leaf chunks with values (i.e.,
-///    leaves that are not padding). In effect, adding padding nodes to a merkle tree has basically
-///    no effect on memory usage.
-/// 2. At each height of the tree it frees half it's memory until it only stores a single chunk.
+/// 1. The maximum memory footprint is roughly `O(V / 2)` memory, where `V` is the number of leaf
+///    chunks with values (i.e., leaves that are not padding). The means adding padding nodes to
+///    the tree does not increase the memory footprint.
+/// 2. At each height of the tree half of the memory is freed until only a single chunk is stored.
+/// 3. The input `bytes` are not copied into another list before processing.
 ///
 /// _Note: there are some minor memory overheads, including a handful of usizes and a list of
 /// `MAX_TREE_DEPTH` hashes as `lazy_static` constants._
-pub fn padded_merklize(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
+pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
     // If the bytes are just one chunk (or less than one chunk) just return them padded to a chunk.
-    if bytes.len() <= BYTES_PER_CHUNK {
+    if bytes.len() <= BYTES_PER_CHUNK && min_leaves <= 1 {
         let mut o = bytes.to_vec();
         o.resize(BYTES_PER_CHUNK, 0);
         return o;
     }
 
+    assert!(
+        bytes.len() > BYTES_PER_CHUNK || min_leaves > 1,
+        "Merkle hashing only needs to happen if there is more than one chunk"
+    );
+
     // The number of leaves that can be made directly from `bytes`.
     let leaves_with_values = (bytes.len() + (BYTES_PER_CHUNK - 1)) / BYTES_PER_CHUNK;
 
-    // The number of parents that will appear leaves with values.
+    // The number of parents that will at least one leaf that is not padding.
+    //
+    // Since there is more than one node in this tree, there should always be one or more initial
+    // parent nodes.
     //
     // I.e., the number of nodes one height above the leaves where one it's children has a value
     // from `bytes`.
-    let initial_parents_with_values = next_even_number(leaves_with_values) / 2;
+    let initial_parents_with_values = std::cmp::max(1, next_even_number(leaves_with_values) / 2);
 
     // The number of leaves in the full tree (including padding nodes).
     let num_leaves = std::cmp::max(
@@ -65,8 +78,12 @@ pub fn padded_merklize(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
         min_leaves.next_power_of_two(),
     );
 
-    // The height of the full tree (including padding nodes).
-    let height = num_leaves.trailing_zeros() as usize;
+    // The number of levels in the tree.
+    //
+    // A tree with a single node has `height == 1`.
+    let height = num_leaves.trailing_zeros() as usize + 1;
+
+    assert!(height >= 2, "The tree should have two or more heights");
 
     // A buffer/scratch-space used for storing each round of hashing at each height.
     //
@@ -88,7 +105,7 @@ pub fn padded_merklize(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
             None => {
                 let mut preimage = bytes
                     .get(start..)
-                    .expect("There should always be two chunks available in bytes")
+                    .expect("`i` can only be larger than zero if there are bytes to read")
                     .to_vec();
                 preimage.resize(BYTES_PER_CHUNK * 2, 0);
                 hash(&preimage)
@@ -110,11 +127,14 @@ pub fn padded_merklize(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
     // Iterate through all heights above the leaf nodes and either hash two children or hash a
     // left child and a right padding node.
     //
+    // Skip the 0'th height because the leaves have already been processed. Skip the highest-height
+    // in the tree as it is the root not and does not require hashing.
+    //
     // The padding nodes for each height are cached via `lazy static` to simulate non-adjacent
     // padding nodes (i.e., avoid doing unnessary hashing).
-    for height in 1..height {
+    for height in 1..height - 1 {
         let child_nodes = chunks.len();
-        let parent_nodes = (child_nodes + child_nodes % 2) / 2;
+        let parent_nodes = next_even_number(child_nodes) / 2;
 
         // For each of the nodes created in the previous round, either:
         // - Hash two nodes
@@ -133,6 +153,9 @@ pub fn padded_merklize(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
             );
 
             let hash = hash_concat(&mut left.to_vec(), &mut right.to_vec());
+
+            dbg!(height);
+            dbg!(&hash);
 
             chunks
                 .set(i, &hash)
@@ -208,6 +231,7 @@ impl ChunkStore {
 /// Returns a cached padding node for a given height.
 fn get_zero_hash(height: usize) -> &'static [u8] {
     if height < MAX_TREE_DEPTH {
+        dbg!(&ZERO_HASHES[height]);
         &ZERO_HASHES[height]
     } else {
         panic!("Tree exceeeds MAX_TREE_DEPTH of {}")
@@ -233,49 +257,59 @@ fn next_even_number(n: usize) -> usize {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::merkleize::merkle_root as reference_root;
+
+    pub fn reference_root(bytes: &[u8]) -> Vec<u8> {
+        crate::merkleize_standard(&bytes)[0..32].to_vec()
+    }
 
     macro_rules! common_tests {
         ($get_bytes: ident) => {
             #[test]
             fn zero_value_0_nodes() {
-                test_against_reference(&$get_bytes(0 * BYTES_PER_CHUNK));
+                test_against_reference(&$get_bytes(0 * BYTES_PER_CHUNK), 0);
             }
 
             #[test]
             fn zero_value_1_nodes() {
-                test_against_reference(&$get_bytes(1 * BYTES_PER_CHUNK));
+                test_against_reference(&$get_bytes(1 * BYTES_PER_CHUNK), 0);
             }
 
             #[test]
             fn zero_value_2_nodes() {
-                test_against_reference(&$get_bytes(2 * BYTES_PER_CHUNK));
+                test_against_reference(&$get_bytes(2 * BYTES_PER_CHUNK), 0);
             }
 
             #[test]
             fn zero_value_3_nodes() {
-                test_against_reference(&$get_bytes(3 * BYTES_PER_CHUNK));
+                test_against_reference(&$get_bytes(3 * BYTES_PER_CHUNK), 0);
             }
 
             #[test]
             fn zero_value_4_nodes() {
-                test_against_reference(&$get_bytes(4 * BYTES_PER_CHUNK));
+                test_against_reference(&$get_bytes(4 * BYTES_PER_CHUNK), 0);
             }
 
             #[test]
             fn zero_value_8_nodes() {
-                test_against_reference(&$get_bytes(8 * BYTES_PER_CHUNK));
+                test_against_reference(&$get_bytes(8 * BYTES_PER_CHUNK), 0);
             }
 
             #[test]
             fn zero_value_9_nodes() {
-                test_against_reference(&$get_bytes(9 * BYTES_PER_CHUNK));
+                test_against_reference(&$get_bytes(9 * BYTES_PER_CHUNK), 0);
+            }
+
+            #[test]
+            fn zero_value_8_nodes_varying_min_length() {
+                for i in 0..64 {
+                    test_against_reference(&$get_bytes(8 * BYTES_PER_CHUNK), i);
+                }
             }
 
             #[test]
             fn zero_value_range_of_nodes() {
                 for i in 0..32 * BYTES_PER_CHUNK {
-                    test_against_reference(&$get_bytes(i));
+                    test_against_reference(&$get_bytes(i), 0);
                 }
             }
         };
@@ -304,10 +338,19 @@ mod test {
         common_tests!(random_bytes);
     }
 
-    fn test_against_reference(input: &[u8]) {
+    fn test_against_reference(input: &[u8], min_nodes: usize) {
+        let mut reference_input = input.to_vec();
+        reference_input.resize(
+            std::cmp::max(
+                reference_input.len(),
+                min_nodes.next_power_of_two() * BYTES_PER_CHUNK,
+            ),
+            0,
+        );
+
         assert_eq!(
-            reference_root(&input),
-            padded_merklize(&input, 0),
+            reference_root(&reference_input),
+            merkleize_padded(&input, min_nodes),
             "input.len(): {:?}",
             input.len()
         );
