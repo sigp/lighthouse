@@ -197,8 +197,8 @@ pub fn process_final_updates<T: EthSpec>(
     let next_epoch = state.next_epoch();
 
     // Reset eth1 data votes.
-    if (state.slot + 1) % spec.slots_per_eth1_voting_period == 0 {
-        state.eth1_data_votes = vec![];
+    if (state.slot + 1) % T::SlotsPerEth1VotingPeriod::to_u64() == 0 {
+        state.eth1_data_votes = VariableList::empty();
     }
 
     // Update effective balances with hysteresis (lag).
@@ -250,12 +250,12 @@ pub fn process_final_updates<T: EthSpec>(
         let historical_batch = state.historical_batch();
         state
             .historical_roots
-            .push(Hash256::from_slice(&historical_batch.tree_hash_root()[..]));
+            .push(Hash256::from_slice(&historical_batch.tree_hash_root()[..]))?;
     }
 
     // Rotate current/previous epoch attestations
     state.previous_epoch_attestations =
-        std::mem::replace(&mut state.current_epoch_attestations, vec![]);
+        std::mem::replace(&mut state.current_epoch_attestations, VariableList::empty());
 
     Ok(())
 }

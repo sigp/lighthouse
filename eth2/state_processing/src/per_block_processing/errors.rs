@@ -59,6 +59,8 @@ pub enum BlockProcessingError {
     Invalid(BlockInvalid),
     /// Encountered a `BeaconStateError` whilst attempting to determine validity.
     BeaconStateError(BeaconStateError),
+    /// Encountered an `ssz_types::Error` whilst attempting to determine validity.
+    SszTypesError(ssz_types::Error),
 }
 
 impl_from_beacon_state_error!(BlockProcessingError);
@@ -93,6 +95,12 @@ pub enum BlockInvalid {
     DepositProcessingFailed(usize),
     ExitInvalid(usize, ExitInvalid),
     TransferInvalid(usize, TransferInvalid),
+}
+
+impl From<ssz_types::Error> for BlockProcessingError {
+    fn from(error: ssz_types::Error) -> Self {
+        BlockProcessingError::SszTypesError(error)
+    }
 }
 
 impl Into<BlockProcessingError> for BlockInvalid {
@@ -183,6 +191,12 @@ impl From<IndexedAttestationValidationError> for AttestationValidationError {
     }
 }
 
+impl From<ssz_types::Error> for AttestationValidationError {
+    fn from(error: ssz_types::Error) -> Self {
+        Self::from(IndexedAttestationValidationError::from(error))
+    }
+}
+
 /*
  * `AttesterSlashing` Validation
  */
@@ -236,12 +250,14 @@ pub enum IndexedAttestationInvalid {
     CustodyBitValidatorsIntersect,
     /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
     CustodyBitfieldHasSetBits,
+    /// The custody bitfield violated a type-level bound.
+    CustodyBitfieldBoundsError(ssz_types::Error),
     /// No validator indices were specified.
     NoValidatorIndices,
     /// The number of indices exceeds the global maximum.
     ///
     /// (max_indices, indices_given)
-    MaxIndicesExceed(u64, usize),
+    MaxIndicesExceed(usize, usize),
     /// The validator indices were not in increasing order.
     ///
     /// The error occured between the given `index` and `index + 1`
@@ -257,6 +273,14 @@ impl Into<IndexedAttestationInvalid> for IndexedAttestationValidationError {
         match self {
             IndexedAttestationValidationError::Invalid(e) => e,
         }
+    }
+}
+
+impl From<ssz_types::Error> for IndexedAttestationValidationError {
+    fn from(error: ssz_types::Error) -> Self {
+        IndexedAttestationValidationError::Invalid(
+            IndexedAttestationInvalid::CustodyBitfieldBoundsError(error),
+        )
     }
 }
 

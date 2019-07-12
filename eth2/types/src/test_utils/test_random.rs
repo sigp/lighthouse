@@ -1,6 +1,6 @@
 use crate::*;
-use ssz_types::typenum::Unsigned;
 use rand::RngCore;
+use ssz_types::typenum::Unsigned;
 
 mod address;
 mod aggregate_signature;
@@ -56,6 +56,21 @@ where
 impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
 where
     T: TestRandom + Default,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let mut output = vec![];
+
+        for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
+            output.push(<T>::random_for_test(rng));
+        }
+
+        output.into()
+    }
+}
+
+impl<T, N: Unsigned> TestRandom for VariableList<T, N>
+where
+    T: TestRandom,
 {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         let mut output = vec![];

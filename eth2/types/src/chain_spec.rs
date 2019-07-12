@@ -34,7 +34,6 @@ pub struct ChainSpec {
      * Misc
      */
     pub target_committee_size: usize,
-    pub max_validators_per_committee: u64,
     pub min_per_epoch_churn_limit: u64,
     pub churn_limit_quotient: u64,
     pub shuffle_round_count: u8,
@@ -63,8 +62,6 @@ pub struct ChainSpec {
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
-    pub slots_per_eth1_voting_period: u64,
-    pub slots_per_historical_root: usize,
     pub min_validator_withdrawability_delay: Epoch,
     pub persistent_committee_period: u64,
     pub max_epochs_per_crosslink: u64,
@@ -78,16 +75,6 @@ pub struct ChainSpec {
     pub proposer_reward_quotient: u64,
     pub inactivity_penalty_quotient: u64,
     pub min_slashing_penalty_quotient: u64,
-
-    /*
-     * Max operations per block
-     */
-    pub max_proposer_slashings: u64,
-    pub max_attester_slashings: u64,
-    pub max_attestations: u64,
-    pub max_deposits: u64,
-    pub max_voluntary_exits: u64,
-    pub max_transfers: u64,
 
     /*
      * Signature domains
@@ -148,7 +135,6 @@ impl ChainSpec {
              * Misc
              */
             target_committee_size: 128,
-            max_validators_per_committee: 4096,
             min_per_epoch_churn_limit: 4,
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
@@ -176,8 +162,6 @@ impl ChainSpec {
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
-            slots_per_eth1_voting_period: 1_024,
-            slots_per_historical_root: 8_192,
             min_validator_withdrawability_delay: Epoch::new(256),
             persistent_committee_period: 2_048,
             max_epochs_per_crosslink: 64,
@@ -191,16 +175,6 @@ impl ChainSpec {
             proposer_reward_quotient: 8,
             inactivity_penalty_quotient: 33_554_432,
             min_slashing_penalty_quotient: 32,
-
-            /*
-             * Max operations per block
-             */
-            max_proposer_slashings: 16,
-            max_attester_slashings: 1,
-            max_attestations: 128,
-            max_deposits: 16,
-            max_voluntary_exits: 16,
-            max_transfers: 0,
 
             /*
              * Signature domains
@@ -235,7 +209,6 @@ impl ChainSpec {
             target_committee_size: 4,
             shuffle_round_count: 10,
             min_attestation_inclusion_delay: 2,
-            slots_per_eth1_voting_period: 16,
             genesis_slot,
             chain_id: 2, // lighthouse testnet chain id
             boot_nodes,

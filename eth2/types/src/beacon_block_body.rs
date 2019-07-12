@@ -3,6 +3,7 @@ use crate::*;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
@@ -26,12 +27,12 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub eth1_data: Eth1Data,
     #[serde(deserialize_with = "graffiti_from_hex_str")]
     pub graffiti: [u8; 32],
-    pub proposer_slashings: Vec<ProposerSlashing>,
-    pub attester_slashings: Vec<AttesterSlashing>,
-    pub attestations: Vec<Attestation<T>>,
-    pub deposits: Vec<Deposit>,
-    pub voluntary_exits: Vec<VoluntaryExit>,
-    pub transfers: Vec<Transfer>,
+    pub proposer_slashings: VariableList<ProposerSlashing, T::MaxProposerSlashings>,
+    pub attester_slashings: VariableList<AttesterSlashing<T>, T::MaxAttesterSlashings>,
+    pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
+    pub deposits: VariableList<Deposit, T::MaxDeposits>,
+    pub voluntary_exits: VariableList<VoluntaryExit, T::MaxVoluntaryExits>,
+    pub transfers: VariableList<Transfer, T::MaxTransfers>,
 }
 
 #[cfg(test)]

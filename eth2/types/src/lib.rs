@@ -84,4 +84,4 @@ pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
 pub type ProposerMap = HashMap<u64, usize>;
 
 pub use bls::{AggregatePublicKey, AggregateSignature, Keypair, PublicKey, SecretKey, Signature};
-pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector};
+pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
