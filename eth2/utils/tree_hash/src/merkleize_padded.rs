@@ -23,8 +23,8 @@ lazy_static! {
 /// leaves.
 ///
 /// First all nodes are extracted from `bytes` and then a padding node is added until the number of
-/// leaf chunks is greater than or equal to `min_leaves`.Set `min_leaves == 0` if no adding padding
-/// should be added to the given `bytes`.
+/// leaf chunks is greater than or equal to `min_leaves`. Callers may set `min_leaves` to `0` if no
+/// adding additional chunks should be added to the given `bytes`.
 ///
 /// If `bytes.len() <= BYTES_PER_CHUNK`, no hashing is done and bytes is returned, potentially
 /// padded out to `BYTES_PER_CHUNK` length with `0`.
@@ -152,7 +152,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
                 "Both children should be `BYTES_PER_CHUNK` bytes."
             );
 
-            let hash = hash_concat(&mut left.to_vec(), &mut right.to_vec());
+            let hash = hash_concat(&left.to_vec(), &right.to_vec());
 
             chunks
                 .set(i, &hash)
@@ -230,7 +230,7 @@ fn get_zero_hash(height: usize) -> &'static [u8] {
     if height < MAX_TREE_DEPTH {
         &ZERO_HASHES[height]
     } else {
-        panic!("Tree exceeeds MAX_TREE_DEPTH of {}")
+        panic!("Tree exceeeds MAX_TREE_DEPTH of {}", MAX_TREE_DEPTH)
     }
 }
 
