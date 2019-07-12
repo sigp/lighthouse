@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod impls;
+pub mod impls;
 mod merkleize_padded;
 mod merkleize_standard;
 
@@ -56,7 +56,7 @@ macro_rules! tree_hash_ssz_encoding_as_vector {
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                tree_hash::merkleize::merkle_root(&ssz::ssz_encode(self))
+                tree_hash::merkle_root(&ssz::ssz_encode(self))
             }
         }
     };
