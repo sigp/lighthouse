@@ -154,9 +154,6 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
             let hash = hash_concat(&mut left.to_vec(), &mut right.to_vec());
 
-            dbg!(height);
-            dbg!(&hash);
-
             chunks
                 .set(i, &hash)
                 .expect("Buf is adequate size for parent");
@@ -231,7 +228,6 @@ impl ChunkStore {
 /// Returns a cached padding node for a given height.
 fn get_zero_hash(height: usize) -> &'static [u8] {
     if height < MAX_TREE_DEPTH {
-        dbg!(&ZERO_HASHES[height]);
         &ZERO_HASHES[height]
     } else {
         panic!("Tree exceeeds MAX_TREE_DEPTH of {}")

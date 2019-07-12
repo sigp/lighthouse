@@ -1,5 +1,5 @@
 use cached_tree_hash::{CachedTreeHash, TreeHashCache};
-use tree_hash::{merkleize::merkle_root, SignedRoot, TreeHash};
+use tree_hash::{merkle_root, SignedRoot, TreeHash};
 use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 #[derive(Clone, Debug, TreeHash, CachedTreeHash)]
