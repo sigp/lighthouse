@@ -11,7 +11,7 @@ use types::*;
 /// Spec v0.6.3
 pub fn verify_attester_slashing<T: EthSpec>(
     state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing,
+    attester_slashing: &AttesterSlashing<T>,
     should_verify_indexed_attestations: bool,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -42,7 +42,7 @@ pub fn verify_attester_slashing<T: EthSpec>(
 /// Spec v0.6.3
 pub fn get_slashable_indices<T: EthSpec>(
     state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing,
+    attester_slashing: &AttesterSlashing<T>,
 ) -> Result<Vec<u64>, Error> {
     get_slashable_indices_modular(state, attester_slashing, |_, validator| {
         validator.is_slashable_at(state.current_epoch())
@@ -53,7 +53,7 @@ pub fn get_slashable_indices<T: EthSpec>(
 /// for determining whether a given validator should be considered slashable.
 pub fn get_slashable_indices_modular<F, T: EthSpec>(
     state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing,
+    attester_slashing: &AttesterSlashing<T>,
     is_slashable: F,
 ) -> Result<Vec<u64>, Error>
 where

@@ -1,4 +1,5 @@
 use super::{get_attesting_indices, get_attesting_indices_unsorted};
+use crate::per_block_processing::errors::AttestationValidationError;
 use itertools::{Either, Itertools};
 use types::*;
 
@@ -8,7 +9,7 @@ use types::*;
 pub fn get_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
-) -> Result<IndexedAttestation, BeaconStateError> {
+) -> Result<IndexedAttestation<T>, AttestationValidationError> {
     let attesting_indices =
         get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
@@ -25,8 +26,8 @@ pub fn get_indexed_attestation<T: EthSpec>(
         );
 
     Ok(IndexedAttestation {
-        custody_bit_0_indices,
-        custody_bit_1_indices,
+        custody_bit_0_indices: VariableList::new(custody_bit_0_indices)?,
+        custody_bit_1_indices: VariableList::new(custody_bit_1_indices)?,
         data: attestation.data.clone(),
         signature: attestation.signature.clone(),
     })

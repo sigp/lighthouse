@@ -86,7 +86,7 @@ fn per_block_processing_signature_optional<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     process_randao(&mut state, &block, &spec)?;
-    process_eth1_data(&mut state, &block.body.eth1_data, spec)?;
+    process_eth1_data(&mut state, &block.body.eth1_data)?;
     process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
     process_attester_slashings(&mut state, &block.body.attester_slashings, spec)?;
     process_attestations(&mut state, &block.body.attestations, spec)?;
@@ -197,17 +197,16 @@ pub fn process_randao<T: EthSpec>(
 pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
-    spec: &ChainSpec,
 ) -> Result<(), Error> {
-    state.eth1_data_votes.push(eth1_data.clone());
+    state.eth1_data_votes.push(eth1_data.clone())?;
 
     let num_votes = state
         .eth1_data_votes
         .iter()
         .filter(|vote| *vote == eth1_data)
-        .count() as u64;
+        .count();
 
-    if num_votes * 2 > spec.slots_per_eth1_voting_period {
+    if num_votes * 2 > T::SlotsPerEth1VotingPeriod::to_usize() {
         state.eth1_data = eth1_data.clone();
     }
 
@@ -225,9 +224,9 @@ pub fn process_proposer_slashings<T: EthSpec>(
     proposer_slashings: &[ProposerSlashing],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // TODO(freeze): adjust this and other length checks for max-len SSZ lists
+    // TODO(freeze): this check is kind of redundant with the VariableList impl
     verify!(
-        proposer_slashings.len() as u64 <= spec.max_proposer_slashings,
+        proposer_slashings.len() <= T::MaxProposerSlashings::to_usize(),
         Invalid::MaxProposerSlashingsExceeded
     );
 
@@ -256,18 +255,17 @@ pub fn process_proposer_slashings<T: EthSpec>(
 /// Spec v0.8.0
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
-    attester_slashings: &[AttesterSlashing],
+    attester_slashings: &[AttesterSlashing<T>],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(
-        attester_slashings.len() as u64 <= spec.max_attester_slashings,
+        attester_slashings.len() <= T::MaxAttesterSlashings::to_usize(),
         Invalid::MaxAttesterSlashingsExceed
     );
 
     // Verify the `IndexedAttestation`s in parallel (these are the resource-consuming objects, not
     // the `AttesterSlashing`s themselves).
-    let mut indexed_attestations: Vec<&IndexedAttestation> =
-        Vec::with_capacity(attester_slashings.len() * 2);
+    let mut indexed_attestations: Vec<&_> = Vec::with_capacity(attester_slashings.len() * 2);
     for attester_slashing in attester_slashings {
         indexed_attestations.push(&attester_slashing.attestation_1);
         indexed_attestations.push(&attester_slashing.attestation_2);
@@ -318,7 +316,7 @@ pub fn process_attestations<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(
-        attestations.len() as u64 <= spec.max_attestations,
+        attestations.len() <= T::MaxAttestations::to_usize(),
         Invalid::MaxAttestationsExceeded
     );
 
@@ -346,9 +344,11 @@ pub fn process_attestations<T: EthSpec>(
         };
 
         if attestation.data.target.epoch == state.current_epoch() {
-            state.current_epoch_attestations.push(pending_attestation)
+            state.current_epoch_attestations.push(pending_attestation)?;
         } else {
-            state.previous_epoch_attestations.push(pending_attestation)
+            state
+                .previous_epoch_attestations
+                .push(pending_attestation)?;
         }
     }
 
@@ -369,7 +369,7 @@ pub fn process_deposits<T: EthSpec>(
     verify!(
         deposits.len() as u64
             == std::cmp::min(
-                spec.max_deposits,
+                T::MaxDeposits::to_u64(),
                 state.eth1_data.deposit_count - state.eth1_deposit_index
             ),
         Invalid::DepositCountInvalid
@@ -423,8 +423,8 @@ pub fn process_deposits<T: EthSpec>(
                 ),
                 slashed: false,
             };
-            state.validators.push(validator);
-            state.balances.push(deposit.data.amount);
+            state.validators.push(validator)?;
+            state.balances.push(deposit.data.amount)?;
         }
     }
 
@@ -443,7 +443,7 @@ pub fn process_exits<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     verify!(
-        voluntary_exits.len() as u64 <= spec.max_voluntary_exits,
+        voluntary_exits.len() <= T::MaxVoluntaryExits::to_usize(),
         Invalid::MaxExitsExceeded
     );
 
@@ -481,7 +481,7 @@ pub fn process_transfers<T: EthSpec>(
     );
 
     verify!(
-        transfers.len() as u64 <= spec.max_transfers,
+        transfers.len() <= T::MaxTransfers::to_usize(),
         Invalid::MaxTransfersExceed
     );
 

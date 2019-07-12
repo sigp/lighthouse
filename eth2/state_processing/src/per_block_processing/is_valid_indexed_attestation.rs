@@ -11,7 +11,7 @@ use types::*;
 /// Spec v0.8.0
 pub fn is_valid_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
-    indexed_attestation: &IndexedAttestation,
+    indexed_attestation: &IndexedAttestation<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     is_valid_indexed_attestation_parametric(state, indexed_attestation, spec, true)
@@ -22,7 +22,7 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
 /// Spec v0.8.0
 pub fn is_valid_indexed_attestation_without_signature<T: EthSpec>(
     state: &BeaconState<T>,
-    indexed_attestation: &IndexedAttestation,
+    indexed_attestation: &IndexedAttestation<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     is_valid_indexed_attestation_parametric(state, indexed_attestation, spec, false)
@@ -33,7 +33,7 @@ pub fn is_valid_indexed_attestation_without_signature<T: EthSpec>(
 /// Spec v0.8.0
 fn is_valid_indexed_attestation_parametric<T: EthSpec>(
     state: &BeaconState<T>,
-    indexed_attestation: &IndexedAttestation,
+    indexed_attestation: &IndexedAttestation<T>,
     spec: &ChainSpec,
     verify_signature: bool,
 ) -> Result<(), Error> {
@@ -46,20 +46,20 @@ fn is_valid_indexed_attestation_parametric<T: EthSpec>(
     // Verify max number of indices
     let total_indices = bit_0_indices.len() + bit_1_indices.len();
     verify!(
-        total_indices as u64 <= spec.max_validators_per_committee,
-        Invalid::MaxIndicesExceed(spec.max_validators_per_committee, total_indices)
+        total_indices <= T::MaxValidatorsPerCommittee::to_usize(),
+        Invalid::MaxIndicesExceed(T::MaxValidatorsPerCommittee::to_usize(), total_indices)
     );
 
     // Verify index sets are disjoint
     let custody_bit_intersection: HashSet<&u64> =
-        &HashSet::from_iter(bit_0_indices) & &HashSet::from_iter(bit_1_indices);
+        &HashSet::from_iter(bit_0_indices.iter()) & &HashSet::from_iter(bit_1_indices.iter());
     verify!(
         custody_bit_intersection.is_empty(),
         Invalid::CustodyBitValidatorsIntersect
     );
 
     // Check that both vectors of indices are sorted
-    let check_sorted = |list: &Vec<u64>| {
+    let check_sorted = |list: &[u64]| -> Result<(), Error> {
         list.windows(2).enumerate().try_for_each(|(i, pair)| {
             if pair[0] >= pair[1] {
                 invalid!(Invalid::BadValidatorIndicesOrdering(i));
@@ -69,8 +69,8 @@ fn is_valid_indexed_attestation_parametric<T: EthSpec>(
         })?;
         Ok(())
     };
-    check_sorted(bit_0_indices)?;
-    check_sorted(bit_1_indices)?;
+    check_sorted(&bit_0_indices)?;
+    check_sorted(&bit_1_indices)?;
 
     if verify_signature {
         is_valid_indexed_attestation_signature(state, indexed_attestation, spec)?;
@@ -108,7 +108,7 @@ where
 /// Spec v0.8.0
 fn is_valid_indexed_attestation_signature<T: EthSpec>(
     state: &BeaconState<T>,
-    indexed_attestation: &IndexedAttestation,
+    indexed_attestation: &IndexedAttestation<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let bit_0_pubkey = create_aggregate_pubkey(state, &indexed_attestation.custody_bit_0_indices)?;

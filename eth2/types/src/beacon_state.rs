@@ -10,8 +10,7 @@ use pubkey_cache::PubkeyCache;
 use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::BitVector;
-use ssz_types::{typenum::Unsigned, FixedVector};
+use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
@@ -63,7 +62,7 @@ pub enum Error {
 
 /// The state of the `BeaconChain` at some slot.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     PartialEq,
@@ -92,18 +91,18 @@ where
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
-    pub historical_roots: Vec<Hash256>,
+    pub historical_roots: VariableList<Hash256, T::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
-    pub eth1_data_votes: Vec<Eth1Data>,
+    pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     pub eth1_deposit_index: u64,
 
     // Registry
     #[compare_fields(as_slice)]
-    pub validators: Vec<Validator>,
+    pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
     #[compare_fields(as_slice)]
-    pub balances: Vec<u64>,
+    pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Shuffling
     pub start_shard: u64,
@@ -116,8 +115,8 @@ where
     slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations
-    pub previous_epoch_attestations: Vec<PendingAttestation<T>>,
-    pub current_epoch_attestations: Vec<PendingAttestation<T>>,
+    pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::NumPendingAttestations>,
+    pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::NumPendingAttestations>,
 
     // Crosslinks
     pub previous_crosslinks: FixedVector<Crosslink, T::ShardCount>,
@@ -174,16 +173,16 @@ impl<T: EthSpec> BeaconState<T> {
             latest_block_header: BeaconBlock::<T>::empty(spec).temporary_block_header(),
             block_roots: FixedVector::from_elem(Hash256::zero()),
             state_roots: FixedVector::from_elem(Hash256::zero()),
-            historical_roots: vec![],
+            historical_roots: VariableList::empty(),
 
             // Eth1
             eth1_data,
-            eth1_data_votes: vec![],
+            eth1_data_votes: VariableList::empty(),
             eth1_deposit_index: 0,
 
             // Validator registry
-            validators: vec![], // Set later.
-            balances: vec![],   // Set later.
+            validators: VariableList::empty(), // Set later.
+            balances: VariableList::empty(),   // Set later.
 
             // Shuffling
             start_shard: 0,
@@ -195,8 +194,8 @@ impl<T: EthSpec> BeaconState<T> {
             slashings: FixedVector::from_elem(0),
 
             // Attestations
-            previous_epoch_attestations: vec![],
-            current_epoch_attestations: vec![],
+            previous_epoch_attestations: VariableList::empty(),
+            current_epoch_attestations: VariableList::empty(),
 
             // Crosslinks
             previous_crosslinks: FixedVector::from_elem(Crosslink::default()),

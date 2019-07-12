@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData};
+use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     PartialEq,
@@ -23,27 +23,27 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
-pub struct IndexedAttestation {
+pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
-    pub custody_bit_0_indices: Vec<u64>,
-    pub custody_bit_1_indices: Vec<u64>,
+    pub custody_bit_0_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
+    pub custody_bit_1_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,
 }
 
-impl IndexedAttestation {
+impl<T: EthSpec> IndexedAttestation<T> {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
     /// Spec v0.8.0
-    pub fn is_double_vote(&self, other: &IndexedAttestation) -> bool {
+    pub fn is_double_vote(&self, other: &Self) -> bool {
         self.data.target.epoch == other.data.target.epoch && self.data != other.data
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
     /// Spec v0.8.0
-    pub fn is_surround_vote(&self, other: &IndexedAttestation) -> bool {
+    pub fn is_surround_vote(&self, other: &Self) -> bool {
         self.data.source.epoch < other.data.source.epoch
             && other.data.target.epoch < self.data.target.epoch
     }
