@@ -16,6 +16,7 @@ use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+mod codecs;
 mod handler;
 pub mod methods;
 mod protocol;
