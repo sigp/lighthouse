@@ -251,6 +251,7 @@ impl RPCErrorResponse {
         }
     }
 
+    /// Used to encode the response.
     pub fn as_u8(&self) -> u8 {
         match self {
             RPCErrorResponse::Success(_) => 0,
