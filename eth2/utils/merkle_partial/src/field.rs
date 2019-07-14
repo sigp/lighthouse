@@ -17,7 +17,7 @@ pub enum Leaf {
     Padding(),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Basic {
     pub ident: String,
     pub index: NodeIndex,
@@ -27,7 +27,7 @@ pub struct Basic {
 
 #[derive(Debug, PartialEq)]
 pub struct Composite {
-    pub ident: &'static str,
+    pub ident: String,
     pub index: NodeIndex,
     pub height: u8,
 }

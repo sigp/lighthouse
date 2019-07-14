@@ -197,6 +197,8 @@ mod tests {
 
         assert_eq!(subtree_index_to_general(26, 7), 107);
         assert_eq!(subtree_index_to_general(26, 12), 212);
+
+        assert_eq!(subtree_index_to_general(11, 17), 177);
     }
 
     #[test]

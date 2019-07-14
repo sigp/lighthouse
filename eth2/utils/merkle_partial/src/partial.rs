@@ -249,33 +249,33 @@ mod tests {
         fn get_node(index: NodeIndex) -> Node {
             match index {
                 0 => Node::Composite(Composite {
-                    ident: "",
+                    ident: "".to_owned(),
                     index: 1,
                     height: Self::height().into(),
                 }),
                 1 => Node::Intermediate(2),
                 2 => Node::Intermediate(3),
                 3 => Node::Leaf(Leaf::Basic(vec![Basic {
-                    ident: "a".to_string(),
+                    ident: "a".to_owned(),
                     index: index,
                     size: 32,
                     offset: 0,
                 }])),
                 4 => Node::Leaf(Leaf::Basic(vec![Basic {
-                    ident: "b".to_string(),
+                    ident: "b".to_owned(),
                     index: index,
                     size: 32,
                     offset: 0,
                 }])),
                 5 => Node::Leaf(Leaf::Basic(vec![
                     Basic {
-                        ident: "c".to_string(),
+                        ident: "c".to_owned(),
                         index: index,
                         size: 16,
                         offset: 0,
                     },
                     Basic {
-                        ident: "d".to_string(),
+                        ident: "d".to_owned(),
                         index: index,
                         size: 16,
                         offset: 16,
@@ -329,7 +329,7 @@ mod tests {
         fn get_node(index: NodeIndex) -> Node {
             if index == 0 {
                 Node::Composite(Composite {
-                    ident: "a",
+                    ident: "a".to_owned(),
                     index: 0,
                     height: VariableList::<u128, U4>::height().into(),
                 })
