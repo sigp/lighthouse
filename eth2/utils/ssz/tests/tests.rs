@@ -276,7 +276,7 @@ mod round_trip {
     fn offsets_decreasing() {
         let bytes = vec![
             //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
-            //      | offset        | ofset         | offset        | variable
+            //      | offset        | offset        | offset        | variable
             01, 00, 14, 00, 00, 00, 15, 00, 00, 00, 14, 00, 00, 00, 00, 00,
         ];
 
@@ -284,5 +284,96 @@ mod round_trip {
             ThreeVariableLen::from_ssz_bytes(&bytes),
             Err(DecodeError::OutOfBoundsByte { i: 14 })
         );
+    }
+
+    #[derive(Debug, PartialEq, Encode, Decode)]
+    struct TwoVariableLenOptions {
+        a: u16,
+        b: Option<u16>,
+        c: Option<Vec<u16>>,
+        d: Option<Vec<u16>>,
+    }
+
+    #[test]
+    fn two_variable_len_options_encoding() {
+        let s = TwoVariableLenOptions {
+            a: 42,
+            b: None,
+            c: Some(vec![0]),
+            d: None,
+        };
+
+        let bytes = vec![
+            //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16  17  18  19  20  21
+            //      | option<u16>   | offset        | offset        | option<u16    | 1st list
+            42, 00, 14, 00, 00, 00, 18, 00, 00, 00, 24, 00, 00, 00, 00, 00, 00, 00, 01, 00, 00, 00,
+            //  23  24  25  26  27
+            //      | 2nd list
+            00, 00, 00, 00, 00, 00,
+        ];
+
+        assert_eq!(s.as_ssz_bytes(), bytes);
+    }
+
+    #[test]
+    fn two_variable_len_options_round_trip() {
+        let vec: Vec<TwoVariableLenOptions> = vec![
+            TwoVariableLenOptions {
+                a: 42,
+                b: Some(12),
+                c: Some(vec![0]),
+                d: Some(vec![1]),
+            },
+            TwoVariableLenOptions {
+                a: 42,
+                b: Some(12),
+                c: Some(vec![0]),
+                d: None,
+            },
+            TwoVariableLenOptions {
+                a: 42,
+                b: None,
+                c: Some(vec![0]),
+                d: None,
+            },
+            TwoVariableLenOptions {
+                a: 42,
+                b: None,
+                c: None,
+                d: None,
+            },
+        ];
+
+        round_trip(vec);
+    }
+
+    #[test]
+    fn tuple_u8_u16() {
+        let vec: Vec<(u8, u16)> = vec![
+            (0, 0),
+            (0, 1),
+            (1, 0),
+            (u8::max_value(), u16::max_value()),
+            (0, u16::max_value()),
+            (u8::max_value(), 0),
+            (42, 12301),
+        ];
+
+        round_trip(vec);
+    }
+
+    #[test]
+    fn tuple_vec_vec() {
+        let vec: Vec<(u64, Vec<u8>, Vec<Vec<u16>>)> = vec![
+            (0, vec![], vec![vec![]]),
+            (99, vec![101], vec![vec![], vec![]]),
+            (
+                42,
+                vec![12, 13, 14],
+                vec![vec![99, 98, 97, 96], vec![42, 44, 46, 48, 50]],
+            ),
+        ];
+
+        round_trip(vec);
     }
 }

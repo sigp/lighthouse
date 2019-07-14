@@ -1,24 +1,25 @@
 use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
-use slog::{debug, error, info};
-use std::fs;
-use std::fs::File;
+use serde_derive::{Deserialize, Serialize};
+use slog::{debug, error, info, o, Drain};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
-use types::{
-    ChainSpec, EthSpec, FewValidatorsEthSpec, FoundationEthSpec, LighthouseTestnetEthSpec,
-};
+use std::sync::Mutex;
+use types::{EthSpec, MainnetEthSpec};
 
 /// Stores the core configuration for this validator instance.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub data_dir: PathBuf,
+    /// The path where the logs will be outputted
+    pub log_file: PathBuf,
     /// The server at which the Beacon Node can be contacted
     pub server: String,
-    /// The chain specification that we are connecting to
-    pub spec: ChainSpec,
+    /// The number of slots per epoch.
+    pub slots_per_epoch: u64,
 }
 
 const DEFAULT_PRIVATE_KEY_FILENAME: &str = "private.key";
@@ -26,67 +27,78 @@ const DEFAULT_PRIVATE_KEY_FILENAME: &str = "private.key";
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let data_dir = {
-            let home = dirs::home_dir().expect("Unable to determine home directory.");
-            home.join(".lighthouse-validator")
-        };
-
-        let server = "localhost:5051".to_string();
-
-        let spec = FoundationEthSpec::spec();
-
         Self {
-            data_dir,
-            server,
-            spec,
+            data_dir: PathBuf::from(".lighthouse-validator"),
+            log_file: PathBuf::from(""),
+            server: "localhost:5051".to_string(),
+            slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }
     }
 }
 
 impl Config {
-    /// Build a new configuration from defaults, which are overrided by arguments provided.
-    pub fn parse_args(args: &ArgMatches, log: &slog::Logger) -> Result<Self, Error> {
-        let mut config = Config::default();
-
-        // Use the specified datadir, or default in the home directory
+    /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
+    ///
+    /// Returns an error if arguments are obviously invalid. May succeed even if some values are
+    /// invalid.
+    pub fn apply_cli_args(
+        &mut self,
+        args: &ArgMatches,
+        log: &mut slog::Logger,
+    ) -> Result<(), &'static str> {
         if let Some(datadir) = args.value_of("datadir") {
-            config.data_dir = PathBuf::from(datadir);
-            info!(log, "Using custom data dir: {:?}", &config.data_dir);
+            self.data_dir = PathBuf::from(datadir);
         };
 
-        fs::create_dir_all(&config.data_dir)
-            .unwrap_or_else(|_| panic!("Unable to create {:?}", &config.data_dir));
+        if let Some(log_file) = args.value_of("logfile") {
+            self.log_file = PathBuf::from(log_file);
+            self.update_logger(log)?;
+        };
 
         if let Some(srv) = args.value_of("server") {
-            //TODO: Validate the server value, to ensure it makes sense.
-            config.server = srv.to_string();
-            info!(log, "Using custom server: {:?}", &config.server);
+            self.server = srv.to_string();
         };
 
-        // TODO: Permit loading a custom spec from file.
-        if let Some(spec_str) = args.value_of("spec") {
-            info!(log, "Using custom spec: {:?}", spec_str);
-            config.spec = match spec_str {
-                "foundation" => FoundationEthSpec::spec(),
-                "few_validators" => FewValidatorsEthSpec::spec(),
-                "lighthouse_testnet" => LighthouseTestnetEthSpec::spec(),
-                // Should be impossible due to clap's `possible_values(..)` function.
-                _ => unreachable!(),
-            };
-        };
-        // Log configuration
-        info!(log, "";
-              "data_dir" => &config.data_dir.to_str(),
-              "server" => &config.server);
+        Ok(())
+    }
 
-        Ok(config)
+    // Update the logger to output in JSON to specified file
+    fn update_logger(&mut self, log: &mut slog::Logger) -> Result<(), &'static str> {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&self.log_file);
+
+        if file.is_err() {
+            return Err("Cannot open log file");
+        }
+        let file = file.unwrap();
+
+        if let Some(file) = self.log_file.to_str() {
+            info!(
+                *log,
+                "Log file specified, output will now be written to {} in json.", file
+            );
+        } else {
+            info!(
+                *log,
+                "Log file specified output will now be written in json"
+            );
+        }
+
+        let drain = Mutex::new(slog_json::Json::default(file)).fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        *log = slog::Logger::root(drain, o!());
+
+        Ok(())
     }
 
     /// Try to load keys from validator_dir, returning None if none are found or an error.
     #[allow(dead_code)]
     pub fn fetch_keys(&self, log: &slog::Logger) -> Option<Vec<Keypair>> {
         let key_pairs: Vec<Keypair> = fs::read_dir(&self.data_dir)
-            .unwrap()
+            .ok()?
             .filter_map(|validator_dir| {
                 let validator_dir = validator_dir.ok()?;
 

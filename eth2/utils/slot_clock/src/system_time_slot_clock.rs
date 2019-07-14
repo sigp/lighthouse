@@ -18,31 +18,25 @@ pub struct SystemTimeSlotClock {
     slot_duration_seconds: u64,
 }
 
-impl SystemTimeSlotClock {
-    /// Create a new `SystemTimeSlotClock`.
-    ///
-    /// Returns an Error if `slot_duration_seconds == 0`.
-    pub fn new(
-        genesis_slot: Slot,
-        genesis_seconds: u64,
-        slot_duration_seconds: u64,
-    ) -> Result<SystemTimeSlotClock, Error> {
-        if slot_duration_seconds == 0 {
-            Err(Error::SlotDurationIsZero)
-        } else {
-            Ok(Self {
-                genesis_slot,
-                genesis_seconds,
-                slot_duration_seconds,
-            })
-        }
-    }
-}
-
 impl SlotClock for SystemTimeSlotClock {
     type Error = Error;
 
+    /// Create a new `SystemTimeSlotClock`.
+    ///
+    /// Returns an Error if `slot_duration_seconds == 0`.
+    fn new(genesis_slot: Slot, genesis_seconds: u64, slot_duration_seconds: u64) -> Self {
+        Self {
+            genesis_slot,
+            genesis_seconds,
+            slot_duration_seconds,
+        }
+    }
+
     fn present_slot(&self) -> Result<Option<Slot>, Error> {
+        if self.slot_duration_seconds == 0 {
+            return Err(Error::SlotDurationIsZero);
+        }
+
         let syslot_time = SystemTime::now();
         let duration_since_epoch = syslot_time.duration_since(SystemTime::UNIX_EPOCH)?;
         let duration_since_genesis =

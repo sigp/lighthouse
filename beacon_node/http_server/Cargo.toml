@@ -13,14 +13,13 @@ network = { path = "../network" }
 eth2-libp2p = { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
-ssz = { path = "../../eth2/utils/ssz" }
+eth2_ssz = { path = "../../eth2/utils/ssz" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 protos = { path = "../../protos" }
-fork_choice = { path = "../../eth2/fork_choice" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 persistent = "^0.4"
 protobuf = "2.0.2"
-prometheus = "^0.6"
+prometheus = { version = "^0.6", features = ["process"] }
 clap = "2.32.0"
 store = { path = "../store" }
 dirs = "1.0.3"

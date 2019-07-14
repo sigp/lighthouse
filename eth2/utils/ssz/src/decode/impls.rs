@@ -1,5 +1,6 @@
 use super::*;
-use ethereum_types::H256;
+use core::num::NonZeroUsize;
+use ethereum_types::{H256, U128, U256};
 
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -33,7 +34,159 @@ impl_decodable_for_uint!(u8, 8);
 impl_decodable_for_uint!(u16, 16);
 impl_decodable_for_uint!(u32, 32);
 impl_decodable_for_uint!(u64, 64);
+
+#[cfg(target_pointer_width = "32")]
+impl_decodable_for_uint!(usize, 32);
+
+#[cfg(target_pointer_width = "64")]
 impl_decodable_for_uint!(usize, 64);
+
+macro_rules! impl_decode_for_tuples {
+    ($(
+        $Tuple:ident {
+            $(($idx:tt) -> $T:ident)+
+        }
+    )+) => {
+        $(
+            impl<$($T: Decode),+> Decode for ($($T,)+) {
+                fn is_ssz_fixed_len() -> bool {
+                    $(
+                        <$T as Decode>::is_ssz_fixed_len() &&
+                    )*
+                        true
+                }
+
+                fn ssz_fixed_len() -> usize {
+                    if <Self as Decode>::is_ssz_fixed_len() {
+                        $(
+                            <$T as Decode>::ssz_fixed_len() +
+                        )*
+                            0
+                    } else {
+                        BYTES_PER_LENGTH_OFFSET
+                    }
+                }
+
+                fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+                    let mut builder = SszDecoderBuilder::new(bytes);
+
+                    $(
+                        builder.register_type::<$T>()?;
+                    )*
+
+                    let mut decoder = builder.build()?;
+
+                    Ok(($(
+                            decoder.decode_next::<$T>()?,
+                        )*
+                    ))
+                }
+            }
+        )+
+    }
+}
+
+impl_decode_for_tuples! {
+    Tuple2 {
+        (0) -> A
+        (1) -> B
+    }
+    Tuple3 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+    }
+    Tuple4 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+    }
+    Tuple5 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+    }
+    Tuple6 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+    }
+    Tuple7 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+    }
+    Tuple8 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+    }
+    Tuple9 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+    }
+    Tuple10 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+    }
+    Tuple11 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+    }
+    Tuple12 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+        (11) -> L
+    }
+}
 
 impl Decode for bool {
     fn is_ssz_fixed_len() -> bool {
@@ -54,12 +207,64 @@ impl Decode for bool {
             match bytes[0] {
                 0b0000_0000 => Ok(false),
                 0b0000_0001 => Ok(true),
-                _ => {
-                    return Err(DecodeError::BytesInvalid(
-                        format!("Out-of-range for boolean: {}", bytes[0]).to_string(),
-                    ))
-                }
+                _ => Err(DecodeError::BytesInvalid(
+                    format!("Out-of-range for boolean: {}", bytes[0]).to_string(),
+                )),
             }
+        }
+    }
+}
+
+impl Decode for NonZeroUsize {
+    fn is_ssz_fixed_len() -> bool {
+        <usize as Decode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <usize as Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let x = usize::from_ssz_bytes(bytes)?;
+
+        if x == 0 {
+            Err(DecodeError::BytesInvalid(
+                "NonZeroUsize cannot be zero.".to_string(),
+            ))
+        } else {
+            // `unwrap` is safe here as `NonZeroUsize::new()` succeeds if `x > 0` and this path
+            // never executes when `x == 0`.
+            Ok(NonZeroUsize::new(x).unwrap())
+        }
+    }
+}
+
+/// The SSZ union type.
+impl<T: Decode> Decode for Option<T> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() < BYTES_PER_LENGTH_OFFSET {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BYTES_PER_LENGTH_OFFSET,
+            });
+        }
+
+        let (index_bytes, value_bytes) = bytes.split_at(BYTES_PER_LENGTH_OFFSET);
+
+        let index = read_union_index(index_bytes)?;
+        if index == 0 {
+            Ok(None)
+        } else if index == 1 {
+            Ok(Some(T::from_ssz_bytes(value_bytes)?))
+        } else {
+            Err(DecodeError::BytesInvalid(format!(
+                "{} is not a valid union index for Option<T>",
+                index
+            )))
         }
     }
 }
@@ -81,6 +286,48 @@ impl Decode for H256 {
             Err(DecodeError::InvalidByteLength { len, expected })
         } else {
             Ok(H256::from_slice(bytes))
+        }
+    }
+}
+
+impl Decode for U256 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        32
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let len = bytes.len();
+        let expected = <Self as Decode>::ssz_fixed_len();
+
+        if len != expected {
+            Err(DecodeError::InvalidByteLength { len, expected })
+        } else {
+            Ok(U256::from_little_endian(bytes))
+        }
+    }
+}
+
+impl Decode for U128 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        16
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let len = bytes.len();
+        let expected = <Self as Decode>::ssz_fixed_len();
+
+        if len != expected {
+            Err(DecodeError::InvalidByteLength { len, expected })
+        } else {
+            Ok(U128::from_little_endian(bytes))
         }
     }
 }
@@ -114,6 +361,7 @@ macro_rules! impl_decodable_for_u8_array {
 }
 
 impl_decodable_for_u8_array!(4);
+impl_decodable_for_u8_array!(32);
 
 impl<T: Decode> Decode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {
@@ -121,7 +369,7 @@ impl<T: Decode> Decode for Vec<T> {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        if bytes.len() == 0 {
+        if bytes.is_empty() {
             Ok(vec![])
         } else if T::is_ssz_fixed_len() {
             bytes
@@ -417,6 +665,17 @@ mod tests {
                 len: 3,
                 expected: 2
             })
+        );
+    }
+
+    #[test]
+    fn tuple() {
+        assert_eq!(<(u16, u16)>::from_ssz_bytes(&[0, 0, 0, 0]), Ok((0, 0)));
+        assert_eq!(<(u16, u16)>::from_ssz_bytes(&[16, 0, 17, 0]), Ok((16, 17)));
+        assert_eq!(<(u16, u16)>::from_ssz_bytes(&[0, 1, 2, 0]), Ok((256, 2)));
+        assert_eq!(
+            <(u16, u16)>::from_ssz_bytes(&[255, 255, 0, 0]),
+            Ok((65535, 0))
         );
     }
 }

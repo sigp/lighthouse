@@ -1,9 +1,10 @@
 use serde_derive::Serialize;
+use ssz_derive::{Decode, Encode};
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256};
 
 /// Represents some block and it's associated state. Generally, this will be used for tracking the
 /// head, justified head and finalized head.
-#[derive(Clone, Serialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, PartialEq, Debug, Encode, Decode)]
 pub struct CheckPoint<E: EthSpec> {
     pub beacon_block: BeaconBlock,
     pub beacon_block_root: Hash256,

@@ -1,19 +1,23 @@
 use super::{Error, Store};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 
 /// A thread-safe `HashMap` wrapper.
+#[derive(Clone)]
 pub struct MemoryStore {
-    db: RwLock<DBHashMap>,
+    // Note: this `Arc` is only included because of an artificial constraint by gRPC. Hopefully we
+    // can remove this one day.
+    db: Arc<RwLock<DBHashMap>>,
 }
 
 impl MemoryStore {
     /// Create a new, empty database.
     pub fn open() -> Self {
         Self {
-            db: RwLock::new(HashMap::new()),
+            db: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

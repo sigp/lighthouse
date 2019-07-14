@@ -126,6 +126,13 @@ impl<'a> SszEncoder<'a> {
     }
 }
 
+/// Encode `index` as a little-endian byte vec of `BYTES_PER_LENGTH_OFFSET` length.
+///
+/// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.
+pub fn encode_union_index(index: usize) -> Vec<u8> {
+    encode_length(index)
+}
+
 /// Encode `len` as a little-endian byte vec of `BYTES_PER_LENGTH_OFFSET` length.
 ///
 /// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.

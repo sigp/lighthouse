@@ -22,8 +22,8 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         }
     }
 
-    pub fn set_slot(&mut self, slot: Slot, spec: &ChainSpec) {
-        self.state_builder.teleport_to_slot(slot, &spec);
+    pub fn set_slot(&mut self, slot: Slot) {
+        self.state_builder.teleport_to_slot(slot);
     }
 
     pub fn build_caches(&mut self, spec: &ChainSpec) {
@@ -55,11 +55,13 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {
-            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
-            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+            Some(sk) => builder.set_randao_reveal::<T>(&sk, &state.fork, spec),
+            None => builder.set_randao_reveal::<T>(&keypair.sk, &state.fork, spec),
         }
 
-        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        let block = self
+            .block_builder
+            .build::<T>(&keypair.sk, &state.fork, spec);
 
         (block, state)
     }

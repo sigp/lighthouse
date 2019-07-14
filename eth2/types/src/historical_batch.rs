@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Historical block and state roots.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     Clone,
@@ -31,7 +31,7 @@ pub struct HistoricalBatch<T: EthSpec> {
 mod tests {
     use super::*;
 
-    pub type FoundationHistoricalBatch = HistoricalBatch<FoundationEthSpec>;
+    pub type FoundationHistoricalBatch = HistoricalBatch<MainnetEthSpec>;
 
     ssz_tests!(FoundationHistoricalBatch);
     cached_tree_hash_tests!(FoundationHistoricalBatch);

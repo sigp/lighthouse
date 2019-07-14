@@ -1,5 +1,4 @@
 use crate::*;
-use tree_hash::SignedRoot;
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -10,14 +9,14 @@ pub enum Error {
 
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.3
 pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     cache_state(state, spec)?;
 
-    if (state.slot + 1) % spec.slots_per_epoch == 0 {
+    if (state.slot > spec.genesis_slot) && ((state.slot + 1) % T::slots_per_epoch() == 0) {
         per_epoch_processing(state, spec)?;
     }
 
@@ -44,7 +43,7 @@ fn cache_state<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) -> Resu
     // Store the previous slot's post state transition root.
     state.set_state_root(previous_slot, previous_slot_state_root)?;
 
-    let latest_block_root = Hash256::from_slice(&state.latest_block_header.signed_root()[..]);
+    let latest_block_root = state.latest_block_header.canonical_root();
     state.set_block_root(previous_slot, latest_block_root)?;
 
     // Set the state slot back to what it should be.

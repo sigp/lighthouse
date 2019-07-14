@@ -1,6 +1,10 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2_libp2p::PubsubMessage;
+use eth2_libp2p::TopicBuilder;
+use eth2_libp2p::SHARD_TOPIC_PREFIX;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
+use network::NetworkMessage;
 use protos::services::{
     AttestationData as AttestationDataProto, ProduceAttestationDataRequest,
     ProduceAttestationDataResponse, PublishAttestationRequest, PublishAttestationResponse,
@@ -14,6 +18,7 @@ use types::Attestation;
 #[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
+    pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
     pub log: slog::Logger,
 }
 
@@ -34,7 +39,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
         // verify the slot, drop lock on state afterwards
         {
             let slot_requested = req.get_slot();
-            let state = self.chain.get_state();
+            let state = &self.chain.current_state();
 
             // Start by performing some checks
             // Check that the AttestionData is for the current slot (otherwise it will not be valid)
@@ -124,7 +129,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
             }
         };
 
-        match self.chain.process_attestation(attestation) {
+        match self.chain.process_attestation(attestation.clone()) {
             Ok(_) => {
                 // Attestation was successfully processed.
                 info!(
@@ -132,6 +137,24 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                     "PublishAttestation";
                     "type" => "valid_attestation",
                 );
+
+                // valid attestation, propagate to the network
+                let topic = TopicBuilder::new(SHARD_TOPIC_PREFIX).build();
+                let message = PubsubMessage::Attestation(attestation);
+
+                self.network_chan
+                    .send(NetworkMessage::Publish {
+                        topics: vec![topic],
+                        message: Box::new(message),
+                    })
+                    .unwrap_or_else(|e| {
+                        error!(
+                            self.log,
+                            "PublishAttestation";
+                            "type" => "failed to publish attestation to gossipsub",
+                            "error" => format!("{:?}", e)
+                        );
+                    });
 
                 resp.set_success(true);
             }

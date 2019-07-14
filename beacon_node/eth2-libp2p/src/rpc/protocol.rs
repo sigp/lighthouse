@@ -11,7 +11,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 const MAX_READ_SIZE: usize = 4_194_304; // 4M
 
 /// Implementation of the `ConnectionUpgrade` for the rpc protocol.
-
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
 
@@ -42,7 +41,7 @@ impl RequestId {
     }
 
     /// Return the previous id.
-    pub fn previous(&self) -> Self {
+    pub fn previous(self) -> Self {
         Self(self.0 - 1)
     }
 }
@@ -130,10 +129,6 @@ struct SszContainer {
     bytes: Vec<u8>,
 }
 
-// NOTE!
-//
-// This code has not been tested, it is a placeholder until we can update to the new libp2p
-// spec.
 fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
     let msg = SszContainer::from_ssz_bytes(&packet)?;
 
@@ -220,7 +215,7 @@ impl Encode for RPCEvent {
             } => SszContainer {
                 is_request: true,
                 id: (*id).into(),
-                other: (*method_id).into(),
+                other: *method_id,
                 bytes: match body {
                     RPCRequest::Hello(body) => body.as_ssz_bytes(),
                     RPCRequest::Goodbye(body) => body.as_ssz_bytes(),
@@ -237,7 +232,7 @@ impl Encode for RPCEvent {
             } => SszContainer {
                 is_request: false,
                 id: (*id).into(),
-                other: (*method_id).into(),
+                other: *method_id,
                 bytes: match result {
                     RPCResponse::Hello(response) => response.as_ssz_bytes(),
                     RPCResponse::BeaconBlockRoots(response) => response.as_ssz_bytes(),

@@ -1,6 +1,7 @@
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use crossbeam_channel;
-use eth2_libp2p::PubsubMessage;
+use eth2_libp2p::BEACON_PUBSUB_TOPIC;
+use eth2_libp2p::{PubsubMessage, TopicBuilder};
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
@@ -95,19 +96,17 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
             Ok(block) => {
                 match self.chain.process_block(block.clone()) {
                     Ok(outcome) => {
-                        if outcome.sucessfully_processed() {
+                        if let BlockProcessingOutcome::Processed { block_root } = outcome {
                             // Block was successfully processed.
                             info!(
                                 self.log,
-                                "PublishBeaconBlock";
-                                "type" => "valid_block",
+                                "Valid block from RPC";
                                 "block_slot" => block.slot,
-                                "outcome" => format!("{:?}", outcome)
+                                "block_root" => format!("{}", block_root),
                             );
 
-                            // TODO: Obtain topics from the network service properly.
-                            let topic =
-                                types::TopicBuilder::new("beacon_chain".to_string()).build();
+                            // get the network topic to send on
+                            let topic = TopicBuilder::new(BEACON_PUBSUB_TOPIC).build();
                             let message = PubsubMessage::Block(block);
 
                             // Publish the block to the p2p network via gossipsub.
@@ -126,12 +125,11 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                                 });
 
                             resp.set_success(true);
-                        } else if outcome.is_invalid() {
-                            // Block was invalid.
+                        } else {
+                            // Block was not successfully processed.
                             warn!(
                                 self.log,
-                                "PublishBeaconBlock";
-                                "type" => "invalid_block",
+                                "Invalid block from RPC";
                                 "outcome" => format!("{:?}", outcome)
                             );
 
@@ -139,17 +137,6 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                             resp.set_msg(
                                 format!("InvalidBlock: {:?}", outcome).as_bytes().to_vec(),
                             );
-                        } else {
-                            // Some failure during processing.
-                            warn!(
-                                self.log,
-                                "PublishBeaconBlock";
-                                "type" => "unable_to_import",
-                                "outcome" => format!("{:?}", outcome)
-                            );
-
-                            resp.set_success(false);
-                            resp.set_msg(format!("other: {:?}", outcome).as_bytes().to_vec());
                         }
                     }
                     Err(e) => {

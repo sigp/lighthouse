@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, SlashableAttestation};
+use crate::{test_utils::TestRandom, IndexedAttestation};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -7,7 +7,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Two conflicting attestations.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     PartialEq,
@@ -21,8 +21,8 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct AttesterSlashing {
-    pub slashable_attestation_1: SlashableAttestation,
-    pub slashable_attestation_2: SlashableAttestation,
+    pub attestation_1: IndexedAttestation,
+    pub attestation_2: IndexedAttestation,
 }
 
 #[cfg(test)]

@@ -1,11 +1,17 @@
-use tiny_keccak::Keccak;
+#[cfg(not(target_arch = "wasm32"))]
+use ring::digest::{digest, SHA256};
+
+#[cfg(target_arch = "wasm32")]
+use sha2::{Digest, Sha256};
 
 pub fn hash(input: &[u8]) -> Vec<u8> {
-    let mut keccak = Keccak::new_keccak256();
-    keccak.update(input);
-    let mut result = vec![0; 32];
-    keccak.finalize(result.as_mut_slice());
-    result
+    #[cfg(not(target_arch = "wasm32"))]
+    let h = digest(&SHA256, input).as_ref().into();
+
+    #[cfg(target_arch = "wasm32")]
+    let h = Sha256::digest(input).as_ref().into();
+
+    h
 }
 
 /// Get merkle root of some hashed values - the input leaf nodes is expected to already be hashed
@@ -41,22 +47,24 @@ pub fn merkle_root(values: &[Vec<u8>]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::From;
+    use rustc_hex::FromHex;
 
-    #[test]
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::*;
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     fn test_hashing() {
-        let input: Vec<u8> = From::from("hello");
+        let input: Vec<u8> = b"hello world".as_ref().into();
 
         let output = hash(input.as_ref());
-        let expected = &[
-            0x1c, 0x8a, 0xff, 0x95, 0x06, 0x85, 0xc2, 0xed, 0x4b, 0xc3, 0x17, 0x4f, 0x34, 0x72,
-            0x28, 0x7b, 0x56, 0xd9, 0x51, 0x7b, 0x9c, 0x94, 0x81, 0x27, 0x31, 0x9a, 0x09, 0xa7,
-            0xa3, 0x6d, 0xea, 0xc8,
-        ];
-        assert_eq!(expected, output.as_slice());
+        let expected_hex = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+        let expected: Vec<u8> = expected_hex.from_hex().unwrap();
+        assert_eq!(expected, output);
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     fn test_merkle_root() {
         // hash the leaf nodes
         let mut input = vec![
@@ -86,13 +94,17 @@ mod tests {
 
         assert_eq!(&expected[..], output.unwrap().as_slice());
     }
-    #[test]
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     fn test_empty_input_merkle_root() {
         let input = vec![];
         let output = merkle_root(&input[..]);
         assert_eq!(None, output);
     }
-    #[test]
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     fn test_odd_leaf_merkle_root() {
         let input = vec![
             hash("a".as_bytes()),

@@ -17,13 +17,13 @@ pub const SMALL_BENCHING_SAMPLE_SIZE: usize = 10;
 
 /// Run the benchmarking suite on a foundation spec with 16,384 validators.
 pub fn bench_epoch_processing_n_validators(c: &mut Criterion, validator_count: usize) {
-    let spec = ChainSpec::foundation();
+    let spec = ChainSpec::mainnet();
 
     let mut builder =
         TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
 
     // Set the state to be just before an epoch transition.
-    let target_slot = (spec.genesis_epoch + 4).end_slot(spec.slots_per_epoch);
+    let target_slot = (T::genesis_epoch() + 4).end_slot(T::slots_per_epoch());
     builder.teleport_to_slot(target_slot, &spec);
 
     // Builds all caches; benches will not contain shuffling/committee building times.
@@ -38,10 +38,10 @@ pub fn bench_epoch_processing_n_validators(c: &mut Criterion, validator_count: u
     // Assert that the state has an attestations for each committee that is able to include an
     // attestation in the state.
     let committees_per_epoch = spec.get_epoch_committee_count(validator_count);
-    let committees_per_slot = committees_per_epoch / spec.slots_per_epoch;
+    let committees_per_slot = committees_per_epoch / T::slots_per_epoch();
     let previous_epoch_attestations = committees_per_epoch;
     let current_epoch_attestations =
-        committees_per_slot * (spec.slots_per_epoch - spec.min_attestation_inclusion_delay);
+        committees_per_slot * (T::slots_per_epoch() - spec.min_attestation_inclusion_delay);
     assert_eq!(
         state.latest_attestations.len() as u64,
         previous_epoch_attestations + current_epoch_attestations,

@@ -39,6 +39,8 @@ pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer> {
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
     pub signer: &'a S,
+    /// Used for caclulating epoch.
+    pub slots_per_epoch: u64,
 }
 
 impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
@@ -52,7 +54,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             Ok(ValidatorEvent::SignerRejection(_slot)) => {
                 error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string())
             }
-            Ok(ValidatorEvent::SlashableAttestationNotProduced(_slot)) => {
+            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => {
                 error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string())
             }
             Ok(ValidatorEvent::PublishAttestationFailed) => {
@@ -78,7 +80,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
     pub fn produce_attestation(&mut self) -> Result<ValidatorEvent, Error> {
-        let epoch = self.duty.slot.epoch(self.spec.slots_per_epoch);
+        let epoch = self.duty.slot.epoch(self.slots_per_epoch);
 
         let attestation = self
             .beacon_node
@@ -99,7 +101,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
                 Ok(ValidatorEvent::SignerRejection(self.duty.slot))
             }
         } else {
-            Ok(ValidatorEvent::SlashableAttestationNotProduced(
+            Ok(ValidatorEvent::IndexedAttestationNotProduced(
                 self.duty.slot,
             ))
         }
@@ -140,7 +142,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             aggregation_bitfield,
             data: attestation,
             custody_bitfield,
-            aggregate_signature,
+            signature: aggregate_signature,
         })
     }
 

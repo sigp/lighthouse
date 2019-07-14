@@ -101,6 +101,12 @@ impl Signature {
     pub fn is_empty(&self) -> bool {
         self.is_empty
     }
+
+    /// Display a signature as a hex string of its bytes.
+    #[cfg(test)]
+    pub fn as_hex_string(&self) -> String {
+        hex_encode(self.as_bytes())
+    }
 }
 
 impl_ssz!(Signature, BLS_SIG_BYTE_SIZE, "Signature");

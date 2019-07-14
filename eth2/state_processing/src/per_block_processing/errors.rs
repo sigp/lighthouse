@@ -71,19 +71,20 @@ pub enum BlockInvalid {
         state: Hash256,
         block: Hash256,
     },
+    ProposerSlashed(usize),
     BadSignature,
     BadRandaoSignature,
     MaxAttestationsExceeded,
     MaxAttesterSlashingsExceed,
     MaxProposerSlashingsExceeded,
-    MaxDepositsExceeded,
+    DepositCountInvalid,
     MaxExitsExceeded,
     MaxTransfersExceed,
     AttestationInvalid(usize, AttestationInvalid),
-    /// A `SlashableAttestation` inside an `AttesterSlashing` was invalid.
+    /// A `IndexedAttestation` inside an `AttesterSlashing` was invalid.
     ///
     /// To determine the offending `AttesterSlashing` index, divide the error message `usize` by two.
-    SlashableAttestationInvalid(usize, SlashableAttestationInvalid),
+    IndexedAttestationInvalid(usize, IndexedAttestationInvalid),
     AttesterSlashingInvalid(usize, AttesterSlashingInvalid),
     ProposerSlashingInvalid(usize, ProposerSlashingInvalid),
     DepositInvalid(usize, DepositInvalid),
@@ -125,6 +126,8 @@ pub enum AttestationInvalid {
     },
     /// Attestation slot is too far in the past to be included in a block.
     IncludedTooLate { state: Slot, attestation: Slot },
+    /// Attestation target epoch does not match the current or previous epoch.
+    BadTargetEpoch,
     /// Attestation justified epoch does not match the states current or previous justified epoch.
     ///
     /// `is_current` is `true` if the attestation was compared to the
@@ -169,10 +172,19 @@ pub enum AttestationInvalid {
     BadSignature,
     /// The shard block root was not set to zero. This is a phase 0 requirement.
     ShardBlockRootNotZero,
+    /// The indexed attestation created from this attestation was found to be invalid.
+    BadIndexedAttestation(IndexedAttestationInvalid),
 }
 
 impl_from_beacon_state_error!(AttestationValidationError);
 impl_into_with_index_with_beacon_error!(AttestationValidationError, AttestationInvalid);
+
+impl From<IndexedAttestationValidationError> for AttestationValidationError {
+    fn from(err: IndexedAttestationValidationError) -> Self {
+        let IndexedAttestationValidationError::Invalid(e) = err;
+        AttestationValidationError::Invalid(AttestationInvalid::BadIndexedAttestation(e))
+    }
+}
 
 /*
  * `AttesterSlashing` Validation
@@ -194,10 +206,10 @@ pub enum AttesterSlashingInvalid {
     AttestationDataIdentical,
     /// The attestations were not in conflict.
     NotSlashable,
-    /// The first `SlashableAttestation` was invalid.
-    SlashableAttestation1Invalid(SlashableAttestationInvalid),
-    /// The second `SlashableAttestation` was invalid.
-    SlashableAttestation2Invalid(SlashableAttestationInvalid),
+    /// The first `IndexedAttestation` was invalid.
+    IndexedAttestation1Invalid(IndexedAttestationInvalid),
+    /// The second `IndexedAttestation` was invalid.
+    IndexedAttestation2Invalid(IndexedAttestationInvalid),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
     /// The specified validator has already been withdrawn.
@@ -210,52 +222,50 @@ impl_from_beacon_state_error!(AttesterSlashingValidationError);
 impl_into_with_index_with_beacon_error!(AttesterSlashingValidationError, AttesterSlashingInvalid);
 
 /*
- * `SlashableAttestation` Validation
+ * `IndexedAttestation` Validation
  */
 
 /// The object is invalid or validation failed.
 #[derive(Debug, PartialEq)]
-pub enum SlashableAttestationValidationError {
+pub enum IndexedAttestationValidationError {
     /// Validation completed successfully and the object is invalid.
-    Invalid(SlashableAttestationInvalid),
+    Invalid(IndexedAttestationInvalid),
 }
 
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
-pub enum SlashableAttestationInvalid {
+pub enum IndexedAttestationInvalid {
+    /// The custody bit 0 validators intersect with the bit 1 validators.
+    CustodyBitValidatorsIntersect,
     /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
     CustodyBitfieldHasSetBits,
     /// No validator indices were specified.
     NoValidatorIndices,
+    /// The number of indices exceeds the global maximum.
+    ///
+    /// (max_indices, indices_given)
+    MaxIndicesExceed(u64, usize),
     /// The validator indices were not in increasing order.
     ///
     /// The error occured between the given `index` and `index + 1`
     BadValidatorIndicesOrdering(usize),
-    /// The custody bitfield length is not the smallest possible size to represent the validators.
-    ///
-    /// (validators_len, bitfield_len)
-    BadCustodyBitfieldLength(usize, usize),
-    /// The number of slashable indices exceed the global maximum.
-    ///
-    /// (max_indices, indices_given)
-    MaxIndicesExceed(usize, usize),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
-    /// The slashable attestation aggregate signature was not valid.
+    /// The indexed attestation aggregate signature was not valid.
     BadSignature,
 }
 
-impl Into<SlashableAttestationInvalid> for SlashableAttestationValidationError {
-    fn into(self) -> SlashableAttestationInvalid {
+impl Into<IndexedAttestationInvalid> for IndexedAttestationValidationError {
+    fn into(self) -> IndexedAttestationInvalid {
         match self {
-            SlashableAttestationValidationError::Invalid(e) => e,
+            IndexedAttestationValidationError::Invalid(e) => e,
         }
     }
 }
 
 impl_into_with_index_without_beacon_error!(
-    SlashableAttestationValidationError,
-    SlashableAttestationInvalid
+    IndexedAttestationValidationError,
+    IndexedAttestationInvalid
 );
 
 /*
@@ -280,10 +290,8 @@ pub enum ProposerSlashingInvalid {
     ProposalEpochMismatch(Slot, Slot),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
-    /// The specified proposer has already been slashed.
-    ProposerAlreadySlashed,
-    /// The specified proposer has already been withdrawn.
-    ProposerAlreadyWithdrawn(u64),
+    /// The specified proposer cannot be slashed because they are already slashed, or not active.
+    ProposerNotSlashable(u64),
     /// The first proposal signature was invalid.
     BadProposal1Signature,
     /// The second proposal signature was invalid.
@@ -313,11 +321,8 @@ pub enum DepositValidationError {
 pub enum DepositInvalid {
     /// The deposit index does not match the state index.
     BadIndex { state: u64, deposit: u64 },
-    /// The proof-of-possession does not match the given pubkey.
-    BadProofOfPossession,
-    /// The withdrawal credentials for the depositing validator did not match the withdrawal
-    /// credentials of an existing validator with the same public key.
-    BadWithdrawalCredentials,
+    /// The signature (proof-of-possession) does not match the given pubkey.
+    BadSignature,
     /// The specified `branch` and `index` did not form a valid proof that the deposit is included
     /// in the eth1 deposit root.
     BadMerkleProof,
@@ -340,6 +345,8 @@ pub enum ExitValidationError {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum ExitInvalid {
+    /// The specified validator is not active.
+    NotActive(u64),
     /// The specified validator is not in the state's validator registry.
     ValidatorUnknown(u64),
     /// The specified validator has a non-maximum exit epoch.
@@ -388,7 +395,12 @@ pub enum TransferInvalid {
     /// min_deposit_amount`
     ///
     /// (resulting_amount, min_deposit_amount)
-    InvalidResultingFromBalance(u64, u64),
+    SenderDust(u64, u64),
+    /// This transfer would result in the `transfer.to` account to have `0 < balance <
+    /// min_deposit_amount`
+    ///
+    /// (resulting_amount, min_deposit_amount)
+    RecipientDust(u64, u64),
     /// The state slot does not match `transfer.slot`.
     ///
     /// (state_slot, transfer_slot)

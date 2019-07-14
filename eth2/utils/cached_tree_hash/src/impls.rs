@@ -60,28 +60,35 @@ impl CachedTreeHash for bool {
     }
 }
 
-impl CachedTreeHash for [u8; 4] {
-    fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
-        Ok(TreeHashCache::from_bytes(
-            merkleize(self.to_vec()),
-            false,
-            None,
-        )?)
-    }
+macro_rules! impl_for_u8_array {
+    ($len: expr) => {
+        impl CachedTreeHash for [u8; $len] {
+            fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {
+                Ok(TreeHashCache::from_bytes(
+                    merkleize(self.to_vec()),
+                    false,
+                    None,
+                )?)
+            }
 
-    fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
-        BTreeSchema::from_lengths(depth, vec![1])
-    }
+            fn tree_hash_cache_schema(&self, depth: usize) -> BTreeSchema {
+                BTreeSchema::from_lengths(depth, vec![1])
+            }
 
-    fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
-        let leaf = merkleize(self.to_vec());
-        cache.maybe_update_chunk(cache.chunk_index, &leaf)?;
+            fn update_tree_hash_cache(&self, cache: &mut TreeHashCache) -> Result<(), Error> {
+                let leaf = merkleize(self.to_vec());
+                cache.maybe_update_chunk(cache.chunk_index, &leaf)?;
 
-        cache.chunk_index += 1;
+                cache.chunk_index += 1;
 
-        Ok(())
-    }
+                Ok(())
+            }
+        }
+    };
 }
+
+impl_for_u8_array!(4);
+impl_for_u8_array!(32);
 
 impl CachedTreeHash for H256 {
     fn new_tree_hash_cache(&self, _depth: usize) -> Result<TreeHashCache, Error> {

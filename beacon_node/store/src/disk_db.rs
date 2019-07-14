@@ -1,6 +1,5 @@
 extern crate rocksdb;
 
-// use super::stores::COLUMNS;
 use super::{ClientDB, DBError, DBValue};
 use rocksdb::Error as RocksError;
 use rocksdb::{Options, DB};

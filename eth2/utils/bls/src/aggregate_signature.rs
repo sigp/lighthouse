@@ -129,6 +129,12 @@ impl AggregateSignature {
             is_empty: true,
         }
     }
+
+    /// Return a hex string representation of the bytes of this signature.
+    #[cfg(test)]
+    pub fn as_hex_string(&self) -> String {
+        hex_encode(self.as_bytes())
+    }
 }
 
 impl_ssz!(

@@ -207,12 +207,12 @@ pub fn bench_block_processing(
     let spec = initial_spec.clone();
     c.bench(
         &format!("{}/block_processing", desc),
-        Benchmark::new("build_previous_state_epoch_cache", move |b| {
+        Benchmark::new("build_previous_state_committee_cache", move |b| {
             b.iter_batched(
                 || state.clone(),
                 |mut state| {
                     state
-                        .build_epoch_cache(RelativeEpoch::Previous, &spec)
+                        .build_committee_cache(RelativeEpoch::Previous, &spec)
                         .unwrap();
                     state
                 },
@@ -227,12 +227,12 @@ pub fn bench_block_processing(
     let spec = initial_spec.clone();
     c.bench(
         &format!("{}/block_processing", desc),
-        Benchmark::new("build_current_state_epoch_cache", move |b| {
+        Benchmark::new("build_current_state_committee_cache", move |b| {
             b.iter_batched(
                 || state.clone(),
                 |mut state| {
                     state
-                        .build_epoch_cache(RelativeEpoch::Current, &spec)
+                        .build_committee_cache(RelativeEpoch::Current, &spec)
                         .unwrap();
                     state
                 },

@@ -7,7 +7,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Information about a `BeaconChain` validator.
 ///
-/// Spec v0.5.1
+/// Spec v0.6.3
 #[derive(
     Debug,
     Clone,
@@ -23,17 +23,23 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
+    pub activation_eligibility_epoch: Epoch,
     pub activation_epoch: Epoch,
     pub exit_epoch: Epoch,
     pub withdrawable_epoch: Epoch,
-    pub initiated_exit: bool,
     pub slashed: bool,
+    pub effective_balance: u64,
 }
 
 impl Validator {
     /// Returns `true` if the validator is considered active at some epoch.
     pub fn is_active_at(&self, epoch: Epoch) -> bool {
         self.activation_epoch <= epoch && epoch < self.exit_epoch
+    }
+
+    /// Returns `true` if the validator is slashable at some epoch.
+    pub fn is_slashable_at(&self, epoch: Epoch) -> bool {
+        !self.slashed && self.activation_epoch <= epoch && epoch < self.withdrawable_epoch
     }
 
     /// Returns `true` if the validator is considered exited at some epoch.
@@ -43,7 +49,7 @@ impl Validator {
 
     /// Returns `true` if the validator is able to withdraw at some epoch.
     pub fn is_withdrawable_at(&self, epoch: Epoch) -> bool {
-        self.withdrawable_epoch <= epoch
+        epoch >= self.withdrawable_epoch
     }
 }
 
@@ -53,11 +59,12 @@ impl Default for Validator {
         Self {
             pubkey: PublicKey::default(),
             withdrawal_credentials: Hash256::default(),
+            activation_eligibility_epoch: Epoch::from(std::u64::MAX),
             activation_epoch: Epoch::from(std::u64::MAX),
             exit_epoch: Epoch::from(std::u64::MAX),
             withdrawable_epoch: Epoch::from(std::u64::MAX),
-            initiated_exit: false,
             slashed: false,
+            effective_balance: std::u64::MAX,
         }
     }
 }
@@ -75,7 +82,6 @@ mod tests {
         assert_eq!(v.is_active_at(epoch), false);
         assert_eq!(v.is_exited_at(epoch), false);
         assert_eq!(v.is_withdrawable_at(epoch), false);
-        assert_eq!(v.initiated_exit, false);
         assert_eq!(v.slashed, false);
     }
 
