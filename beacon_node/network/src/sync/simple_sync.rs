@@ -693,24 +693,25 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     fn attempt_process_partial_block(
         &mut self,
         peer_id: PeerId,
-        parent: Hash256,
+        block_root: Hash256,
         network: &mut NetworkContext,
         source: &str,
     ) -> Option<BlockProcessingOutcome> {
-        match self.import_queue.attempt_complete_block(parent) {
+        match self.import_queue.attempt_complete_block(block_root) {
             PartialBeaconBlockCompletion::MissingBody => {
-                // Missing `parent` `BlockBody`, request from peer
+                // Unable to complete the block because the block body is missing.
                 debug!(
                     self.log, "RequestParentBody";
                     "source" => source,
-                    "parent_root" => format!("{}", parent),
+                    "block_root" => format!("{}", block_root),
                     "peer" => format!("{:?}", peer_id),
                 );
 
+                // Request the block body from the peer.
                 self.request_block_bodies(
                     peer_id,
                     BeaconBlockBodiesRequest {
-                        block_roots: vec![parent],
+                        block_roots: vec![block_root],
                     },
                     network,
                 );
@@ -718,18 +719,19 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 None
             }
             PartialBeaconBlockCompletion::MissingHeader(slot) => {
-                // Missing `parent` `BlockHeader`, request from peer
+                // Unable to complete the block because the block header is missing.
                 debug!(
                     self.log, "RequestParentHeader";
                     "source" => source,
-                    "parent_root" => format!("{}", parent),
+                    "block_root" => format!("{}", block_root),
                     "peer" => format!("{:?}", peer_id),
                 );
 
+                // Request the block header from the peer.
                 self.request_block_headers(
                     peer_id,
                     BeaconBlockHeadersRequest {
-                        start_root: parent,
+                        start_root: block_root,
                         start_slot: slot,
                         max_headers: 1,
                         skip_slots: 0,
@@ -740,28 +742,29 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 None
             }
             PartialBeaconBlockCompletion::MissingRoot => {
-                // Missing `parent` `BlockRoot`.
-                // Defer requesting parent root to calling function.
+                // The `block_root` is not known to the queue.
                 debug!(
                     self.log, "MissingParentRoot";
                     "source" => source,
-                    "parent_root" => format!("{}", parent),
+                    "block_root" => format!("{}", block_root),
                     "peer" => format!("{:?}", peer_id),
                 );
+
+                // Do nothing.
 
                 None
             }
-            PartialBeaconBlockCompletion::Complete(parent_block) => {
-                // Parent block exists in the queue, attempt to process it
+            PartialBeaconBlockCompletion::Complete(block) => {
+                // The block exists in the queue, attempt to process it
                 trace!(
                     self.log, "AttemptProcessParent";
                     "source" => source,
-                    "parent_root" => format!("{}", parent),
-                    "parent_slot" => parent_block.slot,
+                    "block_root" => format!("{}", block_root),
+                    "parent_slot" => block.slot,
                     "peer" => format!("{:?}", peer_id),
                 );
 
-                self.process_block(peer_id.clone(), parent_block, network, source)
+                self.process_block(peer_id.clone(), block, network, source)
             }
         }
     }
