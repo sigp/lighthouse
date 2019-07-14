@@ -287,15 +287,14 @@ impl PartialBeaconBlock {
     }
 }
 
-/// Enum for attempting to complete a Partial.
-///
-/// Complete - Contains a valid BeaconBlock.
-/// MissingRoot - If the partial does not exist.
-/// MissingHeader - If there is a `BeaconBlockRoot` but no `BeaconBlockHeader`.
-/// MissingBody - If there is a `BeaconBlockRoot` and `BeaconBlockHeader` but no `BeaconBlockBody`.
+/// The result of trying to convert a `BeaconBlock` into a `PartialBeaconBlock`.
 pub enum PartialBeaconBlockCompletion {
+    /// The partial contains a valid BeaconBlock.
     Complete(BeaconBlock),
+    /// The partial does not exist.
     MissingRoot,
+    /// The partial contains a `BeaconBlockRoot` but no `BeaconBlockHeader`.
     MissingHeader(Slot),
+    /// The partial contains a `BeaconBlockRoot` and `BeaconBlockHeader` but no `BeaconBlockBody`.
     MissingBody,
 }
