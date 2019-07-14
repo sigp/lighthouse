@@ -511,7 +511,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
             // Attempt to process all recieved bodies by recursively processing the latest block
             if let Some(root) = last_root {
-                match self.attempt_process_partial_block(peer_id, root, network, &"gossip") {
+                match self.attempt_process_partial_block(peer_id, root, network, &"rpc") {
                     Some(BlockProcessingOutcome::Processed { block_root: _ }) => {
                         // If processing is successful remove from `import_queue`
                         self.import_queue.remove(root);
