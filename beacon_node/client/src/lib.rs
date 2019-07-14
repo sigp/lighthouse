@@ -143,6 +143,19 @@ where
             None
         };
 
+        // Start the `rest_api` service
+        let api_logger = log.new(o!("Service" => "REST API"));
+        let api_exit_signal = if client_config.rest_api.enabled {
+            Some(rest_api::start_server(
+                &client_config.rest_api,
+                executor,
+                beacon_chain.clone(),
+                api_logger,
+            ))
+        } else {
+            None
+        };
+
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
             // set up the validator work interval - start at next slot and proceed every slot
