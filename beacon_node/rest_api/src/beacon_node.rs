@@ -1,11 +1,12 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::Future;
 use http;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{info, trace, warn};
 use std::sync::Arc;
 use version;
 
+use hyper::service::service_fn;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use hyper_router::{Route, RouterBuilder, RouterService};
 
@@ -16,13 +17,19 @@ pub struct BeaconNodeServiceInstance<'a, T: BeaconChainTypes> {
 }
 
 pub trait APIService {
-    fn add_routes(&mut self, router_builder: &mut RouterBuilder) -> Result<(), hyper::Error>;
-    fn validate_request(&mut self, req: &Request<Body>, resp: &mut http::response::Builder)
-        -> Result<(), http::Error>;
+    fn add_routes(
+        &mut self,
+        router_builder: &mut RouterBuilder,
+    ) -> Result<RouterBuilder, hyper::Error>;
+    fn validate_request(
+        &mut self,
+        req: &Request<Body>,
+        resp: &mut http::response::Builder,
+    ) -> Result<(), http::Error>;
 }
 
 /// A string which uniquely identifies the client implementation and its version; similar to [HTTP User-Agent](https://tools.ietf.org/html/rfc7231#section-5.5.3).
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct Version(String);
 impl ::std::convert::From<String> for Version {
     fn from(x: String) -> Self {
@@ -54,26 +61,26 @@ impl ::std::ops::DerefMut for Version {
 }
 */
 
-impl<T: BeaconChainTypes> BeaconNodeServiceInstance<'_, T> {
-    fn version(&mut self, req: Request<Body>) -> Response<Body> {
-        let mut response_builder = Response::builder();
-        let body = if let Err(e) = self.validate_request(&req, &mut response_builder) {
-            Body::empty()
-        } else {
-            response_builder.status(StatusCode::OK);
-            let ver = Version::from(version::version());
-            Body::from(serde_json::to_string(&ver).unwrap())
-        };
-        response_builder.body(body).unwrap()
-    }
+//impl<T: BeaconChainTypes> BeaconNodeServiceInstance<'_, T> {
+fn get_version(req: Request<Body>) -> Response<Body> {
+    let mut response_builder = Response::builder();
+    //let body = if let Err(e) = self.validate_request(&req, &mut response_builder) {
+    //    Body::empty()
+    //} else {
+    response_builder.status(StatusCode::OK);
+    let ver = Version::from(version::version());
+    let body = Body::from(serde_json::to_string(&ver).unwrap());
+    //};
+    response_builder.body(body).unwrap()
 }
+//}
 
 impl<T: BeaconChainTypes> APIService for BeaconNodeServiceInstance<'_, T> {
-
-    fn add_routes(&mut self, router_builder: &mut RouterBuilder) -> Result<(), hyper::Error> {
-        router_builder
-            .add(Route::get("/version").using(self.version));
-        Ok(())
+    fn add_routes(
+        &mut self,
+        router_builder: &mut RouterBuilder,
+    ) -> Result<RouterBuilder, hyper::Error> {
+        Ok(router_builder.add(Route::get("/version").using(get_version)))
     }
 
     fn validate_request(
@@ -84,7 +91,6 @@ impl<T: BeaconChainTypes> APIService for BeaconNodeServiceInstance<'_, T> {
         if req.method() != &Method::GET {
             resp.status(StatusCode::METHOD_NOT_ALLOWED);
             info!(self.log, "Method Not Allowed");
-            Err(http::Method::InvalidMethod.into())
         }
         Ok(())
     }

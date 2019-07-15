@@ -4,7 +4,7 @@ mod beacon_node;
 pub mod config;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_node::{APIService};
+use beacon_node::APIService;
 pub use config::Config as APIConfig;
 
 use slog::{error, info, o, warn};
@@ -13,7 +13,7 @@ use tokio::runtime::TaskExecutor;
 
 use futures::future;
 use hyper::rt::Future;
-use hyper::service::service_fn;
+use hyper::service::{service_fn, Service};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use hyper_router::{Route, Router, RouterBuilder, RouterService};
 
@@ -32,25 +32,32 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
 ) -> Result<exit_future::Signal, hyper::Error> {
-    let log = log.new(o!("Service"=>"REST API"));
+    let srv_log = log.new(o!("Service"=>"REST API"));
 
     // build a channel to kill the HTTP server
     let (exit_signal, exit) = exit_future::signal();
 
     let bind_addr = (config.listen_address, config.port).into();
 
-    let router = || { router_service(beacon_chain.clone(), &log) };
+    let svc_log = log.new(o!("Service"=>"REST API Service"));
+    let service = move || {
+        let mut router = router_service(beacon_chain.clone(), &svc_log);
+        service_fn(move |req| router.call(req))
+    };
 
     let server = Server::bind(&bind_addr)
-        .serve(router)
-        .map_err(move |e| warn!(log, "Unable to bind to address: {:?}", e));
+        .serve(service)
+        .map_err(move |e| warn!(srv_log, "Unable to bind to address: {:?}", e));
 
     executor.spawn(server);
 
     Ok(exit_signal)
 }
 
-fn router_service<T: BeaconChainTypes>(beacon_chain: Arc<BeaconChain<T>>, log: &slog::Logger) -> Result<RouterService, hyper::Error> {
+fn router_service<T: BeaconChainTypes + 'static>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    log: &slog::Logger,
+) -> RouterService {
     let mut router_builder = RouterBuilder::new();
 
     let mut bn_service = beacon_node::BeaconNodeServiceInstance {
@@ -58,9 +65,9 @@ fn router_service<T: BeaconChainTypes>(beacon_chain: Arc<BeaconChain<T>>, log: &
         log,
     };
 
-    bn_service.add_routes(&mut router_builder)?;
+    router_builder = bn_service.add_routes(&mut router_builder).unwrap();
 
-    Ok(RouterService::new(router_builder.build()))
+    RouterService::new(router_builder.build())
 }
 
 /*

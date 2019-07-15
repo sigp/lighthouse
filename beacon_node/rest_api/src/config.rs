@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
 /// HTTP REST API Configuration
