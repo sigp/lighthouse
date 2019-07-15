@@ -162,3 +162,76 @@ pub struct BeaconChainStateResponse {
     /// The values corresponding the to the requested tree hashes.
     pub values: bool, //TBD - stubbed with encodable bool
 }
+
+/* RPC Handling and Grouping */
+// Collection of enums and structs used by the Codecs to encode/decode RPC messages
+
+#[derive(Debug, Clone)]
+pub enum RPCResponse {
+    /// A HELLO message.
+    Hello(HelloMessage),
+    /// An empty field returned from sending a GOODBYE request.
+    Goodbye, // empty value - required for protocol handler
+    /// A response to a get BEACON_BLOCK_ROOTS request.
+    BeaconBlockRoots(BeaconBlockRootsResponse),
+    /// A response to a get BEACON_BLOCK_HEADERS request.
+    BeaconBlockHeaders(BeaconBlockHeadersResponse),
+    /// A response to a get BEACON_BLOCK_BODIES request.
+    BeaconBlockBodies(BeaconBlockBodiesResponse),
+    /// A response to a get BEACON_CHAIN_STATE request.
+    BeaconChainState(BeaconChainStateResponse),
+}
+
+pub enum RPCErrorResponse {
+    Success(RPCResponse),
+    EncodingError,
+    InvalidRequest(ErrorMessage),
+    ServerError(ErrorMessage),
+    Unknown(ErrorMessage),
+}
+
+impl RPCErrorResponse {
+    /// If a response has no payload, returns the variant corresponding to the code.
+    pub fn internal_data(response_code: u8) -> Option<RPCErrorResponse> {
+        match response_code {
+            // EncodingError
+            1 => Some(RPCErrorResponse::EncodingError),
+            // All others require further data
+            _ => None,
+        }
+    }
+
+    /// Used to encode the response.
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            RPCErrorResponse::Success(_) => 0,
+            RPCErrorResponse::EncodingError => 1,
+            RPCErrorResponse::InvalidRequest(_) => 2,
+            RPCErrorResponse::ServerError(_) => 3,
+            RPCErrorResponse::Unknown(_) => 255,
+        }
+    }
+
+    /// Tells the codec whether to decode as an RPCResponse or an error.
+    pub fn is_response(response_code: u8) -> bool {
+        match response_code {
+            0 => true,
+            _ => false,
+        }
+    }
+
+    /// Builds an RPCErrorResponse from a response code and an ErrorMessage
+    pub fn from_error(response_code: u8, err: ErrorMessage) -> Self {
+        match response_code {
+            2 => RPCErrorResponse::InvalidRequest(err),
+            3 => RPCErrorResponse::ServerError(err),
+            _ => RPCErrorResponse::Unknown(err),
+        }
+    }
+}
+
+#[derive(Encode, Decode)]
+pub struct ErrorMessage {
+    /// The UTF-8 encoded Error message string.
+    error_message: Vec<u8>,
+}

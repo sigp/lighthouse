@@ -1,53 +1,77 @@
-///! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
+//! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
-pub trait InnerCodec: Encoder + Decoder {
-    type Error;
+use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
+use bytes::BufMut;
+use bytes::BytesMut;
+use tokio::codec::{Decoder, Encoder};
+
+pub(crate) trait OutboundCodec: Encoder + Decoder {
+    type ErrorType;
 
     fn decode_error(
         &mut self,
-        &mut BytesMut,
-    ) -> Result<Option<Self::Error>, <Self as Decoder>::Error>;
+        src: &mut BytesMut,
+    ) -> Result<Option<Self::ErrorType>, <Self as Decoder>::Error>;
 }
 
-pub struct BaseInboundCodec<TCodec: InnerCodec> {
-    /// Inner codec for handling various encodings
-    inner: TCodec,
-}
-
-pub struct BaseOutboundCodec<TCodec>
+pub(crate) struct BaseInboundCodec<TCodec>
 where
-    TCodec: InnerCodec,
-    <TCodec as Decoder>::Item = RPCResponse,
-    <TCodec as InnerCodec>::ErrorItem = ErrorMessage,
+    TCodec: Encoder + Decoder,
 {
     /// Inner codec for handling various encodings
     inner: TCodec,
+}
+
+impl<TCodec> BaseInboundCodec<TCodec>
+where
+    TCodec: Encoder + Decoder,
+{
+    pub fn new(codec: TCodec) -> Self {
+        BaseInboundCodec { inner: codec }
+    }
+}
+
+pub(crate) struct BaseOutboundCodec<TOutboundCodec>
+where
+    TOutboundCodec: OutboundCodec,
+{
+    /// Inner codec for handling various encodings
+    inner: TOutboundCodec,
     /// Optimisation for decoding. True if the response code has been read and we are awaiting a
     /// response.
     response_code: Option<u8>,
 }
 
+impl<TOutboundCodec> BaseOutboundCodec<TOutboundCodec>
+where
+    TOutboundCodec: OutboundCodec,
+{
+    pub fn new(codec: TOutboundCodec) -> Self {
+        BaseOutboundCodec {
+            inner: codec,
+            response_code: None,
+        }
+    }
+}
+
 impl<TCodec> Encoder for BaseInboundCodec<TCodec>
 where
-    TCodec: Encoder,
-    <TCodec as Encoder>::Item = RPCResponse,
+    TCodec: Decoder + Encoder<Item = RPCErrorResponse>,
 {
-    type Item = RPCResponse;
+    type Item = RPCErrorResponse;
     type Error = <TCodec as Encoder>::Error;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.clear();
         dst.reserve(1);
-        dst.put_u8(item.as_u8);
-        return self.inner.encode();
+        dst.put_u8(item.as_u8());
+        return self.inner.encode(item, dst);
     }
 }
 
 impl<TCodec> Decoder for BaseInboundCodec<TCodec>
 where
-    TCodec: Decoder,
-    <TCodec as Decoder>::Item: RPCrequest,
-    <TCodec as Decoder>::Error: From<RPCError>,
+    TCodec: Encoder + Decoder<Item = RPCRequest>,
 {
     type Item = RPCRequest;
     type Error = <TCodec as Decoder>::Error;
@@ -59,7 +83,7 @@ where
 
 impl<TCodec> Encoder for BaseOutboundCodec<TCodec>
 where
-    TCodec: Encoder,
+    TCodec: OutboundCodec + Encoder<Item = RPCRequest>,
 {
     type Item = RPCRequest;
     type Error = <TCodec as Encoder>::Error;
@@ -71,23 +95,19 @@ where
 
 impl<TCodec> Decoder for BaseOutboundCodec<TCodec>
 where
-    TCodec: InnerCodec,
-    <TCodec as Decoder>::Error: From<RPCError>,
+    TCodec: OutboundCodec<ErrorType = ErrorMessage> + Decoder<Item = RPCResponse>,
 {
-    type Item = RPCResponse;
+    type Item = RPCErrorResponse;
     type Error = <TCodec as Decoder>::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let response_code = {
             if let Some(resp_code) = self.response_code {
-                resp_code;
+                resp_code
             } else {
-                if src.is_empty() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "no bytes received",
-                    ));
-                }
+                // buffer should not be empty
+                debug_assert!(!src.is_empty());
+
                 let resp_byte = src.split_to(1);
                 let resp_code_byte = [0; 1];
                 resp_code_byte.copy_from_slice(&resp_byte);
@@ -96,8 +116,9 @@ where
 
                 if let Some(response) = RPCErrorResponse::internal_data(resp_code) {
                     self.response_code = None;
-                    return response;
+                    return Ok(Some(response));
                 }
+                self.response_code = Some(resp_code);
                 resp_code
             }
         };

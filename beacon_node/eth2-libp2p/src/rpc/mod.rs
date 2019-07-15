@@ -1,8 +1,9 @@
-///! The Ethereum 2.0 Wire Protocol
-///!
-///! This protocol is a purpose built Ethereum 2.0 libp2p protocol. It's role is to facilitate
-///! direct peer-to-peer communication primarily for sending/receiving chain information for
-///! syncing.
+//! The Ethereum 2.0 Wire Protocol
+//!
+//! This protocol is a purpose built Ethereum 2.0 libp2p protocol. It's role is to facilitate
+//! direct peer-to-peer communication primarily for sending/receiving chain information for
+//! syncing.
+
 use futures::prelude::*;
 use handler::RPCHandler;
 use libp2p::core::protocols_handler::ProtocolsHandler;
@@ -10,17 +11,17 @@ use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::HelloMessage;
-pub use protocol::{RPCProtocol, RPCRequest, RPCResponse};
+pub use methods::{ErrorMessage, HelloMessage, RPCErrorResponse, RPCResponse};
+pub use protocol::{RPCProtocol, RPCRequest};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-mod codecs;
+pub(crate) mod codec;
 mod handler;
 pub mod methods;
 mod protocol;
-mod request_response;
+// mod request_response;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.
 #[derive(Debug, Clone)]
