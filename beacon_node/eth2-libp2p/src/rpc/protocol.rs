@@ -1,13 +1,18 @@
 use super::methods::*;
-use super::request_response::{rpc_request_response, RPCRequestResponse};
+use crate::rpc::codec::{
+    base::{BaseInboundCodec, BaseOutboundCodec},
+    ssz::{SSZInboundCodec, SSZOutboundCodec},
+};
 use futures::future::Future;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::io;
 use std::time::Duration;
+use tokio::codec::Framed;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::prelude::future::MapErr;
+use tokio::prelude::*;
 use tokio::util::FutureExt;
 
 /// The maximum bytes that can be sent across the RPC.
@@ -17,7 +22,7 @@ const PROTOCOL_PREFIX: &str = "/eth/serenity/rpc/";
 /// The number of seconds to wait for a response before the stream is terminated.
 const RESPONSE_TIMEOUT: u64 = 10;
 
-/// Implementation of the `ConnectionUpgrade` for the rpc protocol.
+/// Implementation of the `ConnectionUpgrade` for the RPC protocol.
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
 
@@ -96,6 +101,10 @@ impl Into<RawProtocolId> for ProtocolId {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
+enum InboundCodec {
+    SSZ(BaseInboundCodec<SSZInboundCodec>),
+}
+
 type FnDecodeRPCEvent<TSocket> =
     fn(
         upgrade::Negotiated<TSocket>,
@@ -107,8 +116,11 @@ impl<TSocket> InboundUpgrade<TSocket> for RPCProtocol
 where
     TSocket: AsyncRead + AsyncWrite,
 {
-    type Output = (upgrade::Negotiated<TSocket>, RPCRequest, ProtocolId);
+    type Output = RPCRequest;
     type Error = RPCError;
+
+    type Future = Box<dyn Future<Item = Self::Output, Error = Self::Error>>;
+    /*
     type Future = MapErr<
         tokio_timer::Timeout<
             upgrade::ReadRespond<
@@ -119,25 +131,48 @@ where
         >,
         fn(tokio::timer::timeout::Error<RPCError>) -> RPCError,
     >;
+    */
 
     fn upgrade_inbound(
         self,
         socket: upgrade::Negotiated<TSocket>,
         protocol: &'static [u8],
     ) -> Self::Future {
-        upgrade::read_respond(socket, MAX_RPC_SIZE, protocol, {
-            |socket, packet, protocol| {
-                let protocol_id = ProtocolId::from_bytes(protocol)?;
-                Ok((
-                    socket,
-                    RPCRequest::decode(packet, protocol_id)?,
-                    protocol_id,
-                ))
+        let protocol_id = match ProtocolId::from_bytes(protocol) {
+            Ok(v) => v,
+            Err(e) => return Box::new(futures::future::err(e)),
+        };
+
+        match protocol_id.encoding.as_str() {
+            "ssz" | _ => {
+                let codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol_id, 4096));
+                Box::new(
+                    Framed::new(socket, codec)
+                        .into_future()
+                        .timeout(Duration::from_secs(RESPONSE_TIMEOUT))
+                        .map_err(RPCError::from)
+                        .and_then(|(madouby, _)| match madouby {
+                            Some(x) => futures::future::ok(x),
+                            None => futures::future::err(RPCError::Custom("Go home".into())),
+                        }),
+                )
             }
         }
-            as FnDecodeRPCEvent<TSocket>)
-        .timeout(Duration::from_secs(RESPONSE_TIMEOUT))
-        .map_err(RPCError::from)
+
+        /*
+            upgrade::read_respond(socket, MAX_RPC_SIZE, protocol, {
+                |socket, packet, protocol| {
+                    let protocol_id = ProtocolId::from_bytes(protocol)?;
+                    Ok((
+                        socket,
+                        RPCRequest::decode(packet, protocol_id)?,
+                        protocol_id,
+                    ))
+                }
+            }
+                as FnDecodeRPCEvent<TSocket>)
+        }
+        */
     }
 }
 
@@ -214,78 +249,7 @@ impl RPCRequest {
     }
 }
 
-/* Response Type */
-
-#[derive(Debug, Clone)]
-pub enum RPCResponse {
-    /// A HELLO message.
-    Hello(HelloMessage),
-    /// An empty field returned from sending a GOODBYE request.
-    Goodbye, // empty value - required for protocol handler
-    /// A response to a get BEACON_BLOCK_ROOTS request.
-    BeaconBlockRoots(BeaconBlockRootsResponse),
-    /// A response to a get BEACON_BLOCK_HEADERS request.
-    BeaconBlockHeaders(BeaconBlockHeadersResponse),
-    /// A response to a get BEACON_BLOCK_BODIES request.
-    BeaconBlockBodies(BeaconBlockBodiesResponse),
-    /// A response to a get BEACON_CHAIN_STATE request.
-    BeaconChainState(BeaconChainStateResponse),
-}
-
-pub enum RPCErrorResponse {
-    Success(RPCResponse),
-    EncodingError,
-    InvalidRequest(ErrorMessage),
-    ServerError(ErrorMessage),
-    Unknown(ErrorMessage),
-}
-
-impl RPCErrorResponse {
-    /// If a response has no payload, returns the variant corresponding to the code.
-    pub fn internal_data(response_code: u8) -> Option<RPCErrorResponse> {
-        match response_code {
-            // EncodingError
-            1 => Some(RPCErrorResponse::EncodingError),
-            // All others require further data
-            _ => None,
-        }
-    }
-
-    /// Used to encode the response.
-    pub fn as_u8(&self) -> u8 {
-        match self {
-            RPCErrorResponse::Success(_) => 0,
-            RPCErrorResponse::EncodingError => 1,
-            RPCErrorResponse::InvalidRequest(_) => 2,
-            RPCErrorResponse::ServerError(_) => 3,
-            RPCErrorResponse::Unknown(_) => 255,
-        }
-    }
-
-    /// Tells the codec whether to decode as an RPCResponse or an error. 
-    pub fn is_response(response_code:u8) -> bool {
-        match response_code {
-            0 => true,
-            _ => false,
-        }
-
-    /// Builds an RPCErrorResponse from a response code and an ErrorMessage
-    pub fn from_error(response_code:u8, err: ErrorMessage) -> Self { 
-        match response_code {
-            2 => RPCErrorResponse::InvalidRequest(err),
-            3 => RPCErrorResponse::ServerError(err),
-            _ => RPCErrorResponse::Unknown(err),
-        }
-}
-
-#[derive(Encode, Decode)]
-struct ErrorMessage {
-    /// The UTF-8 encoded Error message string.
-    error_message: Vec<u8>,
-}
-
-// todo: SSZ-Encode
-impl RPCResponse {}
+/* RPC Response type - used for outbound upgrades */
 
 /* Outbound upgrades */
 
@@ -295,37 +259,47 @@ where
 {
     type Output = RPCResponse;
     type Error = RPCError;
-    type Future = MapErr<
-        tokio_timer::Timeout<RPCRequestResponse<upgrade::Negotiated<TSocket>, Vec<u8>>>,
-        fn(tokio::timer::timeout::Error<RPCError>) -> RPCError,
-    >;
-
+    type Future = Box<dyn Future<Item = Self::Output, Error = Self::Error>>;
     fn upgrade_outbound(
         self,
         socket: upgrade::Negotiated<TSocket>,
         protocol: Self::Info,
     ) -> Self::Future {
-        let protocol_id = ProtocolId::from_bytes(&protocol)
-            .expect("Protocol ID must be valid for outbound requests");
+        panic!()
 
-        let request_bytes = self
-            .encode(protocol_id)
-            .expect("Should be able to encode a supported protocol");
-        // if sending a goodbye, drop the stream and return an empty GOODBYE response
-        let short_circuit_return = if let RPCRequest::Goodbye(_) = self {
-            Some(RPCResponse::Goodbye)
-        } else {
-            None
+        /*
+        let protocol_id = match ProtocolId::from_bytes(&protocol) {
+            Ok(v) => v,
+            Err(e) => return futures::future::err(e),
         };
-        rpc_request_response(
-            socket,
-            request_bytes,
-            MAX_RPC_SIZE,
-            short_circuit_return,
-            protocol_id,
-        )
-        .timeout(Duration::from_secs(RESPONSE_TIMEOUT))
-        .map_err(RPCError::from)
+
+        // select which codec to use
+        let inbound_stream = match protocol_id.encoding.as_str() {
+            "ssz" => {
+                let codec = BaseInboundCodec::new(SSZCodec::new());
+                Framed::new(socket, codec).send(self)
+            }
+            _ => futures::future::err(RPCError::InvalidProtocol("Unsupported encoding")),
+        };
+
+        // do not wait for a timeout if we send a GOODBYE request
+        match protocol_id.message_name.as_str() {
+            // goodbye messages do not have a response
+            "goodbye" => inbound_stream.and_then(|| {
+                RPCErrorResponse::Unknown(ErrorMessage {
+                    error_message: String::from("goodbye response").as_bytes(),
+                })
+            }),
+            // get a response for all other requests
+            _ => inbound_stream.and_then(|stream| {
+                stream
+                    .into_future()
+                    .timeout(Duration::from_secs(RESPONSE_TIMEOUT))
+                    .map(|resp, _| resp)
+                    .map_err(RPCError::from)
+            }),
+        }
+        */
     }
 }
 
