@@ -4,6 +4,7 @@ mod beacon_node;
 pub mod config;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_node::{APIService};
 pub use config::Config as APIConfig;
 
 use slog::{error, info, o, warn};
@@ -29,8 +30,8 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &APIConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    log: slog::Logger,
-) -> exit_future::Signal {
+    log: &slog::Logger,
+) -> Result<exit_future::Signal, hyper::Error> {
     let log = log.new(o!("Service"=>"REST API"));
 
     // build a channel to kill the HTTP server
@@ -38,23 +39,26 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
 
     let bind_addr = (config.listen_address, config.port).into();
 
+    let router = || { router_service(beacon_chain.clone(), &log) };
+
     let server = Server::bind(&bind_addr)
-        .serve(router_service)
+        .serve(router)
         .map_err(move |e| warn!(log, "Unable to bind to address: {:?}", e));
 
     executor.spawn(server);
-    texit_signal
+
+    Ok(exit_signal)
 }
 
-fn router_service() -> Result<RouterService, hyper::Error> {
+fn router_service<T: BeaconChainTypes>(beacon_chain: Arc<BeaconChain<T>>, log: &slog::Logger) -> Result<RouterService, hyper::Error> {
     let mut router_builder = RouterBuilder::new();
 
     let mut bn_service = beacon_node::BeaconNodeServiceInstance {
-        chain: beacon_chain,
-        log: log,
+        chain: beacon_chain.clone(),
+        log,
     };
 
-    bn_service.add_routes(*router_builder)?;
+    bn_service.add_routes(&mut router_builder)?;
 
     Ok(RouterService::new(router_builder.build()))
 }
