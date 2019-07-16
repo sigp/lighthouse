@@ -519,7 +519,11 @@ impl<N: Unsigned + Clone> Encode for Bitfield<Fixed<N>> {
 
 impl<N: Unsigned + Clone> Decode for Bitfield<Fixed<N>> {
     fn is_ssz_fixed_len() -> bool {
-        false
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        bytes_for_bit_len(N::to_usize())
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
