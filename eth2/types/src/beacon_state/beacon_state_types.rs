@@ -1,8 +1,8 @@
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    Prod, Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U4, U4096, U64, U65536,
-    U8, U8192,
+    Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U4, U4096, U64, U65536, U8,
+    U8192,
 };
 use std::fmt::Debug;
 
@@ -43,9 +43,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     type MaxVoluntaryExits: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxTransfers: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * Derived values (should NOT be set manually, see `instantiate_derived_constants` macro)
+     * Derived values (set these CAREFULLY)
      */
-    type NumPendingAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// The length of the `{previous,current}_epoch_attestations` lists.
+    ///
+    /// Must be set to `MaxAttestations * SlotsPerEpoch`
+    // NOTE: we could safely instantiate this by using type-level arithmetic, but doing
+    // so adds ~25s to the time required to type-check this crate
+    type MaxPendingAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -117,16 +122,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     }
 }
 
-/// Macro to instantiate type-level numbers derived from other constants.
-/// Once associated type defaults are stablisied we can remove this, see:
-/// https://github.com/rust-lang/rust/issues/29661
-#[macro_export]
-macro_rules! instantiate_derived_constants {
-    () => {
-        type NumPendingAttestations = Prod<Self::MaxAttestations, Self::SlotsPerEpoch>;
-    };
-}
-
 /// Macro to inherit some type values from another EthSpec.
 #[macro_export]
 macro_rules! params_from_eth_spec {
@@ -159,7 +154,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
     type MaxTransfers = U0;
-    instantiate_derived_constants!();
+    type MaxPendingAttestations = U8192; // 128 max attestations * 64 slots per epoch
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -183,6 +178,7 @@ impl EthSpec for MinimalEthSpec {
     type SlotsPerHistoricalRoot = U64;
     type EpochsPerHistoricalVector = U64;
     type EpochsPerSlashingsVector = U64;
+    type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -197,7 +193,6 @@ impl EthSpec for MinimalEthSpec {
         MaxVoluntaryExits,
         MaxTransfers
     });
-    instantiate_derived_constants!();
 
     fn default_spec() -> ChainSpec {
         ChainSpec::minimal()

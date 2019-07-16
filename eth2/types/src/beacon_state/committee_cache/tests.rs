@@ -157,6 +157,7 @@ pub struct ExcessShardsEthSpec;
 impl EthSpec for ExcessShardsEthSpec {
     type ShardCount = U128;
     type SlotsPerEpoch = U8;
+    type MaxPendingAttestations = U1024;
 
     params_from_eth_spec!(MinimalEthSpec {
         JustificationBitsLength,
@@ -175,7 +176,6 @@ impl EthSpec for ExcessShardsEthSpec {
         MaxVoluntaryExits,
         MaxTransfers
     });
-    instantiate_derived_constants!();
 
     fn default_spec() -> ChainSpec {
         ChainSpec::minimal()

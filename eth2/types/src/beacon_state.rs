@@ -116,8 +116,8 @@ where
     slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations
-    pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::NumPendingAttestations>,
-    pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::NumPendingAttestations>,
+    pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Crosslinks
     pub previous_crosslinks: FixedVector<Crosslink, T::ShardCount>,
