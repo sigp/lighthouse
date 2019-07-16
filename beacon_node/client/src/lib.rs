@@ -150,7 +150,7 @@ where
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
-                api_logger,
+                &api_logger,
             ))
         } else {
             None

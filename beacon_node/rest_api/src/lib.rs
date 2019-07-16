@@ -32,22 +32,25 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
 ) -> Result<exit_future::Signal, hyper::Error> {
-    let srv_log = log.new(o!("Service"=>"REST API"));
+    let api_log = log.new(o!("Service"=>"REST API"));
 
     // build a channel to kill the HTTP server
     let (exit_signal, exit) = exit_future::signal();
 
     let bind_addr = (config.listen_address, config.port).into();
 
-    let svc_log = log.new(o!("Service"=>"REST API Service"));
+//    let svc_log = log.new(o!("Service"=>"REST API Service"));
+
+    let log_clone = api_log.clone();
+
     let service = move || {
-        let mut router = router_service(beacon_chain.clone(), &svc_log);
+        let mut router = router_service(beacon_chain.clone(), &log_clone);
         service_fn(move |req| router.call(req))
     };
 
     let server = Server::bind(&bind_addr)
         .serve(service)
-        .map_err(move |e| warn!(srv_log, "Unable to bind to address: {:?}", e));
+        .map_err(move |e| warn!(api_log, "Unable to bind to address: {:?}", e));
 
     executor.spawn(server);
 
@@ -65,7 +68,7 @@ fn router_service<T: BeaconChainTypes + 'static>(
         log,
     };
 
-    router_builder = bn_service.add_routes(&mut router_builder).unwrap();
+    router_builder = bn_service.add_routes(router_builder).unwrap();
 
     RouterService::new(router_builder.build())
 }

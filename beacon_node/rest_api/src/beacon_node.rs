@@ -19,7 +19,7 @@ pub struct BeaconNodeServiceInstance<'a, T: BeaconChainTypes> {
 pub trait APIService {
     fn add_routes(
         &mut self,
-        router_builder: &mut RouterBuilder,
+        router_builder: RouterBuilder,
     ) -> Result<RouterBuilder, hyper::Error>;
     fn validate_request(
         &mut self,
@@ -78,7 +78,7 @@ fn get_version(req: Request<Body>) -> Response<Body> {
 impl<T: BeaconChainTypes> APIService for BeaconNodeServiceInstance<'_, T> {
     fn add_routes(
         &mut self,
-        router_builder: &mut RouterBuilder,
+        router_builder: RouterBuilder,
     ) -> Result<RouterBuilder, hyper::Error> {
         Ok(router_builder.add(Route::get("/version").using(get_version)))
     }
