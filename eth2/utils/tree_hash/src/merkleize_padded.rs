@@ -4,7 +4,7 @@ use hashing::hash;
 /// The size of the cache that stores padding nodes for a given height.
 ///
 /// Currently, we panic if we encounter a tree with a height larger than `MAX_TREE_DEPTH`.
-pub const MAX_TREE_DEPTH: usize = 32;
+pub const MAX_TREE_DEPTH: usize = 64;
 
 lazy_static! {
     /// Cached zero hashes where `ZERO_HASHES[i]` is the hash of a Merkle tree with 2^i zero leaves.
