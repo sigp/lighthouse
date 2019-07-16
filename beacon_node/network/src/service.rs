@@ -2,24 +2,23 @@ use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::Topic;
 use eth2_libp2p::{Libp2pEvent, PeerId};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
-use futures::sync::oneshot;
 use futures::Stream;
 use slog::{debug, info, o, trace};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
+use tokio::sync::{mpsc, oneshot};
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     _libp2p_exit: oneshot::Sender<()>,
-    network_send: crossbeam_channel::Sender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
     _phantom: PhantomData<T>, //message_handler: MessageHandler,
                               //message_handler_send: Sender<HandlerMessage>
 }
@@ -30,9 +29,9 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<(Arc<Self>, Sender<NetworkMessage>)> {
+    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage>)> {
         // build the network channel
-        let (network_send, network_recv) = channel::<NetworkMessage>();
+        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
         let message_handler_send = MessageHandler::spawn(
@@ -64,9 +63,9 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
     }
 
     // TODO: Testing only
-    pub fn send_message(&self) {
+    pub fn send_message(&mut self) {
         self.network_send
-            .send(NetworkMessage::Send(
+            .try_send(NetworkMessage::Send(
                 PeerId::random(),
                 OutgoingMessage::NotifierTest,
             ))
@@ -76,12 +75,12 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
 
 fn spawn_service(
     libp2p_service: LibP2PService,
-    network_recv: crossbeam_channel::Receiver<NetworkMessage>,
-    message_handler_send: crossbeam_channel::Sender<HandlerMessage>,
+    network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
+    message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     executor: &TaskExecutor,
     log: slog::Logger,
-) -> error::Result<oneshot::Sender<()>> {
-    let (network_exit, exit_rx) = oneshot::channel();
+) -> error::Result<tokio::sync::oneshot::Sender<()>> {
+    let (network_exit, exit_rx) = tokio::sync::oneshot::channel();
 
     // spawn on the current executor
     executor.spawn(
@@ -105,25 +104,61 @@ fn spawn_service(
 //TODO: Potentially handle channel errors
 fn network_service(
     mut libp2p_service: LibP2PService,
-    network_recv: crossbeam_channel::Receiver<NetworkMessage>,
-    message_handler_send: crossbeam_channel::Sender<HandlerMessage>,
+    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
+    mut message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     log: slog::Logger,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
     futures::future::poll_fn(move || -> Result<_, eth2_libp2p::error::Error> {
-        // poll the swarm
-        loop {
+        // only end the loop once both major polls are not ready.
+        let mut not_ready_count = 0;
+        while not_ready_count < 2 {
+            not_ready_count = 0;
+            // poll the network channel
+            match network_recv.poll() {
+                Ok(Async::Ready(Some(message))) => {
+                    match message {
+                        // TODO: Testing message - remove
+                        NetworkMessage::Send(peer_id, outgoing_message) => {
+                            match outgoing_message {
+                                OutgoingMessage::RPC(rpc_event) => {
+                                    trace!(log, "Sending RPC Event: {:?}", rpc_event);
+                                    //TODO: Make swarm private
+                                    //TODO: Implement correct peer id topic message handling
+                                    libp2p_service.swarm.send_rpc(peer_id, rpc_event);
+                                }
+                                OutgoingMessage::NotifierTest => {
+                                    // debug!(log, "Received message from notifier");
+                                }
+                            };
+                        }
+                        NetworkMessage::Publish { topics, message } => {
+                            debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
+                            libp2p_service.swarm.publish(topics, *message);
+                        }
+                    }
+                }
+                Ok(Async::NotReady) => not_ready_count += 1,
+                Ok(Async::Ready(None)) => {
+                    return Err(eth2_libp2p::error::Error::from("Network channel closed"));
+                }
+                Err(_) => {
+                    return Err(eth2_libp2p::error::Error::from("Network channel error"));
+                }
+            }
+
+            // poll the swarm
             match libp2p_service.poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
                         trace!(log, "RPC Event: RPC message received: {:?}", rpc_event);
                         message_handler_send
-                            .send(HandlerMessage::RPC(peer_id, rpc_event))
+                            .try_send(HandlerMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| "failed to send rpc to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
                         debug!(log, "Peer Dialed: {:?}", peer_id);
                         message_handler_send
-                            .send(HandlerMessage::PeerDialed(peer_id))
+                            .try_send(HandlerMessage::PeerDialed(peer_id))
                             .map_err(|_| "failed to send rpc to handler")?;
                     }
                     Libp2pEvent::PubsubMessage {
@@ -132,43 +167,13 @@ fn network_service(
                         //TODO: Decide if we need to propagate the topic upwards. (Potentially for
                         //attestations)
                         message_handler_send
-                            .send(HandlerMessage::PubsubMessage(source, message))
+                            .try_send(HandlerMessage::PubsubMessage(source, message))
                             .map_err(|_| " failed to send pubsub message to handler")?;
                     }
                 },
                 Ok(Async::Ready(None)) => unreachable!("Stream never ends"),
-                Ok(Async::NotReady) => break,
-                Err(_) => break,
-            }
-        }
-        // poll the network channel
-        // TODO: refactor - combine poll_fn's?
-        loop {
-            match network_recv.try_recv() {
-                // TODO: Testing message - remove
-                Ok(NetworkMessage::Send(peer_id, outgoing_message)) => {
-                    match outgoing_message {
-                        OutgoingMessage::RPC(rpc_event) => {
-                            trace!(log, "Sending RPC Event: {:?}", rpc_event);
-                            //TODO: Make swarm private
-                            //TODO: Implement correct peer id topic message handling
-                            libp2p_service.swarm.send_rpc(peer_id, rpc_event);
-                        }
-                        OutgoingMessage::NotifierTest => {
-                            // debug!(log, "Received message from notifier");
-                        }
-                    };
-                }
-                Ok(NetworkMessage::Publish { topics, message }) => {
-                    debug!(log, "Sending pubsub message on topics {:?}", topics);
-                    libp2p_service.swarm.publish(topics, *message);
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    return Err(eth2_libp2p::error::Error::from(
-                        "Network channel disconnected",
-                    ));
-                }
+                Ok(Async::NotReady) => not_ready_count += 1,
+                Err(_) => not_ready_count += 1,
             }
         }
         Ok(Async::NotReady)

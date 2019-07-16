@@ -1,4 +1,4 @@
-use super::import_queue::ImportQueue;
+use super::import_queue::{ImportQueue, PartialBeaconBlockCompletion};
 use crate::message_handler::NetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
@@ -17,7 +17,7 @@ use types::{
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
 /// The amount of seconds a block (or partial block) may exist in the import queue.
-const QUEUE_STALE_SECS: u64 = 6;
+const QUEUE_STALE_SECS: u64 = 100;
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
@@ -227,7 +227,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             //
             // Therefore, there are some blocks between the local finalized epoch and the remote
             // head that are worth downloading.
-            debug!(self.log, "UsefulPeer"; "peer" => format!("{:?}", peer_id));
+            debug!(
+                self.log, "UsefulPeer";
+                "peer" => format!("{:?}", peer_id),
+                "local_finalized_epoch" => local.latest_finalized_epoch,
+                "remote_latest_finalized_epoch" => remote.latest_finalized_epoch,
+            );
 
             let start_slot = local
                 .latest_finalized_epoch
@@ -238,7 +243,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 peer_id,
                 BeaconBlockRootsRequest {
                     start_slot,
-                    count: required_slots.into(),
+                    count: required_slots.as_u64(),
                 },
                 network,
             );
@@ -247,7 +252,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
     fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
         self.chain
-            .rev_iter_block_roots(target_slot)
+            .rev_iter_best_block_roots(target_slot)
             .take(1)
             .find(|(_root, slot)| *slot == target_slot)
             .map(|(root, _slot)| root)
@@ -271,8 +276,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         let mut roots: Vec<BlockRootSlot> = self
             .chain
-            .rev_iter_block_roots(req.start_slot + req.count)
-            .skip(1)
+            .rev_iter_best_block_roots(req.start_slot + req.count)
             .take(req.count as usize)
             .map(|(block_root, slot)| BlockRootSlot { slot, block_root })
             .collect();
@@ -356,7 +360,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             BeaconBlockHeadersRequest {
                 start_root: first.block_root,
                 start_slot: first.slot,
-                max_headers: (last.slot - first.slot).as_u64(),
+                max_headers: (last.slot - first.slot + 1).as_u64(),
                 skip_slots: 0,
             },
             network,
@@ -386,7 +390,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         // unnecessary block deserialization when `req.skip_slots > 0`.
         let mut roots: Vec<Hash256> = self
             .chain
-            .rev_iter_block_roots(req.start_slot + (count - 1))
+            .rev_iter_best_block_roots(req.start_slot + count)
             .take(count as usize)
             .map(|(root, _slot)| root)
             .collect();
@@ -499,14 +503,26 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "count" => res.block_bodies.len(),
         );
 
-        self.import_queue
-            .enqueue_bodies(res.block_bodies, peer_id.clone());
+        if !res.block_bodies.is_empty() {
+            // Import all blocks to queue
+            let last_root = self
+                .import_queue
+                .enqueue_bodies(res.block_bodies, peer_id.clone());
+
+            // Attempt to process all recieved bodies by recursively processing the latest block
+            if let Some(root) = last_root {
+                match self.attempt_process_partial_block(peer_id, root, network, &"rpc") {
+                    Some(BlockProcessingOutcome::Processed { block_root: _ }) => {
+                        // If processing is successful remove from `import_queue`
+                        self.import_queue.remove(root);
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         // Clear out old entries
         self.import_queue.remove_stale();
-
-        // Import blocks, if possible.
-        self.process_import_queue(network);
     }
 
     /// Process a gossip message declaring a new block.
@@ -526,31 +542,35 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             match outcome {
                 BlockProcessingOutcome::Processed { .. } => SHOULD_FORWARD_GOSSIP_BLOCK,
                 BlockProcessingOutcome::ParentUnknown { parent } => {
-                    // Clean the stale entries from the queue.
-                    self.import_queue.remove_stale();
-
                     // Add this block to the queue
                     self.import_queue
-                        .enqueue_full_blocks(vec![block], peer_id.clone());
-                    trace!(
-                        self.log,
-                        "NewGossipBlock";
+                        .enqueue_full_blocks(vec![block.clone()], peer_id.clone());
+                    debug!(
+                        self.log, "RequestParentBlock";
+                        "parent_root" => format!("{}", parent),
+                        "parent_slot" => block.slot - 1,
                         "peer" => format!("{:?}", peer_id),
                     );
 
-                    // Unless the parent is in the queue, request the parent block from the peer.
-                    //
-                    // It is likely that this is duplicate work, given we already send a hello
-                    // request. However, I believe there are some edge-cases where the hello
-                    // message doesn't suffice, so we perform this request as well.
-                    if !self.import_queue.contains_block_root(parent) {
-                        // Send a hello to learn of the clients best slot so we can then sync the required
-                        // parent(s).
-                        network.send_rpc_request(
-                            peer_id.clone(),
-                            RPCRequest::Hello(hello_message(&self.chain)),
-                        );
-                    }
+                    // Request roots between parent and start of finality from peer.
+                    let start_slot = self
+                        .chain
+                        .head()
+                        .beacon_state
+                        .finalized_epoch
+                        .start_slot(T::EthSpec::slots_per_epoch());
+                    self.request_block_roots(
+                        peer_id,
+                        BeaconBlockRootsRequest {
+                            // Request blocks between `latest_finalized_slot` and the `block`
+                            start_slot,
+                            count: block.slot.as_u64() - start_slot.as_u64(),
+                        },
+                        network,
+                    );
+
+                    // Clean the stale entries from the queue.
+                    self.import_queue.remove_stale();
 
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
@@ -589,40 +609,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             Err(e) => {
                 warn!(self.log, "InvalidAttestation"; "source" => "gossip", "error" => format!("{:?}", e))
             }
-        }
-    }
-
-    /// Iterate through the `import_queue` and process any complete blocks.
-    ///
-    /// If a block is successfully processed it is removed from the queue, otherwise it remains in
-    /// the queue.
-    pub fn process_import_queue(&mut self, network: &mut NetworkContext) {
-        let mut successful = 0;
-
-        // Loop through all of the complete blocks in the queue.
-        for (block_root, block, sender) in self.import_queue.complete_blocks() {
-            let processing_result = self.process_block(sender, block.clone(), network, &"gossip");
-
-            let should_dequeue = match processing_result {
-                Some(BlockProcessingOutcome::ParentUnknown { .. }) => false,
-                Some(BlockProcessingOutcome::FutureSlot {
-                    present_slot,
-                    block_slot,
-                }) if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot => false,
-                _ => true,
-            };
-
-            if processing_result == Some(BlockProcessingOutcome::Processed { block_root }) {
-                successful += 1;
-            }
-
-            if should_dequeue {
-                self.import_queue.remove(block_root);
-            }
-        }
-
-        if successful > 0 {
-            info!(self.log, "Imported {} blocks", successful)
         }
     }
 
@@ -700,6 +686,89 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         hello_message(&self.chain)
     }
 
+    /// Helper function to attempt to process a partial block.
+    ///
+    /// If the block can be completed recursively call `process_block`
+    /// else request missing parts.
+    fn attempt_process_partial_block(
+        &mut self,
+        peer_id: PeerId,
+        block_root: Hash256,
+        network: &mut NetworkContext,
+        source: &str,
+    ) -> Option<BlockProcessingOutcome> {
+        match self.import_queue.attempt_complete_block(block_root) {
+            PartialBeaconBlockCompletion::MissingBody => {
+                // Unable to complete the block because the block body is missing.
+                debug!(
+                    self.log, "RequestParentBody";
+                    "source" => source,
+                    "block_root" => format!("{}", block_root),
+                    "peer" => format!("{:?}", peer_id),
+                );
+
+                // Request the block body from the peer.
+                self.request_block_bodies(
+                    peer_id,
+                    BeaconBlockBodiesRequest {
+                        block_roots: vec![block_root],
+                    },
+                    network,
+                );
+
+                None
+            }
+            PartialBeaconBlockCompletion::MissingHeader(slot) => {
+                // Unable to complete the block because the block header is missing.
+                debug!(
+                    self.log, "RequestParentHeader";
+                    "source" => source,
+                    "block_root" => format!("{}", block_root),
+                    "peer" => format!("{:?}", peer_id),
+                );
+
+                // Request the block header from the peer.
+                self.request_block_headers(
+                    peer_id,
+                    BeaconBlockHeadersRequest {
+                        start_root: block_root,
+                        start_slot: slot,
+                        max_headers: 1,
+                        skip_slots: 0,
+                    },
+                    network,
+                );
+
+                None
+            }
+            PartialBeaconBlockCompletion::MissingRoot => {
+                // The `block_root` is not known to the queue.
+                debug!(
+                    self.log, "MissingParentRoot";
+                    "source" => source,
+                    "block_root" => format!("{}", block_root),
+                    "peer" => format!("{:?}", peer_id),
+                );
+
+                // Do nothing.
+
+                None
+            }
+            PartialBeaconBlockCompletion::Complete(block) => {
+                // The block exists in the queue, attempt to process it
+                trace!(
+                    self.log, "AttemptProcessParent";
+                    "source" => source,
+                    "block_root" => format!("{}", block_root),
+                    "parent_slot" => block.slot,
+                    "peer" => format!("{:?}", peer_id),
+                );
+
+                self.process_block(peer_id.clone(), block, network, source)
+            }
+        }
+    }
+
     /// Processes the `block` that was received from `peer_id`.
     ///
     /// If the block was submitted to the beacon chain without internal error, `Some(outcome)` is
@@ -726,6 +795,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         if let Ok(outcome) = processing_result {
             match outcome {
                 BlockProcessingOutcome::Processed { block_root } => {
+                    // The block was valid and we processed it successfully.
                     debug!(
                         self.log, "Imported block from network";
                         "source" => source,
@@ -735,26 +805,29 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     );
                 }
                 BlockProcessingOutcome::ParentUnknown { parent } => {
-                    // The block was valid and we processed it successfully.
-                    debug!(
+                    // The parent has not been processed
+                    trace!(
                         self.log, "ParentBlockUnknown";
                         "source" => source,
                         "parent_root" => format!("{}", parent),
+                        "baby_block_slot" => block.slot,
                         "peer" => format!("{:?}", peer_id),
                     );
 
-                    // Unless the parent is in the queue, request the parent block from the peer.
-                    //
-                    // It is likely that this is duplicate work, given we already send a hello
-                    // request. However, I believe there are some edge-cases where the hello
-                    // message doesn't suffice, so we perform this request as well.
-                    if !self.import_queue.contains_block_root(parent) {
-                        // Send a hello to learn of the clients best slot so we can then sync the require
-                        // parent(s).
-                        network.send_rpc_request(
-                            peer_id.clone(),
-                            RPCRequest::Hello(hello_message(&self.chain)),
-                        );
+                    // If the parent is in the `import_queue` attempt to complete it then process it.
+                    match self.attempt_process_partial_block(peer_id, parent, network, source) {
+                        // If processing parent is sucessful, re-process block and remove parent from queue
+                        Some(BlockProcessingOutcome::Processed { block_root: _ }) => {
+                            self.import_queue.remove(parent);
+
+                            // Attempt to process `block` again
+                            match self.chain.process_block(block) {
+                                Ok(outcome) => return Some(outcome),
+                                Err(_) => return None,
+                            }
+                        }
+                        // All other cases leave `parent` in `import_queue` and return original outcome.
+                        _ => {}
                     }
                 }
                 BlockProcessingOutcome::FutureSlot {
