@@ -1,20 +1,17 @@
 [package]
-name = "bls"
+name = "ssz_types"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v0.9.0" }
 cached_tree_hash = { path = "../cached_tree_hash" }
-hashing = { path = "../hashing" }
-hex = "0.3"
-rand = "^0.5"
+tree_hash = { path = "../tree_hash" }
 serde = "1.0"
 serde_derive = "1.0"
 serde_hex = { path = "../serde_hex" }
 eth2_ssz = { path = "../ssz" }
-tree_hash = { path = "../tree_hash" }
+typenum = "1.10"
 
-[features]
-fake_crypto = []
+[dev-dependencies]
+serde_yaml = "0.8"

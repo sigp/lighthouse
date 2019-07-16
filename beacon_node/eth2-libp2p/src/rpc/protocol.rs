@@ -25,6 +25,8 @@ const PROTOCOL_PREFIX: &str = "/eth/serenity/rpc/";
 const REQUEST_TIMEOUT: u64 = 3;
 
 /// Implementation of the `ConnectionUpgrade` for the RPC protocol.
+const MAX_READ_SIZE: usize = 4_194_304; // 4M
+
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
 

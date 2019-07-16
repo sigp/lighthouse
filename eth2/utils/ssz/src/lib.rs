@@ -2,7 +2,7 @@
 //! format designed for use in Ethereum 2.0.
 //!
 //! Conforms to
-//! [v0.6.1](https://github.com/ethereum/eth2.0-specs/blob/v0.6.1/specs/simple-serialize.md) of the
+//! [v0.7.1](https://github.com/ethereum/eth2.0-specs/blob/v0.7.1/specs/simple-serialize.md) of the
 //! Ethereum 2.0 specification.
 //!
 //! ## Example
@@ -46,7 +46,10 @@ pub use encode::{Encode, SszEncoder};
 /// The number of bytes used to represent an offset.
 pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
 /// The maximum value that can be represented using `BYTES_PER_LENGTH_OFFSET`.
-pub const MAX_LENGTH_VALUE: usize = (1 << (BYTES_PER_LENGTH_OFFSET * 8)) - 1;
+#[cfg(target_pointer_width = "32")]
+pub const MAX_LENGTH_VALUE: usize = (std::u32::MAX >> (8 * (4 - BYTES_PER_LENGTH_OFFSET))) as usize;
+#[cfg(target_pointer_width = "64")]
+pub const MAX_LENGTH_VALUE: usize = (std::u64::MAX >> (8 * (8 - BYTES_PER_LENGTH_OFFSET))) as usize;
 
 /// Convenience function to SSZ encode an object supporting ssz::Encode.
 ///

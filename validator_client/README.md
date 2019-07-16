@@ -12,7 +12,7 @@ The VC is responsible for the following tasks:
 	duties require.
 - Completing all the fields on a new block (e.g., RANDAO reveal, signature) and
 	publishing the block to a BN.
-- Prompting the BN to produce a new shard atteststation as per a validators
+- Prompting the BN to produce a new shard attestation as per a validators
 	duties.
 - Ensuring that no slashable messages are signed by a validator private key.
 - Keeping track of the system clock and how it relates to slots/epochs.
@@ -40,7 +40,7 @@ index. The outcome of a successful poll is a `EpochDuties` struct:
 ```rust
 EpochDuties {
 	validator_index: u64,
-	block_prodcution_slot: u64,
+	block_production_slot: u64,
 }
 ```
 

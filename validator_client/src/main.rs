@@ -26,7 +26,7 @@ fn main() {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let log = slog::Logger::root(drain, o!());
+    let mut log = slog::Logger::root(drain, o!());
 
     // CLI
     let matches = App::new("Lighthouse Validator Client")
@@ -36,8 +36,16 @@ fn main() {
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
+                .short("d")
                 .value_name("DIR")
                 .help("Data directory for keys and databases.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("logfile")
+                .long("logfile")
+                .value_name("logfile")
+                .help("File path where output will be written.")
                 .takes_value(true),
         )
         .arg(
@@ -122,7 +130,7 @@ fn main() {
     client_config.data_dir = data_dir.clone();
 
     // Update the client config with any CLI args.
-    match client_config.apply_cli_args(&matches) {
+    match client_config.apply_cli_args(&matches, &mut log) {
         Ok(()) => (),
         Err(s) => {
             crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
