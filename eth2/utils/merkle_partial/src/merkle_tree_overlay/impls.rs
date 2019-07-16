@@ -4,7 +4,7 @@ use crate::tree_arithmetic::zeroed::{general_index_to_subtree, relative_depth, r
 use crate::tree_arithmetic::{log_base_two, next_power_of_two};
 use crate::{NodeIndex, BYTES_PER_CHUNK};
 use ethereum_types::U256;
-use ssz_types::VariableList;
+use ssz_types::{FixedVector, VariableList};
 use typenum::Unsigned;
 
 macro_rules! impl_merkle_overlay_for_basic_type {
@@ -46,117 +46,145 @@ impl_merkle_overlay_for_basic_type!(u128, 128);
 impl_merkle_overlay_for_basic_type!(U256, 256);
 impl_merkle_overlay_for_basic_type!(usize, std::mem::size_of::<usize>());
 
-/// Implements the `MerkleTreeOverlay` trait for `ssz_types::VariableList`.
+/// Implements the `MerkleTreeOverlay` trait for SSZ Vector and List types.
 ///
 /// The full specification of the merkle tree structure can be found in the SSZ documentation:
 /// https://github.com/ethereum/eth2.0-specs/blob/dev/specs/simple-serialize.md#merkleization
 ///
-/// Below is a visual representation of the structure:
+/// Below is a visual representation of the merkle tree for variable length Lists:
+///
+///             root
+///           /      \
+///      data_root   len
+///        /   \
+///       *     *           <= intermediate nodes
+///      / \   / \
+///     x   x x   x         <= leaf nodes
+///
+/// And a visual representation of the merkle tree for fixed length Vectors:
 ///
 ///             root(0)
-///           /         \
-///      data_root(1)  len(2)
-///        /   \
-///      . . . . .  <= intermediate nodes
-///      / \   / \
-///     x   x x   x <= leaf nodes
-///
+///             /     \
+///            *       *    <= intermediate nodes
+///           / \     / \
+///          x   x   x   x  <= leaf nodes
 
-impl<T: MerkleTreeOverlay, N: Unsigned> MerkleTreeOverlay for VariableList<T, N> {
-    fn height() -> u8 {
-        let num_leaves = next_power_of_two(N::to_u64());
-        let data_tree_height = log_base_two(num_leaves);
+macro_rules! impl_merkle_overlay_for_collection_type {
+    ($type: ident, $is_variable_length: expr) => {
+        impl<T: MerkleTreeOverlay, N: Unsigned> MerkleTreeOverlay for $type<T, N> {
+            fn height() -> u8 {
+                let num_leaves = next_power_of_two(N::to_u64());
+                let data_tree_height = log_base_two(num_leaves) as u8;
 
-        // Add one to account for the data root and the length of the list.
-        (data_tree_height as u8) + 1
-    }
-
-    fn first_leaf() -> NodeIndex {
-        (1_u64 << Self::height()) - 1
-    }
-
-    fn last_leaf() -> NodeIndex {
-        // last_leaf = 2^h + (2^h / 2) - 2
-        //
-        // The last leaf in the data tree would be first leaf, plus half the total number of leaves,
-        // because the data tree is only in the left side of the full tree. The leaves afterwards
-        // are children of the length node and are unattached.
-        (1_u64 << Self::height()) + (1_u64 << (Self::height() - 1)) - 2
-    }
-
-    fn get_node(index: NodeIndex) -> Node {
-        let first_leaf = Self::first_leaf();
-        let first_internal = 3;
-        let last_internal = (1_u64 << Self::height()) - 2;
-        let last_leaf = Self::last_leaf();
-
-        // The `index` can either i) exist within the current object and directly match a local
-        // index in `0..=Self::last_leaf()` or ii) is a child of one of the leaves in the current
-        // tree. If `index` is a child, call `get_node` on the child object `T` with an index
-        // translated to the child object's index space.
-        if index == 0 {
-            Node::Composite(Composite {
-                ident: "".to_owned(),
-                index: 0,
-                height: Self::height().into(),
-            })
-        } else if index == 1 {
-            Node::Intermediate(index)
-        } else if index == 2 {
-            Node::Leaf(Leaf::Length(Basic {
-                ident: "len".to_string(),
-                index: index,
-                size: 32,
-                offset: 0,
-            }))
-        } else if (first_internal..=last_internal).contains(&index) {
-            Node::Intermediate(index)
-        } else if (first_leaf..=last_leaf).contains(&index) {
-            let node_type = T::get_node(0);
-
-            match node_type {
-                Node::Leaf(Leaf::Basic(_)) => {
-                    let item_size = std::mem::size_of::<T>() as u8;
-                    let items_per_chunk = BYTES_PER_CHUNK as u8 / item_size;
-
-                    Node::Leaf(Leaf::Basic(
-                        vec![Basic::default(); items_per_chunk as usize]
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| Basic {
-                                ident: ((index - Self::first_leaf()) * items_per_chunk as u64
-                                    + i as u64)
-                                    .to_string(),
-                                index: index,
-                                size: item_size,
-                                offset: i as u8 * item_size,
-                            })
-                            .collect(),
-                    ))
+                if $is_variable_length {
+                    // Add one to account for the data root and the length of the list.
+                    data_tree_height + 1
+                } else {
+                    data_tree_height
                 }
-                Node::Composite(c) => Node::Composite(Composite {
-                    ident: (index - Self::first_leaf()).to_string(),
-                    index,
-                    height: c.height,
-                }),
-                _ => unreachable!("Leaf should either be composite or basic value"),
             }
-        } else {
-            // If no match at this point, the node must be in one of `T`'s subtrees or it's not
-            // attached to the current tree anywhere.
 
-            let subtree_root = root_from_depth(index, relative_depth(first_leaf, index));
-            let subtree_index = general_index_to_subtree(subtree_root, index);
+            fn first_leaf() -> NodeIndex {
+                (1_u64 << Self::height()) - 1
+            }
 
-            if (first_leaf..=last_leaf).contains(&subtree_root) {
-                // Call `T::get_node` & replace the node's index with the current known index.
-                replace_index(T::get_node(subtree_index), index)
-            } else {
-                Node::Unattached(index)
+            fn last_leaf() -> NodeIndex {
+                if $is_variable_length {
+                    // last_leaf = 2^h + (2^h / 2) - 2
+                    //
+                    // The last leaf in the data tree would be first leaf, plus half the total number of leaves,
+                    // because the data tree is only in the left side of the full tree. The leaves afterwards
+                    // are children of the length node and are unattached.
+                    (1_u64 << Self::height()) + (1_u64 << (Self::height() - 1)) - 2
+                } else {
+                    // last_leaf = 2^h + 2^h - 2
+                    (1_u64 << Self::height() + 1) - 2
+                }
+            }
+
+            fn get_node(index: NodeIndex) -> Node {
+                let first_leaf = Self::first_leaf();
+                let last_leaf = Self::last_leaf();
+
+                let (first_internal, last_internal) = if first_leaf == 0 || first_leaf == 1 {
+                    (0, 0)
+                } else {
+                    (1, (1_u64 << Self::height()) - 2)
+                };
+
+                // The `index` can either i) exist within the current object and directly match a local
+                // index in `0..=Self::last_leaf()` or ii) is a child of one of the leaves in the current
+                // tree. If `index` is a child, call `get_node` on the child object `T` with an index
+                // translated to the child object's index space.
+                if index == 0 {
+                    Node::Composite(Composite {
+                        ident: "".to_owned(),
+                        index: 0,
+                        height: Self::height().into(),
+                    })
+                } else if index == 1 && $is_variable_length {
+                    Node::Intermediate(index)
+                } else if index == 2 && $is_variable_length {
+                    Node::Leaf(Leaf::Length(Basic {
+                        ident: "len".to_string(),
+                        index: index,
+                        size: 32,
+                        offset: 0,
+                    }))
+                } else if (first_internal..=last_internal).contains(&index) {
+                    Node::Intermediate(index)
+                } else if (first_leaf..=last_leaf).contains(&index) {
+                    let node_type = T::get_node(0);
+
+                    match node_type {
+                        Node::Leaf(Leaf::Basic(_)) => {
+                            let item_size = std::mem::size_of::<T>() as u8;
+                            let items_per_chunk = BYTES_PER_CHUNK as u8 / item_size;
+
+                            Node::Leaf(Leaf::Basic(
+                                vec![Basic::default(); items_per_chunk as usize]
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, _)| Basic {
+                                        ident: ((index - Self::first_leaf())
+                                            * items_per_chunk as u64
+                                            + i as u64)
+                                            .to_string(),
+                                        index: index,
+                                        size: item_size,
+                                        offset: i as u8 * item_size,
+                                    })
+                                    .collect(),
+                            ))
+                        }
+                        Node::Composite(c) => Node::Composite(Composite {
+                            ident: (index - Self::first_leaf()).to_string(),
+                            index,
+                            height: c.height,
+                        }),
+                        _ => unreachable!("Leaf should either be composite or basic value"),
+                    }
+                } else {
+                    // If no match at this point, the node must be in one of `T`'s subtrees or it's not
+                    // attached to the current tree anywhere.
+
+                    let subtree_root = root_from_depth(index, relative_depth(first_leaf, index));
+                    let subtree_index = general_index_to_subtree(subtree_root, index);
+
+                    if (first_leaf..=last_leaf).contains(&subtree_root) {
+                        // Call `T::get_node` & replace the node's index with the current known index.
+                        replace_index(T::get_node(subtree_index), index)
+                    } else {
+                        Node::Unattached(index)
+                    }
+                }
             }
         }
-    }
+    };
 }
+
+impl_merkle_overlay_for_collection_type!(VariableList, true);
+impl_merkle_overlay_for_collection_type!(FixedVector, false);
 
 /// Returns a copy of `node` with all its index values changed to `index`.
 fn replace_index(node: Node, index: NodeIndex) -> Node {
@@ -190,11 +218,28 @@ fn replace_index(node: Node, index: NodeIndex) -> Node {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typenum::{U2, U4, U8};
+    use typenum::{U1, U16, U2, U4, U8};
 
     #[test]
     fn variable_list_overlay() {
         type T = VariableList<U256, U8>;
+
+        // Merkle structure for `VariableList<U256, U8>`
+        //
+        //                 +---------- 0 ----------+                 <= composite
+        //                /           -+            \
+        //          +--- 1 ---+        |        +--- 2 ---+          <= length
+        //         /           \       |       /           \
+        //        3             4      |- I   5             6        -+
+        //      /   \         /   \    |    /   \         /   \       |
+        //     7     8       9    10   |   11   12       13   14      |- unattacted
+        //    / \   / \     / \   / \ -+  / \   / \     / \   / \     |
+        //   15 16 17 18   19 20 21 22   23 24 25 26   27 28 29 30   -+
+        //  |________________________|
+        //              +
+        //              |
+        //              +--------------- leaves
+
         assert_eq!(
             T::get_node(0),
             Node::Composite(Composite {
@@ -320,5 +365,108 @@ mod tests {
         assert_eq!(T::get_node(45), Node::Unattached(45));
         assert_eq!(T::get_node(177), Node::Unattached(177));
         assert_eq!(T::get_node(123456789), Node::Unattached(123456789));
+    }
+
+    #[test]
+    fn simple_fixed_vector() {
+        type T = FixedVector<U256, U8>;
+
+        // Merkle structure for `FixedVector<U256, U8>`
+        //
+        //            ___ 0 ___              <= composite
+        //           /         \            -+
+        //          1           2            |
+        //        /   \       /   \          |- intermediate
+        //       3     4     5     6         |
+        //      / \   / \   / \   / \       -+
+        //     7   8 9  10 11 12 13 14      <= leaf
+
+        assert_eq!(T::height(), 3);
+        assert_eq!(T::first_leaf(), 7);
+        assert_eq!(T::last_leaf(), 14);
+
+        assert_eq!(
+            T::get_node(0),
+            Node::Composite(Composite {
+                ident: "".to_string(),
+                index: 0,
+                height: 3,
+            })
+        );
+
+        for i in 1..=6 {
+            assert_eq!(T::get_node(i), Node::Intermediate(i));
+        }
+
+        for i in 7..=14 {
+            assert_eq!(
+                T::get_node(i),
+                Node::Leaf(Leaf::Basic(vec![Basic {
+                    ident: (i - 7).to_string(),
+                    index: i,
+                    size: 32,
+                    offset: 0,
+                }]))
+            );
+        }
+    }
+
+    #[test]
+    fn nested_fixed_vector() {
+        type T = FixedVector<FixedVector<FixedVector<U256, U16>, U2>, U1>;
+
+        // Merkle structure for `FixedVector<FixedVector<FixedVector<U256, U2>, U2>, U1>`
+        //
+        //                           +-------------------- 0 --------------------+                             <= composite
+        //                          /                                             \
+        //               +-------- 1 --------+                           +-------- 2 --------+                 <= composite
+        //              /                     \                         /                     \
+        //         +-- 3 --+               +-- 4 --+               +-- 5 --+               +-- 6 --+           <= intermediate
+        //        /         \             /         \             /         \             /         \
+        //       7           8           9          10           11         12           13         14         <= intermediate
+        //     /   \       /   \       /   \       /   \       /   \       /   \       /   \       /   \
+        //    15   16     17   18     19   20     21   22     23   24     25   26     27   28     29   30      <= intermediate
+        //   / \   / \   / \   / \   / \   / \   / \   / \   / \   / \   / \   / \   / \   / \   / \   / \
+        //  31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62    <= leaves
+
+        assert_eq!(T::height(), 0);
+        assert_eq!(T::first_leaf(), 0);
+        assert_eq!(T::last_leaf(), 0);
+
+        assert_eq!(
+            T::get_node(0),
+            Node::Composite(Composite {
+                ident: "".to_string(),
+                index: 0,
+                height: 0,
+            })
+        );
+
+        for i in 1..=2 {
+            assert_eq!(
+                T::get_node(i),
+                Node::Composite(Composite {
+                    ident: (i - 1).to_string(),
+                    index: i,
+                    height: 4,
+                })
+            );
+        }
+
+        for i in 3..=30 {
+            assert_eq!(T::get_node(i), Node::Intermediate(i));
+        }
+
+        for i in 31..=62 {
+            assert_eq!(
+                T::get_node(i),
+                Node::Leaf(Leaf::Basic(vec![Basic {
+                    ident: ((i - 31) % 16).to_string(),
+                    index: i,
+                    size: 32,
+                    offset: 0,
+                }]))
+            );
+        }
     }
 }

@@ -86,10 +86,8 @@ pub const fn subtree_index_to_general(root: u64, index: u64) -> u64 {
 
 pub const fn general_index_to_subtree(root: u64, index: u64) -> u64 {
     let depth_diff = log_base_two(last_power_of_two(index)) - log_base_two(last_power_of_two(root));
-    let left_most = left_most_leaf(root, depth_diff);
-    let n = index % left_most;
 
-    index / root + (n / root) % root + n % root
+    (1 << depth_diff) + index - ((1 << depth_diff) * root)
 }
 
 #[cfg(test)]
@@ -186,6 +184,7 @@ mod tests {
         assert_eq!(subtree_index_to_general(2, 2), 4);
         assert_eq!(subtree_index_to_general(2, 7), 11);
         assert_eq!(subtree_index_to_general(2, 11), 19);
+        assert_eq!(subtree_index_to_general(2, 20), 36);
 
         assert_eq!(subtree_index_to_general(6, 1), 6);
         assert_eq!(subtree_index_to_general(6, 2), 12);
@@ -212,6 +211,8 @@ mod tests {
         assert_eq!(general_index_to_subtree(2, 4), 2);
         assert_eq!(general_index_to_subtree(2, 11), 7);
         assert_eq!(general_index_to_subtree(2, 19), 11);
+        assert_eq!(general_index_to_subtree(2, 35), 19);
+        assert_eq!(general_index_to_subtree(2, 36), 20);
 
         assert_eq!(general_index_to_subtree(6, 6), 1);
         assert_eq!(general_index_to_subtree(6, 12), 2);

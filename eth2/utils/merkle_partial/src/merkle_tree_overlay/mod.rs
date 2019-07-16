@@ -5,7 +5,7 @@ use crate::field::Node;
 use crate::NodeIndex;
 
 pub trait MerkleTreeOverlay {
-    /// Returns the height of the struct (e.g. log(next_power_of_two(pack(self).len())))
+    /// Returns the height of the struct (e.g. log(next_power_of_two(num_leaves)))
     fn height() -> u8;
 
     /// Gets the `Node` coresponding to the general index.
