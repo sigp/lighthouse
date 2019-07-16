@@ -19,23 +19,23 @@ lazy_static! {
     };
 }
 
-/// Merklizes bytes and returns the root, optionally padding the tree out to `min_leaves` number of
+/// Merkleize `bytes` and return the root, optionally padding the tree out to `min_leaves` number of
 /// leaves.
 ///
 /// First all nodes are extracted from `bytes` and then a padding node is added until the number of
 /// leaf chunks is greater than or equal to `min_leaves`. Callers may set `min_leaves` to `0` if no
 /// adding additional chunks should be added to the given `bytes`.
 ///
-/// If `bytes.len() <= BYTES_PER_CHUNK`, no hashing is done and bytes is returned, potentially
+/// If `bytes.len() <= BYTES_PER_CHUNK`, no hashing is done and `bytes` is returned, potentially
 /// padded out to `BYTES_PER_CHUNK` length with `0`.
 ///
-/// ## CPU Peformance
+/// ## CPU Performance
 ///
 /// A cache of `MAX_TREE_DEPTH` hashes are stored to avoid re-computing the hashes of padding nodes
-/// (or thier parents). Therefore, adding padding nodes only incurs one more hash per additional
+/// (or their parents). Therefore, adding padding nodes only incurs one more hash per additional
 /// height of the tree.
 ///
-/// ## Memory Peformance
+/// ## Memory Performance
 ///
 /// This algorithm has two interesting memory usage properties:
 ///
@@ -93,9 +93,9 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
         // Hash two chunks, creating a parent chunk.
         let hash = match bytes.get(start..start + BYTES_PER_CHUNK * 2) {
-            // All bytes are available, hash as ususal.
+            // All bytes are available, hash as usual.
             Some(slice) => hash(slice),
-            // Unable to get all the bytes, get a small slice and padd it out.
+            // Unable to get all the bytes, get a small slice and pad it out.
             None => {
                 let mut preimage = bytes
                     .get(start..)
@@ -230,7 +230,7 @@ fn get_zero_hash(height: usize) -> &'static [u8] {
     if height < MAX_TREE_DEPTH {
         &ZERO_HASHES[height]
     } else {
-        panic!("Tree exceeeds MAX_TREE_DEPTH of {}", MAX_TREE_DEPTH)
+        panic!("Tree exceeds MAX_TREE_DEPTH of {}", MAX_TREE_DEPTH)
     }
 }
 
