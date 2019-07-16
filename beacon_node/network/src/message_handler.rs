@@ -3,21 +3,18 @@ use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use crossbeam_channel::{unbounded as channel, Sender};
+use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::{
     behaviour::PubsubMessage,
-    rpc::{methods::GoodbyeReason, RPCRequest, RPCResponse, RequestId},
+    rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId},
     PeerId, RPCEvent,
 };
 use futures::future;
-use slog::{debug, warn};
+use slog::{debug, error, warn};
+use ssz::Decode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-
-/// Timeout for RPC requests.
-// const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// Timeout before banning a peer for non-identification.
-// const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handles messages received from the network and client and organises syncing.
 pub struct MessageHandler<T: BeaconChainTypes> {
@@ -32,7 +29,7 @@ pub struct MessageHandler<T: BeaconChainTypes> {
 }
 
 /// Types of messages the handler can receive.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum HandlerMessage {
     /// We have initiated a connection to a new peer.
     PeerDialed(PeerId),
@@ -87,6 +84,10 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             HandlerMessage::PeerDialed(peer_id) => {
                 self.sync.on_connect(peer_id, &mut self.network_context);
             }
+            // A peer has disconnected
+            HandlerMessage::PeerDisconnected(peer_id) => {
+                self.sync.on_disconnect(peer_id);
+            }
             // we have received an RPC message request/response
             HandlerMessage::RPC(peer_id, rpc_event) => {
                 self.handle_rpc_message(peer_id, rpc_event);
@@ -105,9 +106,9 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// Handle RPC messages
     fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent) {
         match rpc_message {
-            RPCEvent::Request { id, body, .. // TODO: Clean up RPC Message types, have a cleaner type by this point.
-            } => self.handle_rpc_request(peer_id, id, body),
-            RPCEvent::Response { id, result, .. } => self.handle_rpc_response(peer_id, id, result),
+            RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
+            RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
+            RPCEvent::Error(id, error) => self.handle_rpc_error(peer_id, id, error),
         }
     }
 
@@ -150,58 +151,137 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
     /// An RPC response has been received from the network.
     // we match on id and ignore responses past the timeout.
-    fn handle_rpc_response(&mut self, peer_id: PeerId, id: RequestId, response: RPCResponse) {
-        // if response id is not related to a request, ignore (likely RPC timeout)
+    fn handle_rpc_response(
+        &mut self,
+        peer_id: PeerId,
+        id: RequestId,
+        error_response: RPCErrorResponse,
+    ) {
+        //TODO: Potentially do not need to keep track of this at all. This has all been shifted
+        //into libp2p stack. Tracking Id's will only be necessary if a response is important
+        //relative to a specific request. Note: BeaconBlockBodies already returns with the data
+        //associated with its request.
+        // Currently leave this here for testing, to ensure it is redundant.
         if self
             .network_context
             .outstanding_outgoing_request_ids
             .remove(&(peer_id.clone(), id))
             .is_none()
         {
-            warn!(
+            // This should never happen. The RPC layer handles all timeouts and ensures a response
+            // matches a request.
+            debug_assert!(false);
+
+            error!(
                 self.log,
                 "Unknown ResponseId for incoming RPCRequest";
                 "peer" => format!("{:?}", peer_id),
-                "request_id" => format!("{:?}", id)
+                "request_id" => format!("{}", id)
             );
             return;
         }
 
-        match response {
-            RPCResponse::Hello(hello_message) => {
-                self.sync
-                    .on_hello_response(peer_id, hello_message, &mut self.network_context);
+        // an error could have occurred.
+        // TODO: Handle Error gracefully
+        match error_response {
+            RPCErrorResponse::EncodingError => {
+                warn!(self.log, "Encoding Error"; "peer" => format!("{:?}", peer_id), "request_id" => format!("{}",id))
             }
-            RPCResponse::BeaconBlockRoots(response) => {
-                self.sync.on_beacon_block_roots_response(
-                    peer_id,
-                    response,
-                    &mut self.network_context,
-                );
+            RPCErrorResponse::InvalidRequest(error) => {
+                warn!(self.log, "";"peer" => format!("{:?}", peer_id), "Invalid Request" => error.as_string())
             }
-            RPCResponse::BeaconBlockHeaders(response) => {
-                self.sync.on_beacon_block_headers_response(
-                    peer_id,
-                    response,
-                    &mut self.network_context,
-                );
+            RPCErrorResponse::ServerError(error) => {
+                warn!(self.log, "";"peer" => format!("{:?}", peer_id), "Server Error" => error.as_string())
             }
-            RPCResponse::BeaconBlockBodies(response) => {
-                self.sync.on_beacon_block_bodies_response(
-                    peer_id,
-                    response,
-                    &mut self.network_context,
-                );
+            RPCErrorResponse::Unknown(error) => {
+                warn!(self.log, "";"peer" => format!("{:?}", peer_id), "Unknown Error" => error.as_string())
             }
-            RPCResponse::BeaconChainState(_) => {
-                // We do not implement this endpoint, it is not required and will only likely be
-                // useful for light-client support in later phases.
-                //
-                // Theoretically, we shouldn't reach this code because we should never send a
-                // beacon state RPC request.
-                warn!(self.log, "BeaconChainState RPC call is not supported.");
+            RPCErrorResponse::Success(response) => {
+                match response {
+                    RPCResponse::Hello(hello_message) => {
+                        self.sync.on_hello_response(
+                            peer_id,
+                            hello_message,
+                            &mut self.network_context,
+                        );
+                    }
+                    RPCResponse::BeaconBlockRoots(response) => {
+                        self.sync.on_beacon_block_roots_response(
+                            peer_id,
+                            response,
+                            &mut self.network_context,
+                        );
+                    }
+                    RPCResponse::BeaconBlockHeaders(response) => {
+                        if let Some(decoded_block_headers) = self.decode_block_headers(response) {
+                            self.sync.on_beacon_block_headers_response(
+                                peer_id,
+                                decoded_block_headers,
+                                &mut self.network_context,
+                            );
+                        } else {
+                            warn!(self.log, "Peer sent invalid block headers";"peer" => format!("{:?}", peer_id))
+                        }
+                    }
+                    RPCResponse::BeaconBlockBodies(response) => {
+                        if let Some(decoded_block_bodies) = self.decode_block_bodies(response) {
+                            self.sync.on_beacon_block_bodies_response(
+                                peer_id,
+                                decoded_block_bodies,
+                                &mut self.network_context,
+                            );
+                        } else {
+                            warn!(self.log, "Peer sent invalid block bodies";"peer" => format!("{:?}", peer_id))
+                        }
+                    }
+                    RPCResponse::BeaconChainState(_) => {
+                        // We do not implement this endpoint, it is not required and will only likely be
+                        // useful for light-client support in later phases.
+                        //
+                        // Theoretically, we shouldn't reach this code because we should never send a
+                        // beacon state RPC request.
+                        warn!(self.log, "BeaconChainState RPC call is not supported.");
+                    }
+                }
             }
-        };
+        }
+    }
+
+    /// Verifies and decodes the ssz-encoded block bodies received from peers.
+    fn decode_block_bodies(
+        &self,
+        bodies_response: BeaconBlockBodiesResponse,
+    ) -> Option<DecodedBeaconBlockBodiesResponse> {
+        //TODO: Implement faster block verification before decoding entirely
+        let simple_decoded_bodies =
+            EncodeableBeaconBlockBodiesResponse::from_ssz_bytes(&bodies_response.block_bodies);
+
+        //TODO: Potentially improve the types used here for SSZ encoding/decoding
+        if let Ok(simple_decoded_bodies) = simple_decoded_bodies {
+            Some(DecodedBeaconBlockBodiesResponse {
+                block_roots: bodies_response
+                    .block_roots
+                    .expect("Responses must have associated roots"),
+                block_bodies: simple_decoded_bodies.block_bodies,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Verifies and decodes the ssz-encoded block headers received from peers.
+    fn decode_block_headers(
+        &self,
+        headers_response: BeaconBlockHeadersResponse,
+    ) -> Option<EncodeableBeaconBlockHeadersResponse> {
+        //TODO: Implement faster header verification before decoding entirely
+        EncodeableBeaconBlockHeadersResponse::from_ssz_bytes(&headers_response.headers).ok()
+    }
+
+    /// Handle various RPC errors
+    fn handle_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
+        //TODO: Handle error correctly
+        warn!(self.log, "RPC Error"; "Peer" => format!("{:?}", peer_id), "Request Id" => format!("{}", request_id), "Error" => format!("{:?}", error));
     }
 
     /// Handle RPC messages
@@ -252,16 +332,10 @@ impl NetworkContext {
         self.outstanding_outgoing_request_ids
             .insert((peer_id.clone(), id), Instant::now());
 
-        self.send_rpc_event(
-            peer_id,
-            RPCEvent::Request {
-                id,
-                method_id: rpc_request.method_id(),
-                body: rpc_request,
-            },
-        );
+        self.send_rpc_event(peer_id, RPCEvent::Request(id, rpc_request));
     }
 
+    //TODO: Handle Error responses
     pub fn send_rpc_response(
         &mut self,
         peer_id: PeerId,
@@ -270,11 +344,7 @@ impl NetworkContext {
     ) {
         self.send_rpc_event(
             peer_id,
-            RPCEvent::Response {
-                id: request_id,
-                method_id: rpc_response.method_id(),
-                result: rpc_response,
-            },
+            RPCEvent::Response(request_id, RPCErrorResponse::Success(rpc_response)),
         );
     }
 
@@ -291,7 +361,6 @@ impl NetworkContext {
                     "Could not send RPC message to the network service"
                 )
             });
-        //
     }
 
     /// Returns the next `RequestId` for sending an `RPCRequest` to the `peer_id`.
@@ -299,9 +368,9 @@ impl NetworkContext {
         let next_id = self
             .outgoing_request_ids
             .entry(peer_id.clone())
-            .and_modify(RequestId::increment)
-            .or_insert_with(|| RequestId::from(1));
+            .and_modify(|id| *id += 1)
+            .or_insert_with(|| 0);
 
-        next_id.previous()
+        *next_id
     }
 }

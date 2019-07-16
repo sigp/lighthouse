@@ -5,6 +5,7 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, trace, warn};
+use ssz::Encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,6 +31,7 @@ const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
     network_id: u8,
+    chain_id: u64,
     latest_finalized_root: Hash256,
     latest_finalized_epoch: Epoch,
     best_root: Hash256,
@@ -40,6 +42,7 @@ impl From<HelloMessage> for PeerSyncInfo {
     fn from(hello: HelloMessage) -> PeerSyncInfo {
         PeerSyncInfo {
             network_id: hello.network_id,
+            chain_id: hello.chain_id,
             latest_finalized_root: hello.latest_finalized_root,
             latest_finalized_epoch: hello.latest_finalized_epoch,
             best_root: hello.best_root,
@@ -104,6 +107,17 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "reason" => format!("{:?}", reason),
         );
 
+        self.known_peers.remove(&peer_id);
+    }
+
+    /// Handle a peer disconnect.
+    ///
+    /// Removes the peer from `known_peers`.
+    pub fn on_disconnect(&mut self, peer_id: PeerId) {
+        info!(
+            self.log, "Peer Disconnected";
+            "peer" => format!("{:?}", peer_id),
+        );
         self.known_peers.remove(&peer_id);
     }
 
@@ -200,7 +214,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             // If we have equal or better finalized epochs and best slots, we require nothing else from
             // this peer.
             //
-            // We make an exception when our best slot is 0. Best slot does not indicate wether or
+            // We make an exception when our best slot is 0. Best slot does not indicate whether or
             // not there is a block at slot zero.
             if (remote.latest_finalized_epoch <= local.latest_finalized_epoch)
                 && (remote.best_slot <= local.best_slot)
@@ -398,6 +412,13 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             })
             .collect();
 
+        // ssz-encode the headers
+        //TODO: Make this more elegant
+        let headers = {
+            let resp = EncodeableBeaconBlockHeadersResponse { headers };
+            resp.as_ssz_bytes()
+        };
+
         network.send_rpc_response(
             peer_id,
             request_id,
@@ -409,7 +430,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     pub fn on_beacon_block_headers_response(
         &mut self,
         peer_id: PeerId,
-        res: BeaconBlockHeadersResponse,
+        res: EncodeableBeaconBlockHeadersResponse,
         network: &mut NetworkContext,
     ) {
         debug!(
@@ -471,10 +492,19 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "returned" => block_bodies.len(),
         );
 
+        //TODO: Elegant ssz encoding. Either here or in the message handler
+        let bytes = {
+            let resp = EncodeableBeaconBlockBodiesResponse { block_bodies };
+            resp.as_ssz_bytes()
+        };
+
         network.send_rpc_response(
             peer_id,
             request_id,
-            RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse { block_bodies }),
+            RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse {
+                block_bodies: bytes,
+                block_roots: None,
+            }),
         )
     }
 
@@ -482,7 +512,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     pub fn on_beacon_block_bodies_response(
         &mut self,
         peer_id: PeerId,
-        res: BeaconBlockBodiesResponse,
+        res: DecodedBeaconBlockBodiesResponse,
         network: &mut NetworkContext,
     ) {
         debug!(
@@ -802,7 +832,9 @@ fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMes
     let state = &beacon_chain.head().beacon_state;
 
     HelloMessage {
+        //TODO: Correctly define the chain/network id
         network_id: spec.chain_id,
+        chain_id: spec.chain_id as u64,
         latest_finalized_root: state.finalized_root,
         latest_finalized_epoch: state.finalized_epoch,
         best_root: beacon_chain.head().beacon_block_root,

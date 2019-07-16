@@ -5,7 +5,7 @@ use bytes::BufMut;
 use bytes::BytesMut;
 use tokio::codec::{Decoder, Encoder};
 
-pub(crate) trait OutboundCodec: Encoder + Decoder {
+pub trait OutboundCodec: Encoder + Decoder {
     type ErrorType;
 
     fn decode_error(
@@ -14,7 +14,7 @@ pub(crate) trait OutboundCodec: Encoder + Decoder {
     ) -> Result<Option<Self::ErrorType>, <Self as Decoder>::Error>;
 }
 
-pub(crate) struct BaseInboundCodec<TCodec>
+pub struct BaseInboundCodec<TCodec>
 where
     TCodec: Encoder + Decoder,
 {
@@ -31,7 +31,7 @@ where
     }
 }
 
-pub(crate) struct BaseOutboundCodec<TOutboundCodec>
+pub struct BaseOutboundCodec<TOutboundCodec>
 where
     TOutboundCodec: OutboundCodec,
 {
@@ -109,7 +109,7 @@ where
                 debug_assert!(!src.is_empty());
 
                 let resp_byte = src.split_to(1);
-                let resp_code_byte = [0; 1];
+                let mut resp_code_byte = [0; 1];
                 resp_code_byte.copy_from_slice(&resp_byte);
 
                 let resp_code = u8::from_be_bytes(resp_code_byte);

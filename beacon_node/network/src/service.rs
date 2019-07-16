@@ -118,13 +118,19 @@ fn network_service(
                         trace!(log, "RPC Event: RPC message received: {:?}", rpc_event);
                         message_handler_send
                             .send(HandlerMessage::RPC(peer_id, rpc_event))
-                            .map_err(|_| "failed to send rpc to handler")?;
+                            .map_err(|_| "Failed to send rpc to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
                         debug!(log, "Peer Dialed: {:?}", peer_id);
                         message_handler_send
                             .send(HandlerMessage::PeerDialed(peer_id))
-                            .map_err(|_| "failed to send rpc to handler")?;
+                            .map_err(|_| "Failed to send PeerDialed to handler")?;
+                    }
+                    Libp2pEvent::PeerDisconnected(peer_id) => {
+                        debug!(log, "Peer Disconnected: {:?}", peer_id);
+                        message_handler_send
+                            .send(HandlerMessage::PeerDisconnected(peer_id))
+                            .map_err(|_| "Failed to send PeerDisconnected to handler")?;
                     }
                     Libp2pEvent::PubsubMessage {
                         source, message, ..
@@ -176,7 +182,7 @@ fn network_service(
 }
 
 /// Types of messages that the network service can receive.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum NetworkMessage {
     /// Send a message to libp2p service.
     //TODO: Define typing for messages across the wire
@@ -189,7 +195,7 @@ pub enum NetworkMessage {
 }
 
 /// Type of outgoing messages that can be sent through the network service.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum OutgoingMessage {
     /// Send an RPC request/response.
     RPC(RPCEvent),

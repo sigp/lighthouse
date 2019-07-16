@@ -11,8 +11,8 @@ use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{ErrorMessage, HelloMessage, RPCErrorResponse, RPCResponse};
-pub use protocol::{RPCProtocol, RPCRequest};
+pub use methods::{ErrorMessage, HelloMessage, RPCErrorResponse, RPCResponse, RequestId};
+pub use protocol::{RPCError, RPCProtocol, RPCRequest};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -24,15 +24,27 @@ mod protocol;
 // mod request_response;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RPCEvent {
     /// A request that was received from the RPC protocol. The first parameter is a sequential
     /// id which tracks an awaiting substream for the response.
-    Request(usize, RPCRequest),
+    Request(RequestId, RPCRequest),
 
     /// A response that has been received from the RPC protocol. The first parameter returns
     /// that which was sent with the corresponding request.
-    Response(usize, RPCResponse),
+    Response(RequestId, RPCErrorResponse),
+    /// An Error occurred.
+    Error(RequestId, RPCError),
+}
+
+impl RPCEvent {
+    pub fn id(&self) -> usize {
+        match *self {
+            RPCEvent::Request(id, _) => id,
+            RPCEvent::Response(id, _) => id,
+            RPCEvent::Error(id, _) => id,
+        }
+    }
 }
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
@@ -92,7 +104,12 @@ where
         }
     }
 
-    fn inject_disconnected(&mut self, _: &PeerId, _: ConnectedPoint) {}
+    fn inject_disconnected(&mut self, peer_id: &PeerId, _: ConnectedPoint) {
+        // inform the rpc handler that the peer has disconnected
+        self.events.push(NetworkBehaviourAction::GenerateEvent(
+            RPCMessage::PeerDisconnected(peer_id.clone()),
+        ));
+    }
 
     fn inject_node_event(
         &mut self,
@@ -126,4 +143,5 @@ where
 pub enum RPCMessage {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
+    PeerDisconnected(PeerId),
 }

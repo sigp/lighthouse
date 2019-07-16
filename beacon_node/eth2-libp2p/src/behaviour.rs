@@ -109,6 +109,9 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RPCMessage
             RPCMessage::PeerDialed(peer_id) => {
                 self.events.push(BehaviourEvent::PeerDialed(peer_id))
             }
+            RPCMessage::PeerDisconnected(peer_id) => {
+                self.events.push(BehaviourEvent::PeerDisconnected(peer_id))
+            }
             RPCMessage::RPC(peer_id, rpc_event) => {
                 self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
             }
@@ -174,6 +177,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 pub enum BehaviourEvent {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
+    PeerDisconnected(PeerId),
     GossipMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
