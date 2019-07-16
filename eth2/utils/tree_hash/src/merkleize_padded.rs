@@ -4,7 +4,9 @@ use hashing::hash;
 /// The size of the cache that stores padding nodes for a given height.
 ///
 /// Currently, we panic if we encounter a tree with a height larger than `MAX_TREE_DEPTH`.
-pub const MAX_TREE_DEPTH: usize = 64;
+///
+/// It is set to 48 as we expect it to be sufficiently high that we won't exceed it.
+pub const MAX_TREE_DEPTH: usize = 48;
 
 lazy_static! {
     /// Cached zero hashes where `ZERO_HASHES[i]` is the hash of a Merkle tree with 2^i zero leaves.
@@ -307,6 +309,16 @@ mod test {
                 for i in 0..32 * BYTES_PER_CHUNK {
                     test_against_reference(&$get_bytes(i), 0);
                 }
+            }
+
+            #[test]
+            fn max_tree_depth_min_nodes() {
+                let input = vec![0; 10 * BYTES_PER_CHUNK];
+                let min_nodes = 2usize.pow(MAX_TREE_DEPTH as u32);
+                assert_eq!(
+                    merkleize_padded(&input, min_nodes),
+                    get_zero_hash(MAX_TREE_DEPTH)
+                );
             }
         };
     }
