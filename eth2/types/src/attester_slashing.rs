@@ -28,7 +28,8 @@ pub struct AttesterSlashing<T: EthSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::*;
 
-    ssz_tests!(AttesterSlashing);
-    cached_tree_hash_tests!(AttesterSlashing);
+    ssz_tests!(AttesterSlashing<MainnetEthSpec>);
+    cached_tree_hash_tests!(AttesterSlashing<MainnetEthSpec>);
 }

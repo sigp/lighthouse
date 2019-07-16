@@ -13,7 +13,6 @@ impl TestingDepositBuilder {
     pub fn new(pubkey: PublicKey, amount: u64) -> Self {
         let deposit = Deposit {
             proof: vec![].into(),
-            index: 0,
             data: DepositData {
                 pubkey,
                 withdrawal_credentials: Hash256::zero(),
@@ -23,11 +22,6 @@ impl TestingDepositBuilder {
         };
 
         Self { deposit }
-    }
-
-    /// Set the `deposit.index` value.
-    pub fn set_index(&mut self, index: u64) {
-        self.deposit.index = index;
     }
 
     /// Signs the deposit, also setting the following values:

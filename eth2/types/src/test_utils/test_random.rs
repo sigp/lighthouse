@@ -75,8 +75,10 @@ where
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         let mut output = vec![];
 
-        for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
-            output.push(<T>::random_for_test(rng));
+        if N::to_usize() != 0 {
+            for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
+                output.push(<T>::random_for_test(rng));
+            }
         }
 
         output.into()

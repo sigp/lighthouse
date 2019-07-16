@@ -54,6 +54,7 @@ mod tests {
     use super::*;
     use crate::slot_epoch::Epoch;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use crate::MainnetEthSpec;
 
     #[test]
     pub fn test_is_double_vote_true() {
@@ -121,15 +122,18 @@ mod tests {
         );
     }
 
-    ssz_tests!(IndexedAttestation);
-    cached_tree_hash_tests!(IndexedAttestation);
+    ssz_tests!(IndexedAttestation<MainnetEthSpec>);
+    cached_tree_hash_tests!(IndexedAttestation<MainnetEthSpec>);
 
-    fn create_indexed_attestation(target_epoch: u64, source_epoch: u64) -> IndexedAttestation {
+    fn create_indexed_attestation(
+        target_epoch: u64,
+        source_epoch: u64,
+    ) -> IndexedAttestation<MainnetEthSpec> {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut indexed_vote = IndexedAttestation::random_for_test(&mut rng);
 
-        indexed_vote.data.source_epoch = Epoch::new(source_epoch);
-        indexed_vote.data.target_epoch = Epoch::new(target_epoch);
+        indexed_vote.data.source.epoch = Epoch::new(source_epoch);
+        indexed_vote.data.target.epoch = Epoch::new(target_epoch);
         indexed_vote
     }
 }

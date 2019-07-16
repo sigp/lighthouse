@@ -55,7 +55,8 @@ impl<T: EthSpec> Attestation<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::*;
 
-    ssz_tests!(Attestation);
-    cached_tree_hash_tests!(Attestation);
+    ssz_tests!(Attestation<MainnetEthSpec>);
+    cached_tree_hash_tests!(Attestation<MainnetEthSpec>);
 }

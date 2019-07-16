@@ -18,6 +18,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 pub use self::committee_cache::CommitteeCache;
 pub use beacon_state_types::*;
 
+#[macro_use]
 mod beacon_state_types;
 mod committee_cache;
 mod exit_cache;

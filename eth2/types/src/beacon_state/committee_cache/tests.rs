@@ -1,8 +1,8 @@
 #![cfg(test)]
 use super::*;
 use crate::{test_utils::*, *};
-use ssz_types::typenum::*;
 use serde_derive::{Deserialize, Serialize};
+use ssz_types::typenum::*;
 
 #[test]
 fn default_values() {
@@ -63,6 +63,8 @@ fn initializes_with_the_right_epoch() {
 
 #[test]
 fn shuffles_for_the_right_epoch() {
+    use crate::EthSpec;
+
     let num_validators = MinimalEthSpec::minimum_validator_count() * 2;
     let epoch = Epoch::new(100_000_000);
     let slot = epoch.start_slot(MinimalEthSpec::slots_per_epoch());
@@ -70,16 +72,16 @@ fn shuffles_for_the_right_epoch() {
     let mut state = new_state::<MinimalEthSpec>(num_validators, slot);
     let spec = &MinimalEthSpec::default_spec();
 
-    let distinct_hashes: Vec<Hash256> = (0..MinimalEthSpec::latest_randao_mixes_length())
+    let distinct_hashes: Vec<Hash256> = (0..MinimalEthSpec::epochs_per_historical_vector())
         .into_iter()
         .map(|i| Hash256::from(i as u64))
         .collect();
 
-    state.latest_randao_mixes = FixedVector::from(distinct_hashes);
+    state.randao_mixes = FixedVector::from(distinct_hashes);
 
-    let previous_seed = state.generate_seed(state.previous_epoch(), spec).unwrap();
-    let current_seed = state.generate_seed(state.current_epoch(), spec).unwrap();
-    let next_seed = state.generate_seed(state.next_epoch(), spec).unwrap();
+    let previous_seed = state.get_seed(state.previous_epoch(), spec).unwrap();
+    let current_seed = state.get_seed(state.current_epoch(), spec).unwrap();
+    let next_seed = state.get_seed(state.next_epoch(), spec).unwrap();
 
     assert!((previous_seed != current_seed) && (current_seed != next_seed));
 
@@ -154,12 +156,26 @@ pub struct ExcessShardsEthSpec;
 
 impl EthSpec for ExcessShardsEthSpec {
     type ShardCount = U128;
-    type SlotsPerHistoricalRoot = U8192;
-    type LatestRandaoMixesLength = U8192;
-    type LatestActiveIndexRootsLength = U8192;
-    type LatestSlashedExitLength = U8192;
     type SlotsPerEpoch = U8;
-    type GenesisEpoch = U0;
+
+    params_from_eth_spec!(MinimalEthSpec {
+        JustificationBitsLength,
+        MaxValidatorsPerCommittee,
+        GenesisEpoch,
+        SlotsPerEth1VotingPeriod,
+        SlotsPerHistoricalRoot,
+        EpochsPerHistoricalVector,
+        EpochsPerSlashingsVector,
+        HistoricalRootsLimit,
+        ValidatorRegistryLimit,
+        MaxProposerSlashings,
+        MaxAttesterSlashings,
+        MaxAttestations,
+        MaxDeposits,
+        MaxVoluntaryExits,
+        MaxTransfers
+    });
+    instantiate_derived_constants!();
 
     fn default_spec() -> ChainSpec {
         ChainSpec::minimal()

@@ -31,7 +31,8 @@ pub struct PendingAttestation<T: EthSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::*;
 
-    ssz_tests!(PendingAttestation);
-    cached_tree_hash_tests!(PendingAttestation);
+    ssz_tests!(PendingAttestation<MainnetEthSpec>);
+    cached_tree_hash_tests!(PendingAttestation<MainnetEthSpec>);
 }

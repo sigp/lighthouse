@@ -5,14 +5,14 @@ use tree_hash::TreeHash;
 /// Builds an attestation to be used for testing purposes.
 ///
 /// This struct should **never be used for production purposes.**
-pub struct TestingAttestationBuilder {
+pub struct TestingAttestationBuilder<T: EthSpec> {
     committee: Vec<usize>,
-    attestation: Attestation,
+    attestation: Attestation<T>,
 }
 
-impl TestingAttestationBuilder {
+impl<T: EthSpec> TestingAttestationBuilder<T> {
     /// Create a new attestation builder.
-    pub fn new<T: EthSpec>(
+    pub fn new(
         state: &BeaconState<T>,
         committee: &[usize],
         slot: Slot,
@@ -21,12 +21,12 @@ impl TestingAttestationBuilder {
     ) -> Self {
         let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
 
-        let mut aggregation_bits = Bitfield::new();
-        let mut custody_bits = Bitfield::new();
+        let mut aggregation_bits = BitList::with_capacity(committee.len()).unwrap();
+        let mut custody_bits = BitList::with_capacity(committee.len()).unwrap();
 
         for (i, _) in committee.iter().enumerate() {
-            custody_bits.set(i, false);
-            aggregation_bits.set(i, false);
+            custody_bits.set(i, false).unwrap();
+            aggregation_bits.set(i, false).unwrap();
         }
 
         let attestation = Attestation {
@@ -68,7 +68,8 @@ impl TestingAttestationBuilder {
 
             self.attestation
                 .aggregation_bits
-                .set(committee_index, true);
+                .set(committee_index, true)
+                .unwrap();
 
             let message = AttestationDataAndCustodyBit {
                 data: self.attestation.data.clone(),
@@ -77,7 +78,7 @@ impl TestingAttestationBuilder {
             .tree_hash_root();
 
             let domain = spec.get_domain(
-                self.attestation.data.target_epoch,
+                self.attestation.data.target.epoch,
                 Domain::Attestation,
                 fork,
             );
@@ -88,7 +89,7 @@ impl TestingAttestationBuilder {
     }
 
     /// Consume the builder and return the attestation.
-    pub fn build(self) -> Attestation {
+    pub fn build(self) -> Attestation<T> {
         self.attestation
     }
 }

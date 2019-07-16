@@ -1,12 +1,12 @@
 #[macro_use]
 mod macros;
-//mod builders;
+mod builders;
 mod generate_deterministic_keypairs;
 mod keypairs_file;
 mod serde_utils;
 mod test_random;
 
-//pub use builders::*;
+pub use builders::*;
 pub use generate_deterministic_keypairs::generate_deterministic_keypair;
 pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
 pub use keypairs_file::KeypairsFile;

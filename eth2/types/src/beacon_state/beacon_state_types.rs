@@ -108,11 +108,19 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     fn slots_per_historical_root() -> usize {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
+
+    /// Returns the `EPOCHS_PER_HISTORICAL_VECTOR` constant for this specification.
+    ///
+    /// Spec v0.6.3
+    fn epochs_per_historical_vector() -> usize {
+        Self::EpochsPerHistoricalVector::to_usize()
+    }
 }
 
 /// Macro to instantiate type-level numbers derived from other constants.
 /// Once associated type defaults are stablisied we can remove this, see:
 /// https://github.com/rust-lang/rust/issues/29661
+#[macro_export]
 macro_rules! instantiate_derived_constants {
     () => {
         type NumPendingAttestations = Prod<Self::MaxAttestations, Self::SlotsPerEpoch>;
@@ -120,6 +128,7 @@ macro_rules! instantiate_derived_constants {
 }
 
 /// Macro to inherit some type values from another EthSpec.
+#[macro_export]
 macro_rules! params_from_eth_spec {
     ($spec_ty:ty { $($ty_name:ident),+ }) => {
         $(type $ty_name = <$spec_ty as EthSpec>::$ty_name;)+
