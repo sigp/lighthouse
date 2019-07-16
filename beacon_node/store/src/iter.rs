@@ -90,13 +90,19 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
     }
 }
 
-/// Iterates backwards through block roots.
+/// Iterates backwards through block roots. If any specified slot is unable to be retrieved, the
+/// iterator returns `None` indefinitely.
 ///
 /// Uses the `latest_block_roots` field of `BeaconState` to as the source of block roots and will
 /// perform a lookup on the `Store` for a prior `BeaconState` if `latest_block_roots` has been
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
+///
+/// ## Notes
+///
+/// See [`BestBlockRootsIterator`](struct.BestBlockRootsIterator.html), which has different
+/// `start_slot` logic.
 #[derive(Clone)]
 pub struct BlockRootsIterator<'a, T: EthSpec, U> {
     store: Arc<U>,
@@ -158,6 +164,16 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
 
 /// Iterates backwards through block roots with `start_slot` highest possible value
 /// `<= beacon_state.slot`.
+///
+/// The distinction between `BestBlockRootsIterator` and `BlockRootsIterator` is:
+///
+/// - `BestBlockRootsIterator` uses best-effort slot. When `start_slot` is greater than the latest available block root
+/// on `beacon_state`, returns `Some(root, slot)` where `slot` is the latest available block
+/// root.
+/// - `BlockRootsIterator` is strict about `start_slot`. When `start_slot` is greater than the latest available block root
+/// on `beacon_state`, returns  `None`.
+///
+/// This is distinct from `BestBlockRootsIterator`.
 ///
 /// Uses the `latest_block_roots` field of `BeaconState` to as the source of block roots and will
 /// perform a lookup on the `Store` for a prior `BeaconState` if `latest_block_roots` has been
