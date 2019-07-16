@@ -227,7 +227,7 @@ impl ChunkStore {
 
 /// Returns a cached padding node for a given height.
 fn get_zero_hash(height: usize) -> &'static [u8] {
-    if height < MAX_TREE_DEPTH {
+    if height <= MAX_TREE_DEPTH {
         &ZERO_HASHES[height]
     } else {
         panic!("Tree exceeds MAX_TREE_DEPTH of {}", MAX_TREE_DEPTH)
