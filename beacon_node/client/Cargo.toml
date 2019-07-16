@@ -23,6 +23,8 @@ eth2_ssz = { path = "../../eth2/utils/ssz" }
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
+slog-json = "^2.3"
+slog-term = "^2.4.0"
 tokio = "0.1.15"
 clap = "2.32.0"
 dirs = "1.0.3"
