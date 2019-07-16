@@ -208,7 +208,7 @@ mod tests {
     use super::*;
     use crate::field::{Basic, Composite, Leaf, Node};
     use ethereum_types::U256;
-    use ssz_types::VariableList;
+    use ssz_types::{FixedVector, VariableList};
     use typenum::U4;
 
     #[derive(Debug, Default)]
@@ -340,6 +340,57 @@ mod tests {
     }
 
     impl Partial for B {
+        fn get_cache(&self) -> &Cache {
+            &self.cache
+        }
+
+        fn get_cache_mut(&mut self) -> &mut Cache {
+            &mut self.cache
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct C {
+        a: VariableList<U256, U4>,
+        cache: Cache,
+    }
+
+    // C's merkle tree
+    //
+    //        c_root(0)
+    //       /         \
+    //     i(1)       i(2)
+    //     /  \       /  \
+    //   a[0] a[1]  a[2] a[3]
+
+    // Should be implemented by derive macro
+    impl MerkleTreeOverlay for C {
+        fn height() -> u8 {
+            0
+        }
+
+        fn first_leaf() -> NodeIndex {
+            0
+        }
+
+        fn last_leaf() -> NodeIndex {
+            0
+        }
+
+        fn get_node(index: NodeIndex) -> Node {
+            if index == 0 {
+                Node::Composite(Composite {
+                    ident: "a".to_owned(),
+                    index: 0,
+                    height: FixedVector::<U256, U4>::height().into(),
+                })
+            } else {
+                FixedVector::<U256, U4>::get_node(index)
+            }
+        }
+    }
+
+    impl Partial for C {
         fn get_cache(&self) -> &Cache {
             &self.cache
         }
@@ -499,4 +550,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn get_partial_vector() {
+        let mut chunk = [0_u8; 96];
+        chunk[31] = 1;
+        chunk[64..96].copy_from_slice(&hash(&[0; 64]));
+
+        let partial = SerializedPartial {
+            indices: vec![5, 6, 1],
+            chunks: chunk.to_vec(),
+        };
+
+        let mut c = C::default();
+
+        assert_eq!(c.load_partial(partial.clone()), Ok(()));
+        assert_eq!(c.fill(), Ok(()));
+
+        assert_eq!(
+            Ok(partial),
+            c.extract_partial(vec![Path::Ident("a".to_string()), Path::Index(2)])
+        );
+    }
 }
