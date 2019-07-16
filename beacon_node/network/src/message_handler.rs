@@ -2,19 +2,20 @@ use crate::error;
 use crate::service::{NetworkMessage, OutgoingMessage};
 use crate::sync::SimpleSync;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use crossbeam_channel::{unbounded as channel, Sender};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::{
     behaviour::PubsubMessage,
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId},
     PeerId, RPCEvent,
 };
-use futures::future;
+use futures::future::Future;
+use futures::stream::Stream;
 use slog::{debug, error, warn};
 use ssz::Decode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 /// Handles messages received from the network and client and organises syncing.
 pub struct MessageHandler<T: BeaconChainTypes> {
@@ -45,13 +46,13 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: crossbeam_channel::Sender<NetworkMessage>,
+        network_send: mpsc::UnboundedSender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<Sender<HandlerMessage>> {
+    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
         debug!(log, "Service starting");
 
-        let (handler_send, handler_recv) = channel();
+        let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         // Initialise sync and begin processing in thread
         // generate the Message handler
@@ -66,13 +67,13 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
         // spawn handler task
         // TODO: Handle manual termination of thread
-        executor.spawn(future::poll_fn(move || -> Result<_, _> {
-            loop {
-                handler.handle_message(handler_recv.recv().map_err(|_| {
+        executor.spawn(
+            handler_recv
+                .for_each(move |msg| Ok(handler.handle_message(msg)))
+                .map_err(move |_| {
                     debug!(log, "Network message handler terminated.");
-                })?);
-            }
-        }));
+                }),
+        );
 
         Ok(handler_send)
     }
@@ -302,7 +303,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
 pub struct NetworkContext {
     /// The network channel to relay messages to the Network service.
-    network_send: crossbeam_channel::Sender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
     /// A mapping of peers and the RPC id we have sent an RPC request to.
     outstanding_outgoing_request_ids: HashMap<(PeerId, RequestId), Instant>,
     /// Stores the next `RequestId` we should include on an outgoing `RPCRequest` to a `PeerId`.
@@ -312,7 +313,7 @@ pub struct NetworkContext {
 }
 
 impl NetworkContext {
-    pub fn new(network_send: crossbeam_channel::Sender<NetworkMessage>, log: slog::Logger) -> Self {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
         Self {
             network_send,
             outstanding_outgoing_request_ids: HashMap::new(),
@@ -348,13 +349,13 @@ impl NetworkContext {
         );
     }
 
-    fn send_rpc_event(&self, peer_id: PeerId, rpc_event: RPCEvent) {
+    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.send(peer_id, OutgoingMessage::RPC(rpc_event))
     }
 
-    fn send(&self, peer_id: PeerId, outgoing_message: OutgoingMessage) {
+    fn send(&mut self, peer_id: PeerId, outgoing_message: OutgoingMessage) {
         self.network_send
-            .send(NetworkMessage::Send(peer_id, outgoing_message))
+            .try_send(NetworkMessage::Send(peer_id, outgoing_message))
             .unwrap_or_else(|_| {
                 warn!(
                     self.log,

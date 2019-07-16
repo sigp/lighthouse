@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse-account-manager";
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 
 fn main() {
@@ -14,13 +14,20 @@ fn main() {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let log = slog::Logger::root(drain, o!());
+    let mut log = slog::Logger::root(drain, o!());
 
     // CLI
     let matches = App::new("Lighthouse Accounts Manager")
         .version("0.0.1")
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Accounts Manager")
+        .arg(
+            Arg::with_name("logfile")
+                .long("logfile")
+                .value_name("logfile")
+                .help("File path where output will be written.")
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
@@ -91,21 +98,12 @@ fn main() {
 
     let mut client_config = ValidatorClientConfig::default();
 
-    if let Err(e) = client_config.apply_cli_args(&matches) {
-        crit!(log, "Failed to apply CLI args"; "error" => format!("{:?}", e));
-        return;
-    };
-
     // Ensure the `data_dir` in the config matches that supplied to the CLI.
     client_config.data_dir = data_dir.clone();
 
-    // Update the client config with any CLI args.
-    match client_config.apply_cli_args(&matches) {
-        Ok(()) => (),
-        Err(s) => {
-            crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
-            return;
-        }
+    if let Err(e) = client_config.apply_cli_args(&matches, &mut log) {
+        crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => format!("{:?}", e));
+        return;
     };
 
     // Log configuration

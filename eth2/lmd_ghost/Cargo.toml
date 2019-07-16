@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 parking_lot = "0.7"
 store = { path = "../../beacon_node/store" }
-ssz = { path = "../utils/ssz" }
+eth2_ssz = { path = "../utils/ssz" }
 state_processing = { path = "../state_processing" }
 types = { path = "../types" }
 log = "0.4.6"

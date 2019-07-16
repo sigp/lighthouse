@@ -14,6 +14,8 @@ use types::{
     Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot,
 };
 
+pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
 pub enum BlockStrategy {
@@ -68,8 +70,8 @@ where
     E: EthSpec,
 {
     pub chain: BeaconChain<CommonTypes<L, E>>,
-    keypairs: Vec<Keypair>,
-    spec: ChainSpec,
+    pub keypairs: Vec<Keypair>,
+    pub spec: ChainSpec,
 }
 
 impl<L, E> BeaconChainHarness<L, E>
@@ -189,7 +191,7 @@ where
     fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
         let state_root = self
             .chain
-            .rev_iter_state_roots(self.chain.current_state().slot)
+            .rev_iter_state_roots(self.chain.current_state().slot - 1)
             .find(|(_hash, slot)| *slot == state_slot)
             .map(|(hash, _slot)| hash)
             .expect("could not find state root");

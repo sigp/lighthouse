@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{iter::BlockRootsIterator, Error as StoreError, Store};
+use store::{iter::BestBlockRootsIterator, Error as StoreError, Store};
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
@@ -530,14 +530,14 @@ where
         Ok(a_root)
     }
 
-    fn iter_ancestors(&self, child: Hash256) -> Result<BlockRootsIterator<E, T>> {
+    fn iter_ancestors(&self, child: Hash256) -> Result<BestBlockRootsIterator<E, T>> {
         let block = self.get_block(child)?;
         let state = self.get_state(block.state_root)?;
 
-        Ok(BlockRootsIterator::owned(
+        Ok(BestBlockRootsIterator::owned(
             self.store.clone(),
             state,
-            block.slot,
+            block.slot - 1,
         ))
     }
 

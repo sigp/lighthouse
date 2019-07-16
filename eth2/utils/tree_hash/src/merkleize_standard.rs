@@ -1,12 +1,23 @@
 use super::*;
 use hashing::hash;
 
-pub fn merkle_root(bytes: &[u8]) -> Vec<u8> {
-    // TODO: replace this with a more memory efficient method.
-    efficient_merkleize(&bytes)[0..32].to_vec()
-}
-
-pub fn efficient_merkleize(bytes: &[u8]) -> Vec<u8> {
+/// Merkleizes bytes and returns the root, using a simple algorithm that does not optimize to avoid
+/// processing or storing padding bytes.
+///
+/// The input `bytes` will be padded to ensure that the number of leaves is a power-of-two.
+///
+/// It is likely a better choice to use [merkleize_padded](fn.merkleize_padded.html) instead.
+///
+/// ## CPU Performance
+///
+/// Will hash all nodes in the tree, even if they are padding and pre-determined.
+///
+/// ## Memory Performance
+///
+///  - Duplicates the input `bytes`.
+///  - Stores all internal nodes, even if they are padding.
+///  - Does not free up unused memory during operation.
+pub fn merkleize_standard(bytes: &[u8]) -> Vec<u8> {
     // If the bytes are just one chunk (or less than one chunk) just return them.
     if bytes.len() <= HASHSIZE {
         let mut o = bytes.to_vec();

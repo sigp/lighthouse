@@ -346,4 +346,34 @@ mod round_trip {
 
         round_trip(vec);
     }
+
+    #[test]
+    fn tuple_u8_u16() {
+        let vec: Vec<(u8, u16)> = vec![
+            (0, 0),
+            (0, 1),
+            (1, 0),
+            (u8::max_value(), u16::max_value()),
+            (0, u16::max_value()),
+            (u8::max_value(), 0),
+            (42, 12301),
+        ];
+
+        round_trip(vec);
+    }
+
+    #[test]
+    fn tuple_vec_vec() {
+        let vec: Vec<(u64, Vec<u8>, Vec<Vec<u16>>)> = vec![
+            (0, vec![], vec![vec![]]),
+            (99, vec![101], vec![vec![], vec![]]),
+            (
+                42,
+                vec![12, 13, 14],
+                vec![vec![99, 98, 97, 96], vec![42, 44, 46, 48, 50]],
+            ),
+        ];
+
+        round_trip(vec);
+    }
 }
