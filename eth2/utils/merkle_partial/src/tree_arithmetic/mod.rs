@@ -1,6 +1,6 @@
 pub mod zeroed;
 
-/// Returns a node's family. `index` is zero indexed.
+/// Return a node's family. `index` is zero indexed.
 pub fn expand_tree_index(index: u64) -> (u64, u64, u64) {
     let left = index - (index & 1) + (index == 1) as u64;
     let right = index + (index & 1 ^ 1) + (index == 1) as u64;
@@ -9,21 +9,23 @@ pub fn expand_tree_index(index: u64) -> (u64, u64, u64) {
     (left, right, parent)
 }
 
-/// Returns the index of a node's sibling. `index` is zero indexed.
+/// Return the index of a node's sibling. `index` is zero indexed.
 pub const fn sibling_index(index: u64) -> u64 {
     index - (index & 1) + (index & 1 ^ 1) + (index == 1) as u64
 }
 
+/// Return the first leaf of a tree described by `root` and `depth`.
 pub const fn left_most_leaf(root: u64, depth: u64) -> u64 {
-    let pow = 1 << depth;
-    root * pow
+    root * (1 << depth)
 }
 
+/// Return the last leaf of a tree described by `root` and `depth`.
 pub const fn right_most_leaf(root: u64, depth: u64) -> u64 {
     let pow = 1 << depth;
     root * pow + pow - 1
 }
 
+/// Determine if `index` is in the subtree rooted at `root`.
 pub const fn is_in_subtree(root: u64, index: u64) -> bool {
     let diff = relative_depth(root, index);
     let left_most = left_most_leaf(root, diff);
@@ -32,6 +34,7 @@ pub const fn is_in_subtree(root: u64, index: u64) -> bool {
     (left_most <= index) & (index <= right_most)
 }
 
+/// Return the depth between two general indicies.
 pub const fn relative_depth(a: u64, b: u64) -> u64 {
     let a = log_base_two(last_power_of_two(a));
     let b = log_base_two(last_power_of_two(b));
@@ -39,7 +42,8 @@ pub const fn relative_depth(a: u64, b: u64) -> u64 {
     b - a
 }
 
-// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+/// Return the next power of two for `n` using bit twiddling.
+/// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
 pub const fn next_power_of_two(n: u64) -> u64 {
     let mut ret: u128 = (n - 1) as u128;
 
@@ -53,6 +57,7 @@ pub const fn next_power_of_two(n: u64) -> u64 {
     (ret + 1) as u64
 }
 
+/// Return the last power of two for `n` using bit twiddling.
 pub const fn last_power_of_two(n: u64) -> u64 {
     let mut ret: u128 = n as u128;
 
@@ -66,10 +71,13 @@ pub const fn last_power_of_two(n: u64) -> u64 {
     ((ret + 1) >> 1) as u64
 }
 
+/// Return the subtree root for `index` assuming the tree is `depth` deep.
 pub const fn root_from_depth(index: u64, depth: u64) -> u64 {
     index / (1 << depth)
 }
 
+/// Return the log of `n` using the De Bruijn method.
+/// https://graphics.stanford.edu/~seander/bithacks.html#IntegerLogDeBruijn
 pub const fn log_base_two(n: u64) -> u64 {
     const DE_BRUIJN_BIT_POSITION: &'static [u64] = &[
         63, 0, 58, 1, 59, 47, 53, 2, 60, 39, 48, 27, 54, 33, 42, 3, 61, 51, 37, 40, 49, 18, 28, 20,
@@ -80,10 +88,12 @@ pub const fn log_base_two(n: u64) -> u64 {
     DE_BRUIJN_BIT_POSITION[(n.wrapping_mul(0x07EDD5E59A4E28C2) >> 58) as usize]
 }
 
+/// Translate the subtree index `index` rooted at `root` into a general index.
 pub const fn subtree_index_to_general(root: u64, index: u64) -> u64 {
     (root * index) - (root - 1) * (index - last_power_of_two(index))
 }
 
+/// Translate the general index `index` into a subtree index rooted at `root`.
 pub const fn general_index_to_subtree(root: u64, index: u64) -> u64 {
     let depth_diff = log_base_two(last_power_of_two(index)) - log_base_two(last_power_of_two(root));
 

@@ -1,5 +1,5 @@
 use super::MerkleTreeOverlay;
-use crate::field::{Basic, Composite, Leaf, Node};
+use crate::field::{Composite, Leaf, Node, Primitive};
 use crate::tree_arithmetic::zeroed::{general_index_to_subtree, relative_depth, root_from_depth};
 use crate::tree_arithmetic::{log_base_two, next_power_of_two};
 use crate::{NodeIndex, BYTES_PER_CHUNK};
@@ -24,7 +24,7 @@ macro_rules! impl_merkle_overlay_for_basic_type {
 
             fn get_node(index: NodeIndex) -> Node {
                 match index {
-                    0 => Node::Leaf(Leaf::Basic(vec![Basic {
+                    0 => Node::Leaf(Leaf::Primitive(vec![Primitive {
                         ident: "".to_owned(),
                         index,
                         size: ($bit_size / 32) as u8,
@@ -125,7 +125,7 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                 } else if index == 1 && $is_variable_length {
                     Node::Intermediate(index)
                 } else if index == 2 && $is_variable_length {
-                    Node::Leaf(Leaf::Length(Basic {
+                    Node::Leaf(Leaf::Length(Primitive {
                         ident: "len".to_string(),
                         index: index,
                         size: 32,
@@ -137,15 +137,15 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                     let node_type = T::get_node(0);
 
                     match node_type {
-                        Node::Leaf(Leaf::Basic(_)) => {
+                        Node::Leaf(Leaf::Primitive(_)) => {
                             let item_size = std::mem::size_of::<T>() as u8;
                             let items_per_chunk = BYTES_PER_CHUNK as u8 / item_size;
 
-                            Node::Leaf(Leaf::Basic(
-                                vec![Basic::default(); items_per_chunk as usize]
+                            Node::Leaf(Leaf::Primitive(
+                                vec![Primitive::default(); items_per_chunk as usize]
                                     .iter()
                                     .enumerate()
-                                    .map(|(i, _)| Basic {
+                                    .map(|(i, _)| Primitive {
                                         ident: ((index - Self::first_leaf())
                                             * items_per_chunk as u64
                                             + i as u64)
@@ -194,7 +194,7 @@ fn replace_index(node: Node, index: NodeIndex) -> Node {
             index: index,
             height: c.height,
         }),
-        Node::Leaf(Leaf::Basic(b)) => Node::Leaf(Leaf::Basic(
+        Node::Leaf(Leaf::Primitive(b)) => Node::Leaf(Leaf::Primitive(
             b.iter()
                 .cloned()
                 .map(|mut x| {
@@ -203,7 +203,7 @@ fn replace_index(node: Node, index: NodeIndex) -> Node {
                 })
                 .collect(),
         )),
-        Node::Leaf(Leaf::Length(b)) => Node::Leaf(Leaf::Length(Basic {
+        Node::Leaf(Leaf::Length(b)) => Node::Leaf(Leaf::Length(Primitive {
             ident: b.ident,
             index: index,
             size: 32,
@@ -254,7 +254,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(2),
-            Node::Leaf(Leaf::Length(Basic {
+            Node::Leaf(Leaf::Length(Primitive {
                 ident: "len".to_string(),
                 index: 2,
                 size: 32,
@@ -264,7 +264,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(15),
-            Node::Leaf(Leaf::Basic(vec![Basic {
+            Node::Leaf(Leaf::Primitive(vec![Primitive {
                 ident: 0.to_string(),
                 index: 15,
                 size: 32,
@@ -274,7 +274,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(18),
-            Node::Leaf(Leaf::Basic(vec![Basic {
+            Node::Leaf(Leaf::Primitive(vec![Primitive {
                 ident: 3.to_string(),
                 index: 18,
                 size: 32,
@@ -284,7 +284,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(22),
-            Node::Leaf(Leaf::Basic(vec![Basic {
+            Node::Leaf(Leaf::Primitive(vec![Primitive {
                 ident: 7.to_string(),
                 index: 22,
                 size: 32,
@@ -315,7 +315,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(2),
-            Node::Leaf(Leaf::Length(Basic {
+            Node::Leaf(Leaf::Length(Primitive {
                 ident: "len".to_string(),
                 index: 2,
                 size: 32,
@@ -325,7 +325,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(16),
-            Node::Leaf(Leaf::Length(Basic {
+            Node::Leaf(Leaf::Length(Primitive {
                 ident: "len".to_string(),
                 index: 16,
                 size: 32,
@@ -335,7 +335,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(22),
-            Node::Leaf(Leaf::Length(Basic {
+            Node::Leaf(Leaf::Length(Primitive {
                 ident: "len".to_string(),
                 index: 22,
                 size: 32,
@@ -354,7 +354,7 @@ mod tests {
 
         assert_eq!(
             T::get_node(176),
-            Node::Leaf(Leaf::Basic(vec![Basic {
+            Node::Leaf(Leaf::Primitive(vec![Primitive {
                 ident: 1.to_string(),
                 index: 176,
                 size: 32,
@@ -401,7 +401,7 @@ mod tests {
         for i in 7..=14 {
             assert_eq!(
                 T::get_node(i),
-                Node::Leaf(Leaf::Basic(vec![Basic {
+                Node::Leaf(Leaf::Primitive(vec![Primitive {
                     ident: (i - 7).to_string(),
                     index: i,
                     size: 32,
@@ -460,7 +460,7 @@ mod tests {
         for i in 31..=62 {
             assert_eq!(
                 T::get_node(i),
-                Node::Leaf(Leaf::Basic(vec![Basic {
+                Node::Leaf(Leaf::Primitive(vec![Primitive {
                     ident: ((i - 31) % 16).to_string(),
                     index: i,
                     size: 32,

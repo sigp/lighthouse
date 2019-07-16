@@ -5,15 +5,15 @@ use crate::field::Node;
 use crate::NodeIndex;
 
 pub trait MerkleTreeOverlay {
-    /// Returns the height of the struct (e.g. log(next_power_of_two(num_leaves)))
+    /// Returns the height of the merkle tree.
     fn height() -> u8;
 
-    /// Gets the `Node` coresponding to the general index.
+    /// Returns the `Node` coresponding to the general index `index` in the merkle tree.
     fn get_node(index: NodeIndex) -> Node;
 
-    /// todo
+    /// Returns the index of the first leaf in the merkle tree.
     fn first_leaf() -> NodeIndex;
 
-    /// todo
+    /// Returns the index of the last leaf in the merkle tree.
     fn last_leaf() -> NodeIndex;
 }

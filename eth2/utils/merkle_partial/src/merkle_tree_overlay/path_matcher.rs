@@ -5,13 +5,16 @@ use crate::path::Path;
 use crate::tree_arithmetic::zeroed::subtree_index_to_general;
 use crate::NodeIndex;
 
-pub fn match_path<T: MerkleTreeOverlay>(
+/// Find the `index`, `height`, `offset`, and `size` of node matching `path` for the type `T`.
+pub fn match_path<T: MerkleTreeOverlay + ?Sized>(
     path: Path,
     root: NodeIndex,
     height: u8,
 ) -> Result<(NodeIndex, u8, u8, u8)> {
+    // If the path is an `Index` type then the coresponding node can be directly calculated, but
+    // for `Ident` paths the only way to locate the field is loop through every leaf.
     let leaves = match path.clone() {
-        Path::Ident(_) => vec![0; 1_usize << height]
+        Path::Ident(_) => vec![0; 1_usize << T::height()]
             .iter()
             .enumerate()
             .map(|(i, _)| {
@@ -21,12 +24,15 @@ pub fn match_path<T: MerkleTreeOverlay>(
                 ))
             })
             .collect(),
-        Path::Index(i) => vec![T::get_node(compute_first_leaf(height) + i)],
+        Path::Index(i) => vec![T::get_node(subtree_index_to_general(
+            root,
+            compute_first_leaf(height) + i,
+        ))],
     };
 
     for leaf in leaves {
         match leaf {
-            Node::Leaf(Leaf::Basic(chunk_fields)) => {
+            Node::Leaf(Leaf::Primitive(chunk_fields)) => {
                 for field in chunk_fields {
                     if path.to_string() == field.ident {
                         return Ok((field.index, 0, field.offset, field.size));

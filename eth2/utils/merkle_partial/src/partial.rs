@@ -1,7 +1,6 @@
 use super::{NodeIndex, SerializedPartial};
 use crate::cache::Cache;
 use crate::error::{Error, Result};
-use crate::field::{Leaf, Node};
 use crate::merkle_tree_overlay::path_matcher::match_path;
 use crate::merkle_tree_overlay::MerkleTreeOverlay;
 use crate::path::Path;
@@ -10,7 +9,7 @@ use hashing::hash;
 use tree_hash::BYTES_PER_CHUNK;
 
 /// The `Partial` trait allows for `SerializedPartial`s to be generated and verified for a struct.
-pub trait Partial: MerkleTreeOverlay + Sized {
+pub trait Partial: MerkleTreeOverlay {
     /// Gets a reference to the struct's `Cache` which stores known nodes.
     fn get_cache(&self) -> &Cache;
 
@@ -42,12 +41,12 @@ pub trait Partial: MerkleTreeOverlay + Sized {
     }
 
     /// Returns the bytes representation of the object associated with `path`
-    fn bytes_at_path(&self, path: Vec<Path>, root: NodeIndex) -> Result<Vec<u8>> {
+    fn bytes_at_path(&self, path: Vec<Path>) -> Result<Vec<u8>> {
         if path.len() == 0 {
             return Err(Error::EmptyPath());
         }
 
-        let (index, begin, end) = bytes_at_path_helper::<Self>(path, root, Self::height())?;
+        let (index, begin, end) = bytes_at_path_helper::<Self>(path, 0, Self::height())?;
 
         Ok(self
             .get_cache()
@@ -57,27 +56,12 @@ pub trait Partial: MerkleTreeOverlay + Sized {
     }
 
     /// Return whether a path has been loade into the partial.
-    fn is_path_loaded(&self, path: Vec<&str>) -> bool {
-        let height = Self::height();
-
-        let mut leaves: Vec<Node> = vec![];
-        for i in 2_u64.pow(height as u32)..(2_u64.pow(height as u32 + 1) - 1) {
-            leaves.push(Self::get_node(i as NodeIndex - 1));
+    fn is_path_loaded(&self, path: Vec<Path>) -> bool {
+        if let Ok(_) = self.bytes_at_path(path) {
+            true
+        } else {
+            false
         }
-
-        for leaf in leaves {
-            if let Node::Leaf(Leaf::Basic(chunk_fields)) = leaf {
-                for field in chunk_fields {
-                    if path[0] == field.ident {
-                        if let Some(_) = self.get_cache().get(field.index) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        false
     }
 
     /// Determines if the current merkle tree is valid.
@@ -135,7 +119,7 @@ pub trait Partial: MerkleTreeOverlay + Sized {
 
 /// Recursively traverse the tree structure, matching the appropriate `path` element with its index,
 /// eventually returning the `indicies` and `chunks` needed to generate the partial for the path.
-fn extract_partial_helper<T: MerkleTreeOverlay>(
+fn extract_partial_helper<T: MerkleTreeOverlay + ?Sized>(
     cache: &Cache,
     root: NodeIndex,
     height: u8,
@@ -174,7 +158,7 @@ fn extract_partial_helper<T: MerkleTreeOverlay>(
 
 /// Recursively traverse the tree structure, matching the appropriate `path` element with its index,
 /// eventually returning the chunk index, beginning offset, and end offset of the associated value.
-fn bytes_at_path_helper<T: MerkleTreeOverlay>(
+fn bytes_at_path_helper<T: MerkleTreeOverlay + ?Sized>(
     path: Vec<Path>,
     root: NodeIndex,
     height: u8,
@@ -206,7 +190,7 @@ fn hash_children(left: &[u8], right: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::{Basic, Composite, Leaf, Node};
+    use crate::field::{Composite, Leaf, Node, Primitive};
     use ethereum_types::U256;
     use ssz_types::{FixedVector, VariableList};
     use typenum::U4;
@@ -255,26 +239,26 @@ mod tests {
                 }),
                 1 => Node::Intermediate(2),
                 2 => Node::Intermediate(3),
-                3 => Node::Leaf(Leaf::Basic(vec![Basic {
+                3 => Node::Leaf(Leaf::Primitive(vec![Primitive {
                     ident: "a".to_owned(),
                     index: index,
                     size: 32,
                     offset: 0,
                 }])),
-                4 => Node::Leaf(Leaf::Basic(vec![Basic {
+                4 => Node::Leaf(Leaf::Primitive(vec![Primitive {
                     ident: "b".to_owned(),
                     index: index,
                     size: 32,
                     offset: 0,
                 }])),
-                5 => Node::Leaf(Leaf::Basic(vec![
-                    Basic {
+                5 => Node::Leaf(Leaf::Primitive(vec![
+                    Primitive {
                         ident: "c".to_owned(),
                         index: index,
                         size: 16,
                         offset: 0,
                     },
-                    Basic {
+                    Primitive {
                         ident: "d".to_owned(),
                         index: index,
                         size: 16,
@@ -466,33 +450,33 @@ mod tests {
 
         assert_eq!(a.load_partial(partial.clone()), Ok(()));
 
-        assert_eq!(a.is_path_loaded(vec!["a"]), true);
+        assert_eq!(a.is_path_loaded(vec![Path::Ident("a".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("a".to_string())], 0),
+            a.bytes_at_path(vec![Path::Ident("a".to_string())]),
             Ok(arr[0..32].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec!["b"]), true);
+        assert_eq!(a.is_path_loaded(vec![Path::Ident("b".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("b".to_string())], 0),
+            a.bytes_at_path(vec![Path::Ident("b".to_string())]),
             Ok(arr[32..64].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec!["c"]), true);
+        assert_eq!(a.is_path_loaded(vec![Path::Ident("c".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("c".to_string())], 0),
+            a.bytes_at_path(vec![Path::Ident("c".to_string())]),
             Ok(arr[64..80].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec!["d"]), true);
+        assert_eq!(a.is_path_loaded(vec![Path::Ident("d".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("d".to_string())], 0),
+            a.bytes_at_path(vec![Path::Ident("d".to_string())]),
             Ok(arr[80..96].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec!["e"]), false);
+        assert_eq!(a.is_path_loaded(vec![Path::Ident("e".to_string())]), false);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("e".to_string())], 0),
+            a.bytes_at_path(vec![Path::Ident("e".to_string())]),
             Err(Error::InvalidPath(Path::Ident("e".to_string())))
         );
     }
