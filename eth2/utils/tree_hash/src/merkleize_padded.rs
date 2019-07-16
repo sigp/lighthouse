@@ -125,7 +125,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
     // in the tree as it is the root does not require hashing.
     //
     // The padding nodes for each height are cached via `lazy static` to simulate non-adjacent
-    // padding nodes (i.e., avoid doing unnessary hashing).
+    // padding nodes (i.e., avoid doing unnecessary hashing).
     for height in 1..height - 1 {
         let child_nodes = chunks.len();
         let parent_nodes = next_even_number(child_nodes) / 2;
@@ -151,7 +151,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
                 "Both children should be `BYTES_PER_CHUNK` bytes."
             );
 
-            let hash = hash_concat(&left.to_vec(), &right.to_vec());
+            let hash = hash_concat(left, right);
 
             // Store a parent node.
             chunks
