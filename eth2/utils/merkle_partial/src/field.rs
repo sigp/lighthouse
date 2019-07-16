@@ -17,18 +17,19 @@ pub enum Leaf {
     Padding(),
 }
 
-/// Describes a true
+/// Describes the identifier, size, and offset of a primitive SSZ type associated with `index`.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Primitive {
-    pub ident: String,
     pub index: NodeIndex,
+    pub ident: String,
     pub size: u8,
     pub offset: u8,
 }
 
+/// Describes the identifier and height of a composite SSZ type associated with `index`.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Composite {
-    pub ident: String,
     pub index: NodeIndex,
+    pub ident: String,
     pub height: u8,
 }
