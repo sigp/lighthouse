@@ -133,6 +133,9 @@ impl Stream for Service {
                     BehaviourEvent::PeerDialed(peer_id) => {
                         return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
                     }
+                    BehaviourEvent::PeerDisconnected(peer_id) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::PeerDisconnected(peer_id))));
+                    }
                 },
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
@@ -182,6 +185,8 @@ pub enum Libp2pEvent {
     RPC(PeerId, RPCEvent),
     /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
+    /// A peer has disconnected.
+    PeerDisconnected(PeerId),
     /// Received pubsub message.
     PubsubMessage {
         source: PeerId,

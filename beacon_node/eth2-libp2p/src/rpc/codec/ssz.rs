@@ -18,7 +18,7 @@ pub struct SSZInboundCodec {
 
 impl SSZInboundCodec {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
-        let uvi_codec = UviBytes::default();
+        let mut uvi_codec = UviBytes::default();
         uvi_codec.set_max_len(max_packet_size);
 
         // this encoding only applies to ssz.
@@ -41,7 +41,6 @@ impl Encoder for SSZInboundCodec {
             RPCErrorResponse::Success(resp) => {
                 match resp {
                     RPCResponse::Hello(res) => res.as_ssz_bytes(),
-                    RPCResponse::Goodbye => unreachable!(),
                     RPCResponse::BeaconBlockRoots(res) => res.as_ssz_bytes(),
                     RPCResponse::BeaconBlockHeaders(res) => res.headers, // already raw bytes
                     RPCResponse::BeaconBlockBodies(res) => res.block_bodies, // already raw bytes
@@ -80,7 +79,9 @@ impl Decoder for SSZInboundCodec {
                     _ => Err(RPCError::InvalidProtocol("Unknown HELLO version")),
                 },
                 "goodbye" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCRequest::Goodbye(Goodbye::from_ssz_bytes(&packet)?))),
+                    "1.0.0" => Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
+                        &packet,
+                    )?))),
                     _ => Err(RPCError::InvalidProtocol(
                         "Unknown GOODBYE version.as_str()",
                     )),
@@ -117,6 +118,7 @@ impl Decoder for SSZInboundCodec {
                         "Unknown BEACON_CHAIN_STATE version.",
                     )),
                 },
+                _ => Err(RPCError::InvalidProtocol("Unknown message name.")),
             },
             Ok(None) => Ok(None),
             Err(e) => Err(e),
@@ -133,7 +135,7 @@ pub struct SSZOutboundCodec {
 
 impl SSZOutboundCodec {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
-        let uvi_codec = UviBytes::default();
+        let mut uvi_codec = UviBytes::default();
         uvi_codec.set_max_len(max_packet_size);
 
         // this encoding only applies to ssz.
@@ -204,6 +206,8 @@ impl Decoder for SSZOutboundCodec {
                     "1.0.0" => Ok(Some(RPCResponse::BeaconBlockBodies(
                         BeaconBlockBodiesResponse {
                             block_bodies: packet.to_vec(),
+                            // this gets filled in the protocol handler
+                            block_roots: None,
                         },
                     ))),
                     _ => Err(RPCError::InvalidProtocol(
