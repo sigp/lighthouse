@@ -25,8 +25,7 @@ pub use verify_transfer::{
     execute_transfer, verify_transfer, verify_transfer_time_independent_only,
 };
 
-// FIXME(freeze): re-enable
-// pub mod block_processing_builder;
+pub mod block_processing_builder;
 pub mod errors;
 mod is_valid_indexed_attestation;
 pub mod tests;

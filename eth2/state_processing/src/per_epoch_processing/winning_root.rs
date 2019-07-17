@@ -109,9 +109,11 @@ mod tests {
     fn is_better_than() {
         let worse = WinningRoot {
             crosslink: Crosslink {
-                epoch: Epoch::new(0),
-                previous_crosslink_root: Hash256::from_slice(&[0; 32]),
-                crosslink_data_root: Hash256::from_slice(&[1; 32]),
+                shard: 0,
+                start_epoch: Epoch::new(0),
+                end_epoch: Epoch::new(1),
+                parent_root: Hash256::from_slice(&[0; 32]),
+                data_root: Hash256::from_slice(&[1; 32]),
             },
             attesting_validator_indices: vec![],
             total_attesting_balance: 42,
