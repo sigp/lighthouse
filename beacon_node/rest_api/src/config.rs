@@ -25,20 +25,20 @@ impl Default for Config {
 
 impl Config {
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
-        if args.is_present("rest-api") {
+        if args.is_present("api") {
             self.enabled = true;
         }
 
-        if let Some(rpc_address) = args.value_of("rest-api-address") {
+        if let Some(rpc_address) = args.value_of("api-address") {
             self.listen_address = rpc_address
                 .parse::<Ipv4Addr>()
-                .map_err(|_| "rest-api-address is not a valid IPv4 address.")?;
+                .map_err(|_| "api-address is not a valid IPv4 address.")?;
         }
 
-        if let Some(rpc_port) = args.value_of("rpc-port") {
+        if let Some(rpc_port) = args.value_of("api-port") {
             self.port = rpc_port
                 .parse::<u16>()
-                .map_err(|_| "rest-api-port is not a valid u16.")?;
+                .map_err(|_| "api-port is not a valid u16.")?;
         }
 
         Ok(())
