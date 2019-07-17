@@ -17,7 +17,7 @@ where
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        tree_hash::impls::vec_tree_hash_root(&self.vec)
+        unimplemented!("TreeHash is not implemented for FixedLenVec")
     }
 }
 
@@ -27,24 +27,20 @@ where
 {
     fn new_tree_hash_cache(
         &self,
-        depth: usize,
+        _depth: usize,
     ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        let (cache, _overlay) = cached_tree_hash::vec::new_tree_hash_cache(&self.vec, depth)?;
-
-        Ok(cache)
+        unimplemented!("CachedTreeHash is not implemented for FixedLenVec")
     }
 
-    fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-        cached_tree_hash::vec::produce_schema(&self.vec, depth)
+    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
+        unimplemented!("CachedTreeHash is not implemented for FixedLenVec")
     }
 
     fn update_tree_hash_cache(
         &self,
-        cache: &mut cached_tree_hash::TreeHashCache,
+        _cache: &mut cached_tree_hash::TreeHashCache,
     ) -> Result<(), cached_tree_hash::Error> {
-        cached_tree_hash::vec::update_tree_hash_cache(&self.vec, cache)?;
-
-        Ok(())
+        unimplemented!("CachedTreeHash is not implemented for FixedLenVec")
     }
 }
 
