@@ -1,3 +1,4 @@
+use crate::tree_hash::bitfield_bytes_tree_hash_root;
 use crate::Error;
 use core::marker::PhantomData;
 use serde::de::{Deserialize, Deserializer};
@@ -585,8 +586,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Variable<N>> {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        // TODO: pad this out to max length.
-        self.as_ssz_bytes().tree_hash_root()
+        bitfield_bytes_tree_hash_root::<N>(&self.as_ssz_bytes())
     }
 }
 
@@ -607,84 +607,51 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        self.as_ssz_bytes().tree_hash_root()
+        bitfield_bytes_tree_hash_root::<N>(&self.as_ssz_bytes())
     }
 }
 
 impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<Variable<N>> {
     fn new_tree_hash_cache(
         &self,
-        depth: usize,
+        _depth: usize,
     ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        let bytes = self.clone().into_bytes();
-
-        let (mut cache, schema) = cached_tree_hash::vec::new_tree_hash_cache(&bytes, depth)?;
-
-        cache.add_length_nodes(schema.into_overlay(0).chunk_range(), bytes.len())?;
-
-        Ok(cache)
+        unimplemented!("CachedTreeHash is not implemented for BitList")
     }
 
     fn num_tree_hash_cache_chunks(&self) -> usize {
-        // Add two extra nodes to cater for the node before and after to allow mixing-in length.
-        cached_tree_hash::BTreeOverlay::new(self, 0, 0).num_chunks() + 2
+        unimplemented!("CachedTreeHash is not implemented for BitList")
     }
 
-    fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-        let bytes = self.clone().into_bytes();
-        cached_tree_hash::vec::produce_schema(&bytes, depth)
+    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
+        unimplemented!("CachedTreeHash is not implemented for BitList")
     }
 
     fn update_tree_hash_cache(
         &self,
-        cache: &mut cached_tree_hash::TreeHashCache,
+        _cache: &mut cached_tree_hash::TreeHashCache,
     ) -> Result<(), cached_tree_hash::Error> {
-        let bytes = self.clone().into_bytes();
-
-        // Skip the length-mixed-in root node.
-        cache.chunk_index += 1;
-
-        // Update the cache, returning the new overlay.
-        let new_overlay = cached_tree_hash::vec::update_tree_hash_cache(&bytes, cache)?;
-
-        // Mix in length
-        cache.mix_in_length(new_overlay.chunk_range(), bytes.len())?;
-
-        // Skip an extra node to clear the length node.
-        cache.chunk_index += 1;
-
-        Ok(())
+        unimplemented!("CachedTreeHash is not implemented for BitList")
     }
 }
 
 impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<Fixed<N>> {
     fn new_tree_hash_cache(
         &self,
-        depth: usize,
+        _depth: usize,
     ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        let (cache, _schema) =
-            cached_tree_hash::vec::new_tree_hash_cache(&ssz::ssz_encode(self), depth)?;
-
-        Ok(cache)
+        unimplemented!("CachedTreeHash is not implemented for BitVec")
     }
 
-    fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-        let lengths = vec![
-            1;
-            cached_tree_hash::merkleize::num_unsanitized_leaves(bytes_for_bit_len(
-                N::to_usize()
-            ))
-        ];
-        cached_tree_hash::BTreeSchema::from_lengths(depth, lengths)
+    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
+        unimplemented!("CachedTreeHash is not implemented for BitVec")
     }
 
     fn update_tree_hash_cache(
         &self,
-        cache: &mut cached_tree_hash::TreeHashCache,
+        _cache: &mut cached_tree_hash::TreeHashCache,
     ) -> Result<(), cached_tree_hash::Error> {
-        cached_tree_hash::vec::update_tree_hash_cache(&ssz::ssz_encode(self), cache)?;
-
-        Ok(())
+        unimplemented!("CachedTreeHash is not implemented for BitVec")
     }
 }
 
