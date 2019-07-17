@@ -1,6 +1,9 @@
 use super::MerkleTreeOverlay;
 use crate::field::{Composite, Leaf, Node, Primitive};
-use crate::tree_arithmetic::zeroed::{general_index_to_subtree, relative_depth, root_from_depth};
+use crate::tree_arithmetic::zeroed::{
+    general_index_to_subtree, left_most_leaf, relative_depth, right_most_leaf, root_from_depth,
+    subtree_index_to_general,
+};
 use crate::tree_arithmetic::{log_base_two, next_power_of_two};
 use crate::{NodeIndex, BYTES_PER_CHUNK};
 use ethereum_types::U256;
@@ -85,20 +88,17 @@ macro_rules! impl_merkle_overlay_for_collection_type {
             }
 
             fn first_leaf() -> NodeIndex {
-                (1_u64 << Self::height()) - 1
+                left_most_leaf(0, Self::height() as u64)
             }
 
             fn last_leaf() -> NodeIndex {
                 if $is_variable_length {
-                    // last_leaf = 2^h + (2^h / 2) - 2
-                    //
-                    // The last leaf in the data tree would be first leaf, plus half the total number of leaves,
-                    // because the data tree is only in the left side of the full tree. The leaves afterwards
-                    // are children of the length node and are unattached.
-                    (1_u64 << Self::height()) + (1_u64 << (Self::height() - 1)) - 2
+                    // The last leaf in the data tree would be the right most leaf in the subtree
+                    // rooted at 1, because the subtree rooted at 2 only defines the length of the
+                    // structure and all of its children are unattached.
+                    subtree_index_to_general(1, right_most_leaf(0, (Self::height() - 1) as u64))
                 } else {
-                    // last_leaf = 2^h + 2^h - 2
-                    (1_u64 << Self::height() + 1) - 2
+                    right_most_leaf(0, Self::height() as u64)
                 }
             }
 
@@ -109,7 +109,7 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                 let (first_internal, last_internal) = if first_leaf == 0 || first_leaf == 1 {
                     (0, 0)
                 } else {
-                    (1, (1_u64 << Self::height()) - 2)
+                    (1, first_leaf - 1)
                 };
 
                 // The `index` can either i) exist within the current object and directly match a local

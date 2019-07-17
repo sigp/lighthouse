@@ -18,11 +18,11 @@ pub const fn sibling_index(index: u64) -> u64 {
 }
 
 pub const fn left_most_leaf(root: u64, depth: u64) -> u64 {
-    tree_arithmetic::left_most_leaf(root + 1, depth + 1) - 1
+    tree_arithmetic::left_most_leaf(root + 1, depth) - 1
 }
 
 pub const fn right_most_leaf(root: u64, depth: u64) -> u64 {
-    tree_arithmetic::right_most_leaf(root + 1, depth + 1) - 1
+    tree_arithmetic::right_most_leaf(root + 1, depth) - 1
 }
 
 pub const fn is_in_subtree(root: u64, index: u64) -> bool {

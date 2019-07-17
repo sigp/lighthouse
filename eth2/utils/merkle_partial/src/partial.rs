@@ -6,22 +6,33 @@ use crate::merkle_tree_overlay::MerkleTreeOverlay;
 use crate::path::Path;
 use crate::tree_arithmetic::zeroed::{expand_tree_index, sibling_index};
 use hashing::hash;
+use std::marker::PhantomData;
 use tree_hash::BYTES_PER_CHUNK;
 
-/// The `Partial` trait allows for `SerializedPartial`s to be generated and verified for a struct.
-pub trait Partial: MerkleTreeOverlay {
-    /// Gets a reference to the struct's `Cache` which stores known nodes.
-    fn get_cache(&self) -> &Cache;
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Partial<T: MerkleTreeOverlay> {
+    cache: Cache,
+    _phantom: PhantomData<T>,
+}
 
-    /// Gets a mutable reference to the struct's `Cache` which stores known nodes.
-    fn get_cache_mut(&mut self) -> &mut Cache;
+/// The `Partial` trait allows for `SerializedPartial`s to be generated and verified for a struct.
+impl<T: MerkleTreeOverlay> Partial<T> {
+    /// Populates the struct's cache with a `SerializedPartial`.
+    pub fn load_partial(&mut self, partial: SerializedPartial) -> Result<()> {
+        for (i, index) in partial.indices.iter().enumerate() {
+            let chunk = partial.chunks[i * BYTES_PER_CHUNK..(i + 1) * BYTES_PER_CHUNK].to_vec();
+            self.cache.insert(*index, chunk.clone());
+        }
+
+        Ok(())
+    }
 
     /// Generates a `SerializedPartial` proving that `path` is a part of the current merkle tree.
-    fn extract_partial(&self, path: Vec<Path>) -> Result<SerializedPartial> {
-        let (indices, chunks) = extract_partial_helper::<Self>(
-            self.get_cache(),
+    pub fn extract_partial(&self, path: Vec<Path>) -> Result<SerializedPartial> {
+        let (indices, chunks) = extract_partial_helper::<T>(
+            &self.cache,
             0,
-            Self::height(),
+            T::height(),
             path,
             &mut vec![],
             &mut vec![],
@@ -30,33 +41,19 @@ pub trait Partial: MerkleTreeOverlay {
         Ok(SerializedPartial { indices, chunks })
     }
 
-    /// Populates the struct's cache with a `SerializedPartial`.
-    fn load_partial(&mut self, partial: SerializedPartial) -> Result<()> {
-        for (i, index) in partial.indices.iter().enumerate() {
-            let chunk = partial.chunks[i * BYTES_PER_CHUNK..(i + 1) * BYTES_PER_CHUNK].to_vec();
-            self.get_cache_mut().insert(*index, chunk.clone());
-        }
-
-        Ok(())
-    }
-
     /// Returns the bytes representation of the object associated with `path`
-    fn bytes_at_path(&self, path: Vec<Path>) -> Result<Vec<u8>> {
+    pub fn bytes_at_path(&self, path: Vec<Path>) -> Result<Vec<u8>> {
         if path.len() == 0 {
             return Err(Error::EmptyPath());
         }
 
-        let (index, begin, end) = bytes_at_path_helper::<Self>(path, 0, Self::height())?;
+        let (index, begin, end) = bytes_at_path_helper::<T>(path, 0, T::height())?;
 
-        Ok(self
-            .get_cache()
-            .get(index)
-            .ok_or(Error::MissingNode(index))?[begin..end]
-            .to_vec())
+        Ok(self.cache.get(index).ok_or(Error::MissingNode(index))?[begin..end].to_vec())
     }
 
     /// Return whether a path has been loade into the partial.
-    fn is_path_loaded(&self, path: Vec<Path>) -> bool {
+    pub fn is_path_loaded(&self, path: Vec<Path>) -> bool {
         if let Ok(_) = self.bytes_at_path(path) {
             true
         } else {
@@ -65,15 +62,14 @@ pub trait Partial: MerkleTreeOverlay {
     }
 
     /// Determines if the current merkle tree is valid.
-    fn is_valid(&self) -> bool {
-        let cache = self.get_cache();
-        for node in cache.nodes() {
+    pub fn is_valid(&self) -> bool {
+        for node in self.cache.nodes() {
             let (left, right, parent) = expand_tree_index(node);
 
             if node > 1 {
-                let left = cache.get(left);
-                let right = cache.get(right);
-                let parent = cache.get(parent);
+                let left = self.cache.get(left);
+                let right = self.cache.get(right);
+                let parent = self.cache.get(parent);
 
                 if let (Some(left), Some(right), Some(parent)) = (left, right, parent) {
                     if hash_children(&left, &right) != *parent {
@@ -87,26 +83,24 @@ pub trait Partial: MerkleTreeOverlay {
     }
 
     /// Inserts missing nodes into the merkle tree that can be generated from existing nodes.
-    fn fill(&mut self) -> Result<()> {
-        let cache = self.get_cache_mut();
-
-        let mut nodes: Vec<u64> = cache.nodes();
+    pub fn fill(&mut self) -> Result<()> {
+        let mut nodes: Vec<u64> = self.cache.nodes();
         nodes.sort_by(|a, b| b.cmp(a));
 
         let mut position = 0;
         while position < nodes.len() {
             let (left, right, parent) = expand_tree_index(nodes[position]);
 
-            if cache.contains_node(left)
-                && cache.contains_node(right)
-                && !cache.contains_node(parent)
+            if self.cache.contains_node(left)
+                && self.cache.contains_node(right)
+                && !self.cache.contains_node(parent)
             {
                 let h = hash_children(
-                    &cache.get(left).ok_or(Error::MissingNode(left))?,
-                    &cache.get(right).ok_or(Error::MissingNode(right))?,
+                    &self.cache.get(left).ok_or(Error::MissingNode(left))?,
+                    &self.cache.get(right).ok_or(Error::MissingNode(right))?,
                 );
 
-                cache.insert(parent, h);
+                self.cache.insert(parent, h);
                 nodes.push(parent);
             }
 
@@ -271,16 +265,6 @@ mod tests {
         }
     }
 
-    impl Partial for A {
-        fn get_cache(&self) -> &Cache {
-            &self.cache
-        }
-
-        fn get_cache_mut(&mut self) -> &mut Cache {
-            &mut self.cache
-        }
-    }
-
     #[derive(Debug, Default)]
     struct B {
         a: VariableList<u128, U4>,
@@ -320,16 +304,6 @@ mod tests {
             } else {
                 VariableList::<u128, U4>::get_node(index)
             }
-        }
-    }
-
-    impl Partial for B {
-        fn get_cache(&self) -> &Cache {
-            &self.cache
-        }
-
-        fn get_cache_mut(&mut self) -> &mut Cache {
-            &mut self.cache
         }
     }
 
@@ -374,16 +348,6 @@ mod tests {
         }
     }
 
-    impl Partial for C {
-        fn get_cache(&self) -> &Cache {
-            &self.cache
-        }
-
-        fn get_cache_mut(&mut self) -> &mut Cache {
-            &mut self.cache
-        }
-    }
-
     #[test]
     fn is_valid_partial() {
         let mut cache: Cache = Cache::default();
@@ -401,32 +365,23 @@ mod tests {
         // root node
         cache.insert(0, hash_children(&cache[1], &cache[2]));
 
-        let mut a = A::default();
-        a.cache = cache;
+        let p = Partial::<A>::default();
 
-        assert_eq!(a.is_valid(), true);
+        assert_eq!(p.is_valid(), true);
     }
 
     #[test]
     fn can_fill_cache() {
-        let mut cache = Cache::default();
+        let mut p = Partial::<A>::default();
 
         // leaf nodes
-        cache.insert(7, vec![7; BYTES_PER_CHUNK]);
-        cache.insert(6, vec![6; BYTES_PER_CHUNK]);
-        cache.insert(5, vec![5; BYTES_PER_CHUNK]);
-        cache.insert(4, vec![4; BYTES_PER_CHUNK]);
+        p.cache.insert(7, vec![7; BYTES_PER_CHUNK]);
+        p.cache.insert(6, vec![6; BYTES_PER_CHUNK]);
+        p.cache.insert(5, vec![5; BYTES_PER_CHUNK]);
+        p.cache.insert(4, vec![4; BYTES_PER_CHUNK]);
 
-        let mut a = A {
-            a: 1.into(),
-            b: 2.into(),
-            c: 3,
-            d: 4,
-            cache,
-        };
-
-        assert_eq!(a.fill(), Ok(()));
-        assert_eq!(a.is_valid(), true);
+        assert_eq!(p.fill(), Ok(()));
+        assert_eq!(p.is_valid(), true);
     }
 
     #[test]
@@ -446,37 +401,37 @@ mod tests {
             chunks: arr.to_vec(),
         };
 
-        let mut a = A::default();
+        let mut p = Partial::<A>::default();
 
-        assert_eq!(a.load_partial(partial.clone()), Ok(()));
+        assert_eq!(p.load_partial(partial.clone()), Ok(()));
 
-        assert_eq!(a.is_path_loaded(vec![Path::Ident("a".to_string())]), true);
+        assert_eq!(p.is_path_loaded(vec![Path::Ident("a".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("a".to_string())]),
+            p.bytes_at_path(vec![Path::Ident("a".to_string())]),
             Ok(arr[0..32].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec![Path::Ident("b".to_string())]), true);
+        assert_eq!(p.is_path_loaded(vec![Path::Ident("b".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("b".to_string())]),
+            p.bytes_at_path(vec![Path::Ident("b".to_string())]),
             Ok(arr[32..64].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec![Path::Ident("c".to_string())]), true);
+        assert_eq!(p.is_path_loaded(vec![Path::Ident("c".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("c".to_string())]),
+            p.bytes_at_path(vec![Path::Ident("c".to_string())]),
             Ok(arr[64..80].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec![Path::Ident("d".to_string())]), true);
+        assert_eq!(p.is_path_loaded(vec![Path::Ident("d".to_string())]), true);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("d".to_string())]),
+            p.bytes_at_path(vec![Path::Ident("d".to_string())]),
             Ok(arr[80..96].to_vec())
         );
 
-        assert_eq!(a.is_path_loaded(vec![Path::Ident("e".to_string())]), false);
+        assert_eq!(p.is_path_loaded(vec![Path::Ident("e".to_string())]), false);
         assert_eq!(
-            a.bytes_at_path(vec![Path::Ident("e".to_string())]),
+            p.bytes_at_path(vec![Path::Ident("e".to_string())]),
             Err(Error::InvalidPath(Path::Ident("e".to_string())))
         );
     }
@@ -500,13 +455,13 @@ mod tests {
             chunks: arr.to_vec(),
         };
 
-        let mut a = A::default();
+        let mut p = Partial::<A>::default();
 
-        assert_eq!(a.load_partial(partial.clone()), Ok(()));
-        assert_eq!(a.fill(), Ok(()));
+        assert_eq!(p.load_partial(partial.clone()), Ok(()));
+        assert_eq!(p.fill(), Ok(()));
         assert_eq!(
             Ok(partial),
-            a.extract_partial(vec![Path::Ident("a".to_string())])
+            p.extract_partial(vec![Path::Ident("a".to_string())])
         );
     }
 
@@ -523,14 +478,14 @@ mod tests {
             chunks: chunk.to_vec(),
         };
 
-        let mut b = B::default();
+        let mut p = Partial::<B>::default();
 
-        assert_eq!(b.load_partial(partial.clone()), Ok(()));
-        assert_eq!(b.fill(), Ok(()));
+        assert_eq!(p.load_partial(partial.clone()), Ok(()));
+        assert_eq!(p.fill(), Ok(()));
 
         assert_eq!(
             Ok(partial),
-            b.extract_partial(vec![Path::Ident("a".to_string()), Path::Index(0)])
+            p.extract_partial(vec![Path::Ident("a".to_string()), Path::Index(0)])
         );
     }
 
@@ -545,14 +500,13 @@ mod tests {
             chunks: chunk.to_vec(),
         };
 
-        let mut c = C::default();
-
-        assert_eq!(c.load_partial(partial.clone()), Ok(()));
-        assert_eq!(c.fill(), Ok(()));
+        let mut p = Partial::<C>::default();
+        assert_eq!(p.load_partial(partial.clone()), Ok(()));
+        assert_eq!(p.fill(), Ok(()));
 
         assert_eq!(
             Ok(partial),
-            c.extract_partial(vec![Path::Ident("a".to_string()), Path::Index(2)])
+            p.extract_partial(vec![Path::Ident("a".to_string()), Path::Index(2)])
         );
     }
 }
