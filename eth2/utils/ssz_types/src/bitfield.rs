@@ -404,35 +404,29 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
         self.bytes.iter().all(|byte| *byte == 0)
     }
 
-    /// Compute the difference (binary-minus) of this bitfield with another. Lengths must match.
-    ///
-    /// Returns `None` if `self.is_comparable(other) == false`.
-    pub fn difference(&self, other: &Self) -> Option<Self> {
-        if self.is_comparable(other) {
-            let mut res = self.clone();
-            res.difference_inplace(other);
-            Some(res)
-        } else {
-            None
-        }
+    /// Returns the number of bits that are set to `true`.
+    pub fn num_set_bits(&self) -> usize {
+        self.bytes
+            .iter()
+            .map(|byte| byte.count_ones() as usize)
+            .sum()
     }
 
-    /// Like `difference` but in-place (updates `self`).
-    pub fn difference_inplace(&mut self, other: &Self) -> Option<()> {
-        if self.is_comparable(other) {
-            for i in 0..self.bytes.len() {
-                self.bytes[i] &= !other.bytes[i];
-            }
-            Some(())
-        } else {
-            None
-        }
+    /// Compute the difference of this Bitfield and another of potentially different length.
+    pub fn difference(&self, other: &Self) -> Self {
+        let mut result = self.clone();
+        result.difference_inplace(other);
+        result
     }
 
-    /// Returns true if `self` and `other` have the same lengths and can be used in binary
-    /// comparison operations.
-    pub fn is_comparable(&self, other: &Self) -> bool {
-        (self.len() == other.len()) && (self.bytes.len() == other.bytes.len())
+    /// Compute the difference of this Bitfield and another of potentially different length.
+    pub fn difference_inplace(&mut self, other: &Self) {
+        let min_byte_len = std::cmp::min(self.bytes.len(), other.bytes.len());
+        let self_byte_len = self.bytes.len();
+
+        for i in 0..min_byte_len {
+            self.bytes[self_byte_len - 1 - i] &= !other.bytes[other.bytes.len() - 1 - i];
+        }
     }
 
     /// Shift the bits to higher indices, filling the lower indices with zeroes.
@@ -1169,9 +1163,20 @@ mod bitlist {
         let a_b = BitList1024::from_raw_bytes(vec![0b0100, 0b0000], 16).unwrap();
         let b_a = BitList1024::from_raw_bytes(vec![0b0011, 0b1000], 16).unwrap();
 
-        assert_eq!(a.difference(&b).unwrap(), a_b);
-        assert_eq!(b.difference(&a).unwrap(), b_a);
-        assert!(a.difference(&a).unwrap().is_zero());
+        assert_eq!(a.difference(&b), a_b);
+        assert_eq!(b.difference(&a), b_a);
+        assert!(a.difference(&a).is_zero());
+    }
+
+    #[test]
+    fn difference_diff_length() {
+        let a = BitList1024::from_raw_bytes(vec![0b0110, 0b1100, 0b0001], 24).unwrap();
+        let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let a_b = BitList1024::from_raw_bytes(vec![0b0110, 0b0100, 0b0000], 24).unwrap();
+        let b_a = BitList1024::from_raw_bytes(vec![0b0011, 0b1000], 16).unwrap();
+
+        assert_eq!(a.difference(&b), a_b);
+        assert_eq!(b.difference(&a), b_a);
     }
 
     #[test]
@@ -1187,6 +1192,15 @@ mod bitlist {
         b.shift_up(16).unwrap();
         assert!(b.is_zero());
         assert!(b.shift_up(17).is_err());
+    }
+
+    #[test]
+    fn num_set_bits() {
+        let a = BitList1024::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+
+        assert_eq!(a.num_set_bits(), 3);
+        assert_eq!(b.num_set_bits(), 5);
     }
 
     #[test]
