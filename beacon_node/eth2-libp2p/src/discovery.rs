@@ -15,6 +15,7 @@ use slog::{debug, info, o, warn};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
+use std::path::Path;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -53,6 +54,9 @@ pub struct Discovery<TSubstream> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
+
+    /// directory to save ENR to
+    enr_dir: String,
 }
 
 impl<TSubstream> Discovery<TSubstream> {
@@ -65,6 +69,11 @@ impl<TSubstream> Discovery<TSubstream> {
 
         // checks if current ENR matches that found on disk
         let local_enr = load_enr(local_key, config, &log)?;
+
+        let enr_dir = match config.network_dir.to_str() {
+            Some(path) => String::from(path),
+            None => String::from(""),
+        };
 
         info!(log, "Local ENR: {}", local_enr.to_base64());
         debug!(log, "Local Node Id: {}", local_enr.node_id());
@@ -90,6 +99,7 @@ impl<TSubstream> Discovery<TSubstream> {
             tcp_port: config.libp2p_port,
             discovery,
             log,
+            enr_dir,
         })
     }
 
@@ -205,6 +215,9 @@ where
                             info!(self.log, "Address updated"; "IP" => format!("{}",socket.ip()));
                             let mut address = Multiaddr::from(socket.ip());
                             address.push(Protocol::Tcp(self.tcp_port));
+                            let enr = self.discovery.local_enr();
+                            save_enr_to_disc(Path::new(&self.enr_dir), enr, &self.log);
+
                             return Async::Ready(NetworkBehaviourAction::ReportObservedAddr {
                                 address,
                             });
@@ -294,10 +307,15 @@ fn load_enr(
         }
     }
 
-    // write ENR to disk
-    let _ = std::fs::create_dir_all(&config.network_dir);
-    match File::create(enr_f.clone())
-        .and_then(|mut f| f.write_all(&local_enr.to_base64().as_bytes()))
+    save_enr_to_disc(&config.network_dir, &local_enr, log);
+
+    Ok(local_enr)
+}
+
+fn save_enr_to_disc(dir: &Path, enr: &Enr, log: &slog::Logger) -> () {
+    let _ = std::fs::create_dir_all(dir);
+    match File::create(dir.join(Path::new(ENR_FILENAME)))
+        .and_then(|mut f| f.write_all(&enr.to_base64().as_bytes()))
     {
         Ok(_) => {
             debug!(log, "ENR written to disk");
@@ -305,9 +323,8 @@ fn load_enr(
         Err(e) => {
             warn!(
                 log,
-                "Could not write ENR to file: {:?}. Error: {}", enr_f, e
+                "Could not write ENR to file: {:?}{:?}. Error: {}", dir, ENR_FILENAME, e
             );
         }
     }
-    Ok(local_enr)
 }
