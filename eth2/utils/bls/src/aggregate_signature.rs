@@ -1,13 +1,11 @@
 use super::*;
-use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use milagro_bls::{
     AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{Decode, DecodeError};
-use tree_hash::tree_hash_ssz_encoding_as_vector;
+use ssz::{Decode, DecodeError, Encode};
 
 /// A BLS aggregate signature.
 ///
@@ -143,6 +141,10 @@ impl_ssz!(
     "AggregateSignature"
 );
 
+impl_tree_hash!(AggregateSignature, U96);
+
+impl_cached_tree_hash!(AggregateSignature, U96);
+
 impl Serialize for AggregateSignature {
     /// Serde serialization is compliant the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -166,9 +168,6 @@ impl<'de> Deserialize<'de> for AggregateSignature {
         Ok(agg_sig)
     }
 }
-
-tree_hash_ssz_encoding_as_vector!(AggregateSignature);
-cached_tree_hash_ssz_encoding_as_vector!(AggregateSignature, 96);
 
 #[cfg(test)]
 mod tests {

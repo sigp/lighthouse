@@ -86,6 +86,10 @@ impl_ssz!(
     "FakeAggregateSignature"
 );
 
+impl_tree_hash!(FakeAggregateSignature, U96);
+
+impl_cached_tree_hash!(FakeAggregateSignature, U96);
+
 impl Serialize for FakeAggregateSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -106,9 +110,6 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
         Ok(obj)
     }
 }
-
-tree_hash_ssz_encoding_as_vector!(FakeAggregateSignature);
-cached_tree_hash_ssz_encoding_as_vector!(FakeAggregateSignature, 96);
 
 #[cfg(test)]
 mod tests {
