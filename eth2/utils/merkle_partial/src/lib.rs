@@ -13,8 +13,8 @@ pub type NodeIndex = u64;
 /// A serializable represenation of a merkle proof
 #[derive(Clone, Debug, Default)]
 pub struct SerializedPartial {
-    indices: Vec<NodeIndex>,
-    chunks: Vec<u8>, // vec<bytes32>
+    pub indices: Vec<NodeIndex>,
+    pub chunks: Vec<u8>, // vec<bytes32>
 }
 
 impl PartialEq for SerializedPartial {

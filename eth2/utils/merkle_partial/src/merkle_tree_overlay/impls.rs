@@ -187,7 +187,7 @@ impl_merkle_overlay_for_collection_type!(VariableList, true);
 impl_merkle_overlay_for_collection_type!(FixedVector, false);
 
 /// Returns a copy of `node` with all its index values changed to `index`.
-fn replace_index(node: Node, index: NodeIndex) -> Node {
+pub fn replace_index(node: Node, index: NodeIndex) -> Node {
     match node {
         Node::Composite(c) => Node::Composite(Composite {
             ident: c.ident,

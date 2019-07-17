@@ -1,0 +1,17 @@
+[package]
+name = "merkle_partial_derive"
+version = "0.1.0"
+authors = ["Matt Garnett <matt.garnett@consensys.net>"]
+edition = "2018"
+description = "Procedural derive macros to accompany the merkle_partial crate."
+
+[lib]
+name = "merkle_partial_derive"
+proc-macro = true
+
+[dependencies]
+syn = { version = "0.15", features = ["extra-traits"] }
+quote = "0.6"
+merkle_partial = { path = "../merkle_partial" }
+proc-macro2 = "0.4.30"
+ethereum-types = "0.6.0"

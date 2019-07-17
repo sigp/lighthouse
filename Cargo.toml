@@ -21,6 +21,7 @@ members = [
 	"eth2/utils/ssz_derive",
 	"eth2/utils/ssz_types",
 	"eth2/utils/merkle_partial",
+	"eth2/utils/merkle_partial_derive",
 	"eth2/utils/swap_or_not_shuffle",
 	"eth2/utils/tree_hash",
 	"eth2/utils/tree_hash_derive",
