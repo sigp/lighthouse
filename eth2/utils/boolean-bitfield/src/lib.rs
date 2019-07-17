@@ -262,11 +262,29 @@ impl tree_hash::TreeHash for BooleanBitfield {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        self.to_bytes().tree_hash_root()
+        unimplemented!("TreeHash is not implemented for BooleanBitfield")
     }
 }
 
-cached_tree_hash_bytes_as_list!(BooleanBitfield);
+impl cached_tree_hash::CachedTreeHash for BooleanBitfield {
+    fn new_tree_hash_cache(
+        &self,
+        _depth: usize,
+    ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
+        unimplemented!("CachedTreeHash is not implemented for BooleanBitfield")
+    }
+
+    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
+        unimplemented!("CachedTreeHash is not implemented for BooleanBitfield")
+    }
+
+    fn update_tree_hash_cache(
+        &self,
+        _cache: &mut cached_tree_hash::TreeHashCache,
+    ) -> Result<(), cached_tree_hash::Error> {
+        unimplemented!("CachedTreeHash is not implemented for BooleanBitfield")
+    }
+}
 
 #[cfg(test)]
 mod tests {
