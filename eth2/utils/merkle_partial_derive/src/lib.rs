@@ -167,7 +167,7 @@ fn build_match_body<'a>(
                 let LeafData { ident, ty, .. } = l[0];
                 let ident = ident.to_string();
                 quote! {
-                    merkle_partial::field::Node::Leaf(merkle_partial::field::Leaf::Composite(
+                    merkle_partial::field::Node::Leaf(merkle_partial::field::Node::Composite(
                         merkle_partial::field::Composite {
                             index: #leaf_index,
                             ident: #ident.to_owned(),
