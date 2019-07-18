@@ -2,12 +2,10 @@ use super::{
     fake_aggregate_public_key::FakeAggregatePublicKey, fake_signature::FakeSignature,
     BLS_AGG_SIG_BYTE_SIZE,
 };
-use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{ssz_encode, Decode, DecodeError};
-use tree_hash::tree_hash_ssz_encoding_as_vector;
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
 /// A BLS aggregate signature.
 ///
