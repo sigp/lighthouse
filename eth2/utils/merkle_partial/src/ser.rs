@@ -1,7 +1,8 @@
 use super::{NodeIndex, BYTES_PER_CHUNK};
+use ssz_derive::{Decode, Encode};
 
 /// A serializable represenation of a merkle proof
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Decode, Encode, Default)]
 pub struct SerializedPartial {
     pub indices: Vec<NodeIndex>,
     pub chunks: Vec<u8>, // vec<bytes32>
