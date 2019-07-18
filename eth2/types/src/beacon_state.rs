@@ -59,6 +59,7 @@ pub enum Error {
     RelativeEpochError(RelativeEpochError),
     CommitteeCacheUninitialized(RelativeEpoch),
     TreeHashCacheError(TreeHashCacheError),
+    SszTypesError(ssz_types::Error),
 }
 
 /// The state of the `BeaconChain` at some slot.
@@ -552,9 +553,62 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Replace `active_index_roots` with clones of `index_root`.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.0
     pub fn fill_active_index_roots_with(&mut self, index_root: Hash256) {
-        self.active_index_roots = vec![index_root; self.active_index_roots.len()].into()
+        self.active_index_roots = FixedVector::from_elem(index_root);
+    }
+
+    /// Safely obtains the index for `compact_committee_roots`, given some `epoch`.
+    ///
+    /// Spec v0.8.0
+    fn get_compact_committee_root_index(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
+        let current_epoch = self.current_epoch();
+
+        let lookahead = spec.activation_exit_delay;
+        let lookback = self.compact_committee_roots.len() as u64 - lookahead;
+
+        if epoch + lookback > current_epoch && current_epoch + lookahead >= epoch {
+            Ok(epoch.as_usize() % self.compact_committee_roots.len())
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }
+    }
+
+    /// Return the `compact_committee_root` at a recent `epoch`.
+    ///
+    /// Spec v0.8.0
+    pub fn get_compact_committee_root(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, Error> {
+        let i = self.get_compact_committee_root_index(epoch, spec)?;
+        Ok(self.compact_committee_roots[i])
+    }
+
+    /// Set the `compact_committee_root` at a recent `epoch`.
+    ///
+    /// Spec v0.8.0
+    pub fn set_compact_committee_root(
+        &mut self,
+        epoch: Epoch,
+        index_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let i = self.get_compact_committee_root_index(epoch, spec)?;
+        self.compact_committee_roots[i] = index_root;
+        Ok(())
+    }
+
+    /// Replace `compact_committee_roots` with clones of `committee_root`.
+    ///
+    /// Spec v0.8.0
+    pub fn fill_compact_committee_roots_with(&mut self, committee_root: Hash256) {
+        self.compact_committee_roots = FixedVector::from_elem(committee_root);
     }
 
     /// Safely obtains the index for latest state roots, given some `slot`.
@@ -917,5 +971,11 @@ impl From<RelativeEpochError> for Error {
 impl From<TreeHashCacheError> for Error {
     fn from(e: TreeHashCacheError) -> Error {
         Error::TreeHashCacheError(e)
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Error {
+        Error::SszTypesError(e)
     }
 }
