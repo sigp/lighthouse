@@ -167,13 +167,13 @@ fn build_match_body<'a>(
                 let LeafData { ident, ty, .. } = l[0];
                 let ident = ident.to_string();
                 quote! {
-                    merkle_partial::field::Node::Leaf(merkle_partial::field::Node::Composite(
+                    merkle_partial::field::Node::Composite(
                         merkle_partial::field::Composite {
                             index: #leaf_index,
                             ident: #ident.to_owned(),
                             height: <#ty>::height(),
                         }
-                    ))
+                    )
                 }
             };
 
@@ -212,6 +212,7 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
 
     let height = log_base_two(next_power_of_two(leaf_data.len() as u64));
     let match_body = build_match_body(leaf_data, (1_u64 << height) - 1);
+    let match_body2 = match_body.clone();
 
     let output = quote! {
         impl #impl_generics merkle_partial::MerkleTreeOverlay for #name #ty_generics #where_clause {
@@ -241,11 +242,21 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
                 };
 
                 if index == 0 {
-                    merkle_partial::field::Node::Composite(merkle_partial::field::Composite {
-                        ident: "".to_owned(),
-                        index: 0,
-                        height: Self::height().into(),
-                    })
+                    if Self::height() == 0 {
+                        let subtree_root = 0;
+                        let subtree_index = index;
+                        match index {
+                            #(#match_body2)*
+                            _ => unreachable!()
+                        }
+                    } else {
+                        merkle_partial::field::Node::Composite(merkle_partial::field::Composite {
+                            ident: "".to_owned(),
+                            index: 0,
+                            height: Self::height().into(),
+                        })
+
+                    }
                 } else if (first_internal..=last_internal).contains(&index) {
                     merkle_partial::field::Node::Intermediate(index)
                 } else {

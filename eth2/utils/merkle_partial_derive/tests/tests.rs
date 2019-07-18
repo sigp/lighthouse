@@ -2,6 +2,8 @@ use ethereum_types::U256;
 use merkle_partial::field::{Composite, Leaf, Node, Primitive};
 use merkle_partial::{Error, MerkleTreeOverlay, Partial, Path, SerializedPartial};
 use merkle_partial_derive;
+use ssz_types::FixedVector;
+use typenum::U8;
 
 #[derive(Debug, Default, merkle_partial_derive::Partial)]
 pub struct A {
@@ -12,7 +14,7 @@ pub struct A {
 }
 
 #[test]
-fn overlay() {
+fn basic_overlay() {
     assert_eq!(
         A::get_node(0),
         Node::Composite(Composite {
@@ -65,7 +67,7 @@ fn overlay() {
 }
 
 #[test]
-fn partial() {
+fn basic_partial() {
     let one = U256::from(1);
     let two = U256::from(2);
 
@@ -114,4 +116,78 @@ fn partial() {
         p.bytes_at_path(vec![Path::Ident("e".to_string())]),
         Err(Error::InvalidPath(Path::Ident("e".to_string())))
     );
+}
+
+#[derive(merkle_partial_derive::Partial)]
+struct B {
+    a: FixedVector<U256, U8>,
+}
+
+#[test]
+fn simple_fixed_vector() {
+    assert_eq!(B::height(), 0);
+    assert_eq!(B::first_leaf(), 0);
+    assert_eq!(B::last_leaf(), 0);
+
+    assert_eq!(
+        B::get_node(0),
+        Node::Composite(Composite {
+            ident: "a".to_string(),
+            index: 0,
+            height: 3,
+        })
+    );
+
+    for i in 1..=6 {
+        assert_eq!(B::get_node(i), Node::Intermediate(i));
+    }
+
+    for i in 7..=14 {
+        assert_eq!(
+            B::get_node(i),
+            Node::Leaf(Leaf::Primitive(vec![Primitive {
+                ident: (i - 7).to_string(),
+                index: i,
+                size: 32,
+                offset: 0,
+            }]))
+        );
+    }
+}
+
+#[derive(merkle_partial_derive::Partial)]
+struct C {
+    a: u8,
+    b: u16,
+    c: u32,
+}
+
+#[test]
+fn single_node() {
+    assert_eq!(
+        C::get_node(0),
+        Node::Leaf(Leaf::Primitive(vec![
+            Primitive {
+                ident: "a".to_string(),
+                index: 0,
+                size: 1,
+                offset: 0,
+            },
+            Primitive {
+                ident: "b".to_string(),
+                index: 0,
+                size: 2,
+                offset: 1,
+            },
+            Primitive {
+                ident: "c".to_string(),
+                index: 0,
+                size: 4,
+                offset: 3,
+            }
+        ]))
+    );
+
+    assert_eq!(C::get_node(1), Node::Unattached(1));
+    assert_eq!(C::get_node(1000), Node::Unattached(1000));
 }
