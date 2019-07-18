@@ -62,7 +62,7 @@ impl<T: MerkleTreeOverlay> Partial<T> {
     }
 
     /// Determines if the current merkle tree is valid.
-    pub fn is_valid(&self) -> bool {
+    pub fn is_valid(&self, root: Vec<u8>) -> bool {
         for node in self.cache.nodes() {
             let (left, right, parent) = expand_tree_index(node);
 
@@ -75,11 +75,13 @@ impl<T: MerkleTreeOverlay> Partial<T> {
                     if hash_children(&left, &right) != *parent {
                         return false;
                     }
+                } else {
+                    return false;
                 }
             }
         }
 
-        true
+        &root == self.cache.get(0).expect("Tree to have root node")
     }
 
     /// Inserts missing nodes into the merkle tree that can be generated from existing nodes.
@@ -363,11 +365,15 @@ mod tests {
         cache.insert(1, hash_children(&cache[3], &cache[4]));
 
         // root node
-        cache.insert(0, hash_children(&cache[1], &cache[2]));
+        let root = hash_children(&cache[1], &cache[2]);
+        cache.insert(0, root.clone());
 
-        let p = Partial::<A>::default();
+        let p = Partial {
+            cache,
+            _phantom: PhantomData::<A>,
+        };
 
-        assert_eq!(p.is_valid(), true);
+        assert_eq!(p.is_valid(root), true);
     }
 
     #[test]
@@ -375,13 +381,17 @@ mod tests {
         let mut p = Partial::<A>::default();
 
         // leaf nodes
-        p.cache.insert(7, vec![7; BYTES_PER_CHUNK]);
         p.cache.insert(6, vec![6; BYTES_PER_CHUNK]);
         p.cache.insert(5, vec![5; BYTES_PER_CHUNK]);
         p.cache.insert(4, vec![4; BYTES_PER_CHUNK]);
+        p.cache.insert(3, vec![3; BYTES_PER_CHUNK]);
+
+        let two = hash_children(&p.cache[5], &p.cache[6]);
+        let one = hash_children(&p.cache[3], &p.cache[4]);
+        let root = hash_children(&one, &two);
 
         assert_eq!(p.fill(), Ok(()));
-        assert_eq!(p.is_valid(), true);
+        assert_eq!(p.is_valid(root), true);
     }
 
     #[test]
