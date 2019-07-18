@@ -1,11 +1,6 @@
 use ethereum_types::U256;
-use merkle_partial::cache::Cache;
-use merkle_partial::error::Error;
 use merkle_partial::field::{Composite, Leaf, Node, Primitive};
-use merkle_partial::merkle_tree_overlay::MerkleTreeOverlay;
-use merkle_partial::partial::Partial;
-use merkle_partial::path::Path;
-use merkle_partial::SerializedPartial;
+use merkle_partial::{Error, MerkleTreeOverlay, Partial, Path, SerializedPartial};
 use merkle_partial_derive;
 
 #[derive(Debug, Default, merkle_partial_derive::Partial)]
@@ -14,58 +9,6 @@ pub struct A {
     b: U256,
     c: u128,
     d: u128,
-}
-
-#[test]
-fn partial() {
-    let one = U256::from(1);
-    let two = U256::from(2);
-
-    let mut arr = [0_u8; 128];
-
-    one.to_little_endian(&mut arr[0..32]);
-    two.to_little_endian(&mut arr[32..64]);
-    arr[64] = 3;
-    arr[80] = 4;
-
-    let partial = SerializedPartial {
-        indices: vec![3, 4, 5, 6],
-        chunks: arr.to_vec(),
-    };
-
-    let mut p = Partial::<A>::default();
-
-    assert_eq!(p.load_partial(partial.clone()), Ok(()));
-
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("a".to_string())]), true);
-    assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("a".to_string())]),
-        Ok(arr[0..32].to_vec())
-    );
-
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("b".to_string())]), true);
-    assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("b".to_string())]),
-        Ok(arr[32..64].to_vec())
-    );
-
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("c".to_string())]), true);
-    assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("c".to_string())]),
-        Ok(arr[64..80].to_vec())
-    );
-
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("d".to_string())]), true);
-    assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("d".to_string())]),
-        Ok(arr[80..96].to_vec())
-    );
-
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("e".to_string())]), false);
-    assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("e".to_string())]),
-        Err(Error::InvalidPath(Path::Ident("e".to_string())))
-    );
 }
 
 #[test]
@@ -118,5 +61,57 @@ fn overlay() {
                 offset: 16,
             }
         ]))
+    );
+}
+
+#[test]
+fn partial() {
+    let one = U256::from(1);
+    let two = U256::from(2);
+
+    let mut arr = [0_u8; 128];
+
+    one.to_little_endian(&mut arr[0..32]);
+    two.to_little_endian(&mut arr[32..64]);
+    arr[64] = 3;
+    arr[80] = 4;
+
+    let partial = SerializedPartial {
+        indices: vec![3, 4, 5, 6],
+        chunks: arr.to_vec(),
+    };
+
+    let mut p = Partial::<A>::default();
+
+    assert_eq!(p.load_partial(partial.clone()), Ok(()));
+
+    assert_eq!(p.is_path_loaded(vec![Path::Ident("a".to_string())]), true);
+    assert_eq!(
+        p.bytes_at_path(vec![Path::Ident("a".to_string())]),
+        Ok(arr[0..32].to_vec())
+    );
+
+    assert_eq!(p.is_path_loaded(vec![Path::Ident("b".to_string())]), true);
+    assert_eq!(
+        p.bytes_at_path(vec![Path::Ident("b".to_string())]),
+        Ok(arr[32..64].to_vec())
+    );
+
+    assert_eq!(p.is_path_loaded(vec![Path::Ident("c".to_string())]), true);
+    assert_eq!(
+        p.bytes_at_path(vec![Path::Ident("c".to_string())]),
+        Ok(arr[64..80].to_vec())
+    );
+
+    assert_eq!(p.is_path_loaded(vec![Path::Ident("d".to_string())]), true);
+    assert_eq!(
+        p.bytes_at_path(vec![Path::Ident("d".to_string())]),
+        Ok(arr[80..96].to_vec())
+    );
+
+    assert_eq!(p.is_path_loaded(vec![Path::Ident("e".to_string())]), false);
+    assert_eq!(
+        p.bytes_at_path(vec![Path::Ident("e".to_string())]),
+        Err(Error::InvalidPath(Path::Ident("e".to_string())))
     );
 }

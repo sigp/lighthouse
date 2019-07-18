@@ -2,24 +2,23 @@
 
 extern crate proc_macro;
 
+use merkle_partial::tree_arithmetic::{log_base_two, next_power_of_two};
 use proc_macro::TokenStream;
 use proc_macro2;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
 /// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
-/// that should not be serialized.
+/// that should not be accounted for in the merkle partial.
 ///
 /// # Panics
 /// Any unnamed struct field (like in a tuple struct) will raise a panic at compile time.
-fn get_serializable_named_field_idents<'a>(
-    struct_data: &'a syn::DataStruct,
-) -> Vec<&'a syn::Ident> {
+fn get_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Ident> {
     struct_data
         .fields
         .iter()
         .filter_map(|f| {
-            if should_skip_serializing(&f) {
+            if should_skip(&f) {
                 None
             } else {
                 Some(match &f.ident {
@@ -32,27 +31,22 @@ fn get_serializable_named_field_idents<'a>(
 }
 
 /// Returns a Vec of `syn::Type` for each named field in the struct, whilst filtering out fields
-/// that should not be serialized.
-fn get_serializable_field_types<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Type> {
+/// that should not be accounted for in the merkle partial.
+fn get_field_types<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Type> {
     struct_data
         .fields
         .iter()
-        .filter_map(|f| {
-            if should_skip_serializing(&f) {
-                None
-            } else {
-                Some(&f.ty)
-            }
-        })
+        .filter_map(|f| if should_skip(&f) { None } else { Some(&f.ty) })
         .collect()
 }
 
-/// Returns true if some field has an attribute declaring it should not be serialized.
+/// Returns true if some field has an attribute declaring it should not be included in the merkle
+/// partial.
 ///
-/// The field attribute is: `#[ssz(skip_serializing)]`
-fn should_skip_serializing(field: &syn::Field) -> bool {
+/// The field attribute is: `#[ssz(skip)]`
+fn should_skip(field: &syn::Field) -> bool {
     for attr in &field.attrs {
-        if attr.tts.to_string() == "( skip_serializing )" {
+        if attr.tts.to_string() == "( skip )" {
             return true;
         }
     }
@@ -69,6 +63,7 @@ struct LeafData<'a> {
     is_primitive: bool,
 }
 
+/// Returns a Vec of data required to generate the nodes for each leaf index.
 fn get_leaf_data_from_fields<'a>(
     idents: Vec<&'a syn::Ident>,
     types: Vec<&'a syn::Type>,
@@ -79,7 +74,7 @@ fn get_leaf_data_from_fields<'a>(
 
     for it in idents.iter().zip(types.iter()) {
         let (ident, ty) = it;
-        let (size, is_primitive) = get_type_size(ty);
+        let (size, is_primitive) = get_type_info(ty);
 
         if offset + size > 32 {
             ret.push(leaf.clone());
@@ -99,12 +94,13 @@ fn get_leaf_data_from_fields<'a>(
     }
 
     ret.push(leaf.clone());
-    println!("{:?}", ret);
 
     ret
 }
 
-fn get_type_size(ty: &syn::Type) -> (u8, bool) {
+/// Returns the size of the type (in bytes) and a boolean to denote whether the type is a primitive
+/// of SSZ or it is a composite.
+fn get_type_info(ty: &syn::Type) -> (u8, bool) {
     match ty {
         syn::Type::Path(syn::TypePath { path, .. }) => {
             return match path.segments[0].ident.to_string().as_ref() {
@@ -124,38 +120,21 @@ fn get_type_size(ty: &syn::Type) -> (u8, bool) {
     (32, false)
 }
 
-/// Implements `ssz::Encode` for some `struct`.
+/// Returns a Vec of `TokenStream`s which define the behavior for calculating the node for each
+/// leaf index.
 ///
-/// Fields are encoded in the order they are defined.
-#[proc_macro_derive(Partial)]
-pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
-    let item = parse_macro_input!(input as DeriveInput);
-
-    let name = &item.ident;
-    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
-
-    let struct_data = match &item.data {
-        syn::Data::Struct(s) => s,
-        _ => panic!("ssz_derive only supports structs."),
-    };
-
-    let field_idents = get_serializable_named_field_idents(&struct_data);
-    let field_types = get_serializable_field_types(&struct_data);
-
-    // println!("*********** boutta go in! ***********\n\n");
-    let leaf_data = get_leaf_data_from_fields(field_idents.clone(), field_types.clone());
-    let height = merkle_partial::tree_arithmetic::log_base_two(
-        merkle_partial::tree_arithmetic::next_power_of_two(leaf_data.len() as u64),
-    );
-    let first_leaf = (1_u64 << height) - 1;
-    // println!("height: {:?}, first_leaf: {}", height, first_leaf);
-    // println!("\n\n*********** done ***********\n\n");
-
-    let match_body: Vec<proc_macro2::TokenStream> = leaf_data
+/// It also determines whether the index is child of the leaf object, in which case it
+/// should recursive call `get_node` on the type associated with the leaf, or whether it is
+/// directly referencing the leaf, in which case it should return the coresponding `Leaf` node.
+fn build_match_body<'a>(
+    leaf_data: Vec<Vec<LeafData<'a>>>,
+    first_leaf_index: u64,
+) -> Vec<proc_macro2::TokenStream> {
+    leaf_data
         .iter()
         .enumerate()
         .map(|(i, l)| {
-            let leaf_index = i as u64 + first_leaf;
+            let leaf_index = first_leaf_index + i as u64;
             let ret_node = if l[0].is_primitive {
                 let primitive_nodes: Vec<proc_macro2::TokenStream> = l
                     .iter()
@@ -209,14 +188,33 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
                     }
             }}
         })
-        .collect();
+        .collect()
+}
 
-    println!("stream: {}", match_body[0].to_string());
-    println!("stream: {}", match_body[1].to_string());
-    println!("stream: {}", match_body[2].to_string());
+/// Implements `merkle_partial::merkle_tree_overlay::MerkleTreeOverlay` for some `struct`.
+///
+/// Fields are stored in the merkle tree in the order they appear in the struct.
+#[proc_macro_derive(Partial)]
+pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(input as DeriveInput);
+
+    let name = &item.ident;
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
+
+    let struct_data = match &item.data {
+        syn::Data::Struct(s) => s,
+        _ => panic!("merkle_partial_derive only supports structs."),
+    };
+
+    let field_idents = get_named_field_idents(&struct_data);
+    let field_types = get_field_types(&struct_data);
+    let leaf_data = get_leaf_data_from_fields(field_idents.clone(), field_types.clone());
+
+    let height = log_base_two(next_power_of_two(leaf_data.len() as u64));
+    let match_body = build_match_body(leaf_data, (1_u64 << height) - 1);
 
     let output = quote! {
-        impl #impl_generics merkle_partial::merkle_tree_overlay::MerkleTreeOverlay for #name #ty_generics #where_clause {
+        impl #impl_generics merkle_partial::MerkleTreeOverlay for #name #ty_generics #where_clause {
             fn height() -> u8 {
                 #height as u8
             }
@@ -233,6 +231,9 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
                 let first_leaf = Self::first_leaf();
                 let last_leaf = Self::last_leaf();
 
+                // When the first leaf is 0 or 1, there are no internal nodes in the merkle tree.
+                // By setting the internal nodes to 0 in this case, their coresponding arm of the
+                // `if` branch will not execute. When the tree is larger, they are set correctly.
                 let (first_internal, last_internal) = if first_leaf == 0 || first_leaf == 1 {
                     (0, 0)
                 } else {
@@ -257,7 +258,7 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
                             _ => merkle_partial::field::Node::Leaf(merkle_partial::field::Leaf::Padding())
                         };
 
-                        merkle_partial::merkle_tree_overlay::impls::replace_index(node, index)
+                        merkle_partial::impls::replace_index(node, index)
                     } else {
                         merkle_partial::field::Node::Unattached(index)
                     }
