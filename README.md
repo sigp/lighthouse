@@ -1,4 +1,6 @@
-# Lighthouse: an Ethereum Serenity client
+# Lighthouse: Ethereum 2.0
+
+An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
 
 [![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Gitter Badge]][Gitter Link]
 
@@ -9,24 +11,126 @@
 [Doc Status]: https://img.shields.io/badge/docs-master-blue.svg
 [Doc Link]: http://lighthouse-docs.sigmaprime.io/
 
-A work-in-progress, open-source implementation of the Serenity Beacon
-Chain, maintained by Sigma Prime.
+## Overview
 
-The "Serenity" project is also known as "Ethereum 2.0" or "Shasper".
+Lighthouse is:
 
-## Lighthouse Client
+- Fully open-source, licensed under Apache 2.0.
+- Security-focussed, fuzzing has begun and security reviews are planned
+	for late-2019.
+- Built in [Rust](https://www.rust-lang.org/), a modern language providing unique safety guarantees and
+	excellent performance (comparable to C++).
+- Funded by various organisations, including Sigma Prime, the
+	Ethereum Foundation, Consensys and private individuals.
+- Actively working to promote an inter-operable, multi-client Ethereum 2.0.
 
-Lighthouse is an open-source Ethereum Serenity client that is currently under
-development. Designed as a Serenity-only client, Lighthouse will not
-re-implement the existing proof-of-work protocol. Maintaining a forward-focus
-on Ethereum Serenity ensures that Lighthouse avoids reproducing the high-quality
-work already undertaken by existing projects. As such, Lighthouse will connect
-to existing clients, such as
-[Geth](https://github.com/ethereum/go-ethereum) or
-[Parity-Ethereum](https://github.com/paritytech/parity-ethereum), via RPC to enable
-present-Ethereum functionality.
 
-### Further Reading
+## Development Status
+
+Lighthouse, like all Ethereum 2.0 clients, is a work-in-progress. Instructions
+are provided for running the client, however these instructions are designed
+for developers and researchers working on the project. We do not (yet) provide
+user-facing functionality.
+
+Current development overview:
+
+- Specification `v0.6.3` implemented, optimized and passing test vectors.
+- Rust-native libp2p integrated, with Gossipsub.
+- Discv5 (P2P discovery mechanism) integration started.
+- Metrics via Prometheus.
+- Basic gRPC API, soon to be replaced with RESTful HTTP/JSON.
+
+### Roadmap
+
+- **July 2019**: `lighthouse-0.0.1` release: A stable testnet for developers with a useful
+	HTTP API.
+- **September 2019**: Inter-operability with other Ethereum 2.0 clients.
+- **October 2019**: Public, multi-client testnet with user-facing functionality.
+- **January 2020**: Production Beacon Chain testnet.
+
+## Usage
+
+Lighthouse consists of multiple binaries:
+
+- [`beacon_node/`](beacon_node/): produces and verifies blocks from the P2P
+	connected validators and the P2P network. Provides an API for external services to
+	interact with Ethereum 2.0.
+- [`validator_client/`](validator_client/): connects to a `beacon_node` and
+	performs the role of a proof-of-stake validator.
+- [`account_manager/`](account_manager/): a stand-alone component providing key
+	management and creation for validators.
+
+### Simple Local Testnet
+
+**Note: these instructions are intended for developers and researchers. We do
+not yet support end-users.**
+
+In this example we use the `account_manager` to create some keys, launch two
+`beacon_node` instances and connect a `validator_client` to one. The two
+`beacon_nodes` should stay in sync and build a Beacon Chain.
+
+First, clone this repository, [setup a development
+environment](docs/installation.md) and navigate to the root directory of this repository.
+
+Then, run `$ cargo build --all --release` and navigate to the `target/release`
+directory and follow the steps:
+
+#### 1. Generate Validator Keys
+
+Generate 16 validator keys and store them in `~/.lighthouse-validator`:
+
+```
+$ ./account_manager -d ~/.lighthouse-validator generate_deterministic -i 0 -n 16
+```
+
+_Note: these keys are for development only. The secret keys are
+deterministically generated from low integers. Assume they are public
+knowledge._
+
+#### 2. Start a Beacon Node
+
+This node will act as the boot node and provide an API for the
+`validator_client`.
+
+```
+$ ./beacon_node --recent-genesis --rpc
+```
+
+_Note: `--recent-genesis` defines the genesis time as either the start of the
+current hour, or half-way through the current hour (whichever is most recent).
+This makes it very easy to create a testnet, but does not allow nodes to
+connect if they were started in separate 30-minute windows._
+
+#### 3. Start Another Beacon Node
+
+In another terminal window, start another boot that will connect to the
+running node.
+
+The running node will display it's ENR as a base64 string. This ENR, by default, has a target address of `127.0.0.1` meaning that any new node will connect to this node via `127.0.0.1`. If a boot node should be connected to on a different address, it should be run with the `--discovery-address` CLI flag to specify how other nodes may connect to it.
+```
+$ ./beacon_node -r --boot-nodes <boot-node-ENR> --listen-address 127.0.0.1 --port 9001 --datadir /tmp/.lighthouse
+```
+Here <boot-node-ENR> is the ENR string displayed in the terminal from the first node. The ENR can also be obtained from it's default directory `.lighthouse/network/enr.dat`.
+
+The `--datadir` flag tells this Beacon Node to store it's files in a different
+directory. If you're on a system that doesn't have a `/tmp` dir (e.g., Mac,
+Windows), substitute this with any directory that has write access.
+
+Note that all future created nodes can use the same boot-node ENR. Once connected to the boot node, all nodes should discover and connect with each other.
+#### 4. Start a Validator Client
+
+In a third terminal window, start a validator client:
+
+```
+$ ./validator-client
+```
+
+You should be able to observe the validator signing blocks, the boot node
+processing these blocks and publishing them to the other node. If you have
+issues, try restarting the beacon nodes to ensure they have the same genesis
+time. Alternatively, raise an issue and include your terminal output.
+
+## Further Reading
 
 - [About Lighthouse](docs/lighthouse.md): Goals, Ideology and Ethos surrounding
 this implementation.
@@ -37,7 +141,7 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
 [company website](https://sigmaprime.io).
 
-### Directory Structure
+## Directory Structure
 
 - [`beacon_node/`](beacon_node/): the "Beacon Node" binary and crates exclusively
 	associated with it.
@@ -50,115 +154,9 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 - [`validator_client/`](validator_client/): the "Validator Client" binary and crates exclusively
 	associated with it.
 
-### Components
+## Contributing
 
-The following list describes some of the components actively under development
-by the team:
-
-- **BLS cryptography**: Lighthouse presently use the [Apache
-  Milagro](https://milagro.apache.org/) cryptography library to create and
-  verify BLS aggregate signatures. BLS signatures are core to Serenity as they
-  allow the signatures of many validators to be compressed into a constant 96
-  bytes and efficiently verified. The Lighthouse project is presently
-  maintaining its own [BLS aggregates
-  library](https://github.com/sigp/signature-schemes), gratefully forked from
-  [@lovesh](https://github.com/lovesh).
-- **DoS-resistant block pre-processing**: Processing blocks in proof-of-stake
-  is more resource intensive than proof-of-work. As such, clients need to
-  ensure that bad blocks can be rejected as efficiently as possible. At
-  present, blocks having 10 million ETH staked can be processed in 0.006
-  seconds, and invalid blocks are rejected even more quickly. See
-  [issue #103](https://github.com/ethereum/beacon_chain/issues/103) on
-  [ethereum/beacon_chain](https://github.com/ethereum/beacon_chain).
-- **P2P networking**: Serenity will likely use the [libp2p
-  framework](https://libp2p.io/). Lighthouse is working alongside
-[Parity](https://www.parity.io/) to ensure
-[libp2p-rust](https://github.com/libp2p/rust-libp2p) is fit-for-purpose.
-- **Validator duties** : The project involves development of "validator
-  services" for users who wish to stake ETH. To fulfill their duties,
-  validators require a consistent view of the chain and the ability to vote
-  upon blocks from both shard and beacon chains.
-- **New serialization formats**: Lighthouse is working alongside researchers
-  from the Ethereum Foundation to develop *simpleserialize* (SSZ), a
-  purpose-built serialization format for sending information across a network.
-  Check out the [SSZ
-implementation](https://github.com/ethereum/eth2.0-specs/blob/00aa553fee95963b74fbec84dbd274d7247b8a0e/specs/simple-serialize.md)
-and this
-[research](https://github.com/sigp/serialization_sandbox/blob/report/report/serialization_report.md)
-on serialization formats for more information.
-- **Fork-choice**: The current fork choice rule is
-[*LMD Ghost*](https://vitalik.ca/general/2018/12/05/cbc_casper.html#lmd-ghost),
-which effectively takes the latest messages and forms the canonical chain using
-the [GHOST](https://eprint.iacr.org/2013/881.pdf) mechanism.
-- **Efficient state transition logic**: State transition logic governs
-  updates to the validator set as validators log in/out, penalizes/rewards
-validators, rotates validators across shards, and implements other core tasks.
-- **Fuzzing and testing environments**: Implementation of lab environments with
-  continuous integration (CI) workflows, providing automated security analysis.
-
-In addition to these components we are also working on database schemas, RPC
-frameworks, specification development, database optimizations (e.g.,
-bloom-filters), and tons of other interesting stuff (at least we think so).
-
-### Running
-
-**NOTE: The cryptography libraries used in this implementation are
-experimental. As such all cryptography is assumed to be insecure.**
-
-This code-base is still very much under-development and does not provide any
-user-facing functionality. For developers and researchers, there are several
-tests and benchmarks which may be of interest.
-
-A few basic steps are needed to get set up:
-
-   1. Install [rustup](https://rustup.rs/).  It's a toolchain manager for Rust (Linux | macOS | Windows). For installation, download the script with `$ curl -f https://sh.rustup.rs > rustup.sh`, review its content (e.g. `$ less ./rustup.sh`) and run the script `$ ./rustup.sh` (you may need to change the permissions to allow execution, i.e. `$ chmod +x rustup.sh`) 
-   2. (Linux & MacOS) To configure your current shell run: `$ source $HOME/.cargo/env`
-   3. Use the command `rustup show` to get information about the Rust installation. You should see that the
-   active toolchain is the stable version.
-   4. Run `rustc --version` to check the installation and version of rust.
-      - Updates can be performed using` rustup update` .
-   5. Install build dependencies (Arch packages are listed here, your distribution will likely be similar):
-	  - `clang`: required by RocksDB.
-	  - `protobuf`: required for protobuf serialization (gRPC).
-	  - `cmake`: required for building protobuf.
-	  - `git-lfs`: The Git extension for [Large File Support](https://git-lfs.github.com/) (required for EF tests submodule).
-   6. Navigate to the working directory.
-   7. If you haven't already, clone the repository with submodules: `git clone --recursive https://github.com/sigp/lighthouse`.
-		Alternatively, run `git submodule init` in a repository which was cloned without submodules.
-   8. Run the test by using command `cargo test --all --release`. By running, it will pass all the required test cases.
-        If you are doing it for the first time, then you can grab a coffee in the meantime. Usually, it takes time
-        to build, compile and pass all test cases. If there is no error then it means everything is working properly
-        and it's time to get your hands dirty.
-        In case, if there is an error, then please raise the [issue](https://github.com/sigp/lighthouse/issues).
-        We will help you.
-   9. As an alternative to, or instead of the above step, you may also run benchmarks by using
-        the command `cargo bench --all`
-
-##### Note:
-Lighthouse presently runs on Rust `stable`, however, benchmarks currently require the
-`nightly` version.
-
-##### Note for Windows users:
-Perl may also be required to build lighthouse. You can install [Strawberry Perl](http://strawberryperl.com/),
-or alternatively use a choco install command `choco install strawberryperl`.
-
-Additionally, the dependency `protoc-grpcio v0.3.1` is reported to have issues compiling in Windows. You can specify
-a known working version by editing version in protos/Cargo.toml's "build-dependencies" section to
-`protoc-grpcio = "<=0.3.0"`.
-
-### Contributing
-
-**Lighthouse welcomes contributors with open-arms.**
-
-If you would like to learn more about Ethereum Serenity and/or
-[Rust](https://www.rust-lang.org/), we are more than happy to on-board you
-and assign you some tasks. We aim to be as accepting and understanding as
-possible; we are more than happy to up-skill contributors in exchange for their
-assistance with the project.
-
-Alternatively, if you are an ETH/Rust veteran, we'd love your input.  We're
-always looking for the best way to implement things and welcome all
-respectful criticisms.
+**Lighthouse welcomes contributors.**
 
 If you are looking to contribute, please head to our
 [onboarding documentation](https://github.com/sigp/lighthouse/blob/master/docs/onboarding.md).
@@ -173,10 +171,9 @@ your support!
 ## Contact
 
 The best place for discussion is the [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
-Ping @paulhauner or @AgeManning to get the quickest response.
 
-# Donations
+## Donations
 
-If you support the cause, we could certainly use donations to help fund development:
+If you support the cause, we accept donations to help fund development:
 
 `0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth)

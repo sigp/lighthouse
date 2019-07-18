@@ -20,11 +20,12 @@ use protos::services_grpc::{
 use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
+use tokio::sync::mpsc;
 
 pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &RPCConfig,
     executor: &TaskExecutor,
-    network_chan: crossbeam_channel::Sender<NetworkMessage>,
+    network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
@@ -60,8 +61,8 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     };
     let attestation_service = {
         let instance = AttestationServiceInstance {
-            chain: beacon_chain.clone(),
             network_chan,
+            chain: beacon_chain.clone(),
             log: log.clone(),
         };
         create_attestation_service(instance)

@@ -18,7 +18,7 @@ use state_processing::{
     per_slot_processing, BlockProcessingError, common
 };
 use std::sync::Arc;
-use store::iter::{BlockIterator, BlockRootsIterator, StateRootsIterator};
+use store::iter::{BestBlockRootsIterator, BlockIterator, BlockRootsIterator, StateRootsIterator};
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
 use types::*;
@@ -224,6 +224,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Contains duplicate roots when skip slots are encountered.
     pub fn rev_iter_block_roots(&self, slot: Slot) -> BlockRootsIterator<T::EthSpec, T::Store> {
         BlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), slot)
+    }
+
+    /// Iterates in reverse (highest to lowest slot) through all block roots from largest
+    /// `slot <= beacon_state.slot` through to genesis.
+    ///
+    /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
+    ///
+    /// Contains duplicate roots when skip slots are encountered.
+    pub fn rev_iter_best_block_roots(
+        &self,
+        slot: Slot,
+    ) -> BestBlockRootsIterator<T::EthSpec, T::Store> {
+        BestBlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), slot)
     }
 
     /// Iterates in reverse (highest to lowest slot) through all state roots from `slot` through to

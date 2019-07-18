@@ -1,12 +1,12 @@
 use bls::Keypair;
 use clap::{App, Arg, SubCommand};
-use eth2_config::get_data_dir;
 use slog::{crit, debug, info, o, Drain};
+use std::fs;
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse-account-manager";
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 
 fn main() {
@@ -14,13 +14,20 @@ fn main() {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let log = slog::Logger::root(drain, o!());
+    let mut log = slog::Logger::root(drain, o!());
 
     // CLI
     let matches = App::new("Lighthouse Accounts Manager")
         .version("0.0.1")
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Accounts Manager")
+        .arg(
+            Arg::with_name("logfile")
+                .long("logfile")
+                .value_name("logfile")
+                .help("File path where output will be written.")
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
@@ -61,31 +68,42 @@ fn main() {
         )
         .get_matches();
 
-    let data_dir = match get_data_dir(&matches, PathBuf::from(DEFAULT_DATA_DIR)) {
-        Ok(dir) => dir,
-        Err(e) => {
-            crit!(log, "Failed to initialize data dir"; "error" => format!("{:?}", e));
-            return;
+    let data_dir = match matches
+        .value_of("datadir")
+        .and_then(|v| Some(PathBuf::from(v)))
+    {
+        Some(v) => v,
+        None => {
+            // use the default
+            let mut default_dir = match dirs::home_dir() {
+                Some(v) => v,
+                None => {
+                    crit!(log, "Failed to find a home directory");
+                    return;
+                }
+            };
+            default_dir.push(DEFAULT_DATA_DIR);
+            PathBuf::from(default_dir)
         }
     };
 
-    let mut client_config = ValidatorClientConfig::default();
+    // create the directory if needed
+    match fs::create_dir_all(&data_dir) {
+        Ok(_) => {}
+        Err(e) => {
+            crit!(log, "Failed to initialize data dir"; "error" => format!("{}", e));
+            return;
+        }
+    }
 
-    if let Err(e) = client_config.apply_cli_args(&matches) {
-        crit!(log, "Failed to apply CLI args"; "error" => format!("{:?}", e));
-        return;
-    };
+    let mut client_config = ValidatorClientConfig::default();
 
     // Ensure the `data_dir` in the config matches that supplied to the CLI.
     client_config.data_dir = data_dir.clone();
 
-    // Update the client config with any CLI args.
-    match client_config.apply_cli_args(&matches) {
-        Ok(()) => (),
-        Err(s) => {
-            crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
-            return;
-        }
+    if let Err(e) = client_config.apply_cli_args(&matches, &mut log) {
+        crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => format!("{:?}", e));
+        return;
     };
 
     // Log configuration

@@ -9,17 +9,21 @@ beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
 store = { path = "../store" }
 http_server = { path = "../http_server" }
+eth2-libp2p = { path = "../eth2-libp2p" }
 rpc = { path = "../rpc" }
 prometheus = "^0.6"
 types = { path = "../../eth2/types" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 eth2_config = { path = "../../eth2/utils/eth2_config" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
-serde = "1.0"
+serde = "1.0.93"
 serde_derive = "1.0"
 error-chain = "0.12.0"
-slog = "^2.2.3"
 eth2_ssz = { path = "../../eth2/utils/ssz" }
+slog = { version = "^2.2.3" , features = ["max_level_trace"] }
+slog-async = "^2.3.0"
+slog-json = "^2.3"
+slog-term = "^2.4.0"
 tokio = "0.1.15"
 clap = "2.32.0"
 dirs = "1.0.3"
