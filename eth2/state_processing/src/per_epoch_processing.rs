@@ -60,7 +60,7 @@ pub fn per_epoch_processing<T: EthSpec>(
     process_registry_updates(state, spec)?;
 
     // Slashings.
-    process_slashings(state, validator_statuses.total_balances.current_epoch)?;
+    process_slashings(state, validator_statuses.total_balances.current_epoch, spec)?;
 
     // Final updates.
     process_final_updates(state, spec)?;

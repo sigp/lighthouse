@@ -728,7 +728,7 @@ impl<T: EthSpec> BeaconState<T> {
         // Bypass the safe getter for RANDAO so we can gracefully handle the scenario where `epoch
         // == 0`.
         let randao = {
-            let i = epoch + T::EpochsPerHistoricalVector::to_u64() - spec.min_seed_lookahead;
+            let i = epoch + T::EpochsPerHistoricalVector::to_u64() - spec.min_seed_lookahead - 1;
             self.randao_mixes[i.as_usize() % self.randao_mixes.len()]
         };
         let active_index_root = self.get_active_index_root(epoch, spec)?;
