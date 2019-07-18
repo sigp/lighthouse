@@ -30,7 +30,7 @@ impl TestingProposerSlashingBuilder {
             slot,
             parent_root: hash_1,
             state_root: hash_1,
-            block_body_root: hash_1,
+            body_root: hash_1,
             signature: Signature::empty_signature(),
         };
 

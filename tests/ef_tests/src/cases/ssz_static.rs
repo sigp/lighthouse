@@ -9,9 +9,9 @@ use tree_hash::TreeHash;
 use types::{
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
     Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockBody, BeaconBlockHeader, BeaconState, Crosslink, Deposit, DepositData, Eth1Data,
-    EthSpec, Fork, Hash256, HistoricalBatch, IndexedAttestation, PendingAttestation,
-    ProposerSlashing, Transfer, Validator, VoluntaryExit,
+    BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint, CompactCommittee, Crosslink,
+    Deposit, DepositData, Eth1Data, EthSpec, Fork, Hash256, HistoricalBatch, IndexedAttestation,
+    PendingAttestation, ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
 // Enum variant names are used by Serde when deserializing the test YAML
@@ -23,6 +23,8 @@ where
 {
     Fork(SszStaticInner<Fork, E>),
     Crosslink(SszStaticInner<Crosslink, E>),
+    Checkpoint(SszStaticInner<Checkpoint, E>),
+    CompactCommittee(SszStaticInner<CompactCommittee, E>),
     Eth1Data(SszStaticInner<Eth1Data, E>),
     AttestationData(SszStaticInner<AttestationData, E>),
     AttestationDataAndCustodyBit(SszStaticInner<AttestationDataAndCustodyBit, E>),
@@ -68,6 +70,8 @@ impl<E: EthSpec> Case for SszStatic<E> {
         match *self {
             Fork(ref val) => ssz_static_test(val),
             Crosslink(ref val) => ssz_static_test(val),
+            Checkpoint(ref val) => ssz_static_test(val),
+            CompactCommittee(ref val) => ssz_static_test(val),
             Eth1Data(ref val) => ssz_static_test(val),
             AttestationData(ref val) => ssz_static_test(val),
             AttestationDataAndCustodyBit(ref val) => ssz_static_test(val),

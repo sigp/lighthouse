@@ -112,7 +112,7 @@ where
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
     #[compare_fields(as_slice)]
     active_index_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
-    compact_committee_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
+    compact_committees_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
     slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
@@ -191,7 +191,7 @@ impl<T: EthSpec> BeaconState<T> {
             start_shard: 0,
             randao_mixes: FixedVector::from_elem(Hash256::zero()),
             active_index_roots: FixedVector::from_elem(Hash256::zero()),
-            compact_committee_roots: FixedVector::from_elem(Hash256::zero()),
+            compact_committees_roots: FixedVector::from_elem(Hash256::zero()),
 
             // Slashings
             slashings: FixedVector::from_elem(0),

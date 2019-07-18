@@ -82,7 +82,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             slot: self.slot,
             parent_root: self.parent_root,
             state_root: self.state_root,
-            block_body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
+            body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
             signature: self.signature.clone(),
         }
     }
