@@ -24,7 +24,7 @@ where
     Fork(SszStaticInner<Fork, E>),
     Crosslink(SszStaticInner<Crosslink, E>),
     Checkpoint(SszStaticInner<Checkpoint, E>),
-    CompactCommittee(SszStaticInner<CompactCommittee, E>),
+    CompactCommittee(SszStaticInner<CompactCommittee<E>, E>),
     Eth1Data(SszStaticInner<Eth1Data, E>),
     AttestationData(SszStaticInner<AttestationData, E>),
     AttestationDataAndCustodyBit(SszStaticInner<AttestationDataAndCustodyBit, E>),
