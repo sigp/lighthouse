@@ -52,6 +52,27 @@ impl<T: MerkleTreeOverlay> Partial<T> {
         Ok(self.cache.get(index).ok_or(Error::MissingNode(index))?[begin..end].to_vec())
     }
 
+    pub fn set_bytes_at_path(&mut self, path: Vec<Path>, bytes: Vec<u8>) -> Result<()> {
+        if path.len() == 0 {
+            return Err(Error::EmptyPath());
+        }
+
+        let (index, begin, end) = bytes_at_path_helper::<T>(path, 0, T::height())?;
+        let chunk = self
+            .cache
+            .get(index)
+            .ok_or(Error::MissingNode(index))?
+            .to_vec()
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, b)| if i >= begin && i < end { bytes[i] } else { b })
+            .collect();
+
+        self.cache.insert(index, chunk);
+        Ok(())
+    }
+
     /// Return whether a path has been loade into the partial.
     pub fn is_path_loaded(&self, path: Vec<Path>) -> bool {
         if let Ok(_) = self.bytes_at_path(path) {
