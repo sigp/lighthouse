@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../utils/bls" }
-boolean-bitfield = { path = "../utils/boolean-bitfield" }
 cached_tree_hash = { path = "../utils/cached_tree_hash" }
 compare_fields = { path = "../utils/compare_fields" }
 compare_fields_derive = { path = "../utils/compare_fields_derive" }
