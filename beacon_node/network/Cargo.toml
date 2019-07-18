@@ -13,10 +13,9 @@ store =  { path = "../store" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
-slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_debug"] }
+slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 eth2_ssz = { path = "../../eth2/utils/ssz" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 futures = "0.1.25"
 error-chain = "0.12.0"
-crossbeam-channel = "0.3.8"
 tokio = "0.1.16"

@@ -41,6 +41,15 @@ pub fn run_beacon_node(
         "This software is EXPERIMENTAL and provides no guarantees or warranties."
     );
 
+    info!(
+        log,
+        "Starting beacon node";
+        "p2p_listen_address" => format!("{:?}", &other_client_config.network.listen_address),
+        "data_dir" => format!("{:?}", other_client_config.data_dir()),
+        "spec_constants" => &spec_constants,
+        "db_type" => &other_client_config.db_type,
+    );
+
     let result = match (db_type.as_str(), spec_constants.as_str()) {
         ("disk", "minimal") => run::<ClientType<DiskStore, MinimalEthSpec>>(
             &db_path,
@@ -79,17 +88,6 @@ pub fn run_beacon_node(
             Err("Unknown specification and/or db_type.".into())
         }
     };
-
-    if result.is_ok() {
-        info!(
-            log,
-            "Started beacon node";
-            "p2p_listen_addresses" => format!("{:?}", &other_client_config.network.listen_addresses()),
-            "data_dir" => format!("{:?}", other_client_config.data_dir()),
-            "spec_constants" => &spec_constants,
-            "db_type" => &other_client_config.db_type,
-        );
-    }
 
     result
 }

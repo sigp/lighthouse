@@ -1,6 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use crossbeam_channel;
-use eth2_libp2p::PubsubMessage;
+use eth2_libp2p::BEACON_PUBSUB_TOPIC;
+use eth2_libp2p::{PubsubMessage, TopicBuilder};
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
@@ -13,12 +13,13 @@ use slog::Logger;
 use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decode};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use types::{BeaconBlock, Signature, Slot};
 
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
     pub log: Logger,
 }
 
@@ -104,14 +105,13 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                                 "block_root" => format!("{}", block_root),
                             );
 
-                            // TODO: Obtain topics from the network service properly.
-                            let topic =
-                                types::TopicBuilder::new("beacon_chain".to_string()).build();
+                            // get the network topic to send on
+                            let topic = TopicBuilder::new(BEACON_PUBSUB_TOPIC).build();
                             let message = PubsubMessage::Block(block);
 
                             // Publish the block to the p2p network via gossipsub.
                             self.network_chan
-                                .send(NetworkMessage::Publish {
+                                .try_send(NetworkMessage::Publish {
                                     topics: vec![topic],
                                     message: Box::new(message),
                                 })
