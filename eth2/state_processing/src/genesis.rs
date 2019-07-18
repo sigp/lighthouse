@@ -55,7 +55,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     let active_index_root = Hash256::from_slice(&indices_list.tree_hash_root());
     let committee_root = get_compact_committees_root(&state, RelativeEpoch::Current, spec)?;
     state.fill_active_index_roots_with(active_index_root);
-    state.fill_compact_committee_roots_with(committee_root);
+    state.fill_compact_committees_roots_with(committee_root);
 
     Ok(state)
 }

@@ -559,7 +559,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.active_index_roots = FixedVector::from_elem(index_root);
     }
 
-    /// Safely obtains the index for `compact_committee_roots`, given some `epoch`.
+    /// Safely obtains the index for `compact_committees_roots`, given some `epoch`.
     ///
     /// Spec v0.8.0
     fn get_compact_committee_root_index(
@@ -570,10 +570,10 @@ impl<T: EthSpec> BeaconState<T> {
         let current_epoch = self.current_epoch();
 
         let lookahead = spec.activation_exit_delay;
-        let lookback = self.compact_committee_roots.len() as u64 - lookahead;
+        let lookback = self.compact_committees_roots.len() as u64 - lookahead;
 
         if epoch + lookback > current_epoch && current_epoch + lookahead >= epoch {
-            Ok(epoch.as_usize() % self.compact_committee_roots.len())
+            Ok(epoch.as_usize() % self.compact_committees_roots.len())
         } else {
             Err(Error::EpochOutOfBounds)
         }
@@ -588,7 +588,7 @@ impl<T: EthSpec> BeaconState<T> {
         spec: &ChainSpec,
     ) -> Result<Hash256, Error> {
         let i = self.get_compact_committee_root_index(epoch, spec)?;
-        Ok(self.compact_committee_roots[i])
+        Ok(self.compact_committees_roots[i])
     }
 
     /// Set the `compact_committee_root` at a recent `epoch`.
@@ -601,15 +601,15 @@ impl<T: EthSpec> BeaconState<T> {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let i = self.get_compact_committee_root_index(epoch, spec)?;
-        self.compact_committee_roots[i] = index_root;
+        self.compact_committees_roots[i] = index_root;
         Ok(())
     }
 
-    /// Replace `compact_committee_roots` with clones of `committee_root`.
+    /// Replace `compact_committees_roots` with clones of `committee_root`.
     ///
     /// Spec v0.8.0
-    pub fn fill_compact_committee_roots_with(&mut self, committee_root: Hash256) {
-        self.compact_committee_roots = FixedVector::from_elem(committee_root);
+    pub fn fill_compact_committees_roots_with(&mut self, committee_root: Hash256) {
+        self.compact_committees_roots = FixedVector::from_elem(committee_root);
     }
 
     /// Safely obtains the index for latest state roots, given some `slot`.
