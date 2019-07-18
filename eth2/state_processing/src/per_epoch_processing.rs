@@ -1,3 +1,4 @@
+use crate::common::get_compact_committees_root;
 use apply_rewards::process_rewards_and_penalties;
 use errors::EpochProcessingError as Error;
 use process_slashings::process_slashings;
@@ -225,15 +226,20 @@ pub fn process_final_updates<T: EthSpec>(
         state.slot += 1;
 
         // Set active index root
-        // TODO(freeze): use SSZ list type here
-        let active_index_root = Hash256::from_slice(
-            &state
-                .get_active_validator_indices(next_epoch + spec.activation_exit_delay)
-                .tree_hash_root()[..],
+        let index_epoch = next_epoch + spec.activation_exit_delay;
+        let indices_list = VariableList::<usize, T::ValidatorRegistryLimit>::from(
+            state.get_active_validator_indices(index_epoch),
         );
         state.set_active_index_root(
-            next_epoch + spec.activation_exit_delay,
-            active_index_root,
+            index_epoch,
+            Hash256::from_slice(&indices_list.tree_hash_root()),
+            spec,
+        )?;
+
+        // Set committees root
+        state.set_compact_committee_root(
+            next_epoch,
+            get_compact_committees_root(state, RelativeEpoch::Next, spec)?,
             spec,
         )?;
 
@@ -246,11 +252,12 @@ pub fn process_final_updates<T: EthSpec>(
         state.slot -= 1;
     }
 
+    // Set historical root accumulator
     if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / T::slots_per_epoch()) == 0 {
         let historical_batch = state.historical_batch();
         state
             .historical_roots
-            .push(Hash256::from_slice(&historical_batch.tree_hash_root()[..]))?;
+            .push(Hash256::from_slice(&historical_batch.tree_hash_root()))?;
     }
 
     // Rotate current/previous epoch attestations
