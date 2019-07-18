@@ -41,11 +41,16 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
 
 //    let svc_log = log.new(o!("Service"=>"REST API Service"));
 
-    let log_clone = api_log.clone();
 
+    let log_clone = api_log.clone();
     let service = move || {
-        let mut router = router_service(beacon_chain.clone(), &log_clone);
-        service_fn(move |req| router.call(req))
+        let mut router = router_service(beacon_chain.clone(), &log_clone.clone());
+        let log_clone2 = log_clone.clone();
+        service_fn(move |mut req| {
+            req.extensions_mut().insert::<slog::Logger>(log_clone2.clone());
+            req.extensions_mut().insert::<String>("asdf".to_owned());
+            router.call(req)
+        })
     };
 
     let server = Server::bind(&bind_addr)

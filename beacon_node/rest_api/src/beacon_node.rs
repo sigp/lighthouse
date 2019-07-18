@@ -69,7 +69,9 @@ fn get_version(req: Request<Body>) -> Response<Body> {
     //} else {
     response_builder.status(StatusCode::OK);
     let ver = Version::from(version::version());
-    let body = Body::from(serde_json::to_string(&ver).unwrap());
+    let mylog = req.extensions().get::<slog::Logger>().unwrap();
+    info!(mylog, "The logger works inside the function!!!");
+    let body = Body::from(serde_json::to_string(req.extensions().get::<String>().unwrap()).unwrap());
     //};
     response_builder.body(body).unwrap()
 }
