@@ -6,13 +6,12 @@ use state_processing::{per_block_processing, per_slot_processing};
 use types::{BeaconBlock, BeaconState, EthSpec, RelativeEpoch};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct SanityBlocks<E: EthSpec> {
     pub description: String,
     pub bls_setting: Option<BlsSetting>,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
-    pub blocks: Vec<BeaconBlock>,
-    #[serde(bound = "E: EthSpec")]
+    pub blocks: Vec<BeaconBlock<E>>,
     pub post: Option<BeaconState<E>>,
 }
 

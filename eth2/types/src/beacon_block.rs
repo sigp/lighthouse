@@ -24,6 +24,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
+#[serde(bound = "T: EthSpec")]
 pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,
     pub parent_root: Hash256,

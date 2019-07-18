@@ -20,6 +20,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
+#[serde(bound = "T: EthSpec")]
 pub struct AttesterSlashing<T: EthSpec> {
     pub attestation_1: IndexedAttestation<T>,
     pub attestation_2: IndexedAttestation<T>,

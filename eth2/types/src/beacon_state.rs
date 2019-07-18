@@ -78,6 +78,7 @@ pub enum Error {
     CompareFields,
     CachedTreeHash,
 )]
+#[serde(bound = "T: EthSpec")]
 pub struct BeaconState<T>
 where
     T: EthSpec,

@@ -23,6 +23,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
+#[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     pub custody_bit_0_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
