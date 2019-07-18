@@ -10,7 +10,6 @@ members = [
 	"eth2/utils/compare_fields",
 	"eth2/utils/compare_fields_derive",
 	"eth2/utils/eth2_config",
-	"eth2/utils/fixed_len_vec",
 	"eth2/utils/hashing",
 	"eth2/utils/honey-badger-split",
 	"eth2/utils/merkle_proof",

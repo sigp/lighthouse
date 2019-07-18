@@ -9,12 +9,7 @@ license = "Apache-2.0"
 [lib]
 name = "ssz"
 
-[[bench]]
-name = "benches"
-harness = false
-
 [dev-dependencies]
-criterion = "0.2"
 eth2_ssz_derive = "0.1.0"
 
 [dependencies]
