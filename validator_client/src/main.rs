@@ -183,12 +183,12 @@ fn main() {
     );
 
     let result = match eth2_config.spec_constants.as_str() {
-        "mainnet" => ValidatorService::<ValidatorServiceClient, Keypair>::start::<MainnetEthSpec>(
+        "mainnet" => ValidatorService::<ValidatorServiceClient, Keypair, MainnetEthSpec>::start(
             client_config,
             eth2_config,
             log.clone(),
         ),
-        "minimal" => ValidatorService::<ValidatorServiceClient, Keypair>::start::<MinimalEthSpec>(
+        "minimal" => ValidatorService::<ValidatorServiceClient, Keypair, MinimalEthSpec>::start(
             client_config,
             eth2_config,
             log.clone(),
