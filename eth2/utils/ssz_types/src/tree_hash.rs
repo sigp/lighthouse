@@ -41,7 +41,8 @@ where
 /// A helper function providing common functionality for finding the Merkle root of some bytes that
 /// represent a bitfield.
 pub fn bitfield_bytes_tree_hash_root<N: Unsigned>(bytes: &[u8]) -> Vec<u8> {
-    let minimum_chunk_count = (N::to_usize() + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK;
+    let byte_size = (N::to_usize() + 7) / 8;
+    let minimum_chunk_count = (byte_size + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK;
 
     merkle_root(bytes, minimum_chunk_count)
 }

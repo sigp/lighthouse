@@ -584,28 +584,28 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Variable<N>> {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        bitfield_bytes_tree_hash_root::<N>(&self.as_ssz_bytes())
+        // Note: we use `as_slice` because it does _not_ have the length-delimiting bit set (or
+        // present).
+        let root = bitfield_bytes_tree_hash_root::<N>(self.as_slice());
+        tree_hash::mix_in_length(&root, self.len())
     }
 }
 
 impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
     fn tree_hash_type() -> tree_hash::TreeHashType {
-        // TODO: move this to be a vector.
-        tree_hash::TreeHashType::List
+        tree_hash::TreeHashType::Vector
     }
 
     fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        // TODO: move this to be a vector.
         unreachable!("Vector should never be packed.")
     }
 
     fn tree_hash_packing_factor() -> usize {
-        // TODO: move this to be a vector.
         unreachable!("Vector should never be packed.")
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        bitfield_bytes_tree_hash_root::<N>(&self.as_ssz_bytes())
+        bitfield_bytes_tree_hash_root::<N>(self.as_slice())
     }
 }
 
