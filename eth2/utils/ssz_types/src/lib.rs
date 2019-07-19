@@ -8,6 +8,10 @@
 //! These structs are required as SSZ serialization and Merklization rely upon type-level lengths
 //! for padding and verification.
 //!
+//! Adheres to the Ethereum 2.0 [SSZ
+//! specification](https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/specs/simple-serialize.md)
+//! at v0.8.1 .
+//!
 //! ## Example
 //! ```
 //! use ssz_types::*;
