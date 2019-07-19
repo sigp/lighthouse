@@ -385,7 +385,7 @@ where
     }
 
     fn add_weightless_node(&mut self, slot: Slot, hash: Hash256) -> Result<()> {
-        if slot >= self.root_slot() && !self.nodes.contains_key(&hash) {
+        if slot > self.root_slot() && !self.nodes.contains_key(&hash) {
             let node = Node {
                 block_hash: hash,
                 ..Node::default()
