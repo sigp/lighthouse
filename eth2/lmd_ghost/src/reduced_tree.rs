@@ -333,23 +333,27 @@ where
         Ok(())
     }
 
+    /// Deletes a node if it is unnecessary.
+    ///
+    /// Any node is unnecessary if all of the following are true:
+    ///
+    /// - it is not the root node.
+    /// - it only has one child.
+    /// - it does not have any votes.
     fn maybe_delete_node(&mut self, hash: Hash256) -> Result<()> {
         let should_delete = {
             let node = self.get_node(hash)?.clone();
 
             if let Some(parent_hash) = node.parent_hash {
                 if (node.children.len() == 1) && !node.has_votes() {
-                    // Graft the child to it's grandparent.
-                    let child_hash = {
-                        let child_node = self.get_mut_node(node.children[0])?;
-                        child_node.parent_hash = node.parent_hash;
+                    let child_hash = node.children[0];
 
-                        child_node.block_hash
-                    };
+                    // Graft the single descendant `node` to the `parent` of node.
+                    self.get_mut_node(child_hash)?.parent_hash = Some(parent_hash);
 
-                    // Graft the grandparent to it's grandchild.
-                    let parent_node = self.get_mut_node(parent_hash)?;
-                    parent_node.replace_child(node.block_hash, child_hash)?;
+                    // Detach `node` from `parent`, replacing it with `child`.
+                    self.get_mut_node(parent_hash)?
+                        .replace_child(hash, child_hash)?;
 
                     true
                 } else {
