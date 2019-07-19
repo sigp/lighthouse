@@ -125,18 +125,5 @@ where
     let tree_hash_root = Hash256::from_slice(&decoded.tree_hash_root());
     compare_result::<Hash256, Error>(&Ok(tree_hash_root), &Some(expected_root))?;
 
-    // Verify a _new_ CachedTreeHash root of the decoded struct matches the test.
-    let cache = TreeHashCache::new(&decoded).unwrap();
-    let cached_tree_hash_root = Hash256::from_slice(cache.tree_hash_root().unwrap());
-    compare_result::<Hash256, Error>(&Ok(cached_tree_hash_root), &Some(expected_root))?;
-
-    // Verify the root after an update from a random CachedTreeHash to the decoded struct.
-    let mut rng = XorShiftRng::from_seed([42; 16]);
-    let random_instance = T::random_for_test(&mut rng);
-    let mut cache = TreeHashCache::new(&random_instance).unwrap();
-    cache.update(&decoded).unwrap();
-    let updated_root = Hash256::from_slice(cache.tree_hash_root().unwrap());
-    compare_result::<Hash256, Error>(&Ok(updated_root), &Some(expected_root))?;
-
     Ok(())
 }
