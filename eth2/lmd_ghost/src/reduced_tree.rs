@@ -393,6 +393,8 @@ where
 
             self.add_node(node)?;
 
+            // Read the `parent_hash` from the newly created node. If it has a parent (i.e., it's
+            // not the root), see if it is superfluous.
             if let Some(parent_hash) = self.get_node(hash)?.parent_hash {
                 self.maybe_delete_node(parent_hash)?;
             }
@@ -401,75 +403,111 @@ where
         Ok(())
     }
 
+    /// Add `node` to the reduced tree, returning an error if `node` is not rooted in the tree.
     fn add_node(&mut self, mut node: Node) -> Result<()> {
-        // Find the highest (by slot) ancestor of the given hash/block that is in the reduced tree.
-        let mut prev_in_tree = {
-            let hash = self
-                .find_prev_in_tree(node.block_hash)
-                .ok_or_else(|| Error::NotInTree(node.block_hash))?;
-            self.get_mut_node(hash)?.clone()
-        };
+        // Find the highest (by slot) ancestor of the given node in the reduced tree.
+        //
+        // If this node has no ancestor in the tree, exit early.
+        let mut prev_in_tree = self
+            .find_prev_in_tree(node.block_hash)
+            .ok_or_else(|| Error::NotInTree(node.block_hash))
+            .and_then(|hash| self.get_node(hash))?
+            .clone();
 
-        let mut added = false;
-
+        // If the ancestor of `node` has children, there are three possible operations:
+        //
+        // 1. Graft the `node` between two existing nodes.
+        // 2. Create another node that will be grafted between two existing nodes, then graft
+        //    `node` to it.
+        // 3. Graft `node` to an existing node.
         if !prev_in_tree.children.is_empty() {
+            // Set to `true` after `node` is successfully grafted into the tree.
+            let mut grafted = false;
+
             for &child_hash in &prev_in_tree.children {
+                // 1. Graft the new node between two existing nodes.
+                //
+                // If `node` is a descendant of `prev_in_tree` but an ancestor of a child connected to
+                // `prev_in_tree`.
+                //
+                // This means that `node` can be grafted between `prev_in_tree` and the child that is a
+                // descendant of both `node` and `prev_in_tree`.
                 if self
                     .iter_ancestors(child_hash)?
                     .any(|(ancestor, _slot)| ancestor == node.block_hash)
                 {
                     let child = self.get_mut_node(child_hash)?;
 
+                    // Graft `child` to `node`.
                     child.parent_hash = Some(node.block_hash);
+                    // Graft `node` to `child`.
                     node.children.push(child_hash);
+                    // Detach `child` from `prev_in_tree`, replacing it with `node`.
                     prev_in_tree.replace_child(child_hash, node.block_hash)?;
+                    // Graft `node` to `prev_in_tree`.
                     node.parent_hash = Some(prev_in_tree.block_hash);
 
-                    added = true;
+                    grafted = true;
 
                     break;
                 }
             }
 
-            if !added {
+            // 2. Create another node that will be grafted between two existing nodes, then graft
+            //    `node` to it.
+            //
+            // Note: given that `prev_in_tree` has children and that `node` is not an ancestor of
+            // any of the children of `prev_in_tree`, we know that `node` is on a different fork to
+            // all of the children of `prev_in_tree`.
+            if !grafted {
                 for &child_hash in &prev_in_tree.children {
+                    // Find the highest (by slot) common ancestor between `node` and `child`.
+                    //
+                    // The common ancestor is the last block before `node` and `child` forked.
                     let ancestor_hash =
-                        self.find_least_common_ancestor(node.block_hash, child_hash)?;
+                        self.find_highest_common_ancestor(node.block_hash, child_hash)?;
 
+                    // If the block before `node` and `child` forked is _not_ `prev_in_tree` we
+                    // must add this new block into the tree (because it is a decision node
+                    // between two forks).
                     if ancestor_hash != prev_in_tree.block_hash {
                         let child = self.get_mut_node(child_hash)?;
+
+                        // Create a new `common_ancestor` node which represents the `ancestor_hash`
+                        // block, has `prev_in_tree` as the parent and has both `node` and `child`
+                        // as children.
                         let common_ancestor = Node {
                             block_hash: ancestor_hash,
                             parent_hash: Some(prev_in_tree.block_hash),
                             children: vec![node.block_hash, child_hash],
                             ..Node::default()
                         };
+
+                        // Graft `child` and `node` to `common_ancestor`.
                         child.parent_hash = Some(common_ancestor.block_hash);
                         node.parent_hash = Some(common_ancestor.block_hash);
 
-                        prev_in_tree.replace_child(child_hash, ancestor_hash)?;
+                        // Detach `child` from `prev_in_tree`, replacing it with `common_ancestor`.
+                        prev_in_tree.replace_child(child_hash, common_ancestor.block_hash)?;
 
+                        // Store the new `common_ancestor` node.
                         self.nodes
                             .insert(common_ancestor.block_hash, common_ancestor);
-
-                        added = true;
 
                         break;
                     }
                 }
             }
-        }
-
-        if !added {
+        } else {
+            // 3. Graft `node` to an existing node.
+            //
+            // Graft `node` to `prev_in_tree` and `prev_in_tree` to `node`
             node.parent_hash = Some(prev_in_tree.block_hash);
             prev_in_tree.children.push(node.block_hash);
         }
 
         // Update `prev_in_tree`. A mutable reference was not maintained to satisfy the borrow
-        // checker.
-        //
-        // This is not an ideal solution and results in unnecessary memory copies -- a better
-        // solution is certainly possible.
+        // checker. Perhaps there's a better way?
         self.nodes.insert(prev_in_tree.block_hash, prev_in_tree);
         self.nodes.insert(node.block_hash, node);
 
@@ -503,7 +541,7 @@ where
 
     /// For the two given block roots (`a_root` and `b_root`), find the first block they share in
     /// the tree. Viz, find the block that these two distinct blocks forked from.
-    fn find_least_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
+    fn find_highest_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
         // If the blocks behind `a_root` and `b_root` are not at the same slot, take the highest
         // block (by slot) down to be equal with the lower slot.
         //
