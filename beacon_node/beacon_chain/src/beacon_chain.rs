@@ -493,19 +493,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
-        // Retrieve the attestation's state from `store` if necessary.
-        let attestation_state = match attestation.data.beacon_block_root == self.canonical_head.read().beacon_block_root {
-            true => Some(self.state.read().clone()),
-            false => match self.store.get::<BeaconBlock>(&attestation.data.beacon_block_root) {
-                Ok(Some(block)) => match self.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
-                    Ok(state) => state,
-                    _ => None
-                },
-                _ => None
-            }
-        };
-
-        if let Some(state) = attestation_state {
+        if let Some(state) = self.get_attestation_state(&attestation) {
             let indexed_attestation = common::convert_to_indexed(&state, &attestation)?;
             per_block_processing::verify_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
             self.fork_choice.process_attestation(&state, &attestation);
@@ -533,6 +521,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //  message. This would involve expanding the `LmdGhost` API.
 
         result
+    }
+
+    fn get_attestation_state(&self, attestation: &Attestation) -> Option<BeaconState<T::EthSpec>> {
+        let blocks = BestBlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), self.state.read().slot.clone());
+        for (root, slot) in blocks {
+            if root == attestation.data.target_root
+                && self.slot_epochs_equal_or_adjacent(slot, self.state.read().slot) {
+                return Some(self.state.read().clone());
+            }
+        };
+
+        match self.store.get::<BeaconBlock>(&attestation.data.target_root) {
+            Ok(Some(block)) => match self.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
+                Ok(state) => state,
+                _ => None
+            },
+            _ => None
+        }
+    }
+
+    fn slot_epochs_equal_or_adjacent(&self, slot_a: Slot, slot_b: Slot) -> bool {
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let epoch_a = slot_a.epoch(slots_per_epoch);
+        let epoch_b = slot_b.epoch(slots_per_epoch);
+
+        epoch_a == epoch_b
+            || epoch_a + 1 == epoch_b
+            || epoch_b + 1 == epoch_a
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
