@@ -40,7 +40,7 @@ where
     T: Store,
     E: EthSpec,
 {
-    fn new(store: Arc<T>, genesis_block: &BeaconBlock, genesis_root: Hash256) -> Self {
+    fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
         ThreadSafeReducedTree {
             core: RwLock::new(ReducedTree::new(store, genesis_block, genesis_root)),
         }
@@ -59,7 +59,7 @@ where
     }
 
     /// Process a block that was seen on the network.
-    fn process_block(&self, block: &BeaconBlock, block_hash: Hash256) -> SuperResult<()> {
+    fn process_block(&self, block: &BeaconBlock<E>, block_hash: Hash256) -> SuperResult<()> {
         self.core
             .write()
             .add_weightless_node(block.slot, block_hash)
@@ -81,7 +81,11 @@ where
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
-    fn update_finalized_root(&self, new_block: &BeaconBlock, new_root: Hash256) -> SuperResult<()> {
+    fn update_finalized_root(
+        &self,
+        new_block: &BeaconBlock<E>,
+        new_root: Hash256,
+    ) -> SuperResult<()> {
         self.core
             .write()
             .update_root(new_block.slot, new_root)
@@ -105,7 +109,7 @@ where
     T: Store,
     E: EthSpec,
 {
-    pub fn new(store: Arc<T>, genesis_block: &BeaconBlock, genesis_root: Hash256) -> Self {
+    pub fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
         let mut nodes = HashMap::new();
 
         // Insert the genesis node.
@@ -553,9 +557,9 @@ where
             .ok_or_else(|| Error::MissingNode(hash))
     }
 
-    fn get_block(&self, block_root: Hash256) -> Result<BeaconBlock> {
+    fn get_block(&self, block_root: Hash256) -> Result<BeaconBlock<E>> {
         self.store
-            .get::<BeaconBlock>(&block_root)?
+            .get::<BeaconBlock<E>>(&block_root)?
             .ok_or_else(|| Error::MissingBlock(block_root))
     }
 

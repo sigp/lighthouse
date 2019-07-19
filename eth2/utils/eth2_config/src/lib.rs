@@ -46,7 +46,7 @@ impl Eth2Config {
     /// invalid.
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
         if args.is_present("recent-genesis") {
-            self.spec.genesis_time = recent_genesis_time()
+            self.spec.min_genesis_time = recent_genesis_time()
         }
 
         Ok(())

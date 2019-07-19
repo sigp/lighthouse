@@ -1,4 +1,5 @@
 use super::methods::*;
+use core::marker::PhantomData;
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use ssz::{impl_decode_via_from, impl_encode_via_from, ssz_encode, Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -6,15 +7,18 @@ use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter;
 use tokio::io::{AsyncRead, AsyncWrite};
+use types::EthSpec;
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_READ_SIZE: usize = 4_194_304; // 4M
 
 /// Implementation of the `ConnectionUpgrade` for the rpc protocol.
-#[derive(Debug, Clone)]
-pub struct RPCProtocol;
+#[derive(Default, Debug, Clone)]
+pub struct RPCProtocol<E: EthSpec> {
+    _phantom: PhantomData<E>,
+}
 
-impl UpgradeInfo for RPCProtocol {
+impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
     type Info = &'static [u8];
     type InfoIter = iter::Once<Self::Info>;
 
@@ -24,11 +28,15 @@ impl UpgradeInfo for RPCProtocol {
     }
 }
 
-impl Default for RPCProtocol {
+/*
+impl<E: EthSpec> Default for RPCProtocol<E> {
     fn default() -> Self {
-        RPCProtocol
+        RPCProtocol {
+
+        }
     }
 }
+*/
 
 /// A monotonic counter for ordering `RPCRequest`s.
 #[derive(Debug, Clone, Copy, Default)]
@@ -77,7 +85,7 @@ impl_decode_via_from!(RequestId, u64);
 
 /// The RPC types which are sent/received in this protocol.
 #[derive(Debug, Clone)]
-pub enum RPCEvent {
+pub enum RPCEvent<E: EthSpec> {
     Request {
         id: RequestId,
         method_id: u16,
@@ -86,11 +94,11 @@ pub enum RPCEvent {
     Response {
         id: RequestId,
         method_id: u16, //TODO: Remove and process decoding upstream
-        result: RPCResponse,
+        result: RPCResponse<E>,
     },
 }
 
-impl UpgradeInfo for RPCEvent {
+impl<E: EthSpec> UpgradeInfo for RPCEvent<E> {
     type Info = &'static [u8];
     type InfoIter = iter::Once<Self::Info>;
 
@@ -100,15 +108,16 @@ impl UpgradeInfo for RPCEvent {
     }
 }
 
-type FnDecodeRPCEvent = fn(Vec<u8>, ()) -> Result<RPCEvent, DecodeError>;
+type FnDecodeRPCEvent<E> = fn(Vec<u8>, ()) -> Result<RPCEvent<E>, DecodeError>;
 
-impl<TSocket> InboundUpgrade<TSocket> for RPCProtocol
+impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
     TSocket: AsyncRead + AsyncWrite,
+    E: EthSpec,
 {
-    type Output = RPCEvent;
+    type Output = RPCEvent<E>;
     type Error = DecodeError;
-    type Future = upgrade::ReadOneThen<upgrade::Negotiated<TSocket>, (), FnDecodeRPCEvent>;
+    type Future = upgrade::ReadOneThen<upgrade::Negotiated<TSocket>, (), FnDecodeRPCEvent<E>>;
 
     fn upgrade_inbound(self, socket: upgrade::Negotiated<TSocket>, _: Self::Info) -> Self::Future {
         upgrade::read_one_then(socket, MAX_READ_SIZE, (), |packet, ()| Ok(decode(packet)?))
@@ -129,7 +138,7 @@ struct SszContainer {
     bytes: Vec<u8>,
 }
 
-fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
+fn decode<E: EthSpec>(packet: Vec<u8>) -> Result<RPCEvent<E>, DecodeError> {
     let msg = SszContainer::from_ssz_bytes(&packet)?;
 
     if msg.is_request {
@@ -186,9 +195,10 @@ fn decode(packet: Vec<u8>) -> Result<RPCEvent, DecodeError> {
     }
 }
 
-impl<TSocket> OutboundUpgrade<TSocket> for RPCEvent
+impl<TSocket, E> OutboundUpgrade<TSocket> for RPCEvent<E>
 where
     TSocket: AsyncWrite,
+    E: EthSpec,
 {
     type Output = ();
     type Error = io::Error;
@@ -201,7 +211,7 @@ where
     }
 }
 
-impl Encode for RPCEvent {
+impl<E: EthSpec> Encode for RPCEvent<E> {
     fn is_ssz_fixed_len() -> bool {
         false
     }

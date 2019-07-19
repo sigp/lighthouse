@@ -87,12 +87,11 @@ impl LocalMetrics {
             .set(present_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64() as i64);
 
         self.best_slot.set(state.slot.as_u64() as i64);
-        self.validator_count
-            .set(state.validator_registry.len() as i64);
+        self.validator_count.set(state.validators.len() as i64);
         self.justified_epoch
-            .set(state.current_justified_epoch.as_u64() as i64);
+            .set(state.current_justified_checkpoint.epoch.as_u64() as i64);
         self.finalized_epoch
-            .set(state.finalized_epoch.as_u64() as i64);
+            .set(state.finalized_checkpoint.epoch.as_u64() as i64);
         if SHOULD_SUM_VALIDATOR_BALANCES {
             self.validator_balances_sum
                 .set(state.balances.iter().sum::<u64>() as i64);

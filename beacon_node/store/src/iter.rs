@@ -82,7 +82,7 @@ impl<'a, T: EthSpec, U: Store> BlockIterator<'a, T, U> {
 }
 
 impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
-    type Item = BeaconBlock;
+    type Item = BeaconBlock<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (root, _slot) = self.roots.next()?;
@@ -93,8 +93,8 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
 /// Iterates backwards through block roots. If any specified slot is unable to be retrieved, the
 /// iterator returns `None` indefinitely.
 ///
-/// Uses the `latest_block_roots` field of `BeaconState` to as the source of block roots and will
-/// perform a lookup on the `Store` for a prior `BeaconState` if `latest_block_roots` has been
+/// Uses the `block_roots` field of `BeaconState` to as the source of block roots and will
+/// perform a lookup on the `Store` for a prior `BeaconState` if `block_roots` has been
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
@@ -175,8 +175,8 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
 ///
 /// This is distinct from `BestBlockRootsIterator`.
 ///
-/// Uses the `latest_block_roots` field of `BeaconState` to as the source of block roots and will
-/// perform a lookup on the `Store` for a prior `BeaconState` if `latest_block_roots` has been
+/// Uses the `block_roots` field of `BeaconState` to as the source of block roots and will
+/// perform a lookup on the `Store` for a prior `BeaconState` if `block_roots` has been
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
@@ -289,15 +289,15 @@ mod test {
 
         let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
 
-        for root in &mut state_a.latest_block_roots[..] {
+        for root in &mut state_a.block_roots[..] {
             *root = hashes.next().unwrap()
         }
-        for root in &mut state_b.latest_block_roots[..] {
+        for root in &mut state_b.block_roots[..] {
             *root = hashes.next().unwrap()
         }
 
         let state_a_root = hashes.next().unwrap();
-        state_b.latest_state_roots[0] = state_a_root;
+        state_b.state_roots[0] = state_a_root;
         store.put(&state_a_root, &state_a).unwrap();
 
         let iter = BlockRootsIterator::new(store.clone(), &state_b, state_b.slot - 1);
@@ -332,15 +332,15 @@ mod test {
 
         let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
 
-        for root in &mut state_a.latest_block_roots[..] {
+        for root in &mut state_a.block_roots[..] {
             *root = hashes.next().unwrap()
         }
-        for root in &mut state_b.latest_block_roots[..] {
+        for root in &mut state_b.block_roots[..] {
             *root = hashes.next().unwrap()
         }
 
         let state_a_root = hashes.next().unwrap();
-        state_b.latest_state_roots[0] = state_a_root;
+        state_b.state_roots[0] = state_a_root;
         store.put(&state_a_root, &state_a).unwrap();
 
         let iter = BestBlockRootsIterator::new(store.clone(), &state_b, state_b.slot);

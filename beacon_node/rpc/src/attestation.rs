@@ -19,7 +19,7 @@ use types::Attestation;
 #[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub log: slog::Logger,
 }
 

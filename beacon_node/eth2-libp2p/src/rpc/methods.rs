@@ -2,7 +2,7 @@
 
 use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 /// Available Serenity Libp2p RPC methods
@@ -77,15 +77,15 @@ impl RPCRequest {
 }
 
 #[derive(Debug, Clone)]
-pub enum RPCResponse {
+pub enum RPCResponse<E: EthSpec> {
     Hello(HelloMessage),
     BeaconBlockRoots(BeaconBlockRootsResponse),
     BeaconBlockHeaders(BeaconBlockHeadersResponse),
-    BeaconBlockBodies(BeaconBlockBodiesResponse),
+    BeaconBlockBodies(BeaconBlockBodiesResponse<E>),
     BeaconChainState(BeaconChainStateResponse),
 }
 
-impl RPCResponse {
+impl<E: EthSpec> RPCResponse<E> {
     pub fn method_id(&self) -> u16 {
         let method = match self {
             RPCResponse::Hello(_) => RPCMethod::Hello,
@@ -220,9 +220,9 @@ pub struct BeaconBlockBodiesRequest {
 
 /// Response containing the list of requested beacon block bodies.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BeaconBlockBodiesResponse {
+pub struct BeaconBlockBodiesResponse<E: EthSpec> {
     /// The list of beacon block bodies being requested.
-    pub block_bodies: Vec<BeaconBlockBody>,
+    pub block_bodies: Vec<BeaconBlockBody<E>>,
 }
 
 /// Request values for tree hashes which yield a blocks `state_root`.

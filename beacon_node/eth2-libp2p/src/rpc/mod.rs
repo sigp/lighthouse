@@ -16,20 +16,21 @@ pub use protocol::{RPCEvent, RPCProtocol, RequestId};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
+use types::EthSpec;
 
 /// The network behaviour handles RPC requests/responses as specified in the Eth 2.0 phase 0
 /// specification.
 
-pub struct Rpc<TSubstream> {
+pub struct Rpc<TSubstream, E: EthSpec> {
     /// Queue of events to processed.
-    events: Vec<NetworkBehaviourAction<RPCEvent, RPCMessage>>,
+    events: Vec<NetworkBehaviourAction<RPCEvent<E>, RPCMessage<E>>>,
     /// Pins the generic substream.
     marker: PhantomData<TSubstream>,
     /// Slog logger for RPC behaviour.
     _log: slog::Logger,
 }
 
-impl<TSubstream> Rpc<TSubstream> {
+impl<TSubstream, E: EthSpec> Rpc<TSubstream, E> {
     pub fn new(log: &slog::Logger) -> Self {
         let log = log.new(o!("Service" => "Libp2p-RPC"));
         Rpc {
@@ -40,7 +41,7 @@ impl<TSubstream> Rpc<TSubstream> {
     }
 
     /// Submits and RPC request.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<E>) {
         self.events.push(NetworkBehaviourAction::SendEvent {
             peer_id,
             event: rpc_event,
@@ -48,12 +49,14 @@ impl<TSubstream> Rpc<TSubstream> {
     }
 }
 
-impl<TSubstream> NetworkBehaviour for Rpc<TSubstream>
+impl<TSubstream, E> NetworkBehaviour for Rpc<TSubstream, E>
 where
     TSubstream: AsyncRead + AsyncWrite,
+    E: EthSpec,
 {
-    type ProtocolsHandler = OneShotHandler<TSubstream, RPCProtocol, RPCEvent, OneShotEvent>;
-    type OutEvent = RPCMessage;
+    type ProtocolsHandler =
+        OneShotHandler<TSubstream, RPCProtocol<E>, RPCEvent<E>, OneShotEvent<E>>;
+    type OutEvent = RPCMessage<E>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         Default::default()
@@ -109,30 +112,30 @@ where
 }
 
 /// Messages sent to the user from the RPC protocol.
-pub enum RPCMessage {
-    RPC(PeerId, RPCEvent),
+pub enum RPCMessage<E: EthSpec> {
+    RPC(PeerId, RPCEvent<E>),
     PeerDialed(PeerId),
 }
 
 /// Transmission between the `OneShotHandler` and the `RPCEvent`.
 #[derive(Debug)]
-pub enum OneShotEvent {
+pub enum OneShotEvent<E: EthSpec> {
     /// We received an RPC from a remote.
-    Rx(RPCEvent),
+    Rx(RPCEvent<E>),
     /// We successfully sent an RPC request.
     Sent,
 }
 
-impl From<RPCEvent> for OneShotEvent {
+impl<E: EthSpec> From<RPCEvent<E>> for OneShotEvent<E> {
     #[inline]
-    fn from(rpc: RPCEvent) -> OneShotEvent {
+    fn from(rpc: RPCEvent<E>) -> Self {
         OneShotEvent::Rx(rpc)
     }
 }
 
-impl From<()> for OneShotEvent {
+impl<E: EthSpec> From<()> for OneShotEvent<E> {
     #[inline]
-    fn from(_: ()) -> OneShotEvent {
+    fn from(_: ()) -> Self {
         OneShotEvent::Sent
     }
 }

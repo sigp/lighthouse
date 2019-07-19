@@ -9,18 +9,18 @@ use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
 use slog::{debug, info, o, trace};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
+use types::EthSpec;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
     //libp2p_service: Arc<Mutex<LibP2PService>>,
     _libp2p_exit: oneshot::Sender<()>,
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
-    _phantom: PhantomData<T>, //message_handler: MessageHandler,
-                              //message_handler_send: Sender<HandlerMessage>
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    //message_handler: MessageHandler,
+    //message_handler_send: Sender<HandlerMessage>
 }
 
 impl<T: BeaconChainTypes + 'static> Service<T> {
@@ -29,9 +29,9 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage>)> {
+    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>)> {
         // build the network channel
-        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
+        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<_>>();
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
         let message_handler_send = MessageHandler::spawn(
@@ -56,7 +56,6 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         let network_service = Service {
             _libp2p_exit: libp2p_exit,
             network_send: network_send.clone(),
-            _phantom: PhantomData,
         };
 
         Ok((Arc::new(network_service), network_send))
@@ -73,10 +72,10 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
     }
 }
 
-fn spawn_service(
-    libp2p_service: LibP2PService,
-    network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
+fn spawn_service<E: EthSpec>(
+    libp2p_service: LibP2PService<E>,
+    network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    message_handler_send: mpsc::UnboundedSender<HandlerMessage<E>>,
     executor: &TaskExecutor,
     log: slog::Logger,
 ) -> error::Result<tokio::sync::oneshot::Sender<()>> {
@@ -102,10 +101,10 @@ fn spawn_service(
 }
 
 //TODO: Potentially handle channel errors
-fn network_service(
-    mut libp2p_service: LibP2PService,
-    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    mut message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
+fn network_service<E: EthSpec>(
+    mut libp2p_service: LibP2PService<E>,
+    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    mut message_handler_send: mpsc::UnboundedSender<HandlerMessage<E>>,
     log: slog::Logger,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
     futures::future::poll_fn(move || -> Result<_, eth2_libp2p::error::Error> {
@@ -182,22 +181,22 @@ fn network_service(
 
 /// Types of messages that the network service can receive.
 #[derive(Debug, Clone)]
-pub enum NetworkMessage {
+pub enum NetworkMessage<E: EthSpec> {
     /// Send a message to libp2p service.
     //TODO: Define typing for messages across the wire
-    Send(PeerId, OutgoingMessage),
+    Send(PeerId, OutgoingMessage<E>),
     /// Publish a message to pubsub mechanism.
     Publish {
         topics: Vec<Topic>,
-        message: Box<PubsubMessage>,
+        message: Box<PubsubMessage<E>>,
     },
 }
 
 /// Type of outgoing messages that can be sent through the network service.
 #[derive(Debug, Clone)]
-pub enum OutgoingMessage {
+pub enum OutgoingMessage<E: EthSpec> {
     /// Send an RPC request/response.
-    RPC(RPCEvent),
+    RPC(RPCEvent<E>),
     //TODO: Remove
     NotifierTest,
 }

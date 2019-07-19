@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use types::EthSpec;
 
 /// Timeout for RPC requests.
 // const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -27,32 +28,32 @@ pub struct MessageHandler<T: BeaconChainTypes> {
     /// The syncing framework.
     sync: SimpleSync<T>,
     /// The context required to send messages to, and process messages from peers.
-    network_context: NetworkContext,
+    network_context: NetworkContext<T::EthSpec>,
     /// The `MessageHandler` logger.
     log: slog::Logger,
 }
 
 /// Types of messages the handler can receive.
 #[derive(Debug, Clone)]
-pub enum HandlerMessage {
+pub enum HandlerMessage<E: EthSpec> {
     /// We have initiated a connection to a new peer.
     PeerDialed(PeerId),
     /// Peer has disconnected,
     PeerDisconnected(PeerId),
     /// An RPC response/request has been received.
-    RPC(PeerId, RPCEvent),
+    RPC(PeerId, RPCEvent<E>),
     /// A gossip message has been received.
-    PubsubMessage(PeerId, Box<PubsubMessage>),
+    PubsubMessage(PeerId, Box<PubsubMessage<E>>),
 }
 
 impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
+    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage<T::EthSpec>>> {
         debug!(log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
@@ -82,7 +83,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     }
 
     /// Handle all messages incoming from the network service.
-    fn handle_message(&mut self, message: HandlerMessage) {
+    fn handle_message(&mut self, message: HandlerMessage<T::EthSpec>) {
         match message {
             // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
@@ -104,7 +105,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /* RPC - Related functionality */
 
     /// Handle RPC messages
-    fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent) {
+    fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent<T::EthSpec>) {
         match rpc_message {
             RPCEvent::Request { id, body, .. // TODO: Clean up RPC Message types, have a cleaner type by this point.
             } => self.handle_rpc_request(peer_id, id, body),
@@ -151,7 +152,12 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
     /// An RPC response has been received from the network.
     // we match on id and ignore responses past the timeout.
-    fn handle_rpc_response(&mut self, peer_id: PeerId, id: RequestId, response: RPCResponse) {
+    fn handle_rpc_response(
+        &mut self,
+        peer_id: PeerId,
+        id: RequestId,
+        response: RPCResponse<T::EthSpec>,
+    ) {
         // if response id is not related to a request, ignore (likely RPC timeout)
         if self
             .network_context
@@ -206,7 +212,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     }
 
     /// Handle RPC messages
-    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage) {
+    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage<T::EthSpec>) {
         match gossip_message {
             PubsubMessage::Block(message) => {
                 let _should_foward_on =
@@ -221,9 +227,9 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     }
 }
 
-pub struct NetworkContext {
+pub struct NetworkContext<E: EthSpec> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
     /// A mapping of peers and the RPC id we have sent an RPC request to.
     outstanding_outgoing_request_ids: HashMap<(PeerId, RequestId), Instant>,
     /// Stores the next `RequestId` we should include on an outgoing `RPCRequest` to a `PeerId`.
@@ -232,8 +238,8 @@ pub struct NetworkContext {
     log: slog::Logger,
 }
 
-impl NetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+impl<E: EthSpec> NetworkContext<E> {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>, log: slog::Logger) -> Self {
         Self {
             network_send,
             outstanding_outgoing_request_ids: HashMap::new(),
@@ -267,7 +273,7 @@ impl NetworkContext {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_response: RPCResponse,
+        rpc_response: RPCResponse<E>,
     ) {
         self.send_rpc_event(
             peer_id,
@@ -279,11 +285,11 @@ impl NetworkContext {
         );
     }
 
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent<E>) {
         self.send(peer_id, OutgoingMessage::RPC(rpc_event))
     }
 
-    fn send(&mut self, peer_id: PeerId, outgoing_message: OutgoingMessage) {
+    fn send(&mut self, peer_id: PeerId, outgoing_message: OutgoingMessage<E>) {
         self.network_send
             .try_send(NetworkMessage::Send(peer_id, outgoing_message))
             .unwrap_or_else(|_| {
