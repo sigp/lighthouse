@@ -190,9 +190,8 @@ pub fn print_results(
     );
     println!("Title: {}", header.title);
     println!("File: {:?}", doc.path);
-    println!();
     println!(
-        "{} tests, {} failed, {} skipped (known failure), {} skipped (bls), {} passed.",
+        "{} tests, {} failed, {} skipped (known failure), {} skipped (bls), {} passed. (See below for errors)",
         results.len(),
         failed.len(),
         skipped_known_failures.len(),
