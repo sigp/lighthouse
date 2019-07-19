@@ -196,20 +196,18 @@ impl ChainSpec {
 
     /// Ethereum Foundation minimal spec, as defined here:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.6.3/configs/constant_presets/minimal.yaml
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/configs/constant_presets/minimal.yaml
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn minimal() -> Self {
-        let genesis_slot = Slot::new(0);
-
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
 
         Self {
             target_committee_size: 4,
             shuffle_round_count: 10,
-            min_attestation_inclusion_delay: 2,
-            genesis_slot,
+            min_genesis_active_validator_count: 64,
+            max_epochs_per_crosslink: 4,
             chain_id: 2, // lighthouse testnet chain id
             boot_nodes,
             ..ChainSpec::mainnet()
