@@ -32,9 +32,10 @@ pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // Ensure the previous and next epoch caches are built.
+    // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
+    state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
     // Load the struct we use to assign validators into sets based on their participation.
     //
@@ -236,13 +237,6 @@ pub fn process_final_updates<T: EthSpec>(
             spec,
         )?;
 
-        // Set committees root
-        state.set_compact_committee_root(
-            next_epoch,
-            get_compact_committees_root(state, RelativeEpoch::Next, spec)?,
-            spec,
-        )?;
-
         // Reset slashings
         state.set_slashings(next_epoch, 0)?;
 
@@ -251,6 +245,16 @@ pub fn process_final_updates<T: EthSpec>(
 
         state.slot -= 1;
     }
+
+    // Set committees root
+    // Note: we do this out-of-order w.r.t. to the spec, because we don't want the slot to be
+    // incremented. It's safe because the updates to slashings and the RANDAO mix (above) don't
+    // affect this.
+    state.set_compact_committee_root(
+        next_epoch,
+        get_compact_committees_root(state, RelativeEpoch::Next, spec)?,
+        spec,
+    )?;
 
     // Set historical root accumulator
     if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / T::slots_per_epoch()) == 0 {
