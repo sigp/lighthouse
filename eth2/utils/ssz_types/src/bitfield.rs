@@ -208,21 +208,9 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
     pub fn union(&self, other: &Self) -> Self {
         let max_len = std::cmp::max(self.len(), other.len());
         let mut result = Self::with_capacity(max_len).expect("max len always less than N");
-        let res_bytes_len = result.bytes.len();
-        for i in 0..res_bytes_len {
-            let self_byte = self
-                .bytes
-                .len()
-                .checked_sub(i + 1)
-                .map(|j| self.bytes[j])
-                .unwrap_or(0);
-            let other_byte = other
-                .bytes
-                .len()
-                .checked_sub(i + 1)
-                .map(|j| other.bytes[j])
-                .unwrap_or(0);
-            result.bytes[res_bytes_len - 1 - i] = self_byte | other_byte;
+        for i in 0..result.bytes.len() {
+            result.bytes[i] =
+                self.bytes.get(i).copied().unwrap_or(0) | other.bytes.get(i).copied().unwrap_or(0);
         }
         result
     }
@@ -421,10 +409,9 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
     /// Compute the difference of this Bitfield and another of potentially different length.
     pub fn difference_inplace(&mut self, other: &Self) {
         let min_byte_len = std::cmp::min(self.bytes.len(), other.bytes.len());
-        let self_byte_len = self.bytes.len();
 
         for i in 0..min_byte_len {
-            self.bytes[self_byte_len - 1 - i] &= !other.bytes[other.bytes.len() - 1 - i];
+            self.bytes[i] &= !other.bytes[i];
         }
     }
 
@@ -1116,7 +1103,7 @@ mod bitlist {
         let a = BitList1024::from_bytes(vec![0b0010_1011, 0b0010_1110]).unwrap();
         let b = BitList1024::from_bytes(vec![0b0000_0001, 0b0010_1101]).unwrap();
         let c = BitList1024::from_bytes(vec![0b0010_1011, 0b0010_1111]).unwrap();
-        let d = BitList1024::from_bytes(vec![0b1111_1111, 0b1111_1111, 0b0010_1110]).unwrap();
+        let d = BitList1024::from_bytes(vec![0b0010_1011, 0b1011_1110, 0b1000_1101]).unwrap();
 
         assert_eq!(a.len(), c.len());
         assert_eq!(a.union(&b), c);
@@ -1139,10 +1126,10 @@ mod bitlist {
 
     #[test]
     fn difference_diff_length() {
-        let a = BitList1024::from_raw_bytes(vec![0b0110, 0b1100, 0b0001], 24).unwrap();
+        let a = BitList1024::from_raw_bytes(vec![0b0110, 0b1100, 0b0011], 24).unwrap();
         let b = BitList1024::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
-        let a_b = BitList1024::from_raw_bytes(vec![0b0110, 0b0100, 0b0000], 24).unwrap();
-        let b_a = BitList1024::from_raw_bytes(vec![0b0011, 0b1000], 16).unwrap();
+        let a_b = BitList1024::from_raw_bytes(vec![0b0100, 0b0100, 0b0011], 24).unwrap();
+        let b_a = BitList1024::from_raw_bytes(vec![0b1001, 0b0001], 16).unwrap();
 
         assert_eq!(a.difference(&b), a_b);
         assert_eq!(b.difference(&a), b_a);
