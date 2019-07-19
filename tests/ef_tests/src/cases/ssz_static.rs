@@ -64,7 +64,7 @@ impl<E: EthSpec + serde::de::DeserializeOwned> YamlDecode for SszStatic<E> {
 }
 
 impl<E: EthSpec> Case for SszStatic<E> {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
+    fn result(&self, case_index: usize) -> Result<(), Error> {
         use self::SszStatic::*;
 
         match *self {
