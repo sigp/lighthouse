@@ -523,15 +523,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         result
     }
 
+    /// Retrieves the `BeaconState` used to create the attestation.
     fn get_attestation_state(&self, attestation: &Attestation) -> Option<BeaconState<T::EthSpec>> {
+        // Current state is used if the attestation targets a historic block and a slot within an
+        // equal or adjacent epoch.
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let min_slot = (self.state.read().slot.epoch(slots_per_epoch) - 1).start_slot(slots_per_epoch);
         let blocks = BestBlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), self.state.read().slot.clone());
         for (root, slot) in blocks {
-            if root == attestation.data.target_root
-                && self.slot_epochs_equal_or_adjacent(slot, self.state.read().slot) {
+            if root == attestation.data.target_root {
                 return Some(self.state.read().clone());
+            }
+
+            if slot == min_slot {
+                break;
             }
         };
 
+        // A different state is retrieved from the database.
         match self.store.get::<BeaconBlock>(&attestation.data.target_root) {
             Ok(Some(block)) => match self.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
                 Ok(state) => state,
@@ -539,16 +548,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
             _ => None
         }
-    }
-
-    fn slot_epochs_equal_or_adjacent(&self, slot_a: Slot, slot_b: Slot) -> bool {
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-        let epoch_a = slot_a.epoch(slots_per_epoch);
-        let epoch_b = slot_b.epoch(slots_per_epoch);
-
-        epoch_a == epoch_b
-            || epoch_a + 1 == epoch_b
-            || epoch_b + 1 == epoch_a
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
