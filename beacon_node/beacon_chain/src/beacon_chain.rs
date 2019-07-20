@@ -77,7 +77,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// to `per_slot_processing`.
     state: RwLock<BeaconState<T::EthSpec>>,
     /// The root of the genesis block.
-    genesis_block_root: Hash256,
+    pub genesis_block_root: Hash256,
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
     pub fork_choice: ForkChoice<T>,
