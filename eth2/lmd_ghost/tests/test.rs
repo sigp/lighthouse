@@ -84,22 +84,25 @@ fn get_harness_containing_two_forks() -> (
     let mut honest_roots =
         get_ancestor_roots::<TestEthSpec, _>(harness.chain.store.clone(), honest_head);
 
-    honest_roots.push((honest_head, get_slot_for_block_root(&harness, honest_head)));
+    honest_roots.insert(
+        0,
+        (honest_head, get_slot_for_block_root(&harness, honest_head)),
+    );
 
     let mut faulty_roots =
         get_ancestor_roots::<TestEthSpec, _>(harness.chain.store.clone(), faulty_head);
 
-    faulty_roots.push((faulty_head, get_slot_for_block_root(&harness, faulty_head)));
-
-    dbg!(&honest_roots);
-    dbg!(&faulty_roots);
+    faulty_roots.insert(
+        0,
+        (faulty_head, get_slot_for_block_root(&harness, faulty_head)),
+    );
 
     (harness, honest_roots, faulty_roots)
 }
 
 #[test]
 fn unnamed() {
-    let (harness, honest_roots, _faulty_roots) = get_harness_containing_two_forks();
+    let (harness, honest_roots, faulty_roots) = get_harness_containing_two_forks();
 
     let genesis_block_root = harness.chain.genesis_block_root;
     let genesis_block = harness
@@ -109,14 +112,61 @@ fn unnamed() {
         .expect("Genesis block should exist")
         .expect("DB should not error");
 
-    let lmd = ThreadSafeReducedTree::new(
-        harness.chain.store.clone(),
-        &genesis_block,
-        genesis_block_root,
-    );
+    // A simple weight-calculation function where all validators have a weight of `1`.
+    let weight_fn = |_validator_index| Some(1_u64);
 
+    let new_lmd = || {
+        ThreadSafeReducedTree::new(
+            harness.chain.store.clone(),
+            &genesis_block,
+            genesis_block_root,
+        )
+    };
+
+    // Create a single LMD instance and have one validator vote in reverse (highest to lowest slot)
+    // down the chain.
+    {
+        let lmd = new_lmd();
+        for (root, slot) in honest_roots.iter().rev() {
+            lmd.process_attestation(0, *root, *slot)
+                .expect("fork choice should accept attestations to honest roots in reverse");
+        }
+
+        // The honest head should be selected.
+        let (head_root, head_slot) = honest_roots.last().unwrap();
+        assert_eq!(
+            lmd.find_head(*head_slot, *head_root, weight_fn),
+            Ok(*head_root)
+        );
+    }
+
+    // A single validator applies a single vote to each block in the honest fork, using a new tree
+    // each time.
     for (root, slot) in &honest_roots {
+        let lmd = new_lmd();
         lmd.process_attestation(0, *root, *slot)
             .expect("fork choice should accept attestations to honest roots");
+    }
+
+    // Same as above, but in reverse order (votes on the highest honest block first).
+    for (root, slot) in honest_roots.iter().rev() {
+        let lmd = new_lmd();
+        lmd.process_attestation(0, *root, *slot)
+            .expect("fork choice should accept attestations to honest roots in reverse");
+    }
+
+    // A single validator applies a single vote to each block in the faulty fork, using a new tree
+    // each time.
+    for (root, slot) in &faulty_roots {
+        let lmd = new_lmd();
+        lmd.process_attestation(0, *root, *slot)
+            .expect("fork choice should accept attestations to faulty roots");
+    }
+
+    // Same as above, but in reverse order (votes on the highest honest block first).
+    for (root, slot) in faulty_roots.iter().rev() {
+        let lmd = new_lmd();
+        lmd.process_attestation(0, *root, *slot)
+            .expect("fork choice should accept attestations to faulty roots in reverse");
     }
 }
