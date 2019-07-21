@@ -87,6 +87,12 @@ where
             .update_root(new_block.slot, new_root)
             .map_err(|e| format!("update_finalized_root failed: {:?}", e))
     }
+
+    fn latest_message(&mut self, validator_index: usize) -> Option<(Hash256, Slot)> {
+        self.core
+            .write()
+            .latest_message(validator_index)
+    }
 }
 
 struct ReducedTree<T, E> {
@@ -220,6 +226,13 @@ where
         let head_node = self.find_head_from(start_node)?;
 
         Ok(head_node.block_hash)
+    }
+
+    pub fn latest_message(&mut self, validator_index: usize) -> Option<(Hash256, Slot)> {
+        match self.latest_votes.get(validator_index) {
+            Some(v) => Some((v.hash.clone(), v.slot.clone())),
+            None => None
+        }
     }
 
     fn find_head_from<'a>(&'a self, start_node: &'a Node) -> Result<&'a Node> {
