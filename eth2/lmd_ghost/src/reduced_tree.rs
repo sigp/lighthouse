@@ -6,6 +6,7 @@
 use super::{LmdGhost, Result as SuperResult};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{iter::BestBlockRootsIterator, Error as StoreError, Store};
@@ -33,6 +34,13 @@ impl From<StoreError> for Error {
 
 pub struct ThreadSafeReducedTree<T, E> {
     core: RwLock<ReducedTree<T, E>>,
+}
+
+impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
+    /// `Debug` just defers to the implementation if `self.core`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.core.fmt(f)
+    }
 }
 
 impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
@@ -98,6 +106,13 @@ struct ReducedTree<T, E> {
     /// Stores the root of the tree, used for pruning.
     root: (Hash256, Slot),
     _phantom: PhantomData<E>,
+}
+
+impl<T, E> fmt::Debug for ReducedTree<T, E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.nodes.fmt(f)
+        // write!(f, "Point {{ x: {}, y: {} }}", self.x, self.y)
+    }
 }
 
 impl<T, E> ReducedTree<T, E>
