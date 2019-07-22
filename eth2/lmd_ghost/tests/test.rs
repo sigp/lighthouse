@@ -13,7 +13,7 @@ use store::{
 use types::{BeaconBlock, EthSpec, Hash256, MinimalEthSpec, Slot};
 
 // Should ideally be divisible by 3.
-pub const VALIDATOR_COUNT: usize = 24;
+pub const VALIDATOR_COUNT: usize = 3 * 8;
 
 type TestEthSpec = MinimalEthSpec;
 type ThreadSafeReducedTree = BaseThreadSafeReducedTree<MemoryStore, TestEthSpec>;
@@ -56,7 +56,7 @@ impl ForkedHarness {
 
         let delay = TestEthSpec::default_spec().min_attestation_inclusion_delay as usize;
 
-        let initial_blocks = delay + 1;
+        let initial_blocks = delay + 8;
 
         // Build an initial chain where all validators agree.
         harness.extend_chain(
@@ -68,8 +68,8 @@ impl ForkedHarness {
         let two_thirds = (VALIDATOR_COUNT / 3) * 2;
         let honest_validators: Vec<usize> = (0..two_thirds).collect();
         let faulty_validators: Vec<usize> = (two_thirds..VALIDATOR_COUNT).collect();
-        let honest_fork_blocks = delay + 3;
-        let faulty_fork_blocks = delay + 3;
+        let honest_fork_blocks = delay + 5;
+        let faulty_fork_blocks = delay + 5;
 
         let (honest_head, faulty_head) = harness.generate_two_forks_by_skipping_a_block(
             &honest_validators,
