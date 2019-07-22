@@ -206,6 +206,12 @@ fn single_voter_many_instance_honest_blocks_voting_forwards() {
         let lmd = harness.new_fork_choice();
         lmd.process_attestation(0, *root, *slot)
             .expect("fork choice should accept attestations to honest roots");
+
+        assert_eq!(
+            lmd.verify_integrity(),
+            Ok(()),
+            "Tree integrity should be maintained whilst processing attestations"
+        );
     }
 }
 
@@ -219,6 +225,12 @@ fn single_voter_many_instance_honest_blocks_voting_in_reverse() {
         let lmd = harness.new_fork_choice();
         lmd.process_attestation(0, *root, *slot)
             .expect("fork choice should accept attestations to honest roots in reverse");
+
+        assert_eq!(
+            lmd.verify_integrity(),
+            Ok(()),
+            "Tree integrity should be maintained whilst processing attestations"
+        );
     }
 }
 
@@ -232,6 +244,12 @@ fn single_voter_many_instance_faulty_blocks_voting_forwards() {
         let lmd = harness.new_fork_choice();
         lmd.process_attestation(0, *root, *slot)
             .expect("fork choice should accept attestations to faulty roots");
+
+        assert_eq!(
+            lmd.verify_integrity(),
+            Ok(()),
+            "Tree integrity should be maintained whilst processing attestations"
+        );
     }
 }
 
@@ -244,5 +262,11 @@ fn single_voter_many_instance_faulty_blocks_voting_in_reverse() {
         let lmd = harness.new_fork_choice();
         lmd.process_attestation(0, *root, *slot)
             .expect("fork choice should accept attestations to faulty roots in reverse");
+
+        assert_eq!(
+            lmd.verify_integrity(),
+            Ok(()),
+            "Tree integrity should be maintained whilst processing attestations"
+        );
     }
 }
