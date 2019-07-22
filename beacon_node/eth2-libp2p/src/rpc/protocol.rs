@@ -24,9 +24,6 @@ const PROTOCOL_PREFIX: &str = "/eth/serenity/rpc/";
 /// The number of seconds to wait for a request once a protocol has been established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 3;
 
-/// Implementation of the `ConnectionUpgrade` for the RPC protocol.
-const MAX_READ_SIZE: usize = 4_194_304; // 4M
-
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
 

@@ -254,16 +254,12 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         bodies_response: BeaconBlockBodiesResponse,
     ) -> Option<DecodedBeaconBlockBodiesResponse> {
         //TODO: Implement faster block verification before decoding entirely
-        let simple_decoded_bodies =
-            EncodeableBeaconBlockBodiesResponse::from_ssz_bytes(&bodies_response.block_bodies);
-
-        //TODO: Potentially improve the types used here for SSZ encoding/decoding
         if let Ok(simple_decoded_bodies) = simple_decoded_bodies {
             Some(DecodedBeaconBlockBodiesResponse {
                 block_roots: bodies_response
                     .block_roots
                     .expect("Responses must have associated roots"),
-                block_bodies: simple_decoded_bodies.block_bodies,
+                block_bodies: Vec::from_ssz_bytes(&bodies_response.block_bodies).unwrap(),
             })
         } else {
             None

@@ -503,11 +503,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "returned" => block_bodies.len(),
         );
 
-        //TODO: Elegant ssz encoding. Either here or in the message handler
-        let bytes = {
-            let resp = EncodeableBeaconBlockBodiesResponse { block_bodies };
-            resp.as_ssz_bytes()
-        };
+        let bytes = block_bodes.as_ssz_bytes();
 
         network.send_rpc_response(
             peer_id,
