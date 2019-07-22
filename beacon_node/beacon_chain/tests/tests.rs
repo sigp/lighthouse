@@ -24,7 +24,9 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<TestForkChoice, Min
     harness
 }
 
+// FIXME: https://github.com/sigp/lighthouse/issues/447
 #[test]
+#[ignore]
 fn fork() {
     let harness = get_harness(VALIDATOR_COUNT);
 
