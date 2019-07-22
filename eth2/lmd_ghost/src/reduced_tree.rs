@@ -43,6 +43,16 @@ impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
     }
 }
 
+impl<T, E> ThreadSafeReducedTree<T, E>
+where
+    T: Store,
+    E: EthSpec,
+{
+    pub fn verify_integrity(&self) -> std::result::Result<(), String> {
+        self.core.read().verify_integrity()
+    }
+}
+
 impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
 where
     T: Store,
@@ -596,6 +606,60 @@ where
             state,
             block.slot - 1,
         ))
+    }
+
+    /// Verify the integrity of `self`. Returns `Ok(())` if the tree has integrity, otherwise returns `Err(description)`.
+    ///
+    /// Tries to detect the following erroneous conditions:
+    ///
+    /// - Dangling references inside the tree.
+    /// - Any scenario where there's not exactly one root node.
+    ///
+    /// ## Notes
+    ///
+    /// Computationally intensive, likely only useful during testing.
+    pub fn verify_integrity(&self) -> std::result::Result<(), String> {
+        let num_root_nodes = self
+            .nodes
+            .iter()
+            .filter(|(_key, node)| node.parent_hash.is_none())
+            .count();
+
+        if num_root_nodes != 1 {
+            return Err(format!(
+                "Tree has {} roots, should have exactly one.",
+                num_root_nodes
+            ));
+        }
+
+        let verify_node_exists = |key: Hash256, msg: String| -> std::result::Result<(), String> {
+            if self.nodes.contains_key(&key) {
+                Ok(())
+            } else {
+                Err(msg)
+            }
+        };
+
+        // Iterate through all the nodes and ensure all references they store are valid.
+        self.nodes
+            .iter()
+            .map(|(_key, node)| {
+                if let Some(parent_hash) = node.parent_hash {
+                    verify_node_exists(parent_hash, "parent must exist".to_string())?;
+                }
+
+                node.children
+                    .iter()
+                    .map(|child| verify_node_exists(*child, "child_must_exist".to_string()))
+                    .collect::<std::result::Result<(), String>>()?;
+
+                verify_node_exists(node.block_hash, "block hash must exist".to_string())?;
+
+                Ok(())
+            })
+            .collect::<std::result::Result<(), String>>()?;
+
+        Ok(())
     }
 
     fn get_node(&self, hash: Hash256) -> Result<&Node> {
