@@ -5,7 +5,7 @@ use merkle_partial::impls::replace_index;
 use merkle_partial::tree_arithmetic::zeroed::{
     general_index_to_subtree, relative_depth, root_from_depth, subtree_index_to_general,
 };
-use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
+use merkle_partial::{Error, MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 use ssz_types::VariableList;
 use typenum::U8;
 
@@ -13,14 +13,13 @@ use typenum::U8;
 //
 //        a_root(0)
 //       /         \
-//     a,b(1)      b(2)
+//      a(1)      b(2)
 //                 /   \
 //           data(5) len(6)
 //           /      \
 //      i(11)        i(12)
 //      /   \       /     \
 //  b0(23) b2(24) b4(26) b6(27)
-//
 #[derive(Debug, Default)]
 struct S {
     a: U256,
@@ -128,9 +127,64 @@ fn roundtrip_partial() {
 
     assert_eq!(p.load_partial(sp.clone()), Ok(()));
     assert_eq!(p.fill(), Ok(()));
+    assert_eq!(
+        p.extract_partial(vec![Path::Ident("b".to_string()), Path::Index(2)]),
+        Ok(sp)
+    );
 
     assert_eq!(
         p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(2)]),
         Ok(arr[32..48].to_vec())
+    );
+}
+
+#[test]
+fn get_paths() {
+    let mut arr = [0_u8; 160];
+
+    arr[31] = 1;
+    arr[47] = 0;
+    arr[63] = 1;
+    arr[79] = 2;
+    arr[95] = 3;
+    arr[111] = 4;
+    arr[127] = 5;
+    arr[143] = 6;
+    arr[159] = 7;
+
+    let sp = SerializedPartial {
+        indices: vec![1, 23, 24, 25, 26],
+        chunks: arr.to_vec(),
+    };
+
+    let mut p = Partial::<S>::default();
+
+    assert_eq!(p.load_partial(sp.clone()), Ok(()));
+
+    assert_eq!(
+        p.get_bytes(vec![Path::Ident("a".to_string())]),
+        Ok(arr[0..32].to_vec())
+    );
+
+    for i in 0_usize..8_usize {
+        assert_eq!(
+            p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(i as u64)]),
+            Ok(arr[(32 + i * 16)..(32 + ((i + 1) * 16))].to_vec())
+        );
+    }
+
+    assert_eq!(
+        p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(8)]),
+        Err(Error::InvalidPath(Path::Index(8))),
+    );
+
+    assert_eq!(
+        p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(8000)]),
+        Err(Error::InvalidPath(Path::Index(8000))),
+    );
+
+    assert_eq!(
+        p.get_bytes(vec![Path::Ident("c".to_string())]),
+        Err(Error::InvalidPath(Path::Ident("c".to_string()))),
     );
 }

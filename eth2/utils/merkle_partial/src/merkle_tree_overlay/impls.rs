@@ -195,10 +195,11 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                     Some(Path::Index(i)) => {
                         let items_per_chunk = BYTES_PER_CHUNK / std::mem::size_of::<T>();
                         if path.len() == 1 {
-                            // TODO check result
-                            Ok(Self::get_node(
-                                Self::first_leaf() + (i / items_per_chunk as u64),
-                            ))
+                            match Self::get_node(Self::first_leaf() + (i / items_per_chunk as u64))
+                            {
+                                Node::Leaf(l) => Ok(Node::Leaf(l)),
+                                _ => Err(Error::InvalidPath(path[0].clone())),
+                            }
                         } else {
                             T::get_node_from_path(path[1..].to_vec())
                         }

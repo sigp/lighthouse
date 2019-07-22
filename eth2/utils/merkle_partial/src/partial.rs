@@ -48,12 +48,15 @@ impl<T: MerkleTreeOverlay> Partial<T> {
             let left = 2 * sibling + 1;
             let right = 2 * sibling + 2;
 
+            println!("visitor: {}, sibling: {}", visitor, sibling);
+
             if !(indices.contains(&left) && indices.contains(&right)) {
                 indices.push(sibling);
                 chunks.extend(self.cache.get(sibling).ok_or(Error::MissingNode(sibling))?);
             }
 
-            visitor /= 2;
+            // visitor /= 2, when 1 indexed
+            visitor = (visitor + 1) / 2 - 1;
         }
 
         Ok(SerializedPartial { indices, chunks })
@@ -111,10 +114,10 @@ fn bytes_at_path_helper<T: MerkleTreeOverlay + ?Sized>(
         return Err(Error::EmptyPath());
     }
 
-    match T::get_node_from_path(path.clone()) {
-        Ok(Node::Composite(c)) => Ok((c.index, 0, 32)),
-        Ok(Node::Leaf(Leaf::Length(l))) => Ok((l.index, 0, 32)),
-        Ok(Node::Leaf(Leaf::Primitive(l))) => {
+    match T::get_node_from_path(path.clone())? {
+        Node::Composite(c) => Ok((c.index, 0, 32)),
+        Node::Leaf(Leaf::Length(l)) => Ok((l.index, 0, 32)),
+        Node::Leaf(Leaf::Primitive(l)) => {
             for p in l {
                 if p.ident == path.last().unwrap().to_string() {
                     return Ok((p.index, p.offset as usize, (p.offset + p.size) as usize));
@@ -123,6 +126,6 @@ fn bytes_at_path_helper<T: MerkleTreeOverlay + ?Sized>(
 
             unreachable!()
         }
-        _ => Err(Error::InvalidPath(path[0].clone())),
+        _ => panic!("Not supported"),
     }
 }
