@@ -166,22 +166,33 @@ fn get_slot_for_block_root(harness: &BeaconChainHarness, block_root: Hash256) ->
 fn single_voter_persistent_instance_reverse_order() {
     let harness = &FORKED_HARNESS;
 
-    dbg!(&harness.honest_roots);
-
     let lmd = harness.new_fork_choice();
+
+    assert_eq!(
+        lmd.verify_integrity(),
+        Ok(()),
+        "New tree should have integrity"
+    );
 
     for (root, slot) in harness.honest_roots.iter().rev() {
         lmd.process_attestation(0, *root, *slot)
             .expect("fork choice should accept attestations to honest roots in reverse");
+
+        assert_eq!(
+            lmd.verify_integrity(),
+            Ok(()),
+            "Tree integrity should be maintained whilst processing attestations"
+        );
     }
 
-    dbg!(&lmd);
-
     // The honest head should be selected.
-    let (head_root, head_slot) = harness.honest_roots.last().unwrap();
+    let (head_root, head_slot) = harness.honest_roots.first().unwrap();
+    let (finalized_root, _) = harness.honest_roots.last().unwrap();
+
     assert_eq!(
-        lmd.find_head(*head_slot, *head_root, ForkedHarness::weight_function),
-        Ok(*head_root)
+        lmd.find_head(*head_slot, *finalized_root, ForkedHarness::weight_function),
+        Ok(*head_root),
+        "Honest head should be selected"
     );
 }
 
