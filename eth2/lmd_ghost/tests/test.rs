@@ -5,6 +5,7 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness as BaseBeaconChainHarness, BlockStrategy,
 };
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree as BaseThreadSafeReducedTree};
+use rand::{prelude::*, rngs::StdRng};
 use std::sync::Arc;
 use store::{
     iter::{AncestorIter, BestBlockRootsIterator},
@@ -128,6 +129,15 @@ impl ForkedHarness {
         )
     }
 
+    pub fn all_block_roots(&self) -> Vec<RootAndSlot> {
+        let mut all_roots = self.honest_roots.clone();
+        all_roots.append(&mut self.faulty_roots.clone());
+
+        all_roots.dedup();
+
+        all_roots
+    }
+
     pub fn weight_function(_validator_index: usize) -> Option<u64> {
         Some(1)
     }
@@ -158,6 +168,37 @@ fn get_slot_for_block_root(harness: &BeaconChainHarness, block_root: Hash256) ->
         .expect("head block should exist")
         .expect("DB should not error")
         .slot
+}
+
+const RANDOM_ITERATIONS: usize = 100;
+const RANDOM_ACTIONS_PER_ITERATION: usize = 100;
+
+/// Create a single LMD instance and have one validator vote in reverse (highest to lowest slot)
+/// down the chain.
+#[test]
+fn random_scenario() {
+    let harness = &FORKED_HARNESS;
+    let block_roots = harness.all_block_roots();
+    let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+    let mut rng = StdRng::seed_from_u64(9375205782030385); // Keyboard mash.
+
+    for _ in 0..RANDOM_ITERATIONS {
+        let lmd = harness.new_fork_choice();
+
+        for _ in 0..RANDOM_ACTIONS_PER_ITERATION {
+            let (root, slot) = block_roots[rng.next_u64() as usize % block_roots.len()];
+            let validator_index = validators[rng.next_u64() as usize % validators.len()];
+
+            lmd.process_attestation(validator_index, root, slot)
+                .expect("fork choice should accept randomly-placed attestations");
+
+            assert_eq!(
+                lmd.verify_integrity(),
+                Ok(()),
+                "New tree should have integrity"
+            );
+        }
+    }
 }
 
 /// Create a single LMD instance and have one validator vote in reverse (highest to lowest slot)
