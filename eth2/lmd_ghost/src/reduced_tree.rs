@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{iter::BestBlockRootsIterator, Error as StoreError, Store};
+use store::{iter::BlockRootsIterator, Error as StoreError, Store};
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
@@ -560,56 +560,47 @@ where
             .and_then(|(root, _slot)| Some(root))
     }
 
-    /// For the given `child` block hash, return the block's ancestor at the given `target` slot.
-    fn find_ancestor_at_slot(&self, child: Hash256, target: Slot) -> Result<Hash256> {
-        let (root, slot) = self
-            .iter_ancestors(child)?
-            .find(|(_block, slot)| *slot <= target)
-            .ok_or_else(|| Error::NotInTree(child))?;
-
-        // Explicitly check that the slot is the target in the case that the given child has a slot
-        // above target.
-        if slot == target {
-            Ok(root)
-        } else {
-            Err(Error::NotInTree(child))
-        }
-    }
-
     /// For the two given block roots (`a_root` and `b_root`), find the first block they share in
     /// the tree. Viz, find the block that these two distinct blocks forked from.
     fn find_highest_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
-        // If the blocks behind `a_root` and `b_root` are not at the same slot, take the highest
-        // block (by slot) down to be equal with the lower slot.
-        //
-        // The result is two roots which identify two blocks at the same height.
-        let (a_root, b_root) = {
-            let a = self.get_block(a_root)?;
-            let b = self.get_block(b_root)?;
+        let mut a_iter = self.iter_ancestors(a_root)?;
+        let mut b_iter = self.iter_ancestors(b_root)?;
 
-            if a.slot > b.slot {
-                (self.find_ancestor_at_slot(a_root, b.slot)?, b_root)
-            } else if b.slot > a.slot {
-                (a_root, self.find_ancestor_at_slot(b_root, a.slot)?)
-            } else {
-                (a_root, b_root)
+        // Combines the `next()` fns on the `a_iter` and `b_iter` and returns the roots of two
+        // blocks at the same slot, or `None` if we have gone past genesis.
+        let mut iter_blocks_at_same_height = || -> Option<(Hash256, Hash256)> {
+            match (a_iter.next(), b_iter.next()) {
+                (Some((mut a_root, a_slot)), Some((mut b_root, b_slot))) => {
+                    if a_slot < b_slot {
+                        for _ in a_slot.as_u64()..b_slot.as_u64() {
+                            b_root = b_iter.next()?.0;
+                        }
+                    } else if a_slot > b_slot {
+                        for _ in b_slot.as_u64()..a_slot.as_u64() {
+                            a_root = a_iter.next()?.0;
+                        }
+                    }
+
+                    Some((a_root, b_root))
+                }
+                _ => None,
             }
         };
 
-        let ((a_root, _a_slot), (_b_root, _b_slot)) = self
-            .iter_ancestors(a_root)?
-            .zip(self.iter_ancestors(b_root)?)
-            .find(|((a_root, _), (b_root, _))| a_root == b_root)
-            .ok_or_else(|| Error::NoCommonAncestor((a_root, b_root)))?;
-
-        Ok(a_root)
+        loop {
+            match iter_blocks_at_same_height() {
+                Some((a_root, b_root)) if a_root == b_root => break Ok(a_root),
+                Some(_) => (),
+                None => break Err(Error::NoCommonAncestor((a_root, b_root))),
+            }
+        }
     }
 
-    fn iter_ancestors(&self, child: Hash256) -> Result<BestBlockRootsIterator<E, T>> {
+    fn iter_ancestors(&self, child: Hash256) -> Result<BlockRootsIterator<E, T>> {
         let block = self.get_block(child)?;
         let state = self.get_state(block.state_root)?;
 
-        Ok(BestBlockRootsIterator::owned(
+        Ok(BlockRootsIterator::owned(
             self.store.clone(),
             state,
             block.slot - 1,
