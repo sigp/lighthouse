@@ -132,14 +132,18 @@ fn roundtrip_partial() {
         Ok(sp)
     );
 
+    // Check for `Error::ChunkNotLoaded(_)`
+    let generate_path = || vec![Path::Ident("b".to_string()), Path::Index(5)];
+
+    assert_eq!(p.get_bytes(generate_path()), Err(Error::ChunkNotLoaded(25)));
     assert_eq!(
-        p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(2)]),
-        Ok(arr[32..48].to_vec())
+        p.set_bytes(generate_path(), vec![]),
+        Err(Error::ChunkNotLoaded(25))
     );
 }
 
 #[test]
-fn get_paths() {
+fn get_and_set_by_path() {
     let mut arr = [0_u8; 160];
 
     arr[31] = 1;
@@ -161,30 +165,61 @@ fn get_paths() {
 
     assert_eq!(p.load_partial(sp.clone()), Ok(()));
 
+    // Check S.a
     assert_eq!(
         p.get_bytes(vec![Path::Ident("a".to_string())]),
         Ok(arr[0..32].to_vec())
     );
 
+    // Check S.b[0..8] and set each to S.b[7]
     for i in 0_usize..8_usize {
         assert_eq!(
             p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(i as u64)]),
             Ok(arr[(32 + i * 16)..(32 + ((i + 1) * 16))].to_vec())
         );
+
+        assert_eq!(
+            p.set_bytes(
+                vec![Path::Ident("b".to_string()), Path::Index(i as u64)],
+                arr[144..160].to_vec()
+            ),
+            Ok(()),
+        );
     }
 
-    assert_eq!(
-        p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(8)]),
-        Err(Error::InvalidPath(Path::Index(8))),
-    );
+    // Verfiy that each index was set to S.b[7]
+    for i in 0_usize..8_usize {
+        assert_eq!(
+            p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(i as u64)]),
+            Ok(arr[144..160].to_vec())
+        );
+    }
+
+    // Check for `Error::EmptyPath()`
+    assert_eq!(p.get_bytes(vec![]), Err(Error::EmptyPath()),);
+    assert_eq!(p.set_bytes(vec![], vec![]), Err(Error::EmptyPath()));
+
+    // Check for `Error::InvalidPath(Path::Index(_))`
+    let generate_path = || vec![Path::Ident("b".to_string()), Path::Index(8)];
 
     assert_eq!(
-        p.get_bytes(vec![Path::Ident("b".to_string()), Path::Index(8000)]),
-        Err(Error::InvalidPath(Path::Index(8000))),
+        p.get_bytes(generate_path()),
+        Err(Error::InvalidPath(generate_path()[1].clone()))
+    );
+    assert_eq!(
+        p.set_bytes(generate_path(), vec![]),
+        Err(Error::InvalidPath(generate_path()[1].clone())),
     );
 
+    // Check for `Error::InvalidPath(Path::Ident(_))`
+    let generate_path = || vec![Path::Ident("c".to_string())];
+
     assert_eq!(
-        p.get_bytes(vec![Path::Ident("c".to_string())]),
-        Err(Error::InvalidPath(Path::Ident("c".to_string()))),
+        p.get_bytes(generate_path()),
+        Err(Error::InvalidPath(generate_path()[0].clone()))
+    );
+    assert_eq!(
+        p.set_bytes(generate_path(), vec![]),
+        Err(Error::InvalidPath(generate_path()[0].clone()))
     );
 }

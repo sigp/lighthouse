@@ -48,8 +48,6 @@ impl<T: MerkleTreeOverlay> Partial<T> {
             let left = 2 * sibling + 1;
             let right = 2 * sibling + 2;
 
-            println!("visitor: {}, sibling: {}", visitor, sibling);
-
             if !(indices.contains(&left) && indices.contains(&right)) {
                 indices.push(sibling);
                 chunks.extend(self.cache.get(sibling).ok_or(Error::MissingNode(sibling))?);
@@ -70,7 +68,7 @@ impl<T: MerkleTreeOverlay> Partial<T> {
 
         let (index, begin, end) = bytes_at_path_helper::<T>(path)?;
 
-        Ok(self.cache.get(index).ok_or(Error::MissingNode(index))?[begin..end].to_vec())
+        Ok(self.cache.get(index).ok_or(Error::ChunkNotLoaded(index))?[begin..end].to_vec())
     }
 
     pub fn set_bytes(&mut self, path: Vec<Path>, bytes: Vec<u8>) -> Result<()> {
@@ -79,6 +77,7 @@ impl<T: MerkleTreeOverlay> Partial<T> {
         }
 
         let (index, begin, end) = bytes_at_path_helper::<T>(path)?;
+
         let chunk = self
             .cache
             .get(index)
@@ -87,7 +86,13 @@ impl<T: MerkleTreeOverlay> Partial<T> {
             .iter()
             .cloned()
             .enumerate()
-            .map(|(i, b)| if i >= begin && i < end { bytes[i] } else { b })
+            .map(|(i, b)| {
+                if i >= begin && i < end {
+                    bytes[i - begin]
+                } else {
+                    b
+                }
+            })
             .collect();
 
         self.cache.insert(index, chunk);
