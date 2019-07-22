@@ -191,6 +191,51 @@ fn build_match_body<'a>(
         .collect()
 }
 
+fn build_get_node_by_path_method<'a>(
+    leaf_data: Vec<Vec<LeafData<'a>>>,
+    height: u64,
+) -> proc_macro2::TokenStream {
+    let ifs: Vec<proc_macro2::TokenStream> = leaf_data
+        .iter()
+        .clone()
+        .enumerate()
+        .map(|(i, leaf)| {
+            leaf.iter().map(|field| {
+                let index = (1_u64 << height) - 1 + i as u64;
+                let ident = field.ident.to_string();
+                let ty = field.ty;
+
+                quote!{
+                    if Some(&merkle_partial::Path::Ident(#ident.to_string())) == path.first() {
+                        if path.len() == 1 {
+                            return Ok(Self::get_node(#index));
+                        } else {
+                            return match <#ty>::get_node_from_path(path[1..].to_vec()) {
+                                Ok(n) => Ok(merkle_partial::impls::replace_index(
+                                    n.clone(),
+                                    merkle_partial::tree_arithmetic::zeroed::subtree_index_to_general(#index, n.get_index()),
+                                )),
+                                e => e,
+                            };
+                        }
+                    }
+                }
+            }).collect()
+        })
+        .collect();
+
+    quote! {
+        fn get_node_from_path(path: Vec<merkle_partial::Path>) -> merkle_partial::Result<merkle_partial::field::Node> {
+            #(#ifs else)*
+            if let Some(p) = path.first() {
+                Err(merkle_partial::Error::InvalidPath(p.clone()))
+            } else {
+                Err(merkle_partial::Error::EmptyPath())
+            }
+        }
+    }
+}
+
 /// Implements `merkle_partial::merkle_tree_overlay::MerkleTreeOverlay` for some `struct`.
 ///
 /// Fields are stored in the merkle tree in the order they appear in the struct.
@@ -211,8 +256,10 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
     let leaf_data = get_leaf_data_from_fields(field_idents.clone(), field_types.clone());
 
     let height = log_base_two(next_power_of_two(leaf_data.len() as u64));
-    let match_body = build_match_body(leaf_data, (1_u64 << height) - 1);
+    let match_body = build_match_body(leaf_data.clone(), (1_u64 << height) - 1);
     let match_body2 = match_body.clone();
+
+    let gnbp = build_get_node_by_path_method(leaf_data, height);
 
     let output = quote! {
         impl #impl_generics merkle_partial::MerkleTreeOverlay for #name #ty_generics #where_clause {
@@ -275,6 +322,8 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
                     }
                 }
             }
+
+            #gnbp
         }
     };
 

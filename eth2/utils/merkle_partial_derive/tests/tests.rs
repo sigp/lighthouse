@@ -87,33 +87,28 @@ fn basic_partial() {
 
     assert_eq!(p.load_partial(partial.clone()), Ok(()));
 
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("a".to_string())]), true);
     assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("a".to_string())]),
+        p.get_bytes(vec![Path::Ident("a".to_string())]),
         Ok(arr[0..32].to_vec())
     );
 
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("b".to_string())]), true);
     assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("b".to_string())]),
+        p.get_bytes(vec![Path::Ident("b".to_string())]),
         Ok(arr[32..64].to_vec())
     );
 
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("c".to_string())]), true);
     assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("c".to_string())]),
+        p.get_bytes(vec![Path::Ident("c".to_string())]),
         Ok(arr[64..80].to_vec())
     );
 
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("d".to_string())]), true);
     assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("d".to_string())]),
+        p.get_bytes(vec![Path::Ident("d".to_string())]),
         Ok(arr[80..96].to_vec())
     );
 
-    assert_eq!(p.is_path_loaded(vec![Path::Ident("e".to_string())]), false);
     assert_eq!(
-        p.bytes_at_path(vec![Path::Ident("e".to_string())]),
+        p.get_bytes(vec![Path::Ident("e".to_string())]),
         Err(Error::InvalidPath(Path::Ident("e".to_string())))
     );
 }
@@ -141,23 +136,19 @@ fn simple_fixed_vector() {
 
     assert_eq!(B::get_node(5), Node::Intermediate(5));
     assert_eq!(B::get_node(6), Node::Intermediate(6));
-    assert_eq!(B::get_node(11), Node::Intermediate(11));
-    assert_eq!(B::get_node(12), Node::Intermediate(12));
-    assert_eq!(B::get_node(13), Node::Intermediate(13));
-    assert_eq!(B::get_node(14), Node::Intermediate(14));
 
-    for i in 23..=30 {
+    for i in 11..=14 {
         assert_eq!(
             B::get_node(i),
             Node::Leaf(Leaf::Primitive(vec![
                 Primitive {
-                    ident: (2 * (i - 23)).to_string(),
+                    ident: (2 * (i - 11)).to_string(),
                     index: i,
                     size: 16,
                     offset: 0,
                 },
                 Primitive {
-                    ident: (2 * (i - 23) + 1).to_string(),
+                    ident: (2 * (i - 11) + 1).to_string(),
                     index: i,
                     size: 16,
                     offset: 16,
