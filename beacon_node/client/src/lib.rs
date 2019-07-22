@@ -2,6 +2,7 @@ extern crate slog;
 
 mod beacon_chain_types;
 mod config;
+
 pub mod error;
 pub mod notifier;
 
@@ -144,13 +145,12 @@ where
         };
 
         // Start the `rest_api` service
-        let api_logger = log.new(o!("Service" => "REST API"));
         let api_exit_signal = if client_config.rest_api.enabled {
             Some(rest_api::start_server(
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
-                &api_logger,
+                &log,
             ))
         } else {
             None
