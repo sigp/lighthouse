@@ -567,21 +567,26 @@ where
         let mut b_iter = self.iter_ancestors(b_root)?;
 
         // Combines the `next()` fns on the `a_iter` and `b_iter` and returns the roots of two
-        // blocks at the same slot, or `None` if we have gone past genesis.
+        // blocks at the same slot, or `None` if we have gone past genesis or the root of this tree.
         let mut iter_blocks_at_same_height = || -> Option<(Hash256, Hash256)> {
             match (a_iter.next(), b_iter.next()) {
                 (Some((mut a_root, a_slot)), Some((mut b_root, b_slot))) => {
-                    if a_slot < b_slot {
-                        for _ in a_slot.as_u64()..b_slot.as_u64() {
-                            b_root = b_iter.next()?.0;
+                    // If either of the slots are lower than the root of this tree, exit early.
+                    if a_slot < self.root.1 || b_slot < self.root.1 {
+                        None
+                    } else {
+                        if a_slot < b_slot {
+                            for _ in a_slot.as_u64()..b_slot.as_u64() {
+                                b_root = b_iter.next()?.0;
+                            }
+                        } else if a_slot > b_slot {
+                            for _ in b_slot.as_u64()..a_slot.as_u64() {
+                                a_root = a_iter.next()?.0;
+                            }
                         }
-                    } else if a_slot > b_slot {
-                        for _ in b_slot.as_u64()..a_slot.as_u64() {
-                            a_root = a_iter.next()?.0;
-                        }
-                    }
 
-                    Some((a_root, b_root))
+                        Some((a_root, b_root))
+                    }
                 }
                 _ => None,
             }
