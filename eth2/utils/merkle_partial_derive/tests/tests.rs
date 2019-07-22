@@ -120,37 +120,49 @@ fn basic_partial() {
 
 #[derive(merkle_partial_derive::Partial)]
 struct B {
-    a: FixedVector<U256, U8>,
+    a: u64,
+    b: FixedVector<u128, U8>,
 }
 
 #[test]
 fn simple_fixed_vector() {
-    assert_eq!(B::height(), 0);
-    assert_eq!(B::first_leaf(), 0);
-    assert_eq!(B::last_leaf(), 0);
+    assert_eq!(B::height(), 1);
+    assert_eq!(B::first_leaf(), 1);
+    assert_eq!(B::last_leaf(), 2);
 
     assert_eq!(
         B::get_node(0),
         Node::Composite(Composite {
-            ident: "a".to_string(),
+            ident: "".to_string(),
             index: 0,
-            height: 3,
+            height: 1,
         })
     );
 
-    for i in 1..=6 {
-        assert_eq!(B::get_node(i), Node::Intermediate(i));
-    }
+    assert_eq!(B::get_node(5), Node::Intermediate(5));
+    assert_eq!(B::get_node(6), Node::Intermediate(6));
+    assert_eq!(B::get_node(11), Node::Intermediate(11));
+    assert_eq!(B::get_node(12), Node::Intermediate(12));
+    assert_eq!(B::get_node(13), Node::Intermediate(13));
+    assert_eq!(B::get_node(14), Node::Intermediate(14));
 
-    for i in 7..=14 {
+    for i in 23..=30 {
         assert_eq!(
             B::get_node(i),
-            Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: (i - 7).to_string(),
-                index: i,
-                size: 32,
-                offset: 0,
-            }]))
+            Node::Leaf(Leaf::Primitive(vec![
+                Primitive {
+                    ident: (2 * (i - 23)).to_string(),
+                    index: i,
+                    size: 16,
+                    offset: 0,
+                },
+                Primitive {
+                    ident: (2 * (i - 23) + 1).to_string(),
+                    index: i,
+                    size: 16,
+                    offset: 16,
+                }
+            ]))
         );
     }
 }

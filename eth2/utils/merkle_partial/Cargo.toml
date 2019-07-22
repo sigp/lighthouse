@@ -5,10 +5,10 @@ authors = ["Matt Garnett <matt.garnett@consensys.net>"]
 edition = "2018"
 
 [dependencies]
+ethereum-types = "0.6.0"
+typenum = "1.10.0"
 hashing = { path = "../hashing" }
 tree_hash = { path = "../tree_hash" }
-ethereum-types = "0.6.0"
 ssz_types = { path = "../ssz_types" }
-typenum = "1.10.0"
-eth2_ssz_derive = "0.1.0"
-eth2_ssz = "0.1.0"
+eth2_ssz = { path = "../ssz" }
+eth2_ssz_derive = { path = "../ssz_derive" }

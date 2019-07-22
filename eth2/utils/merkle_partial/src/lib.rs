@@ -1,4 +1,4 @@
-mod cache;
+pub mod cache;
 mod error;
 pub mod field;
 mod merkle_tree_overlay;
@@ -8,7 +8,7 @@ mod ser;
 pub mod tree_arithmetic;
 
 pub use cache::Cache;
-pub use error::Error;
+pub use error::{Error, Result};
 pub use merkle_tree_overlay::{impls, MerkleTreeOverlay};
 pub use partial::Partial;
 pub use path::Path;

@@ -1,7 +1,7 @@
 use super::NodeIndex;
 
 /// Represents any valid node value.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     Intermediate(NodeIndex),
     Composite(Composite),
@@ -9,8 +9,22 @@ pub enum Node {
     Unattached(NodeIndex),
 }
 
+impl Node {
+    pub fn get_index(&self) -> NodeIndex {
+        match self {
+            Node::Intermediate(i) => *i,
+            Node::Unattached(i) => *i,
+            Node::Composite(c) => c.index,
+            Node::Leaf(Leaf::Primitive(l)) => l[0].index,
+            Node::Leaf(Leaf::Length(l)) => l.index,
+            // TODO: this should have an index
+            Node::Leaf(Leaf::Padding()) => 0,
+        }
+    }
+}
+
 /// Represents all valid leaf values.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Leaf {
     Primitive(Vec<Primitive>),
     Length(Primitive),

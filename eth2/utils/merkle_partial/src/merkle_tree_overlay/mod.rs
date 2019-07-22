@@ -1,8 +1,9 @@
 pub mod impls;
 pub mod path_matcher;
 
+use crate::error::Result;
 use crate::field::Node;
-use crate::NodeIndex;
+use crate::{NodeIndex, Path};
 
 pub trait MerkleTreeOverlay {
     /// Returns the height of the merkle tree.
@@ -28,8 +29,9 @@ pub trait MerkleTreeOverlay {
     ///
     /// See the SSZ specification to better understand the tree architecture:
     /// https://github.com/ethereum/eth2.0-specs/blob/dev/specs/light_client/merkle_proofs.md
-
     fn get_node(index: NodeIndex) -> Node;
+
+    fn get_node_from_path(path: Vec<Path>) -> Result<Node>;
 
     /// Returns the index of the first leaf in the merkle tree.
     fn first_leaf() -> NodeIndex;

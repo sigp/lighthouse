@@ -11,6 +11,10 @@ pub enum Error {
     MissingNode(NodeIndex),
     // The path accesses an unintialized element
     IndexOutOfBounds(usize),
+    // Only chunks that were loaded by `load_partial` can be updated
+    ChunkNotLoaded(NodeIndex),
+    // Only leaf nodes can be updated
+    NotLeaf(NodeIndex),
     // Path provided was empty
     EmptyPath(),
 }

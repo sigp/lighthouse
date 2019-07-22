@@ -1,11 +1,12 @@
 use super::MerkleTreeOverlay;
+use crate::error::{Error, Result};
 use crate::field::{Composite, Leaf, Node, Primitive};
 use crate::tree_arithmetic::zeroed::{
     general_index_to_subtree, left_most_leaf, relative_depth, right_most_leaf, root_from_depth,
     subtree_index_to_general,
 };
 use crate::tree_arithmetic::{log_base_two, next_power_of_two};
-use crate::{NodeIndex, BYTES_PER_CHUNK};
+use crate::{NodeIndex, Path, BYTES_PER_CHUNK};
 use ethereum_types::U256;
 use ssz_types::{FixedVector, VariableList};
 use typenum::Unsigned;
@@ -34,6 +35,14 @@ macro_rules! impl_merkle_overlay_for_basic_type {
                         offset: 0,
                     }])),
                     _ => Node::Unattached(index),
+                }
+            }
+
+            fn get_node_from_path(path: Vec<Path>) -> Result<Node> {
+                if path.len() == 0 {
+                    Ok(Self::get_node(0))
+                } else {
+                    Err(Error::InvalidPath(path[0].clone()))
                 }
             }
         }
@@ -76,7 +85,8 @@ macro_rules! impl_merkle_overlay_for_collection_type {
     ($type: ident, $is_variable_length: expr) => {
         impl<T: MerkleTreeOverlay, N: Unsigned> MerkleTreeOverlay for $type<T, N> {
             fn height() -> u8 {
-                let num_leaves = next_power_of_two(N::to_u64());
+                let items_per_chunk = (BYTES_PER_CHUNK / std::mem::size_of::<T>()) as u64;
+                let num_leaves = next_power_of_two(N::to_u64() / items_per_chunk);
                 let data_tree_height = log_base_two(num_leaves) as u8;
 
                 if $is_variable_length {
@@ -177,6 +187,24 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                     } else {
                         Node::Unattached(index)
                     }
+                }
+            }
+
+            fn get_node_from_path(path: Vec<Path>) -> Result<Node> {
+                match path.first() {
+                    Some(Path::Index(i)) => {
+                        let items_per_chunk = BYTES_PER_CHUNK / std::mem::size_of::<T>();
+                        if path.len() == 1 {
+                            // TODO check result
+                            Ok(Self::get_node(
+                                Self::first_leaf() + (i / items_per_chunk as u64),
+                            ))
+                        } else {
+                            T::get_node_from_path(path[1..].to_vec())
+                        }
+                    }
+                    Some(p) => Err(Error::InvalidPath(p.clone())),
+                    None => Err(Error::EmptyPath()),
                 }
             }
         }
