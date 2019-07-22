@@ -35,99 +35,54 @@ impl ::std::convert::From<u64> for GenesisTime {
     }
 }
 
-
-
 impl<T: BeaconChainTypes + 'static> APIService for BeaconNodeServiceInstance<T> {
     fn add_routes(&mut self, router_builder: RouterBuilder) -> Result<RouterBuilder, hyper::Error> {
         let router_builder = router_builder
-            .add(Route::get("/version").using(wrappy!(get_version)))
-            .add(Route::get("/genesis_time").using(wrappy!(get_genesis_time::<T>)));
+            .add(Route::get("/version").using(result_to_response!(get_version)))
+            .add(Route::get("/genesis_time").using(result_to_response!(get_genesis_time::<T>)));
         Ok(router_builder)
     }
 }
 
 //TODO: Validate request stuff can be turned into a macro.
-fn validate_request(
-    req: &Request<Body>,
-) -> Result<(), APIError> {
+fn validate_request(req: &Request<Body>) -> Result<(), APIError> {
     let log = req.extensions().get::<slog::Logger>().unwrap();
     if req.method() != &Method::GET {
-        info!(log, "Invalid request method: {}", req.uri().path_and_query().as_str());
-        Err(http::method::InvalidMethod { _priv: () })
+        warn!(
+            log,
+            "Invalid method for request to: {}",
+            path_from_request!(req)
+        );
+        return Err(APIError::MethodNotAllowed {
+            desc: "Invalid Method".to_owned(),
+        });
     }
     Ok(())
 }
 
+/// Read the version string from the current Lighthouse build.
 fn get_version(req: Request<Body>) -> APIResult {
     let log = req.extensions().get::<slog::Logger>().unwrap();
     validate_request(&req)?;
-    let mut response_builder = Response::builder();
-    response_builder.status(StatusCode::OK);
     let ver = Version::from(version::version());
-    let body = Body::from(serde_json::to_string(&ver).unwrap()).expect("Version should always convert to a JSON body.");
-    info!(log, "Request successful.");
-    Ok(response_builder.body(body).unwrap())
+    let body = Body::from(
+        serde_json::to_string(&ver).expect("Version should always be serialializable as JSON."),
+    );
+    Ok(success_response!(body))
 }
 
-/*
-fn wrapper<T: BeaconChainTypes + 'static, F, I>(inner: I) -> F
-where
-    F: Fn(Request<Body>) -> Response<Body>,
-    I: Fn() -> u64,
-{
-    let x = |req| {
-        let mut response_builder = Response::builder();
-        response_builder.body(Body::empty()).unwrap()
-    };
-
-    x
-}
-
-pub enum LukeError {
-    BadCats(String)
-}
-
-impl<T> Into<Response<T>> for LukeError {
-    fn into(self) -> Response<T> {
-        let mut response_builder = Response::builder();
-        // TODO: make this a 500 error or something..
-        response_builder.body(Body::empty()).unwrap()
-    }
-}
-
-type LukeResult<T> = Result<Response<T>, LukeError>;
-
-fn my_end_point(req: Request<Body>) -> LukeResult<Body> {
-    let mut response_builder = Response::builder();
-
-    if req.method() != &Method::GET {
-        Ok(response_builder.body(Body::empty()).unwrap())
-    } else {
-        Err(LukeError::BadCats("Lol".to_string()))
-    }
-}
-
-fn wrapper<T: BeaconChainTypes + 'static>(req: Request<Body>) -> Response<Body> {
-*/
-
+/// Read the genesis time from the current beacon chain state.
 fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> APIResult {
     let log = req.extensions().get::<slog::Logger>().unwrap();
+    validate_request(&req)?;
     let beacon_chain = req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
-    let mut response_builder = Response::builder();
-    let body = if let Err(e) = validate_request(&req) {
-        info!(log, "API GET /genesis_time: Invalid request");
-        Body::empty()
-    } else {
-        response_builder.status(StatusCode::OK);
-        info!(log, "API GET /genesis_time: Request successful");
-        let gen_time = {
-            let state = beacon_chain.current_state();
-            state.genesis_time
-        };
-        Body::from(
-            serde_json::to_string(&gen_time)
-                .expect("Genesis time always have a valid JSON serialization."),
-        )
+    let gen_time = {
+        let state = beacon_chain.current_state();
+        state.genesis_time
     };
-    Ok(response_builder.body(body).unwrap())
+    let body = Body::from(
+        serde_json::to_string(&gen_time)
+            .expect("Genesis should time always have a valid JSON serialization."),
+    );
+    Ok(success_response!(body))
 }

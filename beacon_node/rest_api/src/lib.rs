@@ -29,19 +29,25 @@ use hyper_router::{Route, Router, RouterBuilder, RouterService};
 // and extend with more types. Advanced users could switch to `Either`.
 type BoxFut = Box<dyn Future<Item = Response<Body>, Error = hyper::Error> + Send>;
 
-pub type APIError = hyper::http::Error;
+pub enum APIError {
+    MethodNotAllowed { desc: String },
+    ServerError { desc: String },
+    NotImplemented { desc: String },
+}
 
-pub type APIResult = Result<Response<Body>, http::Error>;
+pub type APIResult = Result<Response<Body>, APIError>;
 
 impl Into<Response<Body>> for APIError {
     fn into(self) -> Response<Body> {
-        match self {
-            http::method::InvalidMethod { _priv: () } => {
-                Response::builder()
-                    .status(StatusCode::METHOD_NOT_ALLOWED)
-                    .body(Body::empty()).expect("Response should always be created.")
-            },
-        }
+        let status_code: (StatusCode, String) = match self {
+            APIError::MethodNotAllowed { desc } => (StatusCode::METHOD_NOT_ALLOWED, desc),
+            APIError::ServerError { desc } => (StatusCode::INTERNAL_SERVER_ERROR, desc),
+            APIError::NotImplemented { desc } => (StatusCode::NOT_IMPLEMENTED, desc),
+        };
+        Response::builder()
+            .status(status_code.0)
+            .body(Body::from(status_code.1))
+            .expect("Response should always be created.")
     }
 }
 
