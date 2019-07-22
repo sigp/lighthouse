@@ -166,13 +166,6 @@ pub struct DecodedBeaconBlockBodiesResponse {
     pub block_bodies: Vec<BeaconBlockBody>,
 }
 
-//TODO: Build a cleaner API for this encoding/decoding
-/// This only exists to encode/decode beacon block bodies according to the wire protocol.
-#[derive(Encode, Decode)]
-pub struct EncodeableBeaconBlockBodiesResponse {
-    pub block_bodies: Vec<BeaconBlockBody>,
-}
-
 /// Request values for tree hashes which yield a blocks `state_root`.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconChainStateRequest {
