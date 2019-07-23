@@ -1,12 +1,11 @@
 use ethereum_types::U256;
 use hashing::hash;
-use merkle_partial::cache::hash_children;
-use merkle_partial::field::{Composite, Leaf, Node, Primitive};
+use merkle_partial::field::{Composite, Node};
 use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 use ssz_types::FixedVector;
 use typenum::U4;
 
-// C's merkle tree
+// S's merkle tree
 //
 //        c_root(0)
 //       /         \

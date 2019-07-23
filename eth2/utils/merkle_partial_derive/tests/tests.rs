@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use ethereum_types::U256;
 use merkle_partial::cache::hash_children;
 use merkle_partial::field::{Composite, Leaf, Node, Primitive};
@@ -206,6 +208,7 @@ struct Message {
 struct State {
     messages: VariableList<Message, U8>,
 }
+
 fn zero_hash(depth: u8) -> Vec<u8> {
     if depth == 0 {
         vec![0; 32]
@@ -217,51 +220,79 @@ fn zero_hash(depth: u8) -> Vec<u8> {
     }
 }
 
+// NOTE: copied from `nested_structure2.rs`
 #[test]
-fn var_list() {
-    // block.new_messages.push(Message {
-    //     timestamp: 123456,
-    //     message: FixedVector::new(vec![1; 32]).unwrap(),
-    // });
-
-    // block.new_messages.push(Message {
-    //     timestamp: 123456,
-    //     message: FixedVector::new(vec![42; 32]).unwrap(),
-    // });
-
+fn roundtrip_partial() {
     let mut arr = vec![0; 224];
+
+    // 31 `message[0].timestamp`
+    arr[0] = 1;
+
+    // 32 `message[0].message`
+    arr[32..64].copy_from_slice(&vec![1_u8; 32]);
+
+    // 33 `message[1].timestamp`
+    arr[64] = 2;
+
+    // 34 `message[1].message`
+    arr[96..128].copy_from_slice(&vec![42_u8; 32]);
+
+    // 8 `hash of message[2] and message[3]`
     arr[128..160].copy_from_slice(&zero_hash(2));
+
+    // 4 `hash of message[4..7]`
     arr[160..192].copy_from_slice(&zero_hash(3));
+
+    // 2 length mixin
+    arr[223] = 2;
 
     let sp = SerializedPartial {
         indices: vec![31, 32, 33, 34, 8, 4, 2],
         chunks: arr.clone(),
     };
 
-    arr[0] = 1;
-    arr[32..64].copy_from_slice(&vec![1_u8; 32]);
-    arr[64] = 2;
-    arr[96..128].copy_from_slice(&vec![42_u8; 32]);
-    arr[223] = 2; // len
-
-    let sp = SerializedPartial {
-        indices: vec![31, 32, 33, 34, 8, 4, 2],
-        chunks: arr,
-    };
-
     let mut partial = Partial::<State>::default();
 
     assert_eq!(partial.load_partial(sp), Ok(()));
     assert_eq!(partial.fill(), Ok(()));
-    // assert_eq!(
-    //     partial.get_bytes(vec![
-    //         Path::Ident("messages".to_string()),
-    //         Path::Index(1),
-    //         Path::Ident("timestamp".to_string())
-    //     ]),
-    //     Ok(vec![1, 0, 0, 0, 0, 0, 0, 0])
-    // );
 
-    // println!("{:?}", hex::encode(partial.root().unwrap()));
-    println!("{:?}", partial);
+    // TESTING TIMESTAMPS
+    assert_eq!(
+        partial.get_bytes(vec![
+            Path::Ident("messages".to_string()),
+            Path::Index(0),
+            Path::Ident("timestamp".to_string())
+        ]),
+        Ok(vec![1, 0, 0, 0, 0, 0, 0, 0])
+    );
+
+    assert_eq!(
+        partial.get_bytes(vec![
+            Path::Ident("messages".to_string()),
+            Path::Index(1),
+            Path::Ident("timestamp".to_string())
+        ]),
+        Ok(vec![2, 0, 0, 0, 0, 0, 0, 0])
+    );
+
+    // TESTING MESSAGES
+    assert_eq!(
+        partial.get_bytes(vec![
+            Path::Ident("messages".to_string()),
+            Path::Index(0),
+            Path::Ident("message".to_string()),
+            Path::Index(1),
+        ]),
+        Ok(vec![1])
+    );
+
+    assert_eq!(
+        partial.get_bytes(vec![
+            Path::Ident("messages".to_string()),
+            Path::Index(1),
+            Path::Ident("message".to_string()),
+            Path::Index(31),
+        ]),
+        Ok(vec![42])
+    );
 }

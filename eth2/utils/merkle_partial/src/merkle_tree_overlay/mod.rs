@@ -1,14 +1,10 @@
 pub mod impls;
-pub mod path_matcher;
 
 use crate::error::Result;
 use crate::field::Node;
 use crate::{NodeIndex, Path};
 
 pub trait MerkleTreeOverlay {
-    /// Returns the height of the merkle tree.
-    fn height() -> u8;
-
     /// Returns the `Node` coresponding to the general index `index` in the merkle tree.
     ///
     /// There are four main branches to be taken when matching an index to the
@@ -31,7 +27,14 @@ pub trait MerkleTreeOverlay {
     /// https://github.com/ethereum/eth2.0-specs/blob/dev/specs/light_client/merkle_proofs.md
     fn get_node(index: NodeIndex) -> Node;
 
+    /// Returns the `Node` coresponding to the given `path`.
+    ///
+    /// This will match path[0] against an field in the current object and recusively call the same
+    /// function on that field's type with path[1..] until the path is exhausted.
     fn get_node_from_path(path: Vec<Path>) -> Result<Node>;
+
+    /// Returns the height of the merkle tree.
+    fn height() -> u8;
 
     /// Returns the index of the first leaf in the merkle tree.
     fn first_leaf() -> NodeIndex;

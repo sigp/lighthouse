@@ -180,26 +180,34 @@ macro_rules! impl_merkle_overlay_for_collection_type {
 
             fn get_node_from_path(path: Vec<Path>) -> Result<Node> {
                 match path.first() {
-                    Some(Path::Index(i)) => {
-                        if *i >= N::to_u64() {
-                            return Err(Error::IndexOutOfBounds(*i));
+                    // If the first element of the path is an index, it should exactly match the
+                    // index of one of the leaf nodes in the current tree.
+                    Some(Path::Index(position)) => {
+                        // If the position in the collection is greater than the max number of
+                        // elements, return an error.
+                        if *position >= N::to_u64() {
+                            return Err(Error::IndexOutOfBounds(*position));
                         }
 
-                        let items_per_chunk = BYTES_PER_CHUNK / std::mem::size_of::<T>();
-                        let index = Self::first_leaf() + (i / items_per_chunk as u64);
+                        let items_per_chunk = (BYTES_PER_CHUNK / std::mem::size_of::<T>()) as u64;
+                        let leaf_index = Self::first_leaf() + (position / items_per_chunk);
 
+                        // If the path terminates here, return the node in the current tree.
                         if path.len() == 1 {
-                            Ok(Self::get_node(index))
+                            Ok(Self::get_node(leaf_index))
+
+                        // If the path does not terminate, recursively call the child `T` to
+                        // continue matching the path. Translate the child's return index to
+                        // the current general index space.
                         } else {
-                            match T::get_node_from_path(path[1..].to_vec()) {
-                                Ok(n) => Ok(replace_index(
-                                    n.clone(),
-                                    subtree_index_to_general(index, n.get_index()),
-                                )),
-                                e => e,
-                            }
+                            let node = T::get_node_from_path(path[1..].to_vec())?;
+                            let index = subtree_index_to_general(leaf_index, node.get_index());
+
+                            Ok(replace_index(node.clone(), index))
                         }
                     }
+                    // The only possible match for idents in a collection is when the collection is
+                    // of dynamic length and the ident == "len". Otherwise, it is invalid.
                     Some(Path::Ident(i)) => {
                         if $is_variable_length && i == "len" {
                             Ok(Self::get_node(2))
@@ -207,6 +215,7 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                             Err(Error::InvalidPath(path[0].clone()))
                         }
                     }
+                    // If there is no first element, return an error.
                     None => Err(Error::EmptyPath()),
                 }
             }
