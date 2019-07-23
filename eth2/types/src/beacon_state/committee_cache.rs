@@ -274,9 +274,11 @@ impl CommitteeCache {
     ///
     /// To avoid a divide-by-zero, returns `None` if `self.committee_count` is zero.
     ///
-    /// Spec v0.6.3
+    /// Will also return `None` if the index is out of bounds.
+    ///
+    /// Spec v0.8.1
     fn compute_committee_range(&self, index: usize) -> Option<Range<usize>> {
-        if self.committee_count == 0 {
+        if self.committee_count == 0 || index >= self.committee_count {
             return None;
         }
 
