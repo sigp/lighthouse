@@ -199,16 +199,16 @@ fn get_and_set_by_path() {
     assert_eq!(p.get_bytes(vec![]), Err(Error::EmptyPath()),);
     assert_eq!(p.set_bytes(vec![], vec![]), Err(Error::EmptyPath()));
 
-    // Check for `Error::InvalidPath(Path::Index(_))`
+    // Check for `Error::OutOfBounds(Path::Index(_))`
     let generate_path = || vec![Path::Ident("b".to_string()), Path::Index(8)];
 
     assert_eq!(
         p.get_bytes(generate_path()),
-        Err(Error::InvalidPath(generate_path()[1].clone()))
+        Err(Error::IndexOutOfBounds(8))
     );
     assert_eq!(
         p.set_bytes(generate_path(), vec![]),
-        Err(Error::InvalidPath(generate_path()[1].clone())),
+        Err(Error::IndexOutOfBounds(8))
     );
 
     // Check for `Error::InvalidPath(Path::Ident(_))`

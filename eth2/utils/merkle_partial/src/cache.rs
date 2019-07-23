@@ -86,6 +86,30 @@ impl Cache {
 
         Ok(())
     }
+
+    pub fn refresh(&mut self) -> Result<()> {
+        let mut nodes: Vec<u64> = self.nodes();
+        nodes.sort_by(|a, b| b.cmp(a));
+
+        let mut position = 0;
+        while nodes[position] > 0 {
+            let (left, right, parent) = expand_tree_index(nodes[position]);
+
+            if self.contains_node(left) && self.contains_node(right) {
+                let h = hash_children(
+                    &self.get(left).ok_or(Error::MissingNode(left))?,
+                    &self.get(right).ok_or(Error::MissingNode(right))?,
+                );
+
+                self.insert(parent, h);
+                nodes.push(parent);
+            }
+
+            position += 1;
+        }
+
+        Ok(())
+    }
 }
 
 /// Helper function that appends `right` to `left` and hashes the result.

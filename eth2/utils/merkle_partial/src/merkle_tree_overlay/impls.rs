@@ -122,62 +122,50 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                     (1, first_leaf - 1)
                 };
 
+                let default_root_node = Node::Composite(Composite {
+                    ident: "".to_owned(),
+                    index: 0,
+                    height: Self::height().into(),
+                });
+
+                let length_node = Node::Leaf(Leaf::Length(Primitive {
+                    ident: "len".to_string(),
+                    index: index,
+                    size: 32,
+                    offset: 0,
+                }));
+
+                // If the type is variable length, it will always have it's current length mixed
+                // in. Therefore indicies 0, 2 will never change.
+                if $is_variable_length {
+                    if index == 0 {
+                        return default_root_node;
+                    } else if $is_variable_length && index == 2 {
+                        return length_node;
+                    }
+                }
+                // There is an edge case for when the entire structure can fit inside 32 bytes,
+                // the data itself is defined as the merkle root. For fixed sized types, this is
+                // when the height is 0. For variable sized types, this is when the height is 1.
+                if Self::height() == 0 || ($is_variable_length && (Self::height() == 1)) {
+                    if index == 0 || ($is_variable_length && index == 1) {
+                        return generate_leaf::<Self, T>(index);
+                    }
+                }
+
                 // The `index` can either i) exist within the current object and directly match a local
                 // index in `0..=Self::last_leaf()` or ii) is a child of one of the leaves in the current
                 // tree. If `index` is a child, call `get_node` on the child object `T` with an index
                 // translated to the child object's index space.
                 if index == 0 {
-                    Node::Composite(Composite {
-                        ident: "".to_owned(),
-                        index: 0,
-                        height: Self::height().into(),
-                    })
-                } else if index == 1 && $is_variable_length {
-                    Node::Intermediate(index)
-                } else if index == 2 && $is_variable_length {
-                    Node::Leaf(Leaf::Length(Primitive {
-                        ident: "len".to_string(),
-                        index: index,
-                        size: 32,
-                        offset: 0,
-                    }))
+                    default_root_node
                 } else if (first_internal..=last_internal).contains(&index) {
                     Node::Intermediate(index)
                 } else if (first_leaf..=last_leaf).contains(&index) {
-                    let node_type = T::get_node(0);
-
-                    match node_type {
-                        Node::Leaf(Leaf::Primitive(_)) => {
-                            let item_size = std::mem::size_of::<T>() as u8;
-                            let items_per_chunk = BYTES_PER_CHUNK as u8 / item_size;
-
-                            Node::Leaf(Leaf::Primitive(
-                                vec![Primitive::default(); items_per_chunk as usize]
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(i, _)| Primitive {
-                                        ident: ((index - Self::first_leaf())
-                                            * items_per_chunk as u64
-                                            + i as u64)
-                                            .to_string(),
-                                        index: index,
-                                        size: item_size,
-                                        offset: i as u8 * item_size,
-                                    })
-                                    .collect(),
-                            ))
-                        }
-                        Node::Composite(c) => Node::Composite(Composite {
-                            ident: (index - Self::first_leaf()).to_string(),
-                            index,
-                            height: c.height,
-                        }),
-                        _ => unreachable!("Leaf should either be composite or basic value"),
-                    }
+                    generate_leaf::<Self, T>(index)
                 } else {
                     // If no match at this point, the node must be in one of `T`'s subtrees or it's not
                     // attached to the current tree anywhere.
-
                     let subtree_root = root_from_depth(index, relative_depth(first_leaf, index));
                     let subtree_index = general_index_to_subtree(subtree_root, index);
 
@@ -193,18 +181,32 @@ macro_rules! impl_merkle_overlay_for_collection_type {
             fn get_node_from_path(path: Vec<Path>) -> Result<Node> {
                 match path.first() {
                     Some(Path::Index(i)) => {
+                        if *i >= N::to_u64() {
+                            return Err(Error::IndexOutOfBounds(*i));
+                        }
+
                         let items_per_chunk = BYTES_PER_CHUNK / std::mem::size_of::<T>();
+                        let index = Self::first_leaf() + (i / items_per_chunk as u64);
+
                         if path.len() == 1 {
-                            match Self::get_node(Self::first_leaf() + (i / items_per_chunk as u64))
-                            {
-                                Node::Leaf(l) => Ok(Node::Leaf(l)),
-                                _ => Err(Error::InvalidPath(path[0].clone())),
-                            }
+                            Ok(Self::get_node(index))
                         } else {
-                            T::get_node_from_path(path[1..].to_vec())
+                            match T::get_node_from_path(path[1..].to_vec()) {
+                                Ok(n) => Ok(replace_index(
+                                    n.clone(),
+                                    subtree_index_to_general(index, n.get_index()),
+                                )),
+                                e => e,
+                            }
                         }
                     }
-                    Some(p) => Err(Error::InvalidPath(p.clone())),
+                    Some(Path::Ident(i)) => {
+                        if $is_variable_length && i == "len" {
+                            Ok(Self::get_node(2))
+                        } else {
+                            Err(Error::InvalidPath(path[0].clone()))
+                        }
+                    }
                     None => Err(Error::EmptyPath()),
                 }
             }
@@ -214,6 +216,35 @@ macro_rules! impl_merkle_overlay_for_collection_type {
 
 impl_merkle_overlay_for_collection_type!(VariableList, true);
 impl_merkle_overlay_for_collection_type!(FixedVector, false);
+fn generate_leaf<S: MerkleTreeOverlay, T: MerkleTreeOverlay>(index: NodeIndex) -> Node {
+    let node_type = T::get_node(0);
+    match node_type {
+        Node::Leaf(Leaf::Primitive(_)) => {
+            let item_size = std::mem::size_of::<T>() as u8;
+            let items_per_chunk = BYTES_PER_CHUNK as u8 / item_size;
+
+            let values = vec![Primitive::default(); items_per_chunk as usize]
+                .iter()
+                .enumerate()
+                .map(|(i, _)| Primitive {
+                    ident: ((index - S::first_leaf()) * items_per_chunk as u64 + i as u64)
+                        .to_string(),
+                    index: index,
+                    size: item_size,
+                    offset: i as u8 * item_size,
+                })
+                .collect();
+
+            Node::Leaf(Leaf::Primitive(values))
+        }
+        Node::Composite(c) => Node::Composite(Composite {
+            ident: (index - S::first_leaf()).to_string(),
+            index,
+            height: c.height,
+        }),
+        _ => unreachable!("Leaf should either be composite or basic value"),
+    }
+}
 
 /// Returns a copy of `node` with all its index values changed to `index`.
 pub fn replace_index(node: Node, index: NodeIndex) -> Node {
@@ -244,15 +275,57 @@ pub fn replace_index(node: Node, index: NodeIndex) -> Node {
     }
 }
 
+/// Returns a copy of `node` with all its index values changed to `index`.
+pub fn replace_ident(node: Node, ident: &str) -> Node {
+    match node {
+        Node::Composite(c) => Node::Composite(Composite {
+            ident: ident.to_string(),
+            index: c.index,
+            height: c.height,
+        }),
+        Node::Leaf(Leaf::Primitive(b)) => Node::Leaf(Leaf::Primitive(
+            b.iter()
+                .cloned()
+                .map(|mut x| {
+                    x.ident = ident.to_string();
+                    x
+                })
+                .collect(),
+        )),
+        Node::Leaf(Leaf::Length(b)) => Node::Leaf(Leaf::Length(Primitive {
+            ident: ident.to_string(),
+            index: b.index,
+            size: 32,
+            offset: 0,
+        })),
+        n => n,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typenum::{U1, U16, U2, U4, U8};
+    use typenum::{U1, U16, U2, U32, U4, U8};
+
+    fn build_node(ident: &str, index: u64) -> Node {
+        Node::Leaf(Leaf::Primitive(vec![Primitive {
+            ident: ident.to_string(),
+            index: index,
+            size: 32,
+            offset: 0,
+        }]))
+    }
+
+    fn ident_path(ident: &str) -> Vec<Path> {
+        vec![Path::Ident(ident.to_string())]
+    }
+
+    fn index_path(index: u64) -> Vec<Path> {
+        vec![Path::Index(index)]
+    }
 
     #[test]
     fn variable_list_overlay() {
-        type T = VariableList<U256, U8>;
-
         // Merkle structure for `VariableList<U256, U8>`
         //
         //                 +---------- 0 ----------+                 <= composite
@@ -268,7 +341,9 @@ mod tests {
         //              +
         //              |
         //              +--------------- leaves
+        type T = VariableList<U256, U8>;
 
+        // TESTING ROOT NODE
         assert_eq!(
             T::get_node(0),
             Node::Composite(Composite {
@@ -278,49 +353,50 @@ mod tests {
             })
         );
 
+        // TESTING INTERMEDIATE NODES
         assert_eq!(T::get_node(1), Node::Intermediate(1));
         assert_eq!(T::get_node(10), Node::Intermediate(10));
 
+        // TESTING LENGTH NODE
+        let node = Node::Leaf(Leaf::Length(Primitive {
+            ident: "len".to_string(),
+            index: 2,
+            size: 32,
+            offset: 0,
+        }));
+
+        assert_eq!(T::get_node_from_path(ident_path("len")), Ok(node.clone()));
+        assert_eq!(T::get_node(2), node);
+
+        // TESTING LEAF NODES
+        // position 0
         assert_eq!(
-            T::get_node(2),
-            Node::Leaf(Leaf::Length(Primitive {
-                ident: "len".to_string(),
-                index: 2,
-                size: 32,
-                offset: 0
-            }))
+            T::get_node_from_path(index_path(0)),
+            Ok(build_node("0", 15))
+        );
+        assert_eq!(T::get_node(15), build_node("0", 15));
+
+        // position 3
+        assert_eq!(
+            T::get_node_from_path(index_path(3)),
+            Ok(build_node("3", 18))
+        );
+        assert_eq!(T::get_node(18), build_node("3", 18));
+
+        // position 7
+        assert_eq!(
+            T::get_node_from_path(index_path(7)),
+            Ok(build_node("7", 22))
+        );
+        assert_eq!(T::get_node(22), build_node("7", 22));
+
+        // TESTING OUT-OF-BOUNDS INDEX
+        assert_eq!(
+            T::get_node_from_path(index_path(9)),
+            Err(Error::IndexOutOfBounds(9))
         );
 
-        assert_eq!(
-            T::get_node(15),
-            Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: 0.to_string(),
-                index: 15,
-                size: 32,
-                offset: 0
-            }]))
-        );
-
-        assert_eq!(
-            T::get_node(18),
-            Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: 3.to_string(),
-                index: 18,
-                size: 32,
-                offset: 0
-            }]))
-        );
-
-        assert_eq!(
-            T::get_node(22),
-            Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: 7.to_string(),
-                index: 22,
-                size: 32,
-                offset: 0
-            }]))
-        );
-
+        // TESTING UNATTACHED NODES
         assert_eq!(T::get_node(23), Node::Unattached(23));
         assert_eq!(T::get_node(31), Node::Unattached(31));
         assert_eq!(T::get_node(2_u64.pow(32)), Node::Unattached(2_u64.pow(32)));
@@ -330,6 +406,7 @@ mod tests {
     fn nested_variable_list_overlay() {
         type T = VariableList<VariableList<VariableList<U256, U2>, U2>, U4>;
 
+        // TESTING ROOT NODE
         assert_eq!(
             T::get_node(0),
             Node::Composite(Composite {
@@ -339,39 +416,52 @@ mod tests {
             })
         );
 
+        // TESTING INTERMEDIATE NODES
         assert_eq!(T::get_node(1), Node::Intermediate(1));
         assert_eq!(T::get_node(4), Node::Intermediate(4));
 
-        assert_eq!(
-            T::get_node(2),
-            Node::Leaf(Leaf::Length(Primitive {
-                ident: "len".to_string(),
-                index: 2,
-                size: 32,
-                offset: 0
-            }))
-        );
+        // TESTING LENGTH NODE
+        let node = Node::Leaf(Leaf::Length(Primitive {
+            ident: "len".to_string(),
+            index: 2,
+            size: 32,
+            offset: 0,
+        }));
 
+        // Testing root list length
         assert_eq!(
-            T::get_node(16),
-            Node::Leaf(Leaf::Length(Primitive {
-                ident: "len".to_string(),
-                index: 16,
-                size: 32,
-                offset: 0
-            }))
+            T::get_node_from_path(vec![Path::Ident("len".to_string())]),
+            Ok(node.clone())
         );
+        assert_eq!(T::get_node(2), node);
 
+        // Testing list length for position 0
+        let node = Node::Leaf(Leaf::Length(Primitive {
+            ident: "len".to_string(),
+            index: 16,
+            size: 32,
+            offset: 0,
+        }));
         assert_eq!(
-            T::get_node(22),
-            Node::Leaf(Leaf::Length(Primitive {
-                ident: "len".to_string(),
-                index: 22,
-                size: 32,
-                offset: 0
-            }))
+            T::get_node_from_path(vec![Path::Index(0), Path::Ident("len".to_string())]),
+            Ok(node.clone())
         );
+        assert_eq!(T::get_node(16), node);
 
+        // Testing list length for position 3
+        let node = Node::Leaf(Leaf::Length(Primitive {
+            ident: "len".to_string(),
+            index: 22,
+            size: 32,
+            offset: 0,
+        }));
+        assert_eq!(
+            T::get_node_from_path(vec![Path::Index(3), Path::Ident("len".to_string())]),
+            Ok(node.clone())
+        );
+        assert_eq!(T::get_node(22), node);
+
+        // TESTING COMPOSITE NODES
         assert_eq!(
             T::get_node(32),
             Node::Composite(Composite {
@@ -381,16 +471,43 @@ mod tests {
             })
         );
 
+        // TESTING LEAF NODES
+        // Node 131
         assert_eq!(
-            T::get_node(176),
-            Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: 1.to_string(),
-                index: 176,
-                size: 32,
-                offset: 0
-            }]))
+            T::get_node_from_path(vec![Path::Index(0), Path::Index(1), Path::Index(0)]),
+            Ok(build_node("0", 131))
+        );
+        assert_eq!(T::get_node(131), build_node("0", 131));
+
+        // Node 163
+        assert_eq!(
+            T::get_node_from_path(vec![Path::Index(2), Path::Index(1), Path::Index(0)]),
+            Ok(build_node("0", 163))
+        );
+        assert_eq!(T::get_node(163), build_node("0", 163));
+
+        // Node 176
+        assert_eq!(
+            T::get_node_from_path(vec![Path::Index(3), Path::Index(0), Path::Index(1)]),
+            Ok(build_node("1", 176))
+        );
+        assert_eq!(T::get_node(176), build_node("1", 176));
+
+        // TESTING OUT-OF-BOUNDS
+        assert_eq!(
+            T::get_node_from_path(vec![Path::Index(4)]),
+            Err(Error::IndexOutOfBounds(4))
+        );
+        assert_eq!(
+            T::get_node_from_path(vec![Path::Index(3), Path::Index(2)]),
+            Err(Error::IndexOutOfBounds(2))
+        );
+        assert_eq!(
+            T::get_node_from_path(vec![Path::Index(3), Path::Index(1), Path::Index(2)]),
+            Err(Error::IndexOutOfBounds(2))
         );
 
+        // TESTING UNATTACHED
         assert_eq!(T::get_node(45), Node::Unattached(45));
         assert_eq!(T::get_node(177), Node::Unattached(177));
         assert_eq!(T::get_node(123456789), Node::Unattached(123456789));
@@ -429,13 +546,57 @@ mod tests {
 
         for i in 7..=14 {
             assert_eq!(
-                T::get_node(i),
-                Node::Leaf(Leaf::Primitive(vec![Primitive {
-                    ident: (i - 7).to_string(),
-                    index: i,
-                    size: 32,
-                    offset: 0,
-                }]))
+                T::get_node_from_path(vec![Path::Index(i - 7)]),
+                Ok(build_node(&(i - 7).to_string(), i))
+            );
+            assert_eq!(T::get_node(i), build_node(&(i - 7).to_string(), i));
+        }
+
+        // TESTING OUT-OF-BOUNDS
+        assert_eq!(
+            T::get_node_from_path(vec![Path::Index(8)]),
+            Err(Error::IndexOutOfBounds(8))
+        );
+
+        // TESTING LENGTH
+        assert_eq!(
+            T::get_node_from_path(ident_path("len")),
+            Err(Error::InvalidPath(Path::Ident("len".to_string())))
+        );
+    }
+
+    #[test]
+    fn another_simple_fixed_vector() {
+        type T = FixedVector<u8, U32>;
+
+        assert_eq!(T::height(), 0);
+        assert_eq!(T::first_leaf(), 0);
+        assert_eq!(T::last_leaf(), 0);
+
+        // Generate root node
+        let node = Node::Leaf(Leaf::Primitive(
+            vec![Primitive::default(); 32]
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(i, mut p)| {
+                    p.ident = i.to_string();
+                    p.index = 0;
+                    p.size = 1;
+                    p.offset = i as u8;
+                    p
+                })
+                .collect(),
+        ));
+
+        // TESTING ROOT NODE
+        assert_eq!(T::get_node(0), node.clone());
+
+        // TESTING ALL PATHS
+        for i in 0..32 {
+            assert_eq!(
+                T::get_node_from_path(vec![Path::Index(i)]),
+                Ok(node.clone())
             );
         }
     }
@@ -465,9 +626,9 @@ mod tests {
         assert_eq!(
             T::get_node(0),
             Node::Composite(Composite {
-                ident: "".to_string(),
+                ident: 0.to_string(),
                 index: 0,
-                height: 0,
+                height: 1,
             })
         );
 

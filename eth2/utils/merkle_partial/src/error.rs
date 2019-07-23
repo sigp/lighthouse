@@ -10,7 +10,7 @@ pub enum Error {
     // The partial is incomplete
     MissingNode(NodeIndex),
     // The path accesses an unintialized element
-    IndexOutOfBounds(usize),
+    IndexOutOfBounds(u64),
     // Only chunks that were loaded by `load_partial` can be updated
     ChunkNotLoaded(NodeIndex),
     // Only leaf nodes can be updated

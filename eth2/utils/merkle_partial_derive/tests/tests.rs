@@ -1,9 +1,10 @@
 use ethereum_types::U256;
+use merkle_partial::cache::hash_children;
 use merkle_partial::field::{Composite, Leaf, Node, Primitive};
 use merkle_partial::{Error, MerkleTreeOverlay, Partial, Path, SerializedPartial};
 use merkle_partial_derive;
-use ssz_types::FixedVector;
-use typenum::U8;
+use ssz_types::{FixedVector, VariableList};
+use typenum::{U32, U8};
 
 #[derive(Debug, Default, merkle_partial_derive::Partial)]
 pub struct A {
@@ -193,4 +194,74 @@ fn single_node() {
 
     assert_eq!(C::get_node(1), Node::Unattached(1));
     assert_eq!(C::get_node(1000), Node::Unattached(1000));
+}
+
+#[derive(Debug, Default, merkle_partial_derive::Partial)]
+struct Message {
+    timestamp: u64,
+    message: FixedVector<u8, U32>,
+}
+
+#[derive(Debug, Default, merkle_partial_derive::Partial)]
+struct State {
+    messages: VariableList<Message, U8>,
+}
+fn zero_hash(depth: u8) -> Vec<u8> {
+    if depth == 0 {
+        vec![0; 32]
+    } else if depth == 1 {
+        hash_children(&[0; 32], &[0; 32])
+    } else {
+        let last = zero_hash(depth - 1);
+        hash_children(&last, &last)
+    }
+}
+
+#[test]
+fn var_list() {
+    // block.new_messages.push(Message {
+    //     timestamp: 123456,
+    //     message: FixedVector::new(vec![1; 32]).unwrap(),
+    // });
+
+    // block.new_messages.push(Message {
+    //     timestamp: 123456,
+    //     message: FixedVector::new(vec![42; 32]).unwrap(),
+    // });
+
+    let mut arr = vec![0; 224];
+    arr[128..160].copy_from_slice(&zero_hash(2));
+    arr[160..192].copy_from_slice(&zero_hash(3));
+
+    let sp = SerializedPartial {
+        indices: vec![31, 32, 33, 34, 8, 4, 2],
+        chunks: arr.clone(),
+    };
+
+    arr[0] = 1;
+    arr[32..64].copy_from_slice(&vec![1_u8; 32]);
+    arr[64] = 2;
+    arr[96..128].copy_from_slice(&vec![42_u8; 32]);
+    arr[223] = 2; // len
+
+    let sp = SerializedPartial {
+        indices: vec![31, 32, 33, 34, 8, 4, 2],
+        chunks: arr,
+    };
+
+    let mut partial = Partial::<State>::default();
+
+    assert_eq!(partial.load_partial(sp), Ok(()));
+    assert_eq!(partial.fill(), Ok(()));
+    // assert_eq!(
+    //     partial.get_bytes(vec![
+    //         Path::Ident("messages".to_string()),
+    //         Path::Index(1),
+    //         Path::Ident("timestamp".to_string())
+    //     ]),
+    //     Ok(vec![1, 0, 0, 0, 0, 0, 0, 0])
+    // );
+
+    // println!("{:?}", hex::encode(partial.root().unwrap()));
+    println!("{:?}", partial);
 }
