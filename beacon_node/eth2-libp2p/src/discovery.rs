@@ -68,6 +68,7 @@ impl<TSubstream> Discovery<TSubstream> {
 
         info!(log, "Local ENR: {}", local_enr.to_base64());
         debug!(log, "Local Node Id: {}", local_enr.node_id());
+        debug!(log, "Local ENR seq: {}", local_enr.seq());
 
         let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address)
             .map_err(|e| format!("Discv5 service failed: {:?}", e))?;

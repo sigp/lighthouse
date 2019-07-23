@@ -20,7 +20,7 @@ use tokio::util::FutureExt;
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 4_194_304; // 4M
 /// The protocol prefix the RPC protocol id.
-const PROTOCOL_PREFIX: &str = "/eth/serenity/rpc/";
+const PROTOCOL_PREFIX: &str = "/eth2/beacon_node/rpc";
 /// The number of seconds to wait for a request once a protocol has been established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 3;
 
@@ -72,16 +72,16 @@ impl ProtocolId {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RPCError> {
         let protocol_string = String::from_utf8(bytes.to_vec())
             .map_err(|_| RPCError::InvalidProtocol("Invalid protocol Id"))?;
-        let protocol_list: Vec<&str> = protocol_string.as_str().split('/').take(5).collect();
+        let protocol_list: Vec<&str> = protocol_string.as_str().split('/').take(7).collect();
 
-        if protocol_list.len() != 5 {
+        if protocol_list.len() != 7 {
             return Err(RPCError::InvalidProtocol("Not enough '/'"));
         }
 
         Ok(ProtocolId {
-            message_name: protocol_list[3].into(),
-            version: protocol_list[4].into(),
-            encoding: protocol_list[5].into(),
+            message_name: protocol_list[4].into(),
+            version: protocol_list[5].into(),
+            encoding: protocol_list[6].into(),
         })
     }
 }
