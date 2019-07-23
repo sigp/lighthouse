@@ -113,11 +113,6 @@ where
                 resp_code_byte.copy_from_slice(&resp_byte);
 
                 let resp_code = u8::from_be_bytes(resp_code_byte);
-
-                if let Some(response) = RPCErrorResponse::internal_data(resp_code) {
-                    self.response_code = None;
-                    return Ok(Some(response));
-                }
                 self.response_code = Some(resp_code);
                 resp_code
             }

@@ -422,11 +422,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .collect();
 
         // ssz-encode the headers
-        //TODO: Make this more elegant
-        let headers = {
-            let resp = EncodeableBeaconBlockHeadersResponse { headers };
-            resp.as_ssz_bytes()
-        };
+        let headers = headers.as_ssz_bytes();
 
         network.send_rpc_response(
             peer_id,
@@ -439,17 +435,17 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     pub fn on_beacon_block_headers_response(
         &mut self,
         peer_id: PeerId,
-        res: EncodeableBeaconBlockHeadersResponse,
+        headers: Vec<BeaconBlockHeader>,
         network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
             "BlockHeadersResponse";
             "peer" => format!("{:?}", peer_id),
-            "count" => res.headers.len(),
+            "count" => headers.len(),
         );
 
-        if res.headers.is_empty() {
+        if headers.is_empty() {
             warn!(
                 self.log,
                 "Peer returned empty block headers response. PeerId: {:?}", peer_id
@@ -459,9 +455,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         // Enqueue the headers, obtaining a list of the roots of the headers which were newly added
         // to the queue.
-        let block_roots = self
-            .import_queue
-            .enqueue_headers(res.headers, peer_id.clone());
+        let block_roots = self.import_queue.enqueue_headers(headers, peer_id.clone());
 
         if !block_roots.is_empty() {
             self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
@@ -503,7 +497,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "returned" => block_bodies.len(),
         );
 
-        let bytes = block_bodes.as_ssz_bytes();
+        let bytes = block_bodies.as_ssz_bytes();
 
         network.send_rpc_response(
             peer_id,

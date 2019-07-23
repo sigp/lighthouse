@@ -2,7 +2,7 @@
 
 use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
+use types::{BeaconBlockBody, Epoch, Hash256, Slot};
 
 /* Request/Response data structures for RPC methods */
 
@@ -136,11 +136,6 @@ pub struct BeaconBlockHeadersResponse {
     pub headers: Vec<u8>,
 }
 
-#[derive(Encode, Decode, Debug)]
-pub struct EncodeableBeaconBlockHeadersResponse {
-    pub headers: Vec<BeaconBlockHeader>,
-}
-
 /// Request a number of beacon block bodies from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockBodiesRequest {
@@ -208,16 +203,6 @@ pub enum RPCErrorResponse {
 }
 
 impl RPCErrorResponse {
-    /// If a response has no payload, returns the variant corresponding to the code.
-    pub fn internal_data(response_code: u8) -> Option<RPCErrorResponse> {
-        match response_code {
-            // EncodingError
-            1 => Some(RPCErrorResponse::EncodingError),
-            // All others require further data
-            _ => None,
-        }
-    }
-
     /// Used to encode the response.
     pub fn as_u8(&self) -> u8 {
         match self {
