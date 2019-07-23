@@ -1,5 +1,5 @@
 use super::WinningRootHashSet;
-use crate::common::get_attesting_indices_unsorted;
+use crate::common::get_attesting_indices;
 use types::*;
 
 /// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`
@@ -214,7 +214,7 @@ impl ValidatorStatuses {
             .chain(state.current_epoch_attestations.iter())
         {
             let attesting_indices =
-                get_attesting_indices_unsorted(state, &a.data, &a.aggregation_bits)?;
+                get_attesting_indices(state, &a.data, &a.aggregation_bits)?;
 
             let mut status = ValidatorStatus::default();
 

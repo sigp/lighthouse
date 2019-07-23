@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use lmd_ghost::LmdGhost;
-use state_processing::common::get_attesting_indices_unsorted;
+use state_processing::common::get_attesting_indices;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
 use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256};
@@ -128,8 +128,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         state: &BeaconState<T::EthSpec>,
         attestation: &Attestation<T::EthSpec>,
     ) -> Result<()> {
-        // Note: `get_attesting_indices_unsorted` requires that the beacon state caches be built.
-        let validator_indices = get_attesting_indices_unsorted(
+        // Note: `get_attesting_indices` requires that the beacon state caches be built.
+        let validator_indices = get_attesting_indices(
             state,
             &attestation.data,
             &attestation.aggregation_bits,

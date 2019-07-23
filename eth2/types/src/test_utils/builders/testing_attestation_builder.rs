@@ -52,7 +52,8 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         secret_keys: &[&SecretKey],
         fork: &Fork,
         spec: &ChainSpec,
-    ) {
+        custody_bit: bool,
+    ) -> &mut Self {
         assert_eq!(
             signing_validators.len(),
             secret_keys.len(),
@@ -71,9 +72,16 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                 .set(committee_index, true)
                 .unwrap();
 
+            if custody_bit {
+                self.attestation
+                    .custody_bits
+                    .set(committee_index, true)
+                    .unwrap();
+            }
+
             let message = AttestationDataAndCustodyBit {
                 data: self.attestation.data.clone(),
-                custody_bit: false,
+                custody_bit,
             }
             .tree_hash_root();
 
@@ -86,6 +94,8 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
             let signature = Signature::new(&message, domain, secret_keys[key_index]);
             self.attestation.signature.add(&signature)
         }
+
+        self
     }
 
     /// Consume the builder and return the attestation.

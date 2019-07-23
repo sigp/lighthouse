@@ -1,4 +1,4 @@
-use crate::common::get_attesting_indices_unsorted;
+use crate::common::get_attesting_indices;
 use std::collections::{HashMap, HashSet};
 use tree_hash::TreeHash;
 use types::*;
@@ -89,7 +89,7 @@ pub fn get_unslashed_attesting_indices_unsorted<T: EthSpec>(
 ) -> Result<Vec<usize>, BeaconStateError> {
     let mut output = HashSet::new();
     for a in attestations {
-        output.extend(get_attesting_indices_unsorted(
+        output.extend(get_attesting_indices(
             state,
             &a.data,
             &a.aggregation_bits,

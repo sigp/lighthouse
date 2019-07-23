@@ -169,6 +169,8 @@ pub enum AttestationInvalid {
         committee_len: usize,
         bitfield_len: usize,
     },
+    /// The bits set in the custody bitfield are not a subset of those set in the aggregation bits.
+    CustodyBitfieldNotSubset,
     /// There was no known committee in this `epoch` for the given shard and slot.
     NoCommitteeForShard { shard: u64, slot: Slot },
     /// The validator index was unknown.
