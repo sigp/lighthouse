@@ -1,6 +1,6 @@
 macro_rules! path_from_request {
-    ($req:ident) => {}{
-        req.uri()
+    ($req: expr) => {
+        $req.uri()
             .path_and_query()
             .as_ref()
             .map(|pq| String::from(pq.as_str()))
@@ -9,20 +9,21 @@ macro_rules! path_from_request {
 }
 
 macro_rules! result_to_response {
-    ($fn: path) => {
+    ($handler: path) => {
         |req: Request<Body>| -> Response<Body> {
             let log = req
                 .extensions()
                 .get::<slog::Logger>()
-                .expect("Our logger should be on req.");
-            let luke_result = $fn(req);
-            match luke_result {
+                .expect("Our logger should be on req.").clone();
+            let path = path_from_request!(req);
+            let result = $handler(req);
+            match result {
                 Ok(response) => {
-                    info!(log, "Request successful: {:?}", path_from_request!(req));
+                    info!(log, "Request successful: {:?}", path);
                     response
                 }
                 Err(e) => {
-                    info!(log, "Request failure: {:?}", path_from_request!(req));
+                    info!(log, "Request failure: {:?}", path);
                     e.into()
                 }
             }
@@ -31,12 +32,10 @@ macro_rules! result_to_response {
 }
 
 macro_rules! success_response {
-    ($fn: path) => {
-        |body: Body| -> Response<Body> {
-            Response::builder()
-                .status(StatusCode::OK)
-                .body(body)
-                .expect("Should always be able to make response from version body.")
-        }
+    ($body: path) => {
+        Response::builder()
+            .status(StatusCode::OK)
+            .body($body)
+            .expect("Should always be able to make response from version body.")
     };
 }
