@@ -88,7 +88,7 @@ where
             .map_err(|e| format!("update_finalized_root failed: {:?}", e))
     }
 
-    fn latest_message(&mut self, validator_index: usize) -> Option<(Hash256, Slot)> {
+    fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
         self.core
             .write()
             .latest_message(validator_index)

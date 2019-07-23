@@ -4,6 +4,7 @@ use state_processing::common::get_attesting_indices_unsorted;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
 use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256};
+use state_processing::common;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -120,6 +121,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Ok(())
     }
 
+    /// Process an attestation.
+    ///
+    /// Assumes the attestation is valid.
     pub fn process_attestation(
         &self,
         state: &BeaconState<T::EthSpec>,
@@ -160,6 +164,26 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         }
 
         Ok(())
+    }
+
+    /// Determines whether or not the given attestation contains a latest messages.
+    pub fn should_process_attestation(&self, state: &BeaconState<T::EthSpec>, attestation: &Attestation) -> bool {
+        let validator_indices = common::get_attesting_indices_unsorted(
+            state,
+            &attestation.data,
+            &attestation.aggregation_bitfield,
+        ).unwrap();
+
+        let target_slot = attestation.data.target_epoch.start_slot(T::EthSpec::slots_per_epoch());
+
+        validator_indices
+            .iter()
+            .find(|&&v| {
+                match self.backend.latest_message(v) {
+                    Some((_, slot)) => target_slot > slot,
+                    None => true
+                }
+            }).is_some()
     }
 
     /// Inform the fork choice that the given block (and corresponding root) have been finalized so
