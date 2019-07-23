@@ -114,13 +114,17 @@ impl ForkedHarness {
         }
     }
 
+    pub fn store_clone(&self) -> MemoryStore {
+        (*self.harness.chain.store).clone()
+    }
+
     /// Return a brand-new, empty fork choice with a reference to `harness.store`.
     pub fn new_fork_choice(&self) -> ThreadSafeReducedTree {
         // Take a full clone of the store built by the harness.
         //
         // Taking a clone here ensures that each fork choice gets it's own store so there is no
         // cross-contamination between tests.
-        let store: MemoryStore = (*self.harness.chain.store).clone();
+        let store: MemoryStore = self.store_clone();
 
         ThreadSafeReducedTree::new(
             Arc::new(store),
@@ -310,4 +314,43 @@ fn single_voter_many_instance_faulty_blocks_voting_in_reverse() {
             "Tree integrity should be maintained whilst processing attestations"
         );
     }
+}
+
+/// Ensures that the finalized root can be set to all values in `roots`.
+fn test_update_finalized_root(roots: &[(Hash256, Slot)]) {
+    let harness = &FORKED_HARNESS;
+
+    let lmd = harness.new_fork_choice();
+
+    for (root, _slot) in roots.iter().rev() {
+        let block = harness
+            .store_clone()
+            .get::<BeaconBlock>(root)
+            .expect("block should exist")
+            .expect("db should not error");
+        lmd.update_finalized_root(&block, *root)
+            .expect("finalized root should update for faulty fork");
+
+        assert_eq!(
+            lmd.verify_integrity(),
+            Ok(()),
+            "Tree integrity should be maintained after updating the finalized root"
+        );
+    }
+}
+
+/// Iterates from low-to-high slot through the faulty roots, updating the finalized root.
+#[test]
+fn update_finalized_root_faulty() {
+    let harness = &FORKED_HARNESS;
+
+    test_update_finalized_root(&harness.faulty_roots)
+}
+
+/// Iterates from low-to-high slot through the honest roots, updating the finalized root.
+#[test]
+fn update_finalized_root_honest() {
+    let harness = &FORKED_HARNESS;
+
+    test_update_finalized_root(&harness.honest_roots)
 }
