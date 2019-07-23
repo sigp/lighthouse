@@ -494,9 +494,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let timer = self.metrics.attestation_processing_times.start_timer();
 
         if let Some(state) = self.get_attestation_state(&attestation) {
-            let indexed_attestation = common::convert_to_indexed(&state, &attestation)?;
-            per_block_processing::verify_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
-            self.fork_choice.process_attestation(&state, &attestation);
+            if self.fork_choice.should_process_attestation(&state, &attestation) {
+                let indexed_attestation = common::convert_to_indexed(&state, &attestation)?;
+                per_block_processing::verify_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
+                self.fork_choice.process_attestation(&state, &attestation);
+            }
         }
 
         let result = self
@@ -508,17 +510,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if result.is_ok() {
             self.metrics.attestation_processing_successes.inc();
         }
-
-        // TODO: process attestation. Please consider:
-        //
-        //  - Because a block was not added to the op pool does not mean it's invalid (it might
-        //  just be old).
-        //  - The attestation should be rejected if we don't know the block (ideally it should be
-        //  queued, but this may be overkill).
-        //  - The attestation _must_ be validated against it's state before being added to fork
-        //  choice.
-        //  - You can avoid verifying some attestations by first checking if they're a latest
-        //  message. This would involve expanding the `LmdGhost` API.
 
         result
     }

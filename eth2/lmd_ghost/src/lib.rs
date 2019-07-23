@@ -45,5 +45,5 @@ pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync {
     ) -> Result<()>;
 
     /// Returns the latest message for a given validator index.
-    fn latest_message(&mut self, validator_index: usize) -> Option<(Hash256, Slot)>;
+    fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)>;
 }
