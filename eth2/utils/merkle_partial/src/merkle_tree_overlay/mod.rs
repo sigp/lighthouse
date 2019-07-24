@@ -4,6 +4,7 @@ use crate::error::Result;
 use crate::field::Node;
 use crate::{NodeIndex, Path};
 
+/// Defines an interface for interacting with `Partial`s via `Path`s.
 pub trait MerkleTreeOverlay {
     /// Returns the `Node` coresponding to the `path`.
     ///

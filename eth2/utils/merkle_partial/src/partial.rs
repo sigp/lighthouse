@@ -9,13 +9,14 @@ use crate::tree_arithmetic::zeroed::sibling_index;
 use std::marker::PhantomData;
 use tree_hash::BYTES_PER_CHUNK;
 
+/// A `Partial` is generated from a `SerializedPartial` and can manipulate / verify data in the
+/// merkle tree.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Partial<T: MerkleTreeOverlay> {
     cache: Cache,
     _phantom: PhantomData<T>,
 }
 
-/// The `Partial` trait allows for `SerializedPartial`s to be generated and verified for a struct.
 impl<T: MerkleTreeOverlay> Partial<T> {
     /// Initialize `Partial` directly from a `SerializedPartial`.
     pub fn new(partial: SerializedPartial) -> Self {

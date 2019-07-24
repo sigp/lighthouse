@@ -1,7 +1,7 @@
 use super::{NodeIndex, BYTES_PER_CHUNK};
 use ssz_derive::{Decode, Encode};
 
-/// A serializable represenation of a merkle partial
+/// A serializable represenation of a `Partial`.
 #[derive(Clone, Debug, Decode, Encode, Default)]
 pub struct SerializedPartial {
     pub indices: Vec<NodeIndex>,

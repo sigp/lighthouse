@@ -2,7 +2,7 @@ use merkle_partial::cache::hash_children;
 use merkle_partial::field::{Composite, Node, Primitive};
 use merkle_partial::impls::replace_index;
 use merkle_partial::tree_arithmetic::zeroed::subtree_index_to_general;
-use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
+use merkle_partial::{Error, MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 use ssz_types::{FixedVector, VariableList};
 use typenum::{U32, U8};
 
@@ -30,7 +30,7 @@ impl MerkleTreeOverlay for Message {
         2
     }
 
-    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> Result<Node, Error> {
         if Some(&Path::Ident("timestamp".to_string())) == path.first() {
             Ok(Node::Primitive(vec![Primitive {
                 ident: "timestamp".to_string(),
@@ -67,7 +67,7 @@ impl MerkleTreeOverlay for State {
         0
     }
 
-    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> Result<Node, Error> {
         if Some(&Path::Ident("messages".to_string())) == path.first() {
             if path.len() == 1 {
                 Ok(Node::Composite(Composite {

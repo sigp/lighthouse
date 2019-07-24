@@ -1,6 +1,6 @@
 use hashing::hash;
 use merkle_partial::field::{Composite, Node};
-use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
+use merkle_partial::{Error, MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 use ssz_types::VariableList;
 use typenum::U4;
 
@@ -29,7 +29,7 @@ impl MerkleTreeOverlay for S {
         0
     }
 
-    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> Result<Node, Error> {
         if Some(&Path::Ident("a".to_string())) == path.first() {
             if path.len() == 1 {
                 Ok(Node::Composite(Composite {

@@ -37,7 +37,7 @@ impl MerkleTreeOverlay for S {
         2
     }
 
-    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> Result<Node, Error> {
         if Some(&Path::Ident("a".to_string())) == path.first() {
             if path.len() == 1 {
                 Ok(Node::Primitive(vec![Primitive {

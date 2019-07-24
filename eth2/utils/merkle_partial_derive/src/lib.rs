@@ -248,7 +248,7 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
                 (1_u64 << Self::height() + 1) - 2
             }
 
-            fn get_node(path: Vec<merkle_partial::Path>) -> merkle_partial::Result<merkle_partial::field::Node> {
+            fn get_node(path: Vec<merkle_partial::Path>) -> Result<merkle_partial::field::Node, merkle_partial::Error> {
                 #(#if_chain else)*
                 if let Some(p) = path.first() {
                     Err(merkle_partial::Error::InvalidPath(p.clone()))

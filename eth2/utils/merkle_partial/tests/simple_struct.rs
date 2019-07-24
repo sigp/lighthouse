@@ -1,7 +1,7 @@
 use ethereum_types::U256;
 use merkle_partial::cache::hash_children;
 use merkle_partial::field::{Node, Primitive};
-use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
+use merkle_partial::{Error, MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 
 // A's merkle tree
 //
@@ -35,7 +35,7 @@ impl MerkleTreeOverlay for S {
         4
     }
 
-    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> Result<Node, Error> {
         let p1 = path.first();
 
         if p1 == Some(&Path::Ident("a".to_string())) {
