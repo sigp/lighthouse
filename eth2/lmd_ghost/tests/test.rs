@@ -57,7 +57,7 @@ impl ForkedHarness {
 
         let delay = TestEthSpec::default_spec().min_attestation_inclusion_delay as usize;
 
-        let initial_blocks = delay + 8;
+        let initial_blocks = delay + 5;
 
         // Build an initial chain where all validators agree.
         harness.extend_chain(
