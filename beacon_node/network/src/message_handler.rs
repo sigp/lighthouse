@@ -105,7 +105,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent) {
         match rpc_message {
             RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
-            RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
+            RPCEvent::Response(_id, resp) => self.handle_rpc_response(peer_id, resp),
             RPCEvent::Error(id, error) => self.handle_rpc_error(peer_id, id, error),
         }
     }
@@ -148,18 +148,10 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
     /// An RPC response has been received from the network.
     // we match on id and ignore responses past the timeout.
-    fn handle_rpc_response(
-        &mut self,
-        peer_id: PeerId,
-        id: RequestId,
-        error_response: RPCErrorResponse,
-    ) {
+    fn handle_rpc_response(&mut self, peer_id: PeerId, error_response: RPCErrorResponse) {
         // an error could have occurred.
         // TODO: Handle Error gracefully
         match error_response {
-            RPCErrorResponse::EncodingError => {
-                warn!(self.log, "Encoding Error"; "peer" => format!("{:?}", peer_id), "request_id" => format!("{}",id))
-            }
             RPCErrorResponse::InvalidRequest(error) => {
                 warn!(self.log, "";"peer" => format!("{:?}", peer_id), "Invalid Request" => error.as_string())
             }
