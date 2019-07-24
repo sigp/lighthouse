@@ -171,6 +171,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.serenity_rpc.send_rpc(peer_id, rpc_event);
     }
+
+    /* Discovery / Peer management functions */
+    pub fn connected_peers(&self) -> usize {
+        self.discovery.connected_peers()
+    }
 }
 
 /// The types of events than can be obtained from polling the behaviour.

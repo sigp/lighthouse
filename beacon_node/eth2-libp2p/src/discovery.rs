@@ -106,6 +106,11 @@ impl<TSubstream> Discovery<TSubstream> {
         self.discovery.add_enr(enr);
     }
 
+    /// The current number of connected libp2p peers.
+    pub fn connected_peers(&self) -> usize {
+        self.connected_peers.len()
+    }
+
     /// Search for new peers using the underlying discovery mechanism.
     fn find_peers(&mut self) {
         // pick a random NodeId
