@@ -1,7 +1,7 @@
 use super::{NodeIndex, SerializedPartial};
 use crate::cache::Cache;
 use crate::error::{Error, Result};
-use crate::field::{Leaf, Node};
+use crate::field::Node;
 use crate::merkle_tree_overlay::MerkleTreeOverlay;
 use crate::path::Path;
 use crate::tree_arithmetic::zeroed::sibling_index;
@@ -17,7 +17,20 @@ pub struct Partial<T: MerkleTreeOverlay> {
 
 /// The `Partial` trait allows for `SerializedPartial`s to be generated and verified for a struct.
 impl<T: MerkleTreeOverlay> Partial<T> {
-    /// Populates the struct's cache with a `SerializedPartial`.
+    /// Initialize `Partial` directly from a `SerializedPartial`.
+    pub fn new(partial: SerializedPartial) -> Self {
+        let mut ret = Self {
+            cache: Cache::new(),
+            _phantom: PhantomData,
+        };
+
+        // This will always return `Ok(())` since the `cache` is starting empty.
+        ret.load_partial(partial).unwrap();
+
+        ret
+    }
+
+    /// Populate the struct's cache with a `SerializedPartial`.
     pub fn load_partial(&mut self, partial: SerializedPartial) -> Result<()> {
         for (i, index) in partial.indices.iter().enumerate() {
             let chunk = partial.chunks[i * BYTES_PER_CHUNK..(i + 1) * BYTES_PER_CHUNK].to_vec();
@@ -75,6 +88,7 @@ impl<T: MerkleTreeOverlay> Partial<T> {
         Ok(self.cache.get(index).ok_or(Error::ChunkNotLoaded(index))?[begin..end].to_vec())
     }
 
+    /// Replaces the bytes at `path` with `bytes`.
     pub fn set_bytes(&mut self, path: Vec<Path>, bytes: Vec<u8>) -> Result<()> {
         if path.len() == 0 {
             return Err(Error::EmptyPath());
@@ -113,10 +127,12 @@ impl<T: MerkleTreeOverlay> Partial<T> {
         self.cache.fill()
     }
 
+    /// Returns the root node of the partial if it has been calculated.
     pub fn root(&self) -> Option<&Vec<u8>> {
         self.cache.get(0)
     }
 
+    /// Recalculates all intermediate nodes and root using the available leaves.
     pub fn refresh(&mut self) -> Result<()> {
         self.cache.refresh()
     }
@@ -133,15 +149,15 @@ fn bytes_at_path_helper<T: MerkleTreeOverlay + ?Sized>(
 
     match T::get_node(path.clone())? {
         Node::Composite(c) => Ok((c.index, 0, 32)),
-        Node::Leaf(Leaf::Length(l)) => Ok((l.index, 0, 32)),
-        Node::Leaf(Leaf::Primitive(l)) => {
+        Node::Length(l) => Ok((l.index, 0, 32)),
+        Node::Primitive(l) => {
             for p in l.clone() {
                 if p.ident == path.last().unwrap().to_string() {
                     return Ok((p.index, p.offset as usize, (p.offset + p.size) as usize));
                 }
             }
 
-            unreachable!()
+            Err(Error::InvalidPath(path[0].clone()))
         }
     }
 }

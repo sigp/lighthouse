@@ -1,8 +1,11 @@
 use crate::NodeIndex;
 
+/// An identifier for the location of a distinct value in a partial.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Path {
+    /// An identifier for a member of a container object or for the length of a list.
     Ident(String),
+    /// An identifier for the position of a value in a homogeneous collection.
     Index(NodeIndex),
 }
 

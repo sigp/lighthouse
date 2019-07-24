@@ -16,7 +16,6 @@ struct S {
     a: VariableList<u128, U4>,
 }
 
-// Implemented by derive macro
 impl MerkleTreeOverlay for S {
     fn height() -> u8 {
         0
@@ -63,9 +62,7 @@ fn roundtrip_partial() {
         chunks: chunk.to_vec(),
     };
 
-    let mut p = Partial::<S>::default();
-
-    assert_eq!(p.load_partial(partial.clone()), Ok(()));
+    let mut p = Partial::<S>::new(partial.clone());
     assert_eq!(p.fill(), Ok(()));
 
     assert_eq!(

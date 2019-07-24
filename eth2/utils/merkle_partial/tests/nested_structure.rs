@@ -1,6 +1,6 @@
 use ethereum_types::U256;
 use merkle_partial::cache::hash_children;
-use merkle_partial::field::{Composite, Leaf, Node, Primitive};
+use merkle_partial::field::{Composite, Node, Primitive};
 use merkle_partial::impls::replace_index;
 use merkle_partial::tree_arithmetic::zeroed::subtree_index_to_general;
 use merkle_partial::{Error, MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
@@ -40,12 +40,12 @@ impl MerkleTreeOverlay for S {
     fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
         if Some(&Path::Ident("a".to_string())) == path.first() {
             if path.len() == 1 {
-                Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
+                Ok(Node::Primitive(vec![Primitive {
                     ident: "a".to_owned(),
                     index: 1,
                     size: 32,
                     offset: 0,
-                }])))
+                }]))
             } else {
                 match U256::get_node(path[1..].to_vec()) {
                     Ok(n) => Ok(replace_index(
@@ -135,9 +135,7 @@ fn get_and_set_by_path() {
         chunks: arr.to_vec(),
     };
 
-    let mut p = Partial::<S>::default();
-
-    assert_eq!(p.load_partial(sp.clone()), Ok(()));
+    let mut p = Partial::<S>::new(sp.clone());
 
     // Check S.a
     assert_eq!(

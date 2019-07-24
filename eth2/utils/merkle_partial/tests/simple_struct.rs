@@ -1,6 +1,6 @@
 use ethereum_types::U256;
 use merkle_partial::cache::hash_children;
-use merkle_partial::field::{Leaf, Node, Primitive};
+use merkle_partial::field::{Node, Primitive};
 use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 
 // A's merkle tree
@@ -40,30 +40,30 @@ impl MerkleTreeOverlay for S {
 
         if p1 == Some(&Path::Ident("a".to_string())) {
             if path.len() == 1 {
-                Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
+                Ok(Node::Primitive(vec![Primitive {
                     ident: "a".to_owned(),
                     index: 3,
                     size: 32,
                     offset: 0,
-                }])))
+                }]))
             } else {
                 // not sure if this will work
                 U256::get_node(path[1..].to_vec())
             }
         } else if p1 == Some(&Path::Ident("b".to_string())) {
             if path.len() == 1 {
-                Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
+                Ok(Node::Primitive(vec![Primitive {
                     ident: "b".to_owned(),
                     index: 4,
                     size: 32,
                     offset: 0,
-                }])))
+                }]))
             } else {
                 U256::get_node(path[1..].to_vec())
             }
         } else if p1 == Some(&Path::Ident("c".to_string())) {
             if path.len() == 1 {
-                Ok(Node::Leaf(Leaf::Primitive(vec![
+                Ok(Node::Primitive(vec![
                     Primitive {
                         ident: "c".to_owned(),
                         index: 5,
@@ -76,13 +76,13 @@ impl MerkleTreeOverlay for S {
                         size: 16,
                         offset: 16,
                     },
-                ])))
+                ]))
             } else {
                 U256::get_node(path[1..].to_vec())
             }
         } else if p1 == Some(&Path::Ident("d".to_string())) {
             if path.len() == 1 {
-                Ok(Node::Leaf(Leaf::Primitive(vec![
+                Ok(Node::Primitive(vec![
                     Primitive {
                         ident: "c".to_owned(),
                         index: 5,
@@ -95,7 +95,7 @@ impl MerkleTreeOverlay for S {
                         size: 16,
                         offset: 16,
                     },
-                ])))
+                ]))
             } else {
                 U256::get_node(path[1..].to_vec())
             }
@@ -124,9 +124,7 @@ fn roundtrip_partial() {
         chunks: arr.to_vec(),
     };
 
-    let mut p = Partial::<S>::default();
-
-    assert_eq!(p.load_partial(sp.clone()), Ok(()));
+    let mut p = Partial::<S>::new(sp.clone());
     assert_eq!(p.fill(), Ok(()));
     assert_eq!(
         Ok(sp),

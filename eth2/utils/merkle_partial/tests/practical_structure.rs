@@ -1,5 +1,5 @@
 use merkle_partial::cache::hash_children;
-use merkle_partial::field::{Composite, Leaf, Node, Primitive};
+use merkle_partial::field::{Composite, Node, Primitive};
 use merkle_partial::impls::replace_index;
 use merkle_partial::tree_arithmetic::zeroed::subtree_index_to_general;
 use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
@@ -32,12 +32,12 @@ impl MerkleTreeOverlay for Message {
 
     fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
         if Some(&Path::Ident("timestamp".to_string())) == path.first() {
-            Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
+            Ok(Node::Primitive(vec![Primitive {
                 ident: "timestamp".to_string(),
                 index: 1,
                 size: 8,
                 offset: 0,
-            }])))
+            }]))
         } else if Some(&Path::Ident("message".to_string())) == path.first() {
             match FixedVector::<u8, U32>::get_node(path[1..].to_vec()) {
                 Ok(n) => Ok(replace_index(
@@ -127,9 +127,7 @@ fn roundtrip_partial() {
         chunks: arr.clone(),
     };
 
-    let mut partial = Partial::<State>::default();
-
-    assert_eq!(partial.load_partial(sp), Ok(()));
+    let mut partial = Partial::<State>::new(sp);
     assert_eq!(partial.fill(), Ok(()));
 
     // TESTING TIMESTAMPS

@@ -1,6 +1,6 @@
 use super::MerkleTreeOverlay;
 use crate::error::{Error, Result};
-use crate::field::{Composite, Leaf, Node, Primitive};
+use crate::field::{Composite, Node, Primitive};
 use crate::tree_arithmetic::zeroed::{left_most_leaf, right_most_leaf, subtree_index_to_general};
 use crate::tree_arithmetic::{log_base_two, next_power_of_two};
 use crate::{NodeIndex, Path, BYTES_PER_CHUNK};
@@ -25,12 +25,12 @@ macro_rules! impl_merkle_overlay_for_basic_type {
 
             fn get_node(path: Vec<Path>) -> Result<Node> {
                 if path.len() == 0 {
-                    Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
-                        ident: "".to_owned(),
+                    Ok(Node::Primitive(vec![Primitive {
+                        ident: "".to_string(),
                         index: 0,
                         size: ($bit_size / 32) as u8,
                         offset: 0,
-                    }])))
+                    }]))
                 } else {
                     Err(Error::InvalidPath(path[0].clone()))
                 }
@@ -134,12 +134,12 @@ macro_rules! impl_merkle_overlay_for_collection_type {
                     // of dynamic length and the ident == "len". Otherwise, it is invalid.
                     Some(Path::Ident(i)) => {
                         if $is_variable_length && i == "len" {
-                            Ok(Node::Leaf(Leaf::Length(Primitive {
+                            Ok(Node::Length(Primitive {
                                 ident: "len".to_string(),
                                 index: 2,
                                 size: 32,
                                 offset: 0,
-                            })))
+                            }))
                         } else {
                             Err(Error::InvalidPath(path[0].clone()))
                         }
@@ -174,7 +174,7 @@ fn generate_leaf<S: MerkleTreeOverlay, T: MerkleTreeOverlay>(index: NodeIndex) -
                 })
                 .collect();
 
-            Node::Leaf(Leaf::Primitive(values))
+            Node::Primitive(values)
         }
         Err(_) => Node::Composite(Composite {
             ident: (index - S::first_leaf()).to_string(),
@@ -192,7 +192,7 @@ pub fn replace_index(node: Node, index: NodeIndex) -> Node {
             index: index,
             height: c.height,
         }),
-        Node::Leaf(Leaf::Primitive(b)) => Node::Leaf(Leaf::Primitive(
+        Node::Primitive(b) => Node::Primitive(
             b.iter()
                 .cloned()
                 .map(|mut x| {
@@ -200,13 +200,13 @@ pub fn replace_index(node: Node, index: NodeIndex) -> Node {
                     x
                 })
                 .collect(),
-        )),
-        Node::Leaf(Leaf::Length(b)) => Node::Leaf(Leaf::Length(Primitive {
+        ),
+        Node::Length(b) => Node::Length(Primitive {
             ident: b.ident,
             index: index,
             size: 32,
             offset: 0,
-        })),
+        }),
     }
 }
 
@@ -216,12 +216,12 @@ mod tests {
     use typenum::{U1, U16, U2, U32, U4, U8};
 
     fn build_node(ident: &str, index: u64) -> Node {
-        Node::Leaf(Leaf::Primitive(vec![Primitive {
+        Node::Primitive(vec![Primitive {
             ident: ident.to_string(),
             index: index,
             size: 32,
             offset: 0,
-        }]))
+        }])
     }
 
     fn ident_path(ident: &str) -> Vec<Path> {
@@ -252,23 +252,19 @@ mod tests {
         type T = VariableList<U256, U8>;
 
         // TESTING LENGTH NODE
-        let node = Node::Leaf(Leaf::Length(Primitive {
-            ident: "len".to_string(),
-            index: 2,
-            size: 32,
-            offset: 0,
-        }));
-
-        assert_eq!(T::get_node(ident_path("len")), Ok(node.clone()));
+        assert_eq!(
+            T::get_node(ident_path("len")),
+            Ok(Node::Length(Primitive {
+                ident: "len".to_string(),
+                index: 2,
+                size: 32,
+                offset: 0,
+            }))
+        );
 
         // TESTING LEAF NODES
-        // position 0
         assert_eq!(T::get_node(index_path(0)), Ok(build_node("0", 15)));
-
-        // position 3
         assert_eq!(T::get_node(index_path(3)), Ok(build_node("3", 18)));
-
-        // position 7
         assert_eq!(T::get_node(index_path(7)), Ok(build_node("7", 22)));
 
         // TESTING OUT-OF-BOUNDS INDEX
@@ -280,57 +276,48 @@ mod tests {
         type T = VariableList<VariableList<VariableList<U256, U2>, U2>, U4>;
 
         // TESTING LENGTH NODE
-        let node = Node::Leaf(Leaf::Length(Primitive {
-            ident: "len".to_string(),
-            index: 2,
-            size: 32,
-            offset: 0,
-        }));
-
-        // Testing root list length
+        // root list length
         assert_eq!(
             T::get_node(vec![Path::Ident("len".to_string())]),
-            Ok(node.clone())
+            Ok(Node::Length(Primitive {
+                ident: "len".to_string(),
+                index: 2,
+                size: 32,
+                offset: 0,
+            }))
         );
 
-        // Testing list length for position 0
-        let node = Node::Leaf(Leaf::Length(Primitive {
-            ident: "len".to_string(),
-            index: 16,
-            size: 32,
-            offset: 0,
-        }));
+        // position 0 list length
         assert_eq!(
             T::get_node(vec![Path::Index(0), Path::Ident("len".to_string())]),
-            Ok(node.clone())
+            Ok(Node::Length(Primitive {
+                ident: "len".to_string(),
+                index: 16,
+                size: 32,
+                offset: 0,
+            }))
         );
 
-        // Testing list length for position 3
-        let node = Node::Leaf(Leaf::Length(Primitive {
-            ident: "len".to_string(),
-            index: 22,
-            size: 32,
-            offset: 0,
-        }));
+        // position 3 list length
         assert_eq!(
             T::get_node(vec![Path::Index(3), Path::Ident("len".to_string())]),
-            Ok(node.clone())
+            Ok(Node::Length(Primitive {
+                ident: "len".to_string(),
+                index: 22,
+                size: 32,
+                offset: 0,
+            }))
         );
 
         // TESTING LEAF NODES
-        // Node 131
         assert_eq!(
             T::get_node(vec![Path::Index(0), Path::Index(1), Path::Index(0)]),
             Ok(build_node("0", 131))
         );
-
-        // Node 163
         assert_eq!(
             T::get_node(vec![Path::Index(2), Path::Index(1), Path::Index(0)]),
             Ok(build_node("0", 163))
         );
-
-        // Node 176
         assert_eq!(
             T::get_node(vec![Path::Index(3), Path::Index(0), Path::Index(1)]),
             Ok(build_node("1", 176))
@@ -398,7 +385,7 @@ mod tests {
         assert_eq!(T::last_leaf(), 0);
 
         // Generate root node
-        let node = Node::Leaf(Leaf::Primitive(
+        let node = Node::Primitive(
             vec![Primitive::default(); 32]
                 .iter()
                 .cloned()
@@ -411,7 +398,7 @@ mod tests {
                     p
                 })
                 .collect(),
-        ));
+        );
 
         // TESTING ALL PATHS
         for i in 0..32 {
@@ -440,5 +427,58 @@ mod tests {
         assert_eq!(T::height(), 0);
         assert_eq!(T::first_leaf(), 0);
         assert_eq!(T::last_leaf(), 0);
+
+        assert_eq!(
+            T::get_node(index_path(0)),
+            Ok(Node::Composite(Composite {
+                ident: 0.to_string(),
+                index: 0,
+                height: 1,
+            }))
+        );
+
+        // TEST ALL PATHS
+        for i in 0..2 {
+            assert_eq!(
+                T::get_node(vec![Path::Index(0), Path::Index(i)]),
+                Ok(Node::Composite(Composite {
+                    ident: i.to_string(),
+                    // 1 == first leaf
+                    index: i + 1,
+                    height: 4,
+                }))
+            );
+
+            for j in 0..16 {
+                assert_eq!(
+                    T::get_node(vec![Path::Index(0), Path::Index(i), Path::Index(j)]),
+                    Ok(Node::Primitive(vec![Primitive {
+                        ident: j.to_string(),
+                        // 31 == first leaf, j * 16 == offset to next vector's leaves
+                        index: j + 31 + (i * 16),
+                        offset: 0,
+                        size: 32,
+                    }]))
+                );
+            }
+        }
+
+        // TEST OUT-OF-BOUNDS
+        assert_eq!(
+            T::get_node(vec![Path::Index(1)]),
+            Err(Error::IndexOutOfBounds(1))
+        );
+        assert_eq!(
+            T::get_node(vec![Path::Index(0), Path::Index(2)]),
+            Err(Error::IndexOutOfBounds(2))
+        );
+        assert_eq!(
+            T::get_node(vec![Path::Index(0), Path::Index(0), Path::Index(16)]),
+            Err(Error::IndexOutOfBounds(16))
+        );
+        assert_eq!(
+            T::get_node(vec![Path::Index(0), Path::Index(1), Path::Index(16)]),
+            Err(Error::IndexOutOfBounds(16))
+        );
     }
 }

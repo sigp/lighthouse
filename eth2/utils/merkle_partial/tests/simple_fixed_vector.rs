@@ -61,9 +61,7 @@ fn get_partial_vector() {
         chunks: chunk.to_vec(),
     };
 
-    let mut p = Partial::<S>::default();
-
-    assert_eq!(p.load_partial(partial.clone()), Ok(()));
+    let mut p = Partial::<S>::new(partial.clone());
     assert_eq!(p.fill(), Ok(()));
     assert_eq!(
         Ok(partial),

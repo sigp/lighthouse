@@ -120,77 +120,6 @@ fn get_type_info(ty: &syn::Type) -> (u8, bool) {
     (32, false)
 }
 
-/// Returns a Vec of `TokenStream`s which define the behavior for calculating the node for each
-/// leaf index.
-///
-/// It also determines whether the index is child of the leaf object, in which case it
-/// should recursive call `get_node` on the type associated with the leaf, or whether it is
-/// directly referencing the leaf, in which case it should return the coresponding `Leaf` node.
-fn build_match_body<'a>(
-    leaf_data: Vec<Vec<LeafData<'a>>>,
-    first_leaf_index: u64,
-) -> Vec<proc_macro2::TokenStream> {
-    leaf_data
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let leaf_index = first_leaf_index + i as u64;
-            let ret_node = if l[0].is_primitive {
-                let primitive_nodes: Vec<proc_macro2::TokenStream> = l
-                    .iter()
-                    .map(|p| {
-                        let LeafData {
-                            ident,
-                            offset,
-                            size,
-                            ..
-                        } = p;
-                        let ident = ident.to_string();
-
-                        quote! {
-                            merkle_partial::field::Primitive {
-                                index: #leaf_index,
-                                ident: #ident.to_owned(),
-                                size: #size,
-                                offset: #offset,
-                            }
-                        }
-                    })
-                    .collect();
-
-                quote! {
-                    merkle_partial::field::Node::Leaf(merkle_partial::field::Leaf::Primitive(vec![
-                        #(#primitive_nodes),*
-                    ]))
-                }
-            } else {
-                let LeafData { ident, ty, .. } = l[0];
-                let ident = ident.to_string();
-                quote! {
-                    merkle_partial::field::Node::Composite(
-                        merkle_partial::field::Composite {
-                            index: #leaf_index,
-                            ident: #ident.to_owned(),
-                            height: <#ty>::height(),
-                        }
-                    )
-                }
-            };
-
-            let leaf_type = l[0].ty;
-
-            quote! {
-                #leaf_index => {
-                    if index == subtree_root {
-                        #ret_node
-                    } else {
-                        <#leaf_type>::get_node(subtree_index)
-                    }
-            }}
-        })
-        .collect()
-}
-
 /// Returns a vector of `TokenStreams` consisting of if branches which match all field idents
 /// specified in `leaf_data` and return the coresponding `Node`.
 fn build_if_chain<'a>(
@@ -209,6 +138,48 @@ fn build_if_chain<'a>(
                 let ident = field.ident.to_string();
                 let ty = field.ty;
 
+                let ret_node = if leaf[0].is_primitive {
+                    let primitive_nodes: Vec<proc_macro2::TokenStream> = leaf
+                        .iter()
+                        .map(|p| {
+                            let LeafData {
+                                ident,
+                                offset,
+                                size,
+                                ..
+                            } = p;
+                            let ident = ident.to_string();
+
+                            quote! {
+                                merkle_partial::field::Primitive {
+                                    index: #leaf_index,
+                                    ident: #ident.to_owned(),
+                                    size: #size,
+                                    offset: #offset,
+                                }
+                            }
+                        })
+                        .collect();
+
+                    quote! {
+                        merkle_partial::field::Node::Primitive(vec![
+                            #(#primitive_nodes),*
+                        ])
+                    }
+                } else {
+                    let LeafData { ident, ty, .. } = leaf[0];
+                    let ident = ident.to_string();
+                    quote! {
+                        merkle_partial::field::Node::Composite(
+                            merkle_partial::field::Composite {
+                                index: #leaf_index,
+                                ident: #ident.to_owned(),
+                                height: <#ty>::height(),
+                            }
+                        )
+                    }
+                };
+
                 // Build the coresponding matcher for each field ident and its coresponding chunk.
                 // If the path terminates, retrieve the specified node. Otherwise, recusively
                 // request the node from the field's type for `path[1..]`. This matcher will never
@@ -216,9 +187,9 @@ fn build_if_chain<'a>(
                 quote! {
                     if Some(&merkle_partial::Path::Ident(#ident.to_string())) == path.first() {
                         if path.len() == 1 {
-                            return Ok(Self::get_node(#leaf_index));
+                            return Ok(#ret_node);
                         } else {
-                            let node = <#ty>::get_node_from_path(path[1..].to_vec())?;
+                            let node = <#ty>::get_node(path[1..].to_vec())?;
                             let index = merkle_partial::tree_arithmetic::zeroed::subtree_index_to_general(#leaf_index, node.get_index());
 
                             return Ok(merkle_partial::impls::replace_index(node.clone(), index));
@@ -255,11 +226,7 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
     // Calculate the height of the tree needed to represent all the elements in the struct.
     let height = log_base_two(next_power_of_two(leaf_data.len() as u64));
 
-    // Build the body of the match expression for `get_node`
-    let match_body = build_match_body(leaf_data.clone(), (1_u64 << height) - 1);
-    let match_body2 = match_body.clone();
-
-    // Build the if chain for `get_node_from_path`
+    // Build the if chain for `get_node`
     let if_chain = build_if_chain(leaf_data, height);
 
     let output = quote! {
@@ -276,60 +243,7 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
                 (1_u64 << Self::height() + 1) - 2
             }
 
-            fn get_node(index: merkle_partial::NodeIndex) -> merkle_partial::field::Node {
-                let first_leaf = Self::first_leaf();
-                let last_leaf = Self::last_leaf();
-
-                // When the first leaf is 0 or 1, there are no internal nodes in the merkle tree.
-                // By setting the internal nodes to 0 in this case, their coresponding arm of the
-                // `if` branch will not execute. When the tree is larger, they are set correctly.
-                let (first_internal, last_internal) = if first_leaf == 0 || first_leaf == 1 {
-                    (0, 0)
-                } else {
-                    (1, first_leaf - 1)
-                };
-
-                // There is an edge case for when the entire structure can fit inside 32 bytes,
-                // the data itself is defined as the merkle root. For fixed sized types, this is
-                // when the height is 0. For variable sized types, this is when the height is 1.
-                if Self::height() == 0 && index == 0 {
-                    let subtree_root = 0;
-                    let subtree_index = index;
-
-                    return match index {
-                        #(#match_body2)*
-                        _ => unreachable!()
-                    };
-                }
-
-                if index == 0 {
-                    merkle_partial::field::Node::Composite(merkle_partial::field::Composite {
-                        ident: "".to_owned(),
-                        index: 0,
-                        height: Self::height().into(),
-                    })
-                } else if (first_internal..=last_internal).contains(&index) {
-                    merkle_partial::field::Node::Intermediate(index)
-                } else {
-                    // If no match at this point, the node must be in one of the subtrees or
-                    // unattached.
-                    let subtree_root = merkle_partial::tree_arithmetic::zeroed::root_from_depth(index, merkle_partial::tree_arithmetic::zeroed::relative_depth(first_leaf, index));
-                    let subtree_index = merkle_partial::tree_arithmetic::zeroed::general_index_to_subtree(subtree_root, index);
-
-                    if (first_leaf..=last_leaf).contains(&subtree_root) {
-                        let node = match subtree_root {
-                            #(#match_body)*
-                            _ => merkle_partial::field::Node::Leaf(merkle_partial::field::Leaf::Padding())
-                        };
-
-                        merkle_partial::impls::replace_index(node, index)
-                    } else {
-                        merkle_partial::field::Node::Unattached(index)
-                    }
-                }
-            }
-
-            fn get_node_from_path(path: Vec<merkle_partial::Path>) -> merkle_partial::Result<merkle_partial::field::Node> {
+            fn get_node(path: Vec<merkle_partial::Path>) -> merkle_partial::Result<merkle_partial::field::Node> {
                 #(#if_chain else)*
                 if let Some(p) = path.first() {
                     Err(merkle_partial::Error::InvalidPath(p.clone()))
