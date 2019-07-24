@@ -1,6 +1,7 @@
 use clap::ArgMatches;
 use enr::Enr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
+use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -39,6 +40,9 @@ pub struct Config {
     /// List of nodes to initially connect to.
     pub boot_nodes: Vec<Enr>,
 
+    /// List of libp2p nodes to initially connect to.
+    pub libp2p_nodes: Vec<Multiaddr>,
+
     /// Client version
     pub client_version: String,
 
@@ -66,6 +70,7 @@ impl Default for Config {
                 .heartbeat_interval(Duration::from_secs(20))
                 .build(),
             boot_nodes: vec![],
+            libp2p_nodes: vec![],
             client_version: version::version(),
             topics: Vec::new(),
         }
@@ -116,6 +121,17 @@ impl Config {
                 .split(',')
                 .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
                 .collect::<Result<Vec<Enr>, _>>()?;
+        }
+
+        if let Some(libp2p_addresses_str) = args.value_of("libp2p-addresses") {
+            self.libp2p_nodes = libp2p_addresses_str
+                .split(',')
+                .map(|multiaddr| {
+                    multiaddr
+                        .parse()
+                        .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
+                })
+                .collect::<Result<Vec<Multiaddr>, _>>()?;
         }
 
         if let Some(discovery_address_str) = args.value_of("discovery-address") {

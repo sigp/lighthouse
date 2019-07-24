@@ -57,6 +57,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("port")
+                .long("port")
+                .value_name("Lighthouse Port")
+                .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("maxpeers")
                 .long("maxpeers")
                 .help("The maximum number of peers (default 10).")
@@ -71,13 +78,6 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("port")
-                .long("port")
-                .value_name("Lighthouse Port")
-                .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name("discovery-port")
                 .long("disc-port")
                 .value_name("DiscoveryPort")
@@ -89,6 +89,13 @@ fn main() {
                 .long("discovery-address")
                 .value_name("Address")
                 .help("The IP address to broadcast to other peers on how to reach this node.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("libp2p-addresses")
+                .long("libp2p-addresses")
+                .value_name("MULTIADDR")
+                .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer without an ENR.")
                 .takes_value(true),
         )
         /*

@@ -76,6 +76,17 @@ impl<E: EthSpec> Service<E> {
             ),
         };
 
+        // attempt to connect to user-input libp2p nodes
+        for multiaddr in config.libp2p_nodes {
+            match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
+                Ok(()) => debug!(log, "Dialing libp2p node: {}", multiaddr),
+                Err(err) => debug!(
+                    log,
+                    "Could not connect to node: {} error: {:?}", multiaddr, err
+                ),
+            };
+        }
+
         // subscribe to default gossipsub topics
         let mut topics = vec![];
         //TODO: Handle multiple shard attestations. For now we simply use a separate topic for
