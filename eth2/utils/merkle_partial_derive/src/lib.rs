@@ -120,10 +120,54 @@ fn get_type_info(ty: &syn::Type) -> (u8, bool) {
     (32, false)
 }
 
+fn generate_node(index: u64, leaf_data: &Vec<LeafData>) -> proc_macro2::TokenStream {
+    if leaf_data[0].is_primitive {
+        let primitive_nodes: Vec<proc_macro2::TokenStream> = leaf_data
+            .iter()
+            .map(|p| {
+                let LeafData {
+                    ident,
+                    offset,
+                    size,
+                    ..
+                } = p;
+                let ident = ident.to_string();
+
+                quote! {
+                    merkle_partial::field::Primitive {
+                        index: #index,
+                        ident: #ident.to_owned(),
+                        size: #size,
+                        offset: #offset,
+                    }
+                }
+            })
+            .collect();
+
+        quote! {
+            merkle_partial::field::Node::Primitive(vec![
+                #(#primitive_nodes),*
+            ])
+        }
+    } else {
+        let LeafData { ident, ty, .. } = leaf_data[0];
+        let ident = ident.to_string();
+        quote! {
+            merkle_partial::field::Node::Composite(
+                merkle_partial::field::Composite {
+                    index: #index,
+                    ident: #ident.to_owned(),
+                    height: <#ty>::height(),
+                }
+            )
+        }
+    }
+}
+
 /// Returns a vector of `TokenStreams` consisting of if branches which match all field idents
 /// specified in `leaf_data` and return the coresponding `Node`.
 fn build_if_chain<'a>(
-    leaf_data: Vec<Vec<LeafData<'a>>>,
+    leaf_data: &Vec<Vec<LeafData<'a>>>,
     height: u64,
 ) -> Vec<proc_macro2::TokenStream> {
     leaf_data
@@ -138,47 +182,8 @@ fn build_if_chain<'a>(
                 let ident = field.ident.to_string();
                 let ty = field.ty;
 
-                let ret_node = if leaf[0].is_primitive {
-                    let primitive_nodes: Vec<proc_macro2::TokenStream> = leaf
-                        .iter()
-                        .map(|p| {
-                            let LeafData {
-                                ident,
-                                offset,
-                                size,
-                                ..
-                            } = p;
-                            let ident = ident.to_string();
-
-                            quote! {
-                                merkle_partial::field::Primitive {
-                                    index: #leaf_index,
-                                    ident: #ident.to_owned(),
-                                    size: #size,
-                                    offset: #offset,
-                                }
-                            }
-                        })
-                        .collect();
-
-                    quote! {
-                        merkle_partial::field::Node::Primitive(vec![
-                            #(#primitive_nodes),*
-                        ])
-                    }
-                } else {
-                    let LeafData { ident, ty, .. } = leaf[0];
-                    let ident = ident.to_string();
-                    quote! {
-                        merkle_partial::field::Node::Composite(
-                            merkle_partial::field::Composite {
-                                index: #leaf_index,
-                                ident: #ident.to_owned(),
-                                height: <#ty>::height(),
-                            }
-                        )
-                    }
-                };
+                // Builds the `Node` that should be returned upon a match of the path.
+                let ret_node = generate_node(leaf_index, leaf);
 
                 // Build the coresponding matcher for each field ident and its coresponding chunk.
                 // If the path terminates, retrieve the specified node. Otherwise, recusively
@@ -227,7 +232,7 @@ pub fn merkle_partial_derive(input: TokenStream) -> TokenStream {
     let height = log_base_two(next_power_of_two(leaf_data.len() as u64));
 
     // Build the if chain for `get_node`
-    let if_chain = build_if_chain(leaf_data, height);
+    let if_chain = build_if_chain(&leaf_data, height);
 
     let output = quote! {
         impl #impl_generics merkle_partial::MerkleTreeOverlay for #name #ty_generics #where_clause {
