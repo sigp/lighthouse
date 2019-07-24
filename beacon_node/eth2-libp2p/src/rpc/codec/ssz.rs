@@ -47,7 +47,6 @@ impl Encoder for SSZInboundCodec {
                     RPCResponse::BeaconChainState(res) => res.as_ssz_bytes(),
                 }
             }
-            RPCErrorResponse::EncodingError => vec![],
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
             RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
             RPCErrorResponse::Unknown(err) => err.as_ssz_bytes(),

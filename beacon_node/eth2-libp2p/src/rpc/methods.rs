@@ -196,7 +196,6 @@ pub enum RPCResponse {
 #[derive(Debug)]
 pub enum RPCErrorResponse {
     Success(RPCResponse),
-    EncodingError,
     InvalidRequest(ErrorMessage),
     ServerError(ErrorMessage),
     Unknown(ErrorMessage),
@@ -207,7 +206,6 @@ impl RPCErrorResponse {
     pub fn as_u8(&self) -> u8 {
         match self {
             RPCErrorResponse::Success(_) => 0,
-            RPCErrorResponse::EncodingError => 1,
             RPCErrorResponse::InvalidRequest(_) => 2,
             RPCErrorResponse::ServerError(_) => 3,
             RPCErrorResponse::Unknown(_) => 255,

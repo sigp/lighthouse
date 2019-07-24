@@ -38,7 +38,6 @@ impl UpgradeInfo for RPCProtocol {
             ProtocolId::new("beacon_block_roots", "1.0.0", "ssz").into(),
             ProtocolId::new("beacon_block_headers", "1.0.0", "ssz").into(),
             ProtocolId::new("beacon_block_bodies", "1.0.0", "ssz").into(),
-            ProtocolId::new("beacon_chain_state", "1.0.0", "ssz").into(),
         ]
     }
 }
