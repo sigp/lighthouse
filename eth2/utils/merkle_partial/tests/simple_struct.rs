@@ -1,6 +1,6 @@
 use ethereum_types::U256;
 use merkle_partial::cache::hash_children;
-use merkle_partial::field::{Composite, Leaf, Node, Primitive};
+use merkle_partial::field::{Leaf, Node, Primitive};
 use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 
 // A's merkle tree
@@ -35,73 +35,69 @@ impl MerkleTreeOverlay for S {
         4
     }
 
-    fn get_node(index: NodeIndex) -> Node {
-        match index {
-            0 => Node::Composite(Composite {
-                ident: "".to_owned(),
-                index: 1,
-                height: Self::height().into(),
-            }),
-            1 => Node::Intermediate(2),
-            2 => Node::Intermediate(3),
-            3 => Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: "a".to_owned(),
-                index: index,
-                size: 32,
-                offset: 0,
-            }])),
-            4 => Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: "b".to_owned(),
-                index: index,
-                size: 32,
-                offset: 0,
-            }])),
-            5 => Node::Leaf(Leaf::Primitive(vec![
-                Primitive {
-                    ident: "c".to_owned(),
-                    index: index,
-                    size: 16,
-                    offset: 0,
-                },
-                Primitive {
-                    ident: "d".to_owned(),
-                    index: index,
-                    size: 16,
-                    offset: 16,
-                },
-            ])),
-            6 => Node::Leaf(Leaf::Padding()),
-            n => unimplemented!("get node: {:?}", n),
-        }
-    }
-
-    fn get_node_from_path(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
         let p1 = path.first();
 
         if p1 == Some(&Path::Ident("a".to_string())) {
             if path.len() == 1 {
-                Ok(Self::get_node(3))
+                Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
+                    ident: "a".to_owned(),
+                    index: 3,
+                    size: 32,
+                    offset: 0,
+                }])))
             } else {
                 // not sure if this will work
-                U256::get_node_from_path(path[1..].to_vec())
+                U256::get_node(path[1..].to_vec())
             }
         } else if p1 == Some(&Path::Ident("b".to_string())) {
             if path.len() == 1 {
-                Ok(Self::get_node(4))
+                Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
+                    ident: "b".to_owned(),
+                    index: 4,
+                    size: 32,
+                    offset: 0,
+                }])))
             } else {
-                U256::get_node_from_path(path[1..].to_vec())
+                U256::get_node(path[1..].to_vec())
             }
         } else if p1 == Some(&Path::Ident("c".to_string())) {
             if path.len() == 1 {
-                Ok(Self::get_node(5))
+                Ok(Node::Leaf(Leaf::Primitive(vec![
+                    Primitive {
+                        ident: "c".to_owned(),
+                        index: 5,
+                        size: 16,
+                        offset: 0,
+                    },
+                    Primitive {
+                        ident: "d".to_owned(),
+                        index: 5,
+                        size: 16,
+                        offset: 16,
+                    },
+                ])))
             } else {
-                U256::get_node_from_path(path[1..].to_vec())
+                U256::get_node(path[1..].to_vec())
             }
         } else if p1 == Some(&Path::Ident("d".to_string())) {
             if path.len() == 1 {
-                Ok(Self::get_node(5))
+                Ok(Node::Leaf(Leaf::Primitive(vec![
+                    Primitive {
+                        ident: "c".to_owned(),
+                        index: 5,
+                        size: 16,
+                        offset: 0,
+                    },
+                    Primitive {
+                        ident: "d".to_owned(),
+                        index: 5,
+                        size: 16,
+                        offset: 16,
+                    },
+                ])))
             } else {
-                U256::get_node_from_path(path[1..].to_vec())
+                U256::get_node(path[1..].to_vec())
             }
         } else if let Some(p) = p1 {
             Err(merkle_partial::Error::InvalidPath(p.clone()))

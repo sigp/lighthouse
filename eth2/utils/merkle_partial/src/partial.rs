@@ -33,14 +33,14 @@ impl<T: MerkleTreeOverlay> Partial<T> {
             return Err(Error::EmptyPath());
         }
 
-        let node = T::get_node_from_path(path.clone())?;
+        let node = T::get_node(path.clone())?;
 
         let mut visitor = node.get_index();
         let mut indices: Vec<NodeIndex> = vec![visitor];
         let mut chunks: Vec<u8> = self
             .cache
             .get(visitor)
-            .ok_or(Error::MissingNode(visitor))?
+            .ok_or(Error::ChunkNotLoaded(visitor))?
             .clone();
 
         while visitor > 0 {
@@ -50,7 +50,11 @@ impl<T: MerkleTreeOverlay> Partial<T> {
 
             if !(indices.contains(&left) && indices.contains(&right)) {
                 indices.push(sibling);
-                chunks.extend(self.cache.get(sibling).ok_or(Error::MissingNode(sibling))?);
+                chunks.extend(
+                    self.cache
+                        .get(sibling)
+                        .ok_or(Error::ChunkNotLoaded(sibling))?,
+                );
             }
 
             // visitor /= 2, when 1 indexed
@@ -67,7 +71,6 @@ impl<T: MerkleTreeOverlay> Partial<T> {
         }
 
         let (index, begin, end) = bytes_at_path_helper::<T>(path)?;
-        // println!("index: {}", index);
 
         Ok(self.cache.get(index).ok_or(Error::ChunkNotLoaded(index))?[begin..end].to_vec())
     }
@@ -128,13 +131,10 @@ fn bytes_at_path_helper<T: MerkleTreeOverlay + ?Sized>(
         return Err(Error::EmptyPath());
     }
 
-    // println!("{:?}", path);
-
-    match T::get_node_from_path(path.clone())? {
+    match T::get_node(path.clone())? {
         Node::Composite(c) => Ok((c.index, 0, 32)),
         Node::Leaf(Leaf::Length(l)) => Ok((l.index, 0, 32)),
         Node::Leaf(Leaf::Primitive(l)) => {
-            // println!("{:?}", l);
             for p in l.clone() {
                 if p.ident == path.last().unwrap().to_string() {
                     return Ok((p.index, p.offset as usize, (p.offset + p.size) as usize));
@@ -143,6 +143,5 @@ fn bytes_at_path_helper<T: MerkleTreeOverlay + ?Sized>(
 
             unreachable!()
         }
-        _ => panic!("Not supported"),
     }
 }

@@ -73,8 +73,8 @@ impl Cache {
             if self.contains_node(left) && self.contains_node(right) && !self.contains_node(parent)
             {
                 let h = hash_children(
-                    &self.get(left).ok_or(Error::MissingNode(left))?,
-                    &self.get(right).ok_or(Error::MissingNode(right))?,
+                    &self.get(left).ok_or(Error::ChunkNotLoaded(left))?,
+                    &self.get(right).ok_or(Error::ChunkNotLoaded(right))?,
                 );
 
                 self.insert(parent, h);
@@ -97,8 +97,8 @@ impl Cache {
 
             if self.contains_node(left) && self.contains_node(right) {
                 let h = hash_children(
-                    &self.get(left).ok_or(Error::MissingNode(left))?,
-                    &self.get(right).ok_or(Error::MissingNode(right))?,
+                    &self.get(left).ok_or(Error::ChunkNotLoaded(left))?,
+                    &self.get(right).ok_or(Error::ChunkNotLoaded(right))?,
                 );
 
                 self.insert(parent, h);

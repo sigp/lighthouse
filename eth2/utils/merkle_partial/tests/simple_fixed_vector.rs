@@ -31,24 +31,16 @@ impl MerkleTreeOverlay for S {
         0
     }
 
-    fn get_node(index: NodeIndex) -> Node {
-        if index == 0 {
-            Node::Composite(Composite {
-                ident: "a".to_owned(),
-                index: 0,
-                height: FixedVector::<U256, U4>::height().into(),
-            })
-        } else {
-            FixedVector::<U256, U4>::get_node(index)
-        }
-    }
-
-    fn get_node_from_path(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
         if Some(&Path::Ident("a".to_string())) == path.first() {
             if path.len() == 1 {
-                Ok(Self::get_node(0))
+                Ok(Node::Composite(Composite {
+                    ident: "a".to_owned(),
+                    index: 0,
+                    height: FixedVector::<U256, U4>::height().into(),
+                }))
             } else {
-                FixedVector::<U256, U4>::get_node_from_path(path[1..].to_vec())
+                FixedVector::<U256, U4>::get_node(path[1..].to_vec())
             }
         } else if let Some(p) = path.first() {
             Err(merkle_partial::Error::InvalidPath(p.clone()))

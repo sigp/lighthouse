@@ -2,17 +2,15 @@ use ethereum_types::U256;
 use merkle_partial::cache::hash_children;
 use merkle_partial::field::{Composite, Leaf, Node, Primitive};
 use merkle_partial::impls::replace_index;
-use merkle_partial::tree_arithmetic::zeroed::{
-    general_index_to_subtree, relative_depth, root_from_depth, subtree_index_to_general,
-};
+use merkle_partial::tree_arithmetic::zeroed::subtree_index_to_general;
 use merkle_partial::{Error, MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 use ssz_types::VariableList;
 use typenum::U8;
 
-// A's merkle tree
+// S's merkle tree
 //
-//        a_root(0)
-//       /         \
+//         root(0)
+//        /       \
 //      a(1)      b(2)
 //                 /   \
 //           data(5) len(6)
@@ -26,7 +24,6 @@ struct S {
     b: VariableList<u128, U8>,
 }
 
-// Implemented by derive macro
 impl MerkleTreeOverlay for S {
     fn height() -> u8 {
         1
@@ -40,44 +37,17 @@ impl MerkleTreeOverlay for S {
         2
     }
 
-    fn get_node(index: NodeIndex) -> Node {
-        match index {
-            0 => Node::Composite(Composite {
-                ident: "".to_owned(),
-                index: 0,
-                height: Self::height().into(),
-            }),
-            1 => Node::Leaf(Leaf::Primitive(vec![Primitive {
-                ident: "a".to_owned(),
-                index: 1,
-                size: 32,
-                offset: 0,
-            }])),
-            2 => Node::Composite(Composite {
-                ident: "b".to_owned(),
-                index: 2,
-                height: 3,
-            }),
-            _ => {
-                let subtree_root =
-                    root_from_depth(index, relative_depth(Self::first_leaf(), index));
-                let subtree_index = general_index_to_subtree(subtree_root, index);
-
-                if subtree_root == 2 {
-                    replace_index(<VariableList<u128, U8>>::get_node(subtree_index), index)
-                } else {
-                    Node::Unattached(index)
-                }
-            }
-        }
-    }
-
-    fn get_node_from_path(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
         if Some(&Path::Ident("a".to_string())) == path.first() {
             if path.len() == 1 {
-                Ok(Self::get_node(1))
+                Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
+                    ident: "a".to_owned(),
+                    index: 1,
+                    size: 32,
+                    offset: 0,
+                }])))
             } else {
-                match U256::get_node_from_path(path[1..].to_vec()) {
+                match U256::get_node(path[1..].to_vec()) {
                     Ok(n) => Ok(replace_index(
                         n.clone(),
                         subtree_index_to_general(1, n.get_index()),
@@ -87,9 +57,13 @@ impl MerkleTreeOverlay for S {
             }
         } else if Some(&Path::Ident("b".to_string())) == path.first() {
             if path.len() == 1 {
-                Ok(Self::get_node(2))
+                Ok(Node::Composite(Composite {
+                    ident: "b".to_owned(),
+                    index: 2,
+                    height: 3,
+                }))
             } else {
-                match VariableList::<u128, U8>::get_node_from_path(path[1..].to_vec()) {
+                match VariableList::<u128, U8>::get_node(path[1..].to_vec()) {
                     Ok(n) => Ok(replace_index(
                         n.clone(),
                         subtree_index_to_general(2, n.get_index()),

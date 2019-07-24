@@ -1,20 +1,11 @@
 use merkle_partial::cache::hash_children;
 use merkle_partial::field::{Composite, Leaf, Node, Primitive};
 use merkle_partial::impls::replace_index;
-use merkle_partial::tree_arithmetic::zeroed::{
-    general_index_to_subtree, relative_depth, root_from_depth, subtree_index_to_general,
-};
+use merkle_partial::tree_arithmetic::zeroed::subtree_index_to_general;
 use merkle_partial::{MerkleTreeOverlay, NodeIndex, Partial, Path, SerializedPartial};
 use ssz_types::{FixedVector, VariableList};
 use typenum::{U32, U8};
 
-// S's merkle tree
-//
-//           root(0)
-//          /       \
-//    data_root(1) len(2)
-//      /     \
-// a[0,1](3) a[2,3](4)
 #[derive(Debug, Default)]
 struct Message {
     timestamp: u64,
@@ -39,43 +30,16 @@ impl MerkleTreeOverlay for Message {
         2
     }
 
-    fn get_node(index: NodeIndex) -> Node {
-        match index {
-            0 => Node::Composite(Composite {
-                ident: "".to_owned(),
-                index: 0,
-                height: Self::height(),
-            }),
-            1 => Node::Leaf(Leaf::Primitive(vec![Primitive {
+    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
+        if Some(&Path::Ident("timestamp".to_string())) == path.first() {
+            Ok(Node::Leaf(Leaf::Primitive(vec![Primitive {
                 ident: "timestamp".to_string(),
                 index: 1,
                 size: 8,
                 offset: 0,
-            }])),
-            2 => Node::Composite(Composite {
-                ident: "message".to_string(),
-                index: 2,
-                height: FixedVector::<u8, U32>::height(),
-            }),
-            _ => {
-                let subtree_root =
-                    root_from_depth(index, relative_depth(Self::first_leaf(), index));
-                let subtree_index = general_index_to_subtree(subtree_root, index);
-
-                if subtree_root == 2 {
-                    replace_index(FixedVector::<u8, U32>::get_node(subtree_index), index)
-                } else {
-                    Node::Unattached(index)
-                }
-            }
-        }
-    }
-
-    fn get_node_from_path(path: Vec<Path>) -> merkle_partial::Result<Node> {
-        if Some(&Path::Ident("timestamp".to_string())) == path.first() {
-            Ok(Self::get_node(1))
+            }])))
         } else if Some(&Path::Ident("message".to_string())) == path.first() {
-            match FixedVector::<u8, U32>::get_node_from_path(path[1..].to_vec()) {
+            match FixedVector::<u8, U32>::get_node(path[1..].to_vec()) {
                 Ok(n) => Ok(replace_index(
                     n.clone(),
                     subtree_index_to_general(2, n.get_index()),
@@ -90,7 +54,6 @@ impl MerkleTreeOverlay for Message {
     }
 }
 
-// Implemented by derive macro
 impl MerkleTreeOverlay for State {
     fn height() -> u8 {
         0
@@ -104,24 +67,16 @@ impl MerkleTreeOverlay for State {
         0
     }
 
-    fn get_node(index: NodeIndex) -> Node {
-        if index == 0 {
-            Node::Composite(Composite {
-                ident: "messages".to_owned(),
-                index: 0,
-                height: VariableList::<Message, U8>::height().into(),
-            })
-        } else {
-            VariableList::<Message, U8>::get_node(index)
-        }
-    }
-
-    fn get_node_from_path(path: Vec<Path>) -> merkle_partial::Result<Node> {
+    fn get_node(path: Vec<Path>) -> merkle_partial::Result<Node> {
         if Some(&Path::Ident("messages".to_string())) == path.first() {
             if path.len() == 1 {
-                Ok(Self::get_node(0))
+                Ok(Node::Composite(Composite {
+                    ident: "messages".to_owned(),
+                    index: 0,
+                    height: VariableList::<Message, U8>::height().into(),
+                }))
             } else {
-                VariableList::<Message, U8>::get_node_from_path(path[1..].to_vec())
+                VariableList::<Message, U8>::get_node(path[1..].to_vec())
             }
         } else if let Some(p) = path.first() {
             Err(merkle_partial::Error::InvalidPath(p.clone()))
