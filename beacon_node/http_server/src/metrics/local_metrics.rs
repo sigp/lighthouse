@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use prometheus::{IntGauge, Opts, Registry};
 use slot_clock::SlotClock;
-use std::fs::File;
+use std::fs;
 use std::path::PathBuf;
 use types::{EthSpec, Slot};
 
@@ -97,10 +97,17 @@ impl LocalMetrics {
             self.validator_balances_sum
                 .set(state.balances.iter().sum::<u64>() as i64);
         }
-        let db_size = File::open(db_path)
-            .and_then(|f| f.metadata())
-            .and_then(|m| Ok(m.len()))
-            .unwrap_or(0);
+        let db_size = if let Ok(iter) = fs::read_dir(db_path) {
+            iter.filter_map(Result::ok)
+                .map(size_of_dir_entry)
+                .fold(0_u64, |sum, val| sum + val)
+        } else {
+            0
+        };
         self.database_size.set(db_size as i64);
     }
+}
+
+fn size_of_dir_entry(dir: fs::DirEntry) -> u64 {
+    dir.metadata().map(|m| m.len()).unwrap_or(0)
 }
