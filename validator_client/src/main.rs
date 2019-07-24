@@ -14,7 +14,7 @@ use protos::services_grpc::ValidatorServiceClient;
 use slog::{crit, error, info, o, Drain, Level};
 use std::fs;
 use std::path::PathBuf;
-use types::{Keypair, MainnetEthSpec, MinimalEthSpec};
+use types::{InteropEthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
 pub const DEFAULT_SPEC: &str = "minimal";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
@@ -70,7 +70,7 @@ fn main() {
                 .short("s")
                 .help("The title of the spec constants for chain config.")
                 .takes_value(true)
-                .possible_values(&["mainnet", "minimal"])
+                .possible_values(&["mainnet", "minimal", "interop"])
                 .default_value("minimal"),
         )
         .arg(
@@ -210,6 +210,11 @@ fn main() {
             log.clone(),
         ),
         "minimal" => ValidatorService::<ValidatorServiceClient, Keypair, MinimalEthSpec>::start(
+            client_config,
+            eth2_config,
+            log.clone(),
+        ),
+        "interop" => ValidatorService::<ValidatorServiceClient, Keypair>::start::<InteropEthSpec>(
             client_config,
             eth2_config,
             log.clone(),

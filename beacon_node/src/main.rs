@@ -136,6 +136,7 @@ fn main() {
                 .help("Listen port for the HTTP server.")
                 .takes_value(true),
         )
+        /* Client related arguments */
         .arg(
             Arg::with_name("api")
                 .long("api")
@@ -182,7 +183,7 @@ fn main() {
                 from disk. A spec will be written to disk after this flag is used, so it is
                 primarily used for creating eth2 spec files.")
                 .takes_value(true)
-                .possible_values(&["mainnet", "minimal"])
+                .possible_values(&["mainnet", "minimal", "interop"])
                 .default_value("minimal"),
         )
         .arg(

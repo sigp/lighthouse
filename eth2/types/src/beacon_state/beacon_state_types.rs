@@ -200,3 +200,23 @@ impl EthSpec for MinimalEthSpec {
 }
 
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
+
+/// Interop testnet spec
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+pub struct InteropEthSpec;
+
+impl EthSpec for InteropEthSpec {
+    type ShardCount = U8;
+    type SlotsPerHistoricalRoot = U64;
+    type LatestRandaoMixesLength = U64;
+    type LatestActiveIndexRootsLength = U64;
+    type LatestSlashedExitLength = U64;
+    type SlotsPerEpoch = U8;
+    type GenesisEpoch = U0;
+
+    fn default_spec() -> ChainSpec {
+        ChainSpec::interop()
+    }
+}
+
+pub type InteropBeaconState = BeaconState<InteropEthSpec>;

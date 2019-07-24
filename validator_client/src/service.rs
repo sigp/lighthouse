@@ -107,12 +107,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                         return Err("Genesis time in the future".into());
                     }
                     // verify the node's chain id
-                    if eth2_config.spec.chain_id != info.chain_id as u8 {
+                    if eth2_config.spec.network_id != info.network_id as u8 {
                         error!(
                             log,
                             "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
                         );
-                        return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", eth2_config.spec.chain_id, info.chain_id).into());
+                        return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", eth2_config.spec.network_id, info.network_id).into());
                     }
                     break info;
                 }
@@ -123,7 +123,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let genesis_time = node_info.get_genesis_time();
         let genesis_slot = Slot::from(node_info.get_genesis_slot());
 
-        info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.chain_id, "Genesis time" => genesis_time);
+        info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.network_id, "Genesis time" => genesis_time);
 
         let proto_fork = node_info.get_fork();
         let mut previous_version: [u8; 4] = [0; 4];

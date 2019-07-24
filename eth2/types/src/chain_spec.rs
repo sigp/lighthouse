@@ -92,7 +92,7 @@ pub struct ChainSpec {
     domain_transfer: u32,
 
     pub boot_nodes: Vec<String>,
-    pub chain_id: u8,
+    pub network_id: u8,
 }
 
 impl ChainSpec {
@@ -190,7 +190,7 @@ impl ChainSpec {
              * Network specific
              */
             boot_nodes: vec![],
-            chain_id: 1, // mainnet chain id
+            network_id: 1, // mainnet network id
         }
     }
 
@@ -202,13 +202,35 @@ impl ChainSpec {
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
+        let genesis_slot = Slot::new(0);
 
         Self {
             target_committee_size: 4,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
             max_epochs_per_crosslink: 4,
-            chain_id: 2, // lighthouse testnet chain id
+            min_attestation_inclusion_delay: 2,
+            genesis_slot,
+            network_id: 2, // lighthouse testnet network id
+            boot_nodes,
+            ..ChainSpec::mainnet()
+        }
+    }
+
+    /// Interop testing spec
+    ///
+    /// This allows us to customize a chain spec for interop testing.
+    pub fn interop() -> Self {
+        let genesis_slot = Slot::new(0);
+        let boot_nodes = vec![];
+
+        Self {
+            seconds_per_slot: 12,
+            target_committee_size: 4,
+            shuffle_round_count: 10,
+            min_attestation_inclusion_delay: 2,
+            genesis_slot,
+            network_id: 13,
             boot_nodes,
             ..ChainSpec::mainnet()
         }

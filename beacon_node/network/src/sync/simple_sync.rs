@@ -914,11 +914,11 @@ fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMes
     let state = &beacon_chain.head().beacon_state;
 
     HelloMessage {
-        //TODO: Correctly define the chain/network id
-        network_id: spec.chain_id,
-        chain_id: u64::from(spec.chain_id),
-        latest_finalized_root: state.finalized_checkpoint.root,
-        latest_finalized_epoch: state.finalized_checkpoint.epoch,
+        network_id: spec.network_id,
+        //TODO: Correctly define the chain id
+        chain_id: spec.network_id as u64,
+        latest_finalized_root: state.finalized_root,
+        latest_finalized_epoch: state.finalized_epoch,
         best_root: beacon_chain.head().beacon_block_root,
         best_slot: state.slot,
     }

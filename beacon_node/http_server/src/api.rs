@@ -64,7 +64,7 @@ fn handle_fork<T: BeaconChainTypes + 'static>(req: &mut Request) -> IronResult<R
 
     let response = json!({
         "fork": beacon_chain.head().beacon_state.fork,
-        "chain_id": beacon_chain.spec.chain_id
+        "network_id": beacon_chain.spec.network_id
     });
 
     Ok(Response::with((Status::Ok, response.to_string())))
