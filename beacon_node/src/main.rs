@@ -36,6 +36,13 @@ fn main() {
                 .help("File path where output will be written.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("netdir")
+                .long("networkdir")
+                .value_name("NETDIR")
+                .help("Data directory for network keys and storage.")
+                .takes_value(true)
+        )
         // network related arguments
         .arg(
             Arg::with_name("listen-address")
