@@ -37,6 +37,9 @@ pub struct Discovery<TSubstream> {
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
 
+    /// directory to save ENR to
+    enr_dir: String,
+
     /// The delay between peer discovery searches.
     peer_discovery_delay: Delay,
 
@@ -54,9 +57,6 @@ pub struct Discovery<TSubstream> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
-
-    /// directory to save ENR to
-    enr_dir: String,
 }
 
 impl<TSubstream> Discovery<TSubstream> {
