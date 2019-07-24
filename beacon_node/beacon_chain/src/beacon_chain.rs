@@ -22,6 +22,7 @@ use store::iter::{BestBlockRootsIterator, BlockIterator, BlockRootsIterator, Sta
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
 use types::*;
+use crate::BeaconChainError;
 
 // Text included in blocks.
 // Must be 32-bytes or panic.
@@ -489,15 +490,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_attestation(
         &self,
         attestation: Attestation,
-    ) -> Result<(), AttestationValidationError> {
+    ) -> Result<(), Error> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
         if let Some(state) = self.get_attestation_state(&attestation) {
-            if self.fork_choice.should_process_attestation(&state, &attestation) {
+            if self.fork_choice.should_process_attestation(&state, &attestation)? {
                 let indexed_attestation = common::convert_to_indexed(&state, &attestation)?;
                 per_block_processing::verify_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
-                self.fork_choice.process_attestation(&state, &attestation);
+                self.fork_choice.process_attestation(&state, &attestation)?;
             }
         }
 
@@ -511,7 +512,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.metrics.attestation_processing_successes.inc();
         }
 
-        result
+        result.map_err(|e| BeaconChainError::AttestationValidationError(e))
     }
 
     /// Retrieves the `BeaconState` used to create the attestation.
@@ -968,3 +969,4 @@ impl From<BeaconStateError> for Error {
         Error::BeaconStateError(e)
     }
 }
+

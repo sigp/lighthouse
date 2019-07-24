@@ -166,24 +166,24 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Ok(())
     }
 
-    /// Determines whether or not the given attestation contains a latest messages.
-    pub fn should_process_attestation(&self, state: &BeaconState<T::EthSpec>, attestation: &Attestation) -> bool {
+    /// Determines whether or not the given attestation contains a latest message.
+    pub fn should_process_attestation(&self, state: &BeaconState<T::EthSpec>, attestation: &Attestation) -> Result<bool> {
         let validator_indices = common::get_attesting_indices_unsorted(
             state,
             &attestation.data,
             &attestation.aggregation_bitfield,
-        ).unwrap();
+        )?;
 
         let target_slot = attestation.data.target_epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        validator_indices
+        Ok(validator_indices
             .iter()
             .find(|&&v| {
                 match self.backend.latest_message(v) {
                     Some((_, slot)) => target_slot > slot,
                     None => true
                 }
-            }).is_some()
+            }).is_some())
     }
 
     /// Inform the fork choice that the given block (and corresponding root) have been finalized so
@@ -218,3 +218,4 @@ impl From<String> for Error {
         Error::BackendError(e)
     }
 }
+

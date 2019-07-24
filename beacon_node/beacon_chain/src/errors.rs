@@ -3,6 +3,7 @@ use crate::metrics::Error as MetricsError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use types::*;
+use state_processing::per_block_processing::errors::{AttestationValidationError, IndexedAttestationValidationError};
 
 macro_rules! easy_from_to {
     ($from: ident, $to: ident) => {
@@ -31,6 +32,8 @@ pub enum BeaconChainError {
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
     MetricsError(String),
+    AttestationValidationError(AttestationValidationError),
+    IndexedAttestationValidationError(IndexedAttestationValidationError)
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -53,3 +56,5 @@ pub enum BlockProductionError {
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
+easy_from_to!(AttestationValidationError, BeaconChainError);
+easy_from_to!(IndexedAttestationValidationError, BeaconChainError);

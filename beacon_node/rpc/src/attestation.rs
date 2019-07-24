@@ -1,4 +1,4 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BeaconChainError};
 use eth2_libp2p::PubsubMessage;
 use eth2_libp2p::TopicBuilder;
 use eth2_libp2p::BEACON_ATTESTATION_TOPIC;
@@ -159,7 +159,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
 
                 resp.set_success(true);
             }
-            Err(e) => {
+            Err(BeaconChainError::AttestationValidationError(e)) => {
                 // Attestation was invalid
                 warn!(
                     self.log,
@@ -169,6 +169,28 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 );
                 resp.set_success(false);
                 resp.set_msg(format!("InvalidAttestation: {:?}", e).as_bytes().to_vec());
+            }
+            Err(BeaconChainError::IndexedAttestationValidationError(e)) => {
+                // Indexed attestation was invalid
+                warn!(
+                    self.log,
+                    "PublishAttestation";
+                    "type" => "invalid_attestation",
+                    "error" => format!("{:?}", e),
+                );
+                resp.set_success(false);
+                resp.set_msg(format!("InvalidIndexedAttestation: {:?}", e).as_bytes().to_vec());
+            }
+            Err(e) => {
+                // Attestation was invalid
+                warn!(
+                    self.log,
+                    "PublishAttestation";
+                    "type" => "beacon_chain_error",
+                    "error" => format!("{:?}", e),
+                );
+                resp.set_success(false);
+                resp.set_msg(format!("There was a beacon chain error: {:?}", e).as_bytes().to_vec());
             }
         };
 
