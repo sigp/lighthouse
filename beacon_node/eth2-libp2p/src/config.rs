@@ -85,7 +85,7 @@ impl Config {
         };
 
         // If a network dir has been specified, override the `datadir` definition.
-        if let Some(dir) = args.value_of("netdir") {
+        if let Some(dir) = args.value_of("network-dir") {
             self.network_dir = PathBuf::from(dir);
         };
 

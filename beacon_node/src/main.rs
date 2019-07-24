@@ -37,10 +37,10 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("netdir")
-                .long("networkdir")
-                .value_name("NETDIR")
-                .help("Data directory for network keys and storage.")
+            Arg::with_name("network-dir")
+                .long("network-dir")
+                .value_name("NETWORK-DIR")
+                .help("Data directory for network keys.")
                 .takes_value(true)
         )
         // network related arguments
