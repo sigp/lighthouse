@@ -5,6 +5,7 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, trace, warn};
+use ssz::Encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,6 +31,7 @@ const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
     network_id: u8,
+    chain_id: u64,
     latest_finalized_root: Hash256,
     latest_finalized_epoch: Epoch,
     best_root: Hash256,
@@ -40,6 +42,7 @@ impl From<HelloMessage> for PeerSyncInfo {
     fn from(hello: HelloMessage) -> PeerSyncInfo {
         PeerSyncInfo {
             network_id: hello.network_id,
+            chain_id: hello.chain_id,
             latest_finalized_root: hello.latest_finalized_root,
             latest_finalized_epoch: hello.latest_finalized_epoch,
             best_root: hello.best_root,
@@ -103,6 +106,17 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "reason" => format!("{:?}", reason),
         );
 
+        self.known_peers.remove(&peer_id);
+    }
+
+    /// Handle a peer disconnect.
+    ///
+    /// Removes the peer from `known_peers`.
+    pub fn on_disconnect(&mut self, peer_id: PeerId) {
+        info!(
+            self.log, "Peer Disconnected";
+            "peer" => format!("{:?}", peer_id),
+        );
         self.known_peers.remove(&peer_id);
     }
 
@@ -407,6 +421,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             })
             .collect();
 
+        // ssz-encode the headers
+        let headers = headers.as_ssz_bytes();
+
         network.send_rpc_response(
             peer_id,
             request_id,
@@ -418,17 +435,17 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     pub fn on_beacon_block_headers_response(
         &mut self,
         peer_id: PeerId,
-        res: BeaconBlockHeadersResponse,
+        headers: Vec<BeaconBlockHeader>,
         network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
             "BlockHeadersResponse";
             "peer" => format!("{:?}", peer_id),
-            "count" => res.headers.len(),
+            "count" => headers.len(),
         );
 
-        if res.headers.is_empty() {
+        if headers.is_empty() {
             warn!(
                 self.log,
                 "Peer returned empty block headers response. PeerId: {:?}", peer_id
@@ -438,9 +455,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         // Enqueue the headers, obtaining a list of the roots of the headers which were newly added
         // to the queue.
-        let block_roots = self
-            .import_queue
-            .enqueue_headers(res.headers, peer_id.clone());
+        let block_roots = self.import_queue.enqueue_headers(headers, peer_id.clone());
 
         if !block_roots.is_empty() {
             self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
@@ -482,10 +497,15 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "returned" => block_bodies.len(),
         );
 
+        let bytes = block_bodies.as_ssz_bytes();
+
         network.send_rpc_response(
             peer_id,
             request_id,
-            RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse { block_bodies }),
+            RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse {
+                block_bodies: bytes,
+                block_roots: None,
+            }),
         )
     }
 
@@ -493,7 +513,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     pub fn on_beacon_block_bodies_response(
         &mut self,
         peer_id: PeerId,
-        res: BeaconBlockBodiesResponse,
+        res: DecodedBeaconBlockBodiesResponse,
         network: &mut NetworkContext,
     ) {
         debug!(
@@ -574,6 +594,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
+
                 BlockProcessingOutcome::FutureSlot {
                     present_slot,
                     block_slot,
@@ -890,7 +911,9 @@ fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMes
     let state = &beacon_chain.head().beacon_state;
 
     HelloMessage {
+        //TODO: Correctly define the chain/network id
         network_id: spec.chain_id,
+        chain_id: spec.chain_id as u64,
         latest_finalized_root: state.finalized_root,
         latest_finalized_epoch: state.finalized_epoch,
         best_root: beacon_chain.head().beacon_block_root,

@@ -77,6 +77,7 @@ impl<TSubstream> Discovery<TSubstream> {
 
         info!(log, "Local ENR: {}", local_enr.to_base64());
         debug!(log, "Local Node Id: {}", local_enr.node_id());
+        debug!(log, "Local ENR seq: {}", local_enr.seq());
 
         let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address)
             .map_err(|e| format!("Discv5 service failed: {:?}", e))?;
@@ -113,6 +114,11 @@ impl<TSubstream> Discovery<TSubstream> {
     /// Add an Enr to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
         self.discovery.add_enr(enr);
+    }
+
+    /// The current number of connected libp2p peers.
+    pub fn connected_peers(&self) -> usize {
+        self.connected_peers.len()
     }
 
     /// Search for new peers using the underlying discovery mechanism.

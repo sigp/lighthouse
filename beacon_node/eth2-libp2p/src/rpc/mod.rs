@@ -1,26 +1,55 @@
-/// RPC Protocol over libp2p.
-///
-/// This is purpose built for Ethereum 2.0 serenity and the protocol listens on
-/// `/eth/serenity/rpc/1.0.0`
-pub mod methods;
-mod protocol;
+//! The Ethereum 2.0 Wire Protocol
+//!
+//! This protocol is a purpose built Ethereum 2.0 libp2p protocol. It's role is to facilitate
+//! direct peer-to-peer communication primarily for sending/receiving chain information for
+//! syncing.
 
 use futures::prelude::*;
-use libp2p::core::protocols_handler::{OneShotHandler, ProtocolsHandler};
+use handler::RPCHandler;
+use libp2p::core::protocols_handler::ProtocolsHandler;
 use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{HelloMessage, RPCMethod, RPCRequest, RPCResponse};
-pub use protocol::{RPCEvent, RPCProtocol, RequestId};
+pub use methods::{ErrorMessage, HelloMessage, RPCErrorResponse, RPCResponse, RequestId};
+pub use protocol::{RPCError, RPCProtocol, RPCRequest};
 use slog::o;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// The network behaviour handles RPC requests/responses as specified in the Eth 2.0 phase 0
-/// specification.
+pub(crate) mod codec;
+mod handler;
+pub mod methods;
+mod protocol;
+// mod request_response;
 
-pub struct Rpc<TSubstream> {
+/// The return type used in the behaviour and the resultant event from the protocols handler.
+#[derive(Debug)]
+pub enum RPCEvent {
+    /// A request that was received from the RPC protocol. The first parameter is a sequential
+    /// id which tracks an awaiting substream for the response.
+    Request(RequestId, RPCRequest),
+
+    /// A response that has been received from the RPC protocol. The first parameter returns
+    /// that which was sent with the corresponding request.
+    Response(RequestId, RPCErrorResponse),
+    /// An Error occurred.
+    Error(RequestId, RPCError),
+}
+
+impl RPCEvent {
+    pub fn id(&self) -> usize {
+        match *self {
+            RPCEvent::Request(id, _) => id,
+            RPCEvent::Response(id, _) => id,
+            RPCEvent::Error(id, _) => id,
+        }
+    }
+}
+
+/// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
+/// logic.
+pub struct RPC<TSubstream> {
     /// Queue of events to processed.
     events: Vec<NetworkBehaviourAction<RPCEvent, RPCMessage>>,
     /// Pins the generic substream.
@@ -29,17 +58,19 @@ pub struct Rpc<TSubstream> {
     _log: slog::Logger,
 }
 
-impl<TSubstream> Rpc<TSubstream> {
+impl<TSubstream> RPC<TSubstream> {
     pub fn new(log: &slog::Logger) -> Self {
         let log = log.new(o!("Service" => "Libp2p-RPC"));
-        Rpc {
+        RPC {
             events: Vec::new(),
             marker: PhantomData,
             _log: log,
         }
     }
 
-    /// Submits and RPC request.
+    /// Submits an RPC request.
+    ///
+    /// The peer must be connected for this to succeed.
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.events.push(NetworkBehaviourAction::SendEvent {
             peer_id,
@@ -48,17 +79,18 @@ impl<TSubstream> Rpc<TSubstream> {
     }
 }
 
-impl<TSubstream> NetworkBehaviour for Rpc<TSubstream>
+impl<TSubstream> NetworkBehaviour for RPC<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
-    type ProtocolsHandler = OneShotHandler<TSubstream, RPCProtocol, RPCEvent, OneShotEvent>;
+    type ProtocolsHandler = RPCHandler<TSubstream>;
     type OutEvent = RPCMessage;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         Default::default()
     }
 
+    // handled by discovery
     fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
         Vec::new()
     }
@@ -72,19 +104,18 @@ where
         }
     }
 
-    fn inject_disconnected(&mut self, _: &PeerId, _: ConnectedPoint) {}
+    fn inject_disconnected(&mut self, peer_id: &PeerId, _: ConnectedPoint) {
+        // inform the rpc handler that the peer has disconnected
+        self.events.push(NetworkBehaviourAction::GenerateEvent(
+            RPCMessage::PeerDisconnected(peer_id.clone()),
+        ));
+    }
 
     fn inject_node_event(
         &mut self,
         source: PeerId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // ignore successful send events
-        let event = match event {
-            OneShotEvent::Rx(event) => event,
-            OneShotEvent::Sent => return,
-        };
-
         // send the event to the user
         self.events
             .push(NetworkBehaviourAction::GenerateEvent(RPCMessage::RPC(
@@ -112,27 +143,5 @@ where
 pub enum RPCMessage {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
-}
-
-/// Transmission between the `OneShotHandler` and the `RPCEvent`.
-#[derive(Debug)]
-pub enum OneShotEvent {
-    /// We received an RPC from a remote.
-    Rx(RPCEvent),
-    /// We successfully sent an RPC request.
-    Sent,
-}
-
-impl From<RPCEvent> for OneShotEvent {
-    #[inline]
-    fn from(rpc: RPCEvent) -> OneShotEvent {
-        OneShotEvent::Rx(rpc)
-    }
-}
-
-impl From<()> for OneShotEvent {
-    #[inline]
-    fn from(_: ()) -> OneShotEvent {
-        OneShotEvent::Sent
-    }
+    PeerDisconnected(PeerId),
 }
