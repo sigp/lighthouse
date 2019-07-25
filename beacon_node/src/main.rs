@@ -270,6 +270,7 @@ fn main() {
         }
     };
 
+    // Start the node using a `tokio` executor.
     match run::run_beacon_node(client_config, eth2_config, &log) {
         Ok(_) => {}
         Err(e) => crit!(log, "Beacon node failed to start"; "reason" => format!("{:}", e)),
