@@ -153,6 +153,16 @@ fn main() {
                 .help("When present, genesis will be within 30 minutes prior. Only for testing"),
         )
         .arg(
+            Arg::with_name("debug-level")
+                .long("debug-level")
+                .value_name("LEVEL")
+                .short("s")
+                .help("The title of the spec constants for chain config.")
+                .takes_value(true)
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .default_value("info"),
+        )
+        .arg(
             Arg::with_name("verbosity")
                 .short("v")
                 .multiple(true)
@@ -165,6 +175,16 @@ fn main() {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build();
+
+    let drain = match matches.value_of("debug-level") {
+        Some("info") => drain.filter_level(Level::Info),
+        Some("debug") => drain.filter_level(Level::Debug),
+        Some("trace") => drain.filter_level(Level::Trace),
+        Some("warn") => drain.filter_level(Level::Warning),
+        Some("error") => drain.filter_level(Level::Error),
+        Some("crit") => drain.filter_level(Level::Critical),
+        _ => unreachable!("guarded by clap"),
+    };
 
     let drain = match matches.occurrences_of("verbosity") {
         0 => drain.filter_level(Level::Info),
