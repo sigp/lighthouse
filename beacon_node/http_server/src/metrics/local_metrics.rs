@@ -14,6 +14,8 @@ pub struct LocalMetrics {
     present_epoch: IntGauge,
     best_slot: IntGauge,
     best_beacon_block_root: IntGauge,
+    justified_beacon_block_root: IntGauge,
+    finalized_beacon_block_root: IntGauge,
     validator_count: IntGauge,
     justified_epoch: IntGauge,
     finalized_epoch: IntGauge,
@@ -39,6 +41,20 @@ impl LocalMetrics {
             },
             best_beacon_block_root: {
                 let opts = Opts::new("best_beacon_block_root", "root_of_block_at_chain_head");
+                IntGauge::with_opts(opts)?
+            },
+            justified_beacon_block_root: {
+                let opts = Opts::new(
+                    "justified_beacon_block_root",
+                    "root_of_block_at_justified_head",
+                );
+                IntGauge::with_opts(opts)?
+            },
+            finalized_beacon_block_root: {
+                let opts = Opts::new(
+                    "finalized_beacon_block_root",
+                    "root_of_block_at_finalized_head",
+                );
                 IntGauge::with_opts(opts)?
             },
             validator_count: {
@@ -70,6 +86,8 @@ impl LocalMetrics {
         registry.register(Box::new(self.present_epoch.clone()))?;
         registry.register(Box::new(self.best_slot.clone()))?;
         registry.register(Box::new(self.best_beacon_block_root.clone()))?;
+        registry.register(Box::new(self.justified_beacon_block_root.clone()))?;
+        registry.register(Box::new(self.finalized_beacon_block_root.clone()))?;
         registry.register(Box::new(self.validator_count.clone()))?;
         registry.register(Box::new(self.finalized_epoch.clone()))?;
         registry.register(Box::new(self.justified_epoch.clone()))?;
@@ -95,6 +113,20 @@ impl LocalMetrics {
         self.best_slot.set(state.slot.as_u64() as i64);
         self.best_beacon_block_root
             .set(beacon_chain.head().beacon_block_root.to_low_u64_le() as i64);
+        self.justified_beacon_block_root.set(
+            beacon_chain
+                .head()
+                .beacon_state
+                .current_justified_root
+                .to_low_u64_le() as i64,
+        );
+        self.finalized_beacon_block_root.set(
+            beacon_chain
+                .head()
+                .beacon_state
+                .finalized_root
+                .to_low_u64_le() as i64,
+        );
         self.validator_count
             .set(state.validator_registry.len() as i64);
         self.justified_epoch
