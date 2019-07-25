@@ -2,130 +2,54 @@
 
 use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlockBody, BeaconBlockHeader, Epoch, Hash256, Slot};
-
-#[derive(Debug)]
-/// Available Serenity Libp2p RPC methods
-pub enum RPCMethod {
-    /// Initialise handshake between connecting peers.
-    Hello,
-    /// Terminate a connection providing a reason.
-    Goodbye,
-    /// Requests a number of beacon block roots.
-    BeaconBlockRoots,
-    /// Requests a number of beacon block headers.
-    BeaconBlockHeaders,
-    /// Requests a number of beacon block bodies.
-    BeaconBlockBodies,
-    /// Requests values for a merkle proof for the current blocks state root.
-    BeaconChainState, // Note: experimental, not complete.
-    /// Unknown method received.
-    Unknown,
-}
-
-impl From<u16> for RPCMethod {
-    fn from(method_id: u16) -> Self {
-        match method_id {
-            0 => RPCMethod::Hello,
-            1 => RPCMethod::Goodbye,
-            10 => RPCMethod::BeaconBlockRoots,
-            11 => RPCMethod::BeaconBlockHeaders,
-            12 => RPCMethod::BeaconBlockBodies,
-            13 => RPCMethod::BeaconChainState,
-
-            _ => RPCMethod::Unknown,
-        }
-    }
-}
-
-impl Into<u16> for RPCMethod {
-    fn into(self) -> u16 {
-        match self {
-            RPCMethod::Hello => 0,
-            RPCMethod::Goodbye => 1,
-            RPCMethod::BeaconBlockRoots => 10,
-            RPCMethod::BeaconBlockHeaders => 11,
-            RPCMethod::BeaconBlockBodies => 12,
-            RPCMethod::BeaconChainState => 13,
-            _ => 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum RPCRequest {
-    Hello(HelloMessage),
-    Goodbye(GoodbyeReason),
-    BeaconBlockRoots(BeaconBlockRootsRequest),
-    BeaconBlockHeaders(BeaconBlockHeadersRequest),
-    BeaconBlockBodies(BeaconBlockBodiesRequest),
-    BeaconChainState(BeaconChainStateRequest),
-}
-
-impl RPCRequest {
-    pub fn method_id(&self) -> u16 {
-        let method = match self {
-            RPCRequest::Hello(_) => RPCMethod::Hello,
-            RPCRequest::Goodbye(_) => RPCMethod::Goodbye,
-            RPCRequest::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
-            RPCRequest::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
-            RPCRequest::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
-            RPCRequest::BeaconChainState(_) => RPCMethod::BeaconChainState,
-        };
-        method.into()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum RPCResponse {
-    Hello(HelloMessage),
-    BeaconBlockRoots(BeaconBlockRootsResponse),
-    BeaconBlockHeaders(BeaconBlockHeadersResponse),
-    BeaconBlockBodies(BeaconBlockBodiesResponse),
-    BeaconChainState(BeaconChainStateResponse),
-}
-
-impl RPCResponse {
-    pub fn method_id(&self) -> u16 {
-        let method = match self {
-            RPCResponse::Hello(_) => RPCMethod::Hello,
-            RPCResponse::BeaconBlockRoots(_) => RPCMethod::BeaconBlockRoots,
-            RPCResponse::BeaconBlockHeaders(_) => RPCMethod::BeaconBlockHeaders,
-            RPCResponse::BeaconBlockBodies(_) => RPCMethod::BeaconBlockBodies,
-            RPCResponse::BeaconChainState(_) => RPCMethod::BeaconChainState,
-        };
-        method.into()
-    }
-}
+use types::{BeaconBlockBody, Epoch, Hash256, Slot};
 
 /* Request/Response data structures for RPC methods */
+
+/* Requests */
+
+pub type RequestId = usize;
 
 /// The HELLO request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug)]
 pub struct HelloMessage {
     /// The network ID of the peer.
     pub network_id: u8,
+
+    /// The chain id for the HELLO request.
+    pub chain_id: u64,
+
     /// The peers last finalized root.
     pub latest_finalized_root: Hash256,
+
     /// The peers last finalized epoch.
     pub latest_finalized_epoch: Epoch,
+
     /// The peers last block root.
     pub best_root: Hash256,
+
     /// The peers last slot.
     pub best_slot: Slot,
 }
 
 /// The reason given for a `Goodbye` message.
 ///
-/// Note: any unknown `u64::into(n)` will resolve to `GoodbyeReason::Unknown` for any unknown `n`,
+/// Note: any unknown `u64::into(n)` will resolve to `Goodbye::Unknown` for any unknown `n`,
 /// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
 /// re-serializing may not return the same bytes.
 #[derive(Debug, Clone)]
 pub enum GoodbyeReason {
-    ClientShutdown,
-    IrreleventNetwork,
-    Fault,
-    Unknown,
+    /// This node has shutdown.
+    ClientShutdown = 1,
+
+    /// Incompatible networks.
+    IrreleventNetwork = 2,
+
+    /// Error/fault in the RPC.
+    Fault = 3,
+
+    /// Unknown reason.
+    Unknown = 0,
 }
 
 impl From<u64> for GoodbyeReason {
@@ -141,12 +65,7 @@ impl From<u64> for GoodbyeReason {
 
 impl Into<u64> for GoodbyeReason {
     fn into(self) -> u64 {
-        match self {
-            GoodbyeReason::Unknown => 0,
-            GoodbyeReason::ClientShutdown => 1,
-            GoodbyeReason::IrreleventNetwork => 2,
-            GoodbyeReason::Fault => 3,
-        }
+        self as u64
     }
 }
 
@@ -158,6 +77,7 @@ impl_decode_via_from!(GoodbyeReason, u64);
 pub struct BeaconBlockRootsRequest {
     /// The starting slot of the requested blocks.
     pub start_slot: Slot,
+
     /// The number of blocks from the start slot.
     pub count: u64, // this must be less than 32768. //TODO: Enforce this in the lower layers
 }
@@ -169,8 +89,19 @@ pub struct BeaconBlockRootsResponse {
     pub roots: Vec<BlockRootSlot>,
 }
 
+/// Contains a block root and associated slot.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlockRootSlot {
+    /// The block root.
+    pub block_root: Hash256,
+
+    /// The block slot.
+    pub slot: Slot,
+}
+
+/// The response of a beacon block roots request.
 impl BeaconBlockRootsResponse {
-    /// Returns `true` if each `self.roots.slot[i]` is higher than the preceeding `i`.
+    /// Returns `true` if each `self.roots.slot[i]` is higher than the preceding `i`.
     pub fn slots_are_ascending(&self) -> bool {
         for window in self.roots.windows(2) {
             if window[0].slot >= window[1].slot {
@@ -182,33 +113,27 @@ impl BeaconBlockRootsResponse {
     }
 }
 
-/// Contains a block root and associated slot.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BlockRootSlot {
-    /// The block root.
-    pub block_root: Hash256,
-    /// The block slot.
-    pub slot: Slot,
-}
-
 /// Request a number of beacon block headers from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconBlockHeadersRequest {
     /// The starting header hash of the requested headers.
     pub start_root: Hash256,
+
     /// The starting slot of the requested headers.
     pub start_slot: Slot,
+
     /// The maximum number of headers than can be returned.
     pub max_headers: u64,
+
     /// The maximum number of slots to skip between blocks.
     pub skip_slots: u64,
 }
 
 /// Response containing requested block headers.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BeaconBlockHeadersResponse {
-    /// The list of requested beacon block headers.
-    pub headers: Vec<BeaconBlockHeader>,
+    /// The list of ssz-encoded requested beacon block headers.
+    pub headers: Vec<u8>,
 }
 
 /// Request a number of beacon block bodies from a peer.
@@ -219,9 +144,20 @@ pub struct BeaconBlockBodiesRequest {
 }
 
 /// Response containing the list of requested beacon block bodies.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BeaconBlockBodiesResponse {
-    /// The list of beacon block bodies being requested.
+    /// The list of hashes that were sent in the request and match these roots response. None when
+    /// sending outbound.
+    pub block_roots: Option<Vec<Hash256>>,
+    /// The list of ssz-encoded beacon block bodies being requested.
+    pub block_bodies: Vec<u8>,
+}
+
+/// The decoded version of `BeaconBlockBodiesResponse` which is expected in `SimpleSync`.
+pub struct DecodedBeaconBlockBodiesResponse {
+    /// The list of hashes sent in the request to get this response.
+    pub block_roots: Vec<Hash256>,
+    /// The valid decoded block bodies.
     pub block_bodies: Vec<BeaconBlockBody>,
 }
 
@@ -237,5 +173,71 @@ pub struct BeaconChainStateRequest {
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BeaconChainStateResponse {
     /// The values corresponding the to the requested tree hashes.
-    pub values: bool, //TBD - stubbed with encodeable bool
+    pub values: bool, //TBD - stubbed with encodable bool
+}
+
+/* RPC Handling and Grouping */
+// Collection of enums and structs used by the Codecs to encode/decode RPC messages
+
+#[derive(Debug, Clone)]
+pub enum RPCResponse {
+    /// A HELLO message.
+    Hello(HelloMessage),
+    /// A response to a get BEACON_BLOCK_ROOTS request.
+    BeaconBlockRoots(BeaconBlockRootsResponse),
+    /// A response to a get BEACON_BLOCK_HEADERS request.
+    BeaconBlockHeaders(BeaconBlockHeadersResponse),
+    /// A response to a get BEACON_BLOCK_BODIES request.
+    BeaconBlockBodies(BeaconBlockBodiesResponse),
+    /// A response to a get BEACON_CHAIN_STATE request.
+    BeaconChainState(BeaconChainStateResponse),
+}
+
+#[derive(Debug)]
+pub enum RPCErrorResponse {
+    Success(RPCResponse),
+    InvalidRequest(ErrorMessage),
+    ServerError(ErrorMessage),
+    Unknown(ErrorMessage),
+}
+
+impl RPCErrorResponse {
+    /// Used to encode the response.
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            RPCErrorResponse::Success(_) => 0,
+            RPCErrorResponse::InvalidRequest(_) => 2,
+            RPCErrorResponse::ServerError(_) => 3,
+            RPCErrorResponse::Unknown(_) => 255,
+        }
+    }
+
+    /// Tells the codec whether to decode as an RPCResponse or an error.
+    pub fn is_response(response_code: u8) -> bool {
+        match response_code {
+            0 => true,
+            _ => false,
+        }
+    }
+
+    /// Builds an RPCErrorResponse from a response code and an ErrorMessage
+    pub fn from_error(response_code: u8, err: ErrorMessage) -> Self {
+        match response_code {
+            2 => RPCErrorResponse::InvalidRequest(err),
+            3 => RPCErrorResponse::ServerError(err),
+            _ => RPCErrorResponse::Unknown(err),
+        }
+    }
+}
+
+#[derive(Encode, Decode, Debug)]
+pub struct ErrorMessage {
+    /// The UTF-8 encoded Error message string.
+    pub error_message: Vec<u8>,
+}
+
+impl ErrorMessage {
+    pub fn as_string(&self) -> String {
+        String::from_utf8(self.error_message.clone()).unwrap_or_else(|_| "".into())
+    }
 }

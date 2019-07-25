@@ -8,7 +8,7 @@ use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 
 /// The interval between heartbeat events.
-pub const HEARTBEAT_INTERVAL_SECONDS: u64 = 5;
+pub const HEARTBEAT_INTERVAL_SECONDS: u64 = 15;
 
 /// Spawns a thread that can be used to run code periodically, on `HEARTBEAT_INTERVAL_SECONDS`
 /// durations.
@@ -25,19 +25,22 @@ pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
         Duration::from_secs(HEARTBEAT_INTERVAL_SECONDS),
     );
 
-    let _log = client.log.new(o!("Service" => "Notifier"));
+    let log = client.log.new(o!("Service" => "Notifier"));
 
-    let heartbeat = |_| {
-        // There is not presently any heartbeat logic.
-        //
-        // We leave this function empty for future use.
+    let libp2p = client.network.libp2p_service();
+
+    let heartbeat = move |_| {
+        // Notify the number of connected nodes
+        // Panic if libp2p is poisoned
+        debug!(log, ""; "Connected Peers" => libp2p.lock().swarm.connected_peers());
+
         Ok(())
     };
 
     // map error and spawn
-    let log = client.log.clone();
+    let err_log = client.log.clone();
     let heartbeat_interval = interval
-        .map_err(move |e| debug!(log, "Timer error {}", e))
+        .map_err(move |e| debug!(err_log, "Timer error {}", e))
         .for_each(heartbeat);
 
     executor.spawn(exit.until(heartbeat_interval).map(|_| ()));

@@ -1,5 +1,5 @@
 use crate::discovery::Discovery;
-use crate::rpc::{RPCEvent, RPCMessage, Rpc};
+use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
 use futures::prelude::*;
@@ -29,7 +29,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     /// The routing pub-sub mechanism for eth2.
     gossipsub: Gossipsub<TSubstream>,
     /// The serenity RPC specified in the wire-0 protocol.
-    serenity_rpc: Rpc<TSubstream>,
+    serenity_rpc: RPC<TSubstream>,
     /// Keep regular connection to peers and disconnect if absent.
     ping: Ping<TSubstream>,
     /// Kademlia for peer discovery.
@@ -57,7 +57,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             .with_keep_alive(false);
 
         Ok(Behaviour {
-            serenity_rpc: Rpc::new(log),
+            serenity_rpc: RPC::new(log),
             gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
             discovery: Discovery::new(local_key, net_conf, log)?,
             ping: Ping::new(ping_config),
@@ -108,6 +108,9 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RPCMessage
         match event {
             RPCMessage::PeerDialed(peer_id) => {
                 self.events.push(BehaviourEvent::PeerDialed(peer_id))
+            }
+            RPCMessage::PeerDisconnected(peer_id) => {
+                self.events.push(BehaviourEvent::PeerDisconnected(peer_id))
             }
             RPCMessage::RPC(peer_id, rpc_event) => {
                 self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
@@ -168,12 +171,18 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
         self.serenity_rpc.send_rpc(peer_id, rpc_event);
     }
+
+    /* Discovery / Peer management functions */
+    pub fn connected_peers(&self) -> usize {
+        self.discovery.connected_peers()
+    }
 }
 
 /// The types of events than can be obtained from polling the behaviour.
 pub enum BehaviourEvent {
     RPC(PeerId, RPCEvent),
     PeerDialed(PeerId),
+    PeerDisconnected(PeerId),
     GossipMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
