@@ -94,7 +94,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         store: Arc<T::Store>,
         slot_clock: T::SlotClock,
         mut genesis_state: BeaconState<T::EthSpec>,
-        genesis_block: BeaconBlock<T::EthSpec>,
+        mut genesis_block: BeaconBlock<T::EthSpec>,
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, Error> {
@@ -103,11 +103,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_root = genesis_state.canonical_root();
         store.put(&state_root, &genesis_state)?;
 
+        genesis_block.state_root = state_root;
+
         let genesis_block_root = genesis_block.block_header().canonical_root();
         store.put(&genesis_block_root, &genesis_block)?;
 
         // Also store the genesis block under the `ZERO_HASH` key.
-        let genesis_block_root = genesis_block.block_header().canonical_root();
+        let genesis_block_root = genesis_block.canonical_root();
         store.put(&Hash256::zero(), &genesis_block)?;
 
         let canonical_head = RwLock::new(CheckPoint::new(

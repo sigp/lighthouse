@@ -12,6 +12,7 @@ pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+pub const TESTNET_CONFIG_FILENAME: &str = "testnet.toml";
 
 fn main() {
     // debugging output for libp2p and external crates
@@ -21,7 +22,9 @@ fn main() {
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
-        // file system related arguments
+        /*
+         * Configuration directory locations.
+         */
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
@@ -43,7 +46,9 @@ fn main() {
                 .help("Data directory for network keys.")
                 .takes_value(true)
         )
-        // network related arguments
+        /*
+         * Network parameters.
+         */
         .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
@@ -86,7 +91,9 @@ fn main() {
                 .help("The IP address to broadcast to other peers on how to reach this node.")
                 .takes_value(true),
         )
-        // rpc related arguments
+        /*
+         * gRPC parameters.
+         */
         .arg(
             Arg::with_name("rpc")
                 .long("rpc")
@@ -107,7 +114,9 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
-        // HTTP related arguments
+        /*
+         * HTTP server parameters.
+         */
         .arg(
             Arg::with_name("http")
                 .long("http")
@@ -127,7 +136,6 @@ fn main() {
                 .help("Listen port for the HTTP server.")
                 .takes_value(true),
         )
-        // REST API related arguments
         .arg(
             Arg::with_name("api")
                 .long("api")
@@ -149,7 +157,10 @@ fn main() {
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .takes_value(true),
         )
-        // General arguments
+
+        /*
+         * Database parameters.
+         */
         .arg(
             Arg::with_name("db")
                 .long("db")
@@ -158,6 +169,23 @@ fn main() {
                 .takes_value(true)
                 .possible_values(&["disk", "memory"])
                 .default_value("memory"),
+        )
+        /*
+         * Specification/testnet params.
+         */
+        /*
+        .arg(
+            Arg::with_name("testnet")
+                .long("testnet")
+                .help("Run a non-production testnet node.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("genesis-file")
+                .long("genesis-file")
+                .value_name("TOML_FILE")
+                .help("Path to a genesis configuration file.")
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("spec-constants")
@@ -169,12 +197,16 @@ fn main() {
                 .possible_values(&["mainnet", "minimal"])
                 .default_value("minimal"),
         )
+        */
         .arg(
             Arg::with_name("recent-genesis")
                 .long("recent-genesis")
                 .short("r")
                 .help("When present, genesis will be within 30 minutes prior. Only for testing"),
         )
+        /*
+         * Logging.
+         */
         .arg(
             Arg::with_name("debug-level")
                 .long("debug-level")
@@ -195,7 +227,6 @@ fn main() {
         .get_matches();
 
     // build the initial logger
-    let decorator = slog_term::TermDecorator::new().build();
     let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build();

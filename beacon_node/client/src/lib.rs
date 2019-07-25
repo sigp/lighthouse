@@ -67,9 +67,10 @@ where
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
         let beacon_chain = Arc::new(T::initialise_beacon_chain(
             store,
+            &client_config,
             eth2_config.spec.clone(),
             log.clone(),
-        ));
+        )?);
         // Registry all beacon chain metrics with the global registry.
         beacon_chain
             .metrics
