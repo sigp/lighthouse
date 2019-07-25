@@ -174,13 +174,13 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             &attestation.aggregation_bitfield,
         )?;
 
-        let target_slot = attestation.data.target_epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let block_slot = state.get_attestation_slot(&attestation.data)?;
 
         Ok(validator_indices
             .iter()
             .find(|&&v| {
                 match self.backend.latest_message(v) {
-                    Some((_, slot)) => target_slot > slot,
+                    Some((_, slot)) => block_slot > slot,
                     None => true
                 }
             }).is_some())
