@@ -62,8 +62,8 @@ fn verify_transfer_parametric<T: EthSpec>(
 
     // Verify the sender has adequate balance.
     verify!(
-        time_independent_only || sender_balance >= transfer.amount,
-        Invalid::FromBalanceInsufficient(transfer.amount, sender_balance)
+        time_independent_only || sender_balance >= total_amount,
+        Invalid::FromBalanceInsufficient(total_amount, sender_balance)
     );
 
     // Verify sender balance will not be "dust" (i.e., greater than zero but less than the minimum deposit
