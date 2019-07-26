@@ -223,12 +223,6 @@ pub fn process_proposer_slashings<T: EthSpec>(
     proposer_slashings: &[ProposerSlashing],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // TODO(freeze): this check is kind of redundant with the VariableList impl
-    verify!(
-        proposer_slashings.len() <= T::MaxProposerSlashings::to_usize(),
-        Invalid::MaxProposerSlashingsExceeded
-    );
-
     // Verify proposer slashings in parallel.
     proposer_slashings
         .par_iter()
@@ -257,11 +251,6 @@ pub fn process_attester_slashings<T: EthSpec>(
     attester_slashings: &[AttesterSlashing<T>],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    verify!(
-        attester_slashings.len() <= T::MaxAttesterSlashings::to_usize(),
-        Invalid::MaxAttesterSlashingsExceed
-    );
-
     // Verify the `IndexedAttestation`s in parallel (these are the resource-consuming objects, not
     // the `AttesterSlashing`s themselves).
     let mut indexed_attestations: Vec<&_> = Vec::with_capacity(attester_slashings.len() * 2);
@@ -314,11 +303,6 @@ pub fn process_attestations<T: EthSpec>(
     attestations: &[Attestation<T>],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    verify!(
-        attestations.len() <= T::MaxAttestations::to_usize(),
-        Invalid::MaxAttestationsExceeded
-    );
-
     // Ensure the previous epoch cache exists.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
 
@@ -441,11 +425,6 @@ pub fn process_exits<T: EthSpec>(
     voluntary_exits: &[VoluntaryExit],
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    verify!(
-        voluntary_exits.len() <= T::MaxVoluntaryExits::to_usize(),
-        Invalid::MaxExitsExceeded
-    );
-
     // Verify exits in parallel.
     voluntary_exits
         .par_iter()
@@ -477,11 +456,6 @@ pub fn process_transfers<T: EthSpec>(
     verify!(
         transfers.len() == HashSet::<_>::from_iter(transfers).len(),
         Invalid::DuplicateTransfers
-    );
-
-    verify!(
-        transfers.len() <= T::MaxTransfers::to_usize(),
-        Invalid::MaxTransfersExceed
     );
 
     transfers

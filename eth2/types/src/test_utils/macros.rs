@@ -39,6 +39,8 @@ macro_rules! ssz_tests {
 macro_rules! cached_tree_hash_tests {
     ($type: ty) => {
         #[test]
+        #[ignore]
+        // FIXME: re-enable https://github.com/sigp/lighthouse/issues/440
         pub fn test_cached_tree_hash() {
             use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
             use tree_hash::TreeHash;

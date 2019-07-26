@@ -1,17 +1,17 @@
 use super::*;
 use crate::case_result::compare_result;
-use cached_tree_hash::{CachedTreeHash, TreeHashCache};
+use cached_tree_hash::CachedTreeHash;
 use serde_derive::Deserialize;
 use ssz::{Decode, Encode};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint, CompactCommittee, Crosslink,
-    Deposit, DepositData, Eth1Data, EthSpec, Fork, Hash256, HistoricalBatch, IndexedAttestation,
-    PendingAttestation, ProposerSlashing, Transfer, Validator, VoluntaryExit,
+    test_utils::TestRandom, Attestation, AttestationData, AttestationDataAndCustodyBit,
+    AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint,
+    CompactCommittee, Crosslink, Deposit, DepositData, Eth1Data, EthSpec, Fork, Hash256,
+    HistoricalBatch, IndexedAttestation, PendingAttestation, ProposerSlashing, Transfer, Validator,
+    VoluntaryExit,
 };
 
 // Enum variant names are used by Serde when deserializing the test YAML
@@ -64,7 +64,7 @@ impl<E: EthSpec + serde::de::DeserializeOwned> YamlDecode for SszStatic<E> {
 }
 
 impl<E: EthSpec> Case for SszStatic<E> {
-    fn result(&self, case_index: usize) -> Result<(), Error> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
         use self::SszStatic::*;
 
         match *self {

@@ -125,17 +125,8 @@ fn is_valid_indexed_attestation_signature<T: EthSpec>(
     }
     .tree_hash_root();
 
-    let mut messages = vec![];
-    let mut keys = vec![];
-
-    if !indexed_attestation.custody_bit_0_indices.is_empty() {
-        messages.push(&message_0[..]);
-        keys.push(&bit_0_pubkey);
-    }
-    if !indexed_attestation.custody_bit_1_indices.is_empty() {
-        messages.push(&message_1[..]);
-        keys.push(&bit_1_pubkey);
-    }
+    let messages = vec![&message_0[..], &message_1[..]];
+    let keys = vec![&bit_0_pubkey, &bit_1_pubkey];
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,

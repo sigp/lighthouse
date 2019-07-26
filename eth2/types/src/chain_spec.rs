@@ -98,7 +98,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
@@ -109,8 +109,8 @@ impl ChainSpec {
             Domain::Transfer => self.domain_transfer,
         };
 
-        let mut bytes: Vec<u8> = fork.get_fork_version(epoch).to_vec();
-        bytes.append(&mut int_to_bytes4(domain_constant));
+        let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
+        bytes.append(&mut fork.get_fork_version(epoch).to_vec());
 
         let mut fork_and_domain = [0; 8];
         fork_and_domain.copy_from_slice(&bytes);
@@ -237,8 +237,8 @@ mod tests {
 
         let domain = spec.get_domain(epoch, domain_type, &fork);
 
-        let mut expected = fork.get_fork_version(epoch).to_vec();
-        expected.append(&mut int_to_bytes4(raw_domain));
+        let mut expected = int_to_bytes4(raw_domain);
+        expected.append(&mut fork.get_fork_version(epoch).to_vec());
 
         assert_eq!(int_to_bytes8(domain), expected);
     }

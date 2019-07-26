@@ -112,6 +112,7 @@ where
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
     #[compare_fields(as_slice)]
     active_index_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
+    #[compare_fields(as_slice)]
     compact_committees_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings

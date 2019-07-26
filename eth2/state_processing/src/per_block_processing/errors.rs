@@ -95,6 +95,9 @@ pub enum BlockInvalid {
     DepositProcessingFailed(usize),
     ExitInvalid(usize, ExitInvalid),
     TransferInvalid(usize, TransferInvalid),
+    // NOTE: this is only used in tests, normally a state root mismatch is handled
+    // in the beacon_chain rather than in state_processing
+    StateRootMismatch,
 }
 
 impl From<ssz_types::Error> for BlockProcessingError {
