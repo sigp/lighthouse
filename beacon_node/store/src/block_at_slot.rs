@@ -20,18 +20,18 @@ fn read_previous_block_root_from_block_bytes(bytes: &[u8]) -> Result<Hash256, De
     Hash256::from_ssz_bytes(slice)
 }
 
-pub fn get_block_at_preceeding_slot<T: Store>(
+pub fn get_block_at_preceding_slot<T: Store>(
     store: &T,
     slot: Slot,
     start_root: Hash256,
 ) -> Result<Option<(Hash256, BeaconBlock)>, Error> {
-    Ok(match get_at_preceeding_slot(store, slot, start_root)? {
+    Ok(match get_at_preceding_slot(store, slot, start_root)? {
         Some((hash, bytes)) => Some((hash, BeaconBlock::from_ssz_bytes(&bytes)?)),
         None => None,
     })
 }
 
-fn get_at_preceeding_slot<T: Store>(
+fn get_at_preceding_slot<T: Store>(
     store: &T,
     slot: Slot,
     mut root: Hash256,
@@ -141,7 +141,7 @@ mod tests {
                 let (target_root, target_block) = &blocks_and_roots[target];
 
                 let (found_root, found_block) = store
-                    .get_block_at_preceeding_slot(*source_root, target_block.slot)
+                    .get_block_at_preceding_slot(*source_root, target_block.slot)
                     .unwrap()
                     .unwrap();
 
@@ -166,7 +166,7 @@ mod tests {
             let (target_root, target_block) = &blocks_and_roots[target];
 
             let (found_root, found_block) = store
-                .get_block_at_preceeding_slot(*source_root, target_block.slot)
+                .get_block_at_preceding_slot(*source_root, target_block.slot)
                 .unwrap()
                 .unwrap();
 
@@ -177,14 +177,14 @@ mod tests {
         // Slot that doesn't exist
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
+            .get_block_at_preceding_slot(*source_root, Slot::new(3))
             .unwrap()
             .is_none());
 
         // Slot too high
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
+            .get_block_at_preceding_slot(*source_root, Slot::new(3))
             .unwrap()
             .is_none());
     }

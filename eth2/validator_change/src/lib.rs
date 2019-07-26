@@ -59,7 +59,7 @@ pub fn update_validator_set(
     for (i, v) in validators.iter_mut().enumerate() {
         match v.status {
             /*
-             * Validator is pending activiation.
+             * Validator is pending activation.
              */
             ValidatorStatus::PendingActivation => {
                 let new_total_changed = total_changed

@@ -114,7 +114,7 @@ fn verify_transfer_parametric<T: EthSpec>(
             || sender_validator.activation_eligibility_epoch == spec.far_future_epoch
             || sender_validator.is_withdrawable_at(epoch)
             || total_amount + spec.max_effective_balance <= sender_balance,
-        Invalid::FromValidatorIneligableForTransfer(transfer.sender)
+        Invalid::FromValidatorIneligibleForTransfer(transfer.sender)
     );
 
     // Ensure the withdrawal credentials generated from the sender's pubkey match those stored in

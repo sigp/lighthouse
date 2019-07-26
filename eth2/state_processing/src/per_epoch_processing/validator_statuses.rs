@@ -150,7 +150,7 @@ pub struct TotalBalances {
 /// some `BeaconState`.
 #[derive(Clone)]
 pub struct ValidatorStatuses {
-    /// Information about each individual validator from the state's validator registy.
+    /// Information about each individual validator from the state's validator registry.
     pub statuses: Vec<ValidatorStatus>,
     /// Summed balances for various sets of validators.
     pub total_balances: TotalBalances,

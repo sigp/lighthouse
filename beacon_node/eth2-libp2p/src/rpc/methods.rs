@@ -43,7 +43,7 @@ pub enum GoodbyeReason {
     ClientShutdown = 1,
 
     /// Incompatible networks.
-    IrreleventNetwork = 2,
+    IrrelevantNetwork = 2,
 
     /// Error/fault in the RPC.
     Fault = 3,
@@ -56,7 +56,7 @@ impl From<u64> for GoodbyeReason {
     fn from(id: u64) -> GoodbyeReason {
         match id {
             1 => GoodbyeReason::ClientShutdown,
-            2 => GoodbyeReason::IrreleventNetwork,
+            2 => GoodbyeReason::IrrelevantNetwork,
             3 => GoodbyeReason::Fault,
             _ => GoodbyeReason::Unknown,
         }
