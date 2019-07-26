@@ -2,11 +2,11 @@ use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
-use slog::{debug, error, info};
-use std::fs;
-use std::fs::File;
+use slog::{debug, error, info, o, Drain};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use types::{EthSpec, MainnetEthSpec};
 
 /// Stores the core configuration for this validator instance.
@@ -14,6 +14,8 @@ use types::{EthSpec, MainnetEthSpec};
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub data_dir: PathBuf,
+    /// The path where the logs will be outputted
+    pub log_file: PathBuf,
     /// The server at which the Beacon Node can be contacted
     pub server: String,
     /// The number of slots per epoch.
@@ -27,6 +29,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from(".lighthouse-validator"),
+            log_file: PathBuf::from(""),
             server: "localhost:5051".to_string(),
             slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }
@@ -38,14 +41,55 @@ impl Config {
     ///
     /// Returns an error if arguments are obviously invalid. May succeed even if some values are
     /// invalid.
-    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
+    pub fn apply_cli_args(
+        &mut self,
+        args: &ArgMatches,
+        log: &mut slog::Logger,
+    ) -> Result<(), &'static str> {
         if let Some(datadir) = args.value_of("datadir") {
             self.data_dir = PathBuf::from(datadir);
+        };
+
+        if let Some(log_file) = args.value_of("logfile") {
+            self.log_file = PathBuf::from(log_file);
+            self.update_logger(log)?;
         };
 
         if let Some(srv) = args.value_of("server") {
             self.server = srv.to_string();
         };
+
+        Ok(())
+    }
+
+    // Update the logger to output in JSON to specified file
+    fn update_logger(&mut self, log: &mut slog::Logger) -> Result<(), &'static str> {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&self.log_file);
+
+        if file.is_err() {
+            return Err("Cannot open log file");
+        }
+        let file = file.unwrap();
+
+        if let Some(file) = self.log_file.to_str() {
+            info!(
+                *log,
+                "Log file specified, output will now be written to {} in json.", file
+            );
+        } else {
+            info!(
+                *log,
+                "Log file specified output will now be written in json"
+            );
+        }
+
+        let drain = Mutex::new(slog_json::Json::default(file)).fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        *log = slog::Logger::root(drain, o!());
 
         Ok(())
     }

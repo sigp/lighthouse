@@ -3,46 +3,44 @@ use beacon_chain::BeaconChainTypes;
 use exit_future::Exit;
 use futures::{Future, Stream};
 use slog::{debug, o};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 
-/// Thread that monitors the client and reports useful statistics to the user.
+/// The interval between heartbeat events.
+pub const HEARTBEAT_INTERVAL_SECONDS: u64 = 15;
 
+/// Spawns a thread that can be used to run code periodically, on `HEARTBEAT_INTERVAL_SECONDS`
+/// durations.
+///
+/// Presently unused, but remains for future use.
 pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
     client: &Client<T>,
     executor: TaskExecutor,
     exit: Exit,
 ) {
     // notification heartbeat
-    let interval = Interval::new(Instant::now(), Duration::from_secs(5));
+    let interval = Interval::new(
+        Instant::now(),
+        Duration::from_secs(HEARTBEAT_INTERVAL_SECONDS),
+    );
 
-    let _log = client.log.new(o!("Service" => "Notifier"));
+    let log = client.log.new(o!("Service" => "Notifier"));
 
-    // TODO: Debugging only
-    let counter = Arc::new(Mutex::new(0));
-    let network = client.network.clone();
+    let libp2p = client.network.libp2p_service();
 
-    // build heartbeat logic here
     let heartbeat = move |_| {
-        //debug!(log, "Temp heartbeat output");
-        //TODO: Remove this logic. Testing only
-        let mut count = counter.lock().unwrap();
-        *count += 1;
-
-        if *count % 5 == 0 {
-            //            debug!(log, "Sending Message");
-            network.send_message();
-        }
+        // Notify the number of connected nodes
+        // Panic if libp2p is poisoned
+        debug!(log, ""; "Connected Peers" => libp2p.lock().swarm.connected_peers());
 
         Ok(())
     };
 
     // map error and spawn
-    let log = client.log.clone();
+    let err_log = client.log.clone();
     let heartbeat_interval = interval
-        .map_err(move |e| debug!(log, "Timer error {}", e))
+        .map_err(move |e| debug!(err_log, "Timer error {}", e))
         .for_each(heartbeat);
 
     executor.spawn(exit.until(heartbeat_interval).map(|_| ()));

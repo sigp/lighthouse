@@ -1,5 +1,17 @@
+#[macro_use]
+extern crate lazy_static;
+
 pub mod impls;
-pub mod merkleize;
+mod merkleize_padded;
+mod merkleize_standard;
+
+pub use merkleize_padded::merkleize_padded;
+pub use merkleize_standard::merkleize_standard;
+
+/// Alias to `merkleize_padded(&bytes, 0)`
+pub fn merkle_root(bytes: &[u8]) -> Vec<u8> {
+    merkleize_padded(&bytes, 0)
+}
 
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
@@ -44,7 +56,7 @@ macro_rules! tree_hash_ssz_encoding_as_vector {
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                tree_hash::merkleize::merkle_root(&ssz::ssz_encode(self))
+                tree_hash::merkle_root(&ssz::ssz_encode(self))
             }
         }
     };

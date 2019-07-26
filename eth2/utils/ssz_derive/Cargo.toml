@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@sigmaprime.io>"]
 edition = "2018"
 description = "Procedural derive macros to accompany the eth2_ssz crate."
+license = "Apache-2.0"
 
 [lib]
 name = "ssz_derive"
@@ -12,4 +13,3 @@ proc-macro = true
 [dependencies]
 syn = "0.15"
 quote = "0.6"
-eth2_ssz = { path = "../ssz" }
