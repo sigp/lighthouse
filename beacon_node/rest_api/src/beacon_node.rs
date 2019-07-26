@@ -4,9 +4,9 @@ use slog::{info, warn};
 use std::sync::Arc;
 use version;
 
-use super::{APIError, APIResult, APIService};
+use super::{path_from_request, success_response, APIError, APIResult, APIService};
 
-use hyper::{Body, Method, Request, Response, StatusCode};
+use hyper::{Body, Method, Request, Response};
 use hyper_router::{Route, RouterBuilder};
 
 #[derive(Clone)]
@@ -17,7 +17,7 @@ pub struct BeaconNodeServiceInstance<T: BeaconChainTypes + 'static> {
 /// A string which uniquely identifies the client implementation and its version; similar to [HTTP User-Agent](https://tools.ietf.org/html/rfc7231#section-5.5.3).
 #[derive(Serialize)]
 pub struct Version(String);
-impl ::std::convert::From<String> for Version {
+impl From<String> for Version {
     fn from(x: String) -> Self {
         Version(x)
     }
@@ -26,7 +26,7 @@ impl ::std::convert::From<String> for Version {
 /// The genesis_time configured for the beacon node, which is the unix time at which the Eth2.0 chain began.
 #[derive(Serialize)]
 pub struct GenesisTime(u64);
-impl ::std::convert::From<u64> for GenesisTime {
+impl From<u64> for GenesisTime {
     fn from(x: u64) -> Self {
         GenesisTime(x)
     }
@@ -41,14 +41,13 @@ impl<T: BeaconChainTypes + 'static> APIService for BeaconNodeServiceInstance<T> 
     }
 }
 
-//TODO: Validate request stuff can be turned into a macro.
 fn validate_request(req: &Request<Body>) -> Result<(), APIError> {
     let log = req.extensions().get::<slog::Logger>().unwrap();
     if req.method() != &Method::GET {
         warn!(
             log,
             "Invalid method for request to: {}",
-            path_from_request!(req)
+            path_from_request(req)
         );
         return Err(APIError::MethodNotAllowed {
             desc: "Invalid Method".to_owned(),
@@ -64,7 +63,7 @@ fn get_version(req: Request<Body>) -> APIResult {
     let body = Body::from(
         serde_json::to_string(&ver).expect("Version should always be serialializable as JSON."),
     );
-    Ok(success_response!(body))
+    Ok(success_response(body))
 }
 
 /// Read the genesis time from the current beacon chain state.
@@ -79,5 +78,5 @@ fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> APIRes
         serde_json::to_string(&gen_time)
             .expect("Genesis should time always have a valid JSON serialization."),
     );
-    Ok(success_response!(body))
+    Ok(success_response(body))
 }

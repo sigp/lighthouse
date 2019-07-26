@@ -15,7 +15,7 @@ use tokio::runtime::TaskExecutor;
 use crate::beacon_node::BeaconNodeServiceInstance;
 use hyper::rt::Future;
 use hyper::service::{service_fn, Service};
-use hyper::{Body, Response, Server, StatusCode};
+use hyper::{Body, Request, Response, Server, StatusCode};
 use hyper_router::{RouterBuilder, RouterService};
 
 pub enum APIError {
@@ -71,7 +71,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
         let service_log = server_log.clone();
         let service_bc = server_bc.clone();
 
-        // Create a simlple handler for the router, inject our stateful objects into the request.
+        // Create a simple handler for the router, inject our stateful objects into the request.
         service_fn(move |mut req| {
             req.extensions_mut()
                 .insert::<slog::Logger>(service_log.clone());
@@ -81,9 +81,12 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
         })
     };
 
-    let server = Server::bind(&bind_addr)
-        .serve(service)
-        .map_err(move |e| warn!(log, "Unable to bind to address: {:?}", e));
+    let server = Server::bind(&bind_addr).serve(service).map_err(move |e| {
+        warn!(
+            log,
+            "API failed to start, Unable to bind"; "address" => format!("{:?}", e)
+        )
+    });
 
     executor.spawn(server);
 
@@ -102,4 +105,19 @@ fn build_router_service<T: BeaconChainTypes + 'static>() -> RouterService {
         .expect("The routes should always be made.");
 
     RouterService::new(router_builder.build())
+}
+
+fn path_from_request(req: &Request<Body>) -> String {
+    req.uri()
+        .path_and_query()
+        .as_ref()
+        .map(|pq| String::from(pq.as_str()))
+        .unwrap_or(String::new())
+}
+
+fn success_response(body: Body) -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(body)
+        .expect("We should always be able to make response from the success body.")
 }
