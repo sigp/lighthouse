@@ -1,4 +1,5 @@
 mod run;
+mod logging;
 
 use clap::{App, Arg};
 use client::{ClientConfig, Eth2Config};
@@ -12,6 +13,8 @@ pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+
+const MESSAGE_WIDTH: usize = 30;
 
 fn main() {
     // debugging output for libp2p and external crates
@@ -156,7 +159,8 @@ fn main() {
 
     // build the initial logger
     let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let decorator = logging::AlignedTermDecorator::new(decorator, MESSAGE_WIDTH);
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build();
 
     let drain = match matches.occurrences_of("verbosity") {
