@@ -129,11 +129,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         attestation: &Attestation<T::EthSpec>,
     ) -> Result<()> {
         // Note: `get_attesting_indices` requires that the beacon state caches be built.
-        let validator_indices = get_attesting_indices(
-            state,
-            &attestation.data,
-            &attestation.aggregation_bits,
-        )?;
+        let validator_indices =
+            get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
         let block_hash = attestation.data.target.root;
 
