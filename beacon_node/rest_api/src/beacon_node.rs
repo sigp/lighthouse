@@ -1,12 +1,12 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use serde::Serialize;
-use slog::{info, warn};
+use slog::info;
 use std::sync::Arc;
 use version;
 
-use super::{path_from_request, success_response, APIError, APIResult, APIService};
+use super::{path_from_request, success_response, APIResult, APIService};
 
-use hyper::{Body, Method, Request, Response};
+use hyper::{Body, Request, Response};
 use hyper_router::{Route, RouterBuilder};
 
 #[derive(Clone)]
@@ -41,24 +41,8 @@ impl<T: BeaconChainTypes + 'static> APIService for BeaconNodeServiceInstance<T> 
     }
 }
 
-fn validate_request(req: &Request<Body>) -> Result<(), APIError> {
-    let log = req.extensions().get::<slog::Logger>().unwrap();
-    if req.method() != &Method::GET {
-        warn!(
-            log,
-            "Invalid method for request to: {}",
-            path_from_request(req)
-        );
-        return Err(APIError::MethodNotAllowed {
-            desc: "Invalid Method".to_owned(),
-        });
-    }
-    Ok(())
-}
-
 /// Read the version string from the current Lighthouse build.
-fn get_version(req: Request<Body>) -> APIResult {
-    validate_request(&req)?;
+fn get_version(_req: Request<Body>) -> APIResult {
     let ver = Version::from(version::version());
     let body = Body::from(
         serde_json::to_string(&ver).expect("Version should always be serialializable as JSON."),
@@ -68,7 +52,6 @@ fn get_version(req: Request<Body>) -> APIResult {
 
 /// Read the genesis time from the current beacon chain state.
 fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> APIResult {
-    validate_request(&req)?;
     let beacon_chain = req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
     let gen_time = {
         let state = beacon_chain.current_state();
