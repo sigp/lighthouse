@@ -47,7 +47,7 @@ pub fn merkleize_standard(bytes: &[u8]) -> Vec<u8> {
 
         j -= HASHSIZE;
         let hash = match o.get(i..i + MERKLE_HASH_CHUNK) {
-            // All bytes are available, hash as ususal.
+            // All bytes are available, hash as usual.
             Some(slice) => hash(slice),
             // Unable to get all the bytes.
             None => {

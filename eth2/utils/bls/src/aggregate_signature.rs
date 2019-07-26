@@ -23,7 +23,7 @@ impl AggregateSignature {
     /// Instantiate a new AggregateSignature.
     ///
     /// is_empty is false
-    /// AggregateSiganture is point at infinity
+    /// AggregateSignature is point at infinity
     pub fn new() -> Self {
         Self {
             aggregate_signature: RawAggregateSignature::new(),
@@ -87,7 +87,7 @@ impl AggregateSignature {
             .verify_multiple(&msg[..], domain, &aggregate_public_keys[..])
     }
 
-    /// Return AggregateSiganture as bytes
+    /// Return AggregateSignature as bytes
     pub fn as_bytes(&self) -> Vec<u8> {
         if self.is_empty {
             return vec![0; BLS_AGG_SIG_BYTE_SIZE];
@@ -95,7 +95,7 @@ impl AggregateSignature {
         self.aggregate_signature.as_bytes()
     }
 
-    /// Convert bytes to AggregateSiganture
+    /// Convert bytes to AggregateSignature
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         for byte in bytes {
             if *byte != 0 {
@@ -114,7 +114,7 @@ impl AggregateSignature {
         Ok(Self::empty_signature())
     }
 
-    /// Returns if the AggregateSiganture `is_empty`
+    /// Returns if the AggregateSignature `is_empty`
     pub fn is_empty(&self) -> bool {
         self.is_empty
     }

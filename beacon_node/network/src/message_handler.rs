@@ -252,7 +252,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage) {
         match gossip_message {
             PubsubMessage::Block(message) => {
-                let _should_foward_on =
+                let _should_forward_on =
                     self.sync
                         .on_block_gossip(peer_id, message, &mut self.network_context);
             }

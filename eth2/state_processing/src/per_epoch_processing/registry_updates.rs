@@ -3,7 +3,7 @@ use super::Error;
 use itertools::{Either, Itertools};
 use types::*;
 
-/// Peforms a validator registry update, if required.
+/// Performs a validator registry update, if required.
 ///
 /// Spec v0.6.3
 pub fn process_registry_updates<T: EthSpec>(

@@ -116,7 +116,7 @@ where
             ctrlc_send.send(()).expect("Error sending ctrl-c message");
         }
     })
-    .map_err(|e| format!("Could not set ctrlc hander: {:?}", e))?;
+    .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;
 
     let (exit_signal, exit) = exit_future::signal();
 

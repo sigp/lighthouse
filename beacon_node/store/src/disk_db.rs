@@ -106,7 +106,7 @@ impl ClientDB for DiskStore {
     fn exists(&self, col: &str, key: &[u8]) -> Result<bool, DBError> {
         /*
          * I'm not sure if this is the correct way to read if some
-         * block exists. Naively I would expect this to unncessarily
+         * block exists. Naively I would expect this to unnecessarily
          * copy some data, but I could be wrong.
          */
         match self.db.cf_handle(col) {
@@ -164,7 +164,7 @@ mod tests {
         let thread_count = 10;
         let write_count = 10;
 
-        // We're execting the product of these numbers to fit in one byte.
+        // We're expecting the product of these numbers to fit in one byte.
         assert!(thread_count * write_count <= 255);
 
         let mut handles = vec![];
