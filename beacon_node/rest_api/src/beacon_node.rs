@@ -1,16 +1,13 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use futures::Future;
-use http;
-use serde::{Deserialize, Serialize};
-use slog::{info, trace, warn};
+use serde::Serialize;
+use slog::{info, warn};
 use std::sync::Arc;
 use version;
 
 use super::{APIError, APIResult, APIService};
 
-use hyper::service::service_fn;
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use hyper_router::{Route, RouterBuilder, RouterService};
+use hyper::{Body, Method, Request, Response, StatusCode};
+use hyper_router::{Route, RouterBuilder};
 
 #[derive(Clone)]
 pub struct BeaconNodeServiceInstance<T: BeaconChainTypes + 'static> {
@@ -62,7 +59,6 @@ fn validate_request(req: &Request<Body>) -> Result<(), APIError> {
 
 /// Read the version string from the current Lighthouse build.
 fn get_version(req: Request<Body>) -> APIResult {
-    let log = req.extensions().get::<slog::Logger>().unwrap();
     validate_request(&req)?;
     let ver = Version::from(version::version());
     let body = Body::from(
@@ -73,7 +69,6 @@ fn get_version(req: Request<Body>) -> APIResult {
 
 /// Read the genesis time from the current beacon chain state.
 fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> APIResult {
-    let log = req.extensions().get::<slog::Logger>().unwrap();
     validate_request(&req)?;
     let beacon_chain = req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
     let gen_time = {

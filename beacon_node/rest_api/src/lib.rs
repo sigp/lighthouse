@@ -8,26 +8,15 @@ pub mod config;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 pub use config::Config as APIConfig;
 
-use slog::{error, info, o, warn};
+use slog::{o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
 use crate::beacon_node::BeaconNodeServiceInstance;
-use core::borrow::{Borrow, BorrowMut};
-use futures::future;
 use hyper::rt::Future;
 use hyper::service::{service_fn, Service};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use hyper_router::{Route, Router, RouterBuilder, RouterService};
-
-// == Taken from official Hyper examples. ==
-// We need to return different futures depending on the route matched,
-// and we can do that with an enum, such as `futures::Either`, or with
-// trait objects.
-//
-// A boxed Future (trait object) is used as it is easier to understand
-// and extend with more types. Advanced users could switch to `Either`.
-type BoxFut = Box<dyn Future<Item = Response<Body>, Error = hyper::Error> + Send>;
+use hyper::{Body, Response, Server, StatusCode};
+use hyper_router::{RouterBuilder, RouterService};
 
 pub enum APIError {
     MethodNotAllowed { desc: String },
@@ -55,12 +44,6 @@ pub trait APIService {
     fn add_routes(&mut self, router_builder: RouterBuilder) -> Result<RouterBuilder, hyper::Error>;
 }
 
-/*
-pub enum LukeError {
-    Custom(Response<Body>)
-}
-*/
-
 pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &APIConfig,
     executor: &TaskExecutor,
@@ -70,7 +53,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     let log = log.new(o!("Service" => "API"));
 
     // build a channel to kill the HTTP server
-    let (exit_signal, exit) = exit_future::signal();
+    let (exit_signal, _exit) = exit_future::signal();
 
     // Get the address to bind to
     let bind_addr = (config.listen_address, config.port).into();
@@ -120,22 +103,3 @@ fn build_router_service<T: BeaconChainTypes + 'static>() -> RouterService {
 
     RouterService::new(router_builder.build())
 }
-
-/*
-fn handle_request(req: Request<Body>) -> BoxFut {
-let mut split_path = req.uri().path().split("/");
-let mut response = Response::new(Body::empty());
-
-match (split_path.next()) {
-("node") => {
-    // Pass to beacon_node service
-    rest_api::bu
-}
-("validator") => {
-    // Pass to validator_support
-    None
-}
-        _ => *response.status_mut() = StatusCode::NOT_FOUND,
-    }
-    Box::new(future::ok(response))
-}*/

@@ -1,7 +1,6 @@
 use clap::ArgMatches;
 use http_server::HttpServerConfig;
 use network::NetworkConfig;
-use rest_api::APIConfig;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, o, Drain};
 use std::fs::{self, OpenOptions};

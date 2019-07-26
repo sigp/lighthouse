@@ -145,7 +145,7 @@ where
         };
 
         // Start the `rest_api` service
-        let api_exit_signal = if client_config.rest_api.enabled {
+        let _api_exit_signal = if client_config.rest_api.enabled {
             Some(rest_api::start_server(
                 &client_config.rest_api,
                 executor,
