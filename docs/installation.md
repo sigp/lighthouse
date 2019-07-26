@@ -13,7 +13,7 @@ installed):
 	  - `clang`: required by RocksDB.
 	  - `protobuf`: required for protobuf serialization (gRPC).
 	  - `cmake`: required for building protobuf
-    - `git-lfs`: The Git extension for [Large File Support](https://git-lfs.github.com/) (required for EF tests submodule).
+      - `git-lfs`: The Git extension for [Large File Support](https://git-lfs.github.com/) (required for EF tests submodule).
    6. If you haven't already, clone the repository with submodules: `git clone --recursive https://github.com/sigp/lighthouse`.
     Alternatively, run `git submodule init` in a repository which was cloned without submodules.
    7. Change directory to the root of the repository.

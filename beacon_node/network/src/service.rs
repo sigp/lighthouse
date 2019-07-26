@@ -2,12 +2,14 @@ use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::Topic;
 use eth2_libp2p::{Libp2pEvent, PeerId};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
+use parking_lot::Mutex;
 use slog::{debug, info, o, trace};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
@@ -16,11 +18,11 @@ use types::EthSpec;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
-    //libp2p_service: Arc<Mutex<LibP2PService>>,
+    libp2p_service: Arc<Mutex<LibP2PService<T::EthSpec>>>,
     _libp2p_exit: oneshot::Sender<()>,
-    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    //message_handler: MessageHandler,
-    //message_handler_send: Sender<HandlerMessage>
+    _network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    _phantom: PhantomData<T>, //message_handler: MessageHandler,
+                              //message_handler_send: Sender<HandlerMessage>
 }
 
 impl<T: BeaconChainTypes + 'static> Service<T> {
@@ -43,37 +45,33 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
 
         // launch libp2p service
         let libp2p_log = log.new(o!("Service" => "Libp2p"));
-        let libp2p_service = LibP2PService::new(config.clone(), libp2p_log)?;
+        let libp2p_service = Arc::new(Mutex::new(LibP2PService::new(config.clone(), libp2p_log)?));
 
         // TODO: Spawn thread to handle libp2p messages and pass to message handler thread.
         let libp2p_exit = spawn_service(
-            libp2p_service,
+            libp2p_service.clone(),
             network_recv,
             message_handler_send,
             executor,
             log,
         )?;
         let network_service = Service {
+            libp2p_service,
             _libp2p_exit: libp2p_exit,
-            network_send: network_send.clone(),
+            _network_send: network_send.clone(),
+            _phantom: PhantomData,
         };
 
         Ok((Arc::new(network_service), network_send))
     }
 
-    // TODO: Testing only
-    pub fn send_message(&mut self) {
-        self.network_send
-            .try_send(NetworkMessage::Send(
-                PeerId::random(),
-                OutgoingMessage::NotifierTest,
-            ))
-            .unwrap();
+    pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService<T::EthSpec>>> {
+        self.libp2p_service.clone()
     }
 }
 
 fn spawn_service<E: EthSpec>(
-    libp2p_service: LibP2PService<E>,
+    libp2p_service: Arc<Mutex<LibP2PService<E>>>,
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     message_handler_send: mpsc::UnboundedSender<HandlerMessage<E>>,
     executor: &TaskExecutor,
@@ -102,7 +100,7 @@ fn spawn_service<E: EthSpec>(
 
 //TODO: Potentially handle channel errors
 fn network_service<E: EthSpec>(
-    mut libp2p_service: LibP2PService<E>,
+    libp2p_service: Arc<Mutex<LibP2PService<E>>>,
     mut network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     mut message_handler_send: mpsc::UnboundedSender<HandlerMessage<E>>,
     log: slog::Logger,
@@ -114,28 +112,18 @@ fn network_service<E: EthSpec>(
             not_ready_count = 0;
             // poll the network channel
             match network_recv.poll() {
-                Ok(Async::Ready(Some(message))) => {
-                    match message {
-                        // TODO: Testing message - remove
-                        NetworkMessage::Send(peer_id, outgoing_message) => {
-                            match outgoing_message {
-                                OutgoingMessage::RPC(rpc_event) => {
-                                    trace!(log, "Sending RPC Event: {:?}", rpc_event);
-                                    //TODO: Make swarm private
-                                    //TODO: Implement correct peer id topic message handling
-                                    libp2p_service.swarm.send_rpc(peer_id, rpc_event);
-                                }
-                                OutgoingMessage::NotifierTest => {
-                                    // debug!(log, "Received message from notifier");
-                                }
-                            };
+                Ok(Async::Ready(Some(message))) => match message {
+                    NetworkMessage::Send(peer_id, outgoing_message) => match outgoing_message {
+                        OutgoingMessage::RPC(rpc_event) => {
+                            trace!(log, "Sending RPC Event: {:?}", rpc_event);
+                            libp2p_service.lock().swarm.send_rpc(peer_id, rpc_event);
                         }
-                        NetworkMessage::Publish { topics, message } => {
-                            debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
-                            libp2p_service.swarm.publish(topics, *message);
-                        }
+                    },
+                    NetworkMessage::Publish { topics, message } => {
+                        debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
+                        libp2p_service.lock().swarm.publish(topics, *message);
                     }
-                }
+                },
                 Ok(Async::NotReady) => not_ready_count += 1,
                 Ok(Async::Ready(None)) => {
                     return Err(eth2_libp2p::error::Error::from("Network channel closed"));
@@ -146,19 +134,25 @@ fn network_service<E: EthSpec>(
             }
 
             // poll the swarm
-            match libp2p_service.poll() {
+            match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
                         trace!(log, "RPC Event: RPC message received: {:?}", rpc_event);
                         message_handler_send
                             .try_send(HandlerMessage::RPC(peer_id, rpc_event))
-                            .map_err(|_| "failed to send rpc to handler")?;
+                            .map_err(|_| "Failed to send RPC to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
                         debug!(log, "Peer Dialed: {:?}", peer_id);
                         message_handler_send
                             .try_send(HandlerMessage::PeerDialed(peer_id))
-                            .map_err(|_| "failed to send rpc to handler")?;
+                            .map_err(|_| "Failed to send PeerDialed to handler")?;
+                    }
+                    Libp2pEvent::PeerDisconnected(peer_id) => {
+                        debug!(log, "Peer Disconnected: {:?}", peer_id);
+                        message_handler_send
+                            .try_send(HandlerMessage::PeerDisconnected(peer_id))
+                            .map_err(|_| "Failed to send PeerDisconnected to handler")?;
                     }
                     Libp2pEvent::PubsubMessage {
                         source, message, ..
@@ -175,16 +169,17 @@ fn network_service<E: EthSpec>(
                 Err(_) => not_ready_count += 1,
             }
         }
+
         Ok(Async::NotReady)
     })
 }
 
 /// Types of messages that the network service can receive.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum NetworkMessage<E: EthSpec> {
     /// Send a message to libp2p service.
     //TODO: Define typing for messages across the wire
-    Send(PeerId, OutgoingMessage<E>),
+    Send(PeerId, OutgoingMessage),
     /// Publish a message to pubsub mechanism.
     Publish {
         topics: Vec<Topic>,
@@ -193,10 +188,8 @@ pub enum NetworkMessage<E: EthSpec> {
 }
 
 /// Type of outgoing messages that can be sent through the network service.
-#[derive(Debug, Clone)]
-pub enum OutgoingMessage<E: EthSpec> {
+#[derive(Debug)]
+pub enum OutgoingMessage {
     /// Send an RPC request/response.
-    RPC(RPCEvent<E>),
-    //TODO: Remove
-    NotifierTest,
+    RPC(RPCEvent),
 }

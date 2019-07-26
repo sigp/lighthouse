@@ -132,6 +132,9 @@ impl<E: EthSpec> Stream for Service<E> {
                     BehaviourEvent::PeerDialed(peer_id) => {
                         return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
                     }
+                    BehaviourEvent::PeerDisconnected(peer_id) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::PeerDisconnected(peer_id))));
+                    }
                 },
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
@@ -178,9 +181,11 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent<E: EthSpec> {
     /// An RPC response request has been received on the swarm.
-    RPC(PeerId, RPCEvent<E>),
+    RPC(PeerId, RPCEvent),
     /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
+    /// A peer has disconnected.
+    PeerDisconnected(PeerId),
     /// Received pubsub message.
     PubsubMessage {
         source: PeerId,
