@@ -653,7 +653,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put(&state_root, &state)?;
 
         // Register the new block with the fork choice service.
-        self.fork_choice.process_block(&state, &block, block_root)?;
+        if let Err(e) = self.fork_choice.process_block(&state, &block, block_root) {
+            error!(
+                self.log,
+                "fork choice failed to process_block";
+                "error" => format!("{:?}", e),
+                "block_root" =>  format!("{}", block_root),
+                "block_slot" => format!("{}", block.slot)
+            )
+        }
 
         // Execute the fork choice algorithm, enthroning a new head if discovered.
         //
@@ -662,7 +670,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Err(e) = self.fork_choice() {
             error!(
                 self.log,
-                "fork choice failed";
+                "fork choice failed to find head";
                 "error" => format!("{:?}", e)
             )
         };
