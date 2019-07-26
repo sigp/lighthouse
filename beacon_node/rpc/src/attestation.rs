@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PubsubMessage;
 use eth2_libp2p::TopicBuilder;
-use eth2_libp2p::SHARD_TOPIC_PREFIX;
+use eth2_libp2p::BEACON_ATTESTATION_TOPIC;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
@@ -13,12 +13,13 @@ use protos::services_grpc::AttestationService;
 use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decode};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use types::Attestation;
 
 #[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
     pub log: slog::Logger,
 }
 
@@ -139,11 +140,11 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 );
 
                 // valid attestation, propagate to the network
-                let topic = TopicBuilder::new(SHARD_TOPIC_PREFIX).build();
+                let topic = TopicBuilder::new(BEACON_ATTESTATION_TOPIC).build();
                 let message = PubsubMessage::Attestation(attestation);
 
                 self.network_chan
-                    .send(NetworkMessage::Publish {
+                    .try_send(NetworkMessage::Publish {
                         topics: vec![topic],
                         message: Box::new(message),
                     })
