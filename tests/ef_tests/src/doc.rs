@@ -114,6 +114,26 @@ impl Doc {
             ("epoch_processing", "registry_updates", "mainnet") => {
                 run_test::<EpochProcessingRegistryUpdates<MainnetEthSpec>>(self)
             }
+            ("epoch_processing", "justification_and_finalization", "minimal") => {
+                run_test::<EpochProcessingJustificationAndFinalization<MinimalEthSpec>>(self)
+            }
+            ("epoch_processing", "justification_and_finalization", "mainnet") => {
+                run_test::<EpochProcessingJustificationAndFinalization<MainnetEthSpec>>(self)
+            }
+            ("epoch_processing", "slashings", "minimal") => {
+                run_test::<EpochProcessingSlashings<MinimalEthSpec>>(self)
+            }
+            ("epoch_processing", "slashings", "mainnet") => {
+                run_test::<EpochProcessingSlashings<MainnetEthSpec>>(self)
+            }
+            ("epoch_processing", "final_updates", "minimal") => {
+                run_test::<EpochProcessingFinalUpdates<MinimalEthSpec>>(self)
+            }
+            ("epoch_processing", "final_updates", "mainnet") => {
+                vec![]
+                // FIXME: skipped due to compact committees issue
+                // run_test::<EpochProcessingFinalUpdates<MainnetEthSpec>>(self)
+            }
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
