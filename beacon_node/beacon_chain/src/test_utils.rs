@@ -8,7 +8,11 @@ use std::sync::Arc;
 use store::MemoryStore;
 use store::Store;
 use tree_hash::{SignedRoot, TreeHash};
-use types::{test_utils::TestingBeaconStateBuilder, AggregateSignature, Attestation, AttestationDataAndCustodyBit, BeaconBlock, BeaconState, Bitfield, ChainSpec, Domain, EthSpec, Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot, CrosslinkCommittee};
+use types::{
+    test_utils::TestingBeaconStateBuilder, AggregateSignature, Attestation,
+    AttestationDataAndCustodyBit, BeaconBlock, BeaconState, Bitfield, ChainSpec, Domain, EthSpec,
+    Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot,
+};
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 
@@ -167,7 +171,7 @@ where
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
-                self.add_attestations_to_chain(
+                self.add_attestations_to_op_pool(
                     &attestation_strategy,
                     &new_state,
                     block_root,
@@ -252,16 +256,18 @@ where
         (block, state)
     }
 
-    /// Adds attestations to the `BeaconChain` operations pool and fork choice.
+    /// Adds attestations to the `BeaconChain` operations pool to be included in future blocks.
     ///
     /// The `attestation_strategy` dictates which validators should attest.
-    fn add_attestations_to_chain(
+    fn add_attestations_to_op_pool(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
         head_block_slot: Slot,
     ) {
+        let spec = &self.spec;
+        let fork = &state.fork;
 
         let attesting_validators: Vec<usize> = match attestation_strategy {
             AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
@@ -273,18 +279,55 @@ where
             .expect("should get committees")
             .iter()
             .for_each(|cc| {
+                let committee_size = cc.committee.len();
+
                 for (i, validator_index) in cc.committee.iter().enumerate() {
                     // Note: searching this array is worst-case `O(n)`. A hashset could be a better
                     // alternative.
                     if attesting_validators.contains(validator_index) {
-                        let attestation = self.create_attestation(
-                            *validator_index,
-                            cc,
-                            head_block_root,
-                            head_block_slot,
-                            state,
-                            i
-                        );
+                        let data = self
+                            .chain
+                            .produce_attestation_data_for_block(
+                                cc.shard,
+                                head_block_root,
+                                head_block_slot,
+                                state,
+                            )
+                            .expect("should produce attestation data");
+
+                        let mut aggregation_bitfield = Bitfield::new();
+                        aggregation_bitfield.set(i, true);
+                        aggregation_bitfield.set(committee_size, false);
+
+                        let mut custody_bitfield = Bitfield::new();
+                        custody_bitfield.set(committee_size, false);
+
+                        let signature = {
+                            let message = AttestationDataAndCustodyBit {
+                                data: data.clone(),
+                                custody_bit: false,
+                            }
+                            .tree_hash_root();
+
+                            let domain =
+                                spec.get_domain(data.target_epoch, Domain::Attestation, fork);
+
+                            let mut agg_sig = AggregateSignature::new();
+                            agg_sig.add(&Signature::new(
+                                &message,
+                                domain,
+                                self.get_sk(*validator_index),
+                            ));
+
+                            agg_sig
+                        };
+
+                        let attestation = Attestation {
+                            aggregation_bitfield,
+                            data,
+                            custody_bitfield,
+                            signature,
+                        };
 
                         self.chain
                             .process_attestation(attestation)
@@ -293,66 +336,6 @@ where
                 }
             });
     }
-
-    /// Creates an attestation for a validator with the given data.
-    pub fn create_attestation(
-        &self,
-        validator_index: usize,
-        crosslink_committee: &CrosslinkCommittee,
-        head_block_root: Hash256,
-        head_block_slot: Slot,
-        state: &BeaconState<E>,
-        bitfield_index: usize
-    ) -> Attestation {
-        let committee_size = crosslink_committee.committee.len();
-        let spec = &self.spec;
-        let fork = &state.fork;
-
-        let data = self
-            .chain
-            .produce_attestation_data_for_block(
-                crosslink_committee.shard,
-                head_block_root,
-                head_block_slot,
-                state,
-            )
-            .expect("should produce attestation data");
-
-        let mut aggregation_bitfield = Bitfield::new();
-        aggregation_bitfield.set(bitfield_index, true);
-        aggregation_bitfield.set(committee_size, false);
-
-        let mut custody_bitfield = Bitfield::new();
-        custody_bitfield.set(committee_size, false);
-
-        let signature = {
-            let message = AttestationDataAndCustodyBit {
-                data: data.clone(),
-                custody_bit: false,
-            }
-                .tree_hash_root();
-
-            let domain =
-                spec.get_domain(data.target_epoch, Domain::Attestation, fork);
-
-            let mut agg_sig = AggregateSignature::new();
-            agg_sig.add(&Signature::new(
-                &message,
-                domain,
-                self.get_sk(validator_index),
-            ));
-
-            agg_sig
-        };
-
-        Attestation {
-            aggregation_bitfield,
-            data,
-            custody_bitfield,
-            signature,
-        }
-    }
-
 
     /// Returns the secret key for the given validator index.
     fn get_sk(&self, validator_index: usize) -> &SecretKey {
