@@ -115,7 +115,7 @@ other programming languages you may have used.
 * **Trait**: A trait is a collection of methods defined for a type, they can be
 implemented for any data type.
 * **Struct**: A custom data type that lets us name and package together
-multiple related values that make a meaninguful group.
+multiple related values that make a meaningful group.
 * **Crate**: A crate is synonymous with a *library* or *package* in other
 languages. They can produce an executable or library depending on the
 project.

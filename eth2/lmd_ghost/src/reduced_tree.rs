@@ -1,6 +1,6 @@
 //! An implementation of "reduced tree" LMD GHOST fork choice.
 //!
-//! This algorithm was concieved at IC3 Cornell, 2019.
+//! This algorithm was conceived at IC3 Cornell, 2019.
 //!
 //! This implementation is incomplete and has known bugs. Do not use in production.
 use super::{LmdGhost, Result as SuperResult};
@@ -147,7 +147,7 @@ where
         Ok(())
     }
 
-    /// Removes `current_hash` and all decendants, except `subtree_hash` and all nodes
+    /// Removes `current_hash` and all descendants, except `subtree_hash` and all nodes
     /// which have `subtree_hash` as an ancestor.
     ///
     /// In effect, prunes the tree so that only decendants of `subtree_hash` exist.
