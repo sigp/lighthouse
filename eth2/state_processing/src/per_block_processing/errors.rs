@@ -247,7 +247,7 @@ pub enum IndexedAttestationInvalid {
     MaxIndicesExceed(u64, usize),
     /// The validator indices were not in increasing order.
     ///
-    /// The error occured between the given `index` and `index + 1`
+    /// The error occurred between the given `index` and `index + 1`
     BadValidatorIndicesOrdering(usize),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
@@ -413,7 +413,7 @@ pub enum TransferInvalid {
     /// The `transfer.from` validator has been activated and is not withdrawable.
     ///
     /// (from_validator)
-    FromValidatorIneligableForTransfer(u64),
+    FromValidatorIneligibleForTransfer(u64),
     /// The validators withdrawal credentials do not match `transfer.pubkey`.
     ///
     /// (state_credentials, transfer_pubkey_credentials)

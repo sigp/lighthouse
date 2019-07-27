@@ -47,7 +47,7 @@ pub fn per_epoch_processing<T: EthSpec>(
     // Crosslinks.
     let winning_root_for_shards = process_crosslinks(state, spec)?;
 
-    // Rewards and Penalities.
+    // Rewards and Penalties.
     process_rewards_and_penalties(
         state,
         &mut validator_statuses,

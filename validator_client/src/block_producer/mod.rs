@@ -48,7 +48,7 @@ pub struct BlockProducer<'a, B: BeaconNodeBlock, S: Signer> {
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
     pub signer: &'a S,
-    /// Used for caclulating epoch.
+    /// Used for calculating epoch.
     pub slots_per_epoch: u64,
 }
 
