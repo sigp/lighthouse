@@ -12,18 +12,12 @@ eth2-libp2p = { path = "../eth2-libp2p" }
 version = { path = "../version" }
 types = { path = "../../eth2/types" }
 eth2_ssz = { path = "../../eth2/utils/ssz" }
-slot_clock = { path = "../../eth2/utils/slot_clock" }
 protos = { path = "../../protos" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
-protobuf = "2.0.2"
 clap = "2.32.0"
-store = { path = "../store" }
-dirs = "1.0.3"
 futures = "0.1.23"
 serde = "1.0"
 serde_derive = "1.0"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
-slog-term = "^2.4.0"
-slog-async = "^2.3.0"
 tokio = "0.1.17"
 exit-future = "0.1.4"
