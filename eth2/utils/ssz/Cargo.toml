@@ -18,7 +18,4 @@ criterion = "0.2"
 eth2_ssz_derive = "0.1.0"
 
 [dependencies]
-bytes = "0.4.9"
 ethereum-types = "0.5"
-hex = "0.3"
-yaml-rust = "0.4"

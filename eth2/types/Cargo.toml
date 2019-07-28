@@ -16,15 +16,12 @@ ethereum-types = "0.5"
 fixed_len_vec = { path = "../utils/fixed_len_vec" }
 hashing = { path = "../utils/hashing" }
 hex = "0.3"
-honey-badger-split =  { path = "../utils/honey-badger-split" }
 int_to_bytes = { path = "../utils/int_to_bytes" }
 log = "0.4"
 rayon = "1.0"
 rand = "0.5.5"
 serde = "1.0"
 serde_derive = "1.0"
-serde_json = "1.0"
-serde_yaml = "0.8"
 slog = "^2.2.3"
 eth2_ssz = { path = "../utils/ssz" }
 eth2_ssz_derive = { path = "../utils/ssz_derive" }
