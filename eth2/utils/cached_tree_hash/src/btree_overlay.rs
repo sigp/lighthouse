@@ -64,7 +64,7 @@ pub struct BTreeOverlay {
 }
 
 impl BTreeOverlay {
-    /// Instantiates a new instance for `item`, where it's first chunk is `inital_offset` and has
+    /// Instantiates a new instance for `item`, where it's first chunk is `initial_offset` and has
     /// the specified `depth`.
     pub fn new<T>(item: &T, initial_offset: usize, depth: usize) -> Self
     where

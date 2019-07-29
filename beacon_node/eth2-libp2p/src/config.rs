@@ -54,7 +54,7 @@ impl Default for Config {
         network_dir.push("network");
         Config {
             network_dir,
-            listen_address: "127.0.0.1".parse().expect("vaild ip address"),
+            listen_address: "127.0.0.1".parse().expect("valid ip address"),
             libp2p_port: 9000,
             discovery_address: "127.0.0.1".parse().expect("valid ip address"),
             discovery_port: 9000,
@@ -79,8 +79,14 @@ impl Config {
     }
 
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), String> {
+        // If a `datadir` has been specified, set the network dir to be inside it.
         if let Some(dir) = args.value_of("datadir") {
             self.network_dir = PathBuf::from(dir).join("network");
+        };
+
+        // If a network dir has been specified, override the `datadir` definition.
+        if let Some(dir) = args.value_of("network-dir") {
+            self.network_dir = PathBuf::from(dir);
         };
 
         if let Some(listen_address_str) = args.value_of("listen-address") {

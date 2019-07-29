@@ -5,7 +5,6 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
-beacon_chain =  { path = "../beacon_chain" }
 clap = "2.32.0"
 #SigP repository 
 libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "be5710bbde69d8c5be732c13ba64239e2f370a7b" }

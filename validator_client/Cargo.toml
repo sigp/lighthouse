@@ -19,7 +19,6 @@ eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = { path = "../eth2/utils/tree_hash" }
 clap = "2.32.0"
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
-protobuf = "2.0.2"
 protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
@@ -31,7 +30,6 @@ slog-json = "^2.3"
 slog-term = "^2.4.0"
 tokio = "0.1.18"
 tokio-timer = "0.2.10"
-toml = "^0.5"
 error-chain = "0.12.0"
 bincode = "^1.1.2"
 futures = "0.1.25"

@@ -1,4 +1,4 @@
-//! The `Slot` and `Epoch` types are defined as newtypes over u64 to enforce type-safety between
+//! The `Slot` and `Epoch` types are defined as new types over u64 to enforce type-safety between
 //! the two types.
 //!
 //! `Slot` and `Epoch` have implementations which permit conversion, comparison and math operations

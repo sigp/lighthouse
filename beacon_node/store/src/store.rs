@@ -19,7 +19,7 @@ pub trait Store: Sync + Send + Sized {
         I::db_delete(self, key)
     }
 
-    fn get_block_at_preceeding_slot(
+    fn get_block_at_preceding_slot(
         &self,
         start_block_root: Hash256,
         slot: Slot,

@@ -27,7 +27,7 @@ fn get_hashable_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<
         .collect()
 }
 
-/// Returns true if some field has an attribute declaring it should not be hashedd.
+/// Returns true if some field has an attribute declaring it should not be hashed.
 ///
 /// The field attribute is: `#[tree_hash(skip_hashing)]`
 fn should_skip_hashing(field: &syn::Field) -> bool {

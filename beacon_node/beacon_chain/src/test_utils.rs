@@ -1,5 +1,6 @@
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use lmd_ghost::LmdGhost;
+use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
@@ -64,6 +65,8 @@ where
 
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
 /// attestations.
+///
+/// Used for testing.
 pub struct BeaconChainHarness<L, E>
 where
     L: LmdGhost<MemoryStore, E>,
@@ -92,6 +95,9 @@ where
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
 
+        let builder = NullLoggerBuilder;
+        let log = builder.build().expect("logger should build");
+
         // Slot clock
         let slot_clock = TestingSlotClock::new(
             spec.genesis_slot,
@@ -105,6 +111,7 @@ where
             genesis_state,
             genesis_block,
             spec.clone(),
+            log,
         )
         .expect("Terminate if beacon chain generation fails");
 
@@ -332,6 +339,50 @@ where
                     }
                 }
             });
+    }
+
+    /// Creates two forks:
+    ///
+    ///  - The "honest" fork: created by the `honest_validators` who have built `honest_fork_blocks`
+    /// on the head
+    ///  - The "faulty" fork: created by the `faulty_validators` who skipped a slot and
+    /// then built `faulty_fork_blocks`.
+    ///
+    /// Returns `(honest_head, faulty_head)`, the roots of the blocks at the top of each chain.
+    pub fn generate_two_forks_by_skipping_a_block(
+        &self,
+        honest_validators: &[usize],
+        faulty_validators: &[usize],
+        honest_fork_blocks: usize,
+        faulty_fork_blocks: usize,
+    ) -> (Hash256, Hash256) {
+        let initial_head_slot = self.chain.head().beacon_block.slot;
+
+        // Move to the next slot so we may produce some more blocks on the head.
+        self.advance_slot();
+
+        // Extend the chain with blocks where only honest validators agree.
+        let honest_head = self.extend_chain(
+            honest_fork_blocks,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(honest_validators.to_vec()),
+        );
+
+        // Go back to the last block where all agreed, and build blocks upon it where only faulty nodes
+        // agree.
+        let faulty_head = self.extend_chain(
+            faulty_fork_blocks,
+            BlockStrategy::ForkCanonicalChainAt {
+                previous_slot: Slot::from(initial_head_slot),
+                // `initial_head_slot + 2` means one slot is skipped.
+                first_slot: Slot::from(initial_head_slot + 2),
+            },
+            AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
+        );
+
+        assert!(honest_head != faulty_head, "forks should be distinct");
+
+        (honest_head, faulty_head)
     }
 
     /// Returns the secret key for the given validator index.

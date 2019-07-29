@@ -36,6 +36,13 @@ fn main() {
                 .help("File path where output will be written.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("network-dir")
+                .long("network-dir")
+                .value_name("NETWORK-DIR")
+                .help("Data directory for network keys.")
+                .takes_value(true)
+        )
         // network related arguments
         .arg(
             Arg::with_name("listen-address")
@@ -146,6 +153,16 @@ fn main() {
                 .help("When present, genesis will be within 30 minutes prior. Only for testing"),
         )
         .arg(
+            Arg::with_name("debug-level")
+                .long("debug-level")
+                .value_name("LEVEL")
+                .short("s")
+                .help("The title of the spec constants for chain config.")
+                .takes_value(true)
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .default_value("info"),
+        )
+        .arg(
             Arg::with_name("verbosity")
                 .short("v")
                 .multiple(true)
@@ -156,8 +173,18 @@ fn main() {
 
     // build the initial logger
     let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build();
+
+    let drain = match matches.value_of("debug-level") {
+        Some("info") => drain.filter_level(Level::Info),
+        Some("debug") => drain.filter_level(Level::Debug),
+        Some("trace") => drain.filter_level(Level::Trace),
+        Some("warn") => drain.filter_level(Level::Warning),
+        Some("error") => drain.filter_level(Level::Error),
+        Some("crit") => drain.filter_level(Level::Critical),
+        _ => unreachable!("guarded by clap"),
+    };
 
     let drain = match matches.occurrences_of("verbosity") {
         0 => drain.filter_level(Level::Info),
@@ -263,6 +290,7 @@ fn main() {
         }
     };
 
+    // Start the node using a `tokio` executor.
     match run::run_beacon_node(client_config, eth2_config, &log) {
         Ok(_) => {}
         Err(e) => crit!(log, "Beacon node failed to start"; "reason" => format!("{:}", e)),

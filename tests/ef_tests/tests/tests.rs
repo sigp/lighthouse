@@ -12,7 +12,7 @@ fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
     assert!(
         base_path.exists(),
         format!(
-            "Unable to locate {:?}. Did you init git submoules?",
+            "Unable to locate {:?}. Did you init git submodules?",
             base_path
         )
     );
