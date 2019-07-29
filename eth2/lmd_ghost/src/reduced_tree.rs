@@ -6,9 +6,10 @@
 use super::{LmdGhost, Result as SuperResult};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{iter::BestBlockRootsIterator, Error as StoreError, Store};
+use store::{iter::BlockRootsIterator, Error as StoreError, Store};
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
@@ -33,6 +34,23 @@ impl From<StoreError> for Error {
 
 pub struct ThreadSafeReducedTree<T, E> {
     core: RwLock<ReducedTree<T, E>>,
+}
+
+impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
+    /// `Debug` just defers to the implementation of `self.core`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.core.fmt(f)
+    }
+}
+
+impl<T, E> ThreadSafeReducedTree<T, E>
+where
+    T: Store,
+    E: EthSpec,
+{
+    pub fn verify_integrity(&self) -> std::result::Result<(), String> {
+        self.core.read().verify_integrity()
+    }
 }
 
 impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
@@ -100,6 +118,12 @@ struct ReducedTree<T, E> {
     _phantom: PhantomData<E>,
 }
 
+impl<T, E> fmt::Debug for ReducedTree<T, E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.nodes.fmt(f)
+    }
+}
+
 impl<T, E> ReducedTree<T, E>
 where
     T: Store,
@@ -126,6 +150,10 @@ where
         }
     }
 
+    /// Set the root node (the node without any parents) to the given `new_slot` and `new_root`.
+    ///
+    /// The given `new_root` must be in the block tree (but not necessarily in the reduced tree).
+    /// Any nodes which are not a descendant of `new_root` will be removed from the store.
     pub fn update_root(&mut self, new_slot: Slot, new_root: Hash256) -> Result<()> {
         if !self.nodes.contains_key(&new_root) {
             let node = Node {
@@ -276,55 +304,54 @@ where
         Ok(weight)
     }
 
+    /// Removes the vote from `validator_index` from the reduced tree.
+    ///
+    /// If the validator had a vote in the tree, the removal of that vote may cause a node to
+    /// become redundant and removed from the reduced tree.
     fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
-        if self.latest_votes.get(validator_index).is_some() {
-            // Unwrap is safe as prior `if` statements ensures the result is `Some`.
-            let vote = self.latest_votes.get(validator_index).unwrap();
+        if let Some(vote) = self.latest_votes.get(validator_index).clone() {
+            self.get_mut_node(vote.hash)?.remove_voter(validator_index);
+            let node = self.get_node(vote.hash)?.clone();
 
-            let should_delete = {
-                self.get_mut_node(vote.hash)?.remove_voter(validator_index);
-                let node = self.get_node(vote.hash)?.clone();
+            if let Some(parent_hash) = node.parent_hash {
+                if node.has_votes() || node.children.len() > 1 {
+                    // A node with votes or more than one child is never removed.
+                } else if node.children.len() == 1 {
+                    // A node which has only one child may be removed.
+                    //
+                    // Load the child of the node and set it's parent to be the parent of this
+                    // node (viz., graft the node's child to the node's parent)
+                    let child = self.get_mut_node(node.children[0])?;
+                    child.parent_hash = node.parent_hash;
 
-                if let Some(parent_hash) = node.parent_hash {
-                    if node.has_votes() || node.children.len() > 1 {
-                        // A node with votes or more than one child is never removed.
-                        false
-                    } else if node.children.len() == 1 {
-                        // A node which has only one child may be removed.
-                        //
-                        // Load the child of the node and set it's parent to be the parent of this
-                        // node (viz., graft the node's child to the node's parent)
-                        let child = self.get_mut_node(node.children[0])?;
-                        child.parent_hash = node.parent_hash;
-
-                        // Graft the parent of this node to it's child.
-                        if let Some(parent_hash) = node.parent_hash {
-                            let parent = self.get_mut_node(parent_hash)?;
-                            parent.replace_child(node.block_hash, node.children[0])?;
-                        }
-
-                        true
-                    } else if node.children.is_empty() {
-                        // A node which has no children may be deleted and potentially it's parent
-                        // too.
-                        self.maybe_delete_node(parent_hash)?;
-
-                        true
-                    } else {
-                        // It is impossible for a node to have a number of children that is not 0, 1 or
-                        // greater than one.
-                        //
-                        // This code is strictly unnecessary, however we keep it for readability.
-                        unreachable!();
+                    // Graft the parent of this node to it's child.
+                    if let Some(parent_hash) = node.parent_hash {
+                        let parent = self.get_mut_node(parent_hash)?;
+                        parent.replace_child(node.block_hash, node.children[0])?;
                     }
-                } else {
-                    // A node without a parent is the genesis/finalized node and should never be removed.
-                    false
-                }
-            };
 
-            if should_delete {
-                self.nodes.remove(&vote.hash);
+                    self.nodes.remove(&vote.hash);
+                } else if node.children.is_empty() {
+                    // Remove the to-be-deleted node from it's parent.
+                    if let Some(parent_hash) = node.parent_hash {
+                        self.get_mut_node(parent_hash)?
+                            .remove_child(node.block_hash)?;
+                    }
+
+                    self.nodes.remove(&vote.hash);
+
+                    // A node which has no children may be deleted and potentially it's parent
+                    // too.
+                    self.maybe_delete_node(parent_hash)?;
+                } else {
+                    // It is impossible for a node to have a number of children that is not 0, 1 or
+                    // greater than one.
+                    //
+                    // This code is strictly unnecessary, however we keep it for readability.
+                    unreachable!();
+                }
+            } else {
+                // A node without a parent is the genesis/finalized node and should never be removed.
             }
 
             self.latest_votes.insert(validator_index, Some(vote));
@@ -333,23 +360,27 @@ where
         Ok(())
     }
 
+    /// Deletes a node if it is unnecessary.
+    ///
+    /// Any node is unnecessary if all of the following are true:
+    ///
+    /// - it is not the root node.
+    /// - it only has one child.
+    /// - it does not have any votes.
     fn maybe_delete_node(&mut self, hash: Hash256) -> Result<()> {
         let should_delete = {
             let node = self.get_node(hash)?.clone();
 
             if let Some(parent_hash) = node.parent_hash {
                 if (node.children.len() == 1) && !node.has_votes() {
-                    // Graft the child to it's grandparent.
-                    let child_hash = {
-                        let child_node = self.get_mut_node(node.children[0])?;
-                        child_node.parent_hash = node.parent_hash;
+                    let child_hash = node.children[0];
 
-                        child_node.block_hash
-                    };
+                    // Graft the single descendant `node` to the `parent` of node.
+                    self.get_mut_node(child_hash)?.parent_hash = Some(parent_hash);
 
-                    // Graft the grandparent to it's grandchild.
-                    let parent_node = self.get_mut_node(parent_hash)?;
-                    parent_node.replace_child(node.block_hash, child_hash)?;
+                    // Detach `node` from `parent`, replacing it with `child`.
+                    self.get_mut_node(parent_hash)?
+                        .replace_child(hash, child_hash)?;
 
                     true
                 } else {
@@ -385,7 +416,7 @@ where
     }
 
     fn add_weightless_node(&mut self, slot: Slot, hash: Hash256) -> Result<()> {
-        if slot >= self.root_slot() && !self.nodes.contains_key(&hash) {
+        if slot > self.root_slot() && !self.nodes.contains_key(&hash) {
             let node = Node {
                 block_hash: hash,
                 ..Node::default()
@@ -393,6 +424,8 @@ where
 
             self.add_node(node)?;
 
+            // Read the `parent_hash` from the newly created node. If it has a parent (i.e., it's
+            // not the root), see if it is superfluous.
             if let Some(parent_hash) = self.get_node(hash)?.parent_hash {
                 self.maybe_delete_node(parent_hash)?;
             }
@@ -401,58 +434,91 @@ where
         Ok(())
     }
 
+    /// Add `node` to the reduced tree, returning an error if `node` is not rooted in the tree.
     fn add_node(&mut self, mut node: Node) -> Result<()> {
-        // Find the highest (by slot) ancestor of the given hash/block that is in the reduced tree.
-        let mut prev_in_tree = {
-            let hash = self
-                .find_prev_in_tree(node.block_hash)
-                .ok_or_else(|| Error::NotInTree(node.block_hash))?;
-            self.get_mut_node(hash)?.clone()
-        };
+        // Find the highest (by slot) ancestor of the given node in the reduced tree.
+        //
+        // If this node has no ancestor in the tree, exit early.
+        let mut prev_in_tree = self
+            .find_prev_in_tree(node.block_hash)
+            .ok_or_else(|| Error::NotInTree(node.block_hash))
+            .and_then(|hash| self.get_node(hash))?
+            .clone();
 
-        let mut added = false;
-
+        // If the ancestor of `node` has children, there are three possible operations:
+        //
+        // 1. Graft the `node` between two existing nodes.
+        // 2. Create another node that will be grafted between two existing nodes, then graft
+        //    `node` to it.
+        // 3. Graft `node` to an existing node.
         if !prev_in_tree.children.is_empty() {
             for &child_hash in &prev_in_tree.children {
+                // 1. Graft the new node between two existing nodes.
+                //
+                // If `node` is a descendant of `prev_in_tree` but an ancestor of a child connected to
+                // `prev_in_tree`.
+                //
+                // This means that `node` can be grafted between `prev_in_tree` and the child that is a
+                // descendant of both `node` and `prev_in_tree`.
                 if self
                     .iter_ancestors(child_hash)?
                     .any(|(ancestor, _slot)| ancestor == node.block_hash)
                 {
                     let child = self.get_mut_node(child_hash)?;
 
+                    // Graft `child` to `node`.
                     child.parent_hash = Some(node.block_hash);
+                    // Graft `node` to `child`.
                     node.children.push(child_hash);
+                    // Detach `child` from `prev_in_tree`, replacing it with `node`.
                     prev_in_tree.replace_child(child_hash, node.block_hash)?;
+                    // Graft `node` to `prev_in_tree`.
                     node.parent_hash = Some(prev_in_tree.block_hash);
-
-                    added = true;
 
                     break;
                 }
             }
 
-            if !added {
+            // 2. Create another node that will be grafted between two existing nodes, then graft
+            //    `node` to it.
+            //
+            // Note: given that `prev_in_tree` has children and that `node` is not an ancestor of
+            // any of the children of `prev_in_tree`, we know that `node` is on a different fork to
+            // all of the children of `prev_in_tree`.
+            if node.parent_hash.is_none() {
                 for &child_hash in &prev_in_tree.children {
+                    // Find the highest (by slot) common ancestor between `node` and `child`.
+                    //
+                    // The common ancestor is the last block before `node` and `child` forked.
                     let ancestor_hash =
-                        self.find_least_common_ancestor(node.block_hash, child_hash)?;
+                        self.find_highest_common_ancestor(node.block_hash, child_hash)?;
 
+                    // If the block before `node` and `child` forked is _not_ `prev_in_tree` we
+                    // must add this new block into the tree (because it is a decision node
+                    // between two forks).
                     if ancestor_hash != prev_in_tree.block_hash {
                         let child = self.get_mut_node(child_hash)?;
+
+                        // Create a new `common_ancestor` node which represents the `ancestor_hash`
+                        // block, has `prev_in_tree` as the parent and has both `node` and `child`
+                        // as children.
                         let common_ancestor = Node {
                             block_hash: ancestor_hash,
                             parent_hash: Some(prev_in_tree.block_hash),
                             children: vec![node.block_hash, child_hash],
                             ..Node::default()
                         };
+
+                        // Graft `child` and `node` to `common_ancestor`.
                         child.parent_hash = Some(common_ancestor.block_hash);
                         node.parent_hash = Some(common_ancestor.block_hash);
 
-                        prev_in_tree.replace_child(child_hash, ancestor_hash)?;
+                        // Detach `child` from `prev_in_tree`, replacing it with `common_ancestor`.
+                        prev_in_tree.replace_child(child_hash, common_ancestor.block_hash)?;
 
+                        // Store the new `common_ancestor` node.
                         self.nodes
                             .insert(common_ancestor.block_hash, common_ancestor);
-
-                        added = true;
 
                         break;
                     }
@@ -460,16 +526,16 @@ where
             }
         }
 
-        if !added {
+        if node.parent_hash.is_none() {
+            // 3. Graft `node` to an existing node.
+            //
+            // Graft `node` to `prev_in_tree` and `prev_in_tree` to `node`
             node.parent_hash = Some(prev_in_tree.block_hash);
             prev_in_tree.children.push(node.block_hash);
         }
 
         // Update `prev_in_tree`. A mutable reference was not maintained to satisfy the borrow
-        // checker.
-        //
-        // This is not an ideal solution and results in unnecessary memory copies -- a better
-        // solution is certainly possible.
+        // checker. Perhaps there's a better way?
         self.nodes.insert(prev_in_tree.block_hash, prev_in_tree);
         self.nodes.insert(node.block_hash, node);
 
@@ -485,60 +551,110 @@ where
             .and_then(|(root, _slot)| Some(root))
     }
 
-    /// For the given `child` block hash, return the block's ancestor at the given `target` slot.
-    fn find_ancestor_at_slot(&self, child: Hash256, target: Slot) -> Result<Hash256> {
-        let (root, slot) = self
-            .iter_ancestors(child)?
-            .find(|(_block, slot)| *slot <= target)
-            .ok_or_else(|| Error::NotInTree(child))?;
-
-        // Explicitly check that the slot is the target in the case that the given child has a slot
-        // above target.
-        if slot == target {
-            Ok(root)
-        } else {
-            Err(Error::NotInTree(child))
-        }
-    }
-
     /// For the two given block roots (`a_root` and `b_root`), find the first block they share in
     /// the tree. Viz, find the block that these two distinct blocks forked from.
-    fn find_least_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
-        // If the blocks behind `a_root` and `b_root` are not at the same slot, take the highest
-        // block (by slot) down to be equal with the lower slot.
-        //
-        // The result is two roots which identify two blocks at the same height.
-        let (a_root, b_root) = {
-            let a = self.get_block(a_root)?;
-            let b = self.get_block(b_root)?;
+    fn find_highest_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
+        let mut a_iter = self.iter_ancestors(a_root)?;
+        let mut b_iter = self.iter_ancestors(b_root)?;
 
-            if a.slot > b.slot {
-                (self.find_ancestor_at_slot(a_root, b.slot)?, b_root)
-            } else if b.slot > a.slot {
-                (a_root, self.find_ancestor_at_slot(b_root, a.slot)?)
-            } else {
-                (a_root, b_root)
+        // Combines the `next()` fns on the `a_iter` and `b_iter` and returns the roots of two
+        // blocks at the same slot, or `None` if we have gone past genesis or the root of this tree.
+        let mut iter_blocks_at_same_height = || -> Option<(Hash256, Hash256)> {
+            match (a_iter.next(), b_iter.next()) {
+                (Some((mut a_root, a_slot)), Some((mut b_root, b_slot))) => {
+                    // If either of the slots are lower than the root of this tree, exit early.
+                    if a_slot < self.root.1 || b_slot < self.root.1 {
+                        None
+                    } else {
+                        if a_slot < b_slot {
+                            for _ in a_slot.as_u64()..b_slot.as_u64() {
+                                b_root = b_iter.next()?.0;
+                            }
+                        } else if a_slot > b_slot {
+                            for _ in b_slot.as_u64()..a_slot.as_u64() {
+                                a_root = a_iter.next()?.0;
+                            }
+                        }
+
+                        Some((a_root, b_root))
+                    }
+                }
+                _ => None,
             }
         };
 
-        let ((a_root, _a_slot), (_b_root, _b_slot)) = self
-            .iter_ancestors(a_root)?
-            .zip(self.iter_ancestors(b_root)?)
-            .find(|((a_root, _), (b_root, _))| a_root == b_root)
-            .ok_or_else(|| Error::NoCommonAncestor((a_root, b_root)))?;
-
-        Ok(a_root)
+        loop {
+            match iter_blocks_at_same_height() {
+                Some((a_root, b_root)) if a_root == b_root => break Ok(a_root),
+                Some(_) => (),
+                None => break Err(Error::NoCommonAncestor((a_root, b_root))),
+            }
+        }
     }
 
-    fn iter_ancestors(&self, child: Hash256) -> Result<BestBlockRootsIterator<E, T>> {
+    fn iter_ancestors(&self, child: Hash256) -> Result<BlockRootsIterator<E, T>> {
         let block = self.get_block(child)?;
         let state = self.get_state(block.state_root)?;
 
-        Ok(BestBlockRootsIterator::owned(
+        Ok(BlockRootsIterator::owned(
             self.store.clone(),
             state,
             block.slot - 1,
         ))
+    }
+
+    /// Verify the integrity of `self`. Returns `Ok(())` if the tree has integrity, otherwise returns `Err(description)`.
+    ///
+    /// Tries to detect the following erroneous conditions:
+    ///
+    /// - Dangling references inside the tree.
+    /// - Any scenario where there's not exactly one root node.
+    ///
+    /// ## Notes
+    ///
+    /// Computationally intensive, likely only useful during testing.
+    pub fn verify_integrity(&self) -> std::result::Result<(), String> {
+        let num_root_nodes = self
+            .nodes
+            .iter()
+            .filter(|(_key, node)| node.parent_hash.is_none())
+            .count();
+
+        if num_root_nodes != 1 {
+            return Err(format!(
+                "Tree has {} roots, should have exactly one.",
+                num_root_nodes
+            ));
+        }
+
+        let verify_node_exists = |key: Hash256, msg: String| -> std::result::Result<(), String> {
+            if self.nodes.contains_key(&key) {
+                Ok(())
+            } else {
+                Err(msg)
+            }
+        };
+
+        // Iterate through all the nodes and ensure all references they store are valid.
+        self.nodes
+            .iter()
+            .map(|(_key, node)| {
+                if let Some(parent_hash) = node.parent_hash {
+                    verify_node_exists(parent_hash, "parent must exist".to_string())?;
+                }
+
+                node.children
+                    .iter()
+                    .map(|child| verify_node_exists(*child, "child_must_exist".to_string()))
+                    .collect::<std::result::Result<(), String>>()?;
+
+                verify_node_exists(node.block_hash, "block hash must exist".to_string())?;
+
+                Ok(())
+            })
+            .collect::<std::result::Result<(), String>>()?;
+
+        Ok(())
     }
 
     fn get_node(&self, hash: Hash256) -> Result<&Node> {
@@ -591,6 +707,18 @@ impl Node {
             .position(|&c| c == old)
             .ok_or_else(|| Error::MissingChild(old))?;
         self.children[i] = new;
+
+        Ok(())
+    }
+
+    pub fn remove_child(&mut self, child: Hash256) -> Result<()> {
+        let i = self
+            .children
+            .iter()
+            .position(|&c| c == child)
+            .ok_or_else(|| Error::MissingChild(child))?;
+
+        self.children.remove(i);
 
         Ok(())
     }

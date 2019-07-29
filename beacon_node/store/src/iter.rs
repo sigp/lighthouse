@@ -3,6 +3,22 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use types::{BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot};
 
+/// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
+pub trait AncestorIter<U: Store, I: Iterator> {
+    /// Returns an iterator over the roots of the ancestors of `self`.
+    fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<I>;
+}
+
+impl<'a, U: Store, E: EthSpec> AncestorIter<U, BestBlockRootsIterator<'a, E, U>> for BeaconBlock {
+    /// Iterates across all the prior block roots of `self`, starting at the most recent and ending
+    /// at genesis.
+    fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BestBlockRootsIterator<'a, E, U>> {
+        let state = store.get::<BeaconState<E>>(&self.state_root).ok()??;
+
+        Some(BestBlockRootsIterator::owned(store, state, self.slot))
+    }
+}
+
 #[derive(Clone)]
 pub struct StateRootsIterator<'a, T: EthSpec, U> {
     store: Arc<U>,

@@ -125,14 +125,14 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         state: &BeaconState<T::EthSpec>,
         attestation: &Attestation,
     ) -> Result<()> {
-        // Note: `get_attesting_indices_unsorted` requires that the beacon state caches be built.
         let validator_indices = get_attesting_indices_unsorted(
             state,
             &attestation.data,
             &attestation.aggregation_bitfield,
         )?;
+        let block_slot = state.get_attestation_slot(&attestation.data)?;
 
-        let block_hash = attestation.data.target_root;
+        let block_hash = attestation.data.beacon_block_root;
 
         // Ignore any attestations to the zero hash.
         //
@@ -148,11 +148,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
         if block_hash != Hash256::zero() {
-            let block_slot = attestation
-                .data
-                .target_epoch
-                .start_slot(T::EthSpec::slots_per_epoch());
-
             for validator_index in validator_indices {
                 self.backend
                     .process_attestation(validator_index, block_hash, block_slot)?;
