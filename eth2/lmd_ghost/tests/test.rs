@@ -157,9 +157,10 @@ fn get_ancestor_roots<E: EthSpec, U: Store>(
         .expect("block should exist")
         .expect("store should not error");
 
-    <BeaconBlock as AncestorIter<_, BestBlockRootsIterator<E, _>>>::iter_ancestor_roots(
+    <BeaconBlock as AncestorIter<_, BestBlockRootsIterator<E, _>>>::try_iter_ancestor_roots(
         &block, store,
     )
+    .expect("should be able to create ancestor iter")
     .collect()
 }
 
