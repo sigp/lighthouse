@@ -37,7 +37,7 @@ pub struct ThreadSafeReducedTree<T, E> {
 }
 
 impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
-    /// `Debug` just defers to the implementation if `self.core`.
+    /// `Debug` just defers to the implementation of `self.core`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.core.fmt(f)
     }
@@ -121,7 +121,6 @@ struct ReducedTree<T, E> {
 impl<T, E> fmt::Debug for ReducedTree<T, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.nodes.fmt(f)
-        // write!(f, "Point {{ x: {}, y: {} }}", self.x, self.y)
     }
 }
 
@@ -310,15 +309,7 @@ where
     /// If the validator had a vote in the tree, the removal of that vote may cause a node to
     /// become redundant and removed from the reduced tree.
     fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
-        if self.latest_votes.get(validator_index).is_some() {
-            // Unwrap is safe as prior `if` statements ensures the result is `Some`.
-            //
-            // We do this instead of `if let` to satisfy the borrow checker.
-            let vote = self
-                .latest_votes
-                .get(validator_index)
-                .expect("Value is already known to be `Some`");
-
+        if let Some(vote) = self.latest_votes.get(validator_index).clone() {
             self.get_mut_node(vote.hash)?.remove_voter(validator_index);
             let node = self.get_node(vote.hash)?.clone();
 
