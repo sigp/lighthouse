@@ -37,4 +37,5 @@ members = [
 	"protos",
 	"validator_client",
 	"account_manager",
+	"logging",
 ]

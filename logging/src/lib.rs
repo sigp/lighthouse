@@ -1,5 +1,7 @@
 use std::io::{Write, Result};
 
+pub const MAX_MESSAGE_WIDTH: usize = 40;
+
 pub struct AlignedTermDecorator {
     wrapped: slog_term::TermDecorator,
     message_width: usize,
@@ -17,7 +19,7 @@ impl AlignedTermDecorator {
 impl slog_term::Decorator for AlignedTermDecorator {
     fn with_record<F>(&self, _record: &slog::Record, _logger_values: &slog::OwnedKVList, f: F)
                       -> Result<()> where
-        F: FnOnce(&mut slog_term::RecordDecorator) -> std::io::Result<()> {
+        F: FnOnce(&mut dyn slog_term::RecordDecorator) -> std::io::Result<()> {
         self.wrapped.with_record(_record, _logger_values, |deco| {
             f(&mut AlignedRecordDecorator::new(deco, self.message_width))
         })
@@ -25,7 +27,7 @@ impl slog_term::Decorator for AlignedTermDecorator {
 }
 
 struct AlignedRecordDecorator<'a> {
-    wrapped: &'a mut slog_term::RecordDecorator,
+    wrapped: &'a mut dyn slog_term::RecordDecorator,
     message_count: usize,
     message_active: bool,
     ignore_comma: bool,
@@ -33,7 +35,7 @@ struct AlignedRecordDecorator<'a> {
 }
 
 impl<'a> AlignedRecordDecorator<'a> {
-    fn new(decorator: &'a mut slog_term::RecordDecorator, message_width: usize) ->
+    fn new(decorator: &'a mut dyn slog_term::RecordDecorator, message_width: usize) ->
     AlignedRecordDecorator<'a> {
         AlignedRecordDecorator {
             wrapped: decorator,

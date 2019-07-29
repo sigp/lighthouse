@@ -24,6 +24,7 @@ pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 fn main() {
     // Logging
     let decorator = slog_term::TermDecorator::new().build();
+    let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
     let mut log = slog::Logger::root(drain, o!());
