@@ -53,7 +53,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     let log = log.new(o!("Service" => "API"));
 
     // build a channel to kill the HTTP server
-    let (exit_signal, _exit) = exit_future::signal();
+    let (exit_signal, exit) = exit_future::signal();
 
     // Get the address to bind to
     let bind_addr = (config.listen_address, config.port).into();
@@ -81,12 +81,15 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
         })
     };
 
-    let server = Server::bind(&bind_addr).serve(service).map_err(move |e| {
-        warn!(
-            log,
-            "API failed to start, Unable to bind"; "address" => format!("{:?}", e)
-        )
-    });
+    let server = Server::bind(&bind_addr)
+        .serve(service)
+        .with_graceful_shutdown(exit)
+        .map_err(move |e| {
+            warn!(
+                log,
+                "API failed to start, Unable to bind"; "address" => format!("{:?}", e)
+            )
+        });
 
     executor.spawn(server);
 
