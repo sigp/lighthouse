@@ -177,7 +177,7 @@ fn get_slot_for_block_root(harness: &BeaconChainHarness, block_root: Hash256) ->
         .slot
 }
 
-const RANDOM_ITERATIONS: usize = 100;
+const RANDOM_ITERATIONS: usize = 50;
 const RANDOM_ACTIONS_PER_ITERATION: usize = 100;
 
 /// Create a single LMD instance and have one validator vote in reverse (highest to lowest slot)
