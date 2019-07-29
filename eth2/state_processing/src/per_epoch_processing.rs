@@ -83,6 +83,7 @@ pub fn per_epoch_processing<T: EthSpec>(
 /// - `finalized_root`
 ///
 /// Spec v0.8.0
+#[allow(clippy::if_same_then_else)] // For readability and consistency with spec.
 pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
     total_balances: &TotalBalances,

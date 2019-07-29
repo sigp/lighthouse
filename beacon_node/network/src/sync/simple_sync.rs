@@ -535,12 +535,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
             // Attempt to process all received bodies by recursively processing the latest block
             if let Some(root) = last_root {
-                match self.attempt_process_partial_block(peer_id, root, network, &"rpc") {
-                    Some(BlockProcessingOutcome::Processed { block_root: _ }) => {
-                        // If processing is successful remove from `import_queue`
-                        self.import_queue.remove(root);
-                    }
-                    _ => {}
+                if let Some(BlockProcessingOutcome::Processed { .. }) =
+                    self.attempt_process_partial_block(peer_id, root, network, &"rpc")
+                {
+                    // If processing is successful remove from `import_queue`
+                    self.import_queue.remove(root);
                 }
             }
         }
@@ -841,19 +840,18 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     );
 
                     // If the parent is in the `import_queue` attempt to complete it then process it.
-                    match self.attempt_process_partial_block(peer_id, parent, network, source) {
+                    // All other cases leave `parent` in `import_queue` and return original outcome.
+                    if let Some(BlockProcessingOutcome::Processed { .. }) =
+                        self.attempt_process_partial_block(peer_id, parent, network, source)
+                    {
                         // If processing parent is successful, re-process block and remove parent from queue
-                        Some(BlockProcessingOutcome::Processed { block_root: _ }) => {
-                            self.import_queue.remove(parent);
+                        self.import_queue.remove(parent);
 
-                            // Attempt to process `block` again
-                            match self.chain.process_block(block) {
-                                Ok(outcome) => return Some(outcome),
-                                Err(_) => return None,
-                            }
+                        // Attempt to process `block` again
+                        match self.chain.process_block(block) {
+                            Ok(outcome) => return Some(outcome),
+                            Err(_) => return None,
                         }
-                        // All other cases leave `parent` in `import_queue` and return original outcome.
-                        _ => {}
                     }
                 }
                 BlockProcessingOutcome::FutureSlot {
@@ -918,7 +916,7 @@ fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMes
     HelloMessage {
         //TODO: Correctly define the chain/network id
         network_id: spec.chain_id,
-        chain_id: spec.chain_id as u64,
+        chain_id: u64::from(spec.chain_id),
         latest_finalized_root: state.finalized_checkpoint.root,
         latest_finalized_epoch: state.finalized_checkpoint.epoch,
         best_root: beacon_chain.head().beacon_block_root,

@@ -849,7 +849,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             } else {
                 self.update_canonical_head(CheckPoint {
-                    beacon_block: beacon_block,
+                    beacon_block,
                     beacon_block_root,
                     beacon_state,
                     beacon_state_root,

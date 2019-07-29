@@ -313,7 +313,7 @@ where
     /// If the validator had a vote in the tree, the removal of that vote may cause a node to
     /// become redundant and removed from the reduced tree.
     fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
-        if let Some(vote) = self.latest_votes.get(validator_index).clone() {
+        if let Some(vote) = *self.latest_votes.get(validator_index) {
             self.get_mut_node(vote.hash)?.remove_voter(validator_index);
             let node = self.get_node(vote.hash)?.clone();
 

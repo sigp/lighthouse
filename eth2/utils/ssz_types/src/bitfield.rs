@@ -141,12 +141,14 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
 
         bytes.resize(bytes_for_bit_len(len + 1), 0);
 
-        let mut bitfield: Bitfield<Variable<N>> =
-            Bitfield::from_raw_bytes(bytes, len + 1).expect(&format!(
-                "Bitfield with {} bytes must have enough capacity for {} bits.",
-                bytes_for_bit_len(len + 1),
-                len + 1
-            ));
+        let mut bitfield: Bitfield<Variable<N>> = Bitfield::from_raw_bytes(bytes, len + 1)
+            .unwrap_or_else(|_| {
+                unreachable!(
+                    "Bitfield with {} bytes must have enough capacity for {} bits.",
+                    bytes_for_bit_len(len + 1),
+                    len + 1
+                )
+            });
         bitfield
             .set(len, true)
             .expect("len must be in bounds for bitfield.");
@@ -275,7 +277,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
             let byte = self
                 .bytes
                 .get_mut(i / 8)
-                .ok_or_else(|| Error::OutOfBounds { i, len: len })?;
+                .ok_or_else(|| Error::OutOfBounds { i, len })?;
 
             if value {
                 *byte |= 1 << (i % 8)

@@ -139,7 +139,7 @@ impl ChainSpec {
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 65_536,
-            min_genesis_time: 1578009600, // Jan 3, 2020
+            min_genesis_time: 1_578_009_600, // Jan 3, 2020
 
             /*
              *  Gwei values

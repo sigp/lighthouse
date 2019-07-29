@@ -286,13 +286,8 @@ where
         }
 
         // remove any streams that have expired
-        self.waiting_substreams.retain(|_k, waiting_stream| {
-            if Instant::now() > waiting_stream.timeout {
-                false
-            } else {
-                true
-            }
-        });
+        self.waiting_substreams
+            .retain(|_k, waiting_stream| Instant::now() <= waiting_stream.timeout);
 
         // drive streams that need to be processed
         for n in (0..self.substreams.len()).rev() {
@@ -344,7 +339,7 @@ where
                     }
                     Err(e) => {
                         return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                            RPCEvent::Error(rpc_event.id(), e.into()),
+                            RPCEvent::Error(rpc_event.id(), e),
                         )))
                     }
                 },

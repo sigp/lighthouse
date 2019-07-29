@@ -57,7 +57,7 @@ pub fn run_beacon_node(
         "db_type" => &other_client_config.db_type,
     );
 
-    let result = match (db_type.as_str(), spec_constants.as_str()) {
+    match (db_type.as_str(), spec_constants.as_str()) {
         ("disk", "minimal") => run::<ClientType<DiskStore, MinimalEthSpec>>(
             &db_path,
             client_config,
@@ -94,9 +94,7 @@ pub fn run_beacon_node(
             error!(log, "Unknown runtime configuration"; "spec_constants" => spec, "db_type" => db_type);
             Err("Unknown specification and/or db_type.".into())
         }
-    };
-
-    result
+    }
 }
 
 /// Performs the type-generic parts of launching a `BeaconChain`.

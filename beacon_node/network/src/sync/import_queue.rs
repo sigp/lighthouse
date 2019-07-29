@@ -144,11 +144,11 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         for header in headers {
             let block_root = Hash256::from_slice(&header.canonical_root()[..]);
 
-            if self.chain_has_not_seen_block(&block_root) {
-                if !self.insert_header(block_root, header, sender.clone()) {
-                    // If a body is empty
-                    required_bodies.push(block_root);
-                }
+            if self.chain_has_not_seen_block(&block_root)
+                && !self.insert_header(block_root, header, sender.clone())
+            {
+                // If a body is empty
+                required_bodies.push(block_root);
             }
         }
 

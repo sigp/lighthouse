@@ -373,9 +373,9 @@ where
         let faulty_head = self.extend_chain(
             faulty_fork_blocks,
             BlockStrategy::ForkCanonicalChainAt {
-                previous_slot: Slot::from(initial_head_slot),
+                previous_slot: initial_head_slot,
                 // `initial_head_slot + 2` means one slot is skipped.
-                first_slot: Slot::from(initial_head_slot + 2),
+                first_slot: initial_head_slot + 2,
             },
             AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
         );

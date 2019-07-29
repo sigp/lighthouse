@@ -30,7 +30,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         .map(|deposit| deposit.data.clone())
         .collect();
     for (index, deposit) in deposits.into_iter().enumerate() {
-        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..index + 1].to_vec());
+        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..=index].to_vec());
         state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
         process_deposits(&mut state, &[deposit], spec)?;
     }
