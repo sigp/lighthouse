@@ -40,6 +40,8 @@ pub struct Client<T: BeaconChainTypes> {
     pub http_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
     pub slot_timer_exit_signal: Option<Signal>,
+    /// Signal to terminate the API
+    pub api_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
     /// Marker to pin the beacon chain generics.
@@ -145,13 +147,19 @@ where
         };
 
         // Start the `rest_api` service
-        let _api_exit_signal = if client_config.rest_api.enabled {
-            Some(rest_api::start_server(
+        let api_exit_signal = if client_config.rest_api.enabled {
+            match rest_api::start_server(
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
                 &log,
-            ))
+            ) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    error!(log, "API service failed to start."; "error" => format!("{:?}",e));
+                    None
+                }
+            }
         } else {
             None
         };
@@ -188,6 +196,7 @@ where
             http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
+            api_exit_signal,
             log,
             network,
             phantom: PhantomData,
