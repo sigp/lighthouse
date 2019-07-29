@@ -296,7 +296,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .collect();
 
         if roots.len() as u64 != req.count {
-            warn!(
+            debug!(
                 self.log,
                 "BlockRootsRequest";
                 "peer" => format!("{:?}", peer_id),

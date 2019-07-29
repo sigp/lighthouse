@@ -809,7 +809,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.metrics.fork_choice_reorg_count.inc();
                 warn!(
                     self.log,
-                    "reorg";
+                    "Beacon chain re-org";
                     "previous_slot" => previous_slot,
                     "new_slot" => new_slot
                 );
