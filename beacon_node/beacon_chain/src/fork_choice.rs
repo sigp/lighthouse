@@ -18,6 +18,7 @@ pub enum Error {
 
 pub struct ForkChoice<T: BeaconChainTypes> {
     backend: T::LmdGhost,
+    store: Arc<T::Store>,
     /// Used for resolving the `0x00..00` alias back to genesis.
     ///
     /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
@@ -36,6 +37,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         genesis_block_root: Hash256,
     ) -> Self {
         Self {
+            store: store.clone(),
             backend: T::LmdGhost::new(store, genesis_block, genesis_block_root),
             genesis_block_root,
         }
@@ -125,13 +127,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         state: &BeaconState<T::EthSpec>,
         attestation: &Attestation,
     ) -> Result<()> {
-        let validator_indices = get_attesting_indices_unsorted(
-            state,
-            &attestation.data,
-            &attestation.aggregation_bitfield,
-        )?;
-        let block_slot = state.get_attestation_slot(&attestation.data)?;
-
         let block_hash = attestation.data.beacon_block_root;
 
         // Ignore any attestations to the zero hash.
@@ -147,7 +142,22 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        if block_hash != Hash256::zero() {
+        //
+        // Additionally, don't add any block hash to fork choice unless we have imported the block.
+        if block_hash != Hash256::zero()
+            && self
+                .store
+                .exists::<BeaconBlock>(&block_hash)
+                .unwrap_or(false)
+        {
+            let validator_indices = get_attesting_indices_unsorted(
+                state,
+                &attestation.data,
+                &attestation.aggregation_bitfield,
+            )?;
+
+            let block_slot = state.get_attestation_slot(&attestation.data)?;
+
             for validator_index in validator_indices {
                 self.backend
                     .process_attestation(validator_index, block_hash, block_slot)?;

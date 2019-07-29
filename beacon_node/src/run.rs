@@ -15,6 +15,12 @@ use tokio::runtime::TaskExecutor;
 use tokio_timer::clock::Clock;
 use types::{MainnetEthSpec, MinimalEthSpec};
 
+/// Reads the configuration and initializes a `BeaconChain` with the required types and parameters.
+///
+/// Spawns an executor which performs syncing, networking, block production, etc.
+///
+/// Blocks the current thread, returning after the `BeaconChain` has exited or a `Ctrl+C`
+/// signal.
 pub fn run_beacon_node(
     client_config: ClientConfig,
     eth2_config: Eth2Config,
@@ -38,7 +44,7 @@ pub fn run_beacon_node(
 
     warn!(
         log,
-        "This software is EXPERIMENTAL and provides no guarantees or warranties."
+        "Ethereum 2.0 is pre-release. This software is experimental."
     );
 
     info!(
@@ -46,6 +52,7 @@ pub fn run_beacon_node(
         "Starting beacon node";
         "p2p_listen_address" => format!("{:?}", &other_client_config.network.listen_address),
         "data_dir" => format!("{:?}", other_client_config.data_dir()),
+        "network_dir" => format!("{:?}", other_client_config.network.network_dir),
         "spec_constants" => &spec_constants,
         "db_type" => &other_client_config.db_type,
     );
@@ -92,7 +99,8 @@ pub fn run_beacon_node(
     result
 }
 
-pub fn run<T>(
+/// Performs the type-generic parts of launching a `BeaconChain`.
+fn run<T>(
     db_path: &Path,
     client_config: ClientConfig,
     eth2_config: Eth2Config,

@@ -12,6 +12,8 @@ log = "0.4"
 operation_pool = { path = "../../eth2/operation_pool" }
 serde = "1.0"
 serde_derive = "1.0"
+slog = { version = "^2.2.3" , features = ["max_level_trace"] }
+sloggers = { version = "^0.3" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 eth2_ssz = { path = "../../eth2/utils/ssz" }
 eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }

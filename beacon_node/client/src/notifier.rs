@@ -2,13 +2,16 @@ use crate::Client;
 use beacon_chain::BeaconChainTypes;
 use exit_future::Exit;
 use futures::{Future, Stream};
-use slog::{debug, o};
+use slog::{debug, o, warn};
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 
 /// The interval between heartbeat events.
 pub const HEARTBEAT_INTERVAL_SECONDS: u64 = 15;
+
+/// Create a warning log whenever the peer count is at or below this value.
+pub const WARN_PEER_COUNT: usize = 1;
 
 /// Spawns a thread that can be used to run code periodically, on `HEARTBEAT_INTERVAL_SECONDS`
 /// durations.
@@ -30,9 +33,16 @@ pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
     let libp2p = client.network.libp2p_service();
 
     let heartbeat = move |_| {
-        // Notify the number of connected nodes
-        // Panic if libp2p is poisoned
-        debug!(log, ""; "Connected Peers" => libp2p.lock().swarm.connected_peers());
+        // Number of libp2p (not discv5) peers connected.
+        //
+        // Panics if libp2p is poisoned.
+        let connected_peer_count = libp2p.lock().swarm.connected_peers();
+
+        debug!(log, "libp2p"; "peer_count" => connected_peer_count);
+
+        if connected_peer_count <= WARN_PEER_COUNT {
+            warn!(log, "Low libp2p peer count"; "peer_count" => connected_peer_count);
+        }
 
         Ok(())
     };
