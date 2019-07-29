@@ -171,7 +171,7 @@ where
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
-                self.add_attestations_to_op_pool(
+                self.add_free_attestations(
                     &attestation_strategy,
                     &new_state,
                     block_root,
@@ -256,10 +256,10 @@ where
         (block, state)
     }
 
-    /// Adds attestations to the `BeaconChain` operations pool to be included in future blocks.
+    /// Adds attestations to the `BeaconChain` operations pool and fork choice.
     ///
     /// The `attestation_strategy` dictates which validators should attest.
-    fn add_attestations_to_op_pool(
+    fn add_free_attestations(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
