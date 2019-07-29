@@ -3,7 +3,7 @@ use lmd_ghost::LmdGhost;
 use state_processing::common::get_attesting_indices_unsorted;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
-use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256};
+use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Slot};
 use state_processing::common;
 
 type Result<T> = std::result::Result<T, Error>;
@@ -184,6 +184,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                     None => true
                 }
             }).is_some())
+    }
+
+    // Returns the latest message for a given validator
+    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
+        self.backend.latest_message(validator_index)
     }
 
     /// Inform the fork choice that the given block (and corresponding root) have been finalized so

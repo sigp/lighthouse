@@ -1,4 +1,3 @@
-#![cfg(not(debug_assertions))]
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
@@ -8,7 +7,7 @@ use lmd_ghost::ThreadSafeReducedTree;
 use rand::Rng;
 use store::{MemoryStore, Store};
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::{Deposit, EthSpec, Hash256, MinimalEthSpec, Slot};
+use types::{Deposit, EthSpec, Hash256, MinimalEthSpec, Slot, RelativeEpoch};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;
@@ -264,4 +263,93 @@ fn roundtrip_operation_pool() {
     let restored_op_pool = p.op_pool.into_operation_pool(&p.state, &harness.spec);
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
+}
+
+#[test]
+fn free_attestations_added_to_fork_choice_some_none() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() / 2;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let state = &harness.chain.head().beacon_state;
+    let fork_choice = &harness.chain.fork_choice;
+
+    let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+    let slots: Vec<Slot> = validators
+        .iter()
+        .map(|&v|
+            state.get_attestation_duties(v, RelativeEpoch::Current)
+                .expect("should get attester duties")
+                .unwrap()
+                .slot
+        ).collect();
+    let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
+
+    for (validator, slot) in validator_slots.clone() {
+        let latest_message = fork_choice.latest_message(*validator);
+
+        if slot <= num_blocks_produced && slot != 0{
+            assert_eq!(
+                latest_message.unwrap().1, slot,
+                "Latest message slot should be equal to attester duty."
+            )
+        } else {
+            assert!(
+                latest_message.is_none(),
+                "Latest message slot should be None."
+            )
+        }
+    }
+}
+
+#[test]
+fn free_attestations_added_to_fork_choice_all_updated() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let state = &harness.chain.head().beacon_state;
+    let fork_choice = &harness.chain.fork_choice;
+
+    let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+    let slots: Vec<Slot> = validators
+        .iter()
+        .map(|&v|
+            state.get_attestation_duties(v, RelativeEpoch::Current)
+                .expect("should get attester duties")
+                .unwrap()
+                .slot
+        ).collect();
+    let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
+
+    for (validator, slot) in validator_slots {
+        let latest_message = fork_choice.latest_message(*validator);
+
+        assert_eq!(
+            latest_message.unwrap().1, slot,
+            "Latest message slot should be equal to attester duty."
+        );
+
+        if slot != num_blocks_produced {
+            let block_root = state.get_block_root(slot)
+                .expect("Should get block root at slot");
+
+            assert_eq!(
+                latest_message.unwrap().0, *block_root,
+                "Latest message block root should be equal to block at slot."
+            );
+        }
+    }
 }
