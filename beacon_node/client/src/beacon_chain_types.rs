@@ -49,7 +49,9 @@ where
     T: BeaconChainTypes<Store = U, EthSpec = V>,
     T::LmdGhost: LmdGhost<U, V>,
 {
-    if let Ok(Some(beacon_chain)) = BeaconChain::from_store(store.clone(), spec.clone()) {
+    if let Ok(Some(beacon_chain)) =
+        BeaconChain::from_store(store.clone(), spec.clone(), log.clone())
+    {
         info!(
             log,
             "Loaded BeaconChain from store";
@@ -78,7 +80,7 @@ where
 
         // Genesis chain
         //TODO: Handle error correctly
-        BeaconChain::from_genesis(store, slot_clock, genesis_state, genesis_block, spec)
+        BeaconChain::from_genesis(store, slot_clock, genesis_state, genesis_block, spec, log)
             .expect("Terminate if beacon chain generation fails")
     }
 }
