@@ -186,7 +186,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "reason" => "network_id"
             );
 
-            network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
+            network.disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
         } else if remote.latest_finalized_epoch <= local.latest_finalized_epoch
             && remote.latest_finalized_root != self.chain.spec.zero_hash
             && local.latest_finalized_root != self.chain.spec.zero_hash
@@ -202,7 +202,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "peer" => format!("{:?}", peer_id),
                 "reason" => "different finalized chain"
             );
-            network.disconnect(peer_id.clone(), GoodbyeReason::IrreleventNetwork);
+            network.disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
         } else if remote.latest_finalized_epoch < local.latest_finalized_epoch {
             // The node has a lower finalized epoch, their chain is not useful to us. There are two
             // cases where a node can have a lower finalized epoch:
@@ -529,7 +529,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 .import_queue
                 .enqueue_bodies(res.block_bodies, peer_id.clone());
 
-            // Attempt to process all recieved bodies by recursively processing the latest block
+            // Attempt to process all received bodies by recursively processing the latest block
             if let Some(root) = last_root {
                 match self.attempt_process_partial_block(peer_id, root, network, &"rpc") {
                     Some(BlockProcessingOutcome::Processed { block_root: _ }) => {
@@ -606,7 +606,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 }
                 // Note: known blocks are forwarded on the gossip network.
                 //
-                // We rely upon the lower layers (libp2p) to stop loops occuring from re-gossiped
+                // We rely upon the lower layers (libp2p) to stop loops occurring from re-gossiped
                 // blocks.
                 BlockProcessingOutcome::BlockIsAlreadyKnown => SHOULD_FORWARD_GOSSIP_BLOCK,
                 _ => SHOULD_NOT_FORWARD_GOSSIP_BLOCK,
@@ -837,7 +837,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
                     // If the parent is in the `import_queue` attempt to complete it then process it.
                     match self.attempt_process_partial_block(peer_id, parent, network, source) {
-                        // If processing parent is sucessful, re-process block and remove parent from queue
+                        // If processing parent is successful, re-process block and remove parent from queue
                         Some(BlockProcessingOutcome::Processed { block_root: _ }) => {
                             self.import_queue.remove(parent);
 

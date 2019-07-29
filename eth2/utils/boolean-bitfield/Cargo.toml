@@ -11,7 +11,6 @@ eth2_ssz = { path = "../ssz" }
 bit-vec = "0.5.0"
 bit_reverse = "0.1"
 serde = "1.0"
-serde_derive = "1.0"
 tree_hash = { path = "../tree_hash" }
 
 [dev-dependencies]

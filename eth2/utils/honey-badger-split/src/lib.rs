@@ -29,7 +29,7 @@ impl<'a, T> Iterator for Split<'a, T> {
     }
 }
 
-/// Splits a slice into chunks of size n. All postive n values are applicable,
+/// Splits a slice into chunks of size n. All positive n values are applicable,
 /// hence the honey_badger prefix.
 ///
 /// Returns an iterator over the original list.

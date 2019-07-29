@@ -270,7 +270,7 @@ pub struct PartialBeaconBlock {
 impl PartialBeaconBlock {
     /// Attempts to build a block.
     ///
-    /// Does not comsume the `PartialBeaconBlock`.
+    /// Does not consume the `PartialBeaconBlock`.
     pub fn attempt_complete(&self) -> PartialBeaconBlockCompletion {
         if self.header.is_none() {
             PartialBeaconBlockCompletion::MissingHeader(self.slot)

@@ -34,7 +34,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from deposit index to deposit data.
     // NOTE: We assume that there is only one deposit per index
     // because the Eth1 data is updated (at most) once per epoch,
-    // and the spec doesn't seem to accomodate for re-orgs on a time-frame
+    // and the spec doesn't seem to accommodate for re-orgs on a time-frame
     // longer than an epoch
     deposits: RwLock<BTreeMap<u64, Deposit>>,
     /// Map from two attestation IDs to a slashing for those IDs.

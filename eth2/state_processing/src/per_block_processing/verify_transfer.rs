@@ -62,8 +62,8 @@ fn verify_transfer_parametric<T: EthSpec>(
 
     // Verify the sender has adequate balance.
     verify!(
-        time_independent_only || sender_balance >= transfer.amount,
-        Invalid::FromBalanceInsufficient(transfer.amount, sender_balance)
+        time_independent_only || sender_balance >= total_amount,
+        Invalid::FromBalanceInsufficient(total_amount, sender_balance)
     );
 
     // Verify sender balance will not be "dust" (i.e., greater than zero but less than the minimum deposit
@@ -114,7 +114,7 @@ fn verify_transfer_parametric<T: EthSpec>(
             || sender_validator.activation_eligibility_epoch == spec.far_future_epoch
             || sender_validator.is_withdrawable_at(epoch)
             || total_amount + spec.max_effective_balance <= sender_balance,
-        Invalid::FromValidatorIneligableForTransfer(transfer.sender)
+        Invalid::FromValidatorIneligibleForTransfer(transfer.sender)
     );
 
     // Ensure the withdrawal credentials generated from the sender's pubkey match those stored in

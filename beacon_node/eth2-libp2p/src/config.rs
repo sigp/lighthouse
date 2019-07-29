@@ -54,7 +54,7 @@ impl Default for Config {
         network_dir.push("network");
         Config {
             network_dir,
-            listen_address: "127.0.0.1".parse().expect("vaild ip address"),
+            listen_address: "127.0.0.1".parse().expect("valid ip address"),
             libp2p_port: 9000,
             discovery_address: "127.0.0.1".parse().expect("valid ip address"),
             discovery_port: 9000,
