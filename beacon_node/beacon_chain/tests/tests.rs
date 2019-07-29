@@ -25,7 +25,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<TestForkChoice, Min
 }
 
 #[test]
-fn fork() {
+fn chooses_fork() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
@@ -45,25 +45,11 @@ fn fork() {
         AttestationStrategy::AllValidators,
     );
 
-    // Move to the next slot so we may produce some more blocks on the head.
-    harness.advance_slot();
-
-    // Extend the chain with blocks where only honest validators agree.
-    let honest_head = harness.extend_chain(
+    let (honest_head, faulty_head) = harness.generate_two_forks_by_skipping_a_block(
+        &honest_validators,
+        &faulty_validators,
         honest_fork_blocks,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::SomeValidators(honest_validators.clone()),
-    );
-
-    // Go back to the last block where all agreed, and build blocks upon it where only faulty nodes
-    // agree.
-    let faulty_head = harness.extend_chain(
         faulty_fork_blocks,
-        BlockStrategy::ForkCanonicalChainAt {
-            previous_slot: Slot::from(initial_blocks),
-            first_slot: Slot::from(initial_blocks + 2),
-        },
-        AttestationStrategy::SomeValidators(faulty_validators.clone()),
     );
 
     assert!(honest_head != faulty_head, "forks should be distinct");
