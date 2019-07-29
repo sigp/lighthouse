@@ -37,7 +37,7 @@ pub struct ThreadSafeReducedTree<T, E> {
 }
 
 impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
-    /// `Debug` just defers to the implementation if `self.core`.
+    /// `Debug` just defers to the implementation of `self.core`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.core.fmt(f)
     }
@@ -121,7 +121,6 @@ struct ReducedTree<T, E> {
 impl<T, E> fmt::Debug for ReducedTree<T, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.nodes.fmt(f)
-        // write!(f, "Point {{ x: {}, y: {} }}", self.x, self.y)
     }
 }
 
