@@ -150,16 +150,13 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         if block_hash != Hash256::zero()
             && self
                 .store
-                .exists::<BeaconBlock>(&block_hash)
+                .exists::<BeaconBlock<T::EthSpec>>(&block_hash)
                 .unwrap_or(false)
         {
-            let validator_indices = get_attesting_indices_unsorted(
-                state,
-                &attestation.data,
-                &attestation.aggregation_bitfield,
-            )?;
+            let validator_indices =
+                get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
-            let block_slot = state.get_attestation_slot(&attestation.data)?;
+            let block_slot = state.get_attestation_data_slot(&attestation.data)?;
 
             for validator_index in validator_indices {
                 self.backend

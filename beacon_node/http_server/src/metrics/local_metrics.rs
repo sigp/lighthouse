@@ -117,18 +117,19 @@ impl LocalMetrics {
             beacon_chain
                 .head()
                 .beacon_state
-                .current_justified_root
+                .current_justified_checkpoint
+                .root
                 .to_low_u64_le() as i64,
         );
         self.finalized_beacon_block_root.set(
             beacon_chain
                 .head()
                 .beacon_state
-                .finalized_root
+                .finalized_checkpoint
+                .root
                 .to_low_u64_le() as i64,
         );
-        self.validator_count
-            .set(state.validator_registry.len() as i64);
+        self.validator_count.set(state.validators.len() as i64);
         self.justified_epoch
             .set(state.current_justified_checkpoint.epoch.as_u64() as i64);
         self.finalized_epoch

@@ -830,8 +830,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 info!(
                     self.log,
                     "new head block";
-                    "justified_root" => format!("{}", beacon_state.current_justified_root),
-                    "finalized_root" => format!("{}", beacon_state.finalized_root),
+                    "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
+                    "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
                     "root" => format!("{}", beacon_block_root),
                     "slot" => new_slot,
                 );

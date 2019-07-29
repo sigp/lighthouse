@@ -9,7 +9,9 @@ pub trait AncestorIter<U: Store, I: Iterator> {
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<I>;
 }
 
-impl<'a, U: Store, E: EthSpec> AncestorIter<U, BestBlockRootsIterator<'a, E, U>> for BeaconBlock {
+impl<'a, U: Store, E: EthSpec> AncestorIter<U, BestBlockRootsIterator<'a, E, U>>
+    for BeaconBlock<E>
+{
     /// Iterates across all the prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BestBlockRootsIterator<'a, E, U>> {

@@ -145,7 +145,7 @@ mod tests {
                 let (target_root, target_block) = &blocks_and_roots[target];
 
                 let (found_root, found_block) = store
-                    .get_block_at_preceding_slot(*source_root, target_block.slot)
+                    .get_block_at_preceeding_slot(*source_root, target_block.slot)
                     .unwrap()
                     .unwrap();
 
@@ -170,7 +170,7 @@ mod tests {
             let (target_root, target_block) = &blocks_and_roots[target];
 
             let (found_root, found_block) = store
-                .get_block_at_preceding_slot(*source_root, target_block.slot)
+                .get_block_at_preceeding_slot(*source_root, target_block.slot)
                 .unwrap()
                 .unwrap();
 
@@ -181,22 +181,14 @@ mod tests {
         // Slot that doesn't exist
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-<<<<<<< HEAD
             .get_block_at_preceeding_slot::<MinimalEthSpec>(*source_root, Slot::new(3))
-=======
-            .get_block_at_preceding_slot(*source_root, Slot::new(3))
->>>>>>> master
             .unwrap()
             .is_none());
 
         // Slot too high
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-<<<<<<< HEAD
             .get_block_at_preceeding_slot::<MinimalEthSpec>(*source_root, Slot::new(3))
-=======
-            .get_block_at_preceding_slot(*source_root, Slot::new(3))
->>>>>>> master
             .unwrap()
             .is_none());
     }
