@@ -34,3 +34,4 @@ error-chain = "0.12.0"
 bincode = "^1.1.2"
 futures = "0.1.25"
 dirs = "2.0.1"
+logging = { path = "../eth2/utils/logging" }
