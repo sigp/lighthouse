@@ -293,11 +293,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     pub fn next_epoch_start_shard(&self, spec: &ChainSpec) -> Result<u64, Error> {
-        let cache = self.cache(RelativeEpoch::Current)?;
-        let active_validator_count = cache.active_validator_count();
-        let shard_delta = T::get_shard_delta(active_validator_count, spec.target_committee_size);
-
-        Ok((self.start_shard + shard_delta) % T::ShardCount::to_u64())
+        self.get_epoch_start_shard(RelativeEpoch::Next)
     }
 
     /// Get the slot of an attestation.
