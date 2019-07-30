@@ -10,5 +10,5 @@ tree_hash_derive = { path = "../tree_hash_derive" }
 [dependencies]
 tree_hash = { path = "../tree_hash" }
 ethereum-types = "0.5"
-hashing = { path = "../hashing" }
+eth2_hashing = { path = "../eth2_hashing" }
 int_to_bytes = { path = "../int_to_bytes" }

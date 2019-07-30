@@ -1,4 +1,4 @@
-use hashing::hash;
+use eth2_hashing::hash;
 use tree_hash::{BYTES_PER_CHUNK, HASHSIZE, MERKLE_HASH_CHUNK};
 
 /// Split `values` into a power-of-two, identical-length chunks (padding with `0`) and merkleize

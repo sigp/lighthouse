@@ -33,7 +33,7 @@
 //! println!("Root is: {:?}", cache.tree_hash_root().unwrap());
 //! ```
 
-use hashing::hash;
+use eth2_hashing::hash;
 use std::ops::Range;
 use tree_hash::{TreeHash, TreeHashType, BYTES_PER_CHUNK, HASHSIZE};
 

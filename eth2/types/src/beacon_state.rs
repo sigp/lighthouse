@@ -4,7 +4,7 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use compare_fields_derive::CompareFields;
-use hashing::hash;
+use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use serde_derive::{Deserialize, Serialize};
