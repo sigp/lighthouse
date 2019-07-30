@@ -34,16 +34,15 @@ user-facing functionality.
 
 Current development overview:
 
-- Specification `v0.6.3` implemented, optimized and passing test vectors.
-- Rust-native libp2p integrated, with Gossipsub.
-- Discv5 (P2P discovery mechanism) integration started.
+- Specification `v0.8.1` implemented, optimized and passing test vectors.
+- Rust-native libp2p with Gossipsub and Discv5.
 - Metrics via Prometheus.
 - Basic gRPC API, soon to be replaced with RESTful HTTP/JSON.
 
 ### Roadmap
 
-- **July 2019**: `lighthouse-0.0.1` release: A stable testnet for developers with a useful
-	HTTP API.
+- **Early-September 2019**: `lighthouse-0.0.1` release: A stable testnet for
+  developers with a useful HTTP API.
 - **September 2019**: Inter-operability with other Ethereum 2.0 clients.
 - **October 2019**: Public, multi-client testnet with user-facing functionality.
 - **January 2020**: Production Beacon Chain testnet.
@@ -153,6 +152,8 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 - [`protos/`](protos/): protobuf/gRPC definitions that are common across the Lighthouse project.
 - [`validator_client/`](validator_client/): the "Validator Client" binary and crates exclusively
 	associated with it.
+- [`tests/`](tests/): code specific to testing, most notably contains the
+	Ethereum Foundation test vectors.
 
 ## Contributing
 

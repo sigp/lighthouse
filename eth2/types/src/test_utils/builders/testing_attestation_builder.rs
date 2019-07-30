@@ -5,14 +5,14 @@ use tree_hash::TreeHash;
 /// Builds an attestation to be used for testing purposes.
 ///
 /// This struct should **never be used for production purposes.**
-pub struct TestingAttestationBuilder {
+pub struct TestingAttestationBuilder<T: EthSpec> {
     committee: Vec<usize>,
-    attestation: Attestation,
+    attestation: Attestation<T>,
 }
 
-impl TestingAttestationBuilder {
+impl<T: EthSpec> TestingAttestationBuilder<T> {
     /// Create a new attestation builder.
-    pub fn new<T: EthSpec>(
+    pub fn new(
         state: &BeaconState<T>,
         committee: &[usize],
         slot: Slot,
@@ -21,18 +21,18 @@ impl TestingAttestationBuilder {
     ) -> Self {
         let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
 
-        let mut aggregation_bitfield = Bitfield::new();
-        let mut custody_bitfield = Bitfield::new();
+        let mut aggregation_bits = BitList::with_capacity(committee.len()).unwrap();
+        let mut custody_bits = BitList::with_capacity(committee.len()).unwrap();
 
         for (i, _) in committee.iter().enumerate() {
-            custody_bitfield.set(i, false);
-            aggregation_bitfield.set(i, false);
+            custody_bits.set(i, false).unwrap();
+            aggregation_bits.set(i, false).unwrap();
         }
 
         let attestation = Attestation {
-            aggregation_bitfield,
+            aggregation_bits,
             data: data_builder.build(),
-            custody_bitfield,
+            custody_bits,
             signature: AggregateSignature::new(),
         };
 
@@ -52,7 +52,8 @@ impl TestingAttestationBuilder {
         secret_keys: &[&SecretKey],
         fork: &Fork,
         spec: &ChainSpec,
-    ) {
+        custody_bit: bool,
+    ) -> &mut Self {
         assert_eq!(
             signing_validators.len(),
             secret_keys.len(),
@@ -67,17 +68,25 @@ impl TestingAttestationBuilder {
                 .expect("Signing validator not in attestation committee");
 
             self.attestation
-                .aggregation_bitfield
-                .set(committee_index, true);
+                .aggregation_bits
+                .set(committee_index, true)
+                .unwrap();
+
+            if custody_bit {
+                self.attestation
+                    .custody_bits
+                    .set(committee_index, true)
+                    .unwrap();
+            }
 
             let message = AttestationDataAndCustodyBit {
                 data: self.attestation.data.clone(),
-                custody_bit: false,
+                custody_bit,
             }
             .tree_hash_root();
 
             let domain = spec.get_domain(
-                self.attestation.data.target_epoch,
+                self.attestation.data.target.epoch,
                 Domain::Attestation,
                 fork,
             );
@@ -85,10 +94,12 @@ impl TestingAttestationBuilder {
             let signature = Signature::new(&message, domain, secret_keys[key_index]);
             self.attestation.signature.add(&signature)
         }
+
+        self
     }
 
     /// Consume the builder and return the attestation.
-    pub fn build(self) -> Attestation {
+    pub fn build(self) -> Attestation<T> {
         self.attestation
     }
 }

@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
-use fixed_len_vec::typenum::U32;
+use ssz_types::typenum::U33;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// A deposit to potentially become a beacon chain validator.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     PartialEq,
@@ -23,8 +23,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct Deposit {
-    pub proof: FixedLenVec<Hash256, U32>,
-    pub index: u64,
+    pub proof: FixedVector<Hash256, U33>,
     pub data: DepositData,
 }
 

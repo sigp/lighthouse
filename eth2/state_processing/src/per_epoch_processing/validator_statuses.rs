@@ -1,5 +1,5 @@
 use super::WinningRootHashSet;
-use crate::common::get_attesting_indices_unsorted;
+use crate::common::get_attesting_indices;
 use types::*;
 
 /// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`
@@ -162,15 +162,15 @@ impl ValidatorStatuses {
     /// - Active validators
     /// - Total balances for the current and previous epochs.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
-        let mut statuses = Vec::with_capacity(state.validator_registry.len());
+        let mut statuses = Vec::with_capacity(state.validators.len());
         let mut total_balances = TotalBalances::default();
 
-        for (i, validator) in state.validator_registry.iter().enumerate() {
+        for (i, validator) in state.validators.iter().enumerate() {
             let effective_balance = state.get_effective_balance(i, spec)?;
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed,
@@ -202,7 +202,7 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn process_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -213,24 +213,23 @@ impl ValidatorStatuses {
             .iter()
             .chain(state.current_epoch_attestations.iter())
         {
-            let attesting_indices =
-                get_attesting_indices_unsorted(state, &a.data, &a.aggregation_bitfield)?;
+            let attesting_indices = get_attesting_indices(state, &a.data, &a.aggregation_bits)?;
 
             let mut status = ValidatorStatus::default();
 
             // Profile this attestation, updating the total balances and generating an
             // `ValidatorStatus` object that applies to all participants in the attestation.
-            if is_from_epoch(a, state.current_epoch()) {
+            if a.data.target.epoch == state.current_epoch() {
                 status.is_current_epoch_attester = true;
 
                 if target_matches_epoch_start_block(a, state, state.current_epoch())? {
                     status.is_current_epoch_target_attester = true;
                 }
-            } else if is_from_epoch(a, state.previous_epoch()) {
+            } else if a.data.target.epoch == state.previous_epoch() {
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion slot and distance are only required for previous epoch attesters.
-                let attestation_slot = state.get_attestation_slot(&a.data)?;
+                let attestation_slot = state.get_attestation_data_slot(&a.data)?;
                 let inclusion_slot = attestation_slot + a.inclusion_delay;
                 let relative_epoch =
                     RelativeEpoch::from_slot(state.slot, inclusion_slot, T::slots_per_epoch())?;
@@ -289,7 +288,7 @@ impl ValidatorStatuses {
     /// Update the `statuses` for each validator based upon whether or not they attested to the
     /// "winning" shard block root for the previous epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn process_winning_roots<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -321,37 +320,30 @@ impl ValidatorStatuses {
     }
 }
 
-/// Returns `true` if some `PendingAttestation` is from the supplied `epoch`.
-///
-/// Spec v0.6.3
-fn is_from_epoch(a: &PendingAttestation, epoch: Epoch) -> bool {
-    a.data.target_epoch == epoch
-}
-
 /// Returns `true` if the attestation's FFG target is equal to the hash of the `state`'s first
 /// beacon block in the given `epoch`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 fn target_matches_epoch_start_block<T: EthSpec>(
-    a: &PendingAttestation,
+    a: &PendingAttestation<T>,
     state: &BeaconState<T>,
     epoch: Epoch,
 ) -> Result<bool, BeaconStateError> {
     let slot = epoch.start_slot(T::slots_per_epoch());
     let state_boundary_root = *state.get_block_root(slot)?;
 
-    Ok(a.data.target_root == state_boundary_root)
+    Ok(a.data.target.root == state_boundary_root)
 }
 
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 fn has_common_beacon_block_root<T: EthSpec>(
-    a: &PendingAttestation,
+    a: &PendingAttestation<T>,
     state: &BeaconState<T>,
 ) -> Result<bool, BeaconStateError> {
-    let attestation_slot = state.get_attestation_slot(&a.data)?;
+    let attestation_slot = state.get_attestation_data_slot(&a.data)?;
     let state_block_root = *state.get_block_root(attestation_slot)?;
 
     Ok(a.data.beacon_block_root == state_block_root)

@@ -52,12 +52,12 @@ pub trait Store: Sync + Send + Sized {
     ///
     /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
     /// slot of `start_block_root`.
-    fn get_block_at_preceding_slot(
+    fn get_block_at_preceeding_slot<E: EthSpec>(
         &self,
         start_block_root: Hash256,
         slot: Slot,
-    ) -> Result<Option<(Hash256, BeaconBlock)>, Error> {
-        block_at_slot::get_block_at_preceding_slot(self, slot, start_block_root)
+    ) -> Result<Option<(Hash256, BeaconBlock<E>)>, Error> {
+        block_at_slot::get_block_at_preceeding_slot::<_, E>(self, slot, start_block_root)
     }
 
     /// Retrieve some bytes in `column` with `key`.

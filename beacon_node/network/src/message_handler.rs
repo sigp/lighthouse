@@ -14,7 +14,7 @@ use slog::{debug, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::BeaconBlockHeader;
+use types::{BeaconBlockHeader, EthSpec};
 
 /// Handles messages received from the network and client and organises syncing.
 pub struct MessageHandler<T: BeaconChainTypes> {
@@ -23,14 +23,14 @@ pub struct MessageHandler<T: BeaconChainTypes> {
     /// The syncing framework.
     sync: SimpleSync<T>,
     /// The context required to send messages to, and process messages from peers.
-    network_context: NetworkContext,
+    network_context: NetworkContext<T::EthSpec>,
     /// The `MessageHandler` logger.
     log: slog::Logger,
 }
 
 /// Types of messages the handler can receive.
 #[derive(Debug)]
-pub enum HandlerMessage {
+pub enum HandlerMessage<E: EthSpec> {
     /// We have initiated a connection to a new peer.
     PeerDialed(PeerId),
     /// Peer has disconnected,
@@ -38,17 +38,17 @@ pub enum HandlerMessage {
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
     /// A gossip message has been received.
-    PubsubMessage(PeerId, Box<PubsubMessage>),
+    PubsubMessage(PeerId, Box<PubsubMessage<E>>),
 }
 
 impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
+    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage<T::EthSpec>>> {
         debug!(log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
@@ -78,7 +78,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     }
 
     /// Handle all messages incoming from the network service.
-    fn handle_message(&mut self, message: HandlerMessage) {
+    fn handle_message(&mut self, message: HandlerMessage<T::EthSpec>) {
         match message {
             // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     fn decode_block_bodies(
         &self,
         bodies_response: BeaconBlockBodiesResponse,
-    ) -> Result<DecodedBeaconBlockBodiesResponse, DecodeError> {
+    ) -> Result<DecodedBeaconBlockBodiesResponse<T::EthSpec>, DecodeError> {
         //TODO: Implement faster block verification before decoding entirely
         let block_bodies = Vec::from_ssz_bytes(&bodies_response.block_bodies)?;
         Ok(DecodedBeaconBlockBodiesResponse {
@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     }
 
     /// Handle RPC messages
-    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage) {
+    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage<T::EthSpec>) {
         match gossip_message {
             PubsubMessage::Block(message) => {
                 let _should_forward_on =
@@ -265,15 +265,15 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 }
 
 // TODO: RPC Rewrite makes this struct fairly pointless
-pub struct NetworkContext {
+pub struct NetworkContext<E: EthSpec> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
     /// The `MessageHandler` logger.
     log: slog::Logger,
 }
 
-impl NetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+impl<E: EthSpec> NetworkContext<E> {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>, log: slog::Logger) -> Self {
         Self { network_send, log }
     }
 

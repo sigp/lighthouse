@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{AttestationData, Bitfield};
+use crate::{AttestationData, BitList, EthSpec};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -8,7 +8,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     Clone,
@@ -21,8 +21,8 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
-pub struct PendingAttestation {
-    pub aggregation_bitfield: Bitfield,
+pub struct PendingAttestation<T: EthSpec> {
+    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     pub inclusion_delay: u64,
     pub proposer_index: u64,
@@ -31,7 +31,8 @@ pub struct PendingAttestation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::*;
 
-    ssz_tests!(PendingAttestation);
-    cached_tree_hash_tests!(PendingAttestation);
+    ssz_tests!(PendingAttestation<MainnetEthSpec>);
+    cached_tree_hash_tests!(PendingAttestation<MainnetEthSpec>);
 }

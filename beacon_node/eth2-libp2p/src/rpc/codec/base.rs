@@ -65,7 +65,7 @@ where
         dst.clear();
         dst.reserve(1);
         dst.put_u8(item.as_u8());
-        return self.inner.encode(item, dst);
+        self.inner.encode(item, dst)
     }
 }
 
@@ -120,16 +120,14 @@ where
 
         if RPCErrorResponse::is_response(response_code) {
             // decode an actual response
-            return self
-                .inner
+            self.inner
                 .decode(src)
-                .map(|r| r.map(|resp| RPCErrorResponse::Success(resp)));
+                .map(|r| r.map(RPCErrorResponse::Success))
         } else {
             // decode an error
-            return self
-                .inner
+            self.inner
                 .decode_error(src)
-                .map(|r| r.map(|resp| RPCErrorResponse::from_error(response_code, resp)));
+                .map(|r| r.map(|resp| RPCErrorResponse::from_error(response_code, resp)))
         }
     }
 }

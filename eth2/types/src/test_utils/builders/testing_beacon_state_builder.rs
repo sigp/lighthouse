@@ -120,10 +120,11 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
                     effective_balance: starting_balance,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into();
 
-        let mut state = BeaconState::genesis(
-            spec.genesis_time,
+        let mut state = BeaconState::new(
+            spec.min_genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
                 deposit_count: 0,
@@ -132,10 +133,10 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             spec,
         );
 
-        let balances = vec![starting_balance; validator_count];
+        let balances = vec![starting_balance; validator_count].into();
 
         debug!("Importing {} existing validators...", validator_count);
-        state.validator_registry = validators;
+        state.validators = validators;
         state.balances = balances;
 
         debug!("BeaconState initialized.");
@@ -177,11 +178,11 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
         // NOTE: we could update the latest start shard here
 
-        state.previous_justified_epoch = epoch - 3;
-        state.current_justified_epoch = epoch - 2;
-        state.justification_bitfield = u64::max_value();
+        state.previous_justified_checkpoint.epoch = epoch - 3;
+        state.current_justified_checkpoint.epoch = epoch - 2;
+        state.justification_bits = BitVector::from_bytes(vec![0b0000_1111]).unwrap();
 
-        state.finalized_epoch = epoch - 3;
+        state.finalized_checkpoint.epoch = epoch - 3;
     }
 
     /// Creates a full set of attestations for the `BeaconState`. Each attestation has full
@@ -228,10 +229,10 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
                 builder.add_committee_participation(signers);
                 let attestation = builder.build();
 
-                if attestation.data.target_epoch < state.current_epoch() {
-                    state.previous_epoch_attestations.push(attestation)
+                if attestation.data.target.epoch < state.current_epoch() {
+                    state.previous_epoch_attestations.push(attestation).unwrap()
                 } else {
-                    state.current_epoch_attestations.push(attestation)
+                    state.current_epoch_attestations.push(attestation).unwrap()
                 }
             }
         }

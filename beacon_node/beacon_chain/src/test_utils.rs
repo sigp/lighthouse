@@ -11,7 +11,7 @@ use store::Store;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     test_utils::TestingBeaconStateBuilder, AggregateSignature, Attestation,
-    AttestationDataAndCustodyBit, BeaconBlock, BeaconState, Bitfield, ChainSpec, Domain, EthSpec,
+    AttestationDataAndCustodyBit, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
     Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot,
 };
 
@@ -216,7 +216,7 @@ where
         mut state: BeaconState<E>,
         slot: Slot,
         block_strategy: BlockStrategy,
-    ) -> (BeaconBlock, BeaconState<E>) {
+    ) -> (BeaconBlock<E>, BeaconState<E>) {
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
         }
@@ -302,12 +302,9 @@ where
                             )
                             .expect("should produce attestation data");
 
-                        let mut aggregation_bitfield = Bitfield::new();
-                        aggregation_bitfield.set(i, true);
-                        aggregation_bitfield.set(committee_size, false);
-
-                        let mut custody_bitfield = Bitfield::new();
-                        custody_bitfield.set(committee_size, false);
+                        let mut aggregation_bits = BitList::with_capacity(committee_size).unwrap();
+                        aggregation_bits.set(i, true).unwrap();
+                        let custody_bits = BitList::with_capacity(committee_size).unwrap();
 
                         let signature = {
                             let message = AttestationDataAndCustodyBit {
@@ -317,7 +314,7 @@ where
                             .tree_hash_root();
 
                             let domain =
-                                spec.get_domain(data.target_epoch, Domain::Attestation, fork);
+                                spec.get_domain(data.target.epoch, Domain::Attestation, fork);
 
                             let mut agg_sig = AggregateSignature::new();
                             agg_sig.add(&Signature::new(
@@ -330,9 +327,9 @@ where
                         };
 
                         let attestation = Attestation {
-                            aggregation_bitfield,
+                            aggregation_bits,
                             data,
-                            custody_bitfield,
+                            custody_bits,
                             signature,
                         };
 
@@ -376,9 +373,9 @@ where
         let faulty_head = self.extend_chain(
             faulty_fork_blocks,
             BlockStrategy::ForkCanonicalChainAt {
-                previous_slot: Slot::from(initial_head_slot),
+                previous_slot: initial_head_slot,
                 // `initial_head_slot + 2` means one slot is skipped.
-                first_slot: Slot::from(initial_head_slot + 2),
+                first_slot: initial_head_slot + 2,
             },
             AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
         );

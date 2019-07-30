@@ -15,22 +15,21 @@ use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
 use state_processing::per_block_processing::{
-    get_slashable_indices_modular, validate_attestation,
-    validate_attestation_time_independent_only, verify_attester_slashing, verify_exit,
-    verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
-    verify_transfer_time_independent_only,
+    get_slashable_indices_modular, verify_attestation, verify_attestation_time_independent_only,
+    verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
+    verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
-    Attestation, AttesterSlashing, BeaconState, ChainSpec, Deposit, EthSpec, ProposerSlashing,
-    Transfer, Validator, VoluntaryExit,
+    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, Deposit, EthSpec,
+    ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
-    attestations: RwLock<HashMap<AttestationId, Vec<Attestation>>>,
+    attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
     /// Map from deposit index to deposit data.
     // NOTE: We assume that there is only one deposit per index
     // because the Eth1 data is updated (at most) once per epoch,
@@ -38,7 +37,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     // longer than an epoch
     deposits: RwLock<BTreeMap<u64, Deposit>>,
     /// Map from two attestation IDs to a slashing for those IDs.
-    attester_slashings: RwLock<HashMap<(AttestationId, AttestationId), AttesterSlashing>>,
+    attester_slashings: RwLock<HashMap<(AttestationId, AttestationId), AttesterSlashing<T>>>,
     /// Map from proposer index to slashing.
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
@@ -67,12 +66,12 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
     pub fn insert_attestation(
         &self,
-        attestation: Attestation,
+        attestation: Attestation<T>,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
         // Check that attestation signatures are valid.
-        validate_attestation_time_independent_only(state, &attestation, spec)?;
+        verify_attestation_time_independent_only(state, &attestation, spec)?;
 
         let id = AttestationId::from_data(&attestation.data, state, spec);
 
@@ -110,7 +109,11 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Get a list of attestations for inclusion in a block.
-    pub fn get_attestations(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Attestation> {
+    pub fn get_attestations(
+        &self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Vec<Attestation<T>> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
@@ -125,10 +128,10 @@ impl<T: EthSpec> OperationPool<T> {
             })
             .flat_map(|(_, attestations)| attestations)
             // That are valid...
-            .filter(|attestation| validate_attestation(state, attestation, spec).is_ok())
+            .filter(|attestation| verify_attestation(state, attestation, spec).is_ok())
             .map(|att| AttMaxCover::new(att, earliest_attestation_validators(att, state)));
 
-        maximum_cover(valid_attestations, spec.max_attestations as usize)
+        maximum_cover(valid_attestations, T::MaxAttestations::to_usize())
     }
 
     /// Remove attestations which are too old to be included in a block.
@@ -141,7 +144,7 @@ impl<T: EthSpec> OperationPool<T> {
             // All the attestations in this bucket have the same data, so we only need to
             // check the first one.
             attestations.first().map_or(false, |att| {
-                finalized_state.current_epoch() <= att.data.target_epoch + 1
+                finalized_state.current_epoch() <= att.data.target.epoch + 1
             })
         });
     }
@@ -149,13 +152,15 @@ impl<T: EthSpec> OperationPool<T> {
     /// Add a deposit to the pool.
     ///
     /// No two distinct deposits should be added with the same index.
+    // TODO: we need to rethink this entirely
     pub fn insert_deposit(
         &self,
+        index: u64,
         deposit: Deposit,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
         use DepositInsertStatus::*;
 
-        match self.deposits.write().entry(deposit.index) {
+        match self.deposits.write().entry(index) {
             Entry::Vacant(entry) => {
                 entry.insert(deposit);
                 Ok(Fresh)
@@ -173,12 +178,12 @@ impl<T: EthSpec> OperationPool<T> {
     /// Get an ordered list of deposits for inclusion in a block.
     ///
     /// Take at most the maximum number of deposits, beginning from the current deposit index.
-    pub fn get_deposits(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Deposit> {
+    pub fn get_deposits(&self, state: &BeaconState<T>) -> Vec<Deposit> {
         // TODO: We need to update the Merkle proofs for existing deposits as more deposits
         // are added. It probably makes sense to construct the proofs from scratch when forming
         // a block, using fresh info from the ETH1 chain for the current deposit root.
-        let start_idx = state.deposit_index;
-        (start_idx..start_idx + spec.max_deposits)
+        let start_idx = state.eth1_deposit_index;
+        (start_idx..start_idx + T::MaxDeposits::to_u64())
             .map(|idx| self.deposits.read().get(&idx).cloned())
             .take_while(Option::is_some)
             .flatten()
@@ -187,7 +192,7 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Remove all deposits with index less than the deposit index of the latest finalised block.
     pub fn prune_deposits(&self, state: &BeaconState<T>) -> BTreeMap<u64, Deposit> {
-        let deposits_keep = self.deposits.write().split_off(&state.deposit_index);
+        let deposits_keep = self.deposits.write().split_off(&state.eth1_deposit_index);
         std::mem::replace(&mut self.deposits.write(), deposits_keep)
     }
 
@@ -216,7 +221,7 @@ impl<T: EthSpec> OperationPool<T> {
     ///
     /// Depends on the fork field of the state, but not on the state's epoch.
     fn attester_slashing_id(
-        slashing: &AttesterSlashing,
+        slashing: &AttesterSlashing<T>,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> (AttestationId, AttestationId) {
@@ -229,7 +234,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert an attester slashing into the pool.
     pub fn insert_attester_slashing(
         &self,
-        slashing: AttesterSlashing,
+        slashing: AttesterSlashing<T>,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttesterSlashingValidationError> {
@@ -248,16 +253,16 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
-    ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing>) {
+    ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing<T>>) {
         let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.read().values(),
             |slashing| {
                 state
-                    .validator_registry
+                    .validators
                     .get(slashing.proposer_index as usize)
                     .map_or(false, |validator| !validator.slashed)
             },
-            spec.max_proposer_slashings,
+            T::MaxProposerSlashings::to_usize(),
         );
 
         // Set of validators to be slashed, so we don't attempt to construct invalid attester
@@ -291,7 +296,7 @@ impl<T: EthSpec> OperationPool<T> {
                     false
                 }
             })
-            .take(spec.max_attester_slashings as usize)
+            .take(T::MaxAttesterSlashings::to_usize())
             .map(|(_, slashing)| slashing.clone())
             .collect();
 
@@ -347,7 +352,7 @@ impl<T: EthSpec> OperationPool<T> {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
             |exit| verify_exit(state, exit, spec).is_ok(),
-            spec.max_voluntary_exits,
+            T::MaxVoluntaryExits::to_usize(),
         )
     }
 
@@ -384,7 +389,7 @@ impl<T: EthSpec> OperationPool<T> {
             .iter()
             .filter(|transfer| verify_transfer(state, transfer, spec).is_ok())
             .sorted_by_key(|transfer| std::cmp::Reverse(transfer.fee))
-            .take(spec.max_transfers as usize)
+            .take(T::MaxTransfers::to_usize())
             .cloned()
             .collect()
     }
@@ -408,7 +413,7 @@ impl<T: EthSpec> OperationPool<T> {
 }
 
 /// Filter up to a maximum number of operations out of an iterator.
-fn filter_limit_operations<'a, T: 'a, I, F>(operations: I, filter: F, limit: u64) -> Vec<T>
+fn filter_limit_operations<'a, T: 'a, I, F>(operations: I, filter: F, limit: usize) -> Vec<T>
 where
     I: IntoIterator<Item = &'a T>,
     F: Fn(&T) -> bool,
@@ -417,7 +422,7 @@ where
     operations
         .into_iter()
         .filter(|x| filter(*x))
-        .take(limit as usize)
+        .take(limit)
         .cloned()
         .collect()
 }
@@ -436,7 +441,7 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
 {
     map.retain(|&validator_index, _| {
         finalized_state
-            .validator_registry
+            .validators
             .get(validator_index as usize)
             .map_or(true, |validator| !prune_if(validator))
     });
@@ -458,6 +463,7 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 mod tests {
     use super::DepositInsertStatus::*;
     use super::*;
+    use rand::Rng;
     use types::test_utils::*;
     use types::*;
 
@@ -466,13 +472,16 @@ mod tests {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
         let op_pool = OperationPool::<MinimalEthSpec>::new();
         let deposit1 = make_deposit(rng);
-        let mut deposit2 = make_deposit(rng);
-        deposit2.index = deposit1.index;
+        let deposit2 = make_deposit(rng);
+        let index = rng.gen();
 
-        assert_eq!(op_pool.insert_deposit(deposit1.clone()), Ok(Fresh));
-        assert_eq!(op_pool.insert_deposit(deposit1.clone()), Ok(Duplicate));
+        assert_eq!(op_pool.insert_deposit(index, deposit1.clone()), Ok(Fresh));
         assert_eq!(
-            op_pool.insert_deposit(deposit2),
+            op_pool.insert_deposit(index, deposit1.clone()),
+            Ok(Duplicate)
+        );
+        assert_eq!(
+            op_pool.insert_deposit(index, deposit2),
             Ok(Replaced(Box::new(deposit1)))
         );
     }
@@ -480,28 +489,29 @@ mod tests {
     #[test]
     fn get_deposits_max() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let (spec, mut state) = test_state(rng);
+        let (_, mut state) = test_state(rng);
         let op_pool = OperationPool::new();
         let start = 10000;
-        let max_deposits = spec.max_deposits;
+        let max_deposits = <MainnetEthSpec as EthSpec>::MaxDeposits::to_u64();
         let extra = 5;
         let offset = 1;
         assert!(offset <= extra);
 
         let deposits = dummy_deposits(rng, start, max_deposits + extra);
 
-        for deposit in &deposits {
-            assert_eq!(op_pool.insert_deposit(deposit.clone()), Ok(Fresh));
+        for (i, deposit) in &deposits {
+            assert_eq!(op_pool.insert_deposit(*i, deposit.clone()), Ok(Fresh));
         }
 
-        state.deposit_index = start + offset;
-        let deposits_for_block = op_pool.get_deposits(&state, &spec);
+        state.eth1_deposit_index = start + offset;
+        let deposits_for_block = op_pool.get_deposits(&state);
 
         assert_eq!(deposits_for_block.len() as u64, max_deposits);
-        assert_eq!(
-            deposits_for_block[..],
-            deposits[offset as usize..(offset + max_deposits) as usize]
-        );
+        let expected = deposits[offset as usize..(offset + max_deposits) as usize]
+            .iter()
+            .map(|(_, d)| d.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(deposits_for_block[..], expected[..]);
     }
 
     #[test]
@@ -518,20 +528,20 @@ mod tests {
         let deposits1 = dummy_deposits(rng, start1, count);
         let deposits2 = dummy_deposits(rng, start2, count);
 
-        for d in deposits1.into_iter().chain(deposits2) {
-            assert!(op_pool.insert_deposit(d).is_ok());
+        for (i, d) in deposits1.into_iter().chain(deposits2) {
+            assert!(op_pool.insert_deposit(i, d).is_ok());
         }
 
         assert_eq!(op_pool.num_deposits(), 2 * count as usize);
 
         let mut state = BeaconState::random_for_test(rng);
-        state.deposit_index = start1;
+        state.eth1_deposit_index = start1;
 
         // Pruning the first bunch of deposits in batches of 5 should work.
         let step = 5;
         let mut pool_size = step + 2 * count as usize;
         for i in (start1..=(start1 + count)).step_by(step) {
-            state.deposit_index = i;
+            state.eth1_deposit_index = i;
             op_pool.prune_deposits(&state);
             pool_size -= step;
             assert_eq!(op_pool.num_deposits(), pool_size);
@@ -539,14 +549,14 @@ mod tests {
         assert_eq!(pool_size, count as usize);
         // Pruning in the gap should do nothing.
         for i in (start1 + count..start2).step_by(step) {
-            state.deposit_index = i;
+            state.eth1_deposit_index = i;
             op_pool.prune_deposits(&state);
             assert_eq!(op_pool.num_deposits(), count as usize);
         }
         // Same again for the later deposits.
         pool_size += step;
         for i in (start2..=(start2 + count)).step_by(step) {
-            state.deposit_index = i;
+            state.eth1_deposit_index = i;
             op_pool.prune_deposits(&state);
             pool_size -= step;
             assert_eq!(op_pool.num_deposits(), pool_size);
@@ -560,13 +570,13 @@ mod tests {
     }
 
     // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
-    fn dummy_deposits(rng: &mut XorShiftRng, start: u64, count: u64) -> Vec<Deposit> {
+    fn dummy_deposits(rng: &mut XorShiftRng, start: u64, count: u64) -> Vec<(u64, Deposit)> {
         let proto_deposit = make_deposit(rng);
         (start..start + count)
             .map(|index| {
                 let mut deposit = proto_deposit.clone();
-                deposit.index = index;
-                deposit
+                deposit.data.amount = index * 1000;
+                (index, deposit)
             })
             .collect()
     }
@@ -596,11 +606,11 @@ mod tests {
             state: &BeaconState<E>,
             spec: &ChainSpec,
             extra_signer: Option<usize>,
-        ) -> Attestation {
+        ) -> Attestation<E> {
             let mut builder = TestingAttestationBuilder::new(state, committee, slot, shard, spec);
             let signers = &committee[signing_range];
             let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
-            builder.sign(signers, &committee_keys, &state.fork, spec);
+            builder.sign(signers, &committee_keys, &state.fork, spec, false);
             extra_signer.map(|c_idx| {
                 let validator_index = committee[c_idx];
                 builder.sign(
@@ -608,6 +618,7 @@ mod tests {
                     &[&keypairs[validator_index].sk],
                     &state.fork,
                     spec,
+                    false,
                 )
             });
             builder.build()
@@ -668,15 +679,18 @@ mod tests {
                 );
 
                 assert_eq!(
-                    att1.aggregation_bitfield.num_set_bits(),
+                    att1.aggregation_bits.num_set_bits(),
                     earliest_attestation_validators(&att1, state).num_set_bits()
                 );
-                state.current_epoch_attestations.push(PendingAttestation {
-                    aggregation_bitfield: att1.aggregation_bitfield.clone(),
-                    data: att1.data.clone(),
-                    inclusion_delay: 0,
-                    proposer_index: 0,
-                });
+                state
+                    .current_epoch_attestations
+                    .push(PendingAttestation {
+                        aggregation_bits: att1.aggregation_bits.clone(),
+                        data: att1.data.clone(),
+                        inclusion_delay: 0,
+                        proposer_index: 0,
+                    })
+                    .unwrap();
 
                 assert_eq!(
                     cc.committee.len() - 2,
@@ -728,6 +742,7 @@ mod tests {
             assert_eq!(op_pool.num_attestations(), committees.len());
 
             // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
+            state.slot -= 1;
             assert_eq!(op_pool.get_attestations(state, spec).len(), 0);
 
             // Then once the delay has elapsed, we should get a single aggregated attestation.
@@ -738,7 +753,7 @@ mod tests {
 
             let agg_att = &block_attestations[0];
             assert_eq!(
-                agg_att.aggregation_bitfield.num_set_bits(),
+                agg_att.aggregation_bits.num_set_bits(),
                 spec.target_committee_size as usize
             );
 
@@ -854,7 +869,7 @@ mod tests {
                 .map(CrosslinkCommittee::into_owned)
                 .collect::<Vec<_>>();
 
-            let max_attestations = spec.max_attestations as usize;
+            let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
             let target_committee_size = spec.target_committee_size as usize;
 
             let insert_attestations = |cc: &OwnedCrosslinkCommittee, step_size| {
@@ -897,7 +912,7 @@ mod tests {
 
             // All the best attestations should be signed by at least `big_step_size` (4) validators.
             for att in &best_attestations {
-                assert!(att.aggregation_bitfield.num_set_bits() >= big_step_size);
+                assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
             }
         }
     }

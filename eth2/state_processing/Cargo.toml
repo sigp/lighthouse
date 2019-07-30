@@ -19,6 +19,7 @@ serde_yaml = "0.8"
 bls = { path = "../utils/bls" }
 integer-sqrt = "0.1"
 itertools = "0.8"
+eth2_ssz_types = { path = "../utils/ssz_types" }
 merkle_proof = { path = "../utils/merkle_proof" }
 tree_hash = { path = "../utils/tree_hash" }
 tree_hash_derive = { path = "../utils/tree_hash_derive" }

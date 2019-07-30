@@ -8,7 +8,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Transfer` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn verify_transfer<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
@@ -19,7 +19,7 @@ pub fn verify_transfer<T: EthSpec>(
 
 /// Like `verify_transfer` but doesn't run checks which may become true in future states.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn verify_transfer_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
@@ -37,7 +37,7 @@ pub fn verify_transfer_time_independent_only<T: EthSpec>(
 ///     present or future.
 /// - Validator transfer eligibility (e.g., is withdrawable)
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 fn verify_transfer_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
@@ -97,22 +97,20 @@ fn verify_transfer_parametric<T: EthSpec>(
 
     // Load the sender `Validator` record from the state.
     let sender_validator = state
-        .validator_registry
+        .validators
         .get(transfer.sender as usize)
         .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.sender)))?;
-
-    let epoch = state.slot.epoch(T::slots_per_epoch());
 
     // Ensure one of the following is met:
     //
     // - Time dependent checks are being ignored.
-    // - The sender has not been activated.
+    // - The sender has never been eligible for activation.
     // - The sender is withdrawable at the state's epoch.
     // - The transfer will not reduce the sender below the max effective balance.
     verify!(
         time_independent_only
             || sender_validator.activation_eligibility_epoch == spec.far_future_epoch
-            || sender_validator.is_withdrawable_at(epoch)
+            || sender_validator.is_withdrawable_at(state.current_epoch())
             || total_amount + spec.max_effective_balance <= sender_balance,
         Invalid::FromValidatorIneligibleForTransfer(transfer.sender)
     );
@@ -154,7 +152,7 @@ fn verify_transfer_parametric<T: EthSpec>(
 ///
 /// Does not check that the transfer is valid, however checks for overflow in all actions.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn execute_transfer<T: EthSpec>(
     state: &mut BeaconState<T>,
     transfer: &Transfer,

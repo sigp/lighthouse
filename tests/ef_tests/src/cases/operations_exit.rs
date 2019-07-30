@@ -6,13 +6,12 @@ use state_processing::per_block_processing::process_exits;
 use types::{BeaconState, EthSpec, VoluntaryExit};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct OperationsExit<E: EthSpec> {
     pub description: String,
     pub bls_setting: Option<BlsSetting>,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
     pub voluntary_exit: VoluntaryExit,
-    #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
 

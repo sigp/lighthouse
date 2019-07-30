@@ -6,13 +6,12 @@ use state_processing::per_block_processing::process_transfers;
 use types::{BeaconState, EthSpec, Transfer};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct OperationsTransfer<E: EthSpec> {
     pub description: String,
     pub bls_setting: Option<BlsSetting>,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
     pub transfer: Transfer,
-    #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
 
@@ -37,8 +36,7 @@ impl<E: EthSpec> Case for OperationsTransfer<E> {
         // Transfer processing requires the epoch cache.
         state.build_all_caches(&E::default_spec()).unwrap();
 
-        let mut spec = E::default_spec();
-        spec.max_transfers = 1;
+        let spec = E::default_spec();
 
         let result = process_transfers(&mut state, &[transfer], &spec);
 

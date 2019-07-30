@@ -11,11 +11,11 @@ use tree_hash::{SignedRoot, TreeHash};
 /// Builds a beacon block to be used for testing purposes.
 ///
 /// This struct should **never be used for production purposes.**
-pub struct TestingBeaconBlockBuilder {
-    pub block: BeaconBlock,
+pub struct TestingBeaconBlockBuilder<T: EthSpec> {
+    pub block: BeaconBlock<T>,
 }
 
-impl TestingBeaconBlockBuilder {
+impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
         Self {
@@ -24,8 +24,8 @@ impl TestingBeaconBlockBuilder {
     }
 
     /// Set the previous block root
-    pub fn set_previous_block_root(&mut self, root: Hash256) {
-        self.block.previous_block_root = root;
+    pub fn set_parent_root(&mut self, root: Hash256) {
+        self.block.parent_root = root;
     }
 
     /// Set the slot of the block.
@@ -36,7 +36,7 @@ impl TestingBeaconBlockBuilder {
     /// Signs the block.
     ///
     /// Modifying the block after signing may invalidate the signature.
-    pub fn sign<T: EthSpec>(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
+    pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.block.signed_root();
         let epoch = self.block.slot.epoch(T::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
@@ -46,7 +46,7 @@ impl TestingBeaconBlockBuilder {
     /// Sets the randao to be a signature across the blocks epoch.
     ///
     /// Modifying the block's slot after signing may invalidate the signature.
-    pub fn set_randao_reveal<T: EthSpec>(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
+    pub fn set_randao_reveal(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let epoch = self.block.slot.epoch(T::slots_per_epoch());
         let message = epoch.tree_hash_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
@@ -59,7 +59,7 @@ impl TestingBeaconBlockBuilder {
     }
 
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
-    pub fn insert_proposer_slashing<T: EthSpec>(
+    pub fn insert_proposer_slashing(
         &mut self,
         validator_index: u64,
         secret_key: &SecretKey,
@@ -68,7 +68,11 @@ impl TestingBeaconBlockBuilder {
     ) {
         let proposer_slashing =
             build_proposer_slashing::<T>(validator_index, secret_key, fork, spec);
-        self.block.body.proposer_slashings.push(proposer_slashing);
+        self.block
+            .body
+            .proposer_slashings
+            .push(proposer_slashing)
+            .unwrap();
     }
 
     /// Inserts a signed, valid `AttesterSlashing` for each validator index in `validator_indices`.
@@ -81,7 +85,11 @@ impl TestingBeaconBlockBuilder {
     ) {
         let attester_slashing =
             build_double_vote_attester_slashing(validator_indices, secret_keys, fork, spec);
-        self.block.body.attester_slashings.push(attester_slashing);
+        self.block
+            .body
+            .attester_slashings
+            .push(attester_slashing)
+            .unwrap();
     }
 
     /// Fills the block with `num_attestations` attestations.
@@ -93,7 +101,7 @@ impl TestingBeaconBlockBuilder {
     ///
     /// Note: the signed messages of the split committees will be identical -- it would be possible
     /// to aggregate these split attestations.
-    pub fn insert_attestations<T: EthSpec>(
+    pub fn insert_attestations(
         &mut self,
         state: &BeaconState<T>,
         secret_keys: &[&SecretKey],
@@ -160,7 +168,7 @@ impl TestingBeaconBlockBuilder {
             }
         }
 
-        let mut attestations: Vec<Attestation> = committees
+        let attestations: Vec<_> = committees
             .par_iter()
             .map(|(slot, committee, signing_validators, shard)| {
                 let mut builder =
@@ -170,29 +178,37 @@ impl TestingBeaconBlockBuilder {
                     .iter()
                     .map(|validator_index| secret_keys[*validator_index])
                     .collect();
-                builder.sign(signing_validators, &signing_secret_keys, &state.fork, spec);
+                builder.sign(
+                    signing_validators,
+                    &signing_secret_keys,
+                    &state.fork,
+                    spec,
+                    false,
+                );
 
                 builder.build()
             })
             .collect();
 
-        self.block.body.attestations.append(&mut attestations);
+        for attestation in attestations {
+            self.block.body.attestations.push(attestation).unwrap();
+        }
 
         Ok(())
     }
 
     /// Insert a `Valid` deposit into the state.
-    pub fn insert_deposit<T: EthSpec>(
+    pub fn insert_deposit(
         &mut self,
         amount: u64,
-        index: u64,
+        // TODO: deal with the fact deposits no longer have explicit indices
+        _index: u64,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) {
         let keypair = Keypair::random();
 
         let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-        builder.set_index(index);
         builder.sign(
             &keypair,
             state.slot.epoch(T::slots_per_epoch()),
@@ -200,11 +216,11 @@ impl TestingBeaconBlockBuilder {
             spec,
         );
 
-        self.block.body.deposits.push(builder.build())
+        self.block.body.deposits.push(builder.build()).unwrap()
     }
 
     /// Insert a `Valid` exit into the state.
-    pub fn insert_exit<T: EthSpec>(
+    pub fn insert_exit(
         &mut self,
         state: &BeaconState<T>,
         validator_index: u64,
@@ -218,14 +234,18 @@ impl TestingBeaconBlockBuilder {
 
         builder.sign(secret_key, &state.fork, spec);
 
-        self.block.body.voluntary_exits.push(builder.build())
+        self.block
+            .body
+            .voluntary_exits
+            .push(builder.build())
+            .unwrap()
     }
 
     /// Insert a `Valid` transfer into the state.
     ///
     /// Note: this will set the validator to be withdrawable by directly modifying the state
     /// validator registry. This _may_ cause problems historic hashes, etc.
-    pub fn insert_transfer<T: EthSpec>(
+    pub fn insert_transfer(
         &mut self,
         state: &BeaconState<T>,
         from: u64,
@@ -237,22 +257,17 @@ impl TestingBeaconBlockBuilder {
         let mut builder = TestingTransferBuilder::new(from, to, amount, state.slot);
         builder.sign::<T>(keypair, &state.fork, spec);
 
-        self.block.body.transfers.push(builder.build())
+        self.block.body.transfers.push(builder.build()).unwrap()
     }
 
     /// Signs and returns the block, consuming the builder.
-    pub fn build<T: EthSpec>(
-        mut self,
-        sk: &SecretKey,
-        fork: &Fork,
-        spec: &ChainSpec,
-    ) -> BeaconBlock {
-        self.sign::<T>(sk, fork, spec);
+    pub fn build(mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) -> BeaconBlock<T> {
+        self.sign(sk, fork, spec);
         self.block
     }
 
     /// Returns the block, consuming the builder.
-    pub fn build_without_signing(self) -> BeaconBlock {
+    pub fn build_without_signing(self) -> BeaconBlock<T> {
         self.block
     }
 }
@@ -277,12 +292,12 @@ fn build_proposer_slashing<T: EthSpec>(
 /// Builds an `AttesterSlashing` for some `validator_indices`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_double_vote_attester_slashing(
+fn build_double_vote_attester_slashing<T: EthSpec>(
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],
     fork: &Fork,
     spec: &ChainSpec,
-) -> AttesterSlashing {
+) -> AttesterSlashing<T> {
     let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
         let key_index = validator_indices
             .iter()

@@ -41,7 +41,7 @@ struct ForkedHarness {
     /// don't expose it to avoid contamination between tests.
     harness: BeaconChainHarness,
     pub genesis_block_root: Hash256,
-    pub genesis_block: BeaconBlock,
+    pub genesis_block: BeaconBlock<TestEthSpec>,
     pub honest_head: RootAndSlot,
     pub faulty_head: RootAndSlot,
     pub honest_roots: Vec<RootAndSlot>,
@@ -101,7 +101,7 @@ impl ForkedHarness {
         let genesis_block = harness
             .chain
             .store
-            .get::<BeaconBlock>(&genesis_block_root)
+            .get::<BeaconBlock<TestEthSpec>>(&genesis_block_root)
             .expect("Genesis block should exist")
             .expect("DB should not error");
 
@@ -155,11 +155,11 @@ fn get_ancestor_roots<E: EthSpec, U: Store>(
     block_root: Hash256,
 ) -> Vec<(Hash256, Slot)> {
     let block = store
-        .get::<BeaconBlock>(&block_root)
+        .get::<BeaconBlock<TestEthSpec>>(&block_root)
         .expect("block should exist")
         .expect("store should not error");
 
-    <BeaconBlock as AncestorIter<_, BestBlockRootsIterator<E, _>>>::try_iter_ancestor_roots(
+    <BeaconBlock<TestEthSpec> as AncestorIter<_, BestBlockRootsIterator<TestEthSpec, _>>>::try_iter_ancestor_roots(
         &block, store,
     )
     .expect("should be able to create ancestor iter")
@@ -171,7 +171,7 @@ fn get_slot_for_block_root(harness: &BeaconChainHarness, block_root: Hash256) ->
     harness
         .chain
         .store
-        .get::<BeaconBlock>(&block_root)
+        .get::<BeaconBlock<TestEthSpec>>(&block_root)
         .expect("head block should exist")
         .expect("DB should not error")
         .slot
@@ -328,7 +328,7 @@ fn test_update_finalized_root(roots: &[(Hash256, Slot)]) {
     for (root, _slot) in roots.iter().rev() {
         let block = harness
             .store_clone()
-            .get::<BeaconBlock>(root)
+            .get::<BeaconBlock<TestEthSpec>>(root)
             .expect("block should exist")
             .expect("db should not error");
         lmd.update_finalized_root(&block, *root)

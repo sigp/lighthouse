@@ -24,7 +24,7 @@ pub struct CommitteeCache {
 impl CommitteeCache {
     /// Return a new, fully initialized cache.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn initialized<T: EthSpec>(
         state: &BeaconState<T>,
         epoch: Epoch,
@@ -38,22 +38,20 @@ impl CommitteeCache {
             return Err(Error::ZeroSlotsPerEpoch);
         }
 
-        let active_validator_indices =
-            get_active_validator_indices(&state.validator_registry, epoch);
+        let active_validator_indices = get_active_validator_indices(&state.validators, epoch);
 
         if active_validator_indices.is_empty() {
             return Err(Error::InsufficientValidators);
         }
 
-        let committee_count = T::get_epoch_committee_count(
-            active_validator_indices.len(),
-            spec.target_committee_size,
-        ) as usize;
+        let committee_count =
+            T::get_committee_count(active_validator_indices.len(), spec.target_committee_size)
+                as usize;
 
         let shuffling_start_shard =
             Self::compute_start_shard(state, relative_epoch, active_validator_indices.len(), spec);
 
-        let seed = state.generate_seed(epoch, spec)?;
+        let seed = state.get_seed(epoch, spec)?;
 
         let shuffling = shuffle_list(
             active_validator_indices,
@@ -64,11 +62,11 @@ impl CommitteeCache {
         .ok_or_else(|| Error::UnableToShuffle)?;
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validator_registry.len() > usize::max_value() - 1 {
+        if state.validators.len() > usize::max_value() - 1 {
             return Err(Error::TooManyValidators);
         }
 
-        let mut shuffling_positions = vec![None; state.validator_registry.len()];
+        let mut shuffling_positions = vec![None; state.validators.len()];
         for (i, v) in shuffling.iter().enumerate() {
             shuffling_positions[*v] = NonZeroUsize::new(i + 1);
         }
@@ -88,7 +86,7 @@ impl CommitteeCache {
     ///
     /// The `active_validator_count` must be the number of validators active at `relative_epoch`.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn compute_start_shard<T: EthSpec>(
         state: &BeaconState<T>,
         relative_epoch: RelativeEpoch,
@@ -96,21 +94,21 @@ impl CommitteeCache {
         spec: &ChainSpec,
     ) -> u64 {
         match relative_epoch {
-            RelativeEpoch::Current => state.latest_start_shard,
+            RelativeEpoch::Current => state.start_shard,
             RelativeEpoch::Previous => {
                 let shard_delta =
                     T::get_shard_delta(active_validator_count, spec.target_committee_size);
 
-                (state.latest_start_shard + T::ShardCount::to_u64() - shard_delta)
+                (state.start_shard + T::ShardCount::to_u64() - shard_delta)
                     % T::ShardCount::to_u64()
             }
             RelativeEpoch::Next => {
                 let current_active_validators =
-                    get_active_validator_count(&state.validator_registry, state.current_epoch());
+                    get_active_validator_count(&state.validators, state.current_epoch());
                 let shard_delta =
                     T::get_shard_delta(current_active_validators, spec.target_committee_size);
 
-                (state.latest_start_shard + shard_delta) % T::ShardCount::to_u64()
+                (state.start_shard + shard_delta) % T::ShardCount::to_u64()
             }
         }
     }
@@ -128,7 +126,7 @@ impl CommitteeCache {
     ///
     /// Always returns `&[]` for a non-initialized epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn active_validator_indices(&self) -> &[usize] {
         &self.shuffling
     }
@@ -137,7 +135,7 @@ impl CommitteeCache {
     ///
     /// Always returns `&[]` for a non-initialized epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn shuffling(&self) -> &[usize] {
         &self.shuffling
     }
@@ -147,7 +145,7 @@ impl CommitteeCache {
     ///
     /// Always returns `None` for a non-initialized epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn get_crosslink_committee_for_shard(&self, shard: Shard) -> Option<CrosslinkCommittee> {
         if shard >= self.shard_count || self.initialized_epoch.is_none() {
             return None;
@@ -201,7 +199,7 @@ impl CommitteeCache {
     ///
     /// Always returns `usize::default()` for a non-initialized epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn active_validator_count(&self) -> usize {
         self.shuffling.len()
     }
@@ -210,7 +208,7 @@ impl CommitteeCache {
     ///
     /// Always returns `usize::default()` for a non-initialized epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn epoch_committee_count(&self) -> usize {
         self.committee_count
     }
@@ -226,7 +224,7 @@ impl CommitteeCache {
     ///
     /// Returns `None` if `slot` is not in the initialized epoch, or if `Self` is not initialized.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn get_crosslink_committees_for_slot(&self, slot: Slot) -> Option<Vec<CrosslinkCommittee>> {
         let position = self
             .initialized_epoch?
@@ -258,7 +256,7 @@ impl CommitteeCache {
     ///
     /// Always returns `None` for a non-initialized epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn first_committee_at_slot(&self, slot: Slot) -> Option<&[usize]> {
         self.get_crosslink_committees_for_slot(slot)?
             .first()
@@ -267,7 +265,7 @@ impl CommitteeCache {
 
     /// Returns a slice of `self.shuffling` that represents the `index`'th committee in the epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn compute_committee(&self, index: usize) -> Option<&[usize]> {
         Some(&self.shuffling[self.compute_committee_range(index)?])
     }
@@ -276,9 +274,11 @@ impl CommitteeCache {
     ///
     /// To avoid a divide-by-zero, returns `None` if `self.committee_count` is zero.
     ///
-    /// Spec v0.6.3
+    /// Will also return `None` if the index is out of bounds.
+    ///
+    /// Spec v0.8.1
     fn compute_committee_range(&self, index: usize) -> Option<Range<usize>> {
-        if self.committee_count == 0 {
+        if self.committee_count == 0 || index >= self.committee_count {
             return None;
         }
 
@@ -295,7 +295,7 @@ impl CommitteeCache {
     ///
     /// Always returns `None` for a non-initialized epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn crosslink_slot_for_shard(&self, shard: u64) -> Option<Slot> {
         let offset = (shard + self.shard_count - self.shuffling_start_shard) % self.shard_count;
         Some(
@@ -314,10 +314,10 @@ impl CommitteeCache {
     }
 }
 
-/// Returns a list of all `validator_registry` indices where the validator is active at the given
+/// Returns a list of all `validators` indices where the validator is active at the given
 /// `epoch`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
     let mut active = Vec::with_capacity(validators.len());
 
@@ -332,10 +332,10 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
     active
 }
 
-/// Returns the count of all `validator_registry` indices where the validator is active at the given
+/// Returns the count of all `validators` indices where the validator is active at the given
 /// `epoch`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 fn get_active_validator_count(validators: &[Validator], epoch: Epoch) -> usize {
     validators.iter().filter(|v| v.is_active_at(epoch)).count()
 }

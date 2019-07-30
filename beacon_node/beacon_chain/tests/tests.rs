@@ -93,12 +93,12 @@ fn finalizes_with_full_participation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_epoch,
+        state.current_justified_checkpoint.epoch,
         state.current_epoch() - 1,
         "the head should be justified one behind the current epoch"
     );
     assert_eq!(
-        state.finalized_epoch,
+        state.finalized_checkpoint.epoch,
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
     );
@@ -136,12 +136,12 @@ fn finalizes_with_two_thirds_participation() {
     // included in blocks during that epoch.
 
     assert_eq!(
-        state.current_justified_epoch,
+        state.current_justified_checkpoint.epoch,
         state.current_epoch() - 2,
         "the head should be justified two behind the current epoch"
     );
     assert_eq!(
-        state.finalized_epoch,
+        state.finalized_checkpoint.epoch,
         state.current_epoch() - 4,
         "the head should be finalized three behind the current epoch"
     );
@@ -175,11 +175,11 @@ fn does_not_finalize_with_less_than_two_thirds_participation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_epoch, 0,
+        state.current_justified_checkpoint.epoch, 0,
         "no epoch should have been justified"
     );
     assert_eq!(
-        state.finalized_epoch, 0,
+        state.finalized_checkpoint.epoch, 0,
         "no epoch should have been finalized"
     );
 }
@@ -208,11 +208,11 @@ fn does_not_finalize_without_attestation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_epoch, 0,
+        state.current_justified_checkpoint.epoch, 0,
         "no epoch should have been justified"
     );
     assert_eq!(
-        state.finalized_epoch, 0,
+        state.finalized_checkpoint.epoch, 0,
         "no epoch should have been finalized"
     );
 }
@@ -233,10 +233,10 @@ fn roundtrip_operation_pool() {
 
     // Add some deposits
     let rng = &mut XorShiftRng::from_seed([66; 16]);
-    for _ in 0..rng.gen_range(1, VALIDATOR_COUNT) {
+    for i in 0..rng.gen_range(1, VALIDATOR_COUNT) {
         harness
             .chain
-            .process_deposit(Deposit::random_for_test(rng))
+            .process_deposit(i as u64, Deposit::random_for_test(rng))
             .unwrap();
     }
 

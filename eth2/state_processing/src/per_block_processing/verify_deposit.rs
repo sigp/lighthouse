@@ -5,43 +5,27 @@ use types::*;
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn verify_deposit_signature<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    // Note: Deposits are valid across forks, thus the deposit domain is computed
+    // with the fork zeroed.
+    let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
     verify!(
-        deposit.data.signature.verify(
-            &deposit.data.signed_root(),
-            spec.get_domain(state.current_epoch(), Domain::Deposit, &state.fork),
-            &deposit.data.pubkey,
-        ),
+        deposit
+            .data
+            .signature
+            .verify(&deposit.data.signed_root(), domain, &deposit.data.pubkey,),
         Invalid::BadSignature
     );
 
     Ok(())
 }
 
-/// Verify that the `Deposit` index is correct.
-///
-/// Spec v0.6.3
-pub fn verify_deposit_index<T: EthSpec>(
-    state: &BeaconState<T>,
-    deposit: &Deposit,
-) -> Result<(), Error> {
-    verify!(
-        deposit.index == state.deposit_index,
-        Invalid::BadIndex {
-            state: state.deposit_index,
-            deposit: deposit.index
-        }
-    );
-
-    Ok(())
-}
-
-/// Returns a `Some(validator index)` if a pubkey already exists in the `validator_registry`,
+/// Returns a `Some(validator index)` if a pubkey already exists in the `validators`,
 /// otherwise returns `None`.
 ///
 /// ## Errors
@@ -57,10 +41,14 @@ pub fn get_existing_validator_index<T: EthSpec>(
 
 /// Verify that a deposit is included in the state's eth1 deposit root.
 ///
-/// Spec v0.6.3
+/// The deposit index is provided as a parameter so we can check proofs
+/// before they're due to be processed, and in parallel.
+///
+/// Spec v0.8.0
 pub fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
+    deposit_index: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let leaf = deposit.data.tree_hash_root();
@@ -69,9 +57,9 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
         verify_merkle_proof(
             Hash256::from_slice(&leaf),
             &deposit.proof[..],
-            spec.deposit_contract_tree_depth as usize,
-            deposit.index as usize,
-            state.latest_eth1_data.deposit_root,
+            spec.deposit_contract_tree_depth as usize + 1,
+            deposit_index as usize,
+            state.eth1_data.deposit_root,
         ),
         Invalid::BadMerkleProof
     );

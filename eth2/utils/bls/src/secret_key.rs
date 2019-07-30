@@ -6,8 +6,7 @@ use milagro_bls::SecretKey as RawSecretKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::HexVisitor;
-use ssz::{ssz_encode, Decode, DecodeError};
-use tree_hash::tree_hash_ssz_encoding_as_vector;
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
 /// A single BLS signature.
 ///
@@ -46,6 +45,10 @@ impl SecretKey {
 
 impl_ssz!(SecretKey, BLS_SECRET_KEY_BYTE_SIZE, "SecretKey");
 
+impl_tree_hash!(SecretKey, U48);
+
+impl_cached_tree_hash!(SecretKey, U48);
+
 impl Serialize for SecretKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -66,8 +69,6 @@ impl<'de> Deserialize<'de> for SecretKey {
         Ok(secret_key)
     }
 }
-
-tree_hash_ssz_encoding_as_vector!(SecretKey);
 
 #[cfg(test)]
 mod tests {

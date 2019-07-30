@@ -94,7 +94,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         store: Arc<T::Store>,
         slot_clock: T::SlotClock,
         mut genesis_state: BeaconState<T::EthSpec>,
-        genesis_block: BeaconBlock,
+        genesis_block: BeaconBlock<T::EthSpec>,
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, Error> {
@@ -108,7 +108,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Also store the genesis block under the `ZERO_HASH` key.
         let genesis_block_root = genesis_block.block_header().canonical_root();
-        store.put(&spec.zero_hash, &genesis_block)?;
+        store.put(&Hash256::zero(), &genesis_block)?;
 
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec.seconds_per_slot,
         );
 
-        let last_finalized_root = p.canonical_head.beacon_state.finalized_root;
+        let last_finalized_root = p.canonical_head.beacon_state.finalized_checkpoint.root;
         let last_finalized_block = &p.canonical_head.beacon_block;
 
         let op_pool = p.op_pool.into_operation_pool(&p.state, &spec);
@@ -187,8 +187,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns the beacon block body for each beacon block root in `roots`.
     ///
     /// Fails if any root in `roots` does not have a corresponding block.
-    pub fn get_block_bodies(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockBody>, Error> {
-        let bodies: Result<Vec<BeaconBlockBody>, _> = roots
+    pub fn get_block_bodies(
+        &self,
+        roots: &[Hash256],
+    ) -> Result<Vec<BeaconBlockBody<T::EthSpec>>, Error> {
+        let bodies: Result<Vec<_>, _> = roots
             .iter()
             .map(|root| match self.get_block(root)? {
                 Some(block) => Ok(block.body),
@@ -259,7 +262,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock>, Error> {
+    pub fn get_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get(block_root)?)
     }
 
@@ -321,15 +327,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the validator index (if any) for the given public key.
     ///
-    /// Information is retrieved from the present `beacon_state.validator_registry`.
+    /// Information is retrieved from the present `beacon_state.validators`.
     pub fn validator_index(&self, pubkey: &PublicKey) -> Option<usize> {
-        for (i, validator) in self
-            .head()
-            .beacon_state
-            .validator_registry
-            .iter()
-            .enumerate()
-        {
+        for (i, validator) in self.head().beacon_state.validators.iter().enumerate() {
             if validator.pubkey == *pubkey {
                 return Some(i);
             }
@@ -469,9 +469,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             *state.get_block_root(current_epoch_start_slot)?
         };
+        let target = Checkpoint {
+            epoch: state.current_epoch(),
+            root: target_root,
+        };
 
-        let previous_crosslink_root =
-            Hash256::from_slice(&state.get_current_crosslink(shard)?.tree_hash_root());
+        let parent_crosslink = state.get_current_crosslink(shard)?;
+        let crosslink = Crosslink {
+            shard,
+            parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()),
+            start_epoch: parent_crosslink.end_epoch,
+            end_epoch: std::cmp::min(
+                target.epoch,
+                parent_crosslink.end_epoch + self.spec.max_epochs_per_crosslink,
+            ),
+            data_root: Hash256::zero(),
+        };
 
         // Collect some metrics.
         self.metrics.attestation_production_successes.inc();
@@ -479,13 +492,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(AttestationData {
             beacon_block_root: head_block_root,
-            source_epoch: state.current_justified_epoch,
-            source_root: state.current_justified_root,
-            target_epoch: state.current_epoch(),
-            target_root,
-            shard,
-            previous_crosslink_root,
-            crosslink_data_root: Hash256::zero(),
+            source: state.current_justified_checkpoint.clone(),
+            target,
+            crosslink,
         })
     }
 
@@ -495,7 +504,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// if possible.
     pub fn process_attestation(
         &self,
-        attestation: Attestation,
+        attestation: Attestation<T::EthSpec>,
     ) -> Result<(), AttestationValidationError> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
@@ -527,9 +536,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accept some deposit and queue it for inclusion in an appropriate block.
     pub fn process_deposit(
         &self,
+        index: u64,
         deposit: Deposit,
     ) -> Result<DepositInsertStatus, DepositValidationError> {
-        self.op_pool.insert_deposit(deposit)
+        self.op_pool.insert_deposit(index, deposit)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
@@ -556,7 +566,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
     pub fn process_attester_slashing(
         &self,
-        attester_slashing: AttesterSlashing,
+        attester_slashing: AttesterSlashing<T::EthSpec>,
     ) -> Result<(), AttesterSlashingValidationError> {
         self.op_pool
             .insert_attester_slashing(attester_slashing, &*self.state.read(), &self.spec)
@@ -565,14 +575,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    pub fn process_block(&self, block: BeaconBlock) -> Result<BlockProcessingOutcome, Error> {
+    pub fn process_block(
+        &self,
+        block: BeaconBlock<T::EthSpec>,
+    ) -> Result<BlockProcessingOutcome, Error> {
         self.metrics.block_processing_requests.inc();
         let timer = self.metrics.block_processing_times.start_timer();
 
         let finalized_slot = self
             .state
             .read()
-            .finalized_epoch
+            .finalized_checkpoint
+            .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
         if block.slot <= finalized_slot {
@@ -600,18 +614,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        if self.store.exists::<BeaconBlock>(&block_root)? {
+        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
             return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
         }
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
-        let parent_block_root = block.previous_block_root;
-        let parent_block: BeaconBlock = match self.store.get(&parent_block_root)? {
-            Some(previous_block_root) => previous_block_root,
+        let parent_block: BeaconBlock<T::EthSpec> = match self.store.get(&block.parent_root)? {
+            Some(block) => block,
             None => {
                 return Ok(BlockProcessingOutcome::ParentUnknown {
-                    parent: parent_block_root,
+                    parent: block.parent_root,
                 });
             }
         };
@@ -691,7 +704,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn produce_block(
         &self,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
+    ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
         let state = self.state.read().clone();
         let slot = self
             .read_slot_clock()
@@ -713,7 +726,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock, BeaconState<T::EthSpec>), BlockProductionError> {
+    ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
         self.metrics.block_production_requests.inc();
         let timer = self.metrics.block_production_times.start_timer();
 
@@ -724,7 +737,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
-        let previous_block_root = if state.slot > 0 {
+        let parent_root = if state.slot > 0 {
             *state
                 .get_block_root(state.slot - 1)
                 .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
@@ -740,7 +753,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut block = BeaconBlock {
             slot: state.slot,
-            previous_block_root,
+            parent_root,
             state_root: Hash256::zero(), // Updated after the state is calculated.
             signature: Signature::empty_signature(), // To be completed by a validator.
             body: BeaconBlockBody {
@@ -752,12 +765,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_hash: Hash256::zero(),
                 },
                 graffiti,
-                proposer_slashings,
-                attester_slashings,
-                attestations: self.op_pool.get_attestations(&state, &self.spec),
-                deposits: self.op_pool.get_deposits(&state, &self.spec),
-                voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec),
-                transfers: self.op_pool.get_transfers(&state, &self.spec),
+                proposer_slashings: proposer_slashings.into(),
+                attester_slashings: attester_slashings.into(),
+                attestations: self.op_pool.get_attestations(&state, &self.spec).into(),
+                deposits: self.op_pool.get_deposits(&state).into(),
+                voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
+                transfers: self.op_pool.get_transfers(&state, &self.spec).into(),
             },
         };
 
@@ -790,7 +803,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if beacon_block_root != self.head().beacon_block_root {
             self.metrics.fork_choice_changed_head.inc();
 
-            let beacon_block: BeaconBlock = self
+            let beacon_block: BeaconBlock<T::EthSpec> = self
                 .store
                 .get(&beacon_block_root)?
                 .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
@@ -805,7 +818,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let new_slot = beacon_block.slot;
 
             // If we switched to a new chain (instead of building atop the present chain).
-            if self.head().beacon_block_root != beacon_block.previous_block_root {
+            if self.head().beacon_block_root != beacon_block.parent_root {
                 self.metrics.fork_choice_reorg_count.inc();
                 warn!(
                     self.log,
@@ -817,16 +830,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 info!(
                     self.log,
                     "new head block";
-                    "justified_root" => format!("{}", beacon_state.current_justified_root),
-                    "finalized_root" => format!("{}", beacon_state.finalized_root),
+                    "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
+                    "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
                     "root" => format!("{}", beacon_block_root),
                     "slot" => new_slot,
                 );
             };
 
-            let old_finalized_epoch = self.head().beacon_state.finalized_epoch;
-            let new_finalized_epoch = beacon_state.finalized_epoch;
-            let finalized_root = beacon_state.finalized_root;
+            let old_finalized_epoch = self.head().beacon_state.finalized_checkpoint.epoch;
+            let new_finalized_epoch = beacon_state.finalized_checkpoint.epoch;
+            let finalized_root = beacon_state.finalized_checkpoint.root;
 
             // Never revert back past a finalized epoch.
             if new_finalized_epoch < old_finalized_epoch {
@@ -836,7 +849,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             } else {
                 self.update_canonical_head(CheckPoint {
-                    beacon_block: beacon_block,
+                    beacon_block,
                     beacon_block_root,
                     beacon_state,
                     beacon_state_root,
@@ -894,7 +907,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         let finalized_block = self
             .store
-            .get::<BeaconBlock>(&finalized_block_root)?
+            .get::<BeaconBlock<T::EthSpec>>(&finalized_block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(finalized_block_root))?;
 
         let new_finalized_epoch = finalized_block.slot.epoch(T::EthSpec::slots_per_epoch());
@@ -914,7 +927,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns `true` if the given block root has not been processed.
     pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
-        Ok(!self.store.exists::<BeaconBlock>(beacon_block_root)?)
+        Ok(!self
+            .store
+            .exists::<BeaconBlock<T::EthSpec>>(beacon_block_root)?)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
@@ -934,13 +949,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         dump.push(last_slot.clone());
 
         loop {
-            let beacon_block_root = last_slot.beacon_block.previous_block_root;
+            let beacon_block_root = last_slot.beacon_block.parent_root;
 
-            if beacon_block_root == self.spec.zero_hash {
+            if beacon_block_root == Hash256::zero() {
                 break; // Genesis has been reached.
             }
 
-            let beacon_block: BeaconBlock =
+            let beacon_block: BeaconBlock<T::EthSpec> =
                 self.store.get(&beacon_block_root)?.ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
