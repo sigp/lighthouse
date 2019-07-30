@@ -1,4 +1,4 @@
-use super::per_block_processing::{errors::BlockProcessingError, process_deposits};
+use super::per_block_processing::{errors::BlockProcessingError, process_deposit};
 use crate::common::get_compact_committees_root;
 use tree_hash::TreeHash;
 use types::typenum::U4294967296;
@@ -32,7 +32,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     for (index, deposit) in deposits.into_iter().enumerate() {
         let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..=index].to_vec());
         state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
-        process_deposits(&mut state, &[deposit], spec)?;
+        process_deposit(&mut state, &deposit, spec, true)?;
     }
 
     // Process activations
@@ -48,6 +48,9 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         }
     }
 
+    // Now that we have our validators, initialize the caches (including the committees)
+    state.build_all_caches(spec)?;
+
     // Populate active_index_roots and compact_committees_roots
     let indices_list = VariableList::<usize, T::ValidatorRegistryLimit>::from(
         state.get_active_validator_indices(T::genesis_epoch()),
@@ -58,4 +61,13 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     state.fill_compact_committees_roots_with(committee_root);
 
     Ok(state)
+}
+
+/// Determine whether a candidate genesis state is suitable for starting the chain.
+///
+/// Spec v0.8.1
+pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
+    state.genesis_time >= spec.min_genesis_time
+        && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
+            >= spec.min_genesis_active_validator_count
 }

@@ -358,7 +358,7 @@ pub fn process_deposits<T: EthSpec>(
         Invalid::DepositCountInvalid
     );
 
-    // Verify deposits in parallel.
+    // Verify merkle proofs in parallel.
     deposits
         .par_iter()
         .enumerate()
@@ -368,47 +368,67 @@ pub fn process_deposits<T: EthSpec>(
         })?;
 
     // Update the state in series.
-    for (i, deposit) in deposits.iter().enumerate() {
-        state.eth1_deposit_index += 1;
+    for deposit in deposits {
+        process_deposit(state, deposit, spec, false)?;
+    }
 
-        // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
-        // depositing validator already exists in the registry.
-        state.update_pubkey_cache()?;
+    Ok(())
+}
 
-        // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
-        // already exists in the beacon_state.
-        let validator_index =
-            get_existing_validator_index(state, deposit).map_err(|e| e.into_with_index(i))?;
+/// Process a single deposit, optionally verifying its merkle proof.
+///
+/// Spec v0.8.1
+pub fn process_deposit<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    deposit: &Deposit,
+    spec: &ChainSpec,
+    verify_merkle_proof: bool,
+) -> Result<(), Error> {
+    let deposit_index = state.eth1_deposit_index as usize;
+    if verify_merkle_proof {
+        verify_deposit_merkle_proof(state, deposit, state.eth1_deposit_index, spec)
+            .map_err(|e| e.into_with_index(deposit_index))?;
+    }
 
-        let amount = deposit.data.amount;
+    state.eth1_deposit_index += 1;
 
-        if let Some(index) = validator_index {
-            // Update the existing validator balance.
-            safe_add_assign!(state.balances[index as usize], amount);
-        } else {
-            // The signature should be checked for new validators. Return early for a bad
-            // signature.
-            if verify_deposit_signature(state, deposit, spec).is_err() {
-                return Ok(());
-            }
+    // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
+    // depositing validator already exists in the registry.
+    state.update_pubkey_cache()?;
 
-            // Create a new validator.
-            let validator = Validator {
-                pubkey: deposit.data.pubkey.clone(),
-                withdrawal_credentials: deposit.data.withdrawal_credentials,
-                activation_eligibility_epoch: spec.far_future_epoch,
-                activation_epoch: spec.far_future_epoch,
-                exit_epoch: spec.far_future_epoch,
-                withdrawable_epoch: spec.far_future_epoch,
-                effective_balance: std::cmp::min(
-                    amount - amount % spec.effective_balance_increment,
-                    spec.max_effective_balance,
-                ),
-                slashed: false,
-            };
-            state.validators.push(validator)?;
-            state.balances.push(deposit.data.amount)?;
+    // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
+    // already exists in the beacon_state.
+    let validator_index = get_existing_validator_index(state, deposit)
+        .map_err(|e| e.into_with_index(deposit_index))?;
+
+    let amount = deposit.data.amount;
+
+    if let Some(index) = validator_index {
+        // Update the existing validator balance.
+        safe_add_assign!(state.balances[index as usize], amount);
+    } else {
+        // The signature should be checked for new validators. Return early for a bad
+        // signature.
+        if verify_deposit_signature(state, deposit, spec).is_err() {
+            return Ok(());
         }
+
+        // Create a new validator.
+        let validator = Validator {
+            pubkey: deposit.data.pubkey.clone(),
+            withdrawal_credentials: deposit.data.withdrawal_credentials,
+            activation_eligibility_epoch: spec.far_future_epoch,
+            activation_epoch: spec.far_future_epoch,
+            exit_epoch: spec.far_future_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+            effective_balance: std::cmp::min(
+                amount - amount % spec.effective_balance_increment,
+                spec.max_effective_balance,
+            ),
+            slashed: false,
+        };
+        state.validators.push(validator)?;
+        state.balances.push(deposit.data.amount)?;
     }
 
     Ok(())
