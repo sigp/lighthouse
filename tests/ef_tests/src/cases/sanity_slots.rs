@@ -5,12 +5,11 @@ use state_processing::per_slot_processing;
 use types::{BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct SanitySlots<E: EthSpec> {
     pub description: String,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
     pub slots: usize,
-    #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
 

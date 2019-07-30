@@ -28,14 +28,14 @@ impl TestingProposerSlashingBuilder {
 
         let mut header_1 = BeaconBlockHeader {
             slot,
-            previous_block_root: hash_1,
+            parent_root: hash_1,
             state_root: hash_1,
-            block_body_root: hash_1,
+            body_root: hash_1,
             signature: Signature::empty_signature(),
         };
 
         let mut header_2 = BeaconBlockHeader {
-            previous_block_root: hash_2,
+            parent_root: hash_2,
             ..header_1.clone()
         };
 

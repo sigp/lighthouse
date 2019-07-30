@@ -7,7 +7,7 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn verify_exit<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &VoluntaryExit,
@@ -18,7 +18,7 @@ pub fn verify_exit<T: EthSpec>(
 
 /// Like `verify_exit` but doesn't run checks which may become true in future states.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn verify_exit_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &VoluntaryExit,
@@ -29,7 +29,7 @@ pub fn verify_exit_time_independent_only<T: EthSpec>(
 
 /// Parametric version of `verify_exit` that skips some checks if `time_independent_only` is true.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 fn verify_exit_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &VoluntaryExit,
@@ -37,7 +37,7 @@ fn verify_exit_parametric<T: EthSpec>(
     time_independent_only: bool,
 ) -> Result<(), Error> {
     let validator = state
-        .validator_registry
+        .validators
         .get(exit.validator_index as usize)
         .ok_or_else(|| Error::Invalid(Invalid::ValidatorUnknown(exit.validator_index)))?;
 
@@ -63,12 +63,11 @@ fn verify_exit_parametric<T: EthSpec>(
     );
 
     // Verify the validator has been active long enough.
-    let lifespan = state.current_epoch() - validator.activation_epoch;
     verify!(
-        lifespan >= spec.persistent_committee_period,
-        Invalid::TooYoungToLeave {
-            lifespan,
-            expected: spec.persistent_committee_period,
+        state.current_epoch() >= validator.activation_epoch + spec.persistent_committee_period,
+        Invalid::TooYoungToExit {
+            current_epoch: state.current_epoch(),
+            earliest_exit_epoch: validator.activation_epoch + spec.persistent_committee_period,
         }
     );
 

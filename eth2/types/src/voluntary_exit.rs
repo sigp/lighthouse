@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// An exit voluntarily submitted a validator who wishes to withdraw.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     PartialEq,
@@ -24,6 +24,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     SignedRoot,
 )]
 pub struct VoluntaryExit {
+    /// Earliest epoch when voluntary exit can be processed.
     pub epoch: Epoch,
     pub validator_index: u64,
     #[signed_root(skip_hashing)]

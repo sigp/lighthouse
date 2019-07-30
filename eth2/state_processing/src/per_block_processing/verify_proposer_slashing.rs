@@ -7,19 +7,20 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let proposer = state
-        .validator_registry
+        .validators
         .get(proposer_slashing.proposer_index as usize)
         .ok_or_else(|| {
             Error::Invalid(Invalid::ProposerUnknown(proposer_slashing.proposer_index))
         })?;
 
+    // Verify that the epoch is the same
     verify!(
         proposer_slashing.header_1.slot.epoch(T::slots_per_epoch())
             == proposer_slashing.header_2.slot.epoch(T::slots_per_epoch()),
@@ -29,11 +30,13 @@ pub fn verify_proposer_slashing<T: EthSpec>(
         )
     );
 
+    // But the headers are different
     verify!(
         proposer_slashing.header_1 != proposer_slashing.header_2,
         Invalid::ProposalsIdentical
     );
 
+    // Check proposer is slashable
     verify!(
         proposer.is_slashable_at(state.current_epoch()),
         Invalid::ProposerNotSlashable(proposer_slashing.proposer_index)
@@ -65,7 +68,7 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 ///
 /// Returns `true` if the signature is valid.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 fn verify_header_signature<T: EthSpec>(
     header: &BeaconBlockHeader,
     pubkey: &PublicKey,

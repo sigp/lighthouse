@@ -6,13 +6,12 @@ use state_processing::per_block_processing::process_block_header;
 use types::{BeaconBlock, BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct OperationsBlockHeader<E: EthSpec> {
     pub description: String,
     pub bls_setting: Option<BlsSetting>,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
-    pub block: BeaconBlock,
-    #[serde(bound = "E: EthSpec")]
+    pub block: BeaconBlock<E>,
     pub post: Option<BeaconState<E>>,
 }
 

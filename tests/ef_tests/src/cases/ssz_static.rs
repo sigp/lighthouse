@@ -1,17 +1,17 @@
 use super::*;
 use crate::case_result::compare_result;
-use cached_tree_hash::{CachedTreeHash, TreeHashCache};
+use cached_tree_hash::CachedTreeHash;
 use serde_derive::Deserialize;
 use ssz::{Decode, Encode};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockBody, BeaconBlockHeader, BeaconState, Crosslink, Deposit, DepositData, Eth1Data,
-    EthSpec, Fork, Hash256, HistoricalBatch, IndexedAttestation, PendingAttestation,
-    ProposerSlashing, Transfer, Validator, VoluntaryExit,
+    test_utils::TestRandom, Attestation, AttestationData, AttestationDataAndCustodyBit,
+    AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint,
+    CompactCommittee, Crosslink, Deposit, DepositData, Eth1Data, EthSpec, Fork, Hash256,
+    HistoricalBatch, IndexedAttestation, PendingAttestation, ProposerSlashing, Transfer, Validator,
+    VoluntaryExit,
 };
 
 // Enum variant names are used by Serde when deserializing the test YAML
@@ -23,23 +23,25 @@ where
 {
     Fork(SszStaticInner<Fork, E>),
     Crosslink(SszStaticInner<Crosslink, E>),
+    Checkpoint(SszStaticInner<Checkpoint, E>),
+    CompactCommittee(SszStaticInner<CompactCommittee<E>, E>),
     Eth1Data(SszStaticInner<Eth1Data, E>),
     AttestationData(SszStaticInner<AttestationData, E>),
     AttestationDataAndCustodyBit(SszStaticInner<AttestationDataAndCustodyBit, E>),
-    IndexedAttestation(SszStaticInner<IndexedAttestation, E>),
+    IndexedAttestation(SszStaticInner<IndexedAttestation<E>, E>),
     DepositData(SszStaticInner<DepositData, E>),
     BeaconBlockHeader(SszStaticInner<BeaconBlockHeader, E>),
     Validator(SszStaticInner<Validator, E>),
-    PendingAttestation(SszStaticInner<PendingAttestation, E>),
+    PendingAttestation(SszStaticInner<PendingAttestation<E>, E>),
     HistoricalBatch(SszStaticInner<HistoricalBatch<E>, E>),
     ProposerSlashing(SszStaticInner<ProposerSlashing, E>),
-    AttesterSlashing(SszStaticInner<AttesterSlashing, E>),
-    Attestation(SszStaticInner<Attestation, E>),
+    AttesterSlashing(SszStaticInner<AttesterSlashing<E>, E>),
+    Attestation(SszStaticInner<Attestation<E>, E>),
     Deposit(SszStaticInner<Deposit, E>),
     VoluntaryExit(SszStaticInner<VoluntaryExit, E>),
     Transfer(SszStaticInner<Transfer, E>),
-    BeaconBlockBody(SszStaticInner<BeaconBlockBody, E>),
-    BeaconBlock(SszStaticInner<BeaconBlock, E>),
+    BeaconBlockBody(SszStaticInner<BeaconBlockBody<E>, E>),
+    BeaconBlock(SszStaticInner<BeaconBlock<E>, E>),
     BeaconState(SszStaticInner<BeaconState<E>, E>),
 }
 
@@ -68,6 +70,8 @@ impl<E: EthSpec> Case for SszStatic<E> {
         match *self {
             Fork(ref val) => ssz_static_test(val),
             Crosslink(ref val) => ssz_static_test(val),
+            Checkpoint(ref val) => ssz_static_test(val),
+            CompactCommittee(ref val) => ssz_static_test(val),
             Eth1Data(ref val) => ssz_static_test(val),
             AttestationData(ref val) => ssz_static_test(val),
             AttestationDataAndCustodyBit(ref val) => ssz_static_test(val),
@@ -120,19 +124,6 @@ where
     let expected_root = Hash256::from_slice(&expected_root);
     let tree_hash_root = Hash256::from_slice(&decoded.tree_hash_root());
     compare_result::<Hash256, Error>(&Ok(tree_hash_root), &Some(expected_root))?;
-
-    // Verify a _new_ CachedTreeHash root of the decoded struct matches the test.
-    let cache = TreeHashCache::new(&decoded).unwrap();
-    let cached_tree_hash_root = Hash256::from_slice(cache.tree_hash_root().unwrap());
-    compare_result::<Hash256, Error>(&Ok(cached_tree_hash_root), &Some(expected_root))?;
-
-    // Verify the root after an update from a random CachedTreeHash to the decoded struct.
-    let mut rng = XorShiftRng::from_seed([42; 16]);
-    let random_instance = T::random_for_test(&mut rng);
-    let mut cache = TreeHashCache::new(&random_instance).unwrap();
-    cache.update(&decoded).unwrap();
-    let updated_root = Hash256::from_slice(cache.tree_hash_root().unwrap());
-    compare_result::<Hash256, Error>(&Ok(updated_root), &Some(expected_root))?;
 
     Ok(())
 }

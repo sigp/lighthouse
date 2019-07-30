@@ -20,60 +20,57 @@ impl TestingAttestationDataBuilder {
         let current_epoch = state.current_epoch();
         let previous_epoch = state.previous_epoch();
 
-        let is_previous_epoch =
-            state.slot.epoch(T::slots_per_epoch()) != slot.epoch(T::slots_per_epoch());
+        let is_previous_epoch = slot.epoch(T::slots_per_epoch()) != current_epoch;
 
-        let source_epoch = if is_previous_epoch {
-            state.previous_justified_epoch
+        let source = if is_previous_epoch {
+            state.previous_justified_checkpoint.clone()
         } else {
-            state.current_justified_epoch
+            state.current_justified_checkpoint.clone()
         };
 
-        let target_epoch = if is_previous_epoch {
-            state.previous_epoch()
+        let target = if is_previous_epoch {
+            Checkpoint {
+                epoch: previous_epoch,
+                root: *state
+                    .get_block_root(previous_epoch.start_slot(T::slots_per_epoch()))
+                    .unwrap(),
+            }
         } else {
-            state.current_epoch()
+            Checkpoint {
+                epoch: current_epoch,
+                root: *state
+                    .get_block_root(current_epoch.start_slot(T::slots_per_epoch()))
+                    .unwrap(),
+            }
         };
 
-        let target_root = if is_previous_epoch {
-            *state
-                .get_block_root(previous_epoch.start_slot(T::slots_per_epoch()))
-                .unwrap()
+        let parent_crosslink = if is_previous_epoch {
+            state.get_previous_crosslink(shard).unwrap()
         } else {
-            *state
-                .get_block_root(current_epoch.start_slot(T::slots_per_epoch()))
-                .unwrap()
+            state.get_current_crosslink(shard).unwrap()
         };
 
-        let previous_crosslink_root = if is_previous_epoch {
-            Hash256::from_slice(
-                &state
-                    .get_previous_crosslink(shard)
-                    .unwrap()
-                    .tree_hash_root(),
-            )
-        } else {
-            Hash256::from_slice(&state.get_current_crosslink(shard).unwrap().tree_hash_root())
+        let crosslink = Crosslink {
+            shard,
+            parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()),
+            start_epoch: parent_crosslink.end_epoch,
+            end_epoch: std::cmp::min(
+                target.epoch,
+                parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
+            ),
+            data_root: Hash256::zero(),
         };
-
-        let source_root = *state
-            .get_block_root(source_epoch.start_slot(T::slots_per_epoch()))
-            .unwrap();
 
         let data = AttestationData {
             // LMD GHOST vote
             beacon_block_root: *state.get_block_root(slot).unwrap(),
 
             // FFG Vote
-            source_epoch,
-            source_root,
-            target_epoch,
-            target_root,
+            source,
+            target,
 
             // Crosslink vote
-            shard,
-            previous_crosslink_root,
-            crosslink_data_root: spec.zero_hash,
+            crosslink,
         };
 
         Self { data }

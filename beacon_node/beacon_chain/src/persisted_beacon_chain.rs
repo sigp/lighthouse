@@ -11,7 +11,7 @@ pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
 #[derive(Encode, Decode)]
 pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub canonical_head: CheckPoint<T::EthSpec>,
-    pub op_pool: PersistedOperationPool,
+    pub op_pool: PersistedOperationPool<T::EthSpec>,
     pub genesis_block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
 }

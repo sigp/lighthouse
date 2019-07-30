@@ -17,7 +17,7 @@ impl TestingAttesterSlashingBuilder {
     /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
-    pub fn double_vote<F>(validator_indices: &[u64], signer: F) -> AttesterSlashing
+    pub fn double_vote<F, T: EthSpec>(validator_indices: &[u64], signer: F) -> AttesterSlashing<T>
     where
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
@@ -26,38 +26,49 @@ impl TestingAttesterSlashingBuilder {
         let epoch_2 = Epoch::new(2);
         let hash_1 = Hash256::from_low_u64_le(1);
         let hash_2 = Hash256::from_low_u64_le(2);
+        let checkpoint_1 = Checkpoint {
+            epoch: epoch_1,
+            root: hash_1,
+        };
+        let checkpoint_2 = Checkpoint {
+            epoch: epoch_1,
+            root: hash_2,
+        };
+        let crosslink = Crosslink {
+            shard,
+            parent_root: hash_1,
+            start_epoch: epoch_1,
+            end_epoch: epoch_2,
+            data_root: hash_1,
+        };
 
         let data_1 = AttestationData {
             beacon_block_root: hash_1,
-            source_epoch: epoch_1,
-            source_root: hash_1,
-            target_epoch: epoch_2,
-            target_root: hash_1,
-            shard,
-            previous_crosslink_root: hash_1,
-            crosslink_data_root: hash_1,
+            source: checkpoint_1.clone(),
+            target: checkpoint_1,
+            crosslink,
         };
 
         let data_2 = AttestationData {
-            beacon_block_root: hash_2,
+            target: checkpoint_2,
             ..data_1.clone()
         };
 
         let mut attestation_1 = IndexedAttestation {
-            custody_bit_0_indices: validator_indices.to_vec(),
-            custody_bit_1_indices: vec![],
+            custody_bit_0_indices: validator_indices.to_vec().into(),
+            custody_bit_1_indices: VariableList::empty(),
             data: data_1,
             signature: AggregateSignature::new(),
         };
 
         let mut attestation_2 = IndexedAttestation {
-            custody_bit_0_indices: validator_indices.to_vec(),
-            custody_bit_1_indices: vec![],
+            custody_bit_0_indices: validator_indices.to_vec().into(),
+            custody_bit_1_indices: VariableList::empty(),
             data: data_2,
             signature: AggregateSignature::new(),
         };
 
-        let add_signatures = |attestation: &mut IndexedAttestation| {
+        let add_signatures = |attestation: &mut IndexedAttestation<T>| {
             // All validators sign with a `false` custody bit.
             let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
                 data: attestation.data.clone(),

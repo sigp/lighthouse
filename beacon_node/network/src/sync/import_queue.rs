@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256, Slot};
+use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, EthSpec, Hash256, Slot};
 
 /// Provides a queue for fully and partially built `BeaconBlock`s.
 ///
@@ -23,7 +23,7 @@ use types::{BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Hash256, Slot};
 pub struct ImportQueue<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     /// Partially imported blocks, keyed by the root of `BeaconBlockBody`.
-    partials: HashMap<Hash256, PartialBeaconBlock>,
+    partials: HashMap<Hash256, PartialBeaconBlock<T::EthSpec>>,
     /// Time before a queue entry is considered state.
     pub stale_time: Duration,
     /// Logging
@@ -50,7 +50,10 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     ///
     /// Returns an Enum with a `PartialBeaconBlockCompletion`.
     /// Does not remove the `block_root` from the `import_queue`.
-    pub fn attempt_complete_block(&self, block_root: Hash256) -> PartialBeaconBlockCompletion {
+    pub fn attempt_complete_block(
+        &self,
+        block_root: Hash256,
+    ) -> PartialBeaconBlockCompletion<T::EthSpec> {
         if let Some(partial) = self.partials.get(&block_root) {
             partial.attempt_complete()
         } else {
@@ -60,7 +63,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
 
     /// Removes the first `PartialBeaconBlock` with a matching `block_root`, returning the partial
     /// if it exists.
-    pub fn remove(&mut self, block_root: Hash256) -> Option<PartialBeaconBlock> {
+    pub fn remove(&mut self, block_root: Hash256) -> Option<PartialBeaconBlock<T::EthSpec>> {
         self.partials.remove(&block_root)
     }
 
@@ -141,11 +144,11 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         for header in headers {
             let block_root = Hash256::from_slice(&header.canonical_root()[..]);
 
-            if self.chain_has_not_seen_block(&block_root) {
-                if !self.insert_header(block_root, header, sender.clone()) {
-                    // If a body is empty
-                    required_bodies.push(block_root);
-                }
+            if self.chain_has_not_seen_block(&block_root)
+                && !self.insert_header(block_root, header, sender.clone())
+            {
+                // If a body is empty
+                required_bodies.push(block_root);
             }
         }
 
@@ -157,7 +160,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     /// If there is no `header` for the `body`, the body is simply discarded.
     pub fn enqueue_bodies(
         &mut self,
-        bodies: Vec<BeaconBlockBody>,
+        bodies: Vec<BeaconBlockBody<T::EthSpec>>,
         sender: PeerId,
     ) -> Option<Hash256> {
         let mut last_block_hash = None;
@@ -168,7 +171,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
         last_block_hash
     }
 
-    pub fn enqueue_full_blocks(&mut self, blocks: Vec<BeaconBlock>, sender: PeerId) {
+    pub fn enqueue_full_blocks(&mut self, blocks: Vec<BeaconBlock<T::EthSpec>>, sender: PeerId) {
         for block in blocks {
             self.insert_full_block(block, sender.clone());
         }
@@ -211,13 +214,17 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     /// If the body already existed, the `inserted` time is set to `now`.
     ///
     /// Returns the block hash of the inserted body
-    fn insert_body(&mut self, body: BeaconBlockBody, sender: PeerId) -> Option<Hash256> {
+    fn insert_body(
+        &mut self,
+        body: BeaconBlockBody<T::EthSpec>,
+        sender: PeerId,
+    ) -> Option<Hash256> {
         let body_root = Hash256::from_slice(&body.tree_hash_root()[..]);
         let mut last_root = None;
 
         self.partials.iter_mut().for_each(|(root, mut p)| {
             if let Some(header) = &mut p.header {
-                if body_root == header.block_body_root {
+                if body_root == header.body_root {
                     p.inserted = Instant::now();
                     p.body = Some(body.clone());
                     p.sender = sender.clone();
@@ -232,7 +239,7 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
     /// Updates an existing `partial` with the completed block, or adds a new (complete) partial.
     ///
     /// If the partial already existed, the `inserted` time is set to `now`.
-    fn insert_full_block(&mut self, block: BeaconBlock, sender: PeerId) {
+    fn insert_full_block(&mut self, block: BeaconBlock<T::EthSpec>, sender: PeerId) {
         let block_root = Hash256::from_slice(&block.canonical_root()[..]);
 
         let partial = PartialBeaconBlock {
@@ -254,12 +261,12 @@ impl<T: BeaconChainTypes> ImportQueue<T> {
 /// Individual components of a `BeaconBlock`, potentially all that are required to form a full
 /// `BeaconBlock`.
 #[derive(Clone, Debug)]
-pub struct PartialBeaconBlock {
+pub struct PartialBeaconBlock<E: EthSpec> {
     pub slot: Slot,
     /// `BeaconBlock` root.
     pub block_root: Hash256,
     pub header: Option<BeaconBlockHeader>,
-    pub body: Option<BeaconBlockBody>,
+    pub body: Option<BeaconBlockBody<E>>,
     /// The instant at which this record was created or last meaningfully modified. Used to
     /// determine if an entry is stale and should be removed.
     pub inserted: Instant,
@@ -267,11 +274,11 @@ pub struct PartialBeaconBlock {
     pub sender: PeerId,
 }
 
-impl PartialBeaconBlock {
+impl<E: EthSpec> PartialBeaconBlock<E> {
     /// Attempts to build a block.
     ///
-    /// Does not consume the `PartialBeaconBlock`.
-    pub fn attempt_complete(&self) -> PartialBeaconBlockCompletion {
+    /// Does not comsume the `PartialBeaconBlock`.
+    pub fn attempt_complete(&self) -> PartialBeaconBlockCompletion<E> {
         if self.header.is_none() {
             PartialBeaconBlockCompletion::MissingHeader(self.slot)
         } else if self.body.is_none() {
@@ -288,9 +295,9 @@ impl PartialBeaconBlock {
 }
 
 /// The result of trying to convert a `BeaconBlock` into a `PartialBeaconBlock`.
-pub enum PartialBeaconBlockCompletion {
+pub enum PartialBeaconBlockCompletion<E: EthSpec> {
     /// The partial contains a valid BeaconBlock.
-    Complete(BeaconBlock),
+    Complete(BeaconBlock<E>),
     /// The partial does not exist.
     MissingRoot,
     /// The partial contains a `BeaconBlockRoot` but no `BeaconBlockHeader`.

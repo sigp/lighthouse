@@ -1,3 +1,4 @@
+use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -63,6 +64,17 @@ impl<T, N: Unsigned> FixedVector<T, N> {
                 i: vec.len(),
                 len: Self::capacity(),
             })
+        }
+    }
+
+    /// Create a new vector filled with clones of `elem`.
+    pub fn from_elem(elem: T) -> Self
+    where
+        T: Clone,
+    {
+        Self {
+            vec: vec![elem; N::to_usize()],
+            _phantom: PhantomData,
         }
     }
 
@@ -134,67 +146,6 @@ impl<T, N: Unsigned> Deref for FixedVector<T, N> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use typenum::*;
-
-    #[test]
-    fn new() {
-        let vec = vec![42; 5];
-        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
-        assert!(fixed.is_err());
-
-        let vec = vec![42; 3];
-        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
-        assert!(fixed.is_err());
-
-        let vec = vec![42; 4];
-        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
-        assert!(fixed.is_ok());
-    }
-
-    #[test]
-    fn indexing() {
-        let vec = vec![1, 2];
-
-        let mut fixed: FixedVector<u64, U8192> = vec.clone().into();
-
-        assert_eq!(fixed[0], 1);
-        assert_eq!(&fixed[0..1], &vec[0..1]);
-        assert_eq!((&fixed[..]).len(), 8192);
-
-        fixed[1] = 3;
-        assert_eq!(fixed[1], 3);
-    }
-
-    #[test]
-    fn length() {
-        let vec = vec![42; 5];
-        let fixed: FixedVector<u64, U4> = FixedVector::from(vec.clone());
-        assert_eq!(&fixed[..], &vec[0..4]);
-
-        let vec = vec![42; 3];
-        let fixed: FixedVector<u64, U4> = FixedVector::from(vec.clone());
-        assert_eq!(&fixed[0..3], &vec[..]);
-        assert_eq!(&fixed[..], &vec![42, 42, 42, 0][..]);
-
-        let vec = vec![];
-        let fixed: FixedVector<u64, U4> = FixedVector::from(vec.clone());
-        assert_eq!(&fixed[..], &vec![0, 0, 0, 0][..]);
-    }
-
-    #[test]
-    fn deref() {
-        let vec = vec![0, 2, 4, 6];
-        let fixed: FixedVector<u64, U4> = FixedVector::from(vec);
-
-        assert_eq!(fixed.get(0), Some(&0));
-        assert_eq!(fixed.get(3), Some(&6));
-        assert_eq!(fixed.get(4), None);
-    }
-}
-
 impl<T, N: Unsigned> tree_hash::TreeHash for FixedVector<T, N>
 where
     T: tree_hash::TreeHash,
@@ -212,7 +163,7 @@ where
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        tree_hash::impls::vec_tree_hash_root(&self.vec)
+        vec_tree_hash_root::<T, N>(&self.vec)
     }
 }
 
@@ -222,24 +173,20 @@ where
 {
     fn new_tree_hash_cache(
         &self,
-        depth: usize,
+        _depth: usize,
     ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        let (cache, _overlay) = cached_tree_hash::vec::new_tree_hash_cache(&self.vec, depth)?;
-
-        Ok(cache)
+        unimplemented!("CachedTreeHash is not implemented for FixedVector")
     }
 
-    fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-        cached_tree_hash::vec::produce_schema(&self.vec, depth)
+    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
+        unimplemented!("CachedTreeHash is not implemented for FixedVector")
     }
 
     fn update_tree_hash_cache(
         &self,
-        cache: &mut cached_tree_hash::TreeHashCache,
+        _cache: &mut cached_tree_hash::TreeHashCache,
     ) -> Result<(), cached_tree_hash::Error> {
-        cached_tree_hash::vec::update_tree_hash_cache(&self.vec, cache)?;
-
-        Ok(())
+        unimplemented!("CachedTreeHash is not implemented for FixedVector")
     }
 }
 
@@ -310,26 +257,147 @@ where
 }
 
 #[cfg(test)]
-mod ssz_tests {
+mod test {
     use super::*;
     use ssz::*;
+    use tree_hash::{merkle_root, TreeHash};
+    use tree_hash_derive::TreeHash;
     use typenum::*;
 
     #[test]
-    fn encode() {
+    fn new() {
+        let vec = vec![42; 5];
+        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
+        assert!(fixed.is_err());
+
+        let vec = vec![42; 3];
+        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
+        assert!(fixed.is_err());
+
+        let vec = vec![42; 4];
+        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
+        assert!(fixed.is_ok());
+    }
+
+    #[test]
+    fn indexing() {
+        let vec = vec![1, 2];
+
+        let mut fixed: FixedVector<u64, U8192> = vec.clone().into();
+
+        assert_eq!(fixed[0], 1);
+        assert_eq!(&fixed[0..1], &vec[0..1]);
+        assert_eq!((&fixed[..]).len(), 8192);
+
+        fixed[1] = 3;
+        assert_eq!(fixed[1], 3);
+    }
+
+    #[test]
+    fn length() {
+        let vec = vec![42; 5];
+        let fixed: FixedVector<u64, U4> = FixedVector::from(vec.clone());
+        assert_eq!(&fixed[..], &vec[0..4]);
+
+        let vec = vec![42; 3];
+        let fixed: FixedVector<u64, U4> = FixedVector::from(vec.clone());
+        assert_eq!(&fixed[0..3], &vec[..]);
+        assert_eq!(&fixed[..], &vec![42, 42, 42, 0][..]);
+
+        let vec = vec![];
+        let fixed: FixedVector<u64, U4> = FixedVector::from(vec.clone());
+        assert_eq!(&fixed[..], &vec![0, 0, 0, 0][..]);
+    }
+
+    #[test]
+    fn deref() {
+        let vec = vec![0, 2, 4, 6];
+        let fixed: FixedVector<u64, U4> = FixedVector::from(vec);
+
+        assert_eq!(fixed.get(0), Some(&0));
+        assert_eq!(fixed.get(3), Some(&6));
+        assert_eq!(fixed.get(4), None);
+    }
+
+    #[test]
+    fn ssz_encode() {
         let vec: FixedVector<u16, U2> = vec![0; 2].into();
         assert_eq!(vec.as_ssz_bytes(), vec![0, 0, 0, 0]);
         assert_eq!(<FixedVector<u16, U2> as Encode>::ssz_fixed_len(), 4);
     }
 
-    fn round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(item: T) {
+    fn ssz_round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(item: T) {
         let encoded = &item.as_ssz_bytes();
         assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
     }
 
     #[test]
-    fn u16_len_8() {
-        round_trip::<FixedVector<u16, U8>>(vec![42; 8].into());
-        round_trip::<FixedVector<u16, U8>>(vec![0; 8].into());
+    fn ssz_round_trip_u16_len_8() {
+        ssz_round_trip::<FixedVector<u16, U8>>(vec![42; 8].into());
+        ssz_round_trip::<FixedVector<u16, U8>>(vec![0; 8].into());
+    }
+
+    #[test]
+    fn tree_hash_u8() {
+        let fixed: FixedVector<u8, U0> = FixedVector::from(vec![]);
+        assert_eq!(fixed.tree_hash_root(), merkle_root(&[0; 8], 0));
+
+        let fixed: FixedVector<u8, U1> = FixedVector::from(vec![0; 1]);
+        assert_eq!(fixed.tree_hash_root(), merkle_root(&[0; 8], 0));
+
+        let fixed: FixedVector<u8, U8> = FixedVector::from(vec![0; 8]);
+        assert_eq!(fixed.tree_hash_root(), merkle_root(&[0; 8], 0));
+
+        let fixed: FixedVector<u8, U16> = FixedVector::from(vec![42; 16]);
+        assert_eq!(fixed.tree_hash_root(), merkle_root(&[42; 16], 0));
+
+        let source: Vec<u8> = (0..16).collect();
+        let fixed: FixedVector<u8, U16> = FixedVector::from(source.clone());
+        assert_eq!(fixed.tree_hash_root(), merkle_root(&source, 0));
+    }
+
+    #[derive(Clone, Copy, TreeHash, Default)]
+    struct A {
+        a: u32,
+        b: u32,
+    }
+
+    fn repeat(input: &[u8], n: usize) -> Vec<u8> {
+        let mut output = vec![];
+
+        for _ in 0..n {
+            output.append(&mut input.to_vec());
+        }
+
+        output
+    }
+
+    #[test]
+    fn tree_hash_composite() {
+        let a = A { a: 0, b: 1 };
+
+        let fixed: FixedVector<A, U0> = FixedVector::from(vec![]);
+        assert_eq!(fixed.tree_hash_root(), merkle_root(&[0; 32], 0));
+
+        let fixed: FixedVector<A, U1> = FixedVector::from(vec![a]);
+        assert_eq!(fixed.tree_hash_root(), merkle_root(&a.tree_hash_root(), 0));
+
+        let fixed: FixedVector<A, U8> = FixedVector::from(vec![a; 8]);
+        assert_eq!(
+            fixed.tree_hash_root(),
+            merkle_root(&repeat(&a.tree_hash_root(), 8), 0)
+        );
+
+        let fixed: FixedVector<A, U13> = FixedVector::from(vec![a; 13]);
+        assert_eq!(
+            fixed.tree_hash_root(),
+            merkle_root(&repeat(&a.tree_hash_root(), 13), 0)
+        );
+
+        let fixed: FixedVector<A, U16> = FixedVector::from(vec![a; 16]);
+        assert_eq!(
+            fixed.tree_hash_root(),
+            merkle_root(&repeat(&a.tree_hash_root(), 16), 0)
+        );
     }
 }

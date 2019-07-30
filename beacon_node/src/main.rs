@@ -210,7 +210,7 @@ fn main() {
                 }
             };
             default_dir.push(DEFAULT_DATA_DIR);
-            PathBuf::from(default_dir)
+            default_dir
         }
     };
 

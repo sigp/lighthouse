@@ -14,8 +14,6 @@ Rust crates containing logic common across the Lighthouse project.
 	`BeaconState`, etc).
 - [`utils/`](utils/):
     - [`bls`](utils/bls/): A wrapper for an external BLS encryption library.
-    - [`boolean-bitfield`](utils/boolean-bitfield/): Provides an expandable vector
-		of bools, specifically for use in Eth2.
     - [`fisher-yates-shuffle`](utils/fisher-yates-shuffle/): shuffles a list
 		pseudo-randomly.
     - [`hashing`](utils/hashing/): A wrapper for external hashing libraries.

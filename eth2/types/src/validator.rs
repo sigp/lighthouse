@@ -7,7 +7,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Information about a `BeaconChain` validator.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     Clone,
@@ -23,12 +23,12 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
+    pub effective_balance: u64,
+    pub slashed: bool,
     pub activation_eligibility_epoch: Epoch,
     pub activation_epoch: Epoch,
     pub exit_epoch: Epoch,
     pub withdrawable_epoch: Epoch,
-    pub slashed: bool,
-    pub effective_balance: u64,
 }
 
 impl Validator {

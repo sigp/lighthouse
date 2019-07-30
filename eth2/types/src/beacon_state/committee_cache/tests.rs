@@ -1,8 +1,8 @@
 #![cfg(test)]
 use super::*;
 use crate::{test_utils::*, *};
-use fixed_len_vec::typenum::*;
 use serde_derive::{Deserialize, Serialize};
+use ssz_types::typenum::*;
 
 #[test]
 fn default_values() {
@@ -63,6 +63,8 @@ fn initializes_with_the_right_epoch() {
 
 #[test]
 fn shuffles_for_the_right_epoch() {
+    use crate::EthSpec;
+
     let num_validators = MinimalEthSpec::minimum_validator_count() * 2;
     let epoch = Epoch::new(100_000_000);
     let slot = epoch.start_slot(MinimalEthSpec::slots_per_epoch());
@@ -70,16 +72,16 @@ fn shuffles_for_the_right_epoch() {
     let mut state = new_state::<MinimalEthSpec>(num_validators, slot);
     let spec = &MinimalEthSpec::default_spec();
 
-    let distinct_hashes: Vec<Hash256> = (0..MinimalEthSpec::latest_randao_mixes_length())
+    let distinct_hashes: Vec<Hash256> = (0..MinimalEthSpec::epochs_per_historical_vector())
         .into_iter()
         .map(|i| Hash256::from(i as u64))
         .collect();
 
-    state.latest_randao_mixes = FixedLenVec::from(distinct_hashes);
+    state.randao_mixes = FixedVector::from(distinct_hashes);
 
-    let previous_seed = state.generate_seed(state.previous_epoch(), spec).unwrap();
-    let current_seed = state.generate_seed(state.current_epoch(), spec).unwrap();
-    let next_seed = state.generate_seed(state.next_epoch(), spec).unwrap();
+    let previous_seed = state.get_seed(state.previous_epoch(), spec).unwrap();
+    let current_seed = state.get_seed(state.current_epoch(), spec).unwrap();
+    let next_seed = state.get_seed(state.next_epoch(), spec).unwrap();
 
     assert!((previous_seed != current_seed) && (current_seed != next_seed));
 
@@ -131,7 +133,7 @@ fn can_start_on_any_shard() {
     let shard_count = MinimalEthSpec::shard_count() as u64;
 
     for i in 0..MinimalEthSpec::shard_count() as u64 {
-        state.latest_start_shard = i;
+        state.start_shard = i;
 
         let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard, i);
@@ -154,12 +156,26 @@ pub struct ExcessShardsEthSpec;
 
 impl EthSpec for ExcessShardsEthSpec {
     type ShardCount = U128;
-    type SlotsPerHistoricalRoot = U8192;
-    type LatestRandaoMixesLength = U8192;
-    type LatestActiveIndexRootsLength = U8192;
-    type LatestSlashedExitLength = U8192;
     type SlotsPerEpoch = U8;
-    type GenesisEpoch = U0;
+    type MaxPendingAttestations = U1024;
+
+    params_from_eth_spec!(MinimalEthSpec {
+        JustificationBitsLength,
+        MaxValidatorsPerCommittee,
+        GenesisEpoch,
+        SlotsPerEth1VotingPeriod,
+        SlotsPerHistoricalRoot,
+        EpochsPerHistoricalVector,
+        EpochsPerSlashingsVector,
+        HistoricalRootsLimit,
+        ValidatorRegistryLimit,
+        MaxProposerSlashings,
+        MaxAttesterSlashings,
+        MaxAttestations,
+        MaxDeposits,
+        MaxVoluntaryExits,
+        MaxTransfers
+    });
 
     fn default_spec() -> ChainSpec {
         ChainSpec::minimal()
@@ -177,13 +193,13 @@ fn starts_on_the_correct_shard() {
 
     let mut state = new_state::<ExcessShardsEthSpec>(num_validators, slot);
 
-    let validator_count = state.validator_registry.len();
+    let validator_count = state.validators.len();
 
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch();
 
-    for (i, mut v) in state.validator_registry.iter_mut().enumerate() {
+    for (i, mut v) in state.validators.iter_mut().enumerate() {
         let epoch = if i < validator_count / 4 {
             previous_epoch
         } else if i < validator_count / 2 {
@@ -196,28 +212,28 @@ fn starts_on_the_correct_shard() {
     }
 
     assert_eq!(
-        get_active_validator_count(&state.validator_registry, previous_epoch),
+        get_active_validator_count(&state.validators, previous_epoch),
         validator_count / 4
     );
     assert_eq!(
-        get_active_validator_count(&state.validator_registry, current_epoch),
+        get_active_validator_count(&state.validators, current_epoch),
         validator_count / 2
     );
     assert_eq!(
-        get_active_validator_count(&state.validator_registry, next_epoch),
+        get_active_validator_count(&state.validators, next_epoch),
         validator_count
     );
 
-    let previous_shards = ExcessShardsEthSpec::get_epoch_committee_count(
-        get_active_validator_count(&state.validator_registry, previous_epoch),
+    let previous_shards = ExcessShardsEthSpec::get_committee_count(
+        get_active_validator_count(&state.validators, previous_epoch),
         spec.target_committee_size,
     );
-    let current_shards = ExcessShardsEthSpec::get_epoch_committee_count(
-        get_active_validator_count(&state.validator_registry, current_epoch),
+    let current_shards = ExcessShardsEthSpec::get_committee_count(
+        get_active_validator_count(&state.validators, current_epoch),
         spec.target_committee_size,
     );
-    let next_shards = ExcessShardsEthSpec::get_epoch_committee_count(
-        get_active_validator_count(&state.validator_registry, next_epoch),
+    let next_shards = ExcessShardsEthSpec::get_committee_count(
+        get_active_validator_count(&state.validators, next_epoch),
         spec.target_committee_size,
     );
 
@@ -233,7 +249,7 @@ fn starts_on_the_correct_shard() {
 
     let shard_count = ExcessShardsEthSpec::shard_count();
     for i in 0..ExcessShardsEthSpec::shard_count() {
-        state.latest_start_shard = i as u64;
+        state.start_shard = i as u64;
 
         let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
         assert_eq!(cache.shuffling_start_shard as usize, i);

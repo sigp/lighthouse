@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use lmd_ghost::LmdGhost;
-use state_processing::common::get_attesting_indices_unsorted;
+use state_processing::common::get_attesting_indices;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
 use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256};
@@ -33,7 +33,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// block.
     pub fn new(
         store: Arc<T::Store>,
-        genesis_block: &BeaconBlock,
+        genesis_block: &BeaconBlock<T::EthSpec>,
         genesis_block_root: Hash256,
     ) -> Self {
         Self {
@@ -55,18 +55,21 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             let state = chain.current_state();
 
             let (block_root, block_slot) =
-                if state.current_epoch() + 1 > state.current_justified_epoch {
+                if state.current_epoch() + 1 > state.current_justified_checkpoint.epoch {
                     (
-                        state.current_justified_root,
-                        start_slot(state.current_justified_epoch),
+                        state.current_justified_checkpoint.root,
+                        start_slot(state.current_justified_checkpoint.epoch),
                     )
                 } else {
-                    (state.finalized_root, start_slot(state.finalized_epoch))
+                    (
+                        state.finalized_checkpoint.root,
+                        start_slot(state.finalized_checkpoint.epoch),
+                    )
                 };
 
             let block = chain
                 .store
-                .get::<BeaconBlock>(&block_root)?
+                .get::<BeaconBlock<T::EthSpec>>(&block_root)?
                 .ok_or_else(|| Error::MissingBlock(block_root))?;
 
             // Resolve the `0x00.. 00` alias back to genesis
@@ -87,7 +90,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // A function that returns the weight for some validator index.
         let weight = |validator_index: usize| -> Option<u64> {
             start_state
-                .validator_registry
+                .validators
                 .get(validator_index)
                 .map(|v| v.effective_balance)
         };
@@ -104,7 +107,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn process_block(
         &self,
         state: &BeaconState<T::EthSpec>,
-        block: &BeaconBlock,
+        block: &BeaconBlock<T::EthSpec>,
         block_root: Hash256,
     ) -> Result<()> {
         // Note: we never count the block as a latest message, only attestations.
@@ -125,7 +128,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     fn process_attestation_from_block(
         &self,
         state: &BeaconState<T::EthSpec>,
-        attestation: &Attestation,
+        attestation: &Attestation<T::EthSpec>,
     ) -> Result<()> {
         let block_hash = attestation.data.beacon_block_root;
 
@@ -147,16 +150,13 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         if block_hash != Hash256::zero()
             && self
                 .store
-                .exists::<BeaconBlock>(&block_hash)
+                .exists::<BeaconBlock<T::EthSpec>>(&block_hash)
                 .unwrap_or(false)
         {
-            let validator_indices = get_attesting_indices_unsorted(
-                state,
-                &attestation.data,
-                &attestation.aggregation_bitfield,
-            )?;
+            let validator_indices =
+                get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
-            let block_slot = state.get_attestation_slot(&attestation.data)?;
+            let block_slot = state.get_attestation_data_slot(&attestation.data)?;
 
             for validator_index in validator_indices {
                 self.backend
@@ -173,7 +173,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// `finalized_block_root` must be the root of `finalized_block`.
     pub fn process_finalization(
         &self,
-        finalized_block: &BeaconBlock,
+        finalized_block: &BeaconBlock<T::EthSpec>,
         finalized_block_root: Hash256,
     ) -> Result<()> {
         self.backend

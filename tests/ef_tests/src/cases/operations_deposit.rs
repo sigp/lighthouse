@@ -6,13 +6,12 @@ use state_processing::per_block_processing::process_deposits;
 use types::{BeaconState, Deposit, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct OperationsDeposit<E: EthSpec> {
     pub description: String,
     pub bls_setting: Option<BlsSetting>,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
     pub deposit: Deposit,
-    #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
 
