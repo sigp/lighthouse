@@ -38,13 +38,6 @@ impl<E: EthSpec> Case for OperationsTransfer<E> {
 
         let spec = E::default_spec();
 
-        // Originally we were over-riding `max_transfers` to permit including transfers when
-        // they're disabled for phase 0, but this is now a type parameters.
-        //
-        // This may or may not be a problem, but let this note guide you either way.
-        //
-        //spec.max_transfers = 1;
-
         let result = process_transfers(&mut state, &[transfer], &spec);
 
         let mut result = result.and_then(|_| Ok(state));
