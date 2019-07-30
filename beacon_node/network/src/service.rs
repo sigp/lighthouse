@@ -106,10 +106,8 @@ fn network_service<E: EthSpec>(
     log: slog::Logger,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
     futures::future::poll_fn(move || -> Result<_, eth2_libp2p::error::Error> {
-        // only end the loop once both major polls are not ready.
-        let mut not_ready_count = 0;
-        while not_ready_count < 2 {
-            not_ready_count = 0;
+        // if the network channel is not ready, try the swarm
+        loop {
             // poll the network channel
             match network_recv.poll() {
                 Ok(Async::Ready(Some(message))) => match message {
@@ -124,7 +122,7 @@ fn network_service<E: EthSpec>(
                         libp2p_service.lock().swarm.publish(topics, *message);
                     }
                 },
-                Ok(Async::NotReady) => not_ready_count += 1,
+                Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
                     return Err(eth2_libp2p::error::Error::from("Network channel closed"));
                 }
@@ -132,7 +130,9 @@ fn network_service<E: EthSpec>(
                     return Err(eth2_libp2p::error::Error::from("Network channel error"));
                 }
             }
+        }
 
+        loop {
             // poll the swarm
             match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
@@ -165,8 +165,8 @@ fn network_service<E: EthSpec>(
                     }
                 },
                 Ok(Async::Ready(None)) => unreachable!("Stream never ends"),
-                Ok(Async::NotReady) => not_ready_count += 1,
-                Err(_) => not_ready_count += 1,
+                Ok(Async::NotReady) => break,
+                Err(_) => break,
             }
         }
 
