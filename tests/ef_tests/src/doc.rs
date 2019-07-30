@@ -134,6 +134,14 @@ impl Doc {
                 // FIXME: skipped due to compact committees issue
                 // run_test::<EpochProcessingFinalUpdates<MainnetEthSpec>>(self)
             }
+            ("genesis", "initialization", "minimal") => {
+                run_test::<GenesisInitialization<MinimalEthSpec>>(self)
+            }
+            ("genesis", "initialization", "mainnet") => {
+                run_test::<GenesisInitialization<MainnetEthSpec>>(self)
+            }
+            ("genesis", "validity", "minimal") => run_test::<GenesisValidity<MinimalEthSpec>>(self),
+            ("genesis", "validity", "mainnet") => run_test::<GenesisValidity<MainnetEthSpec>>(self),
             (runner, handler, config) => panic!(
                 "No implementation for runner: \"{}\", handler: \"{}\", config: \"{}\"",
                 runner, handler, config
