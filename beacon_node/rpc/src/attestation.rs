@@ -19,7 +19,7 @@ use types::Attestation;
 #[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub log: slog::Logger,
 }
 
@@ -43,7 +43,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
             let state = &self.chain.current_state();
 
             // Start by performing some checks
-            // Check that the AttestionData is for the current slot (otherwise it will not be valid)
+            // Check that the AttestationData is for the current slot (otherwise it will not be valid)
             if slot_requested > state.slot.as_u64() {
                 let log_clone = self.log.clone();
                 let f = sink

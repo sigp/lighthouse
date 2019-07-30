@@ -51,7 +51,7 @@ fn invalid_parent_block_root() {
         Err(BlockProcessingError::Invalid(
             BlockInvalid::ParentBlockRootMismatch {
                 state: Hash256::from_slice(&state.latest_block_header.signed_root()),
-                block: block.previous_block_root
+                block: block.parent_root
             }
         ))
     );

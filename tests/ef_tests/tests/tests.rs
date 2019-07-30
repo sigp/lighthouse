@@ -12,7 +12,7 @@ fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
     assert!(
         base_path.exists(),
         format!(
-            "Unable to locate {:?}. Did you init git submoules?",
+            "Unable to locate {:?}. Did you init git submodules?",
             base_path
         )
     );
@@ -162,6 +162,15 @@ fn bls() {
 }
 
 #[test]
+fn epoch_processing_justification_and_finalization() {
+    yaml_files_in_test_dir(&Path::new("epoch_processing").join("justification_and_finalization"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
 fn epoch_processing_crosslinks() {
     yaml_files_in_test_dir(&Path::new("epoch_processing").join("crosslinks"))
         .into_par_iter()
@@ -173,6 +182,42 @@ fn epoch_processing_crosslinks() {
 #[test]
 fn epoch_processing_registry_updates() {
     yaml_files_in_test_dir(&Path::new("epoch_processing").join("registry_updates"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
+fn epoch_processing_slashings() {
+    yaml_files_in_test_dir(&Path::new("epoch_processing").join("slashings"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
+fn epoch_processing_final_updates() {
+    yaml_files_in_test_dir(&Path::new("epoch_processing").join("final_updates"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
+fn genesis_initialization() {
+    yaml_files_in_test_dir(&Path::new("genesis").join("initialization"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
+fn genesis_validity() {
+    yaml_files_in_test_dir(&Path::new("genesis").join("validity"))
         .into_par_iter()
         .for_each(|file| {
             Doc::assert_tests_pass(file);

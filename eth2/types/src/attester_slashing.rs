@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, IndexedAttestation};
+use crate::{test_utils::TestRandom, EthSpec, IndexedAttestation};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -7,7 +7,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Two conflicting attestations.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     PartialEq,
@@ -20,15 +20,17 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     CachedTreeHash,
     TestRandom,
 )]
-pub struct AttesterSlashing {
-    pub attestation_1: IndexedAttestation,
-    pub attestation_2: IndexedAttestation,
+#[serde(bound = "T: EthSpec")]
+pub struct AttesterSlashing<T: EthSpec> {
+    pub attestation_1: IndexedAttestation<T>,
+    pub attestation_2: IndexedAttestation<T>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::*;
 
-    ssz_tests!(AttesterSlashing);
-    cached_tree_hash_tests!(AttesterSlashing);
+    ssz_tests!(AttesterSlashing<MainnetEthSpec>);
+    cached_tree_hash_tests!(AttesterSlashing<MainnetEthSpec>);
 }

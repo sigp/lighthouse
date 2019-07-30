@@ -2,7 +2,7 @@
 
 use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlockBody, Epoch, Hash256, Slot};
+use types::{BeaconBlockBody, Epoch, EthSpec, Hash256, Slot};
 
 /* Request/Response data structures for RPC methods */
 
@@ -43,7 +43,7 @@ pub enum GoodbyeReason {
     ClientShutdown = 1,
 
     /// Incompatible networks.
-    IrreleventNetwork = 2,
+    IrrelevantNetwork = 2,
 
     /// Error/fault in the RPC.
     Fault = 3,
@@ -56,7 +56,7 @@ impl From<u64> for GoodbyeReason {
     fn from(id: u64) -> GoodbyeReason {
         match id {
             1 => GoodbyeReason::ClientShutdown,
-            2 => GoodbyeReason::IrreleventNetwork,
+            2 => GoodbyeReason::IrrelevantNetwork,
             3 => GoodbyeReason::Fault,
             _ => GoodbyeReason::Unknown,
         }
@@ -154,11 +154,11 @@ pub struct BeaconBlockBodiesResponse {
 }
 
 /// The decoded version of `BeaconBlockBodiesResponse` which is expected in `SimpleSync`.
-pub struct DecodedBeaconBlockBodiesResponse {
+pub struct DecodedBeaconBlockBodiesResponse<E: EthSpec> {
     /// The list of hashes sent in the request to get this response.
     pub block_roots: Vec<Hash256>,
     /// The valid decoded block bodies.
-    pub block_bodies: Vec<BeaconBlockBody>,
+    pub block_bodies: Vec<BeaconBlockBody<E>>,
 }
 
 /// Request values for tree hashes which yield a blocks `state_root`.

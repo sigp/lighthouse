@@ -271,7 +271,7 @@ fn load_enr(
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers.
     let mut local_enr = EnrBuilder::new()
-        .ip(config.discovery_address.into())
+        .ip(config.discovery_address)
         .tcp(config.libp2p_port)
         .udp(config.discovery_port)
         .build(&local_key)
@@ -318,7 +318,7 @@ fn load_enr(
     Ok(local_enr)
 }
 
-fn save_enr_to_disc(dir: &Path, enr: &Enr, log: &slog::Logger) -> () {
+fn save_enr_to_disc(dir: &Path, enr: &Enr, log: &slog::Logger) {
     let _ = std::fs::create_dir_all(dir);
     match File::create(dir.join(Path::new(ENR_FILENAME)))
         .and_then(|mut f| f.write_all(&enr.to_base64().as_bytes()))

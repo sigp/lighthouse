@@ -6,13 +6,12 @@ use state_processing::per_block_processing::process_attestations;
 use types::{Attestation, BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct OperationsAttestation<E: EthSpec> {
     pub description: String,
     pub bls_setting: Option<BlsSetting>,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
-    pub attestation: Attestation,
-    #[serde(bound = "E: EthSpec")]
+    pub attestation: Attestation<E>,
     pub post: Option<BeaconState<E>>,
 }
 

@@ -6,13 +6,12 @@ use state_processing::per_block_processing::process_proposer_slashings;
 use types::{BeaconState, EthSpec, ProposerSlashing};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct OperationsProposerSlashing<E: EthSpec> {
     pub description: String,
     pub bls_setting: Option<BlsSetting>,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
     pub proposer_slashing: ProposerSlashing,
-    #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
 

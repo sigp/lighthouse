@@ -8,8 +8,8 @@ pub struct ExitCache(HashMap<Epoch, u64>);
 
 impl ExitCache {
     /// Add all validators with a non-trivial exit epoch to the cache.
-    pub fn build_from_registry(&mut self, validator_registry: &[Validator], spec: &ChainSpec) {
-        validator_registry
+    pub fn build_from_registry(&mut self, validators: &[Validator], spec: &ChainSpec) {
+        validators
             .iter()
             .filter(|validator| validator.exit_epoch != spec.far_future_epoch)
             .for_each(|validator| self.record_validator_exit(validator.exit_epoch));

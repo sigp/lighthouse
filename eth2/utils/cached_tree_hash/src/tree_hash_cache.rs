@@ -139,7 +139,7 @@ impl TreeHashCache {
     }
 
     /// Instantiate a new cache from the pre-built `bytes` where each `self.chunk_modified` will be
-    /// set to `intitial_modified_state`.
+    /// set to `initial_modified_state`.
     ///
     /// Note: `bytes.len()` must be a multiple of 32
     pub fn from_bytes(

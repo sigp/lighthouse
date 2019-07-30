@@ -11,7 +11,8 @@ pub struct OperationsAttesterSlashing<E: EthSpec> {
     pub bls_setting: Option<BlsSetting>,
     #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
-    pub attester_slashing: AttesterSlashing,
+    #[serde(bound = "E: EthSpec")]
+    pub attester_slashing: AttesterSlashing<E>,
     #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }

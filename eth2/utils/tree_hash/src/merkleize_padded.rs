@@ -243,7 +243,7 @@ fn concat(mut vec1: Vec<u8>, mut vec2: Vec<u8>) -> Vec<u8> {
 }
 
 /// Compute the hash of two other hashes concatenated.
-fn hash_concat(h1: &[u8], h2: &[u8]) -> Vec<u8> {
+pub fn hash_concat(h1: &[u8], h2: &[u8]) -> Vec<u8> {
     hash(&concat(h1.to_vec(), h2.to_vec()))
 }
 

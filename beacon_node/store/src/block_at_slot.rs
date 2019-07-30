@@ -1,8 +1,11 @@
 use super::*;
 use ssz::{Decode, DecodeError};
 
-fn get_block_bytes<T: Store>(store: &T, root: Hash256) -> Result<Option<Vec<u8>>, Error> {
-    store.get_bytes(BeaconBlock::db_column().into(), &root[..])
+fn get_block_bytes<T: Store, E: EthSpec>(
+    store: &T,
+    root: Hash256,
+) -> Result<Option<Vec<u8>>, Error> {
+    store.get_bytes(BeaconBlock::<E>::db_column().into(), &root[..])
 }
 
 fn read_slot_from_block_bytes(bytes: &[u8]) -> Result<Slot, DecodeError> {
@@ -11,7 +14,7 @@ fn read_slot_from_block_bytes(bytes: &[u8]) -> Result<Slot, DecodeError> {
     Slot::from_ssz_bytes(&bytes[0..end])
 }
 
-fn read_previous_block_root_from_block_bytes(bytes: &[u8]) -> Result<Hash256, DecodeError> {
+fn read_parent_root_from_block_bytes(bytes: &[u8]) -> Result<Hash256, DecodeError> {
     let previous_bytes = Slot::ssz_fixed_len();
     let slice = bytes
         .get(previous_bytes..previous_bytes + Hash256::ssz_fixed_len())
@@ -20,24 +23,26 @@ fn read_previous_block_root_from_block_bytes(bytes: &[u8]) -> Result<Hash256, De
     Hash256::from_ssz_bytes(slice)
 }
 
-pub fn get_block_at_preceeding_slot<T: Store>(
+pub fn get_block_at_preceeding_slot<T: Store, E: EthSpec>(
     store: &T,
     slot: Slot,
     start_root: Hash256,
-) -> Result<Option<(Hash256, BeaconBlock)>, Error> {
-    Ok(match get_at_preceeding_slot(store, slot, start_root)? {
-        Some((hash, bytes)) => Some((hash, BeaconBlock::from_ssz_bytes(&bytes)?)),
-        None => None,
-    })
+) -> Result<Option<(Hash256, BeaconBlock<E>)>, Error> {
+    Ok(
+        match get_at_preceeding_slot::<_, E>(store, slot, start_root)? {
+            Some((hash, bytes)) => Some((hash, BeaconBlock::<E>::from_ssz_bytes(&bytes)?)),
+            None => None,
+        },
+    )
 }
 
-fn get_at_preceeding_slot<T: Store>(
+fn get_at_preceeding_slot<T: Store, E: EthSpec>(
     store: &T,
     slot: Slot,
     mut root: Hash256,
 ) -> Result<Option<(Hash256, Vec<u8>)>, Error> {
     loop {
-        if let Some(bytes) = get_block_bytes(store, root)? {
+        if let Some(bytes) = get_block_bytes::<_, E>(store, root)? {
             let this_slot = read_slot_from_block_bytes(&bytes)?;
 
             if this_slot == slot {
@@ -45,7 +50,7 @@ fn get_at_preceeding_slot<T: Store>(
             } else if this_slot < slot {
                 break Ok(None);
             } else {
-                root = read_previous_block_root_from_block_bytes(&bytes)?;
+                root = read_parent_root_from_block_bytes(&bytes)?;
             }
         } else {
             break Ok(None);
@@ -58,6 +63,8 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tree_hash::TreeHash;
+
+    type BeaconBlock = types::BeaconBlock<MinimalEthSpec>;
 
     #[test]
     fn read_slot() {
@@ -84,17 +91,14 @@ mod tests {
     }
 
     #[test]
-    fn read_previous_block_root() {
+    fn read_parent_root() {
         let spec = MinimalEthSpec::default_spec();
 
         let test_root = |root: Hash256| {
             let mut block = BeaconBlock::empty(&spec);
-            block.previous_block_root = root;
+            block.parent_root = root;
             let bytes = block.as_ssz_bytes();
-            assert_eq!(
-                read_previous_block_root_from_block_bytes(&bytes).unwrap(),
-                root
-            );
+            assert_eq!(read_parent_root_from_block_bytes(&bytes).unwrap(), root);
         };
 
         test_root(Hash256::random());
@@ -114,7 +118,7 @@ mod tests {
             block.slot = Slot::from(*slot);
 
             if i > 0 {
-                block.previous_block_root = blocks_and_roots[i - 1].0;
+                block.parent_root = blocks_and_roots[i - 1].0;
             }
 
             let root = Hash256::from_slice(&block.tree_hash_root());
@@ -177,14 +181,14 @@ mod tests {
         // Slot that doesn't exist
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
+            .get_block_at_preceeding_slot::<MinimalEthSpec>(*source_root, Slot::new(3))
             .unwrap()
             .is_none());
 
         // Slot too high
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
+            .get_block_at_preceeding_slot::<MinimalEthSpec>(*source_root, Slot::new(3))
             .unwrap()
             .is_none());
     }

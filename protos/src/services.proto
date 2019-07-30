@@ -6,7 +6,7 @@
 // the block will be lost.
 //
 // This "stateful" method is being used presently because it's easier and
-// requires less maintainence as the `BeaconBlock` definition changes.
+// requires less maintenance as the `BeaconBlock` definition changes.
 
 syntax = "proto3";
 
@@ -28,7 +28,7 @@ service BeaconBlockService {
 /// Service that provides the validator client with requisite knowledge about
 //its public keys
 service ValidatorService {
-    // Gets the block proposer slot and comittee slot that a validator needs to
+    // Gets the block proposer slot and committee slot that a validator needs to
     // perform work on.
 	rpc GetValidatorDuties(GetDutiesRequest) returns (GetDutiesResponse);
 }
@@ -79,7 +79,7 @@ message PublishBeaconBlockRequest {
     BeaconBlock block = 1;
 }
 
-// Beacon node indicates a sucessfully submitted proposal.
+// Beacon node indicates a successfully submitted proposal.
 message PublishBeaconBlockResponse {
     bool success = 1;
     bytes msg = 2;

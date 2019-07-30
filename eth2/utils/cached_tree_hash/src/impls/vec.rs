@@ -201,7 +201,7 @@ pub fn update_tree_hash_cache<T: CachedTreeHash>(
 
                         cache.chunk_index = new.end;
                     }
-                    // The list has been lengthened and this is a new item that was prevously a
+                    // The list has been lengthened and this is a new item that was previously a
                     // padding item.
                     //
                     // Splice the tree for the new item over the padding chunk.
@@ -268,7 +268,7 @@ pub fn update_tree_hash_cache<T: CachedTreeHash>(
                     // This leaf was padding in both lists, there's nothing to do.
                     (LeafNode::Padding, LeafNode::Padding) => (),
                     // As we are looping through the larger of the lists of leaf nodes, it should
-                    // be impossible for either leaf to be non-existant.
+                    // be impossible for either leaf to be non-existent.
                     (LeafNode::DoesNotExist, LeafNode::DoesNotExist) => unreachable!(),
                 }
             }

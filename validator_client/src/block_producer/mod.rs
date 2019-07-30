@@ -5,10 +5,11 @@ use self::beacon_node_block::BeaconNodeBlock;
 pub use self::beacon_node_block::{BeaconNodeError, PublishOutcome};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
+use core::marker::PhantomData;
 use slog::{error, info, warn};
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
-use types::{BeaconBlock, ChainSpec, Domain, Fork, Slot};
+use types::{BeaconBlock, ChainSpec, Domain, EthSpec, Fork, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -37,7 +38,7 @@ pub enum ValidatorEvent {
 
 /// This struct contains the logic for requesting and signing beacon blocks for a validator. The
 /// validator can abstractly sign via the Signer trait object.
-pub struct BlockProducer<'a, B: BeaconNodeBlock, S: Signer> {
+pub struct BlockProducer<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> {
     /// The current fork.
     pub fork: Fork,
     /// The current slot to produce a block for.
@@ -48,11 +49,13 @@ pub struct BlockProducer<'a, B: BeaconNodeBlock, S: Signer> {
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
     pub signer: &'a S,
-    /// Used for caclulating epoch.
+    /// Used for calculating epoch.
     pub slots_per_epoch: u64,
+    /// Mere vessel for E.
+    pub _phantom: PhantomData<E>,
 }
 
-impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
+impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     /// Handle outputs and results from block production.
     pub fn handle_produce_block(&mut self, log: slog::Logger) {
         match self.produce_block() {
@@ -123,7 +126,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     ///
     /// Important: this function will not check to ensure the block is not slashable. This must be
     /// done upstream.
-    fn sign_block(&mut self, mut block: BeaconBlock, domain: u64) -> Option<BeaconBlock> {
+    fn sign_block(&mut self, mut block: BeaconBlock<E>, domain: u64) -> Option<BeaconBlock<E>> {
         self.store_produce(&block);
 
         match self.signer.sign_message(&block.signed_root()[..], domain) {
@@ -140,7 +143,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn safe_to_produce(&self, _block: &BeaconBlock) -> bool {
+    fn safe_to_produce(&self, _block: &BeaconBlock<E>) -> bool {
         // TODO: ensure the producer doesn't produce slashable blocks.
         // https://github.com/sigp/lighthouse/issues/160
         true
@@ -151,7 +154,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer> BlockProducer<'a, B, S> {
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn store_produce(&mut self, _block: &BeaconBlock) {
+    fn store_produce(&mut self, _block: &BeaconBlock<E>) {
         // TODO: record this block production to prevent future slashings.
         // https://github.com/sigp/lighthouse/issues/160
     }

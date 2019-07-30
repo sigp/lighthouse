@@ -13,7 +13,6 @@ impl TestingDepositBuilder {
     pub fn new(pubkey: PublicKey, amount: u64) -> Self {
         let deposit = Deposit {
             proof: vec![].into(),
-            index: 0,
             data: DepositData {
                 pubkey,
                 withdrawal_credentials: Hash256::zero(),
@@ -25,16 +24,11 @@ impl TestingDepositBuilder {
         Self { deposit }
     }
 
-    /// Set the `deposit.index` value.
-    pub fn set_index(&mut self, index: u64) {
-        self.deposit.index = index;
-    }
-
     /// Signs the deposit, also setting the following values:
     ///
     /// - `pubkey` to the signing pubkey.
     /// - `withdrawal_credentials` to the signing pubkey.
-    /// - `proof_of_possesssion`
+    /// - `proof_of_possession`
     pub fn sign(&mut self, keypair: &Keypair, epoch: Epoch, fork: &Fork, spec: &ChainSpec) {
         let withdrawal_credentials = Hash256::from_slice(
             &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],

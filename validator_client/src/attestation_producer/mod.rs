@@ -2,16 +2,17 @@ mod beacon_node_attestation;
 mod grpc;
 
 use std::sync::Arc;
-use types::{ChainSpec, Domain, Fork};
+use types::{ChainSpec, Domain, EthSpec, Fork};
 //TODO: Move these higher up in the crate
 use super::block_producer::{BeaconNodeError, PublishOutcome, ValidatorEvent};
 use crate::signer::Signer;
 use beacon_node_attestation::BeaconNodeAttestation;
+use core::marker::PhantomData;
 use slog::{error, info, warn};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, AttestationData, AttestationDataAndCustodyBit,
-    AttestationDuty, Bitfield,
+    AttestationDuty, BitList,
 };
 
 //TODO: Group these errors at a crate level
@@ -28,7 +29,7 @@ impl From<BeaconNodeError> for Error {
 
 /// This struct contains the logic for requesting and signing beacon attestations for a validator. The
 /// validator can abstractly sign via the Signer trait object.
-pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer> {
+pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> {
     /// The current fork.
     pub fork: Fork,
     /// The attestation duty to perform.
@@ -39,11 +40,13 @@ pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer> {
     pub beacon_node: Arc<B>,
     /// The signer to sign the block.
     pub signer: &'a S,
-    /// Used for caclulating epoch.
+    /// Used for calculating epoch.
     pub slots_per_epoch: u64,
+    /// Mere vessel for E.
+    pub _phantom: PhantomData<E>,
 }
 
-impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
+impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a, B, S, E> {
     /// Handle outputs and results from attestation production.
     pub fn handle_produce_attestation(&mut self, log: slog::Logger) {
         match self.produce_attestation() {
@@ -116,7 +119,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
         attestation: AttestationData,
         duties: AttestationDuty,
         domain: u64,
-    ) -> Option<Attestation> {
+    ) -> Option<Attestation<E>> {
         self.store_produce(&attestation);
 
         // build the aggregate signature
@@ -134,14 +137,14 @@ impl<'a, B: BeaconNodeAttestation, S: Signer> AttestationProducer<'a, B, S> {
             agg_sig
         };
 
-        let mut aggregation_bitfield = Bitfield::with_capacity(duties.committee_len);
-        let custody_bitfield = Bitfield::with_capacity(duties.committee_len);
-        aggregation_bitfield.set(duties.committee_index, true);
+        let mut aggregation_bits = BitList::with_capacity(duties.committee_len).ok()?;
+        let custody_bits = BitList::with_capacity(duties.committee_len).ok()?;
+        aggregation_bits.set(duties.committee_index, true).ok()?;
 
         Some(Attestation {
-            aggregation_bitfield,
+            aggregation_bits,
             data: attestation,
-            custody_bitfield,
+            custody_bits,
             signature: aggregate_signature,
         })
     }

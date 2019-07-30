@@ -7,11 +7,7 @@ edition = "2018"
 [dependencies]
 parking_lot = "0.7"
 store = { path = "../../beacon_node/store" }
-eth2_ssz = { path = "../utils/ssz" }
-state_processing = { path = "../state_processing" }
 types = { path = "../types" }
-log = "0.4.6"
-bit-vec = "0.5.0"
 
 [dev-dependencies]
 criterion = "0.2"
@@ -21,3 +17,5 @@ bls = { path = "../utils/bls" }
 slot_clock = { path = "../utils/slot_clock" }
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 env_logger = "0.6.0"
+lazy_static = "1.3.0"
+rand = "0.7"
