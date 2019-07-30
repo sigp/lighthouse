@@ -1,5 +1,5 @@
 use crate::*;
-use bls::get_withdrawal_credentials;
+use bls::{SignatureBytes, get_withdrawal_credentials};
 
 /// Builds an deposit to be used for testing purposes.
 ///
@@ -17,7 +17,7 @@ impl TestingDepositBuilder {
                 pubkey,
                 withdrawal_credentials: Hash256::zero(),
                 amount,
-                signature: Signature::empty_signature(),
+                signature: SignatureBytes::empty_signature(),
             },
         };
 

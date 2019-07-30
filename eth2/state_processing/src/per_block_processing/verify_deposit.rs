@@ -18,7 +18,9 @@ pub fn verify_deposit_signature<T: EthSpec>(
         deposit
             .data
             .signature
-            .verify(&deposit.data.signed_root(), domain, &deposit.data.pubkey,),
+            .parse_signature()
+            .map(|s| s.verify(&deposit.data.signed_root(), domain, &deposit.data.pubkey,))
+            .unwrap_or(false),
         Invalid::BadSignature
     );
 

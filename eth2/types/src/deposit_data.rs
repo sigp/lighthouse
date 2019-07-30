@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
-use bls::{PublicKey, Signature};
+use bls::{PublicKey, SignatureBytes};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -29,7 +29,7 @@ pub struct DepositData {
     pub withdrawal_credentials: Hash256,
     pub amount: u64,
     #[signed_root(skip_hashing)]
-    pub signature: Signature,
+    pub signature: SignatureBytes,
 }
 
 impl DepositData {
@@ -42,11 +42,11 @@ impl DepositData {
         epoch: Epoch,
         fork: &Fork,
         spec: &ChainSpec,
-    ) -> Signature {
+    ) -> SignatureBytes {
         let msg = self.signed_root();
         let domain = spec.get_domain(epoch, Domain::Deposit, fork);
 
-        Signature::new(msg.as_slice(), domain, secret_key)
+        SignatureBytes::new(Signature::new(msg.as_slice(), domain, secret_key))
     }
 }
 

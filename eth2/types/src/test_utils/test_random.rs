@@ -9,6 +9,7 @@ mod hash256;
 mod public_key;
 mod secret_key;
 mod signature;
+mod signature_bytes;
 
 pub trait TestRandom {
     fn random_for_test(rng: &mut impl RngCore) -> Self;
@@ -99,3 +100,4 @@ macro_rules! impl_test_random_for_u8_array {
 
 impl_test_random_for_u8_array!(4);
 impl_test_random_for_u8_array!(32);
+impl_test_random_for_u8_array!(96);

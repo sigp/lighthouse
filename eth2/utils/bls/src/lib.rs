@@ -5,10 +5,12 @@ extern crate ssz;
 mod macros;
 mod keypair;
 mod secret_key;
+mod signature_bytes;
 
 pub use crate::keypair::Keypair;
 pub use crate::secret_key::SecretKey;
 pub use milagro_bls::{compress_g2, hash_on_g2};
+pub use crate::signature_bytes::SignatureBytes;
 
 #[cfg(feature = "fake_crypto")]
 mod fake_aggregate_public_key;
