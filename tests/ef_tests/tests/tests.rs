@@ -205,3 +205,21 @@ fn epoch_processing_final_updates() {
             Doc::assert_tests_pass(file);
         });
 }
+
+#[test]
+fn genesis_initialization() {
+    yaml_files_in_test_dir(&Path::new("genesis").join("initialization"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
+
+#[test]
+fn genesis_validity() {
+    yaml_files_in_test_dir(&Path::new("genesis").join("validity"))
+        .into_par_iter()
+        .for_each(|file| {
+            Doc::assert_tests_pass(file);
+        });
+}
