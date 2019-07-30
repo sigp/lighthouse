@@ -121,7 +121,7 @@ Note that all future created nodes can use the same boot-node ENR. Once connecte
 In a third terminal window, start a validator client:
 
 ```
-$ ./validator-client
+$ ./validator_client
 ```
 
 You should be able to observe the validator signing blocks, the boot node
