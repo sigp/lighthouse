@@ -35,7 +35,7 @@ pub struct DepositData {
 impl DepositData {
     /// Generate the signature for a given DepositData details.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn create_signature(
         &self,
         secret_key: &SecretKey,

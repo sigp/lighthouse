@@ -60,7 +60,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     /// Return the number of committees in one epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn get_committee_count(active_validator_count: usize, target_committee_size: usize) -> usize {
         let shard_count = Self::shard_count();
         let slots_per_epoch = Self::slots_per_epoch() as usize;
@@ -76,7 +76,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     /// Return the number of shards to increment `state.start_shard` by in a given epoch.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn get_shard_delta(active_validator_count: usize, target_committee_size: usize) -> u64 {
         std::cmp::min(
             Self::get_committee_count(active_validator_count, target_committee_size) as u64,
@@ -95,28 +95,28 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn slots_per_epoch() -> u64 {
         Self::SlotsPerEpoch::to_u64()
     }
 
     /// Returns the `SHARD_COUNT` constant for this specification.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn shard_count() -> usize {
         Self::ShardCount::to_usize()
     }
 
     /// Returns the `SLOTS_PER_HISTORICAL_ROOT` constant for this specification.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn slots_per_historical_root() -> usize {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
 
     /// Returns the `EPOCHS_PER_HISTORICAL_VECTOR` constant for this specification.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     fn epochs_per_historical_vector() -> usize {
         Self::EpochsPerHistoricalVector::to_usize()
     }

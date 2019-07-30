@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Historical block and state roots.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 #[derive(
     Debug,
     Clone,

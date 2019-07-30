@@ -37,7 +37,7 @@ pub struct BeaconBlock<T: EthSpec> {
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlock {
             slot: spec.genesis_slot,
@@ -64,7 +64,7 @@ impl<T: EthSpec> BeaconBlock<T> {
 
     /// Returns the `signed_root` of the block.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.signed_root()[..])
     }
@@ -76,7 +76,7 @@ impl<T: EthSpec> BeaconBlock<T> {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
