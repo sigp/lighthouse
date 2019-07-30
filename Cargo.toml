@@ -10,6 +10,7 @@ members = [
 	"eth2/utils/compare_fields_derive",
 	"eth2/utils/eth2_config",
 	"eth2/utils/hashing",
+	"eth2/utils/logging",
 	"eth2/utils/merkle_proof",
 	"eth2/utils/int_to_bytes",
 	"eth2/utils/serde_hex",

@@ -1,0 +1,9 @@
+[package]
+name = "logging"
+version = "0.1.0"
+authors = ["blacktemplar <blacktemplar@a1.net>"]
+edition = "2018"
+
+[dependencies]
+slog = { version = "^2.2.3" }
+slog-term = "^2.4.0"
