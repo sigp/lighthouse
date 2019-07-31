@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
-use bls::{PublicKey, SignatureBytes};
+use bls::{PublicKeyBytes, SignatureBytes};
 use std::convert::From;
 
 use serde_derive::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
 )]
 pub struct DepositData {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
     pub amount: u64,
     #[signed_root(skip_hashing)]

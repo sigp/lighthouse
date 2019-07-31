@@ -7,6 +7,7 @@ mod aggregate_signature;
 mod bitfield;
 mod hash256;
 mod public_key;
+mod public_key_bytes;
 mod secret_key;
 mod signature;
 mod signature_bytes;
@@ -100,4 +101,5 @@ macro_rules! impl_test_random_for_u8_array {
 
 impl_test_random_for_u8_array!(4);
 impl_test_random_for_u8_array!(32);
+impl_test_random_for_u8_array!(48);
 impl_test_random_for_u8_array!(96);

@@ -1,8 +1,8 @@
 use super::errors::{DepositInvalid as Invalid, DepositValidationError as Error};
 use merkle_proof::verify_merkle_proof;
+use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
 use types::*;
-use std::convert::TryInto;
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
@@ -11,6 +11,7 @@ pub fn verify_deposit_signature<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     spec: &ChainSpec,
+    pubkey: &PublicKey,
 ) -> Result<(), Error> {
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fork zeroed.
@@ -19,8 +20,10 @@ pub fn verify_deposit_signature<T: EthSpec>(
     match parsed_signature {
         Err(_) => Err(Error::Invalid(Invalid::BadSignatureBytes)),
         Ok(signature) => {
-            verify!(signature.verify(&deposit.data.signed_root(), domain, &deposit.data.pubkey,),
-            Invalid::BadSignature);
+            verify!(
+                signature.verify(&deposit.data.signed_root(), domain, pubkey,),
+                Invalid::BadSignature
+            );
             Ok(())
         }
     }
@@ -34,9 +37,9 @@ pub fn verify_deposit_signature<T: EthSpec>(
 /// Errors if the state's `pubkey_cache` is not current.
 pub fn get_existing_validator_index<T: EthSpec>(
     state: &BeaconState<T>,
-    deposit: &Deposit,
+    pub_key: &PublicKey,
 ) -> Result<Option<u64>, Error> {
-    let validator_index = state.get_validator_index(&deposit.data.pubkey)?;
+    let validator_index = state.get_validator_index(pub_key)?;
     Ok(validator_index.map(|idx| idx as u64))
 }
 
