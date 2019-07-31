@@ -1,4 +1,4 @@
-use std::io::{Write, Result};
+use std::io::{Result, Write};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
@@ -17,9 +17,15 @@ impl AlignedTermDecorator {
 }
 
 impl slog_term::Decorator for AlignedTermDecorator {
-    fn with_record<F>(&self, _record: &slog::Record, _logger_values: &slog::OwnedKVList, f: F)
-                      -> Result<()> where
-        F: FnOnce(&mut dyn slog_term::RecordDecorator) -> std::io::Result<()> {
+    fn with_record<F>(
+        &self,
+        _record: &slog::Record,
+        _logger_values: &slog::OwnedKVList,
+        f: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(&mut dyn slog_term::RecordDecorator) -> std::io::Result<()>,
+    {
         self.wrapped.with_record(_record, _logger_values, |deco| {
             f(&mut AlignedRecordDecorator::new(deco, self.message_width))
         })
@@ -35,8 +41,10 @@ struct AlignedRecordDecorator<'a> {
 }
 
 impl<'a> AlignedRecordDecorator<'a> {
-    fn new(decorator: &'a mut dyn slog_term::RecordDecorator, message_width: usize) ->
-    AlignedRecordDecorator<'a> {
+    fn new(
+        decorator: &'a mut dyn slog_term::RecordDecorator,
+        message_width: usize,
+    ) -> AlignedRecordDecorator<'a> {
         AlignedRecordDecorator {
             wrapped: decorator,
             message_count: 0,
@@ -103,8 +111,13 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
 
     fn start_key(&mut self) -> Result<()> {
         if self.message_active && self.message_count + 1 < self.message_width {
-            write!(self, "{}", std::iter::repeat(' ').take(self.message_width - self.message_count)
-                .collect::<String>())?;
+            write!(
+                self,
+                "{}",
+                std::iter::repeat(' ')
+                    .take(self.message_width - self.message_count)
+                    .collect::<String>()
+            )?;
             self.message_active = false;
             self.message_count = 0;
             self.ignore_comma = false;
