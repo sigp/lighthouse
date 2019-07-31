@@ -171,7 +171,9 @@ your support!
 
 ## Contact
 
-The best place for discussion is the [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
+The best place for discussion is the [Lighthouse Discord
+server](https://discord.gg/cyAszAh). Alternatively, you may use the
+[sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 
 ## Donations
 
