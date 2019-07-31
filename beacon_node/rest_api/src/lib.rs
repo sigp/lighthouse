@@ -8,7 +8,7 @@ pub mod config;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 pub use config::Config as APIConfig;
 
-use slog::{o, warn};
+use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
@@ -55,6 +55,12 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     // build a channel to kill the HTTP server
     let (exit_signal, exit) = exit_future::signal();
 
+    let exit_log = log.clone();
+    let server_exit = exit.and_then(move |_| {
+        info!(exit_log, "API service shutdown");
+        Ok(())
+    });
+
     // Get the address to bind to
     let bind_addr = (config.listen_address, config.port).into();
 
@@ -83,7 +89,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
 
     let server = Server::bind(&bind_addr)
         .serve(service)
-        .with_graceful_shutdown(exit)
+        .with_graceful_shutdown(server_exit)
         .map_err(move |e| {
             warn!(
                 log,
