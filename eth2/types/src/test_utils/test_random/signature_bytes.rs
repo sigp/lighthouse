@@ -1,4 +1,4 @@
-use bls::{SecretKey, SignatureBytes, BLS_SIG_BYTE_SIZE};
+use bls::{SignatureBytes, BLS_SIG_BYTE_SIZE};
 
 use super::*;
 use std::convert::From;

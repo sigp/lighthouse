@@ -86,14 +86,25 @@ macro_rules! impl_cached_tree_hash {
 }
 
 macro_rules! bytes_struct {
-    ($name: ident, $type: ty, $byte_size: expr, $small_name: expr, $ssz_type_size: ident) => {
-        /// Stores `$byte_size` bytes which may or may not represent a valid BLS $small_name.
-        ///
-        /// The `$type` struct performs validation when it is instantiated, where as this struct does not. This struct is
-        /// suitable where we may wish to store bytes that are potentially not a valid $small_name (e.g., from the deposit
-        /// contract).
+    ($name: ident, $type: ty, $byte_size: expr, $small_name: expr, $ssz_type_size: ident,
+     $type_str: expr, $byte_size_str: expr) => {
+        #[doc = "Stores `"]
+        #[doc = $byte_size_str]
+        #[doc = "` bytes which may or may not represent a valid BLS "]
+        #[doc = $small_name]
+        #[doc = ".\n\nThe `"]
+        #[doc = $type_str]
+        #[doc = "` struct performs validation when it is instantiated, where as this struct does \
+                 not. This struct is suitable where we may wish to store bytes that are \
+                 potentially not a valid "]
+        #[doc = $small_name]
+        #[doc = " (e.g., from the deposit contract)."]
         #[derive(Clone)]
         pub struct $name([u8; $byte_size]);
+    };
+    ($name: ident, $type: ty, $byte_size: expr, $small_name: expr, $ssz_type_size: ident) => {
+        bytes_struct!($name, $type, $byte_size, $small_name, $ssz_type_size, stringify!($type),
+        stringify!($byte_size));
 
         impl $name {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
