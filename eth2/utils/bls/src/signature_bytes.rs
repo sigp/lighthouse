@@ -97,8 +97,20 @@ impl<'de> Deserialize<'de> for SignatureBytes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::Keypair;
 
-    //test parsing invalid signature
+    #[test]
+    pub fn test_valid_signature() {
+        let keypair = Keypair::random();
+        let original = Signature::new(&[42, 42], 0, &keypair.sk);
+
+        let bytes = ssz_encode(&original);
+        let signature_bytes = SignatureBytes::from_bytes(&bytes).unwrap();
+        let signature = signature_bytes.parse_signature();
+        assert!(signature.is_ok());
+        assert_eq!(original, signature.unwrap());
+    }
+
     #[test]
     pub fn test_invalid_signature() {
         let mut signature_bytes = [0; BLS_SIG_BYTE_SIZE];
