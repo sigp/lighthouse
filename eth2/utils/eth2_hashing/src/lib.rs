@@ -1,9 +1,18 @@
+//! Provides a simple hash function utilizing `ring::digest::SHA256`.
+//!
+//! The purpose of this crate is to provide an abstraction to whatever hash function Ethereum
+//! 2.0 is using. The hash function has been subject to change during the specification process, so
+//! defining it once in this crate makes it easy to replace.
+
 #[cfg(not(target_arch = "wasm32"))]
 use ring::digest::{digest, SHA256};
 
 #[cfg(target_arch = "wasm32")]
 use sha2::{Digest, Sha256};
 
+/// Returns the digest of `input`.
+///
+/// Uses `ring::digest::SHA256`.
 pub fn hash(input: &[u8]) -> Vec<u8> {
     #[cfg(not(target_arch = "wasm32"))]
     let h = digest(&SHA256, input).as_ref().into();
