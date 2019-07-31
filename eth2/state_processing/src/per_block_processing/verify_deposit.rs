@@ -2,6 +2,7 @@ use super::errors::{DepositInvalid as Invalid, DepositValidationError as Error};
 use merkle_proof::verify_merkle_proof;
 use tree_hash::{SignedRoot, TreeHash};
 use types::*;
+use std::convert::TryInto;
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
@@ -14,7 +15,8 @@ pub fn verify_deposit_signature<T: EthSpec>(
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fork zeroed.
     let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
-    match deposit.data.signature.parse_signature() {
+    let parsed_signature: Result<Signature, _> = (&deposit.data.signature).try_into();
+    match parsed_signature {
         Err(_) => Err(Error::Invalid(Invalid::BadSignatureBytes)),
         Ok(signature) => {
             verify!(signature.verify(&deposit.data.signed_root(), domain, &deposit.data.pubkey,),

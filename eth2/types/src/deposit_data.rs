@@ -1,6 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::{PublicKey, SignatureBytes};
+use std::convert::From;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -46,7 +47,7 @@ impl DepositData {
         let msg = self.signed_root();
         let domain = spec.get_domain(epoch, Domain::Deposit, fork);
 
-        SignatureBytes::new(Signature::new(msg.as_slice(), domain, secret_key))
+        SignatureBytes::from(Signature::new(msg.as_slice(), domain, secret_key))
     }
 }
 

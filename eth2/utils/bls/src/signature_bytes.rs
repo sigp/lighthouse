@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::fmt;
+use std::convert::{TryInto, From};
 
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -26,18 +27,8 @@ impl SignatureBytes {
         Self([0; BLS_SIG_BYTE_SIZE])
     }
 
-    pub fn new(signature: Signature) -> Self {
-        // how to avoid this unwrap? We know that signature.as_bytes() always has exactly
-        // BLS_SIG_BYTE_SIZE many bytes.
-        Self::from_bytes(signature.as_bytes().as_slice()).unwrap()
-    }
-
     pub fn as_bytes(&self) -> Vec<u8> {
         self.0.to_vec()
-    }
-
-    pub fn parse_signature(&self) -> Result<Signature, DecodeError> {
-        Signature::from_bytes(&self.0[..])
     }
 
     fn get_bytes(bytes: &[u8]) -> Result<[u8; BLS_SIG_BYTE_SIZE], DecodeError> {
@@ -64,6 +55,22 @@ impl PartialEq for SignatureBytes {
 }
 
 impl Eq for SignatureBytes {}
+
+impl TryInto<Signature> for &SignatureBytes {
+    type Error = DecodeError;
+
+    fn try_into(self) -> Result<Signature, Self::Error> {
+        Signature::from_bytes(&self.0[..])
+    }
+}
+
+impl From<Signature> for SignatureBytes {
+    fn from(signature: Signature) -> Self {
+        // how to avoid this unwrap? We know that signature.as_bytes() always has exactly
+        // BLS_SIG_BYTE_SIZE many bytes.
+        Self::from_bytes(signature.as_bytes().as_slice()).unwrap()
+    }
+}
 
 impl_ssz!(SignatureBytes, BLS_SIG_BYTE_SIZE, "Signature");
 
@@ -106,7 +113,7 @@ mod tests {
 
         let bytes = ssz_encode(&original);
         let signature_bytes = SignatureBytes::from_bytes(&bytes).unwrap();
-        let signature = signature_bytes.parse_signature();
+        let signature: Result<Signature, _> = (&signature_bytes).try_into();
         assert!(signature.is_ok());
         assert_eq!(original, signature.unwrap());
     }
@@ -118,7 +125,7 @@ mod tests {
         let signature_bytes = SignatureBytes::from_bytes(&signature_bytes[..]);
         assert!(signature_bytes.is_ok());
 
-        let signature = signature_bytes.unwrap().parse_signature();
+        let signature: Result<Signature, _> = signature_bytes.as_ref().unwrap().try_into();
         assert!(signature.is_err());
     }
 }
