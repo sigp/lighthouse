@@ -8,7 +8,7 @@ edition = "2018"
 tree_hash_derive = { path = "../tree_hash_derive" }
 
 [dependencies]
-tree_hash = { path = "../tree_hash" }
+tree_hash = "0.1"
 ethereum-types = "0.5"
 eth2_hashing = { path = "../eth2_hashing" }
 int_to_bytes = { path = "../int_to_bytes" }

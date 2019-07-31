@@ -10,7 +10,7 @@ itertools = "0.8"
 parking_lot = "0.7"
 types = { path = "../types" }
 state_processing = { path = "../state_processing" }
-eth2_ssz = { path = "../utils/ssz" }
+eth2_ssz = "0.1"
 eth2_ssz_derive = { path = "../utils/ssz_derive" }
 
 [dev-dependencies]
