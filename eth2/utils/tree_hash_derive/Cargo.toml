@@ -3,14 +3,11 @@ name = "tree_hash_derive"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
-description = "Procedural derive macros for SSZ tree hashing."
+description = "Procedural derive macros to accompany the tree_hash crate."
+license = "Apache-2.0"
 
 [lib]
 proc-macro = true
-
-[dev-dependencies]
-tree_hash = { path = "../tree_hash" }
-cached_tree_hash = { path = "../cached_tree_hash" }
 
 [dependencies]
 syn = "0.15"
