@@ -9,6 +9,11 @@ use ssz::{Decode, DecodeError, Encode, ssz_encode};
 
 use super::{BLS_SIG_BYTE_SIZE, Signature};
 
+/// Stores `BLS_SIG_BYTE_SIZE` bytes which may or may not represent a valid BLS signature.
+///
+/// The `Signature` struct performs validation when it is instantiated, where as this struct does not. This struct is
+/// suitable where we may wish to store bytes that are potentially not a valid signature (e.g., from the deposit
+/// contract).
 #[derive(Clone)]
 pub struct SignatureBytes([u8; BLS_SIG_BYTE_SIZE]);
 
