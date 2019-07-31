@@ -14,19 +14,17 @@ pub struct SignatureBytes([u8; BLS_SIG_BYTE_SIZE]);
 
 impl SignatureBytes {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        Ok(Self::new_from_bytes(bytes))
-    }
-
-    pub fn new_from_bytes(bytes: &[u8]) -> Self {
-        Self(Self::get_bytes(bytes))
+        Ok(Self(Self::get_bytes(bytes)?))
     }
 
     pub fn empty_signature() -> Self {
-        Self::new_from_bytes(&[])
+        Self([0; BLS_SIG_BYTE_SIZE])
     }
 
     pub fn new(signature: Signature) -> Self {
-        Self(Self::get_bytes(signature.as_bytes().as_slice()))
+        // how to avoid this unwrap? We know that signature.as_bytes() always has exactly
+        // BLS_SIG_BYTE_SIZE many bytes.
+        Self::from_bytes(signature.as_bytes().as_slice()).unwrap()
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -37,11 +35,14 @@ impl SignatureBytes {
         Signature::from_bytes(&self.0[..])
     }
 
-    fn get_bytes(bytes: &[u8]) -> [u8; BLS_SIG_BYTE_SIZE] {
+    fn get_bytes(bytes: &[u8]) -> Result<[u8; BLS_SIG_BYTE_SIZE], DecodeError> {
         let mut signature_bytes = [0; BLS_SIG_BYTE_SIZE];
-        let length = min(BLS_SIG_BYTE_SIZE, bytes.len());
-        signature_bytes[..length].copy_from_slice(&bytes[..length]);
-        signature_bytes
+        if bytes.len() != BLS_SIG_BYTE_SIZE {
+            Err(DecodeError::InvalidByteLength {len: bytes.len(), expected: BLS_SIG_BYTE_SIZE})
+        } else {
+            signature_bytes[..].copy_from_slice(bytes);
+            Ok(signature_bytes)
+        }
     }
 }
 

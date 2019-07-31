@@ -10,7 +10,7 @@ impl TestRandom for SignatureBytes {
             SignatureBytes::new(Signature::random_for_test(rng))
         } else {
             //invalid signature, just random bytes
-            SignatureBytes::new_from_bytes(&<[u8; BLS_SIG_BYTE_SIZE]>::random_for_test(rng))
+            SignatureBytes::from_bytes(&<[u8; BLS_SIG_BYTE_SIZE]>::random_for_test(rng)).unwrap()
         }
     }
 }
