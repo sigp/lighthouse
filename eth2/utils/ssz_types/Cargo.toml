@@ -9,13 +9,13 @@ name = "ssz_types"
 
 [dependencies]
 cached_tree_hash = { path = "../cached_tree_hash" }
-tree_hash = { path = "../tree_hash" }
+tree_hash = "0.1"
 serde = "1.0"
 serde_derive = "1.0"
 serde_hex = { path = "../serde_hex" }
-eth2_ssz = { path = "../ssz" }
+eth2_ssz = "0.1"
 typenum = "1.10"
 
 [dev-dependencies]
 serde_yaml = "0.8"
-tree_hash_derive = { path = "../tree_hash_derive" }
+tree_hash_derive = "0.1"
