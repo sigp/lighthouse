@@ -17,6 +17,7 @@ pub struct Config {
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub http: HttpServerConfig,
+    pub rest_api: rest_api::APIConfig,
 }
 
 impl Default for Config {
@@ -31,6 +32,7 @@ impl Default for Config {
             network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
+            rest_api: rest_api::APIConfig::default(),
         }
     }
 }
@@ -101,6 +103,7 @@ impl Config {
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
         self.http.apply_cli_args(args)?;
+        self.rest_api.apply_cli_args(args)?;
 
         if let Some(log_file) = args.value_of("logfile") {
             self.log_file = PathBuf::from(log_file);
