@@ -2,12 +2,12 @@
 
 An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
 
-[![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Gitter Badge]][Gitter Link]
+[![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Chat Badge]][Chat Link]
 
 [Build Status]: https://gitlab.sigmaprime.io/sigp/lighthouse/badges/master/build.svg
 [Build Link]: https://gitlab.sigmaprime.io/sigp/lighthouse/pipelines
-[Gitter Badge]: https://badges.gitter.im/Join%20Chat.svg
-[Gitter Link]: https://gitter.im/sigp/lighthouse
+[Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
+[Chat Link]: https://discord.gg/cyAszAh
 [Doc Status]: https://img.shields.io/badge/docs-master-blue.svg
 [Doc Link]: http://lighthouse-docs.sigmaprime.io/
 
@@ -171,7 +171,9 @@ your support!
 
 ## Contact
 
-The best place for discussion is the [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
+The best place for discussion is the [Lighthouse Discord
+server](https://discord.gg/cyAszAh). Alternatively, you may use the
+[sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 
 ## Donations
 
