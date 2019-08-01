@@ -6,10 +6,10 @@
 
 #### `beacon-node.toml`
 
-- Defines the behaviour of the beacon node runtime.  Located in the `datadir`
-- (default `~/.lighthouse)`) as `beacon-node.toml`.  Will be created from
-- defaults if not present.
+A TOML configuration file that defines the behaviour of the beacon node
+runtime.
 
-See [example file](config_examples/beacon-node.toml).
+- Located in the `datadir` (default `~/.lighthouse`) as `beacon-node.toml`.
+- Created from defaults if not present.
 
-
+See the [example](config_examples/beacon-node.toml) for more information.
