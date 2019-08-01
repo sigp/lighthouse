@@ -7,3 +7,9 @@ edition = "2018"
 [dependencies]
 web3 = "0.8.0"
 tokio-core = "0.1.17"
+ethabi = "8.0.0"
+types = { path = "../../eth2/types" }
+bls = { path = "../../eth2/utils/bls" }
+
+[features]
+fake_crypto = ["bls/fake_crypto"]
