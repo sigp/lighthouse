@@ -1,10 +1,10 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use serde::Serialize;
-use slog::info;
+use slog::debug;
 use std::sync::Arc;
 use version;
 
-use super::{path_from_request, success_response, APIResult, APIService};
+use super::{path_from_request, success_response, ApiResult, ApiService};
 
 use hyper::{Body, Request, Response};
 use hyper_router::{Route, RouterBuilder};
@@ -32,7 +32,7 @@ impl From<u64> for GenesisTime {
     }
 }
 
-impl<T: BeaconChainTypes + 'static> APIService for BeaconNodeServiceInstance<T> {
+impl<T: BeaconChainTypes + 'static> ApiService for BeaconNodeServiceInstance<T> {
     fn add_routes(&mut self, router_builder: RouterBuilder) -> Result<RouterBuilder, hyper::Error> {
         let router_builder = router_builder
             .add(Route::get("/version").using(result_to_response!(get_version)))
@@ -42,7 +42,7 @@ impl<T: BeaconChainTypes + 'static> APIService for BeaconNodeServiceInstance<T> 
 }
 
 /// Read the version string from the current Lighthouse build.
-fn get_version(_req: Request<Body>) -> APIResult {
+fn get_version(_req: Request<Body>) -> ApiResult {
     let ver = Version::from(version::version());
     let body = Body::from(
         serde_json::to_string(&ver).expect("Version should always be serialializable as JSON."),
@@ -51,7 +51,7 @@ fn get_version(_req: Request<Body>) -> APIResult {
 }
 
 /// Read the genesis time from the current beacon chain state.
-fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> APIResult {
+fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
     let gen_time = {
         let state = beacon_chain.current_state();

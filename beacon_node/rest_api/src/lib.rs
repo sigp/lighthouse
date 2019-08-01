@@ -2,36 +2,44 @@ extern crate futures;
 extern crate hyper;
 #[macro_use]
 mod macros;
+mod api_request;
+mod beacon_chain_api;
 mod beacon_node;
 pub mod config;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-pub use config::Config as APIConfig;
+pub use config::Config as ApiConfig;
 
 use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
 use crate::beacon_node::BeaconNodeServiceInstance;
+use api_request::ApiRequest;
 use hyper::rt::Future;
 use hyper::service::{service_fn, Service};
 use hyper::{Body, Request, Response, Server, StatusCode};
 use hyper_router::{RouterBuilder, RouterService};
 
-pub enum APIError {
+#[derive(PartialEq, Debug)]
+pub enum ApiError {
     MethodNotAllowed { desc: String },
     ServerError { desc: String },
     NotImplemented { desc: String },
+    InvalidQueryParams { desc: String },
+    ImATeapot { desc: String }, // Just in case.
 }
 
-pub type APIResult = Result<Response<Body>, APIError>;
+pub type ApiResult = Result<Response<Body>, ApiError>;
 
-impl Into<Response<Body>> for APIError {
+impl Into<Response<Body>> for ApiError {
     fn into(self) -> Response<Body> {
         let status_code: (StatusCode, String) = match self {
-            APIError::MethodNotAllowed { desc } => (StatusCode::METHOD_NOT_ALLOWED, desc),
-            APIError::ServerError { desc } => (StatusCode::INTERNAL_SERVER_ERROR, desc),
-            APIError::NotImplemented { desc } => (StatusCode::NOT_IMPLEMENTED, desc),
+            ApiError::MethodNotAllowed { desc } => (StatusCode::METHOD_NOT_ALLOWED, desc),
+            ApiError::ServerError { desc } => (StatusCode::INTERNAL_SERVER_ERROR, desc),
+            ApiError::NotImplemented { desc } => (StatusCode::NOT_IMPLEMENTED, desc),
+            ApiError::InvalidQueryParams { desc } => (StatusCode::BAD_REQUEST, desc),
+            ApiError::ImATeapot { desc } => (StatusCode::IM_A_TEAPOT, desc),
         };
         Response::builder()
             .status(status_code.0)
@@ -40,17 +48,17 @@ impl Into<Response<Body>> for APIError {
     }
 }
 
-pub trait APIService {
+pub trait ApiService {
     fn add_routes(&mut self, router_builder: RouterBuilder) -> Result<RouterBuilder, hyper::Error>;
 }
 
 pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
-    config: &APIConfig,
+    config: &ApiConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
 ) -> Result<exit_future::Signal, hyper::Error> {
-    let log = log.new(o!("Service" => "API"));
+    let log = log.new(o!("Service" => "Api"));
 
     // build a channel to kill the HTTP server
     let (exit_signal, exit) = exit_future::signal();
@@ -87,15 +95,23 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
         })
     };
 
+    let log_clone = log.clone();
     let server = Server::bind(&bind_addr)
         .serve(service)
         .with_graceful_shutdown(server_exit)
         .map_err(move |e| {
             warn!(
-                log,
+                log_clone,
                 "API failed to start, Unable to bind"; "address" => format!("{:?}", e)
             )
         });
+
+    info!(
+        log,
+        "REST API started";
+        "address" => format!("{}", config.listen_address),
+        "port" => config.port,
+    );
 
     executor.spawn(server);
 
