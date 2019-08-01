@@ -10,10 +10,16 @@ impl<T> ApiRequest<T> {
         Self { req }
     }
 
-    pub fn query(&self) -> UrlQuery {
-        UrlQuery(url::form_urlencoded::parse(
-            self.req.uri().query().expect("TODO: fix this").as_bytes(),
-        ))
+    pub fn query(&self) -> Result<UrlQuery, ApiError> {
+        let query_str = self
+            .req
+            .uri()
+            .query()
+            .ok_or_else(|| ApiError::InvalidQueryParams {
+                desc: "URL query must contain at least one key.".to_string(),
+            })?;
+
+        Ok(UrlQuery(url::form_urlencoded::parse(query_str.as_bytes())))
     }
 }
 
