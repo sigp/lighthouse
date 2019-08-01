@@ -1,11 +1,9 @@
 extern crate futures;
 extern crate hyper;
-#[macro_use]
-mod macros;
 mod api_request;
-mod beacon_chain_api;
-mod beacon_node;
-pub mod config;
+mod beacon;
+mod config;
+mod node;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 pub use config::Config as ApiConfig;
@@ -14,12 +12,10 @@ use slog::{info, o, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 
-use crate::beacon_node::BeaconNodeServiceInstance;
 use api_request::ApiRequest;
 use hyper::rt::Future;
-use hyper::service::{service_fn, Service};
-use hyper::{Body, Request, Response, Server, StatusCode};
-use hyper_router::{RouterBuilder, RouterService};
+use hyper::service::service_fn_ok;
+use hyper::{Body, Method, Response, Server, StatusCode};
 
 #[derive(PartialEq, Debug)]
 pub enum ApiError {
@@ -48,10 +44,6 @@ impl Into<Response<Body>> for ApiError {
     }
 }
 
-pub trait ApiService {
-    fn add_routes(&mut self, router_builder: RouterBuilder) -> Result<RouterBuilder, hyper::Error>;
-}
-
 pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &ApiConfig,
     executor: &TaskExecutor,
@@ -76,22 +68,39 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     let server_log = log.clone();
     let server_bc = beacon_chain.clone();
 
-    // Create the service closure
     let service = move || {
-        //TODO: This router must be moved out of this closure, so it isn't rebuilt for every connection.
-        let mut router = build_router_service::<T>();
-
-        // Clone our stateful objects, for use in handler closure
-        let service_log = server_log.clone();
-        let service_bc = server_bc.clone();
+        let log = server_log.clone();
+        let beacon_chain = server_bc.clone();
 
         // Create a simple handler for the router, inject our stateful objects into the request.
-        service_fn(move |mut req| {
+        service_fn_ok(move |mut req| {
+            req.extensions_mut().insert::<slog::Logger>(log.clone());
             req.extensions_mut()
-                .insert::<slog::Logger>(service_log.clone());
-            req.extensions_mut()
-                .insert::<Arc<BeaconChain<T>>>(service_bc.clone());
-            router.call(req)
+                .insert::<Arc<BeaconChain<T>>>(beacon_chain.clone());
+
+            let req = ApiRequest::from_http_request(req);
+            let path = req.req.uri().path().to_string();
+
+            // Route the request to the correct handler.
+            let result = match (req.req.method(), path.as_ref()) {
+                (&Method::GET, "/beacon/state") => beacon::get_state(req),
+                (&Method::GET, "/node/version") => node::get_version(req),
+                (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
+                _ => Err(ApiError::MethodNotAllowed { desc: path.clone() }),
+            };
+
+            match result {
+                // Return the `hyper::Response`.
+                Ok(response) => {
+                    slog::debug!(log, "Request successful: {:?}", path);
+                    response
+                }
+                // Map the `ApiError` into `hyper::Response`.
+                Err(e) => {
+                    slog::debug!(log, "Request failure: {:?}", path);
+                    e.into()
+                }
+            }
         })
     };
 
@@ -116,28 +125,6 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     executor.spawn(server);
 
     Ok(exit_signal)
-}
-
-fn build_router_service<T: BeaconChainTypes + 'static>() -> RouterService {
-    let mut router_builder = RouterBuilder::new();
-
-    let mut bn_service: BeaconNodeServiceInstance<T> = BeaconNodeServiceInstance {
-        marker: std::marker::PhantomData,
-    };
-
-    router_builder = bn_service
-        .add_routes(router_builder)
-        .expect("The routes should always be made.");
-
-    RouterService::new(router_builder.build())
-}
-
-fn path_from_request(req: &Request<Body>) -> String {
-    req.uri()
-        .path_and_query()
-        .as_ref()
-        .map(|pq| String::from(pq.as_str()))
-        .unwrap_or(String::new())
 }
 
 fn success_response(body: Body) -> Response<Body> {

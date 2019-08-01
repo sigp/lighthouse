@@ -1,22 +1,19 @@
 use crate::ApiError;
 use hyper::Request;
-use url::Url;
 
 pub struct ApiRequest<T> {
-    pub url: Url,
     pub req: Request<T>,
 }
 
 impl<T> ApiRequest<T> {
     pub fn from_http_request(req: Request<T>) -> Self {
-        Self {
-            url: Url::parse(&req.uri().to_string()).expect("TODO: return error"),
-            req,
-        }
+        Self { req }
     }
 
     pub fn query(&self) -> UrlQuery {
-        UrlQuery(self.url.query_pairs())
+        UrlQuery(url::form_urlencoded::parse(
+            self.req.uri().query().expect("TODO: fix this").as_bytes(),
+        ))
     }
 }
 
@@ -42,7 +39,7 @@ mod test {
 
     #[test]
     fn query_params_first_of() {
-        let url = Url::parse("http://lighthouse.io/cats?a=42&b=12&c=100").unwrap();
+        let url = url::Url::parse("http://lighthouse.io/cats?a=42&b=12&c=100").unwrap();
         let get_query = || UrlQuery(url.query_pairs());
 
         assert_eq!(get_query().first_of(&["a"]), Ok("42".to_string()));
