@@ -16,9 +16,6 @@ use types::{
     test_utils::TestingBeaconStateBuilder, BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256,
 };
 
-/// The number initial validators when starting the `Minimal`.
-const TESTNET_VALIDATOR_COUNT: usize = 16;
-
 /// Provides a new, initialized `BeaconChain`
 pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
     fn initialise_beacon_chain(
@@ -86,7 +83,9 @@ where
     );
 
     // Try load an existing `BeaconChain` from the store. If unable, create a new one.
-    if let Ok(Some(beacon_chain)) = BeaconChain::from_store(store.clone(), spec.clone()) {
+    if let Ok(Some(beacon_chain)) =
+        BeaconChain::from_store(store.clone(), spec.clone(), log.clone())
+    {
         // Here we check to ensure that the `BeaconChain` loaded from store has the expected
         // genesis block.
         //
@@ -114,8 +113,15 @@ where
             log,
             "Initialized new BeaconChain";
         );
-        BeaconChain::from_genesis(store, slot_clock, genesis_state, genesis_block, spec)
-            .map_err(|e| format!("Failed to initialize new beacon chain: {:?}", e).into())
+        BeaconChain::from_genesis(
+            store,
+            slot_clock,
+            genesis_state,
+            genesis_block,
+            spec,
+            log.clone(),
+        )
+        .map_err(|e| format!("Failed to initialize new beacon chain: {:?}", e).into())
     }
 }
 
