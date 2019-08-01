@@ -199,6 +199,18 @@ fn main() {
         )
         */
         .arg(
+            Arg::with_name("default-spec")
+                .long("default-spec")
+                .value_name("TITLE")
+                .short("default-spec")
+                .help("Specifies the default eth2 spec to be used. Overridden by any spec loaded
+                from disk. A spec will be written to disk after this flag is used, so it is
+                primarily used for creating eth2 spec files.")
+                .takes_value(true)
+                .possible_values(&["mainnet", "minimal"])
+                .default_value("minimal"),
+        )
+        .arg(
             Arg::with_name("recent-genesis")
                 .long("recent-genesis")
                 .short("r")
@@ -320,7 +332,7 @@ fn main() {
     let mut eth2_config = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
         Ok(Some(c)) => c,
         Ok(None) => {
-            let default = match matches.value_of("spec-constants") {
+            let default = match matches.value_of("default-spec") {
                 Some("mainnet") => Eth2Config::mainnet(),
                 Some("minimal") => Eth2Config::minimal(),
                 _ => unreachable!(), // Guarded by slog.
