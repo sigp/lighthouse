@@ -1,12 +1,11 @@
-use crate::ApiRequest;
 use crate::{success_response, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use hyper::Body;
+use hyper::{Body, Request};
 use std::sync::Arc;
 use version;
 
 /// Read the version string from the current Lighthouse build.
-pub fn get_version(_req: ApiRequest<Body>) -> ApiResult {
+pub fn get_version(_req: Request<Body>) -> ApiResult {
     let body = Body::from(
         serde_json::to_string(&version::version())
             .expect("Version should always be serialializable as JSON."),
@@ -15,8 +14,8 @@ pub fn get_version(_req: ApiRequest<Body>) -> ApiResult {
 }
 
 /// Read the genesis time from the current beacon chain state.
-pub fn get_genesis_time<T: BeaconChainTypes + 'static>(req: ApiRequest<Body>) -> ApiResult {
-    let beacon_chain = req.req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
+pub fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let beacon_chain = req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
     let gen_time = {
         let state = beacon_chain.current_state();
         state.genesis_time

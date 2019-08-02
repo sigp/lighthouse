@@ -21,6 +21,15 @@ impl<'a, U: Store, E: EthSpec> AncestorIter<U, BestBlockRootsIterator<'a, E, U>>
     }
 }
 
+impl<'a, U: Store, E: EthSpec> AncestorIter<U, StateRootsIterator<'a, E, U>> for BeaconState<E> {
+    /// Iterates across all the prior state roots of `self`, starting at the most recent and ending
+    /// at genesis.
+    fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<StateRootsIterator<'a, E, U>> {
+        // The `self.clone()` here is wasteful.
+        Some(StateRootsIterator::owned(store, self.clone(), self.slot))
+    }
+}
+
 #[derive(Clone)]
 pub struct StateRootsIterator<'a, T: EthSpec, U> {
     store: Arc<U>,
