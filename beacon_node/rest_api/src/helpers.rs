@@ -142,6 +142,8 @@ mod test {
         assert!(
             parse_root("0000000000000000000000000000000000000000000000000000000000000042").is_err()
         );
+        assert!(parse_root("0x").is_err());
+        assert!(parse_root("0x00").is_err());
     }
 
     #[test]
