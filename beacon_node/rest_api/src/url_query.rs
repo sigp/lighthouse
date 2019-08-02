@@ -35,6 +35,8 @@ impl<'a> UrlQuery<'a> {
             })
     }
 
+    /// Returns the value for `key`, if and only if `key` is the only key present in the query
+    /// parameters.
     pub fn only_one(self, key: &str) -> Result<String, ApiError> {
         let queries: Vec<_> = self
             .0
