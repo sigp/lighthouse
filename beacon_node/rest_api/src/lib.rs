@@ -2,6 +2,7 @@ extern crate futures;
 extern crate hyper;
 mod beacon;
 mod config;
+mod helpers;
 mod node;
 mod url_query;
 
