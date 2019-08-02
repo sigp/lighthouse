@@ -23,7 +23,7 @@ impl<'a> UrlQuery<'a> {
     /// Returns the first `(key, value)` pair found where the `key` is in `keys`.
     ///
     /// If no match is found, an `InvalidQueryParams` error is returned.
-    pub fn first_of(&mut self, keys: &[&str]) -> Result<(String, String), ApiError> {
+    pub fn first_of(mut self, keys: &[&str]) -> Result<(String, String), ApiError> {
         self.0
             .find(|(key, _value)| keys.contains(&&**key))
             .map(|(key, value)| (key.into_owned(), value.into_owned()))
@@ -33,6 +33,30 @@ impl<'a> UrlQuery<'a> {
                     keys
                 ))
             })
+    }
+
+    pub fn only_one(self, key: &str) -> Result<String, ApiError> {
+        let queries: Vec<_> = self
+            .0
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+
+        if queries.len() == 1 {
+            let (first_key, first_value) = &queries[0]; // Must have 0 index if len is 1.
+            if first_key == key {
+                Ok(first_value.to_string())
+            } else {
+                Err(ApiError::InvalidQueryParams(format!(
+                    "Only the {} query parameter is supported",
+                    key
+                )))
+            }
+        } else {
+            Err(ApiError::InvalidQueryParams(format!(
+                "Only one query parameter is allowed, {} supplied",
+                queries.len()
+            )))
+        }
     }
 }
 
