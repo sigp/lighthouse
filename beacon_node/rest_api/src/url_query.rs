@@ -65,7 +65,19 @@ mod test {
     use super::*;
 
     #[test]
-    fn query_params_first_of() {
+    fn only_one() {
+        let get_result = |addr: &str, key: &str| -> Result<String, ApiError> {
+            UrlQuery(url::Url::parse(addr).unwrap().query_pairs()).only_one(key)
+        };
+
+        assert_eq!(get_result("http://cat.io/?a=42", "a"), Ok("42".to_string()));
+        assert!(get_result("http://cat.io/?a=42", "b").is_err());
+        assert!(get_result("http://cat.io/?a=42&b=12", "a").is_err());
+        assert!(get_result("http://cat.io/", "").is_err());
+    }
+
+    #[test]
+    fn first_of() {
         let url = url::Url::parse("http://lighthouse.io/cats?a=42&b=12&c=100").unwrap();
         let get_query = || UrlQuery(url.query_pairs());
 
