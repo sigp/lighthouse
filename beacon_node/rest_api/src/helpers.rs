@@ -17,10 +17,18 @@ pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
 ///
 /// E.g., `"0x0000000000000000000000000000000000000000000000000000000000000000"`
 pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
-    let trimmed = string.trim_start_matches("0x");
-    trimmed
-        .parse()
-        .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse root: {:?}", e)))
+    const PREFIX: &str = "0x";
+
+    if string.starts_with(PREFIX) {
+        let trimmed = string.trim_start_matches(PREFIX);
+        trimmed
+            .parse()
+            .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse root: {:?}", e)))
+    } else {
+        Err(ApiError::InvalidQueryParams(
+            "Root must have a  '0x' prefix".to_string(),
+        ))
+    }
 }
 
 /// Returns a `BeaconState` in the canonical chain of `beacon_chain` at the given `slot`, if
@@ -114,5 +122,33 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         // Note: this is an expensive operation. Once the tree hash cache is implement it may be
         // used here.
         Ok(state.canonical_root())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_root_works() {
+        assert_eq!(
+            parse_root("0x0000000000000000000000000000000000000000000000000000000000000000"),
+            Ok(Hash256::zero())
+        );
+        assert_eq!(
+            parse_root("0x000000000000000000000000000000000000000000000000000000000000002a"),
+            Ok(Hash256::from(42))
+        );
+        assert!(
+            parse_root("0000000000000000000000000000000000000000000000000000000000000042").is_err()
+        );
+    }
+
+    #[test]
+    fn parse_slot_works() {
+        assert_eq!(parse_slot("0"), Ok(Slot::new(0)));
+        assert_eq!(parse_slot("42"), Ok(Slot::new(42)));
+        assert_eq!(parse_slot("10000000"), Ok(Slot::new(10_000_000)));
+        assert!(parse_slot("cats").is_err());
     }
 }
