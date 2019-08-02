@@ -9,7 +9,7 @@ use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
     string
         .parse::<u64>()
-        .map(|s| Slot::from(s))
+        .map(Slot::from)
         .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse slot: {:?}", e)))
 }
 
@@ -48,7 +48,7 @@ pub fn state_at_slot<T: BeaconChainTypes>(
         // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
         Ok(beacon_chain.head().beacon_state.clone())
     } else {
-        let root = state_root_at_slot(beacon_chain, slot.into())?;
+        let root = state_root_at_slot(beacon_chain, slot)?;
 
         let state: BeaconState<T::EthSpec> = beacon_chain
             .store
@@ -84,10 +84,10 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // We could actually speculate about future state roots by skipping slots, however that's
         // likely to cause confusion for API users.
-        return Err(ApiError::InvalidQueryParams(format!(
+        Err(ApiError::InvalidQueryParams(format!(
             "Requested slot {} is past the current slot {}",
             slot, current_slot
-        )));
+        )))
     } else if head_state.slot == slot {
         // 2. The request slot is the same as the best block (head) slot.
         //
