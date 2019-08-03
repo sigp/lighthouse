@@ -108,6 +108,8 @@ fn genesis_yaml<T: EthSpec>(validator_count: usize, genesis_time: u64, output: P
     let (mut state, _keypairs) = builder.build();
     state.genesis_time = genesis_time;
 
+    info!("Generated state root: {:?}", state.canonical_root());
+
     info!("Writing genesis state to {:?}", output);
 
     let file = File::create(output.clone())

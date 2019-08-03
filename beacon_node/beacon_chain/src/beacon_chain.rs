@@ -100,10 +100,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Self, Error> {
         genesis_state.build_all_caches(&spec)?;
 
-        let state_root = genesis_state.canonical_root();
-        store.put(&state_root, &genesis_state)?;
+        let genesis_state_root = genesis_state.canonical_root();
+        store.put(&genesis_state_root, &genesis_state)?;
 
-        genesis_block.state_root = state_root;
+        genesis_block.state_root = genesis_state_root;
 
         let genesis_block_root = genesis_block.block_header().canonical_root();
         store.put(&genesis_block_root, &genesis_block)?;
@@ -116,8 +116,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_block.clone(),
             genesis_block_root,
             genesis_state.clone(),
-            state_root,
+            genesis_state_root,
         ));
+
+        info!(log, "BeaconChain init";
+              "genesis_validator_count" => genesis_state.validators.len(),
+              "genesis_state_root" => format!("{}", genesis_state_root),
+              "genesis_block_root" => format!("{}", genesis_block_root),
+        );
 
         Ok(Self {
             spec,

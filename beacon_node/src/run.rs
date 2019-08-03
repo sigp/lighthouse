@@ -49,7 +49,7 @@ pub fn run_beacon_node(
 
     info!(
         log,
-        "Starting beacon node";
+        "BeaconNode init";
         "p2p_listen_address" => format!("{:?}", &other_client_config.network.listen_address),
         "data_dir" => format!("{:?}", other_client_config.data_dir()),
         "network_dir" => format!("{:?}", other_client_config.network.network_dir),

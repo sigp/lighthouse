@@ -114,10 +114,6 @@ where
             Err("Incorrect genesis root".into())
         }
     } else {
-        info!(
-            log,
-            "Initialized new BeaconChain";
-        );
         BeaconChain::from_genesis(
             store,
             slot_clock,
