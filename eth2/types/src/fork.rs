@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::utils::fork_from_hex_str;
+use crate::utils::{fork_from_hex_str, fork_to_hex_str};
 use crate::Epoch;
 
 use serde_derive::{Deserialize, Serialize};
@@ -24,9 +24,15 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct Fork {
-    #[serde(deserialize_with = "fork_from_hex_str")]
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
     pub previous_version: [u8; 4],
-    #[serde(deserialize_with = "fork_from_hex_str")]
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
     pub current_version: [u8; 4],
     pub epoch: Epoch,
 }
