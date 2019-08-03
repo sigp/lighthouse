@@ -3,7 +3,6 @@ extern crate log;
 
 use clap::{App, Arg, SubCommand};
 use std::fs::File;
-use std::io::prelude::*;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -99,6 +98,7 @@ fn main() {
     }
 }
 
+/// Creates a genesis state and writes it to a YAML file.
 fn genesis_yaml<T: EthSpec>(validator_count: usize, genesis_time: u64, output: PathBuf) {
     let spec = &T::default_spec();
 
@@ -110,6 +110,7 @@ fn genesis_yaml<T: EthSpec>(validator_count: usize, genesis_time: u64, output: P
 
     info!("Writing genesis state to {:?}", output);
 
-    let file = File::create(output.clone()).expect(&format!("unable to create file: {:?}", output));
+    let file = File::create(output.clone())
+        .unwrap_or_else(|e| panic!("unable to create file: {:?}. Error: {:?}", output, e));
     serde_yaml::to_writer(file, &state).expect("should be able to serialize BeaconState");
 }
