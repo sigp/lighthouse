@@ -8,6 +8,7 @@ use beacon_chain::{
 };
 use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
+use std::fs::File;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -65,9 +66,13 @@ where
             validator_count,
             genesis_time,
         } => generate_testnet_genesis_state(*validator_count, *genesis_time, &spec),
-        GenesisState::Yaml { .. } => {
-            crit!(log, "Starting from a YAML state is not supported.");
-            return Err("YAML state is unsupported".into());
+        GenesisState::Yaml { file } => {
+            let file = File::open(file).map_err(|e| {
+                format!("Unable to open YAML genesis state file {:?}: {:?}", file, e)
+            })?;
+
+            serde_yaml::from_reader(file)
+                .map_err(|e| format!("Unable to parse YAML genesis state file: {:?}", e))?
         }
     };
 
