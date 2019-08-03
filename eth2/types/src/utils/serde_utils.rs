@@ -33,7 +33,7 @@ where
     let mut array = [0 as u8; FORK_BYTES_LEN];
     let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
 
-    if decoded.len() > FORK_BYTES_LEN {
+    if decoded.len() != FORK_BYTES_LEN {
         return Err(D::Error::custom("Fork length too long"));
     }
 
