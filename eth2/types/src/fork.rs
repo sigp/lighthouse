@@ -1,7 +1,6 @@
-use crate::{
-    test_utils::{fork_from_hex_str, TestRandom},
-    Epoch,
-};
+use crate::test_utils::TestRandom;
+use crate::utils::fork_from_hex_str;
+use crate::Epoch;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
