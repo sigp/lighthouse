@@ -4,10 +4,13 @@ _Lighthouse is a work-in-progress. Instructions are provided for running the
 client, however these instructions are designed for developers and researchers
 working on the project. We do not (yet) provide user-facing functionality._
 
-## Introductory
+## Introduction
 
 - [Overview of Ethereum 2.0](serenity.md)
 - [Development Environment Setup](env.md)
+
+For client implementers looking to inter-op, see the [Inter-Op
+Docs](interop.md).
 
 ## Command-line Interface
 
