@@ -20,8 +20,8 @@ using:
 $ ./beacon_node -h
 ```
 
-The main [`README.md`](../README.md) provides instructions for running a small,
-local testnet.
+The main [`README.md`](../README.md#simple-local-testnet) provides instructions
+for running a small, local testnet.
 
 ## REST API
 
