@@ -53,7 +53,8 @@ The [cli_util](/tests/cli_util) generate YAML genesis state files. You can run
 `$ ./cli_util genesis_yaml -h` to see documentation. We provide an example to
 generate a YAML file with the following properties:
 
-- 10 initial validators, each with deterministic keypairs.
+- 10 initial validators, each with [deterministic
+	keypairs](https://github.com/ethereum/eth2.0-pm/issues/60#issuecomment-512157915).
 - The genesis file is stored in `~/.lighthouse/`, the default data directory
 	(an absolute path must be supplied).
 - Genesis time is set to the time when the command is run (it can be customized
@@ -66,7 +67,7 @@ $ ./cli_util genesis_yaml -n 10 -f /home/user/.lighthouse/genesis_state.yaml
 #### Configuring the Beacon Node
 
 Modify the [`beacon-node.toml`](README.md#beacon-nodetoml) file to have the
-following `genesiss_state` object:
+following `genesiss_state` object (choosing the `file`):
 
 ```
 [genesis_state]
@@ -77,7 +78,8 @@ file = "/home/user/.lighthouse/genesis_state.yaml"
 ### Generated
 
 Modify the [`beacon-node.toml`](README.md#beacon-nodetoml) file to have the
-following `genesiss_state` object:
+following `genesis_state` object (choosing the `validator_count` and
+`genesis_time`):
 
 ```
 [genesis_state]
@@ -89,7 +91,7 @@ genesis_time = 1564620118
 ### RecentGenesis
 
 Modify the [`beacon-node.toml`](README.md#beacon-nodetoml) file to have the
-following `genesiss_state` object:
+following `genesis_state` object (choosing the `validator_count`):
 
 ```
 [genesis_state]
