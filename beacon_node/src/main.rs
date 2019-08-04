@@ -173,31 +173,6 @@ fn main() {
         /*
          * Specification/testnet params.
          */
-        /*
-        .arg(
-            Arg::with_name("testnet")
-                .long("testnet")
-                .help("Run a non-production testnet node.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("genesis-file")
-                .long("genesis-file")
-                .value_name("TOML_FILE")
-                .help("Path to a genesis configuration file.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("spec-constants")
-                .long("spec-constants")
-                .value_name("TITLE")
-                .short("s")
-                .help("The title of the spec constants for chain config.")
-                .takes_value(true)
-                .possible_values(&["mainnet", "minimal"])
-                .default_value("minimal"),
-        )
-        */
         .arg(
             Arg::with_name("default-spec")
                 .long("default-spec")
