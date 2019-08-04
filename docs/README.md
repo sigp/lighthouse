@@ -42,7 +42,7 @@ configuration. The following binaries use the following config files (they are
 generated from defaults if they don't already exist):
 
 - [Beacon Node](/beacon_node)
-	- [`~/.lighthouse/beacon_node.toml`](#beacon-node.toml): the primary
+	- [`~/.lighthouse/beacon_node.toml`](#beacon-nodetoml): the primary
 		configuration file for a beacon node.
 	- `~/.lighthouse/eth2-spec.toml`: defines chain-specific "constants" that
 		define an Ethereum 2.0 network.

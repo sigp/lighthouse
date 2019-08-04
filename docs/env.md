@@ -8,7 +8,7 @@ used extensively. As such, you'll need to install Rust in order to build the
 project. Generally, Rust is installed using the
 [rustup](https://www.rust-lang.org/tools/install) tool-chain manager.
 
-## Process
+## Steps
 
 A fully-featured development environment can be achieved with the following
 steps:
