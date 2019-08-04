@@ -134,6 +134,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
         );
 
         state.eth1_data.deposit_count = validator_count as u64;
+        state.eth1_deposit_index = validator_count as u64;
 
         let balances = vec![starting_balance; validator_count].into();
 

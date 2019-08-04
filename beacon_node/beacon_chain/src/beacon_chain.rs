@@ -768,7 +768,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 randao_reveal,
                 // TODO: replace with real data.
                 eth1_data: Eth1Data {
-                    deposit_count: 0,
+                    deposit_count: state.eth1_data.deposit_count,
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
                 },
