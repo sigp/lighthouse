@@ -429,7 +429,12 @@ mod test {
 
             assert_eq!(slot, i as u64, "slot mismatch at {}: {} vs {}", i, slot, i);
 
-            assert_eq!(hash, Hash256::from_low_u64_be(i as u64), "hash mismatch at {}", i);
+            assert_eq!(
+                hash,
+                Hash256::from_low_u64_be(i as u64),
+                "hash mismatch at {}",
+                i
+            );
         }
     }
 }
