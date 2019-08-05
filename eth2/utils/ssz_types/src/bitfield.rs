@@ -163,8 +163,7 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
         let mut initial_bitfield: Bitfield<Variable<N>> = {
             let num_bits = bytes.len() * 8;
-            Bitfield::from_raw_bytes(bytes, num_bits)
-                .expect("Must have adequate bytes for bit count.")
+            Bitfield::from_raw_bytes(bytes, num_bits)?
         };
 
         let len = initial_bitfield
@@ -802,6 +801,11 @@ mod bitlist {
 
     #[test]
     fn ssz_decode() {
+        assert!(BitList0::from_ssz_bytes(&[]).is_err());
+        assert!(BitList1::from_ssz_bytes(&[]).is_err());
+        assert!(BitList8::from_ssz_bytes(&[]).is_err());
+        assert!(BitList16::from_ssz_bytes(&[]).is_err());
+
         assert!(BitList0::from_ssz_bytes(&[0b0000_0000]).is_err());
         assert!(BitList1::from_ssz_bytes(&[0b0000_0000, 0b0000_0000]).is_err());
         assert!(BitList8::from_ssz_bytes(&[0b0000_0000]).is_err());
