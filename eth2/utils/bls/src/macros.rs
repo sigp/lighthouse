@@ -157,8 +157,7 @@ macro_rules! bytes_struct {
 
         impl std::convert::From<$type> for $name {
             fn from(obj: $type) -> Self {
-                // how to avoid this unwrap? We know that obj.as_bytes() always has exactly
-                // $byte_size many bytes.
+                // We know that obj.as_bytes() always has exactly $byte_size many bytes.
                 Self::from_bytes(obj.as_ssz_bytes().as_slice()).unwrap()
             }
         }
