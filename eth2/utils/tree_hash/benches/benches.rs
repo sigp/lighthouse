@@ -1,12 +1,19 @@
+#[macro_use]
+extern crate lazy_static;
+
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use tree_hash::TreeHash;
-use types::test_utils::TestingBeaconStateBuilder;
-use types::{BeaconState, EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::test_utils::{generate_deterministic_keypairs, TestingBeaconStateBuilder};
+use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
+
+lazy_static! {
+    static ref KEYPAIRS: Vec<Keypair> = { generate_deterministic_keypairs(300_000) };
+}
 
 fn build_state<T: EthSpec>(validator_count: usize) -> BeaconState<T> {
-    let (state, _keypairs) = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
-        validator_count,
+    let (state, _keypairs) = TestingBeaconStateBuilder::from_keypairs(
+        KEYPAIRS[0..validator_count].to_vec(),
         &T::default_spec(),
     )
     .build();
