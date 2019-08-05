@@ -16,17 +16,16 @@ pub fn verify_deposit_signature<T: EthSpec>(
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fork zeroed.
     let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
-    let parsed_signature: Result<Signature, _> = (&deposit.data.signature).try_into();
-    match parsed_signature {
-        Err(_) => Err(Error::Invalid(Invalid::BadSignatureBytes)),
-        Ok(signature) => {
-            verify!(
-                signature.verify(&deposit.data.signed_root(), domain, pubkey,),
-                Invalid::BadSignature
-            );
-            Ok(())
-        }
-    }
+    let signature: Signature = (&deposit.data.signature)
+        .try_into()
+        .map_err(|_| Error::Invalid(Invalid::BadSignatureBytes))?;
+
+    verify!(
+        signature.verify(&deposit.data.signed_root(), domain, pubkey),
+        Invalid::BadSignature
+    );
+
+    Ok(())
 }
 
 /// Returns a `Some(validator index)` if a pubkey already exists in the `validators`,
