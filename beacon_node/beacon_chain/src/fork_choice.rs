@@ -52,7 +52,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // been justified for at least 1 epoch ... If no such descendant exists,
         // set justified_head to finalized_head.
         let (start_state, start_block_root, start_block_slot) = {
-            let state = &chain.head().beacon_state;
+            let state = chain.current_state();
 
             let (block_root, block_slot) =
                 if state.current_epoch() + 1 > state.current_justified_checkpoint.epoch {

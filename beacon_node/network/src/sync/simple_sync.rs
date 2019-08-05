@@ -266,7 +266,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
     fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
         self.chain
-            .rev_iter_block_roots(target_slot)
+            .rev_iter_best_block_roots(target_slot)
             .take(1)
             .find(|(_root, slot)| *slot == target_slot)
             .map(|(root, _slot)| root)
@@ -280,8 +280,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         req: BeaconBlockRootsRequest,
         network: &mut NetworkContext<T::EthSpec>,
     ) {
-        let state = &self.chain.head().beacon_state;
-
         debug!(
             self.log,
             "BlockRootsRequest";
@@ -292,8 +290,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         let mut roots: Vec<BlockRootSlot> = self
             .chain
-            .rev_iter_block_roots(std::cmp::min(req.start_slot + req.count, state.slot))
-            .take_while(|(_root, slot)| req.start_slot <= *slot)
+            .rev_iter_best_block_roots(req.start_slot + req.count)
+            .take(req.count as usize)
             .map(|(block_root, slot)| BlockRootSlot { slot, block_root })
             .collect();
 
@@ -304,7 +302,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested hashes",
                 "start_slot" => req.start_slot,
-                "current_slot" => self.chain.present_slot(),
+                "current_slot" => self.chain.current_state().slot,
                 "requested" => req.count,
                 "returned" => roots.len(),
             );
@@ -391,8 +389,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         req: BeaconBlockHeadersRequest,
         network: &mut NetworkContext<T::EthSpec>,
     ) {
-        let state = &self.chain.head().beacon_state;
-
         debug!(
             self.log,
             "BlockHeadersRequest";
@@ -403,10 +399,13 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         let count = req.max_headers;
 
         // Collect the block roots.
+        //
+        // Instead of using `chain.rev_iter_blocks` we collect the roots first. This avoids
+        // unnecessary block deserialization when `req.skip_slots > 0`.
         let mut roots: Vec<Hash256> = self
             .chain
-            .rev_iter_block_roots(std::cmp::min(req.start_slot + count, state.slot))
-            .take_while(|(_root, slot)| req.start_slot <= *slot)
+            .rev_iter_best_block_roots(req.start_slot + count)
+            .take(count as usize)
             .map(|(root, _slot)| root)
             .collect();
 

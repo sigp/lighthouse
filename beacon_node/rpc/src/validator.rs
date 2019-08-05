@@ -29,11 +29,7 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
         let spec = &self.chain.spec;
-        // TODO: this whole module is legacy and not maintained well.
-        let state = &self
-            .chain
-            .speculative_state()
-            .expect("This is legacy code and should be removed");
+        let state = &self.chain.current_state();
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
