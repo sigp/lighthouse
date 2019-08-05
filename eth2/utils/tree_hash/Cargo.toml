@@ -9,7 +9,7 @@ rand = "0.7"
 tree_hash_derive = { path = "../tree_hash_derive" }
 
 [dependencies]
-ethereum-types = "0.5"
+ethereum-types = "0.6"
 hashing = { path = "../hashing" }
 int_to_bytes = { path = "../int_to_bytes" }
 lazy_static = "0.1"
