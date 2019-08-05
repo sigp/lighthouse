@@ -1,6 +1,7 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
+use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
@@ -19,7 +20,7 @@ use state_processing::{
     per_slot_processing, BlockProcessingError,
 };
 use std::sync::Arc;
-use store::iter::{BestBlockRootsIterator, BlockIterator, BlockRootsIterator, StateRootsIterator};
+use store::iter::{BlockRootsIterator, StateRootsIterator};
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
 use types::*;
@@ -224,45 +225,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(headers?)
     }
-    /// Iterate in reverse (highest to lowest slot) through all blocks from the block at `slot`
-    /// through to the genesis block.
-    ///
-    /// Returns `None` for headers prior to genesis or when there is an error reading from `Store`.
-    ///
-    /// Contains duplicate headers when skip slots are encountered.
-    pub fn rev_iter_blocks(&self, slot: Slot) -> BlockIterator<T::EthSpec, T::Store> {
-        BlockIterator::owned(self.store.clone(), self.state.read().clone(), slot)
-    }
 
-    /// Iterates in reverse (highest to lowest slot) through all block roots from `slot` through to
-    /// genesis.
+    /// Iterates through all the `BeaconBlock` roots and slots, first returning
+    /// `self.head().beacon_block` then all prior blocks until either genesis or if the database
+    /// fails to return a prior block.
     ///
-    /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
+    /// Returns duplicate roots for skip-slots.
     ///
-    /// Contains duplicate roots when skip slots are encountered.
-    pub fn rev_iter_block_roots(&self, slot: Slot) -> BlockRootsIterator<T::EthSpec, T::Store> {
-        BlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), slot)
-    }
-
-    /// Iterates in reverse (highest to lowest slot) through all block roots from largest
-    /// `slot <= beacon_state.slot` through to genesis.
+    /// Iterator returns `(Hash256, Slot)`.
     ///
-    /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
+    /// ## Note
     ///
-    /// Contains duplicate roots when skip slots are encountered.
-    pub fn rev_iter_best_block_roots(
+    /// Because this iterator starts at the `head` of the chain (viz., the best block), the first slot
+    /// returned may be earlier than the wall-clock slot.
+    pub fn rev_iter_block_roots(
         &self,
         slot: Slot,
-    ) -> BestBlockRootsIterator<T::EthSpec, T::Store> {
-        BestBlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), slot)
+    ) -> ReverseBlockRootIterator<T::EthSpec, T::Store> {
+        let state = &self.head().beacon_state;
+        let block_root = self.head().beacon_block_root;
+        let block_slot = state.slot;
+
+        let iter = BlockRootsIterator::owned(self.store.clone(), state.clone(), slot);
+
+        ReverseBlockRootIterator::new((block_root, block_slot), iter)
     }
 
-    /// Iterates in reverse (highest to lowest slot) through all state roots from `slot` through to
-    /// genesis.
+    /// Iterates through all the `BeaconState` roots and slots, first returning
+    /// `self.head().beacon_state` then all prior states until either genesis or if the database
+    /// fails to return a prior state.
     ///
-    /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
-    pub fn rev_iter_state_roots(&self, slot: Slot) -> StateRootsIterator<T::EthSpec, T::Store> {
-        StateRootsIterator::owned(self.store.clone(), self.state.read().clone(), slot)
+    /// Iterator returns `(Hash256, Slot)`.
+    ///
+    /// ## Note
+    ///
+    /// Because this iterator starts at the `head` of the chain (viz., the best block), the first slot
+    /// returned may be earlier than the wall-clock slot.
+    pub fn rev_iter_state_roots(
+        &self,
+        slot: Slot,
+    ) -> ReverseStateRootIterator<T::EthSpec, T::Store> {
+        let state = &self.head().beacon_state;
+        let state_root = self.head().beacon_state_root;
+        let state_slot = state.slot;
+
+        let iter = StateRootsIterator::owned(self.store.clone(), state.clone(), slot);
+
+        ReverseStateRootIterator::new((state_root, state_slot), iter)
     }
 
     /// Returns the block at the given root, if any.
@@ -279,8 +288,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns a read-lock guarded `BeaconState` which is the `canonical_head` that has been
     /// updated to match the current slot clock.
-    pub fn current_state(&self) -> RwLockReadGuard<BeaconState<T::EthSpec>> {
-        self.state.read()
+    pub fn speculative_state(&self) -> Result<RwLockReadGuard<BeaconState<T::EthSpec>>, Error> {
+        // TODO: ensure the state has done a catch-up.
+
+        Ok(self.state.read())
     }
 
     /// Returns a read-lock guarded `CheckPoint` struct for reading the head (as chosen by the
