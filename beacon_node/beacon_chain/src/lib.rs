@@ -2,6 +2,7 @@ mod beacon_chain;
 mod checkpoint;
 mod errors;
 mod fork_choice;
+mod iter;
 mod metrics;
 mod persisted_beacon_chain;
 pub mod test_utils;
