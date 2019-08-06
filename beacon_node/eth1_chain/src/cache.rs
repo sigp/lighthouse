@@ -3,6 +3,9 @@ use std::collections::BTreeMap;
 use types::*;
 use web3::types::*;
 
+const START: u64 = 1024;
+const END: u64 = 3072;
+
 /// Cache for recent Eth1Data fetched from the Eth1 chain.
 pub struct Eth1Cache {
     cache: BTreeMap<U256, Eth1Data>,
@@ -15,9 +18,10 @@ impl Eth1Cache {
         }
     }
 
+    /// Called periodically to populate the cache with Eth1Data from most recent blocks.
     pub fn update_cache<T: Eth1DataFetcher>(&mut self, eth1_fetcher: &T) -> Option<()> {
         let current_block_number: U256 = eth1_fetcher.get_current_block_number()?;
-        for i in 1024..3072 {
+        for i in START..END {
             if !self.cache.contains_key(&U256::from(i)) {
                 if let Some((block_number, data)) =
                     fetch_eth1_data(i, current_block_number, eth1_fetcher)

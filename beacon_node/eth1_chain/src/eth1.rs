@@ -6,12 +6,13 @@ use crate::cache::*;
 
 const ETH1_FOLLOW_DISTANCE: u64 = 1024; // Need to move this to eth2_config.toml
 
-//  From https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/specs/validator/0_beacon-chain-validator.md#eth1-data
+/// Get Eth1Votes with highest votes in given voting period.
+/// From https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/specs/validator/0_beacon-chain-validator.md#eth1-data
 pub fn get_eth1_votes<T: EthSpec, F: Eth1DataFetcher>(
     state: BeaconState<T>,
     previous_eth1_distance: u64,
-    eth1_cache: &mut Eth1Cache,
     eth1_fetcher: &F,
+    eth1_cache: &mut Eth1Cache,
 ) -> Eth1Data {
     let new_eth1_data =
         eth1_cache.get_eth1_data_in_range(eth1_fetcher, ETH1_FOLLOW_DISTANCE, 2 * ETH1_FOLLOW_DISTANCE);

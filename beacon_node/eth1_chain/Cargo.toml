@@ -10,6 +10,7 @@ tokio-core = "0.1.17"
 ethabi = "8.0.0"
 types = { path = "../../eth2/types" }
 bls = { path = "../../eth2/utils/bls" }
+eth2_ssz_types = { path = "../../eth2/utils/ssz_types" }
 
 [features]
 fake_crypto = ["bls/fake_crypto"]

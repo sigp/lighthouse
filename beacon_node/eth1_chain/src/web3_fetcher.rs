@@ -1,4 +1,4 @@
-use bls::{PublicKey, Signature};
+use bls::{PublicKeyBytes, SignatureBytes};
 use ethabi::{decode, ParamType, Token};
 use types::DepositData;
 use web3::contract::{Contract, Options};
@@ -151,10 +151,10 @@ pub fn parse_deposit_logs(log: Log) -> Option<DepositData> {
     // Event should have exactly 5 parameters.
     if params.len() == 5 {
         Some(DepositData {
-            pubkey: PublicKey::from_bytes(&params[0]).unwrap(),
+            pubkey: PublicKeyBytes::from_bytes(&params[0]).unwrap(),
             withdrawal_credentials: H256::from_slice(&params[1]),
             amount: vec_to_u64_le(&params[2])?,
-            signature: Signature::from_bytes(&params[3]).ok()?,
+            signature: SignatureBytes::from_bytes(&params[3]).ok()?,
             // How is index used?
         })
     } else {
@@ -205,7 +205,7 @@ mod tests {
         };
         let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
         let deposit_count = w3.get_deposit_count(None);
-        assert_eq!(deposit_count, Some(0));
+        assert_eq!(deposit_count, Some(10));
     }
 
     #[test]
