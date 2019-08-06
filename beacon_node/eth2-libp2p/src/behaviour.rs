@@ -4,14 +4,12 @@ use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use libp2p::{
-    core::{
-        identity::Keypair,
-        swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
-    },
+    core::identity::Keypair,
     discv5::Discv5Event,
     gossipsub::{Gossipsub, GossipsubEvent},
     identify::{Identify, IdentifyEvent},
     ping::{Ping, PingConfig, PingEvent},
+    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };

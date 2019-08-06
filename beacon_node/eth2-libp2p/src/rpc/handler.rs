@@ -5,10 +5,10 @@ use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use libp2p::core::protocols_handler::{
+use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
+use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use smallvec::SmallVec;
 use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -273,7 +273,8 @@ where
         Self::Error,
     > {
         if let Some(err) = self.pending_error.take() {
-            return Err(err);
+            dbg!(&err);
+            //return Err(err);
         }
 
         // return any events that need to be reported

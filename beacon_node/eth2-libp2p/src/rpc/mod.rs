@@ -6,9 +6,9 @@
 
 use futures::prelude::*;
 use handler::RPCHandler;
-use libp2p::core::protocols_handler::ProtocolsHandler;
-use libp2p::core::swarm::{
-    ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
+use libp2p::core::ConnectedPoint;
+use libp2p::swarm::{
+    protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{ErrorMessage, HelloMessage, RPCErrorResponse, RPCResponse, RequestId};
