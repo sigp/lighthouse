@@ -349,6 +349,8 @@ pub enum DepositInvalid {
     BadIndex { state: u64, deposit: u64 },
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
+    /// The signature does not represent a valid BLS signature.
+    BadSignatureBytes,
     /// The specified `branch` and `index` did not form a valid proof that the deposit is included
     /// in the eth1 deposit root.
     BadMerkleProof,
