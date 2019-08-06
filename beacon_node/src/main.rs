@@ -52,14 +52,14 @@ fn main() {
         .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
-                .value_name("Address")
+                .value_name("ADDRESS")
                 .help("The address lighthouse will listen for UDP and TCP connections. (default 127.0.0.1).")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("port")
                 .long("port")
-                .value_name("Lighthouse Port")
+                .value_name("PORT")
                 .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
                 .takes_value(true),
         )
@@ -80,15 +80,22 @@ fn main() {
         .arg(
             Arg::with_name("discovery-port")
                 .long("disc-port")
-                .value_name("DiscoveryPort")
+                .value_name("PORT")
                 .help("The discovery UDP port.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("discovery-address")
                 .long("discovery-address")
-                .value_name("Address")
+                .value_name("ADDRESS")
                 .help("The IP address to broadcast to other peers on how to reach this node.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("topics")
+                .long("topics")
+                .value_name("STRING")
+                .help("One or more comma-delimited gossipsub topic strings to subscribe to.")
                 .takes_value(true),
         )
         .arg(

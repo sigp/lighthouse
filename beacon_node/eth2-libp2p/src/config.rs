@@ -64,9 +64,9 @@ impl Default for Config {
             discovery_port: 9000,
             max_peers: 10,
             //TODO: Set realistic values for production
+            // Note: This defaults topics to plain strings. Not hashes
             gs_config: GossipsubConfigBuilder::new()
-                .max_gossip_size(4_000_000)
-                .inactivity_timeout(Duration::from_secs(90))
+                .max_transmit_size(1_000_000)
                 .heartbeat_interval(Duration::from_secs(20))
                 .build(),
             boot_nodes: vec![],
@@ -132,6 +132,10 @@ impl Config {
                         .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
                 })
                 .collect::<Result<Vec<Multiaddr>, _>>()?;
+        }
+
+        if let Some(topics_str) = args.value_of("topics") {
+            self.topics = topics_str.split(',').map(|s| s.into()).collect();
         }
 
         if let Some(discovery_address_str) = args.value_of("discovery-address") {
