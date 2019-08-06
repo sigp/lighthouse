@@ -1,9 +1,11 @@
 use crate::fork_choice::Error as ForkChoiceError;
 use crate::metrics::Error as MetricsError;
+use state_processing::per_block_processing::errors::{
+    AttestationValidationError, IndexedAttestationValidationError,
+};
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use types::*;
-use state_processing::per_block_processing::errors::{AttestationValidationError, IndexedAttestationValidationError};
 
 macro_rules! easy_from_to {
     ($from: ident, $to: ident) => {
@@ -33,7 +35,7 @@ pub enum BeaconChainError {
     SlotProcessingError(SlotProcessingError),
     MetricsError(String),
     AttestationValidationError(AttestationValidationError),
-    IndexedAttestationValidationError(IndexedAttestationValidationError)
+    IndexedAttestationValidationError(IndexedAttestationValidationError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

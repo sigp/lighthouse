@@ -3,7 +3,9 @@ use lmd_ghost::LmdGhost;
 use state_processing::common::get_attesting_indices;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
-use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Slot,
+};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -171,7 +173,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     }
 
     /// Determines whether or not the given attestation contains a latest message.
-    pub fn should_process_attestation(&self, state: &BeaconState<T::EthSpec>, attestation: &Attestation<T::EthSpec>) -> Result<bool> {
+    pub fn should_process_attestation(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        attestation: &Attestation<T::EthSpec>,
+    ) -> Result<bool> {
         let validator_indices =
             get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
@@ -179,12 +185,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
         Ok(validator_indices
             .iter()
-            .find(|&&v| {
-                match self.backend.latest_message(v) {
-                    Some((_, slot)) => block_slot > slot,
-                    None => true
-                }
-            }).is_some())
+            .find(|&&v| match self.backend.latest_message(v) {
+                Some((_, slot)) => block_slot > slot,
+                None => true,
+            })
+            .is_some())
     }
 
     // Returns the latest message for a given validator
@@ -224,4 +229,3 @@ impl From<String> for Error {
         Error::BackendError(e)
     }
 }
-

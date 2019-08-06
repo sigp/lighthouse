@@ -3,6 +3,7 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::BeaconChainError;
 use lmd_ghost::LmdGhost;
 use log::trace;
 use operation_pool::DepositInsertStatus;
@@ -11,19 +12,18 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::errors::{
-    AttesterSlashingValidationError, DepositValidationError,
-    ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
+    AttesterSlashingValidationError, DepositValidationError, ExitValidationError,
+    ProposerSlashingValidationError, TransferValidationError,
 };
 use state_processing::{
-    per_block_processing, per_block_processing_without_verifying_block_signature,
-    per_slot_processing, BlockProcessingError, common
+    common, per_block_processing, per_block_processing_without_verifying_block_signature,
+    per_slot_processing, BlockProcessingError,
 };
 use std::sync::Arc;
 use store::iter::{BestBlockRootsIterator, BlockIterator, BlockRootsIterator, StateRootsIterator};
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
 use types::*;
-use crate::BeaconChainError;
 
 // Text included in blocks.
 // Must be 32-bytes or panic.
@@ -511,17 +511,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// If valid, the attestation is added to the `op_pool` and aggregated with another attestation
     /// if possible.
-    pub fn process_attestation(
-        &self,
-        attestation: Attestation<T::EthSpec>,
-    ) -> Result<(), Error> {
+    pub fn process_attestation(&self, attestation: Attestation<T::EthSpec>) -> Result<(), Error> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
         if let Some(state) = self.get_attestation_state(&attestation) {
-            if self.fork_choice.should_process_attestation(&state, &attestation)? {
+            if self
+                .fork_choice
+                .should_process_attestation(&state, &attestation)?
+            {
                 let indexed_attestation = common::get_indexed_attestation(&state, &attestation)?;
-                per_block_processing::is_valid_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
+                per_block_processing::is_valid_indexed_attestation(
+                    &state,
+                    &indexed_attestation,
+                    &self.spec,
+                )?;
                 self.fork_choice.process_attestation(&state, &attestation)?;
             }
         }
@@ -540,12 +544,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Retrieves the `BeaconState` used to create the attestation.
-    fn get_attestation_state(&self, attestation: &Attestation<T::EthSpec>) -> Option<BeaconState<T::EthSpec>> {
+    fn get_attestation_state(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+    ) -> Option<BeaconState<T::EthSpec>> {
         // Current state is used if the attestation targets a historic block and a slot within an
         // equal or adjacent epoch.
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
-        let min_slot = (self.state.read().slot.epoch(slots_per_epoch) - 1).start_slot(slots_per_epoch);
-        let blocks = BestBlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), self.state.read().slot.clone());
+        let min_slot =
+            (self.state.read().slot.epoch(slots_per_epoch) - 1).start_slot(slots_per_epoch);
+        let blocks = BestBlockRootsIterator::owned(
+            self.store.clone(),
+            self.state.read().clone(),
+            self.state.read().slot.clone(),
+        );
         for (root, slot) in blocks {
             if root == attestation.data.target.root {
                 return Some(self.state.read().clone());
@@ -554,15 +566,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if slot == min_slot {
                 break;
             }
-        };
+        }
 
         // A different state is retrieved from the database.
-        match self.store.get::<BeaconBlock<T::EthSpec>>(&attestation.data.target.root) {
+        match self
+            .store
+            .get::<BeaconBlock<T::EthSpec>>(&attestation.data.target.root)
+        {
             Ok(Some(block)) => match self.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
                 Ok(state) => state,
-                _ => None
+                _ => None,
             },
-            _ => None
+            _ => None,
         }
     }
 
@@ -1031,4 +1046,3 @@ impl From<BeaconStateError> for Error {
         Error::BeaconStateError(e)
     }
 }
-

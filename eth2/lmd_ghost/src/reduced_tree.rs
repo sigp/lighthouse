@@ -111,9 +111,7 @@ where
     }
 
     fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
-        self.core
-            .write()
-            .latest_message(validator_index)
+        self.core.write().latest_message(validator_index)
     }
 }
 
@@ -263,7 +261,7 @@ where
     pub fn latest_message(&mut self, validator_index: usize) -> Option<(Hash256, Slot)> {
         match self.latest_votes.get(validator_index) {
             Some(v) => Some((v.hash.clone(), v.slot.clone())),
-            None => None
+            None => None,
         }
     }
 
