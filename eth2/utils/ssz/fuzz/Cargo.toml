@@ -9,7 +9,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-ethereum-types = "0.5"
+ethereum-types = "0.6"
 
 [dependencies.ssz]
 path = ".."

@@ -305,7 +305,7 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
+        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
 
         for root in &mut state_a.block_roots[..] {
             *root = hashes.next().unwrap()
@@ -333,7 +333,7 @@ mod test {
         assert_eq!(collected.len(), expected_len);
 
         for i in 0..expected_len {
-            assert_eq!(collected[i].0, Hash256::from(i as u64));
+            assert_eq!(collected[i].0, Hash256::from_low_u64_be(i as u64));
         }
     }
 
@@ -348,7 +348,7 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
+        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
 
         for root in &mut state_a.block_roots[..] {
             *root = hashes.next().unwrap()
@@ -376,7 +376,7 @@ mod test {
         assert_eq!(collected.len(), expected_len);
 
         for i in 0..expected_len {
-            assert_eq!(collected[i].0, Hash256::from(i as u64));
+            assert_eq!(collected[i].0, Hash256::from_low_u64_be(i as u64));
         }
     }
 
@@ -391,7 +391,7 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
+        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
 
         for slot in 0..slots_per_historical_root {
             state_a
@@ -404,8 +404,8 @@ mod test {
                 .expect(&format!("should set state_b slot {}", slot));
         }
 
-        let state_a_root = Hash256::from(slots_per_historical_root as u64);
-        let state_b_root = Hash256::from(slots_per_historical_root as u64 * 2);
+        let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
+        let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
 
         store.put(&state_a_root, &state_a).unwrap();
         store.put(&state_b_root, &state_b).unwrap();
@@ -429,7 +429,12 @@ mod test {
 
             assert_eq!(slot, i as u64, "slot mismatch at {}: {} vs {}", i, slot, i);
 
-            assert_eq!(hash, Hash256::from(i as u64), "hash mismatch at {}", i);
+            assert_eq!(
+                hash,
+                Hash256::from_low_u64_be(i as u64),
+                "hash mismatch at {}",
+                i
+            );
         }
     }
 }
