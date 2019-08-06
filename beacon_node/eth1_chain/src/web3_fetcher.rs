@@ -8,7 +8,7 @@ use web3::types::FilterBuilder;
 use web3::types::*;
 use web3::Web3;
 
-use crate::eth1::Eth1DataFetcher;
+use crate::fetcher::Eth1DataFetcher;
 
 /// Config for an Eth1 chain contract.
 #[derive(Debug, Clone)]
