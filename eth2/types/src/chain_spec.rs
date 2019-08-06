@@ -1,7 +1,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use test_utils::{u8_from_hex_str, u8_to_hex_str};
+use utils::{u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///

@@ -1,3 +1,4 @@
+use hex;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serializer};
 
@@ -32,7 +33,7 @@ where
     let mut array = [0 as u8; FORK_BYTES_LEN];
     let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
 
-    if decoded.len() > FORK_BYTES_LEN {
+    if decoded.len() != FORK_BYTES_LEN {
         return Err(D::Error::custom("Fork length too long"));
     }
 
@@ -43,6 +44,17 @@ where
         *item = decoded[i];
     }
     Ok(array)
+}
+
+// #[allow(clippy::trivially_copy_pass_by_ref)] // Serde requires the `byte` to be a ref.
+pub fn fork_to_hex_str<S>(bytes: &[u8; 4], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut hex_string: String = "0x".to_string();
+    hex_string.push_str(&hex::encode(&bytes));
+
+    serializer.serialize_str(&hex_string)
 }
 
 pub fn graffiti_from_hex_str<'de, D>(deserializer: D) -> Result<[u8; GRAFFITI_BYTES_LEN], D::Error>
