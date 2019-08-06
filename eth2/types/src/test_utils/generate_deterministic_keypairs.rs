@@ -1,14 +1,12 @@
 use crate::*;
-use int_to_bytes::int_to_bytes48;
+use eth2_interop_keypairs::be_private_key;
 use log::debug;
 use rayon::prelude::*;
 
-/// Generates `validator_count` keypairs where the secret key is the index of the
-/// validator.
+/// Generates `validator_count` keypairs where the secret key is derived solely from the index of
+/// the validator.
 ///
-/// For example, the first validator has a secret key of `int_to_bytes48(1)`, the second has
-/// `int_to_bytes48(2)` and so on. (We skip `0` as it generates a weird looking public key and is
-/// probably invalid).
+/// Uses the `eth2_interop_keypairs` crate to generate keys.
 pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
     debug!(
         "Generating {} deterministic validator keypairs...",
@@ -20,6 +18,7 @@ pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
         .par_iter()
         .map(|&i| generate_deterministic_keypair(i))
         .collect();
+
     keypairs
 }
 
@@ -27,8 +26,8 @@ pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
 ///
 /// This is used for testing only, and not to be used in production!
 pub fn generate_deterministic_keypair(validator_index: usize) -> Keypair {
-    let secret = int_to_bytes48(validator_index as u64 + 1000);
-    let sk = SecretKey::from_bytes(&secret).unwrap();
+    let sk = SecretKey::from_bytes(&be_private_key(validator_index))
+        .expect("be_private_key always returns valid keys");
     let pk = PublicKey::from_secret_key(&sk);
     Keypair { sk, pk }
 }
