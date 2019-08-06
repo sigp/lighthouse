@@ -1,14 +1,16 @@
 use crate::*;
-use fixed_len_vec::typenum::Unsigned;
 use rand::RngCore;
+use ssz_types::typenum::Unsigned;
 
 mod address;
 mod aggregate_signature;
 mod bitfield;
 mod hash256;
 mod public_key;
+mod public_key_bytes;
 mod secret_key;
 mod signature;
+mod signature_bytes;
 
 pub trait TestRandom {
     fn random_for_test(rng: &mut impl RngCore) -> Self;
@@ -53,7 +55,7 @@ where
     }
 }
 
-impl<T, N: Unsigned> TestRandom for FixedLenVec<T, N>
+impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
 where
     T: TestRandom + Default,
 {
@@ -62,6 +64,23 @@ where
 
         for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
             output.push(<T>::random_for_test(rng));
+        }
+
+        output.into()
+    }
+}
+
+impl<T, N: Unsigned> TestRandom for VariableList<T, N>
+where
+    T: TestRandom,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let mut output = vec![];
+
+        if N::to_usize() != 0 {
+            for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
+                output.push(<T>::random_for_test(rng));
+            }
         }
 
         output.into()
@@ -82,3 +101,5 @@ macro_rules! impl_test_random_for_u8_array {
 
 impl_test_random_for_u8_array!(4);
 impl_test_random_for_u8_array!(32);
+impl_test_random_for_u8_array!(48);
+impl_test_random_for_u8_array!(96);

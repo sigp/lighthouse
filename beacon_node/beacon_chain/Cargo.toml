@@ -5,20 +5,15 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [dependencies]
-bls = { path = "../../eth2/utils/bls" }
-boolean-bitfield = { path = "../../eth2/utils/boolean-bitfield" }
 store = { path = "../store" }
-failure = "0.1"
-failure_derive = "0.1"
-hashing = { path = "../../eth2/utils/hashing" }
 parking_lot = "0.7"
 prometheus = "^0.6"
 log = "0.4"
 operation_pool = { path = "../../eth2/operation_pool" }
-env_logger = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
-serde_json = "1.0"
+slog = { version = "^2.2.3" , features = ["max_level_trace"] }
+sloggers = { version = "^0.3" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 eth2_ssz = { path = "../../eth2/utils/ssz" }
 eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }

@@ -33,11 +33,8 @@ impl PubkeyCache {
         }
     }
 
-    /// Inserts a validator index into the map.
-    ///
-    /// The added index must equal the number of validators already added to the map. This ensures
-    /// that an index is never skipped.
+    /// Looks up a validator index's by their public key.
     pub fn get(&self, pubkey: &PublicKey) -> Option<ValidatorIndex> {
-        self.map.get(pubkey).cloned()
+        self.map.get(pubkey).copied()
     }
 }

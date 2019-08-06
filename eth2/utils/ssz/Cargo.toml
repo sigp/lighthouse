@@ -1,6 +1,6 @@
 [package]
 name = "eth2_ssz"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Paul Hauner <paul@sigmaprime.io>"]
 edition = "2018"
 description = "SimpleSerialize (SSZ) as used in Ethereum 2.0"
@@ -9,16 +9,8 @@ license = "Apache-2.0"
 [lib]
 name = "ssz"
 
-[[bench]]
-name = "benches"
-harness = false
-
 [dev-dependencies]
-criterion = "0.2"
 eth2_ssz_derive = "0.1.0"
 
 [dependencies]
-bytes = "0.4.9"
-ethereum-types = "0.5"
-hex = "0.3"
-yaml-rust = "0.4"
+ethereum-types = "0.6"

@@ -5,7 +5,7 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockServiceClient;
 use ssz::{Decode, Encode};
 use std::sync::Arc;
-use types::{BeaconBlock, Signature, Slot};
+use types::{BeaconBlock, EthSpec, Signature, Slot};
 
 //TODO: Remove this new type. Do not need to wrap
 /// A newtype designed to wrap the gRPC-generated service so the `BeaconNode` trait may be
@@ -25,11 +25,11 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
     ///
     /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
     /// BN is unable to find a parent block.
-    fn produce_beacon_block(
+    fn produce_beacon_block<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &Signature,
-    ) -> Result<Option<BeaconBlock>, BeaconNodeError> {
+    ) -> Result<Option<BeaconBlock<T>>, BeaconNodeError> {
         // request a beacon block from the node
         let mut req = ProduceBeaconBlockRequest::new();
         req.set_slot(slot.as_u64());
@@ -59,7 +59,10 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
     ///
     /// Generally, this will be called after a `produce_beacon_block` call with a block that has
     /// been completed (signed) by the validator client.
-    fn publish_beacon_block(&self, block: BeaconBlock) -> Result<PublishOutcome, BeaconNodeError> {
+    fn publish_beacon_block<T: EthSpec>(
+        &self,
+        block: BeaconBlock<T>,
+    ) -> Result<PublishOutcome, BeaconNodeError> {
         let mut req = PublishBeaconBlockRequest::new();
 
         let ssz = block.as_ssz_bytes();

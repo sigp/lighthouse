@@ -59,6 +59,8 @@ pub enum BlockProcessingError {
     Invalid(BlockInvalid),
     /// Encountered a `BeaconStateError` whilst attempting to determine validity.
     BeaconStateError(BeaconStateError),
+    /// Encountered an `ssz_types::Error` whilst attempting to determine validity.
+    SszTypesError(ssz_types::Error),
 }
 
 impl_from_beacon_state_error!(BlockProcessingError);
@@ -78,6 +80,7 @@ pub enum BlockInvalid {
     MaxAttesterSlashingsExceed,
     MaxProposerSlashingsExceeded,
     DepositCountInvalid,
+    DuplicateTransfers,
     MaxExitsExceeded,
     MaxTransfersExceed,
     AttestationInvalid(usize, AttestationInvalid),
@@ -92,6 +95,15 @@ pub enum BlockInvalid {
     DepositProcessingFailed(usize),
     ExitInvalid(usize, ExitInvalid),
     TransferInvalid(usize, TransferInvalid),
+    // NOTE: this is only used in tests, normally a state root mismatch is handled
+    // in the beacon_chain rather than in state_processing
+    StateRootMismatch,
+}
+
+impl From<ssz_types::Error> for BlockProcessingError {
+    fn from(error: ssz_types::Error) -> Self {
+        BlockProcessingError::SszTypesError(error)
+    }
 }
 
 impl Into<BlockProcessingError> for BlockInvalid {
@@ -116,8 +128,8 @@ pub enum AttestationValidationError {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum AttestationInvalid {
-    /// Attestation references a pre-genesis slot.
-    PreGenesis { genesis: Slot, attestation: Slot },
+    /// Shard exceeds SHARD_COUNT.
+    BadShard,
     /// Attestation included before the inclusion delay.
     IncludedTooEarly {
         state: Slot,
@@ -128,27 +140,23 @@ pub enum AttestationInvalid {
     IncludedTooLate { state: Slot, attestation: Slot },
     /// Attestation target epoch does not match the current or previous epoch.
     BadTargetEpoch,
-    /// Attestation justified epoch does not match the states current or previous justified epoch.
+    /// Attestation justified checkpoint doesn't match the state's current or previous justified
+    /// checkpoint.
     ///
     /// `is_current` is `true` if the attestation was compared to the
-    /// `state.current_justified_epoch`, `false` if compared to `state.previous_justified_epoch`.
-    WrongJustifiedEpoch {
-        state: Epoch,
-        attestation: Epoch,
-        is_current: bool,
-    },
-    /// Attestation justified epoch root does not match root known to the state.
-    ///
-    /// `is_current` is `true` if the attestation was compared to the
-    /// `state.current_justified_epoch`, `false` if compared to `state.previous_justified_epoch`.
-    WrongJustifiedRoot {
-        state: Hash256,
-        attestation: Hash256,
+    /// `state.current_justified_checkpoint`, `false` if compared to `state.previous_justified_checkpoint`.
+    WrongJustifiedCheckpoint {
+        state: Checkpoint,
+        attestation: Checkpoint,
         is_current: bool,
     },
     /// Attestation crosslink root does not match the state crosslink root for the attestations
     /// slot.
-    BadPreviousCrosslink,
+    BadParentCrosslinkHash,
+    /// Attestation crosslink start epoch does not match the end epoch of the state crosslink.
+    BadParentCrosslinkStartEpoch,
+    /// Attestation crosslink end epoch does not match the expected value.
+    BadParentCrosslinkEndEpoch,
     /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
     CustodyBitfieldHasSetBits,
     /// There are no set bits on the attestation -- an attestation must be signed by at least one
@@ -164,6 +172,8 @@ pub enum AttestationInvalid {
         committee_len: usize,
         bitfield_len: usize,
     },
+    /// The bits set in the custody bitfield are not a subset of those set in the aggregation bits.
+    CustodyBitfieldNotSubset,
     /// There was no known committee in this `epoch` for the given shard and slot.
     NoCommitteeForShard { shard: u64, slot: Slot },
     /// The validator index was unknown.
@@ -183,6 +193,12 @@ impl From<IndexedAttestationValidationError> for AttestationValidationError {
     fn from(err: IndexedAttestationValidationError) -> Self {
         let IndexedAttestationValidationError::Invalid(e) = err;
         AttestationValidationError::Invalid(AttestationInvalid::BadIndexedAttestation(e))
+    }
+}
+
+impl From<ssz_types::Error> for AttestationValidationError {
+    fn from(error: ssz_types::Error) -> Self {
+        Self::from(IndexedAttestationValidationError::from(error))
     }
 }
 
@@ -239,15 +255,17 @@ pub enum IndexedAttestationInvalid {
     CustodyBitValidatorsIntersect,
     /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
     CustodyBitfieldHasSetBits,
+    /// The custody bitfield violated a type-level bound.
+    CustodyBitfieldBoundsError(ssz_types::Error),
     /// No validator indices were specified.
     NoValidatorIndices,
     /// The number of indices exceeds the global maximum.
     ///
     /// (max_indices, indices_given)
-    MaxIndicesExceed(u64, usize),
+    MaxIndicesExceed(usize, usize),
     /// The validator indices were not in increasing order.
     ///
-    /// The error occured between the given `index` and `index + 1`
+    /// The error occurred between the given `index` and `index + 1`
     BadValidatorIndicesOrdering(usize),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
@@ -260,6 +278,14 @@ impl Into<IndexedAttestationInvalid> for IndexedAttestationValidationError {
         match self {
             IndexedAttestationValidationError::Invalid(e) => e,
         }
+    }
+}
+
+impl From<ssz_types::Error> for IndexedAttestationValidationError {
+    fn from(error: ssz_types::Error) -> Self {
+        IndexedAttestationValidationError::Invalid(
+            IndexedAttestationInvalid::CustodyBitfieldBoundsError(error),
+        )
     }
 }
 
@@ -323,6 +349,8 @@ pub enum DepositInvalid {
     BadIndex { state: u64, deposit: u64 },
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
+    /// The signature does not represent a valid BLS signature.
+    BadSignatureBytes,
     /// The specified `branch` and `index` did not form a valid proof that the deposit is included
     /// in the eth1 deposit root.
     BadMerkleProof,
@@ -356,7 +384,10 @@ pub enum ExitInvalid {
     /// The exit is for a future epoch.
     FutureEpoch { state: Epoch, exit: Epoch },
     /// The validator has not been active for long enough.
-    TooYoungToLeave { lifespan: Epoch, expected: u64 },
+    TooYoungToExit {
+        current_epoch: Epoch,
+        earliest_exit_epoch: Epoch,
+    },
     /// The exit signature was not signed by the validator.
     BadSignature,
 }
@@ -413,7 +444,7 @@ pub enum TransferInvalid {
     /// The `transfer.from` validator has been activated and is not withdrawable.
     ///
     /// (from_validator)
-    FromValidatorIneligableForTransfer(u64),
+    FromValidatorIneligibleForTransfer(u64),
     /// The validators withdrawal credentials do not match `transfer.pubkey`.
     ///
     /// (state_credentials, transfer_pubkey_credentials)

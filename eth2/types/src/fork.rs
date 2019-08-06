@@ -1,7 +1,6 @@
-use crate::{
-    test_utils::{fork_from_hex_str, TestRandom},
-    Epoch,
-};
+use crate::test_utils::TestRandom;
+use crate::utils::{fork_from_hex_str, fork_to_hex_str};
+use crate::Epoch;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -10,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 #[derive(
     Debug,
     Clone,
@@ -25,9 +24,15 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     TestRandom,
 )]
 pub struct Fork {
-    #[serde(deserialize_with = "fork_from_hex_str")]
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
     pub previous_version: [u8; 4],
-    #[serde(deserialize_with = "fork_from_hex_str")]
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
     pub current_version: [u8; 4],
     pub epoch: Epoch,
 }
@@ -35,7 +40,7 @@ pub struct Fork {
 impl Fork {
     /// Initialize the `Fork` from the genesis parameters in the `spec`.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn genesis(genesis_epoch: Epoch) -> Self {
         Self {
             previous_version: [0; 4],
@@ -46,7 +51,7 @@ impl Fork {
 
     /// Return the fork version of the given ``epoch``.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn get_fork_version(&self, epoch: Epoch) -> [u8; 4] {
         if epoch < self.epoch {
             return self.previous_version;

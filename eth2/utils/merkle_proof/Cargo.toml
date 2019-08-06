@@ -5,5 +5,5 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-ethereum-types = "0.5"
+ethereum-types = "0.6"
 hashing = { path = "../hashing" }

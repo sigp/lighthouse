@@ -1,13 +1,11 @@
 use super::*;
-use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use milagro_bls::{
     AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{Decode, DecodeError};
-use tree_hash::tree_hash_ssz_encoding_as_vector;
+use ssz::{Decode, DecodeError, Encode};
 
 /// A BLS aggregate signature.
 ///
@@ -23,7 +21,7 @@ impl AggregateSignature {
     /// Instantiate a new AggregateSignature.
     ///
     /// is_empty is false
-    /// AggregateSiganture is point at infinity
+    /// AggregateSignature is point at infinity
     pub fn new() -> Self {
         Self {
             aggregate_signature: RawAggregateSignature::new(),
@@ -87,7 +85,7 @@ impl AggregateSignature {
             .verify_multiple(&msg[..], domain, &aggregate_public_keys[..])
     }
 
-    /// Return AggregateSiganture as bytes
+    /// Return AggregateSignature as bytes
     pub fn as_bytes(&self) -> Vec<u8> {
         if self.is_empty {
             return vec![0; BLS_AGG_SIG_BYTE_SIZE];
@@ -95,7 +93,7 @@ impl AggregateSignature {
         self.aggregate_signature.as_bytes()
     }
 
-    /// Convert bytes to AggregateSiganture
+    /// Convert bytes to AggregateSignature
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         for byte in bytes {
             if *byte != 0 {
@@ -114,7 +112,7 @@ impl AggregateSignature {
         Ok(Self::empty_signature())
     }
 
-    /// Returns if the AggregateSiganture `is_empty`
+    /// Returns if the AggregateSignature `is_empty`
     pub fn is_empty(&self) -> bool {
         self.is_empty
     }
@@ -143,6 +141,10 @@ impl_ssz!(
     "AggregateSignature"
 );
 
+impl_tree_hash!(AggregateSignature, U96);
+
+impl_cached_tree_hash!(AggregateSignature, U96);
+
 impl Serialize for AggregateSignature {
     /// Serde serialization is compliant the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -166,9 +168,6 @@ impl<'de> Deserialize<'de> for AggregateSignature {
         Ok(agg_sig)
     }
 }
-
-tree_hash_ssz_encoding_as_vector!(AggregateSignature);
-cached_tree_hash_ssz_encoding_as_vector!(AggregateSignature, 96);
 
 #[cfg(test)]
 mod tests {

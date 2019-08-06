@@ -1,7 +1,8 @@
+use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use std::ops::{Deref, Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::SliceIndex;
 use typenum::Unsigned;
 
@@ -68,6 +69,14 @@ impl<T, N: Unsigned> VariableList<T, N> {
         }
     }
 
+    /// Create an empty list.
+    pub fn empty() -> Self {
+        Self {
+            vec: vec![],
+            _phantom: PhantomData,
+        }
+    }
+
     /// Returns the number of values presently in `self`.
     pub fn len(&self) -> usize {
         self.vec.len()
@@ -99,7 +108,7 @@ impl<T, N: Unsigned> VariableList<T, N> {
     }
 }
 
-impl<T: Default, N: Unsigned> From<Vec<T>> for VariableList<T, N> {
+impl<T, N: Unsigned> From<Vec<T>> for VariableList<T, N> {
     fn from(mut vec: Vec<T>) -> Self {
         vec.truncate(N::to_usize());
 
@@ -149,9 +158,109 @@ impl<T, N: Unsigned> Deref for VariableList<T, N> {
     }
 }
 
+impl<T, N: Unsigned> DerefMut for VariableList<T, N> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        &mut self.vec[..]
+    }
+}
+
+impl<'a, T, N: Unsigned> IntoIterator for &'a VariableList<T, N> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<T, N: Unsigned> tree_hash::TreeHash for VariableList<T, N>
+where
+    T: tree_hash::TreeHash,
+{
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        let root = vec_tree_hash_root::<T, N>(&self.vec);
+
+        tree_hash::mix_in_length(&root, self.len())
+    }
+}
+
+impl<T, N: Unsigned> cached_tree_hash::CachedTreeHash for VariableList<T, N>
+where
+    T: cached_tree_hash::CachedTreeHash + tree_hash::TreeHash,
+{
+    fn new_tree_hash_cache(
+        &self,
+        _depth: usize,
+    ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
+        unimplemented!("CachedTreeHash is not implemented for VariableList")
+    }
+
+    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
+        unimplemented!("CachedTreeHash is not implemented for VariableList")
+    }
+
+    fn update_tree_hash_cache(
+        &self,
+        _cache: &mut cached_tree_hash::TreeHashCache,
+    ) -> Result<(), cached_tree_hash::Error> {
+        unimplemented!("CachedTreeHash is not implemented for VariableList")
+    }
+}
+
+impl<T, N: Unsigned> ssz::Encode for VariableList<T, N>
+where
+    T: ssz::Encode,
+{
+    fn is_ssz_fixed_len() -> bool {
+        <Vec<T>>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <Vec<T>>::ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.vec.ssz_append(buf)
+    }
+}
+
+impl<T, N: Unsigned> ssz::Decode for VariableList<T, N>
+where
+    T: ssz::Decode,
+{
+    fn is_ssz_fixed_len() -> bool {
+        <Vec<T>>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <Vec<T>>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let vec = <Vec<T>>::from_ssz_bytes(bytes)?;
+
+        Self::new(vec).map_err(|e| ssz::DecodeError::BytesInvalid(format!("VariableList {:?}", e)))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use ssz::*;
+    use tree_hash::{merkle_root, TreeHash};
+    use tree_hash_derive::TreeHash;
     use typenum::*;
 
     #[test]
@@ -208,97 +317,6 @@ mod test {
         assert_eq!(fixed.get(3), Some(&6));
         assert_eq!(fixed.get(4), None);
     }
-}
-
-impl<T, N: Unsigned> tree_hash::TreeHash for VariableList<T, N>
-where
-    T: tree_hash::TreeHash,
-{
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::Vector
-    }
-
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_root(&self) -> Vec<u8> {
-        tree_hash::impls::vec_tree_hash_root(&self.vec)
-    }
-}
-
-impl<T, N: Unsigned> cached_tree_hash::CachedTreeHash for VariableList<T, N>
-where
-    T: cached_tree_hash::CachedTreeHash + tree_hash::TreeHash,
-{
-    fn new_tree_hash_cache(
-        &self,
-        depth: usize,
-    ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        let (cache, _overlay) = cached_tree_hash::vec::new_tree_hash_cache(&self.vec, depth)?;
-
-        Ok(cache)
-    }
-
-    fn tree_hash_cache_schema(&self, depth: usize) -> cached_tree_hash::BTreeSchema {
-        cached_tree_hash::vec::produce_schema(&self.vec, depth)
-    }
-
-    fn update_tree_hash_cache(
-        &self,
-        cache: &mut cached_tree_hash::TreeHashCache,
-    ) -> Result<(), cached_tree_hash::Error> {
-        cached_tree_hash::vec::update_tree_hash_cache(&self.vec, cache)?;
-
-        Ok(())
-    }
-}
-
-impl<T, N: Unsigned> ssz::Encode for VariableList<T, N>
-where
-    T: ssz::Encode,
-{
-    fn is_ssz_fixed_len() -> bool {
-        <Vec<T>>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <Vec<T>>::ssz_fixed_len()
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        self.vec.ssz_append(buf)
-    }
-}
-
-impl<T, N: Unsigned> ssz::Decode for VariableList<T, N>
-where
-    T: ssz::Decode + Default,
-{
-    fn is_ssz_fixed_len() -> bool {
-        <Vec<T>>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <Vec<T>>::ssz_fixed_len()
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        let vec = <Vec<T>>::from_ssz_bytes(bytes)?;
-
-        Self::new(vec).map_err(|e| ssz::DecodeError::BytesInvalid(format!("VariableList {:?}", e)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ssz::*;
-    use typenum::*;
 
     #[test]
     fn encode() {
@@ -316,5 +334,112 @@ mod tests {
     fn u16_len_8() {
         round_trip::<VariableList<u16, U8>>(vec![42; 8].into());
         round_trip::<VariableList<u16, U8>>(vec![0; 8].into());
+    }
+
+    fn root_with_length(bytes: &[u8], len: usize) -> Vec<u8> {
+        let root = merkle_root(bytes, 0);
+        tree_hash::mix_in_length(&root, len)
+    }
+
+    #[test]
+    fn tree_hash_u8() {
+        let fixed: VariableList<u8, U0> = VariableList::from(vec![]);
+        assert_eq!(fixed.tree_hash_root(), root_with_length(&[0; 8], 0));
+
+        for i in 0..=1 {
+            let fixed: VariableList<u8, U1> = VariableList::from(vec![0; i]);
+            assert_eq!(fixed.tree_hash_root(), root_with_length(&vec![0; i], i));
+        }
+
+        for i in 0..=8 {
+            let fixed: VariableList<u8, U8> = VariableList::from(vec![0; i]);
+            assert_eq!(fixed.tree_hash_root(), root_with_length(&vec![0; i], i));
+        }
+
+        for i in 0..=13 {
+            let fixed: VariableList<u8, U13> = VariableList::from(vec![0; i]);
+            assert_eq!(fixed.tree_hash_root(), root_with_length(&vec![0; i], i));
+        }
+
+        for i in 0..=16 {
+            let fixed: VariableList<u8, U16> = VariableList::from(vec![0; i]);
+            assert_eq!(fixed.tree_hash_root(), root_with_length(&vec![0; i], i));
+        }
+
+        let source: Vec<u8> = (0..16).collect();
+        let fixed: VariableList<u8, U16> = VariableList::from(source.clone());
+        assert_eq!(fixed.tree_hash_root(), root_with_length(&source, 16));
+    }
+
+    #[derive(Clone, Copy, TreeHash, Default)]
+    struct A {
+        a: u32,
+        b: u32,
+    }
+
+    fn repeat(input: &[u8], n: usize) -> Vec<u8> {
+        let mut output = vec![];
+
+        for _ in 0..n {
+            output.append(&mut input.to_vec());
+        }
+
+        output
+    }
+
+    fn padded_root_with_length(bytes: &[u8], len: usize, min_nodes: usize) -> Vec<u8> {
+        let root = merkle_root(bytes, min_nodes);
+        tree_hash::mix_in_length(&root, len)
+    }
+
+    #[test]
+    fn tree_hash_composite() {
+        let a = A { a: 0, b: 1 };
+
+        let fixed: VariableList<A, U0> = VariableList::from(vec![]);
+        assert_eq!(
+            fixed.tree_hash_root(),
+            padded_root_with_length(&[0; 32], 0, 0),
+        );
+
+        for i in 0..=1 {
+            let fixed: VariableList<A, U1> = VariableList::from(vec![a; i]);
+            assert_eq!(
+                fixed.tree_hash_root(),
+                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 1),
+                "U1 {}",
+                i
+            );
+        }
+
+        for i in 0..=8 {
+            let fixed: VariableList<A, U8> = VariableList::from(vec![a; i]);
+            assert_eq!(
+                fixed.tree_hash_root(),
+                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 8),
+                "U8 {}",
+                i
+            );
+        }
+
+        for i in 0..=13 {
+            let fixed: VariableList<A, U13> = VariableList::from(vec![a; i]);
+            assert_eq!(
+                fixed.tree_hash_root(),
+                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 13),
+                "U13 {}",
+                i
+            );
+        }
+
+        for i in 0..=16 {
+            let fixed: VariableList<A, U16> = VariableList::from(vec![a; i]);
+            assert_eq!(
+                fixed.tree_hash_root(),
+                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 16),
+                "U16 {}",
+                i
+            );
+        }
     }
 }

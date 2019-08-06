@@ -12,5 +12,4 @@ slog-term = "^2.4.0"
 slog-async = "^2.3.0"
 validator_client = { path = "../validator_client" }
 types = { path = "../eth2/types" }
-eth2_config = { path = "../eth2/utils/eth2_config" }
 dirs = "2.0.1"

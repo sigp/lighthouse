@@ -3,9 +3,9 @@ use super::Error;
 use itertools::{Either, Itertools};
 use types::*;
 
-/// Peforms a validator registry update, if required.
+/// Performs a validator registry update, if required.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn process_registry_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -17,14 +17,14 @@ pub fn process_registry_updates<T: EthSpec>(
     let current_epoch = state.current_epoch();
     let is_eligible = |validator: &Validator| {
         validator.activation_eligibility_epoch == spec.far_future_epoch
-            && validator.effective_balance >= spec.max_effective_balance
+            && validator.effective_balance == spec.max_effective_balance
     };
     let is_exiting_validator = |validator: &Validator| {
         validator.is_active_at(current_epoch)
             && validator.effective_balance <= spec.ejection_balance
     };
     let (eligible_validators, exiting_validators): (Vec<_>, Vec<_>) = state
-        .validator_registry
+        .validators
         .iter()
         .enumerate()
         .filter(|(_, validator)| is_eligible(validator) || is_exiting_validator(validator))
@@ -36,7 +36,7 @@ pub fn process_registry_updates<T: EthSpec>(
             }
         });
     for index in eligible_validators {
-        state.validator_registry[index].activation_eligibility_epoch = current_epoch;
+        state.validators[index].activation_eligibility_epoch = current_epoch;
     }
     for index in exiting_validators {
         initiate_validator_exit(state, index, spec)?;
@@ -44,22 +44,22 @@ pub fn process_registry_updates<T: EthSpec>(
 
     // Queue validators eligible for activation and not dequeued for activation prior to finalized epoch
     let activation_queue = state
-        .validator_registry
+        .validators
         .iter()
         .enumerate()
         .filter(|(_, validator)| {
             validator.activation_eligibility_epoch != spec.far_future_epoch
                 && validator.activation_epoch
-                    >= state.get_delayed_activation_exit_epoch(state.finalized_epoch, spec)
+                    >= state.compute_activation_exit_epoch(state.finalized_checkpoint.epoch, spec)
         })
         .sorted_by_key(|(_, validator)| validator.activation_eligibility_epoch)
         .map(|(index, _)| index)
         .collect_vec();
 
     let churn_limit = state.get_churn_limit(spec)? as usize;
-    let delayed_activation_epoch = state.get_delayed_activation_exit_epoch(current_epoch, spec);
+    let delayed_activation_epoch = state.compute_activation_exit_epoch(current_epoch, spec);
     for index in activation_queue.into_iter().take(churn_limit) {
-        let validator = &mut state.validator_registry[index];
+        let validator = &mut state.validators[index];
         if validator.activation_epoch == spec.far_future_epoch {
             validator.activation_epoch = delayed_activation_epoch;
         }

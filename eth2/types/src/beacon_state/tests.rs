@@ -44,7 +44,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // Test with two validators per slot, first validator has zero balance.
     let mut state = build_state(T::slots_per_epoch() as usize * 2);
     let shuffling = state.get_shuffling(relative_epoch).unwrap().to_vec();
-    state.validator_registry[shuffling[0]].effective_balance = 0;
+    state.validators[shuffling[0]].effective_balance = 0;
     test(&state, Slot::new(0), 1);
     for i in 1..T::slots_per_epoch() {
         test(&state, Slot::from(i), i as usize * 2);
@@ -64,7 +64,7 @@ fn active_index_range<T: EthSpec>(current_epoch: Epoch) -> RangeInclusive<Epoch>
     let delay = T::default_spec().activation_exit_delay;
 
     let start: i32 =
-        current_epoch.as_u64() as i32 - T::latest_active_index_roots() as i32 + delay as i32;
+        current_epoch.as_u64() as i32 - T::epochs_per_historical_vector() as i32 + delay as i32;
     let end = current_epoch + delay;
 
     let start: Epoch = if start < 0 {
@@ -87,7 +87,7 @@ fn test_active_index<T: EthSpec>(state_slot: Slot) {
 
     let range = active_index_range::<T>(state.current_epoch());
 
-    let modulo = |epoch: Epoch| epoch.as_usize() % T::latest_active_index_roots();
+    let modulo = |epoch: Epoch| epoch.as_usize() % T::epochs_per_historical_vector();
 
     // Test the start and end of the range.
     assert_eq!(
@@ -117,7 +117,7 @@ fn test_active_index<T: EthSpec>(state_slot: Slot) {
 fn get_active_index_root_index() {
     test_active_index::<MainnetEthSpec>(Slot::new(0));
 
-    let epoch = Epoch::from(MainnetEthSpec::latest_active_index_roots() * 4);
+    let epoch = Epoch::from(MainnetEthSpec::epochs_per_historical_vector() * 4);
     let slot = epoch.start_slot(MainnetEthSpec::slots_per_epoch());
     test_active_index::<MainnetEthSpec>(slot);
 }
@@ -213,7 +213,7 @@ mod committees {
         spec: &ChainSpec,
     ) {
         let active_indices: Vec<usize> = (0..validator_count).collect();
-        let seed = state.generate_seed(epoch, spec).unwrap();
+        let seed = state.get_seed(epoch, spec).unwrap();
         let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).unwrap();
         let start_shard =
             CommitteeCache::compute_start_shard(&state, relative_epoch, active_indices.len(), spec);
@@ -244,7 +244,7 @@ mod committees {
             // of committees in an epoch.
             assert_eq!(
                 crosslink_committees.len() as u64,
-                state.get_epoch_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
+                state.get_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
             );
 
             for cc in crosslink_committees {
@@ -306,11 +306,11 @@ mod committees {
 
         let (mut state, _keypairs): (BeaconState<T>, _) = builder.build();
 
-        let distinct_hashes: Vec<Hash256> = (0..T::latest_randao_mixes_length())
+        let distinct_hashes: Vec<Hash256> = (0..T::epochs_per_historical_vector())
             .into_iter()
-            .map(|i| Hash256::from(i as u64))
+            .map(|i| Hash256::from_low_u64_be(i as u64))
             .collect();
-        state.latest_randao_mixes = FixedLenVec::from(distinct_hashes);
+        state.randao_mixes = FixedVector::from(distinct_hashes);
 
         state
             .build_committee_cache(RelativeEpoch::Previous, spec)

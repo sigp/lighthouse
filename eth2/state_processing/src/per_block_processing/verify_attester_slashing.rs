@@ -1,5 +1,5 @@
 use super::errors::{AttesterSlashingInvalid as Invalid, AttesterSlashingValidationError as Error};
-use super::verify_indexed_attestation::verify_indexed_attestation;
+use super::is_valid_indexed_attestation::is_valid_indexed_attestation;
 use std::collections::BTreeSet;
 use types::*;
 
@@ -8,10 +8,10 @@ use types::*;
 ///
 /// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 pub fn verify_attester_slashing<T: EthSpec>(
     state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing,
+    attester_slashing: &AttesterSlashing<T>,
     should_verify_indexed_attestations: bool,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -26,9 +26,9 @@ pub fn verify_attester_slashing<T: EthSpec>(
     );
 
     if should_verify_indexed_attestations {
-        verify_indexed_attestation(state, &attestation_1, spec)
+        is_valid_indexed_attestation(state, &attestation_1, spec)
             .map_err(|e| Error::Invalid(Invalid::IndexedAttestation1Invalid(e.into())))?;
-        verify_indexed_attestation(state, &attestation_2, spec)
+        is_valid_indexed_attestation(state, &attestation_2, spec)
             .map_err(|e| Error::Invalid(Invalid::IndexedAttestation2Invalid(e.into())))?;
     }
 
@@ -39,10 +39,10 @@ pub fn verify_attester_slashing<T: EthSpec>(
 ///
 /// Returns Ok(indices) if `indices.len() > 0`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.1
 pub fn get_slashable_indices<T: EthSpec>(
     state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing,
+    attester_slashing: &AttesterSlashing<T>,
 ) -> Result<Vec<u64>, Error> {
     get_slashable_indices_modular(state, attester_slashing, |_, validator| {
         validator.is_slashable_at(state.current_epoch())
@@ -53,7 +53,7 @@ pub fn get_slashable_indices<T: EthSpec>(
 /// for determining whether a given validator should be considered slashable.
 pub fn get_slashable_indices_modular<F, T: EthSpec>(
     state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing,
+    attester_slashing: &AttesterSlashing<T>,
     is_slashable: F,
 ) -> Result<Vec<u64>, Error>
 where
@@ -79,7 +79,7 @@ where
 
     for index in &attesting_indices_1 & &attesting_indices_2 {
         let validator = state
-            .validator_registry
+            .validators
             .get(index as usize)
             .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(index)))?;
 

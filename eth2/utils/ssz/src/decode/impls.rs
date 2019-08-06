@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn awkward_fixed_lenth_portion() {
+    fn awkward_fixed_length_portion() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[10, 0, 0, 0, 10, 0, 0, 0, 0, 0]),
             Err(DecodeError::InvalidByteLength {

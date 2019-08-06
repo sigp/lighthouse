@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use lmd_ghost::LmdGhost;
-use state_processing::common::get_attesting_indices_unsorted;
+use state_processing::common::get_attesting_indices;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
 use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Slot};
@@ -19,6 +19,7 @@ pub enum Error {
 
 pub struct ForkChoice<T: BeaconChainTypes> {
     backend: T::LmdGhost,
+    store: Arc<T::Store>,
     /// Used for resolving the `0x00..00` alias back to genesis.
     ///
     /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
@@ -33,10 +34,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// block.
     pub fn new(
         store: Arc<T::Store>,
-        genesis_block: &BeaconBlock,
+        genesis_block: &BeaconBlock<T::EthSpec>,
         genesis_block_root: Hash256,
     ) -> Self {
         Self {
+            store: store.clone(),
             backend: T::LmdGhost::new(store, genesis_block, genesis_block_root),
             genesis_block_root,
         }
@@ -54,18 +56,21 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             let state = chain.current_state();
 
             let (block_root, block_slot) =
-                if state.current_epoch() + 1 > state.current_justified_epoch {
+                if state.current_epoch() + 1 > state.current_justified_checkpoint.epoch {
                     (
-                        state.current_justified_root,
-                        start_slot(state.current_justified_epoch),
+                        state.current_justified_checkpoint.root,
+                        start_slot(state.current_justified_checkpoint.epoch),
                     )
                 } else {
-                    (state.finalized_root, start_slot(state.finalized_epoch))
+                    (
+                        state.finalized_checkpoint.root,
+                        start_slot(state.finalized_checkpoint.epoch),
+                    )
                 };
 
             let block = chain
                 .store
-                .get::<BeaconBlock>(&block_root)?
+                .get::<BeaconBlock<T::EthSpec>>(&block_root)?
                 .ok_or_else(|| Error::MissingBlock(block_root))?;
 
             // Resolve the `0x00.. 00` alias back to genesis
@@ -86,7 +91,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // A function that returns the weight for some validator index.
         let weight = |validator_index: usize| -> Option<u64> {
             start_state
-                .validator_registry
+                .validators
                 .get(validator_index)
                 .map(|v| v.effective_balance)
         };
@@ -103,7 +108,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn process_block(
         &self,
         state: &BeaconState<T::EthSpec>,
-        block: &BeaconBlock,
+        block: &BeaconBlock<T::EthSpec>,
         block_root: Hash256,
     ) -> Result<()> {
         // Note: we never count the block as a latest message, only attestations.
@@ -127,16 +132,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn process_attestation(
         &self,
         state: &BeaconState<T::EthSpec>,
-        attestation: &Attestation,
+        attestation: &Attestation<T::EthSpec>,
     ) -> Result<()> {
-        // Note: `get_attesting_indices_unsorted` requires that the beacon state caches be built.
-        let validator_indices = get_attesting_indices_unsorted(
-            state,
-            &attestation.data,
-            &attestation.aggregation_bitfield,
-        )?;
-
-        let block_hash = attestation.data.target_root;
+        let block_hash = attestation.data.beacon_block_root;
 
         // Ignore any attestations to the zero hash.
         //
@@ -149,13 +147,20 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //  2. Ignore all attestations to the zero hash.
         //
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
-        // fine becuase votes to the genesis block are not useful; all validators implicitly attest
+        // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        if block_hash != Hash256::zero() {
-            let block_slot = attestation
-                .data
-                .target_epoch
-                .start_slot(T::EthSpec::slots_per_epoch());
+        //
+        // Additionally, don't add any block hash to fork choice unless we have imported the block.
+        if block_hash != Hash256::zero()
+            && self
+                .store
+                .exists::<BeaconBlock<T::EthSpec>>(&block_hash)
+                .unwrap_or(false)
+        {
+            let validator_indices =
+                get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
+
+            let block_slot = state.get_attestation_data_slot(&attestation.data)?;
 
             for validator_index in validator_indices {
                 self.backend
@@ -197,7 +202,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// `finalized_block_root` must be the root of `finalized_block`.
     pub fn process_finalization(
         &self,
-        finalized_block: &BeaconBlock,
+        finalized_block: &BeaconBlock<T::EthSpec>,
         finalized_block_root: Hash256,
     ) -> Result<()> {
         self.backend

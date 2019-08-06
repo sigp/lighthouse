@@ -19,7 +19,7 @@ use types::{BeaconBlock, Signature, Slot};
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub log: Logger,
 }
 

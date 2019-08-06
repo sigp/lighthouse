@@ -5,11 +5,10 @@ use state_processing::per_epoch_processing::process_crosslinks;
 use types::{BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct EpochProcessingCrosslinks<E: EthSpec> {
     pub description: String,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
-    #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
 

@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData};
+use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -9,7 +9,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     PartialEq,
@@ -23,29 +23,30 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
-pub struct IndexedAttestation {
+#[serde(bound = "T: EthSpec")]
+pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
-    pub custody_bit_0_indices: Vec<u64>,
-    pub custody_bit_1_indices: Vec<u64>,
+    pub custody_bit_0_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
+    pub custody_bit_1_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,
 }
 
-impl IndexedAttestation {
+impl<T: EthSpec> IndexedAttestation<T> {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
-    /// Spec v0.6.3
-    pub fn is_double_vote(&self, other: &IndexedAttestation) -> bool {
-        self.data.target_epoch == other.data.target_epoch && self.data != other.data
+    /// Spec v0.8.0
+    pub fn is_double_vote(&self, other: &Self) -> bool {
+        self.data.target.epoch == other.data.target.epoch && self.data != other.data
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
-    /// Spec v0.6.3
-    pub fn is_surround_vote(&self, other: &IndexedAttestation) -> bool {
-        self.data.source_epoch < other.data.source_epoch
-            && other.data.target_epoch < self.data.target_epoch
+    /// Spec v0.8.0
+    pub fn is_surround_vote(&self, other: &Self) -> bool {
+        self.data.source.epoch < other.data.source.epoch
+            && other.data.target.epoch < self.data.target.epoch
     }
 }
 
@@ -54,6 +55,7 @@ mod tests {
     use super::*;
     use crate::slot_epoch::Epoch;
     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use crate::MainnetEthSpec;
 
     #[test]
     pub fn test_is_double_vote_true() {
@@ -121,15 +123,18 @@ mod tests {
         );
     }
 
-    ssz_tests!(IndexedAttestation);
-    cached_tree_hash_tests!(IndexedAttestation);
+    ssz_tests!(IndexedAttestation<MainnetEthSpec>);
+    cached_tree_hash_tests!(IndexedAttestation<MainnetEthSpec>);
 
-    fn create_indexed_attestation(target_epoch: u64, source_epoch: u64) -> IndexedAttestation {
+    fn create_indexed_attestation(
+        target_epoch: u64,
+        source_epoch: u64,
+    ) -> IndexedAttestation<MainnetEthSpec> {
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let mut indexed_vote = IndexedAttestation::random_for_test(&mut rng);
 
-        indexed_vote.data.source_epoch = Epoch::new(source_epoch);
-        indexed_vote.data.target_epoch = Epoch::new(target_epoch);
+        indexed_vote.data.source.epoch = Epoch::new(source_epoch);
+        indexed_vote.data.target.epoch = Epoch::new(target_epoch);
         indexed_vote
     }
 }

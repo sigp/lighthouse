@@ -12,6 +12,7 @@ pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+pub const TESTNET_CONFIG_FILENAME: &str = "testnet.toml";
 
 fn main() {
     // debugging output for libp2p and external crates
@@ -21,7 +22,9 @@ fn main() {
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
-        // file system related arguments
+        /*
+         * Configuration directory locations.
+         */
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
@@ -36,7 +39,16 @@ fn main() {
                 .help("File path where output will be written.")
                 .takes_value(true),
         )
-        // network related arguments
+        .arg(
+            Arg::with_name("network-dir")
+                .long("network-dir")
+                .value_name("NETWORK-DIR")
+                .help("Data directory for network keys.")
+                .takes_value(true)
+        )
+        /*
+         * Network parameters.
+         */
         .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
@@ -79,7 +91,9 @@ fn main() {
                 .help("The IP address to broadcast to other peers on how to reach this node.")
                 .takes_value(true),
         )
-        // rpc related arguments
+        /*
+         * gRPC parameters.
+         */
         .arg(
             Arg::with_name("rpc")
                 .long("rpc")
@@ -100,7 +114,9 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
-        // HTTP related arguments
+        /*
+         * HTTP server parameters.
+         */
         .arg(
             Arg::with_name("http")
                 .long("http")
@@ -121,6 +137,31 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("api")
+                .long("api")
+                .value_name("API")
+                .help("Enable the RESTful HTTP API server.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("api-address")
+                .long("api-address")
+                .value_name("APIADDRESS")
+                .help("Set the listen address for the RESTful HTTP API server.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("api-port")
+                .long("api-port")
+                .value_name("APIPORT")
+                .help("Set the listen TCP port for the RESTful HTTP API server.")
+                .takes_value(true),
+        )
+
+        /*
+         * Database parameters.
+         */
+        .arg(
             Arg::with_name("db")
                 .long("db")
                 .value_name("DB")
@@ -129,12 +170,17 @@ fn main() {
                 .possible_values(&["disk", "memory"])
                 .default_value("memory"),
         )
+        /*
+         * Specification/testnet params.
+         */
         .arg(
-            Arg::with_name("spec-constants")
-                .long("spec-constants")
+            Arg::with_name("default-spec")
+                .long("default-spec")
                 .value_name("TITLE")
-                .short("s")
-                .help("The title of the spec constants for chain config.")
+                .short("default-spec")
+                .help("Specifies the default eth2 spec to be used. Overridden by any spec loaded
+                from disk. A spec will be written to disk after this flag is used, so it is
+                primarily used for creating eth2 spec files.")
                 .takes_value(true)
                 .possible_values(&["mainnet", "minimal"])
                 .default_value("minimal"),
@@ -144,6 +190,19 @@ fn main() {
                 .long("recent-genesis")
                 .short("r")
                 .help("When present, genesis will be within 30 minutes prior. Only for testing"),
+        )
+        /*
+         * Logging.
+         */
+        .arg(
+            Arg::with_name("debug-level")
+                .long("debug-level")
+                .value_name("LEVEL")
+                .short("s")
+                .help("The title of the spec constants for chain config.")
+                .takes_value(true)
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .default_value("info"),
         )
         .arg(
             Arg::with_name("verbosity")
@@ -156,8 +215,19 @@ fn main() {
 
     // build the initial logger
     let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build();
+
+    let drain = match matches.value_of("debug-level") {
+        Some("info") => drain.filter_level(Level::Info),
+        Some("debug") => drain.filter_level(Level::Debug),
+        Some("trace") => drain.filter_level(Level::Trace),
+        Some("warn") => drain.filter_level(Level::Warning),
+        Some("error") => drain.filter_level(Level::Error),
+        Some("crit") => drain.filter_level(Level::Critical),
+        _ => unreachable!("guarded by clap"),
+    };
 
     let drain = match matches.occurrences_of("verbosity") {
         0 => drain.filter_level(Level::Info),
@@ -183,7 +253,7 @@ fn main() {
                 }
             };
             default_dir.push(DEFAULT_DATA_DIR);
-            PathBuf::from(default_dir)
+            default_dir
         }
     };
 
@@ -237,7 +307,7 @@ fn main() {
     let mut eth2_config = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
         Ok(Some(c)) => c,
         Ok(None) => {
-            let default = match matches.value_of("spec-constants") {
+            let default = match matches.value_of("default-spec") {
                 Some("mainnet") => Eth2Config::mainnet(),
                 Some("minimal") => Eth2Config::minimal(),
                 _ => unreachable!(), // Guarded by slog.
@@ -263,6 +333,7 @@ fn main() {
         }
     };
 
+    // Start the node using a `tokio` executor.
     match run::run_beacon_node(client_config, eth2_config, &log) {
         Ok(_) => {}
         Err(e) => crit!(log, "Beacon node failed to start"; "reason" => format!("{:}", e)),

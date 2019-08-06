@@ -2,12 +2,12 @@
 
 An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
 
-[![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Gitter Badge]][Gitter Link]
+[![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Chat Badge]][Chat Link]
 
 [Build Status]: https://gitlab.sigmaprime.io/sigp/lighthouse/badges/master/build.svg
 [Build Link]: https://gitlab.sigmaprime.io/sigp/lighthouse/pipelines
-[Gitter Badge]: https://badges.gitter.im/Join%20Chat.svg
-[Gitter Link]: https://gitter.im/sigp/lighthouse
+[Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
+[Chat Link]: https://discord.gg/cyAszAh
 [Doc Status]: https://img.shields.io/badge/docs-master-blue.svg
 [Doc Link]: http://lighthouse-docs.sigmaprime.io/
 
@@ -16,12 +16,12 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 Lighthouse is:
 
 - Fully open-source, licensed under Apache 2.0.
-- Security-focussed, fuzzing has begun and security reviews are planned
+- Security-focused, fuzzing has begun and security reviews are planned
 	for late-2019.
 - Built in [Rust](https://www.rust-lang.org/), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the
-	Ethereum Foundation, Consensys and private individuals.
+	Ethereum Foundation, ConsenSys and private individuals.
 - Actively working to promote an inter-operable, multi-client Ethereum 2.0.
 
 
@@ -34,16 +34,15 @@ user-facing functionality.
 
 Current development overview:
 
-- Specification `v0.6.3` implemented, optimized and passing test vectors.
-- Rust-native libp2p integrated, with Gossipsub.
-- Discv5 (P2P discovery mechanism) integration started.
+- Specification `v0.8.1` implemented, optimized and passing test vectors.
+- Rust-native libp2p with Gossipsub and Discv5.
 - Metrics via Prometheus.
 - Basic gRPC API, soon to be replaced with RESTful HTTP/JSON.
 
 ### Roadmap
 
-- **July 2019**: `lighthouse-0.0.1` release: A stable testnet for developers with a useful
-	HTTP API.
+- **Early-September 2019**: `lighthouse-0.0.1` release: A stable testnet for
+  developers with a useful HTTP API.
 - **September 2019**: Inter-operability with other Ethereum 2.0 clients.
 - **October 2019**: Public, multi-client testnet with user-facing functionality.
 - **January 2020**: Production Beacon Chain testnet.
@@ -122,7 +121,7 @@ Note that all future created nodes can use the same boot-node ENR. Once connecte
 In a third terminal window, start a validator client:
 
 ```
-$ ./validator-client
+$ ./validator_client
 ```
 
 You should be able to observe the validator signing blocks, the boot node
@@ -153,6 +152,8 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 - [`protos/`](protos/): protobuf/gRPC definitions that are common across the Lighthouse project.
 - [`validator_client/`](validator_client/): the "Validator Client" binary and crates exclusively
 	associated with it.
+- [`tests/`](tests/): code specific to testing, most notably contains the
+	Ethereum Foundation test vectors.
 
 ## Contributing
 
@@ -170,7 +171,9 @@ your support!
 
 ## Contact
 
-The best place for discussion is the [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
+The best place for discussion is the [Lighthouse Discord
+server](https://discord.gg/cyAszAh). Alternatively, you may use the
+[sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 
 ## Donations
 

@@ -42,7 +42,7 @@ impl<T> MaxCoverItem<T> {
 ///
 /// * Time complexity: `O(limit * items_iter.len())`
 /// * Space complexity: `O(item_iter.len())`
-pub fn maximum_cover<'a, I, T>(items_iter: I, limit: usize) -> Vec<T::Object>
+pub fn maximum_cover<I, T>(items_iter: I, limit: usize) -> Vec<T::Object>
 where
     I: IntoIterator<Item = T>,
     T: MaxCover,

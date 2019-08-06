@@ -7,6 +7,12 @@ use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+/// The number initial validators when starting the `Minimal`.
+const TESTNET_VALIDATOR_COUNT: usize = 16;
+
+/// The number initial validators when starting the `Minimal`.
+const TESTNET_SPEC_CONSTANTS: &str = "minimal";
+
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -14,9 +20,33 @@ pub struct Config {
     pub db_type: String,
     db_name: String,
     pub log_file: PathBuf,
+    pub spec_constants: String,
+    pub genesis_state: GenesisState,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub http: HttpServerConfig,
+    pub rest_api: rest_api::APIConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum GenesisState {
+    /// Use the mainnet genesis state.
+    ///
+    /// Mainnet genesis state is not presently known, so this is a place-holder.
+    Mainnet,
+    /// Generate a state with `validator_count` validators, all with well-known secret keys.
+    ///
+    /// Set the genesis time to be the start of the previous 30-minute window.
+    RecentGenesis { validator_count: usize },
+    /// Generate a state with `genesis_time` and `validator_count` validators, all with well-known
+    /// secret keys.
+    Generated {
+        validator_count: usize,
+        genesis_time: u64,
+    },
+    /// Load a YAML-encoded genesis state from a file.
+    Yaml { file: PathBuf },
 }
 
 impl Default for Config {
@@ -31,6 +61,11 @@ impl Default for Config {
             network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
+            rest_api: rest_api::APIConfig::default(),
+            spec_constants: TESTNET_SPEC_CONSTANTS.into(),
+            genesis_state: GenesisState::RecentGenesis {
+                validator_count: TESTNET_VALIDATOR_COUNT,
+            },
         }
     }
 }
@@ -101,6 +136,7 @@ impl Config {
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
         self.http.apply_cli_args(args)?;
+        self.rest_api.apply_cli_args(args)?;
 
         if let Some(log_file) = args.value_of("logfile") {
             self.log_file = PathBuf::from(log_file);

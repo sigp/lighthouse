@@ -213,7 +213,7 @@ return rawbytes[current_index+4:current_index+4+bytes_length], new_index
 
 #### List
 
-Deserailize each object in the list.
+Deserialize each object in the list.
 1. Get the length of the serialized list.
 2. Loop through deseralizing each item in the list until you reach the
 entire length of the list.
@@ -437,7 +437,7 @@ let decoded: Result<(Vec<usize>, usize), DecodeError> = decode_ssz_list( &encode
 
 Deserializes the "length" value in the serialized bytes from the index. The
 length of bytes is given (usually 4 stated in the reference implementation) and
-is often the value appended to the list infront of the actual serialized
+is often the value appended to the list in front of the actual serialized
 object.
 
 |     Parameter    | Description                                |

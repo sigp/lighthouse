@@ -6,7 +6,7 @@ use ssz::{Decode, Encode};
 use protos::services::{
     Attestation as GrpcAttestation, ProduceAttestationDataRequest, PublishAttestationRequest,
 };
-use types::{Attestation, AttestationData, Slot};
+use types::{Attestation, AttestationData, EthSpec, Slot};
 
 impl BeaconNodeAttestation for AttestationServiceClient {
     fn produce_attestation_data(
@@ -28,9 +28,9 @@ impl BeaconNodeAttestation for AttestationServiceClient {
         Ok(attestation_data)
     }
 
-    fn publish_attestation(
+    fn publish_attestation<T: EthSpec>(
         &self,
-        attestation: Attestation,
+        attestation: Attestation<T>,
     ) -> Result<PublishOutcome, BeaconNodeError> {
         let mut req = PublishAttestationRequest::new();
 
