@@ -74,7 +74,7 @@ fn shuffles_for_the_right_epoch() {
 
     let distinct_hashes: Vec<Hash256> = (0..MinimalEthSpec::epochs_per_historical_vector())
         .into_iter()
-        .map(|i| Hash256::from(i as u64))
+        .map(|i| Hash256::from_low_u64_be(i as u64))
         .collect();
 
     state.randao_mixes = FixedVector::from(distinct_hashes);

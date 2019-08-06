@@ -17,6 +17,6 @@ tree_hash_derive = "0.2"
 types = { path = "../../types" }
 
 [dependencies]
-ethereum-types = "0.5"
+ethereum-types = "0.6"
 eth2_hashing = "0.1"
 lazy_static = "0.1"
