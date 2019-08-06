@@ -12,6 +12,7 @@ pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+pub const TESTNET_CONFIG_FILENAME: &str = "testnet.toml";
 
 fn main() {
     // debugging output for libp2p and external crates
@@ -21,7 +22,9 @@ fn main() {
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
-        // file system related arguments
+        /*
+         * Configuration directory locations.
+         */
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
@@ -43,7 +46,9 @@ fn main() {
                 .help("Data directory for network keys.")
                 .takes_value(true)
         )
-        // network related arguments
+        /*
+         * Network parameters.
+         */
         .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
@@ -86,7 +91,9 @@ fn main() {
                 .help("The IP address to broadcast to other peers on how to reach this node.")
                 .takes_value(true),
         )
-        // rpc related arguments
+        /*
+         * gRPC parameters.
+         */
         .arg(
             Arg::with_name("rpc")
                 .long("rpc")
@@ -107,7 +114,9 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
-        // HTTP related arguments
+        /*
+         * HTTP server parameters.
+         */
         .arg(
             Arg::with_name("http")
                 .long("http")
@@ -127,7 +136,6 @@ fn main() {
                 .help("Listen port for the HTTP server.")
                 .takes_value(true),
         )
-        // REST API related arguments
         .arg(
             Arg::with_name("api")
                 .long("api")
@@ -149,7 +157,10 @@ fn main() {
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .takes_value(true),
         )
-        // General arguments
+
+        /*
+         * Database parameters.
+         */
         .arg(
             Arg::with_name("db")
                 .long("db")
@@ -159,12 +170,17 @@ fn main() {
                 .possible_values(&["disk", "memory"])
                 .default_value("memory"),
         )
+        /*
+         * Specification/testnet params.
+         */
         .arg(
-            Arg::with_name("spec-constants")
-                .long("spec-constants")
+            Arg::with_name("default-spec")
+                .long("default-spec")
                 .value_name("TITLE")
-                .short("s")
-                .help("The title of the spec constants for chain config.")
+                .short("default-spec")
+                .help("Specifies the default eth2 spec to be used. Overridden by any spec loaded
+                from disk. A spec will be written to disk after this flag is used, so it is
+                primarily used for creating eth2 spec files.")
                 .takes_value(true)
                 .possible_values(&["mainnet", "minimal"])
                 .default_value("minimal"),
@@ -175,6 +191,9 @@ fn main() {
                 .short("r")
                 .help("When present, genesis will be within 30 minutes prior. Only for testing"),
         )
+        /*
+         * Logging.
+         */
         .arg(
             Arg::with_name("debug-level")
                 .long("debug-level")
@@ -288,7 +307,7 @@ fn main() {
     let mut eth2_config = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
         Ok(Some(c)) => c,
         Ok(None) => {
-            let default = match matches.value_of("spec-constants") {
+            let default = match matches.value_of("default-spec") {
                 Some("mainnet") => Eth2Config::mainnet(),
                 Some("minimal") => Eth2Config::minimal(),
                 _ => unreachable!(), // Guarded by slog.

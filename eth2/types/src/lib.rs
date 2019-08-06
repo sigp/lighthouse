@@ -30,6 +30,7 @@ pub mod indexed_attestation;
 pub mod pending_attestation;
 pub mod proposer_slashing;
 pub mod transfer;
+pub mod utils;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;

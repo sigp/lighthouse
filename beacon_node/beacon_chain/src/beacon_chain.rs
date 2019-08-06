@@ -94,28 +94,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         store: Arc<T::Store>,
         slot_clock: T::SlotClock,
         mut genesis_state: BeaconState<T::EthSpec>,
-        genesis_block: BeaconBlock<T::EthSpec>,
+        mut genesis_block: BeaconBlock<T::EthSpec>,
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, Error> {
         genesis_state.build_all_caches(&spec)?;
 
-        let state_root = genesis_state.canonical_root();
-        store.put(&state_root, &genesis_state)?;
+        let genesis_state_root = genesis_state.canonical_root();
+        store.put(&genesis_state_root, &genesis_state)?;
+
+        genesis_block.state_root = genesis_state_root;
 
         let genesis_block_root = genesis_block.block_header().canonical_root();
         store.put(&genesis_block_root, &genesis_block)?;
 
         // Also store the genesis block under the `ZERO_HASH` key.
-        let genesis_block_root = genesis_block.block_header().canonical_root();
+        let genesis_block_root = genesis_block.canonical_root();
         store.put(&Hash256::zero(), &genesis_block)?;
 
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
             genesis_block_root,
             genesis_state.clone(),
-            state_root,
+            genesis_state_root,
         ));
+
+        info!(log, "BeaconChain init";
+              "genesis_validator_count" => genesis_state.validators.len(),
+              "genesis_state_root" => format!("{}", genesis_state_root),
+              "genesis_block_root" => format!("{}", genesis_block_root),
+        );
 
         Ok(Self {
             spec,
@@ -760,7 +768,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 randao_reveal,
                 // TODO: replace with real data.
                 eth1_data: Eth1Data {
-                    deposit_count: 0,
+                    deposit_count: state.eth1_data.deposit_count,
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
                 },
