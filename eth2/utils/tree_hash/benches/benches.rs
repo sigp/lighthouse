@@ -3,7 +3,6 @@ extern crate lazy_static;
 
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use tree_hash::TreeHash;
 use types::test_utils::{generate_deterministic_keypairs, TestingBeaconStateBuilder};
 use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
@@ -36,7 +35,12 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
         Benchmark::new("genesis_state", move |b| {
             b.iter_batched_ref(
                 || state.clone(),
-                |state| black_box(state.tree_hash_root()),
+                // Note: `state.canonical_root()` uses whatever `tree_hash` that the `types` crate
+                // uses, which is not necessarily this crate. If you want to ensure that types is
+                // using this local version of `tree_hash`, ensure you add a workspace-level
+                // [dependency
+                // patch](https://doc.rust-lang.org/cargo/reference/manifest.html#the-patch-section).
+                |state| black_box(state.canonical_root()),
                 criterion::BatchSize::SmallInput,
             )
         })
