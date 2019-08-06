@@ -139,7 +139,6 @@ mod tests {
     use super::super::Keypair;
     use super::*;
     use ssz::ssz_encode;
-    use tree_hash::TreeHash;
 
     #[test]
     pub fn test_ssz_round_trip() {
